@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APBG 3rd Party Billing Loader</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'DM Sans',sans-serif;background:#F4F6F9;color:#1A1A2E;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{background:#fff;border-radius:12px;border:1px solid #E2E6ED;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
+    h1{font-size:1.4rem;color:#1F4E79;margin-bottom:6px}
+    .sub{font-size:0.85rem;color:#6B7280;margin-bottom:32px}
+    .drop{border:2px dashed #E2E6ED;border-radius:10px;padding:40px 20px;cursor:pointer;transition:all 0.2s;position:relative;margin-bottom:20px}
+    .drop:hover,.drop.over{border-color:#1F4E79;background:#F0F5FF}
+    .drop.scanning{border-color:#F59E0B;background:#FEF3C7}
+    .drop .icon{font-size:2.5rem;margin-bottom:8px}
+    .drop .txt{font-size:0.95rem;font-weight:600}
+    .drop .hint{font-size:0.8rem;color:#6B7280;margin-top:4px;font-family:'JetBrains Mono',monospace}
+    .drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .spinner{display:none;width:24px;height:24px;border:3px solid #E2E6ED;border-top-color:#F59E0B;border-radius:50%;animation:spin 0.6s linear infinite;margin:0 auto 8px}
+    .drop.scanning .spinner{display:block}
+    .drop.scanning .idle{display:none}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .status{font-family:'JetBrains Mono',monospace;font-size:0.82rem;padding:8px 14px;border-radius:20px;display:inline-block}
+    .status.err{background:#FEE2E2;color:#991B1B}
+    .or{color:#9CA3AF;font-size:0.82rem;margin:16px 0}
+    a.manual{color:#1F4E79;font-weight:600;text-decoration:none;font-size:0.88rem}
+    a.manual:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>APBG 3rd Party Billing Loader</h1>
+  <p class="sub">Drop a vendor bill to scan and review for approval</p>
+  <div class="drop" id="drop">
+    <input type="file" id="file" accept=".pdf,image/*" />
+    <div class="idle">
+      <div class="icon">📄</div>
+      <div class="txt">Drop vendor bill PDF here</div>
+      <div class="hint">or click to browse</div>
+    </div>
+    <div class="spinner"></div>
+  </div>
+  <div id="result"></div>
+  <div class="or">— or —</div>
+  <a href="/approve.html" class="manual">Enter a bill manually →</a>
+</div>
+<script>
+const API='/.netlify/functions';
+const drop=document.getElementById('drop'),fi=document.getElementById('file'),res=document.getElementById('result');
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,()=>drop.classList.remove('over')));
+drop.addEventListener('drop',ev=>{ev.preventDefault();if(ev.dataTransfer.files[0])go(ev.dataTransfer.files[0]);});
+fi.addEventListener('change',()=>{if(fi.files[0])go(fi.files[0]);fi.value='';});
+
+async function go(file){
+  drop.classList.add('scanning');
+  res.innerHTML='';
+  try{
+    const b64=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result.split(',')[1]);r.onerror=()=>no(new Error('read fail'));r.readAsDataURL(file);});
+    const r=await fetch(API+'/process-inbound',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fileData:b64,mediaType:file.type||'application/pdf',submittedBy:'web-upload'})
+    });
+    const d=await r.json();
+    drop.classList.remove('scanning');
+    if(d.success && d.approveUrl){
+      // Redirect to approval form — rewrite URL to use our domain
+      const token=new URL(d.approveUrl).searchParams.get('token');
+      window.location.href='/approve.html?token='+encodeURIComponent(token);
+    }else{
+      res.innerHTML='<div class="status err">✗ '+(d.error||'Failed')+'</div>';
+    }
+  }catch(e){drop.classList.remove('scanning');res.innerHTML='<div class="status err">✗ '+e.message+'</div>';}
+}
+</script>
+</body>
+</html>

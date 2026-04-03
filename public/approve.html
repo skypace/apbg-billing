@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APBG 3rd Party Billing Loader — Review</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--navy:#1F4E79;--navy-light:#2E75B6;--bg:#F4F6F9;--card:#FFFFFF;--text:#1A1A2E;--text-muted:#6B7280;--border:#E2E6ED;--green:#065F46;--green-bg:#D1FAE5;--green-border:#34D399;--red:#991B1B;--red-bg:#FEE2E2;--red-border:#F87171;--orange:#92400E;--orange-bg:#FEF3C7;--blue-bg:#DBEAFE;--blue-fg:#1E40AF;--radius:8px;--mono:'JetBrains Mono',monospace;--sans:'DM Sans',-apple-system,sans-serif}
+    body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.5;padding:24px 16px}
+    .container{max-width:780px;margin:0 auto}
+    .header{background:var(--navy);color:#fff;padding:24px 28px;border-radius:var(--radius) var(--radius) 0 0}
+    .header h1{font-size:1.3rem;font-weight:700}
+    .header p{font-size:0.82rem;opacity:0.7;margin-top:4px}
+    .body-card{background:var(--card);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:28px}
+    .scanned-summary{background:#F8FAFC;border:1px solid var(--border);border-radius:6px;padding:16px 20px;margin-bottom:24px}
+    .scanned-summary h3{font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:8px}
+    .scanned-summary .vendor-name{font-size:1.2rem;font-weight:700;color:var(--navy)}
+    .scanned-summary .meta{font-size:0.85rem;color:var(--text-muted);margin-top:4px}
+    .scanned-summary .meta span{font-family:var(--mono)}
+    .section-title{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);font-weight:600;margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--border)}
+    .section-title:first-of-type{border-top:none;padding-top:0;margin-top:0}
+    .field-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px}
+    .field-row.three-col{grid-template-columns:1fr 1fr 1fr}
+    .field{display:flex;flex-direction:column}
+    .field.full{grid-column:1/-1}
+    label{font-size:0.78rem;font-weight:600;color:var(--text-muted);margin-bottom:5px}
+    input,select,textarea{font-family:var(--sans);font-size:0.88rem;background:#fff;border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);outline:none;transition:border-color 0.15s}
+    input:focus,select:focus{border-color:var(--navy)}
+    select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+    .required{color:var(--red)}
+    .search-select{position:relative}
+    .search-select input{width:100%}
+    .search-dd{display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#fff;border:1px solid var(--border);border-top:0;border-radius:0 0 6px 6px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.08)}
+    .search-dd.open{display:block}
+    .search-dd .opt{padding:8px 12px;font-size:0.84rem;cursor:pointer;border-bottom:1px solid #f0f0f0}
+    .search-dd .opt:hover{background:#F0F5FF}
+    .search-dd .opt .tag{font-size:0.68rem;font-family:var(--mono);color:var(--navy-light);margin-left:6px}
+    .search-dd .opt.create{color:var(--green);font-weight:600}
+    .li-header{display:grid;grid-template-columns:2.5fr 0.8fr 1fr 36px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--border)}
+    .li-header span{font-size:0.68rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted)}
+    .li-row{display:grid;grid-template-columns:2.5fr 0.8fr 1fr 36px;gap:8px;padding:8px 0;border-bottom:1px solid #f5f5f5;align-items:center}
+    .li-row input{padding:8px;font-size:0.84rem}
+    .rm-btn{background:none;border:none;color:#ccc;cursor:pointer;font-size:1rem;border-radius:4px;padding:2px 6px}
+    .rm-btn:hover{color:var(--red);background:var(--red-bg)}
+    .add-btn{margin-top:10px;background:none;border:1px dashed var(--border);border-radius:6px;color:var(--text-muted);padding:8px;width:100%;cursor:pointer;font-family:var(--sans);font-size:0.84rem}
+    .add-btn:hover{border-color:var(--navy);color:var(--navy)}
+    .total-bar{display:flex;justify-content:flex-end;padding:16px 0 0;margin-top:12px;border-top:1px solid var(--border)}
+    .total-bar .total-label{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-right:12px;align-self:center}
+    .total-bar .total-value{font-size:1.5rem;font-weight:700;font-family:var(--mono);color:var(--navy)}
+    .actions{display:flex;justify-content:flex-end;gap:12px;margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+    .btn{font-family:var(--sans);font-size:0.92rem;font-weight:600;padding:14px 32px;border-radius:var(--radius);border:none;cursor:pointer;transition:all 0.15s}
+    .btn-approve{background:var(--navy);color:#fff}
+    .btn-approve:hover{background:var(--navy-light)}
+    .btn-approve:disabled{opacity:0.4;cursor:not-allowed}
+    .btn-ghost{background:#fff;border:1px solid var(--border);color:var(--text-muted)}
+    .result-card{display:none;border-radius:var(--radius);padding:24px;margin-top:20px;text-align:center}
+    .result-card.show{display:block}
+    .result-card.success{background:var(--green-bg);border:2px solid var(--green-border)}
+    .result-card.success h2{color:var(--green)}
+    .result-card.warning{background:var(--red-bg);border:2px solid var(--red-border)}
+    .result-card.warning h2{color:var(--red)}
+    .result-card h2{font-size:1.1rem;margin-bottom:8px}
+    .result-card p{font-size:0.88rem;color:var(--text-muted)}
+    .result-card .margin-display{font-size:1.8rem;font-weight:700;font-family:var(--mono);color:var(--orange);margin:12px 0}
+    .result-card .detail{font-family:var(--mono);font-size:0.82rem;background:#fff;border-radius:6px;padding:12px;margin-top:12px;text-align:left;line-height:1.8}
+    .loading{display:none;position:fixed;inset:0;background:rgba(255,255,255,0.85);z-index:1000;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+    .loading.show{display:flex}
+    .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--navy);border-radius:50%;animation:spin 0.6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loading p{font-family:var(--mono);font-size:0.84rem;color:var(--text-muted)}
+    .error-state{background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius);padding:24px;text-align:center;margin-top:20px}
+    .error-state h2{color:var(--red);margin-bottom:8px}
+    .qbo-status{font-family:var(--mono);font-size:0.72rem;padding:4px 12px;border-radius:100px;display:inline-block;margin-bottom:16px}
+    .qbo-status.ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+    .qbo-status.err{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+    @media(max-width:640px){.field-row,.field-row.three-col{grid-template-columns:1fr}.li-header{display:none}.li-row{grid-template-columns:1fr 1fr;gap:6px}.li-row input:first-child{grid-column:1/-1}}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>APBG 3rd Party Billing Loader</h1>
+    <p>Review vendor bill details, then approve to create in QuickBooks</p>
+  </div>
+  <div class="body-card" id="mainForm">
+    <div id="qboStatus" class="qbo-status">Loading QBO data…</div>
+
+    <div class="scanned-summary" id="scanSummary">
+      <h3>Scanned from bill</h3>
+      <div class="vendor-name" id="scanVendor">Loading…</div>
+      <div class="meta">Bill # <span id="scanBillNum">—</span> &bull; <span id="scanDate">—</span> &bull; Total: <span id="scanTotal">—</span></div>
+    </div>
+
+    <div class="section-title">Vendor & Account</div>
+    <div class="field-row">
+      <div class="field">
+        <label>Vendor <span class="required">*</span></label>
+        <div class="search-select">
+          <input type="text" id="vendorSearch" placeholder="Search vendors…" autocomplete="off" />
+          <div id="vendorDD" class="search-dd"></div>
+          <input type="hidden" id="vendorId" />
+        </div>
+      </div>
+      <div class="field">
+        <label>COGS Account <span class="required">*</span></label>
+        <select id="accountSelect">
+          <option value="101" data-name="Service Expense">Service COGS</option>
+          <option value="42" data-name="Equipment Sales COGS">Equipment Sales COGS</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section-title">Location & Job</div>
+    <div class="field-row three-col">
+      <div class="field">
+        <label>Location (Customer) <span class="required">*</span></label>
+        <div class="search-select">
+          <input type="text" id="customerSearch" placeholder="Search all customers…" autocomplete="off" />
+          <div id="customerDD" class="search-dd"></div>
+          <input type="hidden" id="customerId" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Job # (Service Fusion / ResQ) <span class="required">*</span></label>
+        <input type="text" id="jobNumber" placeholder="e.g. 9111505 or R0943281" />
+      </div>
+      <div class="field">
+        <label>Bill # (Vendor Invoice #)</label>
+        <input type="text" id="billNumber" placeholder="e.g. 55973" />
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Due Date</label>
+        <input type="date" id="dueDate" />
+      </div>
+      <div class="field">
+        <label>Memo / Notes</label>
+        <input type="text" id="memo" placeholder="Optional notes" />
+      </div>
+    </div>
+
+    <div class="section-title">Line Items</div>
+    <div class="li-header"><span>Description</span><span>Qty</span><span>Unit Cost</span><span></span></div>
+    <div id="lineItems"></div>
+    <button class="add-btn" onclick="addLine()">+ Add Line</button>
+    <div class="total-bar">
+      <span class="total-label">Bill Total</span>
+      <span class="total-value" id="billTotal">$0.00</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-approve" onclick="submitApproval()">✓ Approve & Create Bill</button>
+    </div>
+
+    <div class="result-card success" id="successCard">
+      <h2>✓ Bill Created & Matched to Invoice</h2>
+      <div class="margin-display" id="marginDisplay"></div>
+      <div class="detail" id="matchDetail"></div>
+      <p style="margin-top:12px">You can close this page.</p>
+    </div>
+    <div class="result-card warning" id="warningCard">
+      <h2>⚠ Bill Created — No Matching Invoice</h2>
+      <p id="warningText"></p>
+      <p style="margin-top:12px;font-weight:600;color:var(--red)">Please submit this job for invoicing outside of this system.</p>
+    </div>
+  </div>
+</div>
+
+<div class="loading" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p id="loadingText">Creating bill in QuickBooks…</p>
+</div>
+
+<script>
+// ── ALL API CALLS GO TO PACERFINANCE (where QBO auth works) ──
+const API='/.netlify/functions';
+let vendors=[],customers=[],lineCount=0;
+
+document.addEventListener('DOMContentLoaded',async()=>{
+  const params=new URLSearchParams(window.location.search);
+  const token=params.get('token');
+
+  // Load QBO data from pacerfinance
+  const statusEl=document.getElementById('qboStatus');
+  try{
+    const [vRes,cRes]=await Promise.all([
+      fetch(API+'/get-vendors').then(r=>r.json()),
+      fetch(API+'/get-customers').then(r=>r.json()),
+    ]);
+    if(vRes.error)throw new Error('Vendors: '+vRes.error);
+    if(cRes.error)throw new Error('Customers: '+cRes.error);
+    vendors=vRes.vendors||[];
+    customers=cRes.customers||[];
+    statusEl.textContent='QBO connected — '+vendors.length+' vendors, '+customers.length+' customers';
+    statusEl.className='qbo-status ok';
+  }catch(e){
+    statusEl.textContent='QBO error: '+e.message;
+    statusEl.className='qbo-status err';
+  }
+
+  initSearch('vendorSearch','vendorDD','vendorId',vendors,v=>v.name,v=>v.id,null,true);
+  initSearch('customerSearch','customerDD','customerId',customers,c=>c.name,c=>c.id,c=>c.brand,false);
+
+  if(token){
+    try{
+      const res=await fetch(API+'/decode-token?token='+encodeURIComponent(token));
+      const data=await res.json();
+      if(data.success&&data.billData)prefill(data.billData);
+      else{document.getElementById('scanSummary').style.display='none';addLine();}
+    }catch(e){document.getElementById('scanSummary').style.display='none';addLine();}
+  }else{
+    document.getElementById('scanSummary').style.display='none';
+    addLine();
+  }
+});
+
+function prefill(d){
+  document.getElementById('scanVendor').textContent=d.vendorName||'Unknown';
+  document.getElementById('scanBillNum').textContent=d.billNumber||'—';
+  document.getElementById('scanDate').textContent=d.billDate||'—';
+  document.getElementById('scanTotal').textContent=d.total?'$'+d.total.toFixed(2):'—';
+  if(d.vendorName){
+    const inp=document.getElementById('vendorSearch'),hid=document.getElementById('vendorId');
+    inp.value=d.vendorName;
+    const m=vendors.find(v=>{
+      const vl=v.name.toLowerCase(),dl=d.vendorName.toLowerCase();
+      // Try exact substring first
+      if(vl.includes(dl)||dl.includes(vl)) return true;
+      // Then try word matching — if 2+ words from scanned name appear in vendor name
+      const words=dl.split(/\s+/).filter(w=>w.length>2);
+      const hits=words.filter(w=>vl.includes(w));
+      return hits.length>=2 && hits.length>=words.length*0.5;
+    });
+    if(m){inp.value=m.name;hid.value=m.id;}
+  }
+  if(d.billNumber)document.getElementById('billNumber').value=d.billNumber;
+  if(d.dueDate)document.getElementById('dueDate').value=d.dueDate;
+  if(d.notes)document.getElementById('memo').value=d.notes;
+  if(d.lineItems&&d.lineItems.length){
+    d.lineItems.forEach(li=>{
+      addLine();
+      const row=document.getElementById('li-'+lineCount);if(!row)return;
+      const set=(f,v)=>{const el=row.querySelector('[data-f="'+f+'"]');if(el&&v!=null)el.value=v;};
+      set('desc',li.description);set('qty',li.quantity||1);set('cost',li.unitCost||0);
+    });
+  }else{addLine();}
+  if(d.lineItems){
+    const svc=d.lineItems.filter(l=>l.category==='service').length;
+    document.getElementById('accountSelect').value=svc>d.lineItems.length/2?'101':'42';
+  }
+  recalc();
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function initSearch(iid,did,hid,items,lFn,vFn,tFn,canCreate){
+  const inp=document.getElementById(iid),dd=document.getElementById(did),h=document.getElementById(hid);
+  function fuzzy(name,query){
+    // Split query into words, ALL must appear in the name
+    const words=query.toLowerCase().split(/\s+/).filter(w=>w.length>0);
+    const nl=name.toLowerCase();
+    return words.every(w=>nl.includes(w));
+  }
+  function render(q){
+    const lq=q.toLowerCase().trim();
+    const f=lq.length===0?items.slice(0,25):items.filter(i=>fuzzy(lFn(i),lq)).slice(0,25);
+    let html=f.map(i=>{
+      const t=tFn&&tFn(i)?'<span class="tag">'+tFn(i)+'</span>':'';
+      return '<div class="opt" data-v="'+vFn(i)+'" data-l="'+esc(lFn(i))+'">'+esc(lFn(i))+t+'</div>';
+    }).join('');
+    if(canCreate&&lq.length>1)html+='<div class="opt create" data-action="create">+ Create new vendor "'+esc(q)+'"</div>';
+    dd.innerHTML=html;dd.classList.add('open');
+    dd.querySelectorAll('.opt').forEach(o=>{
+      o.addEventListener('click',()=>{
+        if(o.dataset.action==='create'){createVendorInline(inp.value);}
+        else{inp.value=o.dataset.l;h.value=o.dataset.v;}
+        dd.classList.remove('open');
+      });
+    });
+  }
+  inp.addEventListener('focus',()=>render(inp.value));
+  inp.addEventListener('input',()=>{h.value='';render(inp.value);});
+  document.addEventListener('click',e=>{if(!inp.contains(e.target)&&!dd.contains(e.target))dd.classList.remove('open');});
+}
+
+async function createVendorInline(name){
+  if(!name.trim())return;
+  try{
+    const r=await fetch(API+'/create-vendor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:name.trim()})});
+    const d=await r.json();
+    if(d.success&&d.vendor){
+      vendors.push(d.vendor);
+      document.getElementById('vendorSearch').value=d.vendor.name;
+      document.getElementById('vendorId').value=d.vendor.id;
+    }else{alert('Failed: '+(d.error||'unknown'));}
+  }catch(e){alert('Error: '+e.message);}
+}
+
+function addLine(){
+  lineCount++;const id=lineCount;
+  const c=document.getElementById('lineItems'),r=document.createElement('div');
+  r.className='li-row';r.id='li-'+id;
+  r.innerHTML='<input type="text" placeholder="Description" data-f="desc" /><input type="number" value="1" min="1" step="1" data-f="qty" oninput="recalc()" /><input type="number" placeholder="0.00" step="0.01" min="0" data-f="cost" oninput="recalc()" /><button class="rm-btn" onclick="rmLine('+id+')">×</button>';
+  c.appendChild(r);recalc();
+}
+function rmLine(id){const r=document.getElementById('li-'+id);if(r)r.remove();recalc();}
+
+function getLines(){
+  return Array.from(document.querySelectorAll('.li-row')).map(r=>{
+    const g=f=>{const el=r.querySelector('[data-f="'+f+'"]');return el?el.value:'';};
+    const q=parseInt(g('qty'))||1,c=parseFloat(g('cost'))||0;
+    return{description:g('desc'),quantity:q,unitCost:c,lineTotal:Math.round(q*c*100)/100};
+  });
+}
+function recalc(){
+  const t=getLines().reduce((s,l)=>s+l.lineTotal,0);
+  document.getElementById('billTotal').textContent='$'+t.toFixed(2);
+}
+
+async function submitApproval(){
+  const vi=document.getElementById('vendorId').value,ci=document.getElementById('customerId').value;
+  const jn=document.getElementById('jobNumber').value.trim();
+  if(!vi)return alert('Please select a vendor');
+  if(!ci)return alert('Please select a location/customer');
+  if(!jn)return alert('Please enter a job number');
+  const lines=getLines();
+  if(!lines.length||lines.every(l=>!l.description))return alert('Add at least one line item');
+
+  show('loadingOverlay');
+  document.getElementById('loadingText').textContent='Creating bill and searching for matching invoice…';
+
+  const acct=document.getElementById('accountSelect');
+  const payload={
+    vendorId:vi,vendorName:document.getElementById('vendorSearch').value,
+    customerId:ci,customerName:document.getElementById('customerSearch').value,
+    accountId:acct.value,accountName:acct.options[acct.selectedIndex].dataset.name,
+    jobNumber:jn,billNumber:document.getElementById('billNumber').value||undefined,
+    dueDate:document.getElementById('dueDate').value||undefined,
+    memo:document.getElementById('memo').value||undefined,
+    lineItems:lines,
+  };
+
+  try{
+    const res=await fetch(API+'/approve-bill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=await res.json();
+    hide('loadingOverlay');
+    if(!res.ok||!data.success)throw new Error(data.error||'Failed');
+    document.querySelector('.actions').style.display='none';
+    if(data.invoiceMatch){
+      const m=data.invoiceMatch;
+      document.getElementById('marginDisplay').textContent=m.marginPct.toFixed(1)+'% — $'+m.margin.toFixed(2)+' profit';
+      document.getElementById('matchDetail').innerHTML=
+        '<strong>BILL:</strong> '+payload.vendorName+' #'+(data.bill.number||data.bill.id)+' — $'+data.bill.total.toFixed(2)+' '+payload.accountName+'<br>'
+        +'<strong>JOB:</strong> #'+jn+' — '+payload.customerName+'<br>'
+        +'<strong>INVOICE:</strong> #'+m.number+' ('+m.customerName+') — $'+m.total.toFixed(2);
+      show('successCard');
+    }else{
+      document.getElementById('warningText').textContent='Bill #'+(data.bill.number||data.bill.id)+' for $'+data.bill.total.toFixed(2)+' was created, but no invoice contains Job #'+jn+'.';
+      show('warningCard');
+    }
+  }catch(e){hide('loadingOverlay');alert('Error: '+e.message);}
+}
+
+function show(id){document.getElementById(id).classList.add('show');}
+function hide(id){document.getElementById(id).classList.remove('show');}
+</script>
+</body>
+</html>

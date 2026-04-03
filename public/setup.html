@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>APBG Billing — Connect Services</title>
+<style>
+body{font-family:'DM Sans',sans-serif;background:#F4F6F9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.card{background:#fff;border-radius:12px;border:1px solid #E2E6ED;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
+h1{color:#1F4E79;font-size:1.4rem;margin-bottom:8px}
+p{color:#6B7280;font-size:0.85rem;margin-bottom:24px}
+.divider{border-top:1px solid #E2E6ED;margin:28px 0;color:#9CA3AF;font-size:0.78rem;position:relative}
+.divider span{background:#fff;padding:0 12px;position:relative;top:-10px}
+a.btn{display:inline-block;text-decoration:none;padding:16px 40px;border-radius:8px;font-weight:700;font-size:1rem;transition:all 0.15s;margin:8px 0}
+a.qbo{background:#2CA01C;color:#fff}
+a.qbo:hover{background:#248A17}
+a.sf{background:#1F4E79;color:#fff}
+a.sf:hover{background:#2E75B6}
+.note{font-size:0.78rem;color:#9CA3AF;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>APBG Billing — Connect Services</h1>
+<p>Authorize connections to QuickBooks and Service Fusion. One-time setup for each.</p>
+
+<a class="btn qbo" id="qboBtn" href="#">Connect to QuickBooks →</a>
+<div class="note">Creates customers, vendors, bills, and invoices in QBO</div>
+
+<div class="divider"><span>and</span></div>
+
+<a class="btn sf" id="sfBtn" href="#">Connect to Service Fusion →</a>
+<div class="note">Creates customers in Service Fusion alongside QBO</div>
+
+<p style="margin-top:32px;font-size:0.75rem;color:#ccc;">After connecting, return to <a href="/" style="color:#1F4E79">the billing loader</a></p>
+</div>
+<script>
+const origin = window.location.origin;
+
+// QBO OAuth URL
+const qboClientId = 'ABHtI8iDVSAJ2gYBmQfxOnBNPwAzAMneob1GZhrRjt4h0ExPa4';
+const qboRedirect = encodeURIComponent(origin + '/.netlify/functions/oauth-callback');
+const qboScope = encodeURIComponent('com.intuit.quickbooks.accounting');
+document.getElementById('qboBtn').href =
+  'https://appcenter.intuit.com/connect/oauth2?client_id=' + qboClientId
+  + '&redirect_uri=' + qboRedirect + '&response_type=code&scope=' + qboScope + '&state=qbo-' + Date.now();
+
+// Service Fusion OAuth URL
+const sfClientId = 'Y_PfJ4PN4k7C5LrCqv';
+const sfRedirect = encodeURIComponent(origin + '/.netlify/functions/sf-oauth-callback');
+document.getElementById('sfBtn').href =
+  'https://api.servicefusion.com/oauth/authorize?client_id=' + sfClientId
+  + '&redirect_uri=' + sfRedirect + '&response_type=code&state=sf-' + Date.now();
+</script>
+</body>
+</html>
