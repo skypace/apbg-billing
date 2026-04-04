@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>APBG — ResQ ↔ SF Sync</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#F4F6F9;color:#1F2937;min-height:100vh}
+.gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.gate-card{background:#fff;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
+.gate-card h1{color:#1F4E79;font-size:1.3rem;margin-bottom:8px}
+.gate-card p{color:#6B7280;font-size:0.85rem;margin-bottom:20px}
+.gate-card input{width:100%;padding:14px;border:1px solid #D1D5DB;border-radius:8px;font-size:1rem;text-align:center;letter-spacing:2px}
+.gate-card input:focus{outline:none;border-color:#1F4E79}
+.gate-card .err{color:#DC2626;font-size:0.8rem;margin-top:8px;display:none}
+
+header{background:#1F4E79;color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:1.1rem;font-weight:600}
+header .links a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:0.85rem;margin-left:16px}
+header .links a:hover{color:#fff}
+
+.container{max-width:1100px;margin:0 auto;padding:24px}
+
+.status-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;margin-bottom:24px}
+.stat-card{background:#fff;border-radius:10px;padding:20px;border:1px solid #E2E6ED;text-align:center}
+.stat-card .label{font-size:0.75rem;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.stat-card .value{font-size:1.6rem;font-weight:700;color:#1F4E79}
+.stat-card .sub{font-size:0.75rem;color:#9CA3AF;margin-top:2px}
+.stat-card.ok .value{color:#059669}
+.stat-card.err .value{color:#DC2626}
+.stat-card.warn .value{color:#D97706}
+
+.actions{display:flex;gap:12px;margin-bottom:24px}
+button{padding:12px 28px;border:none;border-radius:8px;font-weight:600;font-size:0.9rem;cursor:pointer;transition:all 0.15s}
+button.primary{background:#1F4E79;color:#fff}
+button.primary:hover{background:#2E75B6}
+button.primary:disabled{background:#9CA3AF;cursor:not-allowed}
+button.secondary{background:#fff;color:#1F4E79;border:1px solid #D1D5DB}
+button.secondary:hover{background:#F9FAFB}
+
+.section{background:#fff;border-radius:10px;border:1px solid #E2E6ED;margin-bottom:24px;overflow:hidden}
+.section h2{font-size:0.95rem;padding:16px 20px;border-bottom:1px solid #E2E6ED;color:#1F4E79}
+table{width:100%;border-collapse:collapse;font-size:0.82rem}
+th{background:#F9FAFB;text-align:left;padding:10px 16px;font-weight:600;color:#6B7280;text-transform:uppercase;font-size:0.7rem;letter-spacing:0.5px}
+td{padding:10px 16px;border-top:1px solid #F3F4F6}
+tr:hover td{background:#F9FAFB}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
+.badge.unscheduled{background:#FEF3C7;color:#92400E}
+.badge.scheduled{background:#DBEAFE;color:#1E40AF}
+.badge.completed,.badge.complete{background:#D1FAE5;color:#065F46}
+.badge.invoiced{background:#E0E7FF;color:#3730A3}
+.badge.closed{background:#F3F4F6;color:#6B7280}
+
+.log{font-family:'JetBrains Mono',monospace;font-size:0.75rem;background:#111827;color:#D1D5DB;padding:16px 20px;max-height:300px;overflow-y:auto;white-space:pre-wrap}
+.log .step{color:#34D399}
+.log .error{color:#F87171}
+.log .info{color:#60A5FA}
+
+.empty{padding:40px;text-align:center;color:#9CA3AF;font-size:0.9rem}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:768px){
+  .status-row{grid-template-columns:1fr 1fr}
+  .actions{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<!-- Login Gate -->
+<div class="gate" id="gateScreen">
+  <div class="gate-card">
+    <h1>🔄 ResQ ↔ SF Sync</h1>
+    <p>Enter admin code to access the sync dashboard</p>
+    <input type="password" id="gateInput" placeholder="Admin code" autocomplete="off">
+    <div class="err" id="gateErr">Invalid code</div>
+  </div>
+</div>
+
+<!-- Main Dashboard -->
+<div id="mainApp" style="display:none">
+  <header>
+    <h1>🔄 ResQ ↔ Service Fusion Sync</h1>
+    <div class="links">
+      <a href="/setup.html">Setup</a>
+      <a href="/">Billing Loader</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Status Cards -->
+    <div class="status-row">
+      <div class="stat-card" id="cardResq">
+        <div class="label">ResQ</div>
+        <div class="value" id="resqStatus">—</div>
+        <div class="sub" id="resqSub"></div>
+      </div>
+      <div class="stat-card" id="cardSf">
+        <div class="label">Service Fusion</div>
+        <div class="value" id="sfStatus">—</div>
+        <div class="sub" id="sfSub"></div>
+      </div>
+      <div class="stat-card" id="cardMapped">
+        <div class="label">Mapped WOs</div>
+        <div class="value" id="mappedCount">—</div>
+        <div class="sub" id="mappedSub"></div>
+      </div>
+      <div class="stat-card" id="cardLastSync">
+        <div class="label">Last Sync</div>
+        <div class="value" id="lastSyncTime">—</div>
+        <div class="sub" id="lastSyncSub"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="primary" id="syncBtn" onclick="runSync()">▶ Run Sync Now</button>
+      <button class="secondary" onclick="loadStatus()">↻ Refresh Status</button>
+    </div>
+
+    <!-- Mapping Table -->
+    <div class="section">
+      <h2>Work Order Mappings</h2>
+      <div id="mappingTable">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Sync Log -->
+    <div class="section">
+      <h2>Last Sync Log</h2>
+      <div class="log" id="syncLog">No sync data yet. Click "Run Sync Now" to start.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GATE_CODE = 'pacer2026';
+const API_BASE = '/.netlify/functions';
+
+// --- Gate ---
+const gateInput = document.getElementById('gateInput');
+gateInput.addEventListener('keyup', (e) => {
+  if (gateInput.value === GATE_CODE) {
+    document.getElementById('gateScreen').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+    loadStatus();
+  } else if (gateInput.value.length >= GATE_CODE.length) {
+    document.getElementById('gateErr').style.display = 'block';
+    setTimeout(() => { document.getElementById('gateErr').style.display = 'none'; }, 2000);
+    gateInput.value = '';
+  }
+});
+
+// --- Load Status ---
+async function loadStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync`);
+    const data = await res.json();
+
+    // Mapped count
+    const count = data.mappingCount || 0;
+    document.getElementById('mappedCount').textContent = count;
+    document.getElementById('mappedSub').textContent = count === 1 ? '1 work order' : `${count} work orders`;
+    document.getElementById('cardMapped').className = 'stat-card' + (count > 0 ? ' ok' : '');
+
+    // Last sync
+    if (data.lastSync) {
+      const ls = data.lastSync;
+      const t = new Date(ls.completed || ls.started);
+      document.getElementById('lastSyncTime').textContent = timeAgo(t);
+      document.getElementById('lastSyncSub').textContent =
+        `${ls.created || 0} created, ${ls.updated || 0} updated` +
+        (ls.errors?.length ? `, ${ls.errors.length} errors` : '');
+      document.getElementById('cardLastSync').className =
+        'stat-card' + (ls.errors?.length ? ' warn' : ' ok');
+
+      // Render log
+      renderLog(ls);
+    }
+
+    // Mapping table
+    renderMappings(data.mappings || {});
+
+    // Connection status (simple: if we got data, both are probably ok)
+    document.getElementById('resqStatus').textContent = '✓';
+    document.getElementById('resqSub').textContent = 'Connected';
+    document.getElementById('cardResq').className = 'stat-card ok';
+
+    document.getElementById('sfStatus').textContent = '✓';
+    document.getElementById('sfSub').textContent = 'Connected';
+    document.getElementById('cardSf').className = 'stat-card ok';
+
+    // Check for errors indicating connection issues
+    if (data.lastErrors?.length) {
+      for (const err of data.lastErrors) {
+        if (err.includes('ResQ login') || err.includes('RESQ_')) {
+          document.getElementById('resqStatus').textContent = '✗';
+          document.getElementById('resqSub').textContent = 'Check credentials';
+          document.getElementById('cardResq').className = 'stat-card err';
+        }
+        if (err.includes('SF') || err.includes('Service Fusion')) {
+          document.getElementById('sfStatus').textContent = '✗';
+          document.getElementById('sfSub').textContent = 'Reconnect at /setup.html';
+          document.getElementById('cardSf').className = 'stat-card err';
+        }
+      }
+    }
+
+  } catch (e) {
+    document.getElementById('lastSyncTime').textContent = 'Error';
+    document.getElementById('lastSyncSub').textContent = e.message;
+    document.getElementById('cardLastSync').className = 'stat-card err';
+  }
+}
+
+// --- Run Sync ---
+async function runSync() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Syncing...';
+
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync`, { method: 'POST' });
+    const data = await res.json();
+    renderLog(data);
+    await loadStatus();
+  } catch (e) {
+    document.getElementById('syncLog').innerHTML =
+      `<span class="error">Sync failed: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '▶ Run Sync Now';
+  }
+}
+
+// --- Render Helpers ---
+function renderMappings(mappings) {
+  const entries = Object.entries(mappings);
+  if (entries.length === 0) {
+    document.getElementById('mappingTable').innerHTML =
+      '<div class="empty">No work orders mapped yet. Run a sync to start.</div>';
+    return;
+  }
+
+  // Sort by createdAt descending
+  entries.sort((a, b) => (b[1].createdAt || '').localeCompare(a[1].createdAt || ''));
+
+  let html = `<table>
+    <thead><tr>
+      <th>ResQ Code</th><th>Title</th><th>Facility</th><th>SF Job #</th>
+      <th>ResQ Status</th><th>SF Status</th><th>Last Synced</th>
+    </tr></thead><tbody>`;
+
+  for (const [resqId, m] of entries) {
+    const resqBadge = statusBadge(m.resqStatus);
+    const sfBadge = statusBadge(m.sfStatus);
+    const synced = m.lastSyncAt ? timeAgo(new Date(m.lastSyncAt)) : '—';
+
+    html += `<tr>
+      <td><strong>${m.resqCode || '—'}</strong></td>
+      <td>${(m.title || '').substring(0, 50)}</td>
+      <td>${m.facility || '—'}</td>
+      <td>${m.sfJobNumber || m.sfJobId || '—'}</td>
+      <td>${resqBadge}</td>
+      <td>${sfBadge}</td>
+      <td>${synced}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('mappingTable').innerHTML = html;
+}
+
+function renderLog(data) {
+  if (!data) return;
+  let html = `<span class="info">Started: ${data.started || '?'}</span>\n`;
+  for (const step of (data.steps || [])) {
+    html += `<span class="step">  ${step}</span>\n`;
+  }
+  for (const err of (data.errors || [])) {
+    html += `<span class="error">  ✗ ${err}</span>\n`;
+  }
+  html += `<span class="info">Completed: ${data.completed || '?'} | Created: ${data.created || 0} | Updated: ${data.updated || 0}</span>`;
+  document.getElementById('syncLog').innerHTML = html;
+}
+
+function statusBadge(status) {
+  if (!status) return '<span class="badge">—</span>';
+  const s = status.toLowerCase();
+  let cls = '';
+  if (s.includes('unscheduled')) cls = 'unscheduled';
+  else if (s.includes('scheduled')) cls = 'scheduled';
+  else if (s.includes('complet')) cls = 'completed';
+  else if (s.includes('invoic')) cls = 'invoiced';
+  else if (s.includes('closed')) cls = 'closed';
+  return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function timeAgo(date) {
+  const diff = Date.now() - date.getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return Math.floor(diff / 86400000) + 'd ago';
+}
+</script>
+</body>
+</html>
