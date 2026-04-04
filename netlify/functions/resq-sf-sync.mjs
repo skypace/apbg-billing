@@ -10,8 +10,8 @@ const BRIX_VENDOR_KEYWORDS = ['brix'];  // Match vendor name containing "brix"
 
 // SF customer names — must match exactly what's in Service Fusion
 const SF_CUSTOMERS = {
-  starbird: 'RESQ: STARBIRD',
-  melt: 'RESQ: THE MELT',
+  starbird: 'STARBIRD CHICKEN: STARBIRD CHICKEN: RESQ',
+  melt: 'THE MELT MAIN: THE MELT RESQ',
 };
 
 // Facility keywords → SF customer mapping
