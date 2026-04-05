@@ -229,37 +229,38 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
     }
 
-    // --- SF Scheduled → push ResQ to SCHEDULED ---
+    // --- SF Scheduled → push ResQ to SCHEDULING ---
     if (resqNeedsSchedule) {
       try {
         await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
           vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
         }`, { input: {
-          workOrderId: resqWO.id, state: 'SCHEDULED',
-          ...(sfJob.scheduled_start ? { scheduledForStart: sfJob.scheduled_start } : {}),
-          ...(sfJob.scheduled_end ? { scheduledForEnd: sfJob.scheduled_end } : {}),
+          workOrderId: resqWO.id,
+          targetState: 'SCHEDULING',
         }});
-        result.steps.push(`→ ResQ ${resqWO.code} SCHEDULED`);
+        result.steps.push(`→ ResQ ${resqWO.code} SCHEDULING`);
         result.updated++;
       } catch (e) { result.errors.push(`ResQ schedule ${resqWO.code}: ${e.message}`); }
     }
 
-    // --- SF Completed → push ResQ to NEEDS_INVOICE ---
+    // --- SF Completed → mark ResQ as completed ---
     if (resqNeedsComplete) {
       try {
+        // Use completed: true on vendorChangeWorkOrderState
         await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
           vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-        }`, { input: { workOrderId: resqWO.id, state: 'NEEDS_INVOICE' } });
-        result.steps.push(`→ ResQ ${resqWO.code} NEEDS_INVOICE`);
+        }`, { input: { workOrderId: resqWO.id, completed: true } });
+        result.steps.push(`→ ResQ ${resqWO.code} completed`);
         result.updated++;
       } catch (e) {
         try {
-          await resqGql(session, `mutation($input: ForceWorkOrderCompletionInput!) {
+          // Fallback: forceWorkOrderCompletion (correct input type name)
+          await resqGql(session, `mutation($input: ForceWorkOrderCompletionMutationInput!) {
             forceWorkOrderCompletion(input: $input) { workOrder { id status } }
           }`, { input: { workOrderId: resqWO.id } });
           result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
           result.updated++;
-        } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
+        } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message} / fallback: ${e2.message}`); }
       }
     }
 
