@@ -7,9 +7,11 @@ import { sfRequest } from './sf-helpers.mjs';
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
+// SF customer names — must match EXACTLY what's in Service Fusion
+// (SF API uses customer_name for job creation, not IDs)
 const SF_CUSTOMERS = {
-  starbird: { name: 'STARBIRD CHICKEN: RESQ', id: 408973 },
-  melt: { name: 'THE MELT - RESQ', id: 408972 },
+  starbird: { name: 'STARBIRD CHICKEN: RESQ' },
+  melt: { name: 'THE MELT RESQ' },
 };
 
 const FACILITY_MAP = [
@@ -60,7 +62,7 @@ export async function handler(event) {
     log.steps.push(`Found ${resqWOs.length} syncable WOs`);
     await saveProgress();
 
-    const sfCustomerIds = { melt: SF_CUSTOMERS.melt.id, starbird: SF_CUSTOMERS.starbird.id };
+    const sfCustomerNames = { melt: SF_CUSTOMERS.melt.name, starbird: SF_CUSTOMERS.starbird.name };
 
     // 5. Process each WO one at a time, saving progress
     log.steps.push(`Starting WO processing...`);
@@ -78,7 +80,7 @@ export async function handler(event) {
           if (r.errors.length) log.errors.push(...r.errors);
           log.updated += r.updated || 0;
         } else {
-          const r = await withTimeout(processNewWO(wo, mapping, sfCustomerIds), 15000, `process ${wo.code}`);
+          const r = await withTimeout(processNewWO(wo, mapping, sfCustomerNames), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           log.created += r.created || 0;
@@ -118,7 +120,7 @@ function withTimeout(promise, ms, label) {
 }
 
 // --- Process new unmapped WO ---
-async function processNewWO(wo, mapping, sfCustomerIds) {
+async function processNewWO(wo, mapping, sfCustomerNames) {
   const result = { steps: [], errors: [], created: 0 };
   const sfCustomerKey = classifyFacility(wo.facility);
   if (!sfCustomerKey) {
@@ -126,38 +128,20 @@ async function processNewWO(wo, mapping, sfCustomerIds) {
     return result;
   }
 
-  const customerId = sfCustomerIds[sfCustomerKey];
-  if (!customerId) {
-    result.errors.push(`No SF customer ID for "${sfCustomerKey}".`);
+  const customerName = sfCustomerNames[sfCustomerKey];
+  if (!customerName) {
+    result.errors.push(`No SF customer name for "${sfCustomerKey}".`);
     return result;
   }
 
   const resqRef = `R${wo.code}`;
 
-  // Try to find existing SF job
-  try {
-    const existing = await findExistingSfJob(resqRef);
-    if (existing) {
-      mapping[wo.id] = {
-        sfJobId: existing.id,
-        sfJobNumber: existing.number || existing.job_number || existing.id,
-        resqCode: wo.code, resqStatus: wo.status,
-        sfStatus: existing.status || existing.job_status || 'Unknown',
-        facility: wo.facility, customer: sfCustomerKey, title: wo.title,
-        createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
-        linkedExisting: true,
-      };
-      result.steps.push(`✓ Linked SF #${existing.id} (${resqRef}) → ResQ ${wo.code}`);
-      result.created++;
-      return result;
-    }
-  } catch (e) {
-    result.steps.push(`Search failed for ${resqRef}: ${e.message}`);
-  }
+  // TODO: findExistingSfJob disabled — SF search API is broken/hangs
+  // Existing R{code} jobs will be discovered later via job listing
 
   // Create new SF job
   try {
-    const sfJob = await createSfJob(wo, customerId);
+    const sfJob = await createSfJob(wo, customerName);
     mapping[wo.id] = {
       sfJobId: sfJob.id,
       sfJobNumber: sfJob.number || sfJob.job_number || sfJob.id,
@@ -302,7 +286,7 @@ async function findExistingSfJob(resqRef) {
   return null;
 }
 
-async function createSfJob(resqWO, customerId) {
+async function createSfJob(resqWO, customerName) {
   const resqRef = `R${resqWO.code}`;
   const description = [
     `ResQ WO: ${resqRef}`,
@@ -313,18 +297,12 @@ async function createSfJob(resqWO, customerId) {
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
-  // SF API field names (from GET /jobs response schema):
-  //   customer_id → number, contact_first_name/contact_last_name → strings
-  //   po_number, description, status, priority, start_date
   return sfRequest('POST', '/jobs', {
-    customer: customerId,
+    customer_name: customerName,
     description,
     status: 'Unscheduled',
     priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
-    contact_first_name: resqWO.facility,
-    contact_last_name: resqRef,
     po_number: resqRef,
-    start_date: resqWO.raisedOn ? resqWO.raisedOn.split('T')[0] : undefined,
   });
 }
 
