@@ -1,14 +1,14 @@
-// Fix SF job numbers to match ResQ codes + scan for existing matches
-// GET  ?action=fix   — update 16 mapped jobs' numbers (fast)
-// GET  ?action=scan  — scan SF jobs for pre-existing R{code} matches
-// POST              — do both: fix numbers + scan + save
+// Fix: try to set job numbers + scan for existing R{code} jobs
+// GET ?action=test    — test if number can be set at creation
+// GET ?action=scan    — scan ALL SF jobs for R{code} matches
+// GET ?action=scanall — scan more pages
 
 import { sfRequest } from './sf-helpers.mjs';
 
 export async function handler(event) {
   const qs = event.queryStringParameters || {};
-  const action = qs.action || (event.httpMethod === 'POST' ? 'all' : 'fix');
-  const results = { action, fixes: [], existingMatches: [], errors: [] };
+  const action = qs.action || 'test';
+  const results = { action, errors: [] };
 
   try {
     const { getStore: createStore } = await import('@netlify/blobs');
@@ -17,56 +17,61 @@ export async function handler(event) {
       siteID: process.env.NETLIFY_SITE_ID,
       token: process.env.NETLIFY_ACCESS_TOKEN,
     });
-    const mappingRaw = await store.get('wo-mapping');
-    const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
 
-    // --- Fix job numbers on mapped jobs ---
-    if (action === 'fix' || action === 'all') {
-      for (const [resqId, m] of Object.entries(mapping)) {
-        const correctNumber = m.resqCode.startsWith('R') ? m.resqCode : `R${m.resqCode}`;
-
-        if (String(m.sfJobNumber) === correctNumber) {
-          results.fixes.push({ code: m.resqCode, status: 'ok' });
-          continue;
-        }
-
-        try {
-          await sfRequest('PATCH', `/jobs/${m.sfJobId}`, { number: correctNumber });
-          m.sfJobNumber = correctNumber;
-          results.fixes.push({ code: m.resqCode, sfId: m.sfJobId, was: m.sfJobNumber, now: correctNumber, status: 'fixed' });
-        } catch (e) {
-          results.errors.push(`${m.resqCode}: ${e.message.substring(0, 150)}`);
-        }
+    if (action === 'test') {
+      // Test: create a job with number in the payload
+      try {
+        const job = await sfRequest('POST', '/jobs', {
+          customer_name: 'THE MELT RESQ',
+          description: 'NUMBER TEST - delete me',
+          status: 'Unscheduled',
+          number: 'RTEST001',
+          po_number: 'RTEST001',
+        });
+        results.testCreate = {
+          success: true,
+          jobId: job.id,
+          number: job.number,
+          po: job.po_number,
+          numberSet: job.number === 'RTEST001',
+        };
+      } catch (e) {
+        results.testCreate = { error: e.message.substring(0, 300) };
       }
-
-      await store.set('wo-mapping', JSON.stringify(mapping));
     }
 
-    // --- Scan SF jobs for pre-existing R{code} matches ---
-    if (action === 'scan' || action === 'all') {
+    if (action === 'scan' || action === 'scanall') {
+      const mappingRaw = await store.get('wo-mapping');
+      const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
       const mappedSfIds = new Set(Object.values(mapping).map(m => String(m.sfJobId)));
-      let page = 1;
+      const maxPages = action === 'scanall' ? 30 : 10;
+
+      const startPage = parseInt(qs.page || '1');
+      results.existingMatches = [];
+      let page = startPage;
       let scanned = 0;
 
-      while (page <= 10) { // limit pages to avoid timeout
+      while (page < startPage + maxPages) {
         try {
           const res = await sfRequest('GET', `/jobs?per-page=100&page=${page}`);
           const jobs = res.items || res.data || [];
-          if (jobs.length === 0) break;
+          if (jobs.length === 0) { results.endOfJobs = true; break; }
 
           scanned += jobs.length;
           for (const job of jobs) {
             const num = String(job.number || '').trim();
             const po = String(job.po_number || '').trim();
-            const rMatch = num.match(/^R\d{5,}$/) || po.match(/^R\d{5,}$/);
-            if (rMatch && !mappedSfIds.has(String(job.id))) {
+            const desc = (job.description || '').toLowerCase();
+            // Match R followed by 5+ digits in number, PO, or description
+            const hasR = num.match(/^R\d{5,}/) || po.match(/^R\d{5,}/) || desc.match(/r\d{6,}/);
+            if (hasR && !mappedSfIds.has(String(job.id))) {
               results.existingMatches.push({
                 sfJobId: job.id,
                 number: num,
                 po: po,
                 status: job.status,
                 customer: job.customer_name,
-                desc: (job.description || '').substring(0, 80),
+                desc: (job.description || '').substring(0, 100),
               });
             }
           }
@@ -76,7 +81,9 @@ export async function handler(event) {
           break;
         }
       }
+      results.pagesScanned = page - startPage;
       results.jobsScanned = scanned;
+      results.lastPage = page;
     }
 
   } catch (e) {
