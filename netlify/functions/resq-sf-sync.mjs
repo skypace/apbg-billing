@@ -6,9 +6,38 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders() };
   }
+  const qs = event.queryStringParameters || {};
+  if (qs.lookup) return handleLookup(qs.lookup);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
+}
+
+// --- Lookup: Query ResQ for a specific WO code ---
+async function handleLookup(code) {
+  try {
+    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+    const session = await resqLogin();
+    const data = await resqGql(session, `{
+      workOrders(first: 50, orderBy: "-raised_on") {
+        edges { node {
+          id code title status
+          facility { name }
+          vendor { name }
+          executingVendor { name }
+        } }
+      }
+    }`);
+    const edges = data.data?.workOrders?.edges || [];
+    const match = edges.find(e => e.node.code === code);
+    if (match) {
+      return json({ found: true, wo: match.node });
+    }
+    // Not in first 50 — return all codes so we can see what's there
+    return json({ found: false, code, hint: 'Not in first 50 WOs', sample: edges.slice(0, 5).map(e => ({ code: e.node.code, facility: e.node.facility?.name, vendor: e.node.vendor?.name })) });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
 }
 
 // --- GET: Return sync status from blobs ---
