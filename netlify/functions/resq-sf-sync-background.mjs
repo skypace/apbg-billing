@@ -231,36 +231,68 @@ async function syncBidirectional(session, resqWO, mapEntry) {
 
     // --- SF Scheduled → push ResQ to SCHEDULING ---
     if (resqNeedsSchedule) {
-      try {
-        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-          vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-        }`, { input: {
-          workOrderId: resqWO.id,
-          targetState: 'SCHEDULING',
-        }});
-        result.steps.push(`→ ResQ ${resqWO.code} SCHEDULING`);
-        result.updated++;
-      } catch (e) { result.errors.push(`ResQ schedule ${resqWO.code}: ${e.message}`); }
+      let scheduled = false;
+      for (const ts of ['SCHEDULING', 'APPOINTMENT', 'SITE_VISIT', 'DISPATCH']) {
+        if (scheduled) break;
+        try {
+          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id, targetState: ts } });
+          result.steps.push(`→ ResQ ${resqWO.code} ${ts}`);
+          result.updated++;
+          scheduled = true;
+        } catch (e) {
+          result.steps.push(`schedule ${ts} failed: ${e.message.substring(0, 80)}`);
+        }
+      }
+      if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: all targetStates failed`);
     }
 
     // --- SF Completed → mark ResQ as completed ---
     if (resqNeedsComplete) {
-      try {
-        // Use completed: true on vendorChangeWorkOrderState
-        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-          vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-        }`, { input: { workOrderId: resqWO.id, completed: true } });
-        result.steps.push(`→ ResQ ${resqWO.code} completed`);
-        result.updated++;
-      } catch (e) {
+      // Try multiple approaches — ResQ state machine is strict about transitions
+      let completed = false;
+
+      // Approach 1: forceWorkOrderCompletion (most direct)
+      if (!completed) {
         try {
-          // Fallback: forceWorkOrderCompletion (correct input type name)
           await resqGql(session, `mutation($input: ForceWorkOrderCompletionMutationInput!) {
             forceWorkOrderCompletion(input: $input) { workOrder { id status } }
           }`, { input: { workOrderId: resqWO.id } });
           result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
           result.updated++;
-        } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message} / fallback: ${e2.message}`); }
+          completed = true;
+        } catch (e) {
+          result.steps.push(`force-complete failed: ${e.message.substring(0, 100)}`);
+        }
+      }
+
+      // Approach 2: vendorChangeWorkOrderState with completed:true
+      if (!completed) {
+        try {
+          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id, completed: true } });
+          result.steps.push(`→ ResQ ${resqWO.code} completed`);
+          result.updated++;
+          completed = true;
+        } catch (e) {
+          result.steps.push(`vendorComplete failed: ${e.message.substring(0, 100)}`);
+        }
+      }
+
+      // Approach 3: vendorChangeWorkOrderState with targetState SITE_VISIT
+      if (!completed) {
+        try {
+          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id, targetState: 'SITE_VISIT' } });
+          result.steps.push(`→ ResQ ${resqWO.code} SITE_VISIT`);
+          result.updated++;
+          completed = true;
+        } catch (e) {
+          result.errors.push(`ResQ complete ${resqWO.code}: all approaches failed. Last: ${e.message.substring(0, 150)}`);
+        }
       }
     }
 
