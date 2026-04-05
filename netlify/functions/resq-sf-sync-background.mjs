@@ -208,12 +208,17 @@ async function syncBidirectional(session, resqWO, mapEntry) {
 
     const sfChanged = sfStatus !== mapEntry.sfStatus;
     const resqChanged = resqStatus !== prevResqStatus;
+    const sfLower = sfStatus.toLowerCase();
 
-    if (!sfChanged && !resqChanged) return result; // nothing changed
+    // Check if completed/invoiced actions still need to run
+    // (handles case where status was saved before photo/invoice code was deployed)
+    const needsPhotoTransfer = sfLower.includes('complet') && !mapEntry.photosSent;
+    const needsInvoiceSubmit = sfLower.includes('invoic') && !mapEntry.invoiceSubmitted;
+
+    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
 
     // --- SF → ResQ (SF status changed) ---
     if (sfChanged) {
-      const sfLower = sfStatus.toLowerCase();
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
 
       // Scheduled
@@ -233,7 +238,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         }
       }
 
-      // Completed — mark ResQ as NEEDS_INVOICE + transfer photos from SF
+      // Completed — mark ResQ as NEEDS_INVOICE
       if (sfLower.includes('complet') && !prevSfStatus.includes('complet')) {
         try {
           await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
@@ -250,28 +255,46 @@ async function syncBidirectional(session, resqWO, mapEntry) {
             result.updated++;
           } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
         }
-
-        // Transfer photos from SF → ResQ
-        try {
-          const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
-          if (photoResult.count > 0) {
-            result.steps.push(`→ ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
-          }
-          if (photoResult.errors.length) result.errors.push(...photoResult.errors);
-        } catch (e) {
-          result.errors.push(`Photos ${resqWO.code}: ${e.message}`);
-        }
       }
 
-      // Invoiced — build invoice with line items from SF + submit to ResQ
+      // Invoiced (status just changed) — build invoice with line items
       if (sfLower.includes('invoic') && !prevSfStatus.includes('invoic')) {
         try {
           const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
           if (invResult.steps.length) result.steps.push(...invResult.steps);
           if (invResult.errors.length) result.errors.push(...invResult.errors);
           result.updated += invResult.updated || 0;
+          mapEntry.invoiceSubmitted = true;
         } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
       }
+    }
+
+    // --- Transfer photos when SF is Completed (runs on change OR if missed previously) ---
+    if ((sfChanged && sfLower.includes('complet')) || needsPhotoTransfer) {
+      try {
+        const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
+        if (photoResult.count > 0) {
+          result.steps.push(`→ ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
+        } else {
+          result.steps.push(`→ No photos on SF job for ${resqWO.code}`);
+        }
+        if (photoResult.errors.length) result.errors.push(...photoResult.errors);
+        mapEntry.photosSent = true;
+        result.updated++;
+      } catch (e) {
+        result.errors.push(`Photos ${resqWO.code}: ${e.message}`);
+      }
+    }
+
+    // --- Submit invoice if SF is Invoiced but was missed previously ---
+    if (needsInvoiceSubmit && !sfChanged) {
+      try {
+        const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
+        if (invResult.steps.length) result.steps.push(...invResult.steps);
+        if (invResult.errors.length) result.errors.push(...invResult.errors);
+        result.updated += invResult.updated || 0;
+        mapEntry.invoiceSubmitted = true;
+      } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
     }
 
     // --- ResQ → SF (ResQ status changed) ---
