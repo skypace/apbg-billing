@@ -1,15 +1,15 @@
 // ResQ ↔ Service Fusion Bidirectional Sync
 // POST /.netlify/functions/resq-sf-sync — runs a full sync cycle
 // GET  /.netlify/functions/resq-sf-sync — returns sync status/mapping
-// v2 — hardcoded customer IDs, blob persistence
+// v3 — parallelized for speed, hardcoded customer IDs
 
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 
 // --- Constants ---
-const BRIX_VENDOR_KEYWORDS = ['brix'];  // Match vendor name containing "brix"
+const BRIX_VENDOR_KEYWORDS = ['brix'];
 
-// SF customer names — must match exactly what's in Service Fusion
+// SF customer IDs — hardcoded (SF search API is unreliable)
 const SF_CUSTOMERS = {
   starbird: { name: 'STARBIRD CHICKEN: RESQ', id: 408973 },
   melt: { name: 'THE MELT - RESQ', id: 408972 },
@@ -21,26 +21,22 @@ const FACILITY_MAP = [
   { keywords: ['melt', 'homeroom'], sfCustomer: 'melt' },
 ];
 
-// Simple in-memory mapping store (persisted via Netlify Blobs if available)
 let mappingCache = null;
 
 export async function handler(event) {
-  if (event.httpMethod === 'GET') {
-    return await handleGet();
-  }
-  if (event.httpMethod === 'POST') {
-    return await handlePost();
-  }
+  if (event.httpMethod === 'GET') return handleGet();
+  if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
 }
 
 // --- GET: Return sync status ---
 async function handleGet() {
   try {
-    const mapping = await loadMapping();
-    const lastRun = await loadBlob('last-sync');
-    const lastErrors = await loadBlob('last-errors');
-
+    const [mapping, lastRun, lastErrors] = await Promise.all([
+      loadMapping(),
+      loadBlob('last-sync'),
+      loadBlob('last-errors'),
+    ]);
     return json({
       lastSync: lastRun ? JSON.parse(lastRun) : null,
       lastErrors: lastErrors ? JSON.parse(lastErrors) : [],
@@ -54,234 +50,220 @@ async function handleGet() {
 
 // --- POST: Run full sync cycle ---
 async function handlePost() {
-  const log = {
-    started: new Date().toISOString(),
-    steps: [],
-    errors: [],
-    created: 0,
-    updated: 0,
-  };
+  const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
 
   try {
-    // 1. Login to ResQ
-    log.steps.push('Logging into ResQ...');
-    const session = await resqLogin();
-    log.steps.push('ResQ login OK');
+    // 1. Login to ResQ + warm SF token IN PARALLEL
+    log.steps.push('Connecting to ResQ + SF...');
+    const [session] = await Promise.all([
+      resqLogin(),
+      sfRequest('GET', '/me').catch(e => { throw new Error('SF not connected: ' + e.message); }),
+    ]);
+    log.steps.push('ResQ + SF connected');
 
-    // 2. Verify SF connection (this will refresh token if needed)
-    log.steps.push('Checking SF connection...');
-    try {
-      await sfRequest('GET', '/me');
-      log.steps.push('SF connection OK');
-    } catch (e) {
-      log.errors.push('SF connection failed: ' + e.message);
-      throw new Error('SF not connected. Go to /setup.html to reconnect.');
-    }
+    // 2. Load mapping + fetch ResQ WOs IN PARALLEL
+    const [mapping, resqWOs] = await Promise.all([
+      loadMapping(),
+      fetchSyncableWOs(session),
+    ]);
+    log.steps.push(`${Object.keys(mapping).length} mappings, ${resqWOs.length} syncable WOs`);
 
-    // 3. Load existing mapping
-    const mapping = await loadMapping();
-    log.steps.push(`Loaded ${Object.keys(mapping).length} existing mappings`);
+    // 3. Customer IDs (hardcoded, instant)
+    const sfCustomerIds = { melt: SF_CUSTOMERS.melt.id, starbird: SF_CUSTOMERS.starbird.id };
 
-    // 4. Fetch ResQ work orders (Starbird + Melt only, Brix vendor)
-    log.steps.push('Fetching ResQ work orders...');
-    const resqWOs = await fetchSyncableWOs(session);
-    log.steps.push(`Found ${resqWOs.length} syncable ResQ WOs`);
-
-    // 5. Resolve SF customer IDs
-    // Customer IDs are hardcoded — no search needed
-    const sfCustomerIds = {};
-    for (const [key, val] of Object.entries(SF_CUSTOMERS)) {
-      sfCustomerIds[key] = val.id;
-    }
-    log.steps.push(`SF customers: melt=${sfCustomerIds.melt}, starbird=${sfCustomerIds.starbird}`);
-
-    // 6. Process each ResQ WO
+    // 4. Split WOs into already-mapped vs new
+    const mapped = [];
+    const unmapped = [];
     for (const wo of resqWOs) {
-      const resqId = wo.id;
-
-      if (mapping[resqId]) {
-        // Already mapped — check SF status changes and push back to ResQ
-        await syncSfToResq(session, wo, mapping[resqId], mapping, log);
-        continue;
-      }
-
-      // New WO — classify facility and create SF job
-      const sfCustomerKey = classifyFacility(wo.facility);
-      if (!sfCustomerKey) {
-        log.steps.push(`Skip WO ${wo.code}: facility "${wo.facility}" not Starbird/Melt`);
-        continue;
-      }
-
-      const customerId = sfCustomerIds[sfCustomerKey];
-      if (!customerId) {
-        log.errors.push(`No SF customer ID for "${sfCustomerKey}".`);
-        continue;
-      }
-
-      // Check if this WO already exists in SF (manually created as R{code})
-      const resqRef = `R${wo.code}`;
-      try {
-        const existing = await findExistingSfJob(resqRef, customerId);
-        if (existing) {
-          // Found existing SF job — map it, don't create a duplicate
-          mapping[resqId] = {
-            sfJobId: existing.id,
-            sfJobNumber: existing.number || existing.job_number || existing.id,
-            resqCode: wo.code,
-            resqStatus: wo.status,
-            sfStatus: existing.status || existing.job_status || 'Unknown',
-            facility: wo.facility,
-            customer: sfCustomerKey,
-            title: wo.title,
-            createdAt: new Date().toISOString(),
-            lastSyncAt: new Date().toISOString(),
-            linkedExisting: true,
-          };
-          log.steps.push(`✓ Linked existing SF job #${existing.id} (${resqRef}) to ResQ ${wo.code}`);
-          log.created++;
-          continue;
-        }
-      } catch (e) {
-        log.steps.push(`Could not search SF for ${resqRef}: ${e.message}`);
-      }
-
-      // No existing job found — create a new one with R{code} naming
-      try {
-        const sfJob = await createSfJob(wo, customerId, sfCustomerKey);
-        mapping[resqId] = {
-          sfJobId: sfJob.id,
-          sfJobNumber: sfJob.number || sfJob.job_number || sfJob.id,
-          resqCode: wo.code,
-          resqStatus: wo.status,
-          sfStatus: 'Unscheduled',
-          facility: wo.facility,
-          customer: sfCustomerKey,
-          title: wo.title,
-          createdAt: new Date().toISOString(),
-          lastSyncAt: new Date().toISOString(),
-        };
-        log.created++;
-        log.steps.push(`✓ Created SF job #${sfJob.id} (${resqRef}) for ResQ ${wo.code} (${wo.facility})`);
-      } catch (e) {
-        log.errors.push(`Failed to create SF job for ResQ ${wo.code}: ${e.message}`);
+      if (mapping[wo.id]) {
+        mapped.push(wo);
+      } else {
+        unmapped.push(wo);
       }
     }
 
-    // 7. Save mapping + run log
-    await saveMapping(mapping);
+    // 5. Process MAPPED WOs in parallel (status sync SF→ResQ)
+    if (mapped.length > 0) {
+      const mapResults = await parallelBatch(mapped, 4, async (wo) => {
+        return syncSfToResq(session, wo, mapping[wo.id], mapping);
+      });
+      for (const r of mapResults) {
+        if (r.steps) log.steps.push(...r.steps);
+        if (r.errors) log.errors.push(...r.errors);
+        log.updated += r.updated || 0;
+      }
+    }
+
+    // 6. Process UNMAPPED WOs in parallel (find or create SF jobs)
+    if (unmapped.length > 0) {
+      const newResults = await parallelBatch(unmapped, 4, async (wo) => {
+        return processNewWO(wo, mapping, sfCustomerIds);
+      });
+      for (const r of newResults) {
+        if (r.steps) log.steps.push(...r.steps);
+        if (r.errors) log.errors.push(...r.errors);
+        log.created += r.created || 0;
+      }
+    }
+
+    // 7. Save mapping + log IN PARALLEL
     log.completed = new Date().toISOString();
     log.mappingCount = Object.keys(mapping).length;
-    await saveBlob('last-sync', JSON.stringify(log));
-    if (log.errors.length) {
-      await saveBlob('last-errors', JSON.stringify(log.errors));
-    }
+    await Promise.all([
+      saveMapping(mapping),
+      saveBlob('last-sync', JSON.stringify(log)),
+      log.errors.length ? saveBlob('last-errors', JSON.stringify(log.errors)) : Promise.resolve(),
+    ]);
 
     return json(log);
 
   } catch (e) {
     log.errors.push(e.message);
     log.completed = new Date().toISOString();
-    try { await saveBlob('last-sync', JSON.stringify(log)); } catch(x) {}
+    try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
     return json(log, 500);
   }
 }
 
-// --- SF → ResQ Status Sync ---
-async function syncSfToResq(session, resqWO, mapEntry, mapping, log) {
+// --- Process a single new (unmapped) WO ---
+async function processNewWO(wo, mapping, sfCustomerIds) {
+  const result = { steps: [], errors: [], created: 0 };
+  const sfCustomerKey = classifyFacility(wo.facility);
+  if (!sfCustomerKey) {
+    result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt`);
+    return result;
+  }
+
+  const customerId = sfCustomerIds[sfCustomerKey];
+  if (!customerId) {
+    result.errors.push(`No SF customer ID for "${sfCustomerKey}".`);
+    return result;
+  }
+
+  const resqRef = `R${wo.code}`;
+
+  // Try to find existing SF job
   try {
-    // Fetch current SF job
+    const existing = await findExistingSfJob(resqRef, customerId);
+    if (existing) {
+      mapping[wo.id] = {
+        sfJobId: existing.id,
+        sfJobNumber: existing.number || existing.job_number || existing.id,
+        resqCode: wo.code, resqStatus: wo.status,
+        sfStatus: existing.status || existing.job_status || 'Unknown',
+        facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+        createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+        linkedExisting: true,
+      };
+      result.steps.push(`✓ Linked SF #${existing.id} (${resqRef}) → ResQ ${wo.code}`);
+      result.created++;
+      return result;
+    }
+  } catch (e) {
+    result.steps.push(`Search failed for ${resqRef}: ${e.message}`);
+  }
+
+  // Create new SF job
+  try {
+    const sfJob = await createSfJob(wo, customerId, sfCustomerKey);
+    mapping[wo.id] = {
+      sfJobId: sfJob.id,
+      sfJobNumber: sfJob.number || sfJob.job_number || sfJob.id,
+      resqCode: wo.code, resqStatus: wo.status, sfStatus: 'Unscheduled',
+      facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+      createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+    };
+    result.created++;
+    result.steps.push(`✓ Created SF #${sfJob.id} (${resqRef}) for ${wo.code} (${wo.facility})`);
+  } catch (e) {
+    result.errors.push(`Create SF job for ${wo.code}: ${e.message}`);
+  }
+  return result;
+}
+
+// --- SF → ResQ Status Sync (single WO) ---
+async function syncSfToResq(session, resqWO, mapEntry, mapping) {
+  const result = { steps: [], errors: [], updated: 0 };
+  try {
     let sfJob;
     try {
       sfJob = await sfRequest('GET', `/jobs/${mapEntry.sfJobId}`);
     } catch (e) {
-      log.errors.push(`Can't read SF job ${mapEntry.sfJobId}: ${e.message}`);
-      return;
+      result.errors.push(`Can't read SF job ${mapEntry.sfJobId}: ${e.message}`);
+      return result;
     }
 
     const sfStatus = sfJob.status || sfJob.job_status || '';
-    const sfStatusLower = sfStatus.toLowerCase();
+    if (sfStatus === mapEntry.sfStatus) return result; // no change
 
-    // No change?
-    if (sfStatus === mapEntry.sfStatus) return;
+    result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
+    const sfLower = sfStatus.toLowerCase();
 
-    log.steps.push(`SF job ${mapEntry.sfJobId} status: "${mapEntry.sfStatus}" → "${sfStatus}"`);
-
-    // --- Scheduled ---
-    if (sfStatusLower.includes('scheduled') && !sfStatusLower.includes('un')) {
+    // Scheduled
+    if (sfLower.includes('scheduled') && !sfLower.includes('un')) {
       if (!mapEntry.sfStatus?.toLowerCase().includes('scheduled') || mapEntry.sfStatus?.toLowerCase().includes('un')) {
         try {
           await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
             vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, {
-            input: {
-              workOrderId: resqWO.id,
-              state: 'SCHEDULED',
-              ...(sfJob.scheduled_start ? { scheduledForStart: sfJob.scheduled_start } : {}),
-              ...(sfJob.scheduled_end ? { scheduledForEnd: sfJob.scheduled_end } : {}),
-            },
-          });
-          log.steps.push(`→ ResQ ${resqWO.code} updated to SCHEDULED`);
-          log.updated++;
-        } catch (e) {
-          log.errors.push(`ResQ schedule update for ${resqWO.code}: ${e.message}`);
-        }
+          }`, { input: {
+            workOrderId: resqWO.id, state: 'SCHEDULED',
+            ...(sfJob.scheduled_start ? { scheduledForStart: sfJob.scheduled_start } : {}),
+            ...(sfJob.scheduled_end ? { scheduledForEnd: sfJob.scheduled_end } : {}),
+          }});
+          result.steps.push(`→ ResQ ${resqWO.code} SCHEDULED`);
+          result.updated++;
+        } catch (e) { result.errors.push(`ResQ schedule ${resqWO.code}: ${e.message}`); }
       }
     }
 
-    // --- Completed ---
-    if (sfStatusLower.includes('complet')) {
-      if (!mapEntry.sfStatus?.toLowerCase().includes('complet')) {
+    // Completed
+    if (sfLower.includes('complet') && !mapEntry.sfStatus?.toLowerCase().includes('complet')) {
+      try {
+        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+          vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+        }`, { input: { workOrderId: resqWO.id, state: 'NEEDS_INVOICE' } });
+        result.steps.push(`→ ResQ ${resqWO.code} NEEDS_INVOICE`);
+        result.updated++;
+      } catch (e) {
         try {
-          // Try moving to NEEDS_INVOICE (normal completion flow)
-          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, {
-            input: { workOrderId: resqWO.id, state: 'NEEDS_INVOICE' },
-          });
-          log.steps.push(`→ ResQ ${resqWO.code} updated to NEEDS_INVOICE (completed)`);
-          log.updated++;
-        } catch (e) {
-          // Fallback: force completion
-          try {
-            await resqGql(session, `mutation($input: ForceWorkOrderCompletionInput!) {
-              forceWorkOrderCompletion(input: $input) { workOrder { id status } }
-            }`, {
-              input: { workOrderId: resqWO.id },
-            });
-            log.steps.push(`→ ResQ ${resqWO.code} force-completed`);
-            log.updated++;
-          } catch (e2) {
-            log.errors.push(`ResQ completion for ${resqWO.code}: ${e.message} / ${e2.message}`);
-          }
-        }
+          await resqGql(session, `mutation($input: ForceWorkOrderCompletionInput!) {
+            forceWorkOrderCompletion(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id } });
+          result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
+          result.updated++;
+        } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
       }
     }
 
-    // --- Invoiced ---
-    if (sfStatusLower.includes('invoic')) {
-      if (!mapEntry.sfStatus?.toLowerCase().includes('invoic')) {
-        try {
-          await resqGql(session, `mutation($input: SubmitVendorInvoiceInput!) {
-            submitVendorInvoice(input: $input) { workOrder { id status } }
-          }`, {
-            input: { workOrderId: resqWO.id },
-          });
-          log.steps.push(`→ ResQ ${resqWO.code} invoice submitted`);
-          log.updated++;
-        } catch (e) {
-          log.errors.push(`ResQ invoice for ${resqWO.code}: ${e.message}`);
-        }
-      }
+    // Invoiced
+    if (sfLower.includes('invoic') && !mapEntry.sfStatus?.toLowerCase().includes('invoic')) {
+      try {
+        await resqGql(session, `mutation($input: SubmitVendorInvoiceInput!) {
+          submitVendorInvoice(input: $input) { workOrder { id status } }
+        }`, { input: { workOrderId: resqWO.id } });
+        result.steps.push(`→ ResQ ${resqWO.code} invoiced`);
+        result.updated++;
+      } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
     }
 
-    // Update mapping
     mapEntry.sfStatus = sfStatus;
     mapEntry.resqStatus = resqWO.status;
     mapEntry.lastSyncAt = new Date().toISOString();
-
   } catch (e) {
-    log.errors.push(`Status sync for ${resqWO.code}: ${e.message}`);
+    result.errors.push(`Sync ${resqWO.code}: ${e.message}`);
   }
+  return result;
+}
+
+// --- Parallel batch helper: run fn on items, N at a time ---
+async function parallelBatch(items, batchSize, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 // --- Fetch syncable ResQ WOs ---
@@ -304,10 +286,8 @@ async function fetchSyncableWOs(session) {
 
   return edges
     .filter(e => {
-      // Must be Brix vendor
       const v = (e.node.vendor?.name || e.node.executingVendor?.name || '').toLowerCase();
       if (!BRIX_VENDOR_KEYWORDS.some(k => v.includes(k))) return false;
-      // Must be Starbird or Melt/Homeroom facility
       const f = (e.node.facility?.name || '').toLowerCase();
       return FACILITY_MAP.some(fm => fm.keywords.some(k => f.includes(k)));
     })
@@ -329,8 +309,6 @@ async function fetchSyncableWOs(session) {
 }
 
 // --- SF Helpers ---
-
-// Search SF for an existing job matching R{resqCode} in job number, PO, name, or description
 async function findExistingSfJob(resqRef, customerId) {
   try {
     const result = await sfRequest('GET', `/jobs?q=${encodeURIComponent(resqRef)}&per-page=20`);
@@ -344,9 +322,7 @@ async function findExistingSfJob(resqRef, customerId) {
         return job;
       }
     }
-  } catch (e) {
-    // Search might not support this query format, fall through
-  }
+  } catch (e) {}
   return null;
 }
 
@@ -358,10 +334,10 @@ async function createSfJob(resqWO, customerId, customerKey) {
     resqWO.description,
     `Facility: ${resqWO.facility}`,
     resqWO.equipment ? `Equipment: ${resqWO.equipment}` : '',
-    resqWO.isUrgent ? '⚠️ URGENT' : '',
+    resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
-  return await sfRequest('POST', '/jobs', {
+  return sfRequest('POST', '/jobs', {
     customer_id: customerId,
     description,
     status: 'Unscheduled',
@@ -369,7 +345,6 @@ async function createSfJob(resqWO, customerId, customerKey) {
     po_number: resqRef,
   });
 }
-
 
 function classifyFacility(facilityName) {
   const f = (facilityName || '').toLowerCase();
@@ -435,7 +410,6 @@ async function saveBlob(key, value) {
   } catch (e) {}
 }
 
-// --- Response helpers ---
 function json(data, status = 200) {
   return {
     statusCode: status,
