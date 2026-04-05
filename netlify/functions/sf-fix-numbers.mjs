@@ -31,7 +31,7 @@ export async function handler(event) {
         }
 
         try {
-          await sfRequest('PUT', `/jobs/${m.sfJobId}`, { number: correctNumber });
+          await sfRequest('PATCH', `/jobs/${m.sfJobId}`, { number: correctNumber });
           m.sfJobNumber = correctNumber;
           results.fixes.push({ code: m.resqCode, sfId: m.sfJobId, was: m.sfJobNumber, now: correctNumber, status: 'fixed' });
         } catch (e) {

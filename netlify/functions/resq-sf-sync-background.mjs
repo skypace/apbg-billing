@@ -308,7 +308,7 @@ async function createSfJob(resqWO, customerName) {
 
   // Set job number to match ResQ code
   try {
-    await sfRequest('PUT', `/jobs/${job.id}`, { number: resqRef });
+    await sfRequest('PATCH', `/jobs/${job.id}`, { number: resqRef });
     job.number = resqRef;
   } catch (e) {
     // Non-fatal — job was created, just couldn't set the number
