@@ -210,100 +210,29 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const resqChanged = resqStatus !== prevResqStatus;
     const sfLower = sfStatus.toLowerCase();
 
-    // Check what SHOULD be true based on current SF status vs current ResQ status
-    // This catches both fresh changes AND previously missed actions
-    const sfIsScheduled = sfLower.includes('scheduled') && !sfLower.includes('un');
-    const sfIsCompleted = sfLower.includes('complet');
+    // What actions are needed based on current SF status?
+    const sfIsCompleted = sfLower.includes('complet') || sfLower.includes('invoic'); // invoiced implies completed
     const sfIsInvoiced = sfLower.includes('invoic');
-
-    const resqNeedsSchedule = sfIsScheduled && resqStatus === 'NOT_YET_SCHEDULED';
-    const resqNeedsComplete = sfIsCompleted && ['NOT_YET_SCHEDULED', 'SCHEDULED', 'NOT_YET_COMPLETED'].includes(resqStatus);
-    const resqNeedsInvoice = sfIsInvoiced && !['AWAITING_PAYMENT', 'CLOSED'].includes(resqStatus);
     const needsPhotoTransfer = sfIsCompleted && !mapEntry.photosSent;
     const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
 
-    if (!sfChanged && !resqChanged && !resqNeedsSchedule && !resqNeedsComplete
-        && !resqNeedsInvoice && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
+    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
 
     if (sfChanged) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
     }
-
-    // --- SF Scheduled → push ResQ to SCHEDULING ---
-    if (resqNeedsSchedule) {
-      let scheduled = false;
-      for (const ts of ['SCHEDULING', 'APPOINTMENT', 'SITE_VISIT', 'DISPATCH']) {
-        if (scheduled) break;
-        try {
-          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, { input: { workOrderId: resqWO.id, targetState: ts } });
-          result.steps.push(`→ ResQ ${resqWO.code} ${ts}`);
-          result.updated++;
-          scheduled = true;
-        } catch (e) {
-          result.steps.push(`schedule ${ts} failed: ${e.message.substring(0, 80)}`);
-        }
-      }
-      if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: all targetStates failed`);
+    if (resqChanged) {
+      result.steps.push(`ResQ ${resqWO.code}: "${prevResqStatus}" → "${resqStatus}"`);
     }
 
-    // --- SF Completed → mark ResQ as completed ---
-    if (resqNeedsComplete) {
-      // Try multiple approaches — ResQ state machine is strict about transitions
-      let completed = false;
-
-      // Approach 1: forceWorkOrderCompletion (most direct)
-      if (!completed) {
-        try {
-          await resqGql(session, `mutation($input: ForceWorkOrderCompletionMutationInput!) {
-            forceWorkOrderCompletion(input: $input) { clientMutationId }
-          }`, { input: { workOrderId: resqWO.id } });
-          result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
-          result.updated++;
-          completed = true;
-        } catch (e) {
-          result.steps.push(`force-complete failed: ${e.message.substring(0, 300)}`);
-        }
-      }
-
-      // Approach 2: vendorChangeWorkOrderState with completed:true
-      if (!completed) {
-        try {
-          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, { input: { workOrderId: resqWO.id, completed: true } });
-          result.steps.push(`→ ResQ ${resqWO.code} completed`);
-          result.updated++;
-          completed = true;
-        } catch (e) {
-          result.steps.push(`vendorComplete failed: ${e.message.substring(0, 100)}`);
-        }
-      }
-
-      // Approach 3: vendorChangeWorkOrderState with targetState SITE_VISIT
-      if (!completed) {
-        try {
-          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, { input: { workOrderId: resqWO.id, targetState: 'SITE_VISIT' } });
-          result.steps.push(`→ ResQ ${resqWO.code} SITE_VISIT`);
-          result.updated++;
-          completed = true;
-        } catch (e) {
-          result.errors.push(`ResQ complete ${resqWO.code}: all approaches failed. Last: ${e.message.substring(0, 150)}`);
-        }
-      }
-    }
-
-    // --- Transfer photos when SF is Completed ---
+    // --- Transfer photos from SF → ResQ (on Completed or Invoiced) ---
     if (needsPhotoTransfer) {
       try {
         const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
         if (photoResult.count > 0) {
-          result.steps.push(`→ ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
+          result.steps.push(`📸 ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
         } else {
-          result.steps.push(`→ No photos on SF job for ${resqWO.code}`);
+          result.steps.push(`No photos on SF job for ${resqWO.code}`);
         }
         if (photoResult.errors.length) result.errors.push(...photoResult.errors);
         mapEntry.photosSent = true;
@@ -313,7 +242,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       }
     }
 
-    // --- SF Invoiced → build invoice + submit to ResQ ---
+    // --- Build invoice from SF line items + submit to ResQ (on Invoiced) ---
     if (needsInvoiceSubmit) {
       try {
         const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
@@ -322,15 +251,6 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         result.updated += invResult.updated || 0;
         mapEntry.invoiceSubmitted = true;
       } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
-    }
-
-    // --- ResQ → SF (ResQ status changed, tracking only) ---
-    if (resqChanged && !sfChanged) {
-      const targetSfStatus = RESQ_TO_SF_STATUS[resqStatus];
-      if (targetSfStatus) {
-        result.steps.push(`ResQ ${resqWO.code}: "${prevResqStatus}" → "${resqStatus}" (SF target: "${targetSfStatus}")`);
-        result.updated++;
-      }
     }
 
     // Update mapping with current states
@@ -449,7 +369,7 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
       // Upload to ResQ via addAttachment
       await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
         addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
-          attachment { id }
+          clientMutationId
         }
       }`, {
         attachToId: resqWoId,
@@ -578,7 +498,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     try {
       await resqGql(session, `mutation($input: CreatePartneredInvoiceSubmissionFromBuilderMutationInput!) {
         createPartneredInvoiceSubmissionFromBuilder(input: $input) {
-          invoiceSubmission { id }
+          clientMutationId
         }
       }`, { input: {
         workOrderId: resqWO.id,
@@ -589,7 +509,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       result.steps.push(`→ ResQ ${resqWO.code} invoice built (${lineItems.length} line items, ref: ${refNumber})`);
       result.updated++;
     } catch (e) {
-      result.errors.push(`Build invoice ${resqWO.code}: ${e.message.substring(0, 150)}`);
+      result.errors.push(`Build invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
       // Fall through to try submitVendorInvoice without line items
     }
   }
@@ -597,7 +517,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   // Step 2: Submit the vendor invoice (marks WO as invoiced in ResQ)
   try {
     await resqGql(session, `mutation($arguments: SubmitVendorInvoiceMutationArguments!) {
-      submitVendorInvoice(arguments: $arguments) { workOrder { id status } }
+      submitVendorInvoice(arguments: $arguments) { clientMutationId }
     }`, { arguments: {
       workOrderId: resqWO.id,
       vendorNotes: `Invoice from SF #${sfJobId}${invoiceNumber ? ' - Invoice #' + invoiceNumber : ''}`,
@@ -607,7 +527,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     result.steps.push(`→ ResQ ${resqWO.code} marked invoiced (ref: ${refNumber})`);
     result.updated++;
   } catch (e) {
-    result.errors.push(`Submit invoice ${resqWO.code}: ${e.message.substring(0, 150)}`);
+    result.errors.push(`Submit invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
   }
 
   return result;
