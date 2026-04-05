@@ -70,20 +70,18 @@ async function handleSfPhotos(jobId) {
       if (loc.startsWith('http')) {
         tests.direct = loc;
       } else {
-        tests.s3pics = `https://s3.amazonaws.com/sf-pics/${loc}`;
-        tests.s3uploads = `https://s3.amazonaws.com/sf-uploads/${loc}`;
-        tests.s3sfJobs = `https://s3.amazonaws.com/servicefusion-jobs/${loc}`;
-        tests.s3sfPics = `https://s3.amazonaws.com/servicefusion-pics/${loc}`;
-        tests.s3sfImages = `https://s3.amazonaws.com/servicefusion-images/${loc}`;
-        tests.s3sf = `https://s3.amazonaws.com/servicefusion/${loc}`;
-        tests.s3sfProd = `https://servicefusion.s3.amazonaws.com/${loc}`;
-        tests.s3sfProdPics = `https://servicefusion.s3.amazonaws.com/pics/${loc}`;
-        tests.s3sfProdImages = `https://servicefusion.s3.amazonaws.com/images/${loc}`;
-        tests.s3sfProdUploads = `https://servicefusion.s3.amazonaws.com/uploads/${loc}`;
-        tests.appPics = `https://app.servicefusion.com/pics/${loc}`;
-        tests.appImages = `https://app.servicefusion.com/images/${loc}`;
-        tests.appJobPics = `https://app.servicefusion.com/job-pics/${loc}`;
-        tests.apiV1Pics = `https://api.servicefusion.com/v1/pics/${loc}`;
+        // sf-uploads bucket exists (got 301 from s3.amazonaws.com/sf-uploads/)
+        // Try regional endpoints and virtual-hosted style
+        tests.sfUploadsVhost = `https://sf-uploads.s3.amazonaws.com/${loc}`;
+        tests.sfUploadsUs1 = `https://sf-uploads.s3.us-east-1.amazonaws.com/${loc}`;
+        tests.sfUploadsUs2 = `https://sf-uploads.s3.us-west-2.amazonaws.com/${loc}`;
+        tests.sfUploadsPics = `https://sf-uploads.s3.amazonaws.com/pics/${loc}`;
+        tests.sfUploadsImages = `https://sf-uploads.s3.amazonaws.com/images/${loc}`;
+        tests.sfUploadsJobs = `https://sf-uploads.s3.amazonaws.com/jobs/${loc}`;
+        tests.sfUploadsJobPics = `https://sf-uploads.s3.amazonaws.com/job_pics/${loc}`;
+        // Also try path style with region
+        tests.s3pathUs1 = `https://s3.us-east-1.amazonaws.com/sf-uploads/${loc}`;
+        tests.s3pathUs2 = `https://s3.us-west-2.amazonaws.com/sf-uploads/${loc}`;
       }
       const results = {};
       for (const [name, url] of Object.entries(tests)) {
