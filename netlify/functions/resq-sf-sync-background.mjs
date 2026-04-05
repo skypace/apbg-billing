@@ -504,7 +504,28 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     }
   }
 
-  // Strategy 2: Attach HTML invoice document as fallback
+  // Strategy 2: Upload invoice file via uploadVendorInvoice (facility session)
+  try {
+    const invoiceHtml2 = generateInvoiceHtml({
+      resqCode: resqWO.code, sfJobId, invoiceNumber: refNumber,
+      customerName: sfJob.customer_name || '', description: sfJob.description || '',
+      lineItems, totalAmount, date: new Date().toISOString().split('T')[0],
+    });
+    const b64 = Buffer.from(invoiceHtml2, 'utf-8').toString('base64');
+    await resqGql(facilitySession, `mutation($input: UploadVendorInvoiceInput!) {
+      uploadVendorInvoice(input: $input) { __typename }
+    }`, { input: {
+      workOrderId: resqWO.id,
+      invoiceFile: b64,
+    }});
+    result.steps.push(`→ ResQ ${resqWO.code} invoice uploaded via facility (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
+    result.updated++;
+    return result;
+  } catch (e) {
+    result.errors.push(`Upload invoice (facility) ${resqWO.code}: ${e.message.substring(0, 200)}`);
+  }
+
+  // Strategy 3: Attach HTML invoice document as fallback
   const invoiceHtml = generateInvoiceHtml({
     resqCode: resqWO.code, sfJobId, invoiceNumber: refNumber,
     customerName: sfJob.customer_name || '', description: sfJob.description || '',
@@ -521,7 +542,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       attachToId: resqWO.id,
       file: invoiceBase64,
       fileContentType: 'text/html',
-      label: `Invoice ${refNumber} $${totalAmount.toFixed(2)}`.substring(0, 100),
+      label: `Inv ${refNumber}`.substring(0, 90),
     });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
