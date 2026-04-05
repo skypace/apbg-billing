@@ -12,8 +12,8 @@
 //
 //   SF → ResQ:
 //     Scheduled*             → SCHEDULED
-//     Completed*             → NEEDS_INVOICE
-//     Invoiced*              → submitVendorInvoice
+//     Completed*             → NEEDS_INVOICE + transfer photos from SF
+//     Invoiced*              → build invoice with line items + submitVendorInvoice
 
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
@@ -90,7 +90,8 @@ export async function handler(event) {
       try {
         if (mapping[wo.id]) {
           // Already mapped — bidirectional status sync
-          const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 15000, `sync ${wo.code}`);
+          // 30s timeout — photo/invoice transfers can take longer
+          const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 30000, `sync ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           log.updated += r.updated || 0;
@@ -230,7 +231,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         }
       }
 
-      // Completed
+      // Completed — mark ResQ as NEEDS_INVOICE + transfer photos from SF
       if (sfLower.includes('complet') && !prevSfStatus.includes('complet')) {
         try {
           await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
@@ -247,16 +248,26 @@ async function syncBidirectional(session, resqWO, mapEntry) {
             result.updated++;
           } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
         }
+
+        // Transfer photos from SF → ResQ
+        try {
+          const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
+          if (photoResult.count > 0) {
+            result.steps.push(`→ ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
+          }
+          if (photoResult.errors.length) result.errors.push(...photoResult.errors);
+        } catch (e) {
+          result.errors.push(`Photos ${resqWO.code}: ${e.message}`);
+        }
       }
 
-      // Invoiced
+      // Invoiced — build invoice with line items from SF + submit to ResQ
       if (sfLower.includes('invoic') && !prevSfStatus.includes('invoic')) {
         try {
-          await resqGql(session, `mutation($input: SubmitVendorInvoiceInput!) {
-            submitVendorInvoice(input: $input) { workOrder { id status } }
-          }`, { input: { workOrderId: resqWO.id } });
-          result.steps.push(`→ ResQ ${resqWO.code} invoiced`);
-          result.updated++;
+          const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
+          if (invResult.steps.length) result.steps.push(...invResult.steps);
+          if (invResult.errors.length) result.errors.push(...invResult.errors);
+          result.updated += invResult.updated || 0;
         } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
       }
     }
@@ -351,6 +362,206 @@ function classifyFacility(facilityName) {
     if (fm.keywords.some(k => f.includes(k))) return fm.sfCustomer;
   }
   return null;
+}
+
+// --- Transfer SF Photos → ResQ ---
+async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
+  const result = { count: 0, errors: [] };
+
+  // Fetch SF job with pictures expanded
+  let sfJob;
+  try {
+    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=pictures`);
+  } catch (e) {
+    result.errors.push(`Fetch SF photos for ${sfJobId}: ${e.message}`);
+    return result;
+  }
+
+  const pictures = sfJob.pictures || [];
+  if (pictures.length === 0) return result;
+
+  for (const pic of pictures) {
+    const url = pic.file_location;
+    if (!url) continue;
+
+    try {
+      // Download the image
+      const imgRes = await fetch(url);
+      if (!imgRes.ok) {
+        result.errors.push(`Download photo ${pic.name || url}: ${imgRes.status}`);
+        continue;
+      }
+
+      const buffer = await imgRes.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+      const label = pic.name || pic.comment || `SF photo`;
+
+      // Upload to ResQ via addAttachment
+      await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
+        addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
+          attachment { id }
+        }
+      }`, {
+        attachToId: resqWoId,
+        file: base64,
+        fileContentType: contentType,
+        label,
+      });
+      result.count++;
+    } catch (e) {
+      result.errors.push(`Upload photo ${pic.name || 'unknown'}: ${e.message.substring(0, 100)}`);
+    }
+  }
+  return result;
+}
+
+// --- Build Invoice from SF Line Items → Submit to ResQ ---
+async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
+  const result = { steps: [], errors: [], updated: 0 };
+
+  // Fetch SF job with invoices + line items expanded
+  let sfJob;
+  try {
+    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=invoices,products,services,labor_charges,expenses,other_charges`);
+  } catch (e) {
+    result.errors.push(`Fetch SF invoice data for ${sfJobId}: ${e.message}`);
+    return result;
+  }
+
+  // Get the SF invoice number (use the first/most recent invoice)
+  const sfInvoices = sfJob.invoices || [];
+  const sfInvoice = sfInvoices[sfInvoices.length - 1]; // most recent
+  const invoiceNumber = sfInvoice?.number ? String(sfInvoice.number) : '';
+
+  // Build ResQ line items from SF data
+  const lineItems = [];
+  let order = 0;
+
+  // Products → ITEM_TYPE_PART
+  for (const p of (sfJob.products || [])) {
+    lineItems.push({
+      order: order++,
+      itemType: 'ITEM_TYPE_PART',
+      quantity: String(p.multiplier || 1),
+      description: p.description || p.name || 'Part',
+      partName: p.name || '',
+      price: String(p.rate || 0),
+      discount: '0',
+      taxRateIds: [],
+    });
+  }
+
+  // Services → ITEM_TYPE_SERVICE_CHARGE
+  for (const s of (sfJob.services || [])) {
+    lineItems.push({
+      order: order++,
+      itemType: 'ITEM_TYPE_SERVICE_CHARGE',
+      quantity: String(s.multiplier || 1),
+      description: s.description || s.name || 'Service',
+      price: String(s.rate || 0),
+      discount: '0',
+      taxRateIds: [],
+    });
+  }
+
+  // Labor charges → ITEM_TYPE_LABOUR
+  for (const l of (sfJob.labor_charges || [])) {
+    const hours = l.labor_time ? parseFloat(l.labor_time) : 0;
+    if (hours > 0 || l.labor_time_cost) {
+      lineItems.push({
+        order: order++,
+        itemType: 'ITEM_TYPE_LABOUR',
+        quantity: String(hours || 1),
+        description: `Labor${l.user ? ' - ' + l.user : ''}${l.labor_date ? ' (' + l.labor_date + ')' : ''}`,
+        price: String(l.labor_time_rate || 0),
+        discount: '0',
+        taxRateIds: [],
+      });
+    }
+    // Drive time as travel
+    const driveHours = l.drive_time ? parseFloat(l.drive_time) : 0;
+    if (driveHours > 0 && l.is_drive_time_billed) {
+      lineItems.push({
+        order: order++,
+        itemType: 'ITEM_TYPE_TRAVEL',
+        quantity: String(driveHours),
+        description: `Drive time${l.user ? ' - ' + l.user : ''}`,
+        price: String(l.drive_time_rate || 0),
+        discount: '0',
+        taxRateIds: [],
+      });
+    }
+  }
+
+  // Expenses → ITEM_TYPE_OTHER
+  for (const ex of (sfJob.expenses || [])) {
+    if (ex.is_billable && ex.amount) {
+      lineItems.push({
+        order: order++,
+        itemType: 'ITEM_TYPE_OTHER',
+        quantity: '1',
+        description: ex.notes || ex.category || 'Expense',
+        price: String(ex.amount),
+        discount: '0',
+        taxRateIds: [],
+      });
+    }
+  }
+
+  // Other charges → ITEM_TYPE_OTHER
+  for (const oc of (sfJob.other_charges || [])) {
+    lineItems.push({
+      order: order++,
+      itemType: 'ITEM_TYPE_OTHER',
+      quantity: String(oc.multiplier || 1),
+      description: oc.description || oc.name || 'Other charge',
+      price: String(oc.rate || 0),
+      discount: '0',
+      taxRateIds: [],
+    });
+  }
+
+  const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
+
+  // Step 1: If we have line items, submit them via createPartneredInvoiceSubmissionFromBuilder
+  if (lineItems.length > 0) {
+    try {
+      await resqGql(session, `mutation($input: CreatePartneredInvoiceSubmissionFromBuilderMutationInput!) {
+        createPartneredInvoiceSubmissionFromBuilder(input: $input) {
+          invoiceSubmission { id }
+        }
+      }`, { input: {
+        workOrderId: resqWO.id,
+        lineItems,
+        vendorReferenceNumber: refNumber,
+        vendorNotes: `Synced from SF job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''}`,
+      }});
+      result.steps.push(`→ ResQ ${resqWO.code} invoice built (${lineItems.length} line items, ref: ${refNumber})`);
+      result.updated++;
+    } catch (e) {
+      result.errors.push(`Build invoice ${resqWO.code}: ${e.message.substring(0, 150)}`);
+      // Fall through to try submitVendorInvoice without line items
+    }
+  }
+
+  // Step 2: Submit the vendor invoice (marks WO as invoiced in ResQ)
+  try {
+    await resqGql(session, `mutation($arguments: SubmitVendorInvoiceMutationArguments!) {
+      submitVendorInvoice(arguments: $arguments) { workOrder { id status } }
+    }`, { arguments: {
+      workOrderId: resqWO.id,
+      vendorNotes: `Invoice from SF #${sfJobId}${invoiceNumber ? ' - Invoice #' + invoiceNumber : ''}`,
+      vendorReferenceNumber: refNumber,
+      dispute: false,
+    }});
+    result.steps.push(`→ ResQ ${resqWO.code} marked invoiced (ref: ${refNumber})`);
+    result.updated++;
+  } catch (e) {
+    result.errors.push(`Submit invoice ${resqWO.code}: ${e.message.substring(0, 150)}`);
+  }
+
+  return result;
 }
 
 // --- Blob Storage ---
