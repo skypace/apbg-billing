@@ -67,7 +67,8 @@ async function handleSfPhotos(jobId) {
     // Helper: test a URL and return detailed result
     async function testUrl(url, opts = {}) {
       try {
-        const r = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers || {}) } });
+        const hdrs = opts.noAuth ? (opts.headers || {}) : { ...authHeaders, ...(opts.headers || {}) };
+        const r = await fetch(url, { ...opts, headers: hdrs });
         const ct = r.headers.get('content-type') || '';
         const cl = r.headers.get('content-length') || '';
         const loc = r.headers.get('location') || '';
@@ -120,8 +121,11 @@ async function handleSfPhotos(jobId) {
 
       // 4. S3 direct (ap-northeast-1 confirmed from previous 301 body)
       if (loc && !loc.startsWith('http')) {
-        tests['s3_apne1'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`, { headers: {} }); // no auth
-        tests['s3_apne1_auth'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`); // with auth
+        tests['s3_apne1_noauth'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`, { noAuth: true });
+        tests['s3_apne1_noauth_redirect'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`, { noAuth: true, redirect: 'manual' });
+        // Try other S3 region/prefix combos without auth
+        tests['s3_vhost_noauth'] = await testUrl(`https://sf-uploads.s3.amazonaws.com/${loc}`, { noAuth: true, redirect: 'manual' });
+        tests['s3_us1_noauth'] = await testUrl(`https://sf-uploads.s3.us-east-1.amazonaws.com/${loc}`, { noAuth: true, redirect: 'manual' });
       }
 
       fileTests.push({
