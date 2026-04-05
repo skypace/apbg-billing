@@ -496,7 +496,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       attachToId: resqWO.id,
       file: invoiceBase64,
       fileContentType: 'text/html',
-      label: `Invoice ${refNumber} — SF Job #${sfJobId} — $${totalAmount.toFixed(2)}`,
+      label: `Invoice ${refNumber} $${totalAmount.toFixed(2)}`.substring(0, 100),
     });
     attached = true;
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
