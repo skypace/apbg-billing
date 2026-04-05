@@ -470,38 +470,30 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
 
   const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
 
-  // Step 1: If we have line items, submit them via createPartneredInvoiceSubmissionFromBuilder
-  if (lineItems.length > 0) {
-    try {
-      await resqGql(session, `mutation($input: CreatePartneredInvoiceSubmissionFromBuilderMutationInput!) {
-        createPartneredInvoiceSubmissionFromBuilder(input: $input) {
-          clientMutationId
-        }
-      }`, { input: {
-        workOrderId: resqWO.id,
-        lineItems,
-        vendorReferenceNumber: refNumber,
-        vendorNotes: `Synced from SF job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''}`,
-      }});
-      result.steps.push(`→ ResQ ${resqWO.code} invoice built (${lineItems.length} line items, ref: ${refNumber})`);
-      result.updated++;
-    } catch (e) {
-      result.errors.push(`Build invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
-      // Fall through to try submitVendorInvoice without line items
-    }
-  }
+  // Build a summary of line items for the vendor notes
+  const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.price) * parseFloat(li.quantity)), 0);
+  const lineItemSummary = lineItems.map(li => `${li.description}: ${li.quantity}x $${li.price}`).join('; ');
 
-  // Step 2: Submit the vendor invoice (marks WO as invoiced in ResQ)
+  // Submit the vendor invoice (marks WO as invoiced in ResQ)
+  // Note: createPartneredInvoiceSubmissionFromBuilder requires facility permissions,
+  // so we use submitVendorInvoice with line item details in the notes field.
   try {
+    const notes = [
+      `Invoice from SF job #${sfJobId}`,
+      invoiceNumber ? `SF Invoice #${invoiceNumber}` : '',
+      totalAmount ? `Total: $${totalAmount.toFixed(2)}` : '',
+      lineItems.length ? `Line items (${lineItems.length}): ${lineItemSummary}` : '',
+    ].filter(Boolean).join('\n');
+
     await resqGql(session, `mutation($arguments: SubmitVendorInvoiceMutationArguments!) {
-      submitVendorInvoice(arguments: $arguments) { clientMutationId }
+      submitVendorInvoice(arguments: $arguments) { __typename }
     }`, { arguments: {
       workOrderId: resqWO.id,
-      vendorNotes: `Invoice from SF #${sfJobId}${invoiceNumber ? ' - Invoice #' + invoiceNumber : ''}`,
+      vendorNotes: notes,
       vendorReferenceNumber: refNumber,
       dispute: false,
     }});
-    result.steps.push(`→ ResQ ${resqWO.code} marked invoiced (ref: ${refNumber})`);
+    result.steps.push(`→ ResQ ${resqWO.code} invoice submitted (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
     result.errors.push(`Submit invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
