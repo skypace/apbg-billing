@@ -10,6 +10,7 @@ export async function handler(event) {
   if (qs.lookup) return handleLookup(qs.lookup);
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
+  if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -149,6 +150,61 @@ async function handleSfPhotos(jobId) {
       notes: job.notes || [],
       allKeys: Object.keys(job),
     });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Upload Photo: POST with ?uploadPhoto=resqWoId, body = { files: [{ name, base64, contentType }] } ---
+async function handleUploadPhoto(event, resqWoId) {
+  if (event.httpMethod !== 'POST') return json({ error: 'POST required' }, 405);
+  try {
+    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+    const body = JSON.parse(event.body || '{}');
+    const files = body.files || [];
+    if (!files.length) return json({ error: 'No files provided. Send { files: [{ name, base64, contentType }] }' }, 400);
+
+    const session = await resqLogin();
+    const results = [];
+
+    for (const f of files) {
+      try {
+        await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
+          addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
+            clientMutationId
+          }
+        }`, {
+          attachToId: resqWoId,
+          file: f.base64,
+          fileContentType: f.contentType || 'image/jpeg',
+          label: f.name || 'Photo',
+        });
+        results.push({ name: f.name, ok: true });
+      } catch (e) {
+        results.push({ name: f.name, ok: false, error: e.message.substring(0, 200) });
+      }
+    }
+
+    // Mark photosSent in mapping if all succeeded
+    const allOk = results.every(r => r.ok);
+    if (allOk) {
+      try {
+        const store = await getStore();
+        if (store) {
+          const raw = await store.get('wo-mapping');
+          const mapping = raw ? JSON.parse(raw) : {};
+          for (const [k, v] of Object.entries(mapping)) {
+            if (k === resqWoId || v.resqCode === resqWoId) {
+              v.photosSent = true;
+              v.lastSyncAt = new Date().toISOString();
+            }
+          }
+          await store.set('wo-mapping', JSON.stringify(mapping));
+        }
+      } catch (e) {}
+    }
+
+    return json({ uploaded: results.filter(r => r.ok).length, total: files.length, results });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

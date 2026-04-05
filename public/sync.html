@@ -61,6 +61,29 @@ tr:hover td{background:#F9FAFB}
 .spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:8px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* Photo upload */
+.upload-btn{padding:4px 10px;font-size:0.72rem;border-radius:4px;cursor:pointer;border:1px solid #D1D5DB;background:#fff;color:#1F4E79;font-weight:600}
+.upload-btn:hover{background:#EFF6FF}
+.upload-btn.done{background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:default}
+.upload-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center}
+.upload-modal.show{display:flex}
+.upload-box{background:#fff;border-radius:12px;padding:32px;max-width:500px;width:90%;text-align:center}
+.upload-box h3{color:#1F4E79;margin-bottom:8px;font-size:1rem}
+.upload-box p{color:#6B7280;font-size:0.82rem;margin-bottom:16px}
+.drop-zone{border:2px dashed #D1D5DB;border-radius:8px;padding:40px 20px;cursor:pointer;transition:all 0.15s;margin-bottom:16px}
+.drop-zone:hover,.drop-zone.dragover{border-color:#1F4E79;background:#EFF6FF}
+.drop-zone .icon{font-size:2rem;margin-bottom:8px}
+.drop-zone .text{color:#6B7280;font-size:0.85rem}
+.file-list{text-align:left;margin-bottom:16px;max-height:150px;overflow-y:auto}
+.file-item{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#F9FAFB;border-radius:4px;margin-bottom:4px;font-size:0.8rem}
+.file-item .name{color:#1F2937;flex:1}
+.file-item .size{color:#9CA3AF;margin-left:8px}
+.file-item .remove{color:#DC2626;cursor:pointer;margin-left:8px;font-weight:600}
+.upload-actions{display:flex;gap:8px;justify-content:center}
+.upload-result{margin-top:12px;font-size:0.82rem;padding:8px;border-radius:4px}
+.upload-result.ok{background:#D1FAE5;color:#065F46}
+.upload-result.err{background:#FEE2E2;color:#991B1B}
+
 @media(max-width:768px){
   .status-row{grid-template-columns:1fr 1fr}
   .actions{flex-wrap:wrap}
@@ -133,6 +156,25 @@ tr:hover td{background:#F9FAFB}
       <h2>Last Sync Log</h2>
       <div class="log" id="syncLog">No sync data yet. Click "Run Sync Now" to start.</div>
     </div>
+  </div>
+</div>
+
+<!-- Photo Upload Modal -->
+<div class="upload-modal" id="uploadModal">
+  <div class="upload-box">
+    <h3>📸 Upload Photos to ResQ</h3>
+    <p id="uploadTarget">WO: —</p>
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">📁</div>
+      <div class="text">Drop photos here or click to browse</div>
+      <input type="file" id="fileInput" multiple accept="image/*,.pdf,.doc,.docx" style="display:none">
+    </div>
+    <div class="file-list" id="fileList"></div>
+    <div class="upload-actions">
+      <button class="primary" id="uploadBtn" onclick="doUpload()" disabled>Upload to ResQ</button>
+      <button class="secondary" onclick="closeUpload()">Cancel</button>
+    </div>
+    <div class="upload-result" id="uploadResult" style="display:none"></div>
   </div>
 </div>
 
@@ -283,13 +325,16 @@ function renderMappings(mappings) {
   let html = `<table>
     <thead><tr>
       <th>ResQ Code</th><th>Title</th><th>Facility</th><th>SF Job #</th>
-      <th>ResQ Status</th><th>SF Status</th><th>Last Synced</th>
+      <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Last Synced</th>
     </tr></thead><tbody>`;
 
   for (const [resqId, m] of entries) {
     const resqBadge = statusBadge(m.resqStatus);
     const sfBadge = statusBadge(m.sfStatus);
     const synced = m.lastSyncAt ? timeAgo(new Date(m.lastSyncAt)) : '—';
+    const photoBtn = m.photosSent
+      ? '<button class="upload-btn done">✓ Sent</button>'
+      : `<button class="upload-btn" onclick="openUpload('${resqId}','${m.resqCode || ''}')">📸 Upload</button>`;
 
     html += `<tr>
       <td><strong>${m.resqCode || '—'}</strong></td>
@@ -298,6 +343,7 @@ function renderMappings(mappings) {
       <td>${m.sfJobNumber || m.sfJobId || '—'}</td>
       <td>${resqBadge}</td>
       <td>${sfBadge}</td>
+      <td>${photoBtn}</td>
       <td>${synced}</td>
     </tr>`;
   }
@@ -338,6 +384,117 @@ function timeAgo(date) {
   if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
   return Math.floor(diff / 86400000) + 'd ago';
 }
+
+// --- Photo Upload ---
+let uploadResqId = '';
+let uploadFiles = [];
+
+function openUpload(resqId, resqCode) {
+  uploadResqId = resqId;
+  uploadFiles = [];
+  document.getElementById('uploadTarget').textContent = `WO: ${resqCode || resqId}`;
+  document.getElementById('fileList').innerHTML = '';
+  document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('uploadResult').style.display = 'none';
+  document.getElementById('uploadModal').classList.add('show');
+}
+
+function closeUpload() {
+  document.getElementById('uploadModal').classList.remove('show');
+  uploadFiles = [];
+}
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+function addFiles(fileListObj) {
+  for (const f of fileListObj) {
+    uploadFiles.push(f);
+  }
+  renderFileList();
+}
+
+function removeFile(idx) {
+  uploadFiles.splice(idx, 1);
+  renderFileList();
+}
+
+function renderFileList() {
+  const container = document.getElementById('fileList');
+  if (uploadFiles.length === 0) { container.innerHTML = ''; document.getElementById('uploadBtn').disabled = true; return; }
+  container.innerHTML = uploadFiles.map((f, i) =>
+    `<div class="file-item"><span class="name">${f.name}</span><span class="size">${(f.size/1024).toFixed(0)}KB</span><span class="remove" onclick="removeFile(${i})">✕</span></div>`
+  ).join('');
+  document.getElementById('uploadBtn').disabled = false;
+}
+
+async function doUpload() {
+  const btn = document.getElementById('uploadBtn');
+  const result = document.getElementById('uploadResult');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Uploading...';
+  result.style.display = 'none';
+
+  try {
+    // Convert files to base64
+    const fileData = [];
+    for (const f of uploadFiles) {
+      const base64 = await fileToBase64(f);
+      fileData.push({ name: f.name, base64, contentType: f.type || 'application/octet-stream' });
+    }
+
+    const res = await fetch(`${API_BASE}/resq-sf-sync?uploadPhoto=${uploadResqId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: fileData }),
+    });
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    const ok = data.uploaded || 0;
+    const total = data.total || 0;
+    result.className = 'upload-result ' + (ok === total ? 'ok' : 'err');
+    result.textContent = `✓ ${ok}/${total} photos uploaded to ResQ` +
+      (data.results?.filter(r => !r.ok).map(r => `\n✗ ${r.name}: ${r.error}`).join('') || '');
+    result.style.display = 'block';
+
+    if (ok > 0) {
+      setTimeout(() => { closeUpload(); loadStatus(); }, 2000);
+    }
+  } catch (e) {
+    result.className = 'upload-result err';
+    result.textContent = `Upload failed: ${e.message}`;
+    result.style.display = 'block';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = 'Upload to ResQ';
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]); // strip data:...;base64, prefix
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Close modal on background click
+document.getElementById('uploadModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('uploadModal')) closeUpload();
+});
 </script>
 </body>
 </html>
