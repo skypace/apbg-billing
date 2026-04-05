@@ -210,67 +210,61 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const resqChanged = resqStatus !== prevResqStatus;
     const sfLower = sfStatus.toLowerCase();
 
-    // Check if completed/invoiced actions still need to run
-    // (handles case where status was saved before photo/invoice code was deployed)
-    const needsPhotoTransfer = sfLower.includes('complet') && !mapEntry.photosSent;
-    const needsInvoiceSubmit = sfLower.includes('invoic') && !mapEntry.invoiceSubmitted;
+    // Check what SHOULD be true based on current SF status vs current ResQ status
+    // This catches both fresh changes AND previously missed actions
+    const sfIsScheduled = sfLower.includes('scheduled') && !sfLower.includes('un');
+    const sfIsCompleted = sfLower.includes('complet');
+    const sfIsInvoiced = sfLower.includes('invoic');
 
-    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
+    const resqNeedsSchedule = sfIsScheduled && resqStatus === 'NOT_YET_SCHEDULED';
+    const resqNeedsComplete = sfIsCompleted && ['NOT_YET_SCHEDULED', 'SCHEDULED', 'NOT_YET_COMPLETED'].includes(resqStatus);
+    const resqNeedsInvoice = sfIsInvoiced && !['AWAITING_PAYMENT', 'CLOSED'].includes(resqStatus);
+    const needsPhotoTransfer = sfIsCompleted && !mapEntry.photosSent;
+    const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
 
-    // --- SF → ResQ (SF status changed) ---
+    if (!sfChanged && !resqChanged && !resqNeedsSchedule && !resqNeedsComplete
+        && !resqNeedsInvoice && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
+
     if (sfChanged) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
+    }
 
-      // Scheduled
-      if (sfLower.includes('scheduled') && !sfLower.includes('un')) {
-        if (!prevSfStatus.includes('scheduled') || prevSfStatus.includes('un')) {
-          try {
-            await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-              vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-            }`, { input: {
-              workOrderId: resqWO.id, state: 'SCHEDULED',
-              ...(sfJob.scheduled_start ? { scheduledForStart: sfJob.scheduled_start } : {}),
-              ...(sfJob.scheduled_end ? { scheduledForEnd: sfJob.scheduled_end } : {}),
-            }});
-            result.steps.push(`→ ResQ ${resqWO.code} SCHEDULED`);
-            result.updated++;
-          } catch (e) { result.errors.push(`ResQ schedule ${resqWO.code}: ${e.message}`); }
-        }
-      }
+    // --- SF Scheduled → push ResQ to SCHEDULED ---
+    if (resqNeedsSchedule) {
+      try {
+        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+          vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+        }`, { input: {
+          workOrderId: resqWO.id, state: 'SCHEDULED',
+          ...(sfJob.scheduled_start ? { scheduledForStart: sfJob.scheduled_start } : {}),
+          ...(sfJob.scheduled_end ? { scheduledForEnd: sfJob.scheduled_end } : {}),
+        }});
+        result.steps.push(`→ ResQ ${resqWO.code} SCHEDULED`);
+        result.updated++;
+      } catch (e) { result.errors.push(`ResQ schedule ${resqWO.code}: ${e.message}`); }
+    }
 
-      // Completed — mark ResQ as NEEDS_INVOICE
-      if (sfLower.includes('complet') && !prevSfStatus.includes('complet')) {
+    // --- SF Completed → push ResQ to NEEDS_INVOICE ---
+    if (resqNeedsComplete) {
+      try {
+        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+          vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+        }`, { input: { workOrderId: resqWO.id, state: 'NEEDS_INVOICE' } });
+        result.steps.push(`→ ResQ ${resqWO.code} NEEDS_INVOICE`);
+        result.updated++;
+      } catch (e) {
         try {
-          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
-          }`, { input: { workOrderId: resqWO.id, state: 'NEEDS_INVOICE' } });
-          result.steps.push(`→ ResQ ${resqWO.code} NEEDS_INVOICE`);
+          await resqGql(session, `mutation($input: ForceWorkOrderCompletionInput!) {
+            forceWorkOrderCompletion(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id } });
+          result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
           result.updated++;
-        } catch (e) {
-          try {
-            await resqGql(session, `mutation($input: ForceWorkOrderCompletionInput!) {
-              forceWorkOrderCompletion(input: $input) { workOrder { id status } }
-            }`, { input: { workOrderId: resqWO.id } });
-            result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
-            result.updated++;
-          } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
-        }
-      }
-
-      // Invoiced (status just changed) — build invoice with line items
-      if (sfLower.includes('invoic') && !prevSfStatus.includes('invoic')) {
-        try {
-          const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
-          if (invResult.steps.length) result.steps.push(...invResult.steps);
-          if (invResult.errors.length) result.errors.push(...invResult.errors);
-          result.updated += invResult.updated || 0;
-          mapEntry.invoiceSubmitted = true;
-        } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
+        } catch (e2) { result.errors.push(`ResQ complete ${resqWO.code}: ${e.message}`); }
       }
     }
 
-    // --- Transfer photos when SF is Completed (runs on change OR if missed previously) ---
-    if ((sfChanged && sfLower.includes('complet')) || needsPhotoTransfer) {
+    // --- Transfer photos when SF is Completed ---
+    if (needsPhotoTransfer) {
       try {
         const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
         if (photoResult.count > 0) {
@@ -286,8 +280,8 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       }
     }
 
-    // --- Submit invoice if SF is Invoiced but was missed previously ---
-    if (needsInvoiceSubmit && !sfChanged) {
+    // --- SF Invoiced → build invoice + submit to ResQ ---
+    if (needsInvoiceSubmit) {
       try {
         const invResult = await buildAndSubmitInvoice(session, mapEntry.sfJobId, resqWO);
         if (invResult.steps.length) result.steps.push(...invResult.steps);
@@ -297,14 +291,11 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
     }
 
-    // --- ResQ → SF (ResQ status changed) ---
-    if (resqChanged) {
+    // --- ResQ → SF (ResQ status changed, tracking only) ---
+    if (resqChanged && !sfChanged) {
       const targetSfStatus = RESQ_TO_SF_STATUS[resqStatus];
       if (targetSfStatus) {
         result.steps.push(`ResQ ${resqWO.code}: "${prevResqStatus}" → "${resqStatus}" (SF target: "${targetSfStatus}")`);
-        // NOTE: SF API does not support PUT/PATCH on /jobs — cannot update status via API.
-        // We track the ResQ status change in the mapping so the dashboard shows current state.
-        // SF techs should update SF job status manually, which then syncs back to ResQ.
         result.updated++;
       }
     }
