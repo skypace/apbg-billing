@@ -376,48 +376,28 @@ async function resolveSfCustomerIds() {
   // Try multiple approaches to find RESQ customers
   let allCustomers = [];
 
-  // First: grab a sample to understand the API response shape
-  try {
-    const sample = await sfRequest('GET', '/customers?per-page=3');
-    const sampleList = sample.items || sample.data || (Array.isArray(sample) ? sample : []);
-    if (sampleList.length > 0) {
-      debug.push(`API shape keys: ${Object.keys(sampleList[0]).join(', ')}`);
-      debug.push(`Sample #1: ${JSON.stringify(sampleList[0]).substring(0, 300)}`);
+  // SF q= param doesn't filter — need to paginate through all customers
+  let page = 1;
+  let hasMore = true;
+  while (hasMore) {
+    try {
+      const r = await sfRequest('GET', `/customers?per-page=500&page=${page}`);
+      const c = r.items || r.data || (Array.isArray(r) ? r : []);
+      if (c.length === 0) {
+        hasMore = false;
+      } else {
+        allCustomers.push(...c);
+        debug.push(`Page ${page}: ${c.length} customers`);
+        // Stop if we got fewer than requested (last page)
+        if (c.length < 500) hasMore = false;
+        page++;
+        // Safety: don't fetch more than 10 pages (5000 customers)
+        if (page > 10) hasMore = false;
+      }
+    } catch (e) {
+      debug.push(`Page ${page} failed: ${e.message}`);
+      hasMore = false;
     }
-    // Check if response has pagination info
-    if (sample.total || sample.total_count) debug.push(`Total customers in SF: ${sample.total || sample.total_count}`);
-  } catch (e) { debug.push(`Sample failed: ${e.message}`); }
-
-  // Search with filters — try different param names
-  const searchTerms = ['RESQ', 'MELT', 'STARBIRD'];
-  for (const term of searchTerms) {
-    // Try q= param
-    try {
-      const r = await sfRequest('GET', `/customers?q=${encodeURIComponent(term)}&per-page=100`);
-      const c = r.items || r.data || (Array.isArray(r) ? r : []);
-      debug.push(`q=${term}: ${c.length} results, names: ${c.slice(0, 5).map(x => x.customer_name || x.name || x.company_name || '?').join(' | ')}`);
-      allCustomers.push(...c);
-    } catch (e) { debug.push(`q=${term} failed: ${e.message}`); }
-
-    // Try filters[customer_name]= param
-    try {
-      const r = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(term)}&per-page=100`);
-      const c = r.items || r.data || (Array.isArray(r) ? r : []);
-      if (c.length > 0 && c.length !== 50) {
-        debug.push(`filter[customer_name]=${term}: ${c.length} results`);
-        allCustomers.push(...c);
-      }
-    } catch (e) {}
-
-    // Try name= param
-    try {
-      const r = await sfRequest('GET', `/customers?name=${encodeURIComponent(term)}&per-page=100`);
-      const c = r.items || r.data || (Array.isArray(r) ? r : []);
-      if (c.length > 0 && c.length !== 50) {
-        debug.push(`name=${term}: ${c.length} results`);
-        allCustomers.push(...c);
-      }
-    } catch (e) {}
   }
 
   // Deduplicate by id
