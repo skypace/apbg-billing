@@ -263,7 +263,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           result.updated++;
           completed = true;
         } catch (e) {
-          result.steps.push(`force-complete failed: ${e.message.substring(0, 100)}`);
+          result.steps.push(`force-complete failed: ${e.message.substring(0, 300)}`);
         }
       }
 
