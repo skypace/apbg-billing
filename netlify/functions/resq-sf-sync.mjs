@@ -11,6 +11,7 @@ export async function handler(event) {
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
+  if (qs.introspect) return handleIntrospect(qs.introspect);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -150,6 +151,43 @@ async function handleSfPhotos(jobId) {
       notes: job.notes || [],
       allKeys: Object.keys(job),
     });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Introspect: Query ResQ schema for available mutations/types ---
+async function handleIntrospect(what) {
+  try {
+    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+    const session = await resqLogin();
+
+    if (what === 'mutations') {
+      const data = await resqGql(session, `{
+        __schema {
+          mutationType {
+            fields { name description args { name type { name kind ofType { name } } } }
+          }
+        }
+      }`);
+      const mutations = data.data?.__schema?.mutationType?.fields || [];
+      // Filter to invoice/vendor related
+      const relevant = mutations.filter(m =>
+        m.name.toLowerCase().includes('invoice') ||
+        m.name.toLowerCase().includes('vendor') ||
+        m.name.toLowerCase().includes('attach') ||
+        m.name.toLowerCase().includes('submit') ||
+        m.name.toLowerCase().includes('complete')
+      );
+      return json({ total: mutations.length, relevant, allNames: mutations.map(m => m.name).sort() });
+    }
+
+    if (what === 'type') {
+      // Introspect a specific type via ?introspect=type&type=TypeName
+      return json({ error: 'Pass ?introspect=mutations to list all mutations' });
+    }
+
+    return json({ usage: '?introspect=mutations' });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
