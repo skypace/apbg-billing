@@ -8,6 +8,7 @@ export async function handler(event) {
   }
   const qs = event.queryStringParameters || {};
   if (qs.lookup) return handleLookup(qs.lookup);
+  if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
@@ -48,6 +49,21 @@ async function handleLookup(code) {
       return json({ found: false, code, totalScanned: edges2.length, oldest: edges2[edges2.length-1]?.node?.code });
     }
     return json({ found: false, code, totalScanned: edges.length, oldest: edges[edges.length-1]?.node?.code });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- SF Photos Debug: Check what photos/documents are on an SF job ---
+async function handleSfPhotos(jobId) {
+  try {
+    const { sfRequest } = await import('./sf-helpers.mjs');
+    const job = await sfRequest('GET', `/jobs/${jobId}?expand=pictures,documents`);
+    return json({
+      jobId, status: job.status,
+      pictures: (job.pictures || []).map(p => ({ name: p.name, file_location: p.file_location, doc_type: p.doc_type, comment: p.comment })),
+      documents: (job.documents || []).map(d => ({ name: d.name, file_location: d.file_location, doc_type: d.doc_type, comment: d.comment })),
+    });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
