@@ -337,45 +337,59 @@ function classifyFacility(facilityName) {
 async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
   const result = { count: 0, errors: [] };
 
-  // Fetch SF job with pictures expanded
+  // Fetch SF job with pictures AND documents expanded
   let sfJob;
   try {
-    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=pictures`);
+    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=pictures,documents`);
   } catch (e) {
     result.errors.push(`Fetch SF photos for ${sfJobId}: ${e.message}`);
     return result;
   }
 
-  const pictures = sfJob.pictures || [];
-  if (pictures.length === 0) return result;
+  // Combine pictures + documents (both have name, file_location, customer_doc_id)
+  const allFiles = [...(sfJob.pictures || []), ...(sfJob.documents || [])];
+  if (allFiles.length === 0) return result;
 
-  const SF_PHOTO_BASE = 'https://sf-uploads.s3-ap-northeast-1.amazonaws.com';
+  const { getSFAccessToken } = await import('./sf-helpers.mjs');
+  const sfToken = await getSFAccessToken();
+  const SF_S3_BASE = 'https://sf-uploads.s3-ap-northeast-1.amazonaws.com';
 
-  for (const pic of pictures) {
+  for (const pic of allFiles) {
     const loc = pic.file_location;
     if (!loc) continue;
 
-    // Build full URL — file_location is either a full URL or just a filename
-    const url = loc.startsWith('http') ? loc : `${SF_PHOTO_BASE}/${loc}`;
-
     try {
-      // Download the image — try S3 first, then authenticated SF API
-      let imgRes = await fetch(url);
-      if (!imgRes.ok) {
-        // S3 might be private — try via SF app with auth token
-        const { getSFAccessToken } = await import('./sf-helpers.mjs');
-        const sfToken = await getSFAccessToken();
-        // Try SF app download URL pattern
-        const sfAppUrl = `https://app.servicefusion.com/api/v1/download-pic?file=${encodeURIComponent(loc)}`;
-        imgRes = await fetch(sfAppUrl, { headers: { 'Authorization': `Bearer ${sfToken}` } });
-        if (!imgRes.ok) {
-          // Try S3 with auth header
-          imgRes = await fetch(url, { headers: { 'Authorization': `Bearer ${sfToken}` } });
-          if (!imgRes.ok) {
-            result.errors.push(`Download photo ${pic.name || loc}: ${imgRes.status}`);
-            continue;
-          }
-        }
+      let imgRes = null;
+
+      // Approach 1: customer-documents download (if customer_doc_id exists)
+      if (!imgRes && pic.customer_doc_id) {
+        try {
+          const docUrl = `https://api.servicefusion.com/v1/customer-documents/${pic.customer_doc_id}/download`;
+          const r = await fetch(docUrl, { headers: { 'Authorization': `Bearer ${sfToken}`, 'Accept': '*/*' } });
+          if (r.ok) imgRes = r;
+        } catch (e) {}
+      }
+
+      // Approach 2: SF web app file download
+      if (!imgRes) {
+        try {
+          const r = await fetch(`https://app.servicefusion.com/web/download-file?file=${encodeURIComponent(loc)}`, {
+            headers: { 'Authorization': `Bearer ${sfToken}` },
+          });
+          if (r.ok) imgRes = r;
+        } catch (e) {}
+      }
+
+      // Approach 3: S3 direct (may work for public buckets)
+      if (!imgRes) {
+        const s3Url = loc.startsWith('http') ? loc : `${SF_S3_BASE}/${loc}`;
+        const r = await fetch(s3Url);
+        if (r.ok) imgRes = r;
+      }
+
+      if (!imgRes) {
+        result.errors.push(`Download ${pic.name || loc}: all approaches failed`);
+        continue;
       }
 
       const buffer = await imgRes.arrayBuffer();
