@@ -15,6 +15,24 @@ export async function handler(event) {
   const customerFilter = qs.customer || 'all';
   const results = { customerFilter, matches: [], mapped: [], errors: [] };
 
+  // Quick mode: fetch specific job by ID
+  if (qs.jobId) {
+    try {
+      const job = await sfRequest('GET', `/jobs/${qs.jobId}`);
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify(job, null, 2),
+      };
+    } catch (e) {
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: e.message }),
+      };
+    }
+  }
+
   try {
     // Load mapping
     const { getStore: createStore } = await import('@netlify/blobs');
