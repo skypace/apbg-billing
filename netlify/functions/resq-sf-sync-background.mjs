@@ -469,37 +469,85 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   }
 
   const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
-
-  // Build a summary of line items for the vendor notes
   const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.price) * parseFloat(li.quantity)), 0);
-  const lineItemSummary = lineItems.map(li => `${li.description}: ${li.quantity}x $${li.price}`).join('; ');
 
-  // Submit the vendor invoice (marks WO as invoiced in ResQ)
-  // Note: createPartneredInvoiceSubmissionFromBuilder requires facility permissions,
-  // so we use submitVendorInvoice with line item details in the notes field.
+  // Generate an HTML invoice document with line items
+  const invoiceHtml = generateInvoiceHtml({
+    resqCode: resqWO.code,
+    sfJobId,
+    invoiceNumber: refNumber,
+    customerName: sfJob.customer_name || '',
+    description: sfJob.description || '',
+    lineItems,
+    totalAmount,
+    date: new Date().toISOString().split('T')[0],
+  });
+  const invoiceBase64 = Buffer.from(invoiceHtml, 'utf-8').toString('base64');
+
+  // Upload invoice via uploadVendorInvoice (vendor account has access)
   try {
-    const notes = [
-      `Invoice from SF job #${sfJobId}`,
-      invoiceNumber ? `SF Invoice #${invoiceNumber}` : '',
-      totalAmount ? `Total: $${totalAmount.toFixed(2)}` : '',
-      lineItems.length ? `Line items (${lineItems.length}): ${lineItemSummary}` : '',
-    ].filter(Boolean).join('\n');
-
-    await resqGql(session, `mutation($arguments: SubmitVendorInvoiceMutationArguments!) {
-      submitVendorInvoice(arguments: $arguments) { __typename }
-    }`, { arguments: {
+    await resqGql(session, `mutation($input: UploadVendorInvoiceInput!) {
+      uploadVendorInvoice(input: $input) { __typename }
+    }`, { input: {
       workOrderId: resqWO.id,
-      vendorNotes: notes,
-      vendorReferenceNumber: refNumber,
-      dispute: false,
+      invoiceFile: invoiceBase64,
     }});
-    result.steps.push(`→ ResQ ${resqWO.code} invoice submitted (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
+    result.steps.push(`→ ResQ ${resqWO.code} invoice uploaded (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
-    result.errors.push(`Submit invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
+    result.errors.push(`Upload invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
   }
 
   return result;
+}
+
+// --- Generate Invoice HTML ---
+function generateInvoiceHtml({ resqCode, sfJobId, invoiceNumber, customerName, description, lineItems, totalAmount, date }) {
+  const rows = lineItems.map(li => {
+    const qty = parseFloat(li.quantity) || 1;
+    const price = parseFloat(li.price) || 0;
+    const total = qty * price;
+    const typeLabel = {
+      'ITEM_TYPE_PART': 'Part',
+      'ITEM_TYPE_LABOUR': 'Labor',
+      'ITEM_TYPE_SERVICE_CHARGE': 'Service',
+      'ITEM_TYPE_TRAVEL': 'Travel',
+      'ITEM_TYPE_OTHER': 'Other',
+    }[li.itemType] || li.itemType;
+    return `<tr><td>${typeLabel}</td><td>${li.description}</td><td style="text-align:right">${qty}</td><td style="text-align:right">$${price.toFixed(2)}</td><td style="text-align:right">$${total.toFixed(2)}</td></tr>`;
+  }).join('\n');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Invoice ${invoiceNumber}</title>
+<style>
+body{font-family:Arial,sans-serif;margin:40px;color:#333}
+h1{color:#1F4E79;margin-bottom:4px}
+.meta{color:#666;font-size:0.9em;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;margin-top:16px}
+th{background:#1F4E79;color:#fff;text-align:left;padding:8px 12px;font-size:0.85em}
+td{padding:8px 12px;border-bottom:1px solid #E5E7EB;font-size:0.85em}
+tr:nth-child(even) td{background:#F9FAFB}
+.total-row td{font-weight:700;border-top:2px solid #1F4E79;font-size:0.95em}
+.footer{margin-top:24px;font-size:0.8em;color:#999}
+</style></head><body>
+<h1>INVOICE</h1>
+<div class="meta">
+<strong>Invoice #:</strong> ${invoiceNumber}<br>
+<strong>Date:</strong> ${date}<br>
+<strong>ResQ WO:</strong> ${resqCode}<br>
+<strong>SF Job:</strong> #${sfJobId}<br>
+${customerName ? `<strong>Customer:</strong> ${customerName}<br>` : ''}
+${description ? `<strong>Description:</strong> ${description.substring(0, 200)}<br>` : ''}
+</div>
+<table>
+<thead><tr><th>Type</th><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
+<tbody>
+${rows}
+<tr class="total-row"><td colspan="4" style="text-align:right">TOTAL</td><td style="text-align:right">$${totalAmount.toFixed(2)}</td></tr>
+</tbody>
+</table>
+<div class="footer">Generated automatically from Service Fusion job #${sfJobId} | Brix Beverage Group</div>
+</body></html>`;
 }
 
 // --- Blob Storage ---
