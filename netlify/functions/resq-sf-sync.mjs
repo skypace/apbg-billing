@@ -18,8 +18,9 @@ async function handleLookup(code) {
   try {
     const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
     const session = await resqLogin();
-    const data = await resqGql(session, `{
-      workOrders(first: 50, orderBy: "-raised_on") {
+    // Search by code filter if available, otherwise scan recent WOs
+    const data = await resqGql(session, `query($code: String) {
+      workOrders(first: 500, orderBy: "-raised_on", code: $code) {
         edges { node {
           id code title status
           facility { name }
@@ -27,14 +28,25 @@ async function handleLookup(code) {
           executingVendor { name }
         } }
       }
-    }`);
+    }`, { code });
     const edges = data.data?.workOrders?.edges || [];
     const match = edges.find(e => e.node.code === code);
     if (match) {
       return json({ found: true, wo: match.node });
     }
-    // Not in first 50 — return all codes so we can see what's there
-    return json({ found: false, code, hint: 'Not in first 50 WOs', sample: edges.slice(0, 5).map(e => ({ code: e.node.code, facility: e.node.facility?.name, vendor: e.node.vendor?.name })) });
+    // Try without filter (code param may not be supported)
+    if (edges.length === 0) {
+      const data2 = await resqGql(session, `{
+        workOrders(first: 500, orderBy: "-raised_on") {
+          edges { node { id code title status facility { name } vendor { name } executingVendor { name } } }
+        }
+      }`);
+      const edges2 = data2.data?.workOrders?.edges || [];
+      const match2 = edges2.find(e => e.node.code === code);
+      if (match2) return json({ found: true, wo: match2.node });
+      return json({ found: false, code, totalScanned: edges2.length, oldest: edges2[edges2.length-1]?.node?.code });
+    }
+    return json({ found: false, code, totalScanned: edges.length, oldest: edges[edges.length-1]?.node?.code });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
