@@ -6,42 +6,56 @@
 const SF_API = 'https://api.servicefusion.com/v1';
 const SF_TOKEN_URL = 'https://api.servicefusion.com/oauth/access_token';
 
+// In-memory token cache (persists across calls within same function invocation)
+let memCache = { accessToken: null, accessExpires: 0, refreshToken: null };
+
 let blobStore = null;
+let blobsAvailable = null;
 
 async function getStore() {
   if (blobStore) return blobStore;
+  if (blobsAvailable === false) return null;
   try {
     const { getStore } = await import('@netlify/blobs');
     blobStore = getStore('sf-tokens');
+    blobsAvailable = true;
     return blobStore;
   } catch (e) {
+    blobsAvailable = false;
     return null;
   }
 }
 
 export async function getSFAccessToken() {
+  // 1. Try in-memory cache first (fastest, works without blobs)
+  if (memCache.accessToken && memCache.accessExpires > Date.now()) {
+    return memCache.accessToken;
+  }
+
   const store = await getStore();
 
-  // 1. Try cached access token first (avoid unnecessary refreshes)
+  // 2. Try blob-cached access token
   if (store) {
     try {
       const cached = await store.get('access-token');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed.token && parsed.expires > Date.now()) {
+          memCache.accessToken = parsed.token;
+          memCache.accessExpires = parsed.expires;
           return parsed.token;
         }
       }
     } catch (e) {}
   }
 
-  // 2. Get the freshest refresh token: blob > env var
+  // 3. Get the freshest refresh token: memory > blob > env var
   const clientId = process.env.SF_CLIENT_ID;
   const clientSecret = process.env.SF_CLIENT_SECRET;
-  let refreshToken = null;
+  let refreshToken = memCache.refreshToken || null;
 
-  // Try blob first (most recent, survives token rotation within same deploy)
-  if (store) {
+  // Try blob (survives across invocations)
+  if (!refreshToken && store) {
     try {
       const blobRT = await store.get('refresh-token');
       if (blobRT) refreshToken = blobRT;
@@ -89,12 +103,23 @@ export async function getSFAccessToken() {
 }
 
 async function cacheTokens(store, data) {
-  // Cache access token (50 min, SF tokens last ~1hr)
+  const expires = Date.now() + 50 * 60 * 1000;
+
+  // Always cache in memory (works even without blobs)
+  if (data.access_token) {
+    memCache.accessToken = data.access_token;
+    memCache.accessExpires = expires;
+  }
+  if (data.refresh_token) {
+    memCache.refreshToken = data.refresh_token;
+  }
+
+  // Cache access token in blob (50 min, SF tokens last ~1hr)
   if (store && data.access_token) {
     try {
       await store.set('access-token', JSON.stringify({
         token: data.access_token,
-        expires: Date.now() + 50 * 60 * 1000,
+        expires,
       }));
     } catch (e) {}
   }
