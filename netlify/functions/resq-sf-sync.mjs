@@ -1,6 +1,7 @@
 // ResQ ↔ Service Fusion Bidirectional Sync
 // POST /.netlify/functions/resq-sf-sync — runs a full sync cycle
 // GET  /.netlify/functions/resq-sf-sync — returns sync status/mapping
+// v2 — hardcoded customer IDs, blob persistence
 
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
