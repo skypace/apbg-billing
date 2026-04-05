@@ -8,6 +8,7 @@ export async function handler(event) {
   }
   const qs = event.queryStringParameters || {};
   if (qs.lookup) return handleLookup(qs.lookup);
+  if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -47,6 +48,31 @@ async function handleLookup(code) {
       return json({ found: false, code, totalScanned: edges2.length, oldest: edges2[edges2.length-1]?.node?.code });
     }
     return json({ found: false, code, totalScanned: edges.length, oldest: edges[edges.length-1]?.node?.code });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Reset Flags: Clear photosSent/invoiceSubmitted for a WO code ---
+async function handleResetFlags(code) {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    let found = false;
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === code || code === 'all') {
+        delete v.photosSent;
+        delete v.invoiceSubmitted;
+        found = true;
+      }
+    }
+    if (found) {
+      await store.set('wo-mapping', JSON.stringify(mapping));
+      return json({ reset: true, code });
+    }
+    return json({ reset: false, code, message: 'Not found in mapping' });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
