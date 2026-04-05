@@ -60,56 +60,89 @@ async function handleSfPhotos(jobId) {
     const { sfRequest, getSFAccessToken } = await import('./sf-helpers.mjs');
     const job = await sfRequest('GET', `/jobs/${jobId}?expand=pictures,documents,signatures,visits,visits.techs_assigned,notes`);
 
-    // Try to find the actual download URL for photos
     const token = await getSFAccessToken();
-    const photoTests = [];
-    for (const p of (job.pictures || [])) {
+    const SF_API = 'https://api.servicefusion.com/v1';
+    const authHeaders = { 'Authorization': `Bearer ${token}`, 'Accept': '*/*' };
+
+    // Helper: test a URL and return detailed result
+    async function testUrl(url, opts = {}) {
+      try {
+        const r = await fetch(url, { ...opts, headers: { ...authHeaders, ...(opts.headers || {}) } });
+        const ct = r.headers.get('content-type') || '';
+        const cl = r.headers.get('content-length') || '';
+        const loc = r.headers.get('location') || '';
+        let bodySnippet = '';
+        // Read body snippet for non-binary responses or small responses
+        if (r.status !== 200 || ct.includes('text') || ct.includes('html') || ct.includes('json')) {
+          bodySnippet = (await r.text()).substring(0, 300);
+        } else {
+          // Binary success - read size
+          const buf = await r.arrayBuffer();
+          bodySnippet = `[binary ${buf.byteLength} bytes]`;
+        }
+        return { status: r.status, contentType: ct, contentLength: cl, location: loc || undefined, body: bodySnippet };
+      } catch (e) {
+        return { error: e.message.substring(0, 100) };
+      }
+    }
+
+    // Test all pictures AND documents
+    const allFiles = [...(job.pictures || []), ...(job.documents || [])];
+    const fileTests = [];
+
+    for (const p of allFiles) {
       const loc = p.file_location || '';
-      // Test various base URLs
       const tests = {};
-      if (loc.startsWith('http')) {
-        tests.direct = loc;
-      } else {
-        // sf-uploads bucket exists (got 301 from s3.amazonaws.com/sf-uploads/)
-        // Try regional endpoints and virtual-hosted style
-        tests.sfUploadsVhost = `https://sf-uploads.s3.amazonaws.com/${loc}`;
-        tests.sfUploadsUs1 = `https://sf-uploads.s3.us-east-1.amazonaws.com/${loc}`;
-        tests.sfUploadsUs2 = `https://sf-uploads.s3.us-west-2.amazonaws.com/${loc}`;
-        tests.sfUploadsPics = `https://sf-uploads.s3.amazonaws.com/pics/${loc}`;
-        tests.sfUploadsImages = `https://sf-uploads.s3.amazonaws.com/images/${loc}`;
-        tests.sfUploadsJobs = `https://sf-uploads.s3.amazonaws.com/jobs/${loc}`;
-        tests.sfUploadsJobPics = `https://sf-uploads.s3.amazonaws.com/job_pics/${loc}`;
-        // Also try path style with region
-        tests.s3pathUs1 = `https://s3.us-east-1.amazonaws.com/sf-uploads/${loc}`;
-        tests.s3pathUs2 = `https://s3.us-west-2.amazonaws.com/sf-uploads/${loc}`;
+
+      // --- API-based download tests ---
+
+      // 1. customer-documents/{id}/download (if customer_doc_id exists)
+      if (p.customer_doc_id) {
+        tests['api_custdoc_download'] = await testUrl(`${SF_API}/customer-documents/${p.customer_doc_id}/download`);
+        tests['api_custdoc_metadata'] = await testUrl(`${SF_API}/customer-documents/${p.customer_doc_id}`);
+        // Also try with redirect: manual to see if it 302s
+        tests['api_custdoc_download_nofollow'] = await testUrl(`${SF_API}/customer-documents/${p.customer_doc_id}/download`, { redirect: 'manual' });
       }
-      const results = {};
-      for (const [name, url] of Object.entries(tests)) {
-        if (!url) continue;
-        try {
-          const r = await fetch(url, { method: 'HEAD', redirect: 'manual', headers: { 'Authorization': `Bearer ${token}` } });
-          const loc = r.headers.get('location') || '';
-          results[name] = `${r.status} ${r.headers.get('content-type') || ''}${loc ? ' → ' + loc : ''}`;
-          // If redirect, read body (S3 301 body contains correct endpoint)
-          if (r.status === 301 || r.status === 302) {
-            try {
-              const r2 = await fetch(url, { redirect: 'manual' });
-              const body = await r2.text();
-              results[name + '_body'] = body.substring(0, 300);
-            } catch (e2) { results[name + '_body'] = `error: ${e2.message.substring(0, 50)}`; }
-          }
-        } catch (e) { results[name] = `error: ${e.message.substring(0, 50)}`; }
+
+      // 2. pictures/{id} endpoints (if id exists)
+      if (p.id) {
+        tests['api_pictures_meta'] = await testUrl(`${SF_API}/pictures/${p.id}`);
+        tests['api_pictures_download'] = await testUrl(`${SF_API}/pictures/${p.id}/download`);
+        tests['api_job_pictures_download'] = await testUrl(`${SF_API}/job-pictures/${p.id}/download`);
+        tests['api_job_pictures_meta'] = await testUrl(`${SF_API}/job-pictures/${p.id}`);
       }
-      photoTests.push({ name: p.name, file_location: loc, doc_type: p.doc_type, urlTests: results, allFields: p });
+
+      // 3. Try using the file_location as a path on various SF endpoints
+      if (loc) {
+        tests['api_files_loc'] = await testUrl(`${SF_API}/files/${encodeURIComponent(loc)}`);
+        tests['webapp_download'] = await testUrl(`https://app.servicefusion.com/web/download-file?file=${encodeURIComponent(loc)}`);
+      }
+
+      // 4. S3 direct (ap-northeast-1 confirmed from previous 301 body)
+      if (loc && !loc.startsWith('http')) {
+        tests['s3_apne1'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`, { headers: {} }); // no auth
+        tests['s3_apne1_auth'] = await testUrl(`https://sf-uploads.s3-ap-northeast-1.amazonaws.com/${loc}`); // with auth
+      }
+
+      fileTests.push({
+        name: p.name,
+        file_location: loc,
+        doc_type: p.doc_type,
+        id: p.id,
+        customer_doc_id: p.customer_doc_id,
+        allFields: p,
+        downloadTests: tests,
+      });
     }
 
     return json({
-      jobId, status: job.status, photoTests,
-      documents: job.documents || [],
+      jobId, status: job.status,
+      pictureCount: (job.pictures || []).length,
+      documentCount: (job.documents || []).length,
+      fileTests,
       signatures: job.signatures || [],
       visits: (job.visits || []).map(v => ({ id: v.id, status: v.status, started: v.started_at, ended: v.ended_at })),
       notes: job.notes || [],
-      // Dump all top-level keys so we can see what fields exist
       allKeys: Object.keys(job),
     });
   } catch (e) {
