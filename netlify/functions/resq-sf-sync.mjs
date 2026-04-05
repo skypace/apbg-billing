@@ -70,10 +70,20 @@ async function handleSfPhotos(jobId) {
       if (loc.startsWith('http')) {
         tests.direct = loc;
       } else {
-        tests.s3 = `https://s3.amazonaws.com/servicefusion/${loc}`;
-        tests.appUploads = `https://app.servicefusion.com/uploads/${loc}`;
-        tests.apiPictures = `https://api.servicefusion.com/v1/pictures/${loc}`;
-        tests.customerDoc = p.customer_doc_id ? `https://api.servicefusion.com/v1/customer-documents/${p.customer_doc_id}` : null;
+        tests.s3pics = `https://s3.amazonaws.com/sf-pics/${loc}`;
+        tests.s3uploads = `https://s3.amazonaws.com/sf-uploads/${loc}`;
+        tests.s3sfJobs = `https://s3.amazonaws.com/servicefusion-jobs/${loc}`;
+        tests.s3sfPics = `https://s3.amazonaws.com/servicefusion-pics/${loc}`;
+        tests.s3sfImages = `https://s3.amazonaws.com/servicefusion-images/${loc}`;
+        tests.s3sf = `https://s3.amazonaws.com/servicefusion/${loc}`;
+        tests.s3sfProd = `https://servicefusion.s3.amazonaws.com/${loc}`;
+        tests.s3sfProdPics = `https://servicefusion.s3.amazonaws.com/pics/${loc}`;
+        tests.s3sfProdImages = `https://servicefusion.s3.amazonaws.com/images/${loc}`;
+        tests.s3sfProdUploads = `https://servicefusion.s3.amazonaws.com/uploads/${loc}`;
+        tests.appPics = `https://app.servicefusion.com/pics/${loc}`;
+        tests.appImages = `https://app.servicefusion.com/images/${loc}`;
+        tests.appJobPics = `https://app.servicefusion.com/job-pics/${loc}`;
+        tests.apiV1Pics = `https://api.servicefusion.com/v1/pics/${loc}`;
       }
       const results = {};
       for (const [name, url] of Object.entries(tests)) {
