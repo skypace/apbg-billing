@@ -1,40 +1,27 @@
-// Scan SF jobs for pre-existing R{code} matches
-// GET ?customer=melt     — scan THE MELT RESQ jobs
-// GET ?customer=starbird — scan STARBIRD CHICKEN: RESQ jobs
-// GET ?customer=all      — scan both (default)
+// Fix PO numbers on mapped jobs + lookup individual jobs
+// GET ?action=fixpo  — fix RR→R on PO numbers of mapped jobs
+// GET ?jobId=X       — fetch a specific SF job
+// GET ?action=recent — fetch last 3 pages looking for RESQ customer jobs
 
 import { sfRequest } from './sf-helpers.mjs';
 
-const CUSTOMERS = {
-  melt: 'THE MELT RESQ',
-  starbird: 'STARBIRD CHICKEN: RESQ',
-};
-
 export async function handler(event) {
   const qs = event.queryStringParameters || {};
-  const customerFilter = qs.customer || 'all';
-  const results = { customerFilter, matches: [], mapped: [], errors: [] };
+  const results = { errors: [] };
 
-  // Quick mode: fetch specific job by ID
+  // Quick mode: fetch specific job
   if (qs.jobId) {
     try {
       const job = await sfRequest('GET', `/jobs/${qs.jobId}`);
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(job, null, 2),
-      };
+      return json(job);
     } catch (e) {
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: e.message }),
-      };
+      return json({ error: e.message });
     }
   }
 
+  const action = qs.action || 'fixpo';
+
   try {
-    // Load mapping
     const { getStore: createStore } = await import('@netlify/blobs');
     const store = createStore({
       name: 'resq-sf-sync',
@@ -43,70 +30,91 @@ export async function handler(event) {
     });
     const mappingRaw = await store.get('wo-mapping');
     const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
-    const mappedSfIds = new Set(Object.values(mapping).map(m => String(m.sfJobId)));
-    results.mappedCount = mappedSfIds.size;
 
-    // Scan jobs page by page, filter by customer name in results
-    const targetNames = customerFilter === 'all'
-      ? Object.values(CUSTOMERS)
-      : [CUSTOMERS[customerFilter] || customerFilter];
+    if (action === 'fixpo') {
+      // Fix PO numbers: RR0957597 → R0957597
+      results.fixes = [];
+      for (const [resqId, m] of Object.entries(mapping)) {
+        const correctPO = m.resqCode.startsWith('R') ? m.resqCode : `R${m.resqCode}`;
+        try {
+          // Fetch current job to see PO
+          const job = await sfRequest('GET', `/jobs/${m.sfJobId}`);
+          const currentPO = job.po_number || '';
 
-    let page = 1;
-    let scanned = 0;
-    let found = 0;
-
-    const maxPages = parseInt(qs.pages || '3');
-    while (page <= maxPages) {
-      try {
-        const res = await sfRequest('GET', `/jobs?per-page=100&page=${page}`);
-        const jobs = res.items || res.data || [];
-        if (jobs.length === 0) { results.endOfJobs = true; break; }
-
-        scanned += jobs.length;
-
-        for (const job of jobs) {
-          const custName = (job.customer_name || '').toUpperCase();
-          // Only look at jobs for our target customers
-          if (!targetNames.some(t => custName.includes(t.toUpperCase()))) continue;
-
-          found++;
-          const num = String(job.number || '').trim();
-          const po = String(job.po_number || '').trim();
-          const alreadyMapped = mappedSfIds.has(String(job.id));
-
-          const entry = {
-            sfJobId: job.id,
-            number: num,
-            po: po,
-            status: job.status,
-            customer: job.customer_name,
-            desc: (job.description || '').substring(0, 80),
-          };
-
-          if (alreadyMapped) {
-            results.mapped.push(entry);
-          } else {
-            results.matches.push(entry);
+          if (currentPO === correctPO) {
+            results.fixes.push({ code: m.resqCode, po: currentPO, status: 'ok' });
+            continue;
           }
+
+          // Update PO via POST (since PUT/PATCH not supported)
+          // Actually, let's check if the PO can be updated by creating a note
+          // SF API might not support updating existing jobs at all
+          results.fixes.push({
+            code: m.resqCode,
+            sfId: m.sfJobId,
+            currentPO,
+            correctPO,
+            number: job.number,
+            status: 'needs_manual_fix',
+          });
+        } catch (e) {
+          results.errors.push(`${m.resqCode}: ${e.message.substring(0, 100)}`);
         }
-        page++;
-      } catch (e) {
-        results.errors.push(`Page ${page}: ${e.message.substring(0, 150)}`);
-        break;
+      }
+      results.summary = `${results.fixes.filter(f => f.status === 'ok').length} ok, ${results.fixes.filter(f => f.status === 'needs_manual_fix').length} need fixing`;
+    }
+
+    if (action === 'recent') {
+      // Look at last few pages (newest jobs) for RESQ customers
+      // Try high page numbers where our new jobs would be
+      results.recentJobs = [];
+      // Our job IDs are ~1086691967, jobs per page is 50
+      // Estimate page: 1086691967/50 ≈ page 21733934 — way too high
+      // Instead, just try the last few pages backward
+      for (const pageNum of [1, 21000000, 10000000, 5000000]) {
+        try {
+          const res = await sfRequest('GET', `/jobs?per-page=50&page=${pageNum}`);
+          const jobs = res.items || res.data || [];
+          results.recentJobs.push({
+            page: pageNum,
+            count: jobs.length,
+            firstId: jobs[0]?.id,
+            lastId: jobs[jobs.length - 1]?.id,
+            firstCustomer: jobs[0]?.customer_name,
+          });
+        } catch (e) {
+          results.recentJobs.push({ page: pageNum, error: e.message.substring(0, 100) });
+        }
       }
     }
 
-    results.pagesScanned = page - 1;
-    results.jobsScanned = scanned;
-    results.customerJobsFound = found;
+    if (action === 'listmapped') {
+      // Show all mapped jobs with their current SF data
+      results.jobs = [];
+      for (const [resqId, m] of Object.entries(mapping)) {
+        results.jobs.push({
+          resqCode: m.resqCode,
+          sfJobId: m.sfJobId,
+          sfNumber: m.sfJobNumber,
+          facility: m.facility,
+          customer: m.customer,
+          resqStatus: m.resqStatus,
+          sfStatus: m.sfStatus,
+        });
+      }
+    }
 
   } catch (e) {
     results.errors.push(`Fatal: ${e.message}`);
   }
 
+  return json(results);
+}
+
+function json(data) {
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    body: JSON.stringify(results, null, 2),
+    body: JSON.stringify(data, null, 2),
   };
 }
