@@ -4,7 +4,6 @@
 // POST /.netlify/functions/sf-fix-numbers — apply changes
 
 import { sfRequest } from './sf-helpers.mjs';
-import { getStore } from '@netlify/blobs';
 
 export async function handler(event) {
   const dryRun = event.httpMethod === 'GET';
@@ -12,7 +11,8 @@ export async function handler(event) {
 
   try {
     // 1. Load current mapping
-    const store = getStore({
+    const { getStore: createStore } = await import('@netlify/blobs');
+    const store = createStore({
       name: 'resq-sf-sync',
       siteID: process.env.NETLIFY_SITE_ID,
       token: process.env.NETLIFY_ACCESS_TOKEN,
