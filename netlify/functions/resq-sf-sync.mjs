@@ -182,9 +182,21 @@ async function handleIntrospect(what) {
       return json({ total: mutations.length, relevant, allNames: mutations.map(m => m.name).sort() });
     }
 
-    if (what === 'type') {
-      // Introspect a specific type via ?introspect=type&type=TypeName
-      return json({ error: 'Pass ?introspect=mutations to list all mutations' });
+    if (what.startsWith('type:')) {
+      const typeName = what.slice(5);
+      const data = await resqGql(session, `{ __type(name: "${typeName}") { name kind fields { name type { name kind ofType { name kind ofType { name } } } } inputFields { name type { name kind ofType { name kind ofType { name } } } } } }`);
+      return json(data.data?.__type || { error: 'Type not found' });
+    }
+
+    if (what.startsWith('try:')) {
+      // Try a mutation with minimal input to see if we get auth error or type error
+      const mutName = what.slice(4);
+      try {
+        const r = await resqGql(session, `mutation { ${mutName}(input: {}) { __typename } }`);
+        return json({ mutation: mutName, result: r });
+      } catch (e) {
+        return json({ mutation: mutName, error: e.message.substring(0, 500) });
+      }
     }
 
     return json({ usage: '?introspect=mutations' });
