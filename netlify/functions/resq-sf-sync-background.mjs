@@ -363,8 +363,18 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
 }
 
 // --- Build Invoice from SF Line Items → Submit to ResQ ---
+// Uses facility login for invoice operations (vendor account lacks invoice perms)
 async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const result = { steps: [], errors: [], updated: 0 };
+
+  // Get facility session for invoice submission (has more permissions)
+  let facilitySession;
+  try {
+    facilitySession = await resqLogin({ facility: true });
+  } catch (e) {
+    result.errors.push(`Facility login failed: ${e.message}`);
+    return result;
+  }
 
   // Fetch SF job with invoices + line items expanded
   let sfJob;
@@ -471,24 +481,39 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
   const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.price) * parseFloat(li.quantity)), 0);
 
-  // Generate an HTML invoice document with line items
+  // Strategy 1: Submit invoice with line items via facility account
+  // createPartneredInvoiceSubmissionFromBuilder requires facility permissions
+  if (lineItems.length > 0) {
+    try {
+      await resqGql(facilitySession, `mutation($input: CreatePartneredInvoiceSubmissionFromBuilderMutationInput!) {
+        createPartneredInvoiceSubmissionFromBuilder(input: $input) {
+          __typename
+        }
+      }`, { input: {
+        workOrderId: resqWO.id,
+        lineItems,
+        vendorReferenceNumber: refNumber,
+        vendorNotes: `SF Job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''} | $${totalAmount.toFixed(2)}`,
+      }});
+      result.steps.push(`→ ResQ ${resqWO.code} invoice built (${lineItems.length} items, ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
+      result.updated++;
+      return result; // Success — no need for fallback
+    } catch (e) {
+      result.errors.push(`Build invoice (facility) ${resqWO.code}: ${e.message.substring(0, 200)}`);
+      // Fall through to Strategy 2
+    }
+  }
+
+  // Strategy 2: Attach HTML invoice document as fallback
   const invoiceHtml = generateInvoiceHtml({
-    resqCode: resqWO.code,
-    sfJobId,
-    invoiceNumber: refNumber,
-    customerName: sfJob.customer_name || '',
-    description: sfJob.description || '',
-    lineItems,
-    totalAmount,
-    date: new Date().toISOString().split('T')[0],
+    resqCode: resqWO.code, sfJobId, invoiceNumber: refNumber,
+    customerName: sfJob.customer_name || '', description: sfJob.description || '',
+    lineItems, totalAmount, date: new Date().toISOString().split('T')[0],
   });
   const invoiceBase64 = Buffer.from(invoiceHtml, 'utf-8').toString('base64');
 
-  // Attach invoice as document to the WO (addAttachment works with vendor account)
-  // Then try uploadVendorInvoice to formally submit it
-  let attached = false;
   try {
-    await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
+    await resqGql(facilitySession, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
       addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
         __typename
       }
@@ -498,27 +523,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       fileContentType: 'text/html',
       label: `Invoice ${refNumber} $${totalAmount.toFixed(2)}`.substring(0, 100),
     });
-    attached = true;
-    result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
+    result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
     result.errors.push(`Attach invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
-  }
-
-  // Also try formal invoice upload (may fail if format not right, but worth trying)
-  if (attached) {
-    try {
-      await resqGql(session, `mutation($input: UploadVendorInvoiceInput!) {
-        uploadVendorInvoice(input: $input) { __typename }
-      }`, { input: {
-        workOrderId: resqWO.id,
-        invoiceFile: `data:text/html;base64,${invoiceBase64}`,
-      }});
-      result.steps.push(`→ ResQ ${resqWO.code} invoice formally submitted`);
-    } catch (e) {
-      // Not critical — the attachment is there
-      result.steps.push(`Note: formal invoice submit failed for ${resqWO.code} (attachment is available)`);
-    }
   }
 
   return result;

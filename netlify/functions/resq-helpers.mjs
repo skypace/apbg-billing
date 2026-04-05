@@ -5,10 +5,13 @@ const RESQ_GQL = 'https://api.getresq.com/api/graphql/';
 const RESQ_LOGIN = 'https://api.getresq.com/api/auth/login/';
 const RESQ_CSRF = 'https://api.getresq.com/api/auth/csrf/';
 
-export async function resqLogin() {
-  const email = process.env.RESQ_EMAIL;
-  const password = process.env.RESQ_PASSWORD;
-  if (!email || !password) throw new Error('RESQ_EMAIL / RESQ_PASSWORD not set');
+// Login as vendor (default) or facility
+// Pass { facility: true } to use RESQ_FACILITY_EMAIL/PASSWORD
+export async function resqLogin(opts = {}) {
+  const email = opts.facility ? process.env.RESQ_FACILITY_EMAIL : process.env.RESQ_EMAIL;
+  const password = opts.facility ? process.env.RESQ_FACILITY_PASSWORD : process.env.RESQ_PASSWORD;
+  const label = opts.facility ? 'RESQ_FACILITY_EMAIL/PASSWORD' : 'RESQ_EMAIL/PASSWORD';
+  if (!email || !password) throw new Error(`${label} not set`);
 
   // Get CSRF token
   const csrfRes = await fetch(RESQ_LOGIN, {
