@@ -171,7 +171,7 @@ async function handleUploadPhoto(event, resqWoId) {
       try {
         await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
           addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
-            ok
+            __typename
           }
         }`, {
           attachToId: resqWoId,
