@@ -257,7 +257,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       if (!completed) {
         try {
           await resqGql(session, `mutation($input: ForceWorkOrderCompletionMutationInput!) {
-            forceWorkOrderCompletion(input: $input) { workOrder { id status } }
+            forceWorkOrderCompletion(input: $input) { clientMutationId }
           }`, { input: { workOrderId: resqWO.id } });
           result.steps.push(`→ ResQ ${resqWO.code} force-completed`);
           result.updated++;
