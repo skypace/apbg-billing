@@ -5,26 +5,37 @@ export async function handler(event) {
   const results = {};
 
   // Try different field names for customer
-  // First: search for customers matching 'melt' and 'starbird'
-  try {
-    const allCusts = await sfRequest('GET', '/customers?per-page=500');
-    const items = allCusts.items || allCusts.data || (Array.isArray(allCusts) ? allCusts : []);
-    const relevant = items.filter(c => {
-      const n = (c.customer_name || c.name || '').toLowerCase();
-      return n.includes('melt') || n.includes('starbird') || n.includes('resq');
-    });
-    results.matchingCustomers = relevant.map(c => ({
-      id: c.id,
-      name: c.customer_name || c.name,
-      parent: c.parent_customer || c.parent_customer_name || null,
-    }));
-  } catch (e) {
-    results.customerSearch = { error: e.message.substring(0, 200) };
+  // Look up customers by known IDs
+  for (const [label, id] of [['melt', 408972], ['starbird', 408973]]) {
+    try {
+      const c = await sfRequest('GET', `/customers/${id}`);
+      results[label] = {
+        id: c.id,
+        customer_name: c.customer_name,
+        keys: Object.keys(c).slice(0, 20),
+      };
+    } catch (e) {
+      results[label] = { error: e.message.substring(0, 200) };
+    }
   }
 
-  const fieldTests = [
-    // No job creation tests for now — just finding customer names
-  ];
+  // Now try creating a job with the exact name from the API
+  const meltName = results.melt?.customer_name;
+  if (meltName) {
+    try {
+      const job = await sfRequest('POST', '/jobs', {
+        customer_name: meltName,
+        description: 'SYNC TEST — delete me',
+        status: 'Unscheduled',
+        po_number: 'RTEST999',
+      });
+      results.createTest = { success: true, jobId: job.id, jobNumber: job.number };
+    } catch (e) {
+      results.createTest = { success: false, error: e.message.substring(0, 300) };
+    }
+  }
+
+  const fieldTests = [];
 
   for (const test of fieldTests) {
     try {
