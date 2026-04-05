@@ -10,8 +10,8 @@ const BRIX_VENDOR_KEYWORDS = ['brix'];  // Match vendor name containing "brix"
 
 // SF customer names — must match exactly what's in Service Fusion
 const SF_CUSTOMERS = {
-  starbird: 'STARBIRD CHICKEN: STARBIRD CHICKEN: RESQ',
-  melt: 'THE MELT MAIN: THE MELT RESQ',
+  starbird: 'STARBIRD CHICKEN: RESQ',
+  melt: 'THE MELT - RESQ',
 };
 
 // Facility keywords → SF customer mapping
@@ -369,12 +369,37 @@ async function resolveSfCustomerIds() {
   const ids = {};
   for (const [key, name] of Object.entries(SF_CUSTOMERS)) {
     try {
-      const result = await sfRequest('GET', `/customers?q=${encodeURIComponent(name)}&per-page=10`);
+      // Search with just the key part (e.g. "RESQ" to find sub-accounts)
+      const searchTerm = name.includes('RESQ') ? 'RESQ' : name;
+      const result = await sfRequest('GET', `/customers?q=${encodeURIComponent(searchTerm)}&per-page=50`);
       const customers = result.items || result.data || (Array.isArray(result) ? result : []);
-      const match = customers.find(c =>
+
+      // Try exact match first
+      let match = customers.find(c =>
         (c.customer_name || c.name || '').toUpperCase() === name.toUpperCase()
       );
-      ids[key] = match ? match.id : (customers[0]?.id || null);
+
+      // Then try contains match
+      if (!match) {
+        const nameUpper = name.toUpperCase();
+        match = customers.find(c =>
+          (c.customer_name || c.name || '').toUpperCase().includes(nameUpper)
+        );
+      }
+
+      // Then try if customer name contains our search name
+      if (!match) {
+        const nameUpper = name.toUpperCase();
+        match = customers.find(c => {
+          const cn = (c.customer_name || c.name || '').toUpperCase();
+          return cn.includes('RESQ') && (
+            (key === 'melt' && cn.includes('MELT')) ||
+            (key === 'starbird' && cn.includes('STARBIRD'))
+          );
+        });
+      }
+
+      if (match) ids[key] = match.id;
     } catch (e) {
       // Customer doesn't exist yet
     }
