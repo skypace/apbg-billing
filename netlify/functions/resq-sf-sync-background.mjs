@@ -23,11 +23,13 @@ const BRIX_VENDOR_KEYWORDS = ['brix'];
 const SF_CUSTOMERS = {
   starbird: { name: 'STARBIRD CHICKEN: RESQ' },
   melt: { name: 'THE MELT RESQ' },
+  brix: { name: 'BRIX BEVERAGE: RESQ' },
 };
 
 const FACILITY_MAP = [
   { keywords: ['starbird', 'star bird'], sfCustomer: 'starbird' },
   { keywords: ['melt', 'homeroom'], sfCustomer: 'melt' },
+  { keywords: ['brix', 'equipment storage'], sfCustomer: 'brix' },
 ];
 
 // ResQ statuses that mean "done" — don't create new SF jobs for these
@@ -78,7 +80,7 @@ export async function handler(event) {
     log.steps.push(`Found ${resqWOs.length} syncable WOs`);
     await saveProgress();
 
-    const sfCustomerNames = { melt: SF_CUSTOMERS.melt.name, starbird: SF_CUSTOMERS.starbird.name };
+    const sfCustomerNames = { melt: SF_CUSTOMERS.melt.name, starbird: SF_CUSTOMERS.starbird.name, brix: SF_CUSTOMERS.brix.name };
 
     // 4. Process each WO
     log.steps.push('Processing WOs...');
@@ -298,7 +300,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
 // --- Fetch syncable ResQ WOs ---
 async function fetchSyncableWOs(session) {
   const data = await resqGql(session, `{
-    workOrders(first: 200, orderBy: "-raised_on") {
+    workOrders(first: 500, orderBy: "-raised_on") {
       edges { node {
         id code title description status statusDescription
         raisedOn completedOn scheduledForStart scheduledForEnd
