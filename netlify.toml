@@ -5,6 +5,12 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions."resq-sf-sync"]
+  timeout = 60
+
+[functions."resq-sf-sync-cron"]
+  timeout = 60
+
 [[headers]]
   for = "/*"
   [headers.values]
