@@ -484,18 +484,41 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   });
   const invoiceBase64 = Buffer.from(invoiceHtml, 'utf-8').toString('base64');
 
-  // Upload invoice via uploadVendorInvoice (vendor account has access)
+  // Attach invoice as document to the WO (addAttachment works with vendor account)
+  // Then try uploadVendorInvoice to formally submit it
+  let attached = false;
   try {
-    await resqGql(session, `mutation($input: UploadVendorInvoiceInput!) {
-      uploadVendorInvoice(input: $input) { __typename }
-    }`, { input: {
-      workOrderId: resqWO.id,
-      invoiceFile: invoiceBase64,
-    }});
-    result.steps.push(`→ ResQ ${resqWO.code} invoice uploaded (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
+    await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
+      addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
+        __typename
+      }
+    }`, {
+      attachToId: resqWO.id,
+      file: invoiceBase64,
+      fileContentType: 'text/html',
+      label: `Invoice ${refNumber} — SF Job #${sfJobId} — $${totalAmount.toFixed(2)}`,
+    });
+    attached = true;
+    result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
-    result.errors.push(`Upload invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
+    result.errors.push(`Attach invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
+  }
+
+  // Also try formal invoice upload (may fail if format not right, but worth trying)
+  if (attached) {
+    try {
+      await resqGql(session, `mutation($input: UploadVendorInvoiceInput!) {
+        uploadVendorInvoice(input: $input) { __typename }
+      }`, { input: {
+        workOrderId: resqWO.id,
+        invoiceFile: `data:text/html;base64,${invoiceBase64}`,
+      }});
+      result.steps.push(`→ ResQ ${resqWO.code} invoice formally submitted`);
+    } catch (e) {
+      // Not critical — the attachment is there
+      result.steps.push(`Note: formal invoice submit failed for ${resqWO.code} (attachment is available)`);
+    }
   }
 
   return result;
