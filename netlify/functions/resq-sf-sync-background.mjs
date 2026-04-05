@@ -231,12 +231,17 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
         if (photoResult.count > 0) {
           result.steps.push(`📸 ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
+          mapEntry.photosSent = true;
+          result.updated++;
+        } else if (photoResult.errors.length) {
+          // Photos exist but couldn't be auto-downloaded — don't mark as sent
+          result.steps.push(`📸 ${resqWO.code}: manual upload needed via sync.html`);
+          result.errors.push(...photoResult.errors);
         } else {
+          // No photos on the SF job at all
           result.steps.push(`No photos on SF job for ${resqWO.code}`);
+          mapEntry.photosSent = true; // nothing to send
         }
-        if (photoResult.errors.length) result.errors.push(...photoResult.errors);
-        mapEntry.photosSent = true;
-        result.updated++;
       } catch (e) {
         result.errors.push(`Photos ${resqWO.code}: ${e.message}`);
       }
@@ -334,6 +339,9 @@ function classifyFacility(facilityName) {
 }
 
 // --- Transfer SF Photos → ResQ ---
+// NOTE: SF API does not expose file download endpoints. S3 bucket (sf-uploads)
+// is private. Photos must be uploaded manually via sync.html upload widget.
+// This function checks if photos exist on the SF job and logs accordingly.
 async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
   const result = { count: 0, errors: [] };
 
@@ -346,73 +354,11 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
     return result;
   }
 
-  // Combine pictures + documents (both have name, file_location, customer_doc_id)
   const allFiles = [...(sfJob.pictures || []), ...(sfJob.documents || [])];
   if (allFiles.length === 0) return result;
 
-  const { getSFAccessToken } = await import('./sf-helpers.mjs');
-  const sfToken = await getSFAccessToken();
-  const SF_S3_BASE = 'https://sf-uploads.s3-ap-northeast-1.amazonaws.com';
-
-  for (const pic of allFiles) {
-    const loc = pic.file_location;
-    if (!loc) continue;
-
-    try {
-      let imgRes = null;
-
-      // Approach 1: customer-documents download (if customer_doc_id exists)
-      if (!imgRes && pic.customer_doc_id) {
-        try {
-          const docUrl = `https://api.servicefusion.com/v1/customer-documents/${pic.customer_doc_id}/download`;
-          const r = await fetch(docUrl, { headers: { 'Authorization': `Bearer ${sfToken}`, 'Accept': '*/*' } });
-          if (r.ok) imgRes = r;
-        } catch (e) {}
-      }
-
-      // Approach 2: SF web app file download
-      if (!imgRes) {
-        try {
-          const r = await fetch(`https://app.servicefusion.com/web/download-file?file=${encodeURIComponent(loc)}`, {
-            headers: { 'Authorization': `Bearer ${sfToken}` },
-          });
-          if (r.ok) imgRes = r;
-        } catch (e) {}
-      }
-
-      // Approach 3: S3 direct (may work for public buckets)
-      if (!imgRes) {
-        const s3Url = loc.startsWith('http') ? loc : `${SF_S3_BASE}/${loc}`;
-        const r = await fetch(s3Url);
-        if (r.ok) imgRes = r;
-      }
-
-      if (!imgRes) {
-        result.errors.push(`Download ${pic.name || loc}: all approaches failed`);
-        continue;
-      }
-
-      const buffer = await imgRes.arrayBuffer();
-      const base64 = Buffer.from(buffer).toString('base64');
-      const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-      const label = pic.name || pic.comment || `SF photo`;
-
-      // Upload to ResQ via addAttachment
-      await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
-        addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
-          clientMutationId
-        }
-      }`, {
-        attachToId: resqWoId,
-        file: base64,
-        fileContentType: contentType,
-        label,
-      });
-      result.count++;
-    } catch (e) {
-      result.errors.push(`Upload photo ${pic.name || 'unknown'}: ${e.message.substring(0, 100)}`);
-    }
-  }
+  // Photos exist but can't be auto-downloaded — flag for manual upload
+  result.errors.push(`SF job ${sfJobId} has ${allFiles.length} photo(s) — use sync.html to upload manually to ResQ`);
   return result;
 }
 
