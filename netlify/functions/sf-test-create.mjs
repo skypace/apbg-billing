@@ -5,37 +5,35 @@ export async function handler(event) {
   const results = {};
 
   // Try different field names for customer
-  // 1. Get first page of customers to see sample + total
-  try {
-    const page1 = await sfRequest('GET', '/customers?per-page=50');
-    const items = page1.items || page1.data || [];
-    const meta = page1._meta || {};
-    results.customerMeta = { total: meta.total, perPage: meta.per_page, pages: meta.last_page };
-    results.sampleCustomer = items[0] ? { id: items[0].id, name: items[0].customer_name, keys: Object.keys(items[0]).slice(0, 15) } : null;
-  } catch (e) {
-    results.page1 = { error: e.message.substring(0, 200) };
-  }
+  // Paginate ALL customers to find melt/starbird/resq
+  const targets = ['melt', 'starbird', 'resq'];
+  const found = [];
+  let page = 1;
+  let totalScanned = 0;
 
-  // 2. Search for melt/starbird using q parameter
-  for (const term of ['melt', 'starbird', 'RESQ']) {
+  while (page <= 50) { // safety limit
     try {
-      const res = await sfRequest('GET', `/customers?q=${encodeURIComponent(term)}&per-page=10`);
+      const res = await sfRequest('GET', `/customers?per-page=100&page=${page}`);
       const items = res.items || res.data || [];
-      results[`search_${term}`] = items.map(c => ({ id: c.id, name: c.customer_name })).slice(0, 5);
+      if (items.length === 0) break;
+
+      totalScanned += items.length;
+      for (const c of items) {
+        const n = (c.customer_name || '').toLowerCase();
+        if (targets.some(t => n.includes(t))) {
+          found.push({ id: c.id, name: c.customer_name });
+        }
+      }
+      page++;
     } catch (e) {
-      results[`search_${term}`] = { error: e.message.substring(0, 200) };
+      results.paginationError = { page, error: e.message.substring(0, 200) };
+      break;
     }
   }
 
-  // 3. Try fetching customer by the IDs user gave
-  for (const id of [408972, 408973]) {
-    try {
-      const c = await sfRequest('GET', `/customers/${id}`);
-      results[`id_${id}`] = { name: c.customer_name };
-    } catch (e) {
-      results[`id_${id}`] = { error: '404 - not found' };
-    }
-  }
+  results.totalScanned = totalScanned;
+  results.pagesScanned = page - 1;
+  results.matchingCustomers = found;
 
   const fieldTests = [];
 
