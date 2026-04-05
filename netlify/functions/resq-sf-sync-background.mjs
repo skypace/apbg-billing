@@ -20,42 +20,74 @@ const FACILITY_MAP = [
 export async function handler(event) {
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
 
-  try {
-    // 1. Connect to both services in parallel
-    log.steps.push('Connecting to ResQ + SF...');
-    const [session] = await Promise.all([
-      resqLogin(),
-      sfRequest('GET', '/me').catch(e => { throw new Error('SF not connected: ' + e.message); }),
-    ]);
-    log.steps.push('ResQ + SF connected');
+  // Helper to save progress after each major step
+  const saveProgress = async () => {
+    try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
+  };
 
-    // 2. Load mapping + fetch WOs in parallel
-    const [mapping, resqWOs] = await Promise.all([
-      loadMapping(),
-      fetchSyncableWOs(session),
-    ]);
-    log.steps.push(`${Object.keys(mapping).length} mappings, ${resqWOs.length} syncable WOs`);
+  try {
+    // 1. Connect to ResQ
+    log.steps.push('Logging into ResQ...');
+    await saveProgress();
+    let session;
+    try {
+      session = await resqLogin();
+      log.steps.push('ResQ OK');
+    } catch (e) {
+      log.errors.push('ResQ login failed: ' + e.message);
+      throw e;
+    }
+
+    // 2. Verify SF
+    log.steps.push('Checking SF...');
+    await saveProgress();
+    try {
+      await sfRequest('GET', '/me');
+      log.steps.push('SF OK');
+    } catch (e) {
+      log.errors.push('SF failed: ' + e.message);
+      throw new Error('SF not connected: ' + e.message);
+    }
+
+    // 3. Load mapping
+    const mapping = await loadMapping();
+    log.steps.push(`Loaded ${Object.keys(mapping).length} mappings`);
+
+    // 4. Fetch ResQ WOs
+    log.steps.push('Fetching ResQ WOs...');
+    await saveProgress();
+    const resqWOs = await fetchSyncableWOs(session);
+    log.steps.push(`Found ${resqWOs.length} syncable WOs`);
+    await saveProgress();
 
     const sfCustomerIds = { melt: SF_CUSTOMERS.melt.id, starbird: SF_CUSTOMERS.starbird.id };
 
-    // 3. Process each WO (sequential to avoid SF rate limits)
-    for (const wo of resqWOs) {
-      if (mapping[wo.id]) {
-        // Already mapped — sync SF status → ResQ
-        const r = await syncSfToResq(session, wo, mapping[wo.id]);
-        if (r.steps.length) log.steps.push(...r.steps);
-        if (r.errors.length) log.errors.push(...r.errors);
-        log.updated += r.updated || 0;
-      } else {
-        // New WO — find or create in SF
-        const r = await processNewWO(wo, mapping, sfCustomerIds);
-        if (r.steps.length) log.steps.push(...r.steps);
-        if (r.errors.length) log.errors.push(...r.errors);
-        log.created += r.created || 0;
+    // 5. Process each WO one at a time, saving progress
+    for (let i = 0; i < resqWOs.length; i++) {
+      const wo = resqWOs[i];
+      log.steps.push(`[${i + 1}/${resqWOs.length}] ${wo.code} — ${wo.facility}`);
+
+      try {
+        if (mapping[wo.id]) {
+          const r = await syncSfToResq(session, wo, mapping[wo.id]);
+          if (r.steps.length) log.steps.push(...r.steps);
+          if (r.errors.length) log.errors.push(...r.errors);
+          log.updated += r.updated || 0;
+        } else {
+          const r = await processNewWO(wo, mapping, sfCustomerIds);
+          if (r.steps.length) log.steps.push(...r.steps);
+          if (r.errors.length) log.errors.push(...r.errors);
+          log.created += r.created || 0;
+        }
+      } catch (e) {
+        log.errors.push(`WO ${wo.code} crashed: ${e.message}`);
       }
+
+      // Save progress every 4 WOs
+      if ((i + 1) % 4 === 0) await saveProgress();
     }
 
-    // 4. Save results
+    // 6. Save final results
     log.completed = new Date().toISOString();
     log.mappingCount = Object.keys(mapping).length;
     await Promise.all([
