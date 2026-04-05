@@ -134,7 +134,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
     return result;
   }
 
-  const resqRef = `R${wo.code}`;
+  const resqRef = wo.code.startsWith('R') ? wo.code : `R${wo.code}`;
 
   // TODO: findExistingSfJob disabled — SF search API is broken/hangs
   // Existing R{code} jobs will be discovered later via job listing
@@ -287,7 +287,7 @@ async function findExistingSfJob(resqRef) {
 }
 
 async function createSfJob(resqWO, customerName) {
-  const resqRef = `R${resqWO.code}`;
+  const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
   const description = [
     `ResQ WO: ${resqRef}`,
     resqWO.title,
