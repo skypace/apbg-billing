@@ -89,8 +89,16 @@ async function handleSfPhotos(jobId) {
       for (const [name, url] of Object.entries(tests)) {
         if (!url) continue;
         try {
-          const r = await fetch(url, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } });
-          results[name] = `${r.status} ${r.headers.get('content-type') || ''}`;
+          const r = await fetch(url, { method: 'HEAD', redirect: 'manual', headers: { 'Authorization': `Bearer ${token}` } });
+          const loc = r.headers.get('location') || '';
+          results[name] = `${r.status} ${r.headers.get('content-type') || ''}${loc ? ' → ' + loc : ''}`;
+          // If redirect, follow it
+          if (r.status === 301 || r.status === 302) {
+            try {
+              const r2 = await fetch(loc, { method: 'HEAD' });
+              results[name + '_follow'] = `${r2.status} ${r2.headers.get('content-type') || ''} ${r2.headers.get('content-length') || '?'} bytes`;
+            } catch (e2) { results[name + '_follow'] = `error: ${e2.message.substring(0, 50)}`; }
+          }
         } catch (e) { results[name] = `error: ${e.message.substring(0, 50)}`; }
       }
       photoTests.push({ name: p.name, file_location: loc, doc_type: p.doc_type, urlTests: results, allFields: p });
