@@ -359,11 +359,23 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
     const url = loc.startsWith('http') ? loc : `${SF_PHOTO_BASE}/${loc}`;
 
     try {
-      // Download the image
-      const imgRes = await fetch(url);
+      // Download the image — try S3 first, then authenticated SF API
+      let imgRes = await fetch(url);
       if (!imgRes.ok) {
-        result.errors.push(`Download photo ${pic.name || loc}: ${imgRes.status} from ${url}`);
-        continue;
+        // S3 might be private — try via SF app with auth token
+        const { getSFAccessToken } = await import('./sf-helpers.mjs');
+        const sfToken = await getSFAccessToken();
+        // Try SF app download URL pattern
+        const sfAppUrl = `https://app.servicefusion.com/api/v1/download-pic?file=${encodeURIComponent(loc)}`;
+        imgRes = await fetch(sfAppUrl, { headers: { 'Authorization': `Bearer ${sfToken}` } });
+        if (!imgRes.ok) {
+          // Try S3 with auth header
+          imgRes = await fetch(url, { headers: { 'Authorization': `Bearer ${sfToken}` } });
+          if (!imgRes.ok) {
+            result.errors.push(`Download photo ${pic.name || loc}: ${imgRes.status}`);
+            continue;
+          }
+        }
       }
 
       const buffer = await imgRes.arrayBuffer();
