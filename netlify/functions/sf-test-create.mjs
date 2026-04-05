@@ -5,33 +5,35 @@ export async function handler(event) {
   const results = {};
 
   // Try different field names for customer
-  // Look up customers by known IDs
-  for (const [label, id] of [['melt', 408972], ['starbird', 408973]]) {
+  // 1. Get first page of customers to see sample + total
+  try {
+    const page1 = await sfRequest('GET', '/customers?per-page=50');
+    const items = page1.items || page1.data || [];
+    const meta = page1._meta || {};
+    results.customerMeta = { total: meta.total, perPage: meta.per_page, pages: meta.last_page };
+    results.sampleCustomer = items[0] ? { id: items[0].id, name: items[0].customer_name, keys: Object.keys(items[0]).slice(0, 15) } : null;
+  } catch (e) {
+    results.page1 = { error: e.message.substring(0, 200) };
+  }
+
+  // 2. Search for melt/starbird using q parameter
+  for (const term of ['melt', 'starbird', 'RESQ']) {
     try {
-      const c = await sfRequest('GET', `/customers/${id}`);
-      results[label] = {
-        id: c.id,
-        customer_name: c.customer_name,
-        keys: Object.keys(c).slice(0, 20),
-      };
+      const res = await sfRequest('GET', `/customers?q=${encodeURIComponent(term)}&per-page=10`);
+      const items = res.items || res.data || [];
+      results[`search_${term}`] = items.map(c => ({ id: c.id, name: c.customer_name })).slice(0, 5);
     } catch (e) {
-      results[label] = { error: e.message.substring(0, 200) };
+      results[`search_${term}`] = { error: e.message.substring(0, 200) };
     }
   }
 
-  // Now try creating a job with the exact name from the API
-  const meltName = results.melt?.customer_name;
-  if (meltName) {
+  // 3. Try fetching customer by the IDs user gave
+  for (const id of [408972, 408973]) {
     try {
-      const job = await sfRequest('POST', '/jobs', {
-        customer_name: meltName,
-        description: 'SYNC TEST — delete me',
-        status: 'Unscheduled',
-        po_number: 'RTEST999',
-      });
-      results.createTest = { success: true, jobId: job.id, jobNumber: job.number };
+      const c = await sfRequest('GET', `/customers/${id}`);
+      results[`id_${id}`] = { name: c.customer_name };
     } catch (e) {
-      results.createTest = { success: false, error: e.message.substring(0, 300) };
+      results[`id_${id}`] = { error: '404 - not found' };
     }
   }
 
