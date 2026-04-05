@@ -52,16 +52,26 @@ async function handlePost() {
       await store.set('last-sync', marker);
     }
 
-    // Call the background function via HTTP (Netlify routes -background functions)
+    // Call the background function via HTTP — MUST await to ensure it fires
+    // Netlify background functions (name ending in -background) return 202 immediately
+    // and continue running for up to 15 minutes
     const siteUrl = process.env.URL || 'https://apbg-billing.netlify.app';
-    fetch(`${siteUrl}/.netlify/functions/resq-sf-sync-background`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trigger: 'manual', ts: Date.now() }),
-    }).catch(() => {}); // fire-and-forget
+    const bgUrl = `${siteUrl}/.netlify/functions/resq-sf-sync-background`;
+    let bgStatus = 'unknown';
+    try {
+      const bgRes = await fetch(bgUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger: 'manual', ts: Date.now() }),
+      });
+      bgStatus = `${bgRes.status}`;
+    } catch (e) {
+      bgStatus = `error: ${e.message}`;
+    }
 
     return json({
       status: 'started',
+      bgStatus,
       message: 'Sync running in background. Refresh in ~30 seconds to see results.',
     }, 202);
   } catch (e) {
