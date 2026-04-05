@@ -1,17 +1,16 @@
 // Scheduled: ResQ ↔ SF sync every 5 minutes
-// Uses Netlify Functions v2 (default export) for schedule support
+// Calls the background worker directly (same process, no HTTP)
 
-import { handler as syncHandler } from './resq-sf-sync.mjs';
+import { handler as bgHandler } from './resq-sf-sync-background.mjs';
 
 export default async (req) => {
   console.log('[CRON] ResQ↔SF sync starting...');
 
   try {
-    const result = await syncHandler({ httpMethod: 'POST' });
-    const body = JSON.parse(result.body);
-    console.log(`[CRON] Sync complete: ${body.created || 0} created, ${body.updated || 0} updated, ${body.errors?.length || 0} errors`);
-    return new Response(result.body, {
-      status: result.statusCode,
+    await bgHandler({ httpMethod: 'POST' });
+    console.log('[CRON] Sync complete');
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
@@ -23,7 +22,6 @@ export default async (req) => {
   }
 };
 
-// Netlify scheduled function config — every 5 minutes
 export const config = {
   schedule: '*/5 * * * *',
 };

@@ -220,17 +220,49 @@ async function loadStatus() {
 async function runSync() {
   const btn = document.getElementById('syncBtn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Syncing...';
+  btn.innerHTML = '<span class="spinner"></span>Starting sync...';
 
   try {
     const res = await fetch(`${API_BASE}/resq-sf-sync`, { method: 'POST' });
     const data = await res.json();
-    renderLog(data);
-    await loadStatus();
+
+    if (res.status === 202 || data.status === 'started') {
+      // Background function kicked off — poll for results
+      document.getElementById('syncLog').innerHTML =
+        '<span class="info">Sync running in background...</span>';
+      btn.innerHTML = '<span class="spinner"></span>Waiting for results...';
+
+      // Poll every 5 seconds for up to 2 minutes
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        try {
+          await loadStatus();
+          // Check if sync completed (no longer "running")
+          const statusRes = await fetch(`${API_BASE}/resq-sf-sync`);
+          const statusData = await statusRes.json();
+          if (statusData.lastSync && !statusData.lastSync.running) {
+            clearInterval(poll);
+            btn.disabled = false;
+            btn.innerHTML = '▶ Run Sync Now';
+            renderLog(statusData.lastSync);
+          }
+        } catch (e) {}
+        if (attempts >= 24) { // 2 minutes max
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.innerHTML = '▶ Run Sync Now';
+        }
+      }, 5000);
+    } else {
+      renderLog(data);
+      await loadStatus();
+      btn.disabled = false;
+      btn.innerHTML = '▶ Run Sync Now';
+    }
   } catch (e) {
     document.getElementById('syncLog').innerHTML =
       `<span class="error">Sync failed: ${e.message}</span>`;
-  } finally {
     btn.disabled = false;
     btn.innerHTML = '▶ Run Sync Now';
   }
