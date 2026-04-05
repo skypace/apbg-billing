@@ -58,7 +58,7 @@ async function handleLookup(code) {
 async function handleSfPhotos(jobId) {
   try {
     const { sfRequest, getSFAccessToken } = await import('./sf-helpers.mjs');
-    const job = await sfRequest('GET', `/jobs/${jobId}?expand=pictures,documents`);
+    const job = await sfRequest('GET', `/jobs/${jobId}?expand=pictures,documents,signatures,visits,visits.techs_assigned,notes`);
 
     // Try to find the actual download URL for photos
     const token = await getSFAccessToken();
@@ -103,7 +103,15 @@ async function handleSfPhotos(jobId) {
       photoTests.push({ name: p.name, file_location: loc, doc_type: p.doc_type, urlTests: results, allFields: p });
     }
 
-    return json({ jobId, status: job.status, photoTests, documents: job.documents || [] });
+    return json({
+      jobId, status: job.status, photoTests,
+      documents: job.documents || [],
+      signatures: job.signatures || [],
+      visits: (job.visits || []).map(v => ({ id: v.id, status: v.status, started: v.started_at, ended: v.ended_at })),
+      notes: job.notes || [],
+      // Dump all top-level keys so we can see what fields exist
+      allKeys: Object.keys(job),
+    });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
