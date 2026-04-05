@@ -349,15 +349,20 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
   const pictures = sfJob.pictures || [];
   if (pictures.length === 0) return result;
 
+  const SF_PHOTO_BASE = 'https://sf-uploads.s3-ap-northeast-1.amazonaws.com';
+
   for (const pic of pictures) {
-    const url = pic.file_location;
-    if (!url) continue;
+    const loc = pic.file_location;
+    if (!loc) continue;
+
+    // Build full URL — file_location is either a full URL or just a filename
+    const url = loc.startsWith('http') ? loc : `${SF_PHOTO_BASE}/${loc}`;
 
     try {
       // Download the image
       const imgRes = await fetch(url);
       if (!imgRes.ok) {
-        result.errors.push(`Download photo ${pic.name || url}: ${imgRes.status}`);
+        result.errors.push(`Download photo ${pic.name || loc}: ${imgRes.status} from ${url}`);
         continue;
       }
 
