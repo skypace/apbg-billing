@@ -6,7 +6,11 @@ export async function handler(event) {
 
   // 1. Check blob store
   try {
-    const store = getStore('sf-tokens');
+    const store = getStore({
+      name: 'sf-tokens',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+    });
     results.blobsAvailable = true;
 
     // Read access token
@@ -56,7 +60,11 @@ export async function handler(event) {
   const qs = event.queryStringParameters || {};
   if (qs.action === 'fix' && qs.token) {
     try {
-      const store = getStore('sf-tokens');
+      const store = getStore({
+      name: 'sf-tokens',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+    });
       await store.set('refresh-token', qs.token);
 
       // Also try to get an access token right now

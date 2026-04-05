@@ -17,7 +17,11 @@ async function getStore() {
   if (blobsAvailable === false) return null;
   try {
     const { getStore } = await import('@netlify/blobs');
-    blobStore = getStore('sf-tokens');
+    blobStore = getStore({
+      name: 'sf-tokens',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+    });
     blobsAvailable = true;
     return blobStore;
   } catch (e) {

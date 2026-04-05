@@ -469,8 +469,12 @@ let blobStore = null;
 async function getStore() {
   if (blobStore) return blobStore;
   try {
-    const { getStore } = await import('@netlify/blobs');
-    blobStore = getStore('resq-sf-sync');
+    const { getStore: createStore } = await import('@netlify/blobs');
+    blobStore = createStore({
+      name: 'resq-sf-sync',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+    });
     return blobStore;
   } catch (e) {
     return null;

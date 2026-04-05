@@ -38,7 +38,11 @@ export async function handler(event) {
 
     // Save to Netlify Blobs (immediate availability for sync functions)
     try {
-      const store = getStore('sf-tokens');
+      const store = getStore({
+        name: 'sf-tokens',
+        siteID: process.env.NETLIFY_SITE_ID,
+        token: process.env.NETLIFY_ACCESS_TOKEN,
+      });
       if (tokens.access_token) {
         await store.set('access-token', JSON.stringify({
           token: tokens.access_token,
