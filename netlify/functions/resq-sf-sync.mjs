@@ -325,18 +325,17 @@ async function fetchSyncableWOs(session) {
 
 // --- SF Helpers ---
 
-// Search SF for an existing job matching R{resqCode} in PO number or description
+// Search SF for an existing job matching R{resqCode} in job number, PO, name, or description
 async function findExistingSfJob(resqRef, customerId) {
-  // Search by PO number first (most reliable)
   try {
     const result = await sfRequest('GET', `/jobs?q=${encodeURIComponent(resqRef)}&per-page=20`);
     const jobs = result.items || result.data || (Array.isArray(result) ? result : []);
-    // Look for exact match on PO number or job name containing R{code}
     for (const job of jobs) {
+      const jobNum = (job.number || job.job_number || '').toString().trim();
       const po = (job.po_number || '').trim();
       const desc = (job.description || '').toLowerCase();
       const name = (job.name || job.job_name || '').trim();
-      if (po === resqRef || name === resqRef || desc.includes(resqRef.toLowerCase())) {
+      if (jobNum === resqRef || po === resqRef || name === resqRef || desc.includes(resqRef.toLowerCase())) {
         return job;
       }
     }
