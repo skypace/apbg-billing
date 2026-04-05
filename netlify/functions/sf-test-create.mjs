@@ -5,9 +5,25 @@ export async function handler(event) {
   const results = {};
 
   // Try different field names for customer
+  // First: search for customers matching 'melt' and 'starbird'
+  try {
+    const allCusts = await sfRequest('GET', '/customers?per-page=500');
+    const items = allCusts.items || allCusts.data || (Array.isArray(allCusts) ? allCusts : []);
+    const relevant = items.filter(c => {
+      const n = (c.customer_name || c.name || '').toLowerCase();
+      return n.includes('melt') || n.includes('starbird') || n.includes('resq');
+    });
+    results.matchingCustomers = relevant.map(c => ({
+      id: c.id,
+      name: c.customer_name || c.name,
+      parent: c.parent_customer || c.parent_customer_name || null,
+    }));
+  } catch (e) {
+    results.customerSearch = { error: e.message.substring(0, 200) };
+  }
+
   const fieldTests = [
-    { name: 'customer_name only', payload: { customer_name: 'THE MELT - RESQ', description: 'Test job - delete me', status: 'Unscheduled' } },
-    { name: 'customer_name + po', payload: { customer_name: 'THE MELT - RESQ', description: 'Test job - delete me', status: 'Unscheduled', po_number: 'RTEST1' } },
+    // No job creation tests for now — just finding customer names
   ];
 
   for (const test of fieldTests) {
