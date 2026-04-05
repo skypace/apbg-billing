@@ -10,8 +10,8 @@ const BRIX_VENDOR_KEYWORDS = ['brix'];  // Match vendor name containing "brix"
 
 // SF customer names — must match exactly what's in Service Fusion
 const SF_CUSTOMERS = {
-  starbird: 'STARBIRD CHICKEN: RESQ',
-  melt: 'THE MELT - RESQ',
+  starbird: { name: 'STARBIRD CHICKEN: RESQ', id: 408973 },
+  melt: { name: 'THE MELT - RESQ', id: 408972 },
 };
 
 // Facility keywords → SF customer mapping
@@ -87,11 +87,12 @@ async function handlePost() {
     log.steps.push(`Found ${resqWOs.length} syncable ResQ WOs`);
 
     // 5. Resolve SF customer IDs
-    const sfCustomerIds = await resolveSfCustomerIds();
-    const custDebug = sfCustomerIds._debug || [];
-    delete sfCustomerIds._debug;
-    for (const d of custDebug) log.steps.push(`[SF] ${d}`);
-    log.steps.push(`SF customers resolved: ${JSON.stringify(sfCustomerIds)}`);
+    // Customer IDs are hardcoded — no search needed
+    const sfCustomerIds = {};
+    for (const [key, val] of Object.entries(SF_CUSTOMERS)) {
+      sfCustomerIds[key] = val.id;
+    }
+    log.steps.push(`SF customers: melt=${sfCustomerIds.melt}, starbird=${sfCustomerIds.starbird}`);
 
     // 6. Process each ResQ WO
     for (const wo of resqWOs) {
@@ -112,7 +113,7 @@ async function handlePost() {
 
       const customerId = sfCustomerIds[sfCustomerKey];
       if (!customerId) {
-        log.errors.push(`No SF customer "${SF_CUSTOMERS[sfCustomerKey]}" found. Create it in Service Fusion first.`);
+        log.errors.push(`No SF customer ID for "${sfCustomerKey}".`);
         continue;
       }
 
@@ -368,92 +369,6 @@ async function createSfJob(resqWO, customerId, customerKey) {
   });
 }
 
-async function resolveSfCustomerIds() {
-  const ids = {};
-  const debug = [];
-
-  // Fetch all customers (SF API may not support q= search well)
-  // Try multiple approaches to find RESQ customers
-  let allCustomers = [];
-
-  // SF q= param doesn't filter — need to paginate through all customers
-  let page = 1;
-  let hasMore = true;
-  while (hasMore) {
-    try {
-      const r = await sfRequest('GET', `/customers?per-page=500&page=${page}`);
-      const c = r.items || r.data || (Array.isArray(r) ? r : []);
-      if (c.length === 0) {
-        hasMore = false;
-      } else {
-        allCustomers.push(...c);
-        debug.push(`Page ${page}: ${c.length} customers`);
-        // Stop if we got fewer than requested (last page)
-        if (c.length < 500) hasMore = false;
-        page++;
-        // Safety: don't fetch more than 10 pages (5000 customers)
-        if (page > 10) hasMore = false;
-      }
-    } catch (e) {
-      debug.push(`Page ${page} failed: ${e.message}`);
-      hasMore = false;
-    }
-  }
-
-  // Deduplicate by id
-  const seen = new Set();
-  allCustomers = allCustomers.filter(c => {
-    if (seen.has(c.id)) return false;
-    seen.add(c.id);
-    return true;
-  });
-
-  debug.push(`Total unique customers found: ${allCustomers.length}`);
-
-  // Log all customer names containing RESQ, MELT, or STARBIRD
-  const relevant = allCustomers.filter(c => {
-    const n = (c.customer_name || c.name || '').toUpperCase();
-    return n.includes('RESQ') || n.includes('MELT') || n.includes('STARBIRD');
-  });
-  debug.push(`Relevant customers: ${relevant.map(c => `"${c.customer_name || c.name}" (id:${c.id})`).join(', ') || 'NONE'}`);
-
-  // Now match
-  for (const [key, name] of Object.entries(SF_CUSTOMERS)) {
-    const nameUpper = name.toUpperCase();
-
-    // Exact match
-    let match = allCustomers.find(c =>
-      (c.customer_name || c.name || '').toUpperCase() === nameUpper
-    );
-
-    // Contains match
-    if (!match) {
-      match = allCustomers.find(c =>
-        (c.customer_name || c.name || '').toUpperCase().includes(nameUpper)
-      );
-    }
-
-    // Fuzzy: RESQ + MELT or RESQ + STARBIRD
-    if (!match) {
-      match = allCustomers.find(c => {
-        const cn = (c.customer_name || c.name || '').toUpperCase();
-        return cn.includes('RESQ') && (
-          (key === 'melt' && cn.includes('MELT')) ||
-          (key === 'starbird' && cn.includes('STARBIRD'))
-        );
-      });
-    }
-
-    if (match) {
-      ids[key] = match.id;
-      debug.push(`Matched ${key}: "${match.customer_name || match.name}" (id:${match.id})`);
-    }
-  }
-
-  // Store debug info in the log
-  ids._debug = debug;
-  return ids;
-}
 
 function classifyFacility(facilityName) {
   const f = (facilityName || '').toLowerCase();
