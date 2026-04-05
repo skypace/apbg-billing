@@ -272,12 +272,18 @@ async function createSfJob(resqWO, customerId) {
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
+  // SF API field names (from GET /jobs response schema):
+  //   customer_id → number, contact_first_name/contact_last_name → strings
+  //   po_number, description, status, priority, start_date
   return sfRequest('POST', '/jobs', {
-    customer_id: customerId,
+    customer: customerId,
     description,
     status: 'Unscheduled',
-    contact_name: resqWO.facility,
+    priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
+    contact_first_name: resqWO.facility,
+    contact_last_name: resqRef,
     po_number: resqRef,
+    start_date: resqWO.raisedOn ? resqWO.raisedOn.split('T')[0] : undefined,
   });
 }
 
