@@ -57,13 +57,36 @@ async function handleLookup(code) {
 // --- SF Photos Debug: Check what photos/documents are on an SF job ---
 async function handleSfPhotos(jobId) {
   try {
-    const { sfRequest } = await import('./sf-helpers.mjs');
+    const { sfRequest, getSFAccessToken } = await import('./sf-helpers.mjs');
     const job = await sfRequest('GET', `/jobs/${jobId}?expand=pictures,documents`);
-    return json({
-      jobId, status: job.status,
-      pictures: (job.pictures || []).map(p => ({ name: p.name, file_location: p.file_location, doc_type: p.doc_type, comment: p.comment })),
-      documents: (job.documents || []).map(d => ({ name: d.name, file_location: d.file_location, doc_type: d.doc_type, comment: d.comment })),
-    });
+
+    // Try to find the actual download URL for photos
+    const token = await getSFAccessToken();
+    const photoTests = [];
+    for (const p of (job.pictures || [])) {
+      const loc = p.file_location || '';
+      // Test various base URLs
+      const tests = {};
+      if (loc.startsWith('http')) {
+        tests.direct = loc;
+      } else {
+        tests.s3 = `https://s3.amazonaws.com/servicefusion/${loc}`;
+        tests.appUploads = `https://app.servicefusion.com/uploads/${loc}`;
+        tests.apiPictures = `https://api.servicefusion.com/v1/pictures/${loc}`;
+        tests.customerDoc = p.customer_doc_id ? `https://api.servicefusion.com/v1/customer-documents/${p.customer_doc_id}` : null;
+      }
+      const results = {};
+      for (const [name, url] of Object.entries(tests)) {
+        if (!url) continue;
+        try {
+          const r = await fetch(url, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } });
+          results[name] = `${r.status} ${r.headers.get('content-type') || ''}`;
+        } catch (e) { results[name] = `error: ${e.message.substring(0, 50)}`; }
+      }
+      photoTests.push({ name: p.name, file_location: loc, doc_type: p.doc_type, urlTests: results, allFields: p });
+    }
+
+    return json({ jobId, status: job.status, photoTests, documents: job.documents || [] });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
