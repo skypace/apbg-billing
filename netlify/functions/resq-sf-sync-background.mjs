@@ -525,24 +525,35 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     result.errors.push(`Upload invoice (facility) ${resqWO.code}: ${e.message.substring(0, 200)}`);
   }
 
-  // Strategy 3: Attach HTML invoice document as fallback
-  const invoiceHtml = generateInvoiceHtml({
-    resqCode: resqWO.code, sfJobId, invoiceNumber: refNumber,
-    customerName: sfJob.customer_name || '', description: sfJob.description || '',
-    lineItems, totalAmount, date: new Date().toISOString().split('T')[0],
-  });
-  const invoiceBase64 = Buffer.from(invoiceHtml, 'utf-8').toString('base64');
+  // Strategy 3: Attach as plain text summary via vendor session (known working)
+  const summary = [
+    `INVOICE: ${refNumber}`,
+    `Date: ${new Date().toISOString().split('T')[0]}`,
+    `SF Job: #${sfJobId}`,
+    `Customer: ${sfJob.customer_name || 'N/A'}`,
+    '',
+    'LINE ITEMS:',
+    ...lineItems.map(li => {
+      const qty = parseFloat(li.quantity) || 1;
+      const price = parseFloat(li.price) || 0;
+      return `  ${li.description} — ${qty} x $${price.toFixed(2)} = $${(qty * price).toFixed(2)}`;
+    }),
+    '',
+    `TOTAL: $${totalAmount.toFixed(2)}`,
+  ].join('\n');
+  const summaryB64 = Buffer.from(summary, 'utf-8').toString('base64');
 
   try {
-    await resqGql(facilitySession, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
+    // Use VENDOR session — known to work for addAttachment
+    await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
       addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
         __typename
       }
     }`, {
       attachToId: resqWO.id,
-      file: invoiceBase64,
-      fileContentType: 'text/html',
-      label: `Inv ${refNumber}`.substring(0, 90),
+      file: summaryB64,
+      fileContentType: 'text/plain',
+      label: `Inv-${refNumber}`.substring(0, 90),
     });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
