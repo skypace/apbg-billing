@@ -77,8 +77,11 @@ export async function resqGql(session, query, variables) {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw new Error('ResQ GraphQL failed: ' + res.status);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`ResQ GraphQL ${res.status}: ${body.substring(0, 300)}`);
+  }
   const data = await res.json();
-  if (data.errors) throw new Error('ResQ GQL error: ' + data.errors[0]?.message);
+  if (data.errors) throw new Error('ResQ GQL error: ' + JSON.stringify(data.errors[0]).substring(0, 300));
   return data;
 }
