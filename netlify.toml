@@ -8,8 +8,12 @@
 [functions."resq-sf-sync"]
   timeout = 60
 
+[functions."resq-sf-sync-background"]
+  timeout = 900
+
 [functions."resq-sf-sync-cron"]
-  timeout = 60
+  timeout = 900
+  schedule = "*/5 * * * *"
 
 [[headers]]
   for = "/*"
