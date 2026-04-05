@@ -37,7 +37,8 @@ export async function handler(event) {
     let scanned = 0;
     let found = 0;
 
-    while (page <= 15) {
+    const maxPages = parseInt(qs.pages || '3');
+    while (page <= maxPages) {
       try {
         const res = await sfRequest('GET', `/jobs?per-page=100&page=${page}`);
         const jobs = res.items || res.data || [];
