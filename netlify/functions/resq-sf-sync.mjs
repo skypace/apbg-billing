@@ -113,6 +113,34 @@ async function handlePost() {
         continue;
       }
 
+      // Check if this WO already exists in SF (manually created as R{code})
+      const resqRef = `R${wo.code}`;
+      try {
+        const existing = await findExistingSfJob(resqRef, customerId);
+        if (existing) {
+          // Found existing SF job — map it, don't create a duplicate
+          mapping[resqId] = {
+            sfJobId: existing.id,
+            sfJobNumber: existing.number || existing.job_number || existing.id,
+            resqCode: wo.code,
+            resqStatus: wo.status,
+            sfStatus: existing.status || existing.job_status || 'Unknown',
+            facility: wo.facility,
+            customer: sfCustomerKey,
+            title: wo.title,
+            createdAt: new Date().toISOString(),
+            lastSyncAt: new Date().toISOString(),
+            linkedExisting: true,
+          };
+          log.steps.push(`✓ Linked existing SF job #${existing.id} (${resqRef}) to ResQ ${wo.code}`);
+          log.created++;
+          continue;
+        }
+      } catch (e) {
+        log.steps.push(`Could not search SF for ${resqRef}: ${e.message}`);
+      }
+
+      // No existing job found — create a new one with R{code} naming
       try {
         const sfJob = await createSfJob(wo, customerId, sfCustomerKey);
         mapping[resqId] = {
@@ -128,7 +156,7 @@ async function handlePost() {
           lastSyncAt: new Date().toISOString(),
         };
         log.created++;
-        log.steps.push(`✓ Created SF job #${sfJob.id} for ResQ ${wo.code} (${wo.facility})`);
+        log.steps.push(`✓ Created SF job #${sfJob.id} (${resqRef}) for ResQ ${wo.code} (${wo.facility})`);
       } catch (e) {
         log.errors.push(`Failed to create SF job for ResQ ${wo.code}: ${e.message}`);
       }
@@ -296,9 +324,32 @@ async function fetchSyncableWOs(session) {
 }
 
 // --- SF Helpers ---
+
+// Search SF for an existing job matching R{resqCode} in PO number or description
+async function findExistingSfJob(resqRef, customerId) {
+  // Search by PO number first (most reliable)
+  try {
+    const result = await sfRequest('GET', `/jobs?q=${encodeURIComponent(resqRef)}&per-page=20`);
+    const jobs = result.items || result.data || (Array.isArray(result) ? result : []);
+    // Look for exact match on PO number or job name containing R{code}
+    for (const job of jobs) {
+      const po = (job.po_number || '').trim();
+      const desc = (job.description || '').toLowerCase();
+      const name = (job.name || job.job_name || '').trim();
+      if (po === resqRef || name === resqRef || desc.includes(resqRef.toLowerCase())) {
+        return job;
+      }
+    }
+  } catch (e) {
+    // Search might not support this query format, fall through
+  }
+  return null;
+}
+
 async function createSfJob(resqWO, customerId, customerKey) {
+  const resqRef = `R${resqWO.code}`;
   const description = [
-    `ResQ WO: ${resqWO.code}`,
+    `ResQ WO: ${resqRef}`,
     resqWO.title,
     resqWO.description,
     `Facility: ${resqWO.facility}`,
@@ -311,7 +362,7 @@ async function createSfJob(resqWO, customerId, customerKey) {
     description,
     status: 'Unscheduled',
     contact_name: resqWO.facility,
-    po_number: resqWO.code,
+    po_number: resqRef,
   });
 }
 
