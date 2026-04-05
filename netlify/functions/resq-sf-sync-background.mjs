@@ -297,13 +297,25 @@ async function createSfJob(resqWO, customerName) {
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
-  return sfRequest('POST', '/jobs', {
+  // Create the job, then update the number to match ResQ code
+  const job = await sfRequest('POST', '/jobs', {
     customer_name: customerName,
     description,
     status: 'Unscheduled',
     priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
     po_number: resqRef,
   });
+
+  // Set job number to match ResQ code
+  try {
+    await sfRequest('PUT', `/jobs/${job.id}`, { number: resqRef });
+    job.number = resqRef;
+  } catch (e) {
+    // Non-fatal — job was created, just couldn't set the number
+    console.warn(`Could not set job number for ${job.id}: ${e.message}`);
+  }
+
+  return job;
 }
 
 function classifyFacility(facilityName) {
