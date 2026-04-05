@@ -90,12 +90,13 @@ async function handleSfPhotos(jobId) {
           const r = await fetch(url, { method: 'HEAD', redirect: 'manual', headers: { 'Authorization': `Bearer ${token}` } });
           const loc = r.headers.get('location') || '';
           results[name] = `${r.status} ${r.headers.get('content-type') || ''}${loc ? ' → ' + loc : ''}`;
-          // If redirect, follow it
+          // If redirect, read body (S3 301 body contains correct endpoint)
           if (r.status === 301 || r.status === 302) {
             try {
-              const r2 = await fetch(loc, { method: 'HEAD' });
-              results[name + '_follow'] = `${r2.status} ${r2.headers.get('content-type') || ''} ${r2.headers.get('content-length') || '?'} bytes`;
-            } catch (e2) { results[name + '_follow'] = `error: ${e2.message.substring(0, 50)}`; }
+              const r2 = await fetch(url, { redirect: 'manual' });
+              const body = await r2.text();
+              results[name + '_body'] = body.substring(0, 300);
+            } catch (e2) { results[name + '_body'] = `error: ${e2.message.substring(0, 50)}`; }
           }
         } catch (e) { results[name] = `error: ${e.message.substring(0, 50)}`; }
       }
