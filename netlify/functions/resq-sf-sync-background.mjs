@@ -63,28 +63,29 @@ export async function handler(event) {
     const sfCustomerIds = { melt: SF_CUSTOMERS.melt.id, starbird: SF_CUSTOMERS.starbird.id };
 
     // 5. Process each WO one at a time, saving progress
+    log.steps.push(`Starting WO processing...`);
+    await saveProgress();
+
     for (let i = 0; i < resqWOs.length; i++) {
       const wo = resqWOs[i];
       log.steps.push(`[${i + 1}/${resqWOs.length}] ${wo.code} — ${wo.facility}`);
+      await saveProgress(); // save before each WO so we can see where it hangs
 
       try {
         if (mapping[wo.id]) {
-          const r = await syncSfToResq(session, wo, mapping[wo.id]);
+          const r = await withTimeout(syncSfToResq(session, wo, mapping[wo.id]), 15000, `sync ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           log.updated += r.updated || 0;
         } else {
-          const r = await processNewWO(wo, mapping, sfCustomerIds);
+          const r = await withTimeout(processNewWO(wo, mapping, sfCustomerIds), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           log.created += r.created || 0;
         }
       } catch (e) {
-        log.errors.push(`WO ${wo.code} crashed: ${e.message}`);
+        log.errors.push(`WO ${wo.code} failed: ${e.message}`);
       }
-
-      // Save progress every 4 WOs
-      if ((i + 1) % 4 === 0) await saveProgress();
     }
 
     // 6. Save final results
@@ -106,6 +107,14 @@ export async function handler(event) {
   }
 
   return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+}
+
+// --- Timeout wrapper ---
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms)),
+  ]);
 }
 
 // --- Process new unmapped WO ---
