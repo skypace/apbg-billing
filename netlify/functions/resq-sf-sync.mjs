@@ -88,6 +88,9 @@ async function handlePost() {
 
     // 5. Resolve SF customer IDs
     const sfCustomerIds = await resolveSfCustomerIds();
+    const custDebug = sfCustomerIds._debug || [];
+    delete sfCustomerIds._debug;
+    for (const d of custDebug) log.steps.push(`[SF] ${d}`);
     log.steps.push(`SF customers resolved: ${JSON.stringify(sfCustomerIds)}`);
 
     // 6. Process each ResQ WO
@@ -367,43 +370,100 @@ async function createSfJob(resqWO, customerId, customerKey) {
 
 async function resolveSfCustomerIds() {
   const ids = {};
-  for (const [key, name] of Object.entries(SF_CUSTOMERS)) {
+  const debug = [];
+
+  // Fetch all customers (SF API may not support q= search well)
+  // Try multiple approaches to find RESQ customers
+  let allCustomers = [];
+
+  // Approach 1: Search with "RESQ"
+  try {
+    const r1 = await sfRequest('GET', '/customers?q=RESQ&per-page=100');
+    const c1 = r1.items || r1.data || (Array.isArray(r1) ? r1 : []);
+    debug.push(`q=RESQ returned ${c1.length} results`);
+    allCustomers.push(...c1);
+  } catch (e) { debug.push(`q=RESQ failed: ${e.message}`); }
+
+  // Approach 2: Search with "MELT"
+  try {
+    const r2 = await sfRequest('GET', '/customers?q=MELT&per-page=100');
+    const c2 = r2.items || r2.data || (Array.isArray(r2) ? r2 : []);
+    debug.push(`q=MELT returned ${c2.length} results`);
+    allCustomers.push(...c2);
+  } catch (e) { debug.push(`q=MELT failed: ${e.message}`); }
+
+  // Approach 3: Search with "STARBIRD"
+  try {
+    const r3 = await sfRequest('GET', '/customers?q=STARBIRD&per-page=100');
+    const c3 = r3.items || r3.data || (Array.isArray(r3) ? r3 : []);
+    debug.push(`q=STARBIRD returned ${c3.length} results`);
+    allCustomers.push(...c3);
+  } catch (e) { debug.push(`q=STARBIRD failed: ${e.message}`); }
+
+  // Approach 4: If still nothing, try listing first page of all customers
+  if (allCustomers.length === 0) {
     try {
-      // Search with just the key part (e.g. "RESQ" to find sub-accounts)
-      const searchTerm = name.includes('RESQ') ? 'RESQ' : name;
-      const result = await sfRequest('GET', `/customers?q=${encodeURIComponent(searchTerm)}&per-page=50`);
-      const customers = result.items || result.data || (Array.isArray(result) ? result : []);
+      const r4 = await sfRequest('GET', '/customers?per-page=100');
+      const c4 = r4.items || r4.data || (Array.isArray(r4) ? r4 : []);
+      debug.push(`All customers page 1: ${c4.length} results`);
+      // Log first 5 customer names for debugging
+      debug.push(`Sample: ${c4.slice(0, 5).map(c => c.customer_name || c.name || JSON.stringify(Object.keys(c))).join(', ')}`);
+      allCustomers.push(...c4);
+    } catch (e) { debug.push(`All customers failed: ${e.message}`); }
+  }
 
-      // Try exact match first
-      let match = customers.find(c =>
-        (c.customer_name || c.name || '').toUpperCase() === name.toUpperCase()
+  // Deduplicate by id
+  const seen = new Set();
+  allCustomers = allCustomers.filter(c => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+
+  debug.push(`Total unique customers found: ${allCustomers.length}`);
+
+  // Log all customer names containing RESQ, MELT, or STARBIRD
+  const relevant = allCustomers.filter(c => {
+    const n = (c.customer_name || c.name || '').toUpperCase();
+    return n.includes('RESQ') || n.includes('MELT') || n.includes('STARBIRD');
+  });
+  debug.push(`Relevant customers: ${relevant.map(c => `"${c.customer_name || c.name}" (id:${c.id})`).join(', ') || 'NONE'}`);
+
+  // Now match
+  for (const [key, name] of Object.entries(SF_CUSTOMERS)) {
+    const nameUpper = name.toUpperCase();
+
+    // Exact match
+    let match = allCustomers.find(c =>
+      (c.customer_name || c.name || '').toUpperCase() === nameUpper
+    );
+
+    // Contains match
+    if (!match) {
+      match = allCustomers.find(c =>
+        (c.customer_name || c.name || '').toUpperCase().includes(nameUpper)
       );
+    }
 
-      // Then try contains match
-      if (!match) {
-        const nameUpper = name.toUpperCase();
-        match = customers.find(c =>
-          (c.customer_name || c.name || '').toUpperCase().includes(nameUpper)
+    // Fuzzy: RESQ + MELT or RESQ + STARBIRD
+    if (!match) {
+      match = allCustomers.find(c => {
+        const cn = (c.customer_name || c.name || '').toUpperCase();
+        return cn.includes('RESQ') && (
+          (key === 'melt' && cn.includes('MELT')) ||
+          (key === 'starbird' && cn.includes('STARBIRD'))
         );
-      }
+      });
+    }
 
-      // Then try if customer name contains our search name
-      if (!match) {
-        const nameUpper = name.toUpperCase();
-        match = customers.find(c => {
-          const cn = (c.customer_name || c.name || '').toUpperCase();
-          return cn.includes('RESQ') && (
-            (key === 'melt' && cn.includes('MELT')) ||
-            (key === 'starbird' && cn.includes('STARBIRD'))
-          );
-        });
-      }
-
-      if (match) ids[key] = match.id;
-    } catch (e) {
-      // Customer doesn't exist yet
+    if (match) {
+      ids[key] = match.id;
+      debug.push(`Matched ${key}: "${match.customer_name || match.name}" (id:${match.id})`);
     }
   }
+
+  // Store debug info in the log
+  ids._debug = debug;
   return ids;
 }
 
