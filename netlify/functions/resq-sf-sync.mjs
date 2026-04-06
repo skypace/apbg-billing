@@ -33,6 +33,8 @@ async function handleLookup(code) {
           executingVendor { id name }
           latestVisit { id outcome notes startedAt endedAt }
           inProgressVisit { id outcome notes startedAt }
+          appointment { id startsAt endsAt }
+          upcomingAppointment { id startsAt endsAt }
           invoiceSets { id code }
         } }
       }
