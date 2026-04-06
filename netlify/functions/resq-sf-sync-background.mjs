@@ -605,15 +605,15 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     const woData = await resqGql(session, `{
       workOrders(first: 1, code: "${resqWO.code}") {
         edges { node {
-          invoiceSets { edges { node { id code } } }
+          invoiceSets { id code }
           vendor { id }
         } }
       }
     }`);
     const woNode = woData.data?.workOrders?.edges?.[0]?.node;
-    const sets = woNode?.invoiceSets?.edges || [];
+    const sets = woNode?.invoiceSets || [];
     if (sets.length > 0) {
-      invoiceSetId = sets[0].node.id;
+      invoiceSetId = sets[0].id;
     }
     var vendorId = woNode?.vendor?.id;
   } catch (e) {
