@@ -202,10 +202,13 @@ async function loadStatus() {
     const res = await fetch(`${API_BASE}/resq-sf-sync`);
     const data = await res.json();
 
-    // Mapped count
-    const count = data.mappingCount || 0;
-    document.getElementById('mappedCount').textContent = count;
-    document.getElementById('mappedSub').textContent = count === 1 ? '1 work order' : `${count} work orders`;
+    // Mapped count — show active (exclude done statuses)
+    const allMappings = Object.values(data.mappings || {});
+    const DONE = ['CLOSED', 'AWAITING_PAYMENT', 'WAITING_FOR_COORDINATOR_APPROVAL'];
+    const activeCount = allMappings.filter(m => !DONE.includes((m.resqStatus || '').toUpperCase())).length;
+    const totalCount = allMappings.length;
+    document.getElementById('mappedCount').textContent = activeCount;
+    document.getElementById('mappedSub').textContent = `${activeCount} active of ${totalCount} total`;
     document.getElementById('cardMapped').className = 'stat-card' + (count > 0 ? ' ok' : '');
 
     // Last sync
@@ -319,8 +322,18 @@ function renderMappings(mappings) {
     return;
   }
 
+  // Filter out done statuses (CLOSED, AWAITING_PAYMENT, WAITING_FOR_COORDINATOR_APPROVAL)
+  const DONE_STATUSES = ['CLOSED', 'AWAITING_PAYMENT', 'WAITING_FOR_COORDINATOR_APPROVAL'];
+  const active = entries.filter(([, m]) => !DONE_STATUSES.includes((m.resqStatus || '').toUpperCase()));
+
+  if (active.length === 0) {
+    document.getElementById('mappingTable').innerHTML =
+      `<div class="empty">All ${entries.length} work orders are completed or closed.</div>`;
+    return;
+  }
+
   // Sort by createdAt descending
-  entries.sort((a, b) => (b[1].createdAt || '').localeCompare(a[1].createdAt || ''));
+  active.sort((a, b) => (b[1].createdAt || '').localeCompare(a[1].createdAt || ''));
 
   let html = `<table>
     <thead><tr>
@@ -328,7 +341,7 @@ function renderMappings(mappings) {
       <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Last Synced</th>
     </tr></thead><tbody>`;
 
-  for (const [resqId, m] of entries) {
+  for (const [resqId, m] of active) {
     const resqBadge = statusBadge(m.resqStatus);
     const sfBadge = statusBadge(m.sfStatus);
     const synced = m.lastSyncAt ? timeAgo(new Date(m.lastSyncAt)) : '—';
