@@ -43,10 +43,10 @@ async function updateNetlifyEnvVar(key, value) {
   const token = process.env.NETLIFY_ACCESS_TOKEN || process.env.MCP_API_KEY;
   if (!token) return;
 
-  // Update on BOTH sites so the MCP and billing app stay in sync
+  // Only update this site — each site (apbg-billing, pacerfinance, melt-dashboard)
+  // has its own independent QBO connection and realm
   const sites = [
-    process.env.NETLIFY_SITE_ID,                // apbg-billing
-    'f0fa961e-94bb-4f68-88e5-84ec4751b399',     // pacerfinance (MCP server)
+    process.env.NETLIFY_SITE_ID,
   ].filter(Boolean);
 
   const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
