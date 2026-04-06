@@ -619,13 +619,14 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.rate) * parseFloat(li.quantity)), 0);
   const notes = `SF Job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''}`;
 
-  // Step 0: Get the invoiceSet ID from the work order
+  // Step 0: Get the invoiceSet ID + check for existing records of work
   let invoiceSetId;
+  let existingRowId;
   try {
     const woData = await resqGql(session, `{
       workOrders(first: 1, code: "${resqWO.code}") {
         edges { node {
-          invoiceSets { id code }
+          invoiceSets { id code recordOfWorks { id vendorReferenceNumber lineItems { itemType } } }
           vendor { id }
         } }
       }
@@ -634,6 +635,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     const sets = woNode?.invoiceSets || [];
     if (sets.length > 0) {
       invoiceSetId = sets[0].id;
+      // Reuse existing ROW if one has line items or use the latest one
+      const rows = sets[0].recordOfWorks || [];
+      const withItems = rows.find(r => r.lineItems?.length > 0);
+      if (withItems) existingRowId = withItems.id;
     }
     var vendorId = woNode?.vendor?.id;
   } catch (e) {
@@ -646,23 +651,27 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     return result;
   }
 
-  // Step 1: Create Record of Work
-  let recordOfWorkId;
-  try {
-    const r1 = await resqGql(session, `mutation($input: CreateRecordOfWorkMutationInput!) {
-      createRecordOfWork(input: $input) {
-        recordOfWork { id }
-      }
-    }`, { input: {
-      invoiceSetId,
-      vendorReferenceNumber: refNumber,
-    }});
-    recordOfWorkId = r1.data?.createRecordOfWork?.recordOfWork?.id;
-    if (!recordOfWorkId) throw new Error('No recordOfWorkId returned');
-    result.steps.push(`→ ${resqWO.code} record of work created`);
-  } catch (e) {
-    result.errors.push(`Create ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
-    return result;
+  // Step 1: Create Record of Work (or reuse existing)
+  let recordOfWorkId = existingRowId;
+  if (recordOfWorkId) {
+    result.steps.push(`→ ${resqWO.code} reusing existing record of work`);
+  } else {
+    try {
+      const r1 = await resqGql(session, `mutation($input: CreateRecordOfWorkMutationInput!) {
+        createRecordOfWork(input: $input) {
+          recordOfWork { id }
+        }
+      }`, { input: {
+        invoiceSetId,
+        vendorReferenceNumber: refNumber,
+      }});
+      recordOfWorkId = r1.data?.createRecordOfWork?.recordOfWork?.id;
+      if (!recordOfWorkId) throw new Error('No recordOfWorkId returned');
+      result.steps.push(`→ ${resqWO.code} record of work created`);
+    } catch (e) {
+      result.errors.push(`Create ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
+      return result;
+    }
   }
 
   // Step 2: Save line items to the record
@@ -690,26 +699,68 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     return result;
   }
 
+  // Steps 3-5 may need vendor OR facility permissions — try vendor first, then facility
   // Step 3: Submit the record of work
-  try {
-    await resqGql(session, `mutation($input: SubmitRecordOfWorkInput!) {
-      submitRecordOfWork(input: $input) { __typename }
-    }`, { input: { recordOfWorkId } });
-    result.steps.push(`→ ${resqWO.code} record submitted`);
-  } catch (e) {
-    result.errors.push(`Submit ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
-    return result;
+  let submitted = false;
+  for (const [label, sess] of [['vendor', session]]) {
+    try {
+      const r3 = await resqGql(sess, `mutation($input: SubmitRecordOfWorkInput!) {
+        submitRecordOfWork(input: $input) {
+          recordOfWork { id vendorReferenceNumber }
+        }
+      }`, { input: { recordOfWorkId } });
+      const retId = r3.data?.submitRecordOfWork?.recordOfWork?.id;
+      result.steps.push(`→ ${resqWO.code} record submitted (${label})${retId ? '' : ' [no return ID]'}`);
+      submitted = true;
+      break;
+    } catch (e) {
+      result.steps.push(`Submit ROW (${label}) ${resqWO.code}: ${e.message.substring(0, 150)}`);
+    }
+  }
+  // Also try with facility account if vendor didn't work
+  if (!submitted) {
+    try {
+      const facSession = await resqLogin({ facility: true });
+      const r3 = await resqGql(facSession, `mutation($input: SubmitRecordOfWorkInput!) {
+        submitRecordOfWork(input: $input) {
+          recordOfWork { id vendorReferenceNumber }
+        }
+      }`, { input: { recordOfWorkId } });
+      result.steps.push(`→ ${resqWO.code} record submitted (facility)`);
+      submitted = true;
+    } catch (e) {
+      result.errors.push(`Submit ROW ${resqWO.code}: vendor + facility both failed. Last: ${e.message.substring(0, 150)}`);
+      return result;
+    }
   }
 
-  // Step 4: Create the vendor invoice
-  try {
-    await resqGql(session, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
-      createOriginalVendorInvoice(input: $input) { __typename }
-    }`, { input: { invoiceSetId } });
-    result.steps.push(`→ ${resqWO.code} vendor invoice created`);
-  } catch (e) {
-    result.errors.push(`Create invoice ${resqWO.code}: ${e.message.substring(0, 200)}`);
-    // Non-fatal — record was already submitted
+  // Step 4: Create the vendor invoice (try vendor, then facility)
+  let invoiceCreated = false;
+  for (const [label, sess] of [['vendor', session]]) {
+    try {
+      const r4 = await resqGql(sess, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
+        createOriginalVendorInvoice(input: $input) {
+          vendorInvoice { id }
+        }
+      }`, { input: { invoiceSetId } });
+      const invId = r4.data?.createOriginalVendorInvoice?.vendorInvoice?.id;
+      result.steps.push(`→ ${resqWO.code} vendor invoice created (${label})${invId ? ' id=' + invId : ' [no return ID]'}`);
+      invoiceCreated = true;
+      break;
+    } catch (e) {
+      result.steps.push(`Create invoice (${label}) ${resqWO.code}: ${e.message.substring(0, 150)}`);
+    }
+  }
+  if (!invoiceCreated) {
+    try {
+      const facSession = await resqLogin({ facility: true });
+      await resqGql(facSession, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
+        createOriginalVendorInvoice(input: $input) { __typename }
+      }`, { input: { invoiceSetId } });
+      result.steps.push(`→ ${resqWO.code} vendor invoice created (facility)`);
+    } catch (e) {
+      result.steps.push(`Create invoice failed both accounts ${resqWO.code}: ${e.message.substring(0, 100)}`);
+    }
   }
 
   // Step 5: Set payout offer (Standard)
