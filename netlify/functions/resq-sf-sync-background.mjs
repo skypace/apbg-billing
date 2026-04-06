@@ -466,7 +466,7 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
       endVisit(input: $input) { __typename }
     }`, { input: {
       visit: visitId,
-      outcome: 'RESOLVED',
+      outcome: 'COMPLETED',
       notes: completionNotes.substring(0, 2000),
       recommendations: '',
       images: [], // Photos uploaded separately via sync.html
