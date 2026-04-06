@@ -354,6 +354,7 @@ async function handleResetFlags(code) {
       if (v.resqCode === code || code === 'all') {
         delete v.photosSent;
         delete v.invoiceSubmitted;
+        delete v.visitCompleted;
         found = true;
       }
     }
