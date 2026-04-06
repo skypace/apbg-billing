@@ -363,7 +363,8 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
 }
 
 // --- Build Invoice from SF Line Items → Submit to ResQ ---
-// Uses facility login for invoice operations (vendor account lacks invoice perms)
+// Full 5-mutation flow: CreateRecordOfWork → SaveRecordOfWork → SubmitRecordOfWork
+//   → CreateOriginalVendorInvoice → PMC_CreateUpdatePayoutOffer
 async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const result = { steps: [], errors: [], updated: 0 };
 
@@ -376,39 +377,39 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     return result;
   }
 
-  // Get the SF invoice number (use the first/most recent invoice)
+  // Get the SF invoice number
   const sfInvoices = sfJob.invoices || [];
-  const sfInvoice = sfInvoices[sfInvoices.length - 1]; // most recent
+  const sfInvoice = sfInvoices[sfInvoices.length - 1];
   const invoiceNumber = sfInvoice?.number ? String(sfInvoice.number) : '';
+  const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
 
-  // Build ResQ line items from SF data
+  // Build ResQ line items from SF data (using correct ResQ field names)
   const lineItems = [];
   let order = 0;
 
-  // Products → ITEM_TYPE_PART
+  // Products → ITEM_TYPE_PARTS
   for (const p of (sfJob.products || [])) {
     lineItems.push({
-      order: order++,
-      itemType: 'ITEM_TYPE_PART',
-      quantity: String(p.multiplier || 1),
+      order: order++, itemType: 'ITEM_TYPE_PARTS',
+      quantity: String(p.multiplier || 1), rate: String(p.rate || 0),
       description: p.description || p.name || 'Part',
-      partName: p.name || '',
-      price: String(p.rate || 0),
-      discount: '0',
-      taxRateIds: [],
+      partName: p.name || null, partManufacturer: null, partNumber: null,
+      promotionType: null, ratePercentage: null,
+      discount: '0.0', revShare: '0.0000',
+      warranty: false, overtime: false, taxRateIds: [],
     });
   }
 
-  // Services → ITEM_TYPE_SERVICE_CHARGE
+  // Services → ITEM_TYPE_SERVICE_CALL
   for (const s of (sfJob.services || [])) {
     lineItems.push({
-      order: order++,
-      itemType: 'ITEM_TYPE_SERVICE_CHARGE',
-      quantity: String(s.multiplier || 1),
+      order: order++, itemType: 'ITEM_TYPE_SERVICE_CALL',
+      quantity: String(s.multiplier || 1), rate: String(s.rate || 0),
       description: s.description || s.name || 'Service',
-      price: String(s.rate || 0),
-      discount: '0',
-      taxRateIds: [],
+      partName: null, partManufacturer: null, partNumber: null,
+      promotionType: null, ratePercentage: null,
+      discount: '0.0', revShare: '0.0000',
+      warranty: false, overtime: false, taxRateIds: [],
     });
   }
 
@@ -417,26 +418,25 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     const hours = l.labor_time ? parseFloat(l.labor_time) : 0;
     if (hours > 0 || l.labor_time_cost) {
       lineItems.push({
-        order: order++,
-        itemType: 'ITEM_TYPE_LABOUR',
-        quantity: String(hours || 1),
+        order: order++, itemType: 'ITEM_TYPE_LABOUR',
+        quantity: String(hours || 1), rate: String(l.labor_time_rate || 0),
         description: `Labor${l.user ? ' - ' + l.user : ''}${l.labor_date ? ' (' + l.labor_date + ')' : ''}`,
-        price: String(l.labor_time_rate || 0),
-        discount: '0',
-        taxRateIds: [],
+        partName: null, partManufacturer: null, partNumber: null,
+        promotionType: null, ratePercentage: null,
+        discount: '0.0', revShare: '0.0000',
+        warranty: false, overtime: false, taxRateIds: [],
       });
     }
-    // Drive time as travel
     const driveHours = l.drive_time ? parseFloat(l.drive_time) : 0;
     if (driveHours > 0 && l.is_drive_time_billed) {
       lineItems.push({
-        order: order++,
-        itemType: 'ITEM_TYPE_TRAVEL',
-        quantity: String(driveHours),
+        order: order++, itemType: 'ITEM_TYPE_TRAVEL',
+        quantity: String(driveHours), rate: String(l.drive_time_rate || 0),
         description: `Drive time${l.user ? ' - ' + l.user : ''}`,
-        price: String(l.drive_time_rate || 0),
-        discount: '0',
-        taxRateIds: [],
+        partName: null, partManufacturer: null, partNumber: null,
+        promotionType: null, ratePercentage: null,
+        discount: '0.0', revShare: '0.0000',
+        warranty: false, overtime: false, taxRateIds: [],
       });
     }
   }
@@ -445,13 +445,13 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   for (const ex of (sfJob.expenses || [])) {
     if (ex.is_billable && ex.amount) {
       lineItems.push({
-        order: order++,
-        itemType: 'ITEM_TYPE_OTHER',
-        quantity: '1',
+        order: order++, itemType: 'ITEM_TYPE_OTHER',
+        quantity: '1', rate: String(ex.amount),
         description: ex.notes || ex.category || 'Expense',
-        price: String(ex.amount),
-        discount: '0',
-        taxRateIds: [],
+        partName: null, partManufacturer: null, partNumber: null,
+        promotionType: null, ratePercentage: null,
+        discount: '0.0', revShare: '0.0000',
+        warranty: false, overtime: false, taxRateIds: [],
       });
     }
   }
@@ -459,52 +459,134 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   // Other charges → ITEM_TYPE_OTHER
   for (const oc of (sfJob.other_charges || [])) {
     lineItems.push({
-      order: order++,
-      itemType: 'ITEM_TYPE_OTHER',
-      quantity: String(oc.multiplier || 1),
+      order: order++, itemType: 'ITEM_TYPE_OTHER',
+      quantity: String(oc.multiplier || 1), rate: String(oc.rate || 0),
       description: oc.description || oc.name || 'Other charge',
-      price: String(oc.rate || 0),
-      discount: '0',
-      taxRateIds: [],
+      partName: null, partManufacturer: null, partNumber: null,
+      promotionType: null, ratePercentage: null,
+      discount: '0.0', revShare: '0.0000',
+      warranty: false, overtime: false, taxRateIds: [],
     });
   }
 
-  const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
-  const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.price) * parseFloat(li.quantity)), 0);
+  const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.rate) * parseFloat(li.quantity)), 0);
+  const notes = `SF Job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''}`;
 
-  // Attach invoice summary as text file via vendor session (known working approach)
-  // Note: facility mutations (createPartneredInvoiceSubmissionFromBuilder, uploadVendorInvoice,
-  // submitVendorInvoice) all require permissions this account doesn't have.
-  const summary = [
-    `INVOICE: ${refNumber}`,
-    `Date: ${new Date().toISOString().split('T')[0]}`,
-    `SF Job: #${sfJobId}`,
-    `Customer: ${sfJob.customer_name || 'N/A'}`,
-    '',
-    'LINE ITEMS:',
-    ...lineItems.map(li => {
-      const qty = parseFloat(li.quantity) || 1;
-      const price = parseFloat(li.price) || 0;
-      return `  ${li.description} - ${qty} x $${price.toFixed(2)} = $${(qty * price).toFixed(2)}`;
-    }),
-    '',
-    `TOTAL: $${totalAmount.toFixed(2)}`,
-  ].join('\n');
-  const summaryB64 = Buffer.from(summary, 'utf-8').toString('base64');
-
+  // Step 0: Get the invoiceSet ID from the work order
+  let invoiceSetId;
   try {
-    // Post invoice details as a work order note (no file size limit)
-    await resqGql(session, `mutation($input: CreateWorkOrderNoteInput!) {
-      createWorkOrderNote(input: $input) { __typename }
-    }`, { input: {
-      workOrderId: resqWO.id,
-      message: summary,
-    }});
-    result.steps.push(`→ ResQ ${resqWO.code} invoice note posted (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
-    result.updated++;
+    const woData = await resqGql(session, `{
+      node(id: "${resqWO.id}") {
+        ... on WorkOrderNode {
+          invoiceSets { edges { node { id code } } }
+          vendor { id }
+        }
+      }
+    }`);
+    const sets = woData.data?.node?.invoiceSets?.edges || [];
+    if (sets.length > 0) {
+      invoiceSetId = sets[0].node.id;
+    }
+    var vendorId = woData.data?.node?.vendor?.id;
   } catch (e) {
-    result.errors.push(`Invoice note ${resqWO.code}: ${e.message.substring(0, 300)}`);
+    result.errors.push(`Get invoiceSet for ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
   }
+
+  if (!invoiceSetId) {
+    result.errors.push(`No invoiceSet found on ${resqWO.code} — WO may not be in NEEDS_INVOICE state`);
+    return result;
+  }
+
+  // Step 1: Create Record of Work
+  let recordOfWorkId;
+  try {
+    const r1 = await resqGql(session, `mutation($input: CreateRecordOfWorkInput!) {
+      createRecordOfWork(input: $input) {
+        recordOfWork { id }
+      }
+    }`, { input: {
+      invoiceSetId,
+      vendorReferenceNumber: refNumber,
+    }});
+    recordOfWorkId = r1.data?.createRecordOfWork?.recordOfWork?.id;
+    if (!recordOfWorkId) throw new Error('No recordOfWorkId returned');
+    result.steps.push(`→ ${resqWO.code} record of work created`);
+  } catch (e) {
+    result.errors.push(`Create ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+
+  // Step 2: Save line items to the record
+  try {
+    await resqGql(session, `mutation($arguments: SaveRecordOfWorkArguments!) {
+      saveRecordOfWork(arguments: $arguments) { __typename }
+    }`, { arguments: {
+      recordOfWorkId,
+      vendorReferenceNumber: refNumber,
+      lineItems: lineItems.length > 0 ? lineItems : [{
+        order: 0, itemType: 'ITEM_TYPE_SERVICE_CALL',
+        quantity: '1', rate: String(sfJob.total || 0),
+        description: 'Service', partName: null, partManufacturer: null,
+        partNumber: null, promotionType: null, ratePercentage: null,
+        discount: '0.0', revShare: '0.0000',
+        warranty: false, overtime: false, taxRateIds: [],
+      }],
+      notes,
+      vendorNotes: notes,
+      overrideNotes: '',
+    }});
+    result.steps.push(`→ ${resqWO.code} ${lineItems.length} line items saved`);
+  } catch (e) {
+    result.errors.push(`Save ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+
+  // Step 3: Submit the record of work
+  try {
+    await resqGql(session, `mutation($input: SubmitRecordOfWorkInput!) {
+      submitRecordOfWork(input: $input) { __typename }
+    }`, { input: { recordOfWorkId } });
+    result.steps.push(`→ ${resqWO.code} record submitted`);
+  } catch (e) {
+    result.errors.push(`Submit ROW ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+
+  // Step 4: Create the vendor invoice
+  try {
+    await resqGql(session, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
+      createOriginalVendorInvoice(input: $input) { __typename }
+    }`, { input: { invoiceSetId } });
+    result.steps.push(`→ ${resqWO.code} vendor invoice created`);
+  } catch (e) {
+    result.errors.push(`Create invoice ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    // Non-fatal — record was already submitted
+  }
+
+  // Step 5: Set payout offer (Standard)
+  if (vendorId) {
+    try {
+      await resqGql(session, `mutation($input: CreateUpdatePayoutOfferInput!) {
+        createUpdatePayoutOffer(input: $input) { __typename }
+      }`, { input: {
+        vendorId,
+        effectiveOffer: 'RWZmZWN0aXZlT2ZmZXJOb2RlOk9mZmVyXzQ=', // Standard Payout
+        effectiveOfferType: 'Offer',
+        payoutRelationship: 'INVOICE_SET',
+        invoiceSetId,
+        facilityId: resqWO.facilityId || null,
+        offResqFacilityId: null,
+      }});
+      result.steps.push(`→ ${resqWO.code} payout set to Standard`);
+    } catch (e) {
+      // Non-fatal
+      result.steps.push(`Note: payout offer failed for ${resqWO.code}`);
+    }
+  }
+
+  result.steps.push(`✓ ResQ ${resqWO.code} invoice complete (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
+  result.updated++;
 
   return result;
 }
