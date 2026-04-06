@@ -649,7 +649,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   // Step 1: Create Record of Work
   let recordOfWorkId;
   try {
-    const r1 = await resqGql(session, `mutation($input: CreateRecordOfWorkInput!) {
+    const r1 = await resqGql(session, `mutation($input: CreateRecordOfWorkMutationInput!) {
       createRecordOfWork(input: $input) {
         recordOfWork { id }
       }
@@ -715,7 +715,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   // Step 5: Set payout offer (Standard)
   if (vendorId) {
     try {
-      await resqGql(session, `mutation($input: CreateUpdatePayoutOfferInput!) {
+      await resqGql(session, `mutation($input: CreateUpdatePayoutOfferMutationInput!) {
         createUpdatePayoutOffer(input: $input) { __typename }
       }`, { input: {
         vendorId,
