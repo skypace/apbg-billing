@@ -27,10 +27,13 @@ async function handleLookup(code) {
     const data = await resqGql(session, `query($code: String) {
       workOrders(first: 500, orderBy: "-raised_on", code: $code) {
         edges { node {
-          id code title status
-          facility { name }
-          vendor { name }
-          executingVendor { name }
+          id code title status statusDescription
+          facility { id name }
+          vendor { id name }
+          executingVendor { id name }
+          latestVisit { id outcome notes startedAt endedAt }
+          inProgressVisit { id outcome notes startedAt }
+          invoiceSets { edges { node { id code } } }
         } }
       }
     }`, { code });
