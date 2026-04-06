@@ -287,7 +287,7 @@ async function loadStatus() {
     document.getElementById('sfSub').textContent = 'Connected';
     document.getElementById('cardSf').className = 'stat-card ok';
 
-    // Check for errors indicating connection issues
+    // Check for errors indicating connection issues (not job-level errors)
     if (data.lastErrors?.length) {
       for (const err of data.lastErrors) {
         if (err.includes('ResQ login') || err.includes('RESQ_')) {
@@ -295,7 +295,7 @@ async function loadStatus() {
           document.getElementById('resqSub').textContent = 'Check credentials';
           document.getElementById('cardResq').className = 'stat-card err';
         }
-        if (err.includes('SF') || err.includes('Service Fusion')) {
+        if (err.includes('SF not connected') || err.includes('SF token refresh') || err.includes('SF_REFRESH_TOKEN')) {
           document.getElementById('sfStatus').textContent = '✗';
           document.getElementById('sfSub').textContent = 'Reconnect at /setup.html';
           document.getElementById('cardSf').className = 'stat-card err';
