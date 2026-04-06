@@ -415,8 +415,17 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
       }
     }`);
     const woNode = woData.data?.workOrders?.edges?.[0]?.node;
-    visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
+    const inProgress = woNode?.inProgressVisit;
+    const latest = woNode?.latestVisit;
+    visitId = inProgress?.id || latest?.id;
     appointmentId = woNode?.appointment?.id || woNode?.upcomingAppointment?.id;
+
+    // If latest visit is already COMPLETED, nothing to do
+    if (latest?.outcome === 'COMPLETED' && !inProgress) {
+      result.steps.push(`${resqWO.code} visit already completed`);
+      result.completed = true;
+      return result;
+    }
   } catch (e) {
     result.errors.push(`Get visit for ${resqWO.code}: ${e.message.substring(0, 200)}`);
     return result;
