@@ -493,9 +493,16 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const summaryB64 = Buffer.from(summary, 'utf-8').toString('base64');
 
   try {
+    // Test: try tiny file first, then real invoice
+    const tinyB64 = Buffer.from('test').toString('base64'); // "dGVzdA==" — 8 chars
     await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
       addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
-    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: 'Inv' });
+    }`, { a: resqWO.id, f: tinyB64, t: 'text/plain', l: 'Inv' });
+    result.steps.push(`→ tiny test attachment worked for ${resqWO.code}!`);
+    // Now try real invoice
+    await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
+      addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
+    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: 'Invoice' });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
