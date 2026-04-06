@@ -493,20 +493,17 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const summaryB64 = Buffer.from(summary, 'utf-8').toString('base64');
 
   try {
-    // Test: try tiny file first, then real invoice
-    const tinyB64 = Buffer.from('test').toString('base64'); // "dGVzdA==" — 8 chars
-    await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
-      addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
-    }`, { a: resqWO.id, f: tinyB64, t: 'text/plain', l: 'Inv' });
-    result.steps.push(`→ tiny test attachment worked for ${resqWO.code}!`);
-    // Now try real invoice
-    await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
-      addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
-    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: 'Invoice' });
-    result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
+    // Post invoice details as a work order note (no file size limit)
+    await resqGql(session, `mutation($input: CreateWorkOrderNoteInput!) {
+      createWorkOrderNote(input: $input) { __typename }
+    }`, { input: {
+      workOrderId: resqWO.id,
+      message: summary,
+    }});
+    result.steps.push(`→ ResQ ${resqWO.code} invoice note posted (ref: ${refNumber}, ${lineItems.length} items, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
-    result.errors.push(`Attach invoice ${resqWO.code}: ${e.message.substring(0, 300)}`);
+    result.errors.push(`Invoice note ${resqWO.code}: ${e.message.substring(0, 300)}`);
   }
 
   return result;
