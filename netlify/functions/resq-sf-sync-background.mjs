@@ -704,13 +704,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   let submitted = false;
   for (const [label, sess] of [['vendor', session]]) {
     try {
-      const r3 = await resqGql(sess, `mutation($input: SubmitRecordOfWorkInput!) {
-        submitRecordOfWork(input: $input) {
-          recordOfWork { id vendorReferenceNumber }
-        }
+      await resqGql(sess, `mutation($input: SubmitRecordOfWorkInput!) {
+        submitRecordOfWork(input: $input) { __typename }
       }`, { input: { recordOfWorkId } });
-      const retId = r3.data?.submitRecordOfWork?.recordOfWork?.id;
-      result.steps.push(`→ ${resqWO.code} record submitted (${label})${retId ? '' : ' [no return ID]'}`);
+      result.steps.push(`→ ${resqWO.code} record submitted (${label})`);
       submitted = true;
       break;
     } catch (e) {
@@ -722,9 +719,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     try {
       const facSession = await resqLogin({ facility: true });
       const r3 = await resqGql(facSession, `mutation($input: SubmitRecordOfWorkInput!) {
-        submitRecordOfWork(input: $input) {
-          recordOfWork { id vendorReferenceNumber }
-        }
+        submitRecordOfWork(input: $input) { __typename }
       }`, { input: { recordOfWorkId } });
       result.steps.push(`→ ${resqWO.code} record submitted (facility)`);
       submitted = true;
@@ -738,13 +733,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   let invoiceCreated = false;
   for (const [label, sess] of [['vendor', session]]) {
     try {
-      const r4 = await resqGql(sess, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
-        createOriginalVendorInvoice(input: $input) {
-          vendorInvoice { id }
-        }
+      await resqGql(sess, `mutation($input: CreateOriginalVendorInvoiceMutationInput!) {
+        createOriginalVendorInvoice(input: $input) { __typename }
       }`, { input: { invoiceSetId } });
-      const invId = r4.data?.createOriginalVendorInvoice?.vendorInvoice?.id;
-      result.steps.push(`→ ${resqWO.code} vendor invoice created (${label})${invId ? ' id=' + invId : ' [no return ID]'}`);
+      result.steps.push(`→ ${resqWO.code} vendor invoice created (${label})`);
       invoiceCreated = true;
       break;
     } catch (e) {
