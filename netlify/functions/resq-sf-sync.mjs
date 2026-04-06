@@ -35,7 +35,7 @@ async function handleLookup(code) {
           inProgressVisit { id outcome notes startedAt }
           appointment { id startsAt endsAt }
           upcomingAppointment { id startsAt endsAt }
-          invoiceSets { id code vendorInvoices { id } recordOfWorks { id vendorReferenceNumber status lineItems { itemType quantity rate description } } }
+          invoiceSets { id code vendorInvoices { id createdAt } recordOfWorks { id vendorReferenceNumber createdAt notes vendorNotes pdfUrl lineItems { itemType quantity rate description } } }
         } }
       }
     }`, { code });
