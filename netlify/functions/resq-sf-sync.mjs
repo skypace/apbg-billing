@@ -11,6 +11,7 @@ export async function handler(event) {
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
+  if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
@@ -255,6 +256,70 @@ async function handleUploadPhoto(event, resqWoId) {
     }
 
     return json({ uploaded: results.filter(r => r.ok).length, total: files.length, results });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Visit Photos: Upload before/after images to a ResQ visit ---
+// POST with ?visitPhotos=resqWoId, body = { type: 'before'|'after', files: [{ name, base64, contentType }] }
+async function handleVisitPhotos(event, resqWoId) {
+  if (event.httpMethod !== 'POST') return json({ error: 'POST required' }, 405);
+  try {
+    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+    const body = JSON.parse(event.body || '{}');
+    const files = body.files || [];
+    const photoType = body.type || 'after'; // 'before' or 'after'
+    if (!files.length) return json({ error: 'No files. Send { type: "before"|"after", files: [{ name, base64, contentType }] }' }, 400);
+
+    const session = await resqLogin();
+
+    // Get the visit ID from the WO
+    const woData = await resqGql(session, `{
+      node(id: "${resqWoId}") {
+        ... on WorkOrderNode {
+          latestVisit { id status }
+          inProgressVisit { id status }
+        }
+      }
+    }`);
+    const node = woData.data?.node;
+    const visitId = node?.inProgressVisit?.id || node?.latestVisit?.id;
+    if (!visitId) return json({ error: 'No visit found on this work order' }, 404);
+
+    // Build image array — ResQ expects data URLs
+    const images = files.map(f => {
+      const ct = f.contentType || 'image/jpeg';
+      return `data:${ct};base64,${f.base64}`;
+    });
+
+    const mutation = photoType === 'before' ? 'addBeforeImagesToVisit' : 'addAfterImagesToVisit';
+    const inputType = photoType === 'before' ? 'AddBeforeImagesToVisitInput' : 'AddAfterImagesToVisitInput';
+
+    const result = await resqGql(session, `mutation($input: ${inputType}!) {
+      ${mutation}(input: $input) { __typename }
+    }`, { input: {
+      visit: visitId,
+      images,
+    }});
+
+    // Mark photosSent in mapping
+    try {
+      const store = await getStore();
+      if (store) {
+        const raw = await store.get('wo-mapping');
+        const mapping = raw ? JSON.parse(raw) : {};
+        for (const [k, v] of Object.entries(mapping)) {
+          if (k === resqWoId || v.resqCode === resqWoId) {
+            v.photosSent = true;
+            v.lastSyncAt = new Date().toISOString();
+          }
+        }
+        await store.set('wo-mapping', JSON.stringify(mapping));
+      }
+    } catch (e) {}
+
+    return json({ ok: true, mutation, visitId, imagesUploaded: files.length });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

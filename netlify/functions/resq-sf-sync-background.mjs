@@ -215,14 +215,32 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const sfIsInvoiced = sfLower.includes('invoic');
     const needsPhotoTransfer = sfIsCompleted && !mapEntry.photosSent;
     const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
+    // "Provide Update" — complete the visit in ResQ when SF is completed
+    const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
+      && ['SCHEDULED', 'VISIT_SCHEDULED', 'NOT_YET_COMPLETED'].includes(resqStatus);
 
-    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit) return result;
+    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit && !needsVisitComplete) return result;
 
     if (sfChanged) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
     }
     if (resqChanged) {
       result.steps.push(`ResQ ${resqWO.code}: "${prevResqStatus}" → "${resqStatus}"`);
+    }
+
+    // --- Provide Update: Complete the visit in ResQ ---
+    if (needsVisitComplete) {
+      try {
+        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId);
+        if (updateResult.steps.length) result.steps.push(...updateResult.steps);
+        if (updateResult.errors.length) result.errors.push(...updateResult.errors);
+        if (updateResult.completed) {
+          mapEntry.visitCompleted = true;
+          result.updated++;
+        }
+      } catch (e) {
+        result.errors.push(`Visit complete ${resqWO.code}: ${e.message}`);
+      }
     }
 
     // --- Transfer photos from SF → ResQ (on Completed or Invoiced) ---
@@ -359,6 +377,114 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
 
   // Photos exist but can't be auto-downloaded — flag for manual upload
   result.errors.push(`SF job ${sfJobId} has ${allFiles.length} photo(s) — use sync.html to upload manually to ResQ`);
+  return result;
+}
+
+// --- Provide Update: Complete the visit in ResQ ---
+// When SF marks a job "Completed-Service", we end the visit in ResQ
+// so it transitions from VISIT_SCHEDULED → NEEDS_INVOICE.
+// Flow: get visit ID → startVisit (if needed) → endVisit with notes + outcome
+async function provideUpdateToResq(session, resqWO, sfJobId) {
+  const result = { steps: [], errors: [], completed: false };
+
+  // 1. Fetch the SF job for completion notes
+  let sfJob;
+  try {
+    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=notes,visits`);
+  } catch (e) {
+    result.errors.push(`Fetch SF job ${sfJobId} for update: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+
+  // Build notes from SF job
+  const sfNotes = (sfJob.notes || []).map(n => n.body || n.text || '').filter(Boolean).join('\n');
+  const completionNotes = sfNotes || sfJob.description || `Completed via Service Fusion job #${sfJobId}`;
+
+  // 2. Get the latest visit from the ResQ WO
+  let visitId;
+  try {
+    const woData = await resqGql(session, `{
+      node(id: "${resqWO.id}") {
+        ... on WorkOrderNode {
+          latestVisit { id status }
+          inProgressVisit { id status }
+          appointment { id }
+        }
+      }
+    }`);
+    const node = woData.data?.node;
+    visitId = node?.inProgressVisit?.id || node?.latestVisit?.id;
+
+    // If no visit exists, try to start one via vendorChangeWorkOrderState
+    if (!visitId) {
+      result.steps.push(`No visit on ${resqWO.code}, attempting to start one...`);
+      try {
+        // Try to start a site visit
+        const startRes = await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+          vendorChangeWorkOrderState(input: $input) { __typename }
+        }`, { input: {
+          workOrderId: resqWO.id,
+          targetState: 'SITE_VISIT',
+        }});
+        result.steps.push(`→ ${resqWO.code} visit started`);
+
+        // Re-fetch to get the visit ID
+        const woData2 = await resqGql(session, `{
+          node(id: "${resqWO.id}") {
+            ... on WorkOrderNode {
+              latestVisit { id status }
+              inProgressVisit { id status }
+            }
+          }
+        }`);
+        visitId = woData2.data?.node?.inProgressVisit?.id || woData2.data?.node?.latestVisit?.id;
+      } catch (e) {
+        result.errors.push(`Start visit ${resqWO.code}: ${e.message.substring(0, 200)}`);
+      }
+    }
+  } catch (e) {
+    result.errors.push(`Get visit for ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+
+  if (!visitId) {
+    result.errors.push(`No visit found/created for ${resqWO.code} — cannot complete`);
+    return result;
+  }
+
+  // 3. End the visit with outcome = RESOLVED
+  try {
+    await resqGql(session, `mutation($input: EndVisitInput!) {
+      endVisit(input: $input) { __typename }
+    }`, { input: {
+      visit: visitId,
+      outcome: 'RESOLVED',
+      notes: completionNotes.substring(0, 2000),
+      recommendations: '',
+      images: [], // Photos uploaded separately via sync.html
+    }});
+    result.steps.push(`✓ ${resqWO.code} visit completed (RESOLVED)`);
+    result.completed = true;
+  } catch (e) {
+    // If endVisit fails, try captureVisitNotes as fallback
+    const errMsg = e.message.substring(0, 200);
+    result.steps.push(`endVisit failed for ${resqWO.code}: ${errMsg}`);
+    try {
+      await resqGql(session, `mutation($input: CaptureVisitNotesInput!) {
+        captureVisitNotes(input: $input) { __typename }
+      }`, { input: {
+        visit: visitId,
+        notes: completionNotes.substring(0, 2000),
+        recommendations: '',
+        images: [],
+      }});
+      result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
+      result.completed = true;
+    } catch (e2) {
+      result.errors.push(`Complete visit ${resqWO.code}: endVisit failed (${errMsg}), captureVisitNotes also failed (${e2.message.substring(0, 200)})`);
+    }
+  }
+
   return result;
 }
 
