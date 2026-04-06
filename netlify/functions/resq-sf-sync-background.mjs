@@ -382,8 +382,8 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
 
 // --- Provide Update: Complete the visit in ResQ ---
 // When SF marks a job "Completed-Service", we end the visit in ResQ
-// so it transitions from VISIT_SCHEDULED → NEEDS_INVOICE.
-// Flow: get visit ID → startVisit (if needed) → endVisit with notes + outcome
+// so it transitions to NEEDS_INVOICE.
+// Flow: query WO for appointment + visit → startVisit (if needed) → endVisit
 async function provideUpdateToResq(session, resqWO, sfJobId) {
   const result = { steps: [], errors: [], completed: false };
 
@@ -400,60 +400,67 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
   const sfNotes = (sfJob.notes || []).map(n => n.body || n.text || '').filter(Boolean).join('\n');
   const completionNotes = sfNotes || sfJob.description || `Completed via Service Fusion job #${sfJobId}`;
 
-  // 2. Get the latest visit from the ResQ WO
-  let visitId;
+  // 2. Get visit + appointment from the ResQ WO
+  let visitId, appointmentId;
   try {
-    // Query WO by code to get visit info (ResQ doesn't have node() query)
     const woData = await resqGql(session, `{
       workOrders(first: 1, code: "${resqWO.code}") {
         edges { node {
-          id latestVisit { id outcome }
+          id
+          latestVisit { id outcome }
           inProgressVisit { id outcome }
+          appointment { id }
+          upcomingAppointment { id }
         } }
       }
     }`);
     const woNode = woData.data?.workOrders?.edges?.[0]?.node;
     visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
-
-    // If no visit exists, try to start one via vendorChangeWorkOrderState
-    if (!visitId) {
-      result.steps.push(`No visit on ${resqWO.code}, attempting to start one...`);
-      try {
-        // Try to start a site visit
-        const startRes = await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
-          vendorChangeWorkOrderState(input: $input) { __typename }
-        }`, { input: {
-          workOrderId: resqWO.id,
-          targetState: 'SITE_VISIT',
-        }});
-        result.steps.push(`→ ${resqWO.code} visit started`);
-
-        // Re-fetch to get the visit ID
-        const woData2 = await resqGql(session, `{
-          workOrders(first: 1, code: "${resqWO.code}") {
-            edges { node {
-              latestVisit { id outcome }
-              inProgressVisit { id outcome }
-            } }
-          }
-        }`);
-        const woNode2 = woData2.data?.workOrders?.edges?.[0]?.node;
-        visitId = woNode2?.inProgressVisit?.id || woNode2?.latestVisit?.id;
-      } catch (e) {
-        result.errors.push(`Start visit ${resqWO.code}: ${e.message.substring(0, 200)}`);
-      }
-    }
+    appointmentId = woNode?.appointment?.id || woNode?.upcomingAppointment?.id;
   } catch (e) {
     result.errors.push(`Get visit for ${resqWO.code}: ${e.message.substring(0, 200)}`);
     return result;
   }
 
+  // 3. If no visit exists, start one using the appointment
   if (!visitId) {
-    result.errors.push(`No visit found/created for ${resqWO.code} — cannot complete`);
-    return result;
+    if (!appointmentId) {
+      result.errors.push(`No visit or appointment on ${resqWO.code} — cannot complete`);
+      return result;
+    }
+
+    result.steps.push(`No visit on ${resqWO.code}, starting via appointment...`);
+    try {
+      const startRes = await resqGql(session, `mutation($input: StartVisitMutationInput!) {
+        startVisit(input: $input) {
+          visit { id }
+        }
+      }`, { input: {
+        appointmentId,
+        facilityManagerName: 'On-site Manager',
+        images: [],
+      }});
+      visitId = startRes.data?.startVisit?.visit?.id;
+      if (!visitId) throw new Error('No visit ID returned from startVisit');
+      result.steps.push(`→ ${resqWO.code} visit started`);
+    } catch (e) {
+      // Fallback: try vendorChangeWorkOrderState
+      result.steps.push(`startVisit failed: ${e.message.substring(0, 100)}`);
+      try {
+        await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+          vendorChangeWorkOrderState(input: $input) { __typename }
+        }`, { input: { workOrderId: resqWO.id, completed: true } });
+        result.steps.push(`→ ${resqWO.code} marked completed via state change`);
+        result.completed = true;
+        return result;
+      } catch (e2) {
+        result.errors.push(`Start visit ${resqWO.code}: startVisit failed (${e.message.substring(0, 100)}), state change also failed (${e2.message.substring(0, 100)})`);
+        return result;
+      }
+    }
   }
 
-  // 3. End the visit with outcome = RESOLVED
+  // 4. End the visit with outcome = RESOLVED
   try {
     await resqGql(session, `mutation($input: EndVisitInput!) {
       endVisit(input: $input) { __typename }
@@ -482,7 +489,7 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
       result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
       result.completed = true;
     } catch (e2) {
-      result.errors.push(`Complete visit ${resqWO.code}: endVisit failed (${errMsg}), captureVisitNotes also failed (${e2.message.substring(0, 200)})`);
+      result.errors.push(`Complete visit ${resqWO.code}: endVisit (${errMsg}), captureVisitNotes (${e2.message.substring(0, 200)})`);
     }
   }
 
