@@ -403,17 +403,17 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
   // 2. Get the latest visit from the ResQ WO
   let visitId;
   try {
+    // Query WO by code to get visit info (ResQ doesn't have node() query)
     const woData = await resqGql(session, `{
-      node(id: "${resqWO.id}") {
-        ... on WorkOrderNode {
-          latestVisit { id status }
-          inProgressVisit { id status }
-          appointment { id }
-        }
+      workOrders(first: 1, code: "${resqWO.code}") {
+        edges { node {
+          id latestVisit { id outcome }
+          inProgressVisit { id outcome }
+        } }
       }
     }`);
-    const node = woData.data?.node;
-    visitId = node?.inProgressVisit?.id || node?.latestVisit?.id;
+    const woNode = woData.data?.workOrders?.edges?.[0]?.node;
+    visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
 
     // If no visit exists, try to start one via vendorChangeWorkOrderState
     if (!visitId) {
@@ -430,14 +430,15 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
 
         // Re-fetch to get the visit ID
         const woData2 = await resqGql(session, `{
-          node(id: "${resqWO.id}") {
-            ... on WorkOrderNode {
-              latestVisit { id status }
-              inProgressVisit { id status }
-            }
+          workOrders(first: 1, code: "${resqWO.code}") {
+            edges { node {
+              latestVisit { id outcome }
+              inProgressVisit { id outcome }
+            } }
           }
         }`);
-        visitId = woData2.data?.node?.inProgressVisit?.id || woData2.data?.node?.latestVisit?.id;
+        const woNode2 = woData2.data?.workOrders?.edges?.[0]?.node;
+        visitId = woNode2?.inProgressVisit?.id || woNode2?.latestVisit?.id;
       } catch (e) {
         result.errors.push(`Start visit ${resqWO.code}: ${e.message.substring(0, 200)}`);
       }
@@ -602,18 +603,19 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   let invoiceSetId;
   try {
     const woData = await resqGql(session, `{
-      node(id: "${resqWO.id}") {
-        ... on WorkOrderNode {
+      workOrders(first: 1, code: "${resqWO.code}") {
+        edges { node {
           invoiceSets { edges { node { id code } } }
           vendor { id }
-        }
+        } }
       }
     }`);
-    const sets = woData.data?.node?.invoiceSets?.edges || [];
+    const woNode = woData.data?.workOrders?.edges?.[0]?.node;
+    const sets = woNode?.invoiceSets?.edges || [];
     if (sets.length > 0) {
       invoiceSetId = sets[0].node.id;
     }
-    var vendorId = woData.data?.node?.vendor?.id;
+    var vendorId = woNode?.vendor?.id;
   } catch (e) {
     result.errors.push(`Get invoiceSet for ${resqWO.code}: ${e.message.substring(0, 200)}`);
     return result;

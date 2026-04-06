@@ -274,17 +274,29 @@ async function handleVisitPhotos(event, resqWoId) {
 
     const session = await resqLogin();
 
-    // Get the visit ID from the WO
-    const woData = await resqGql(session, `{
-      node(id: "${resqWoId}") {
-        ... on WorkOrderNode {
-          latestVisit { id status }
-          inProgressVisit { id status }
+    // Get the visit ID from the WO — try by code first, then scan
+    // resqWoId could be a base64 WO ID or a code like R0960134
+    const isCode = /^R?\d+$/.test(resqWoId);
+    let visitId;
+    if (isCode) {
+      const code = resqWoId.startsWith('R') ? resqWoId : `R${resqWoId}`;
+      const woData = await resqGql(session, `{
+        workOrders(first: 1, code: "${code}") {
+          edges { node { latestVisit { id outcome } inProgressVisit { id outcome } } }
         }
-      }
-    }`);
-    const node = woData.data?.node;
-    const visitId = node?.inProgressVisit?.id || node?.latestVisit?.id;
+      }`);
+      const woNode = woData.data?.workOrders?.edges?.[0]?.node;
+      visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
+    } else {
+      // Try to find by scanning recent WOs
+      const woData = await resqGql(session, `{
+        workOrders(first: 100, orderBy: "-raised_on") {
+          edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } } }
+        }
+      }`);
+      const match = woData.data?.workOrders?.edges?.find(e => e.node.id === resqWoId);
+      visitId = match?.node?.inProgressVisit?.id || match?.node?.latestVisit?.id;
+    }
     if (!visitId) return json({ error: 'No visit found on this work order' }, 404);
 
     // Build image array — ResQ expects data URLs
