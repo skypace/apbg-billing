@@ -714,7 +714,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       submitted = true;
       break;
     } catch (e) {
-      result.steps.push(`Submit ROW (${label}) ${resqWO.code}: ${e.message.substring(0, 150)}`);
+      result.steps.push(`Submit ROW (${label}) ${resqWO.code}: ${e.message.substring(0, 300)}`);
     }
   }
   // Also try with facility account if vendor didn't work
@@ -729,7 +729,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       result.steps.push(`→ ${resqWO.code} record submitted (facility)`);
       submitted = true;
     } catch (e) {
-      result.errors.push(`Submit ROW ${resqWO.code}: vendor + facility both failed. Last: ${e.message.substring(0, 150)}`);
+      result.errors.push(`Submit ROW ${resqWO.code}: vendor + facility both failed. Last: ${e.message.substring(0, 300)}`);
       return result;
     }
   }
