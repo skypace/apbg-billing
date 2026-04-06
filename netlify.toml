@@ -15,6 +15,9 @@
   timeout = 900
   schedule = "*/5 * * * *"
 
+[functions."health-watchdog"]
+  timeout = 60
+
 [[headers]]
   for = "/*"
   [headers.values]
