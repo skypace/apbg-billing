@@ -545,15 +545,18 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
 
   try {
     // Use VENDOR session — known to work for addAttachment
+    const attachLabel = `Inv-${refNumber}`.substring(0, 90);
+    const attachId = resqWO.id;
+    result.steps.push(`Debug: attachToId=${attachId} (${attachId.length}c), label=${attachLabel} (${attachLabel.length}c), file=${summaryB64.length}c b64, ct=text/plain`);
     await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
       addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
         __typename
       }
     }`, {
-      attachToId: resqWO.id,
+      attachToId: attachId,
       file: summaryB64,
       fileContentType: 'text/plain',
-      label: `Inv-${refNumber}`.substring(0, 90),
+      label: attachLabel,
     });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
