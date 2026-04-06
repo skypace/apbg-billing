@@ -495,7 +495,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   try {
     await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
       addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
-    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: `Inv ${refNumber}`.substring(0, 50) });
+    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: 'Inv' });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
