@@ -367,15 +367,6 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
 async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const result = { steps: [], errors: [], updated: 0 };
 
-  // Get facility session for invoice submission (has more permissions)
-  let facilitySession;
-  try {
-    facilitySession = await resqLogin({ facility: true });
-  } catch (e) {
-    result.errors.push(`Facility login failed: ${e.message}`);
-    return result;
-  }
-
   // Fetch SF job with invoices + line items expanded
   let sfJob;
   try {
@@ -481,51 +472,9 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
   const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.price) * parseFloat(li.quantity)), 0);
 
-  // Strategy 1: Submit invoice with line items via facility account
-  // createPartneredInvoiceSubmissionFromBuilder requires facility permissions
-  if (lineItems.length > 0) {
-    try {
-      await resqGql(facilitySession, `mutation($input: CreatePartneredInvoiceSubmissionFromBuilderMutationInput!) {
-        createPartneredInvoiceSubmissionFromBuilder(input: $input) {
-          __typename
-        }
-      }`, { input: {
-        workOrderId: resqWO.id,
-        lineItems,
-        vendorReferenceNumber: refNumber,
-        vendorNotes: `SF Job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''} | $${totalAmount.toFixed(2)}`,
-      }});
-      result.steps.push(`→ ResQ ${resqWO.code} invoice built (${lineItems.length} items, ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
-      result.updated++;
-      return result; // Success — no need for fallback
-    } catch (e) {
-      result.errors.push(`Build invoice (facility) ${resqWO.code}: ${e.message.substring(0, 200)}`);
-      // Fall through to Strategy 2
-    }
-  }
-
-  // Strategy 2: Upload invoice file via uploadVendorInvoice (facility session)
-  try {
-    const invoiceHtml2 = generateInvoiceHtml({
-      resqCode: resqWO.code, sfJobId, invoiceNumber: refNumber,
-      customerName: sfJob.customer_name || '', description: sfJob.description || '',
-      lineItems, totalAmount, date: new Date().toISOString().split('T')[0],
-    });
-    const b64 = Buffer.from(invoiceHtml2, 'utf-8').toString('base64');
-    await resqGql(facilitySession, `mutation($input: UploadVendorInvoiceInput!) {
-      uploadVendorInvoice(input: $input) { __typename }
-    }`, { input: {
-      workOrderId: resqWO.id,
-      invoiceFile: b64,
-    }});
-    result.steps.push(`→ ResQ ${resqWO.code} invoice uploaded via facility (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
-    result.updated++;
-    return result;
-  } catch (e) {
-    result.errors.push(`Upload invoice (facility) ${resqWO.code}: ${e.message.substring(0, 200)}`);
-  }
-
-  // Strategy 3: Attach as plain text summary via vendor session (known working)
+  // Attach invoice summary as text file via vendor session (known working approach)
+  // Note: facility mutations (createPartneredInvoiceSubmissionFromBuilder, uploadVendorInvoice,
+  // submitVendorInvoice) all require permissions this account doesn't have.
   const summary = [
     `INVOICE: ${refNumber}`,
     `Date: ${new Date().toISOString().split('T')[0]}`,
@@ -536,7 +485,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     ...lineItems.map(li => {
       const qty = parseFloat(li.quantity) || 1;
       const price = parseFloat(li.price) || 0;
-      return `  ${li.description} — ${qty} x $${price.toFixed(2)} = $${(qty * price).toFixed(2)}`;
+      return `  ${li.description} - ${qty} x $${price.toFixed(2)} = $${(qty * price).toFixed(2)}`;
     }),
     '',
     `TOTAL: $${totalAmount.toFixed(2)}`,
@@ -544,20 +493,9 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const summaryB64 = Buffer.from(summary, 'utf-8').toString('base64');
 
   try {
-    // Use VENDOR session — known to work for addAttachment
-    const attachLabel = `Inv-${refNumber}`.substring(0, 90);
-    const attachId = resqWO.id;
-    result.steps.push(`Debug: attachToId=${attachId} (${attachId.length}c), label=${attachLabel} (${attachLabel.length}c), file=${summaryB64.length}c b64, ct=text/plain`);
-    await resqGql(session, `mutation($attachToId: ID!, $file: String!, $fileContentType: String!, $label: String) {
-      addAttachment(attachToId: $attachToId, file: $file, fileContentType: $fileContentType, label: $label) {
-        __typename
-      }
-    }`, {
-      attachToId: attachId,
-      file: summaryB64,
-      fileContentType: 'text/plain',
-      label: attachLabel,
-    });
+    await resqGql(session, `mutation($a: ID!, $f: String!, $t: String!, $l: String) {
+      addAttachment(attachToId: $a, file: $f, fileContentType: $t, label: $l) { __typename }
+    }`, { a: resqWO.id, f: summaryB64, t: 'text/plain', l: `Inv ${refNumber}`.substring(0, 50) });
     result.steps.push(`→ ResQ ${resqWO.code} invoice attached (ref: ${refNumber}, $${totalAmount.toFixed(2)})`);
     result.updated++;
   } catch (e) {
