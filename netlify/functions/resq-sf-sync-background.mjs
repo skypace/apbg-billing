@@ -216,8 +216,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const needsPhotoTransfer = sfIsCompleted && !mapEntry.photosSent;
     const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
     // "Provide Update" — complete the visit in ResQ when SF is completed
+    // Also trigger if WO is COMPLETED (visit done but needs to transition to NEEDS_INVOICE)
     const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
-      && ['SCHEDULED', 'VISIT_SCHEDULED', 'NOT_YET_COMPLETED'].includes(resqStatus);
+      && ['SCHEDULED', 'VISIT_SCHEDULED', 'NOT_YET_COMPLETED', 'COMPLETED'].includes(resqStatus);
 
     if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit && !needsVisitComplete) return result;
 
@@ -272,7 +273,10 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         if (invResult.steps.length) result.steps.push(...invResult.steps);
         if (invResult.errors.length) result.errors.push(...invResult.errors);
         result.updated += invResult.updated || 0;
-        mapEntry.invoiceSubmitted = true;
+        // Only mark submitted if it actually succeeded
+        if (invResult.updated > 0) {
+          mapEntry.invoiceSubmitted = true;
+        }
       } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
     }
 
