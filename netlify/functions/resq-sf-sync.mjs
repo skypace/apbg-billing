@@ -190,7 +190,7 @@ async function handleIntrospect(what) {
 
     if (what.startsWith('type:')) {
       const typeName = what.slice(5);
-      const data = await resqGql(session, `{ __type(name: "${typeName}") { name kind fields { name type { name kind ofType { name kind ofType { name } } } } inputFields { name type { name kind ofType { name kind ofType { name } } } } } }`);
+      const data = await resqGql(session, `{ __type(name: "${typeName}") { name kind fields { name type { name kind ofType { name kind ofType { name } } } } inputFields { name type { name kind ofType { name kind ofType { name } } } } enumValues { name description } } }`);
       return json(data.data?.__type || { error: 'Type not found' });
     }
 
