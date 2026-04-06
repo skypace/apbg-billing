@@ -534,10 +534,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const lineItems = [];
   let order = 0;
 
-  // Products → ITEM_TYPE_PARTS
+  // Products → ITEM_TYPE_PART
   for (const p of (sfJob.products || [])) {
     lineItems.push({
-      order: order++, itemType: 'ITEM_TYPE_PARTS',
+      order: order++, itemType: 'ITEM_TYPE_PART',
       quantity: String(p.multiplier || 1), rate: String(p.rate || 0),
       description: p.description || p.name || 'Part',
       partName: p.name || null, partManufacturer: null, partNumber: null,
@@ -547,10 +547,10 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     });
   }
 
-  // Services → ITEM_TYPE_SERVICE_CALL
+  // Services → ITEM_TYPE_SERVICE_CHARGE
   for (const s of (sfJob.services || [])) {
     lineItems.push({
-      order: order++, itemType: 'ITEM_TYPE_SERVICE_CALL',
+      order: order++, itemType: 'ITEM_TYPE_SERVICE_CHARGE',
       quantity: String(s.multiplier || 1), rate: String(s.rate || 0),
       description: s.description || s.name || 'Service',
       partName: null, partManufacturer: null, partNumber: null,
@@ -673,7 +673,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
       recordOfWorkId,
       vendorReferenceNumber: refNumber,
       lineItems: lineItems.length > 0 ? lineItems : [{
-        order: 0, itemType: 'ITEM_TYPE_SERVICE_CALL',
+        order: 0, itemType: 'ITEM_TYPE_SERVICE_CHARGE',
         quantity: '1', rate: String(sfJob.total || 0),
         description: 'Service', partName: null, partManufacturer: null,
         partNumber: null, promotionType: null, ratePercentage: null,
