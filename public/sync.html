@@ -84,6 +84,35 @@ tr:hover td{background:#F9FAFB}
 .upload-result.ok{background:#D1FAE5;color:#065F46}
 .upload-result.err{background:#FEE2E2;color:#991B1B}
 
+/* Expense modal */
+.expense-btn{padding:4px 10px;font-size:0.72rem;border-radius:4px;cursor:pointer;border:1px solid #D1D5DB;background:#fff;color:#92400E;font-weight:600}
+.expense-btn:hover{background:#FEF3C7}
+.expense-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center}
+.expense-modal.show{display:flex}
+.expense-box{background:#fff;border-radius:12px;padding:32px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto}
+.expense-box h3{color:#1F4E79;margin-bottom:4px;font-size:1rem}
+.expense-box .subtitle{color:#6B7280;font-size:0.82rem;margin-bottom:16px}
+.expense-list{margin-bottom:16px}
+.expense-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#F9FAFB;border-radius:6px;margin-bottom:6px;font-size:0.82rem}
+.expense-item .info{flex:1}
+.expense-item .amt{font-weight:700;color:#1F4E79;margin-right:12px}
+.expense-item .cat{color:#6B7280;font-size:0.72rem}
+.expense-drop{border:2px dashed #D1D5DB;border-radius:8px;padding:30px 20px;cursor:pointer;transition:all 0.15s;margin-bottom:16px;text-align:center}
+.expense-drop:hover,.expense-drop.dragover{border-color:#92400E;background:#FEF3C7}
+.expense-drop .icon{font-size:1.5rem;margin-bottom:4px}
+.expense-drop .text{color:#6B7280;font-size:0.82rem}
+.scan-result{margin-top:12px;padding:12px;border-radius:6px;font-size:0.82rem;text-align:left}
+.scan-result.ok{background:#D1FAE5;color:#065F46}
+.scan-result.err{background:#FEE2E2;color:#991B1B}
+.scan-result.pending{background:#FEF3C7;color:#92400E}
+.scan-detail{margin-top:8px;font-size:0.78rem;color:#374151}
+.scan-detail table{width:100%;border-collapse:collapse;margin-top:6px}
+.scan-detail td,.scan-detail th{padding:4px 8px;border:1px solid #E5E7EB;font-size:0.75rem}
+.scan-detail th{background:#F3F4F6;text-align:left}
+.vendor-select{margin-top:8px}
+.vendor-select select{width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:6px;font-size:0.85rem}
+.vendor-select label{font-size:0.78rem;color:#6B7280;display:block;margin-bottom:4px}
+
 @media(max-width:768px){
   .status-row{grid-template-columns:1fr 1fr}
   .actions{flex-wrap:wrap}
@@ -159,6 +188,26 @@ tr:hover td{background:#F9FAFB}
   </div>
 </div>
 
+<!-- Expense → Bill Modal -->
+<div class="expense-modal" id="expenseModal">
+  <div class="expense-box">
+    <h3>💰 Receipt → QBO Bill</h3>
+    <p class="subtitle" id="expenseTarget">SF Job: —</p>
+    <div class="expense-list" id="expenseList"><div class="empty" style="padding:16px">Loading expenses...</div></div>
+    <div class="expense-drop" id="expenseDrop">
+      <div class="icon">🧾</div>
+      <div class="text">Drop receipt (PDF/image) here or click to browse</div>
+      <input type="file" id="expenseFileInput" accept="image/*,.pdf" style="display:none">
+    </div>
+    <div id="expenseFilePreview" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="primary" id="scanBtn" onclick="doScanReceipt()" disabled>🔍 Scan & Create Bill</button>
+      <button class="secondary" onclick="closeExpense()">Cancel</button>
+    </div>
+    <div class="scan-result" id="scanResult" style="display:none"></div>
+  </div>
+</div>
+
 <!-- Photo Upload Modal -->
 <div class="upload-modal" id="uploadModal">
   <div class="upload-box">
@@ -209,7 +258,7 @@ async function loadStatus() {
     const totalCount = allMappings.length;
     document.getElementById('mappedCount').textContent = activeCount;
     document.getElementById('mappedSub').textContent = `${activeCount} active of ${totalCount} total`;
-    document.getElementById('cardMapped').className = 'stat-card' + (count > 0 ? ' ok' : '');
+    document.getElementById('cardMapped').className = 'stat-card' + (activeCount > 0 ? ' ok' : '');
 
     // Last sync
     if (data.lastSync) {
@@ -338,7 +387,7 @@ function renderMappings(mappings) {
   let html = `<table>
     <thead><tr>
       <th>ResQ Code</th><th>Title</th><th>Facility</th><th>SF Job #</th>
-      <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Last Synced</th>
+      <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Expenses</th><th>Last Synced</th>
     </tr></thead><tbody>`;
 
   for (const [resqId, m] of active) {
@@ -348,6 +397,10 @@ function renderMappings(mappings) {
     const photoBtn = m.photosSent
       ? '<button class="upload-btn done">✓ Sent</button>'
       : `<button class="upload-btn" onclick="openUpload('${resqId}','${m.resqCode || ''}')">📸 Upload</button>`;
+    const sfJob = m.sfJobId || '';
+    const expenseBtn = sfJob
+      ? `<button class="expense-btn" onclick="openExpense('${sfJob}','${m.resqCode || ''}')">💰 Bill</button>`
+      : '—';
 
     html += `<tr>
       <td><strong>${m.resqCode || '—'}</strong></td>
@@ -357,6 +410,7 @@ function renderMappings(mappings) {
       <td>${resqBadge}</td>
       <td>${sfBadge}</td>
       <td>${photoBtn}</td>
+      <td>${expenseBtn}</td>
       <td>${synced}</td>
     </tr>`;
   }
@@ -507,6 +561,232 @@ function fileToBase64(file) {
 // Close modal on background click
 document.getElementById('uploadModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('uploadModal')) closeUpload();
+});
+
+// --- Expense → Bill ---
+let expenseSfJob = '';
+let expenseResqCode = '';
+let expenseFile = null;
+let expenseExtracted = null; // saved from scan for manual vendor pick
+
+function openExpense(sfJobId, resqCode) {
+  expenseSfJob = sfJobId;
+  expenseResqCode = resqCode;
+  expenseFile = null;
+  expenseExtracted = null;
+  document.getElementById('expenseTarget').textContent = `SF Job #${sfJobId} — ResQ ${resqCode}`;
+  document.getElementById('expenseFilePreview').innerHTML = '';
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('scanResult').style.display = 'none';
+  document.getElementById('expenseModal').classList.add('show');
+  loadExpenses(sfJobId);
+}
+
+function closeExpense() {
+  document.getElementById('expenseModal').classList.remove('show');
+  expenseFile = null;
+  expenseExtracted = null;
+}
+
+async function loadExpenses(sfJobId) {
+  const el = document.getElementById('expenseList');
+  try {
+    const res = await fetch(`${API_BASE}/expense-to-bill?sfJob=${sfJobId}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const expenses = data.expenses || [];
+    if (expenses.length === 0) {
+      el.innerHTML = '<div style="padding:12px;color:#6B7280;font-size:0.82rem">No expenses on this job yet. Upload a receipt below to create a QBO bill.</div>';
+      return;
+    }
+    el.innerHTML = expenses.map(ex =>
+      `<div class="expense-item">
+        <div class="info"><strong>${ex.notes || ex.category || 'Expense'}</strong><br>
+          <span class="cat">${ex.category || '—'} · ${ex.date || '—'}${ex.isBillable ? ' · Billable' : ''}</span>
+        </div>
+        <div class="amt">$${Number(ex.amount).toFixed(2)}</div>
+      </div>`
+    ).join('');
+  } catch (e) {
+    el.innerHTML = `<div style="padding:12px;color:#DC2626;font-size:0.82rem">Error loading expenses: ${e.message}</div>`;
+  }
+}
+
+// Expense file drop
+const expenseDrop = document.getElementById('expenseDrop');
+const expenseFileInput = document.getElementById('expenseFileInput');
+
+expenseDrop.addEventListener('click', () => expenseFileInput.click());
+expenseDrop.addEventListener('dragover', (e) => { e.preventDefault(); expenseDrop.classList.add('dragover'); });
+expenseDrop.addEventListener('dragleave', () => expenseDrop.classList.remove('dragover'));
+expenseDrop.addEventListener('drop', (e) => {
+  e.preventDefault(); expenseDrop.classList.remove('dragover');
+  if (e.dataTransfer.files.length > 0) setExpenseFile(e.dataTransfer.files[0]);
+});
+expenseFileInput.addEventListener('change', () => {
+  if (expenseFileInput.files.length > 0) setExpenseFile(expenseFileInput.files[0]);
+  expenseFileInput.value = '';
+});
+
+function setExpenseFile(file) {
+  expenseFile = file;
+  expenseExtracted = null;
+  document.getElementById('expenseFilePreview').innerHTML =
+    `<div class="file-item"><span class="name">🧾 ${file.name}</span><span class="size">${(file.size/1024).toFixed(0)}KB</span><span class="remove" onclick="clearExpenseFile()">✕</span></div>`;
+  document.getElementById('scanBtn').disabled = false;
+  document.getElementById('scanResult').style.display = 'none';
+}
+
+function clearExpenseFile() {
+  expenseFile = null;
+  expenseExtracted = null;
+  document.getElementById('expenseFilePreview').innerHTML = '';
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('scanResult').style.display = 'none';
+}
+
+async function doScanReceipt() {
+  if (!expenseFile) return;
+  const btn = document.getElementById('scanBtn');
+  const resultEl = document.getElementById('scanResult');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Scanning receipt...';
+  resultEl.className = 'scan-result pending';
+  resultEl.innerHTML = '🔍 Sending receipt to AI for analysis...';
+  resultEl.style.display = 'block';
+
+  try {
+    const base64 = await fileToBase64(expenseFile);
+    const res = await fetch(`${API_BASE}/expense-to-bill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sfJobId: expenseSfJob,
+        resqCode: expenseResqCode,
+        fileData: base64,
+        mediaType: expenseFile.type || 'application/pdf',
+      }),
+    });
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    if (data.needsVendor) {
+      // Vendor not matched — show extracted data + vendor picker
+      expenseExtracted = data.extracted;
+      resultEl.className = 'scan-result pending';
+      resultEl.innerHTML = `⚠️ ${data.message}` + renderExtracted(data.extracted) + renderVendorPicker();
+      resultEl.style.display = 'block';
+      // Load QBO vendors for picker
+      loadQBOVendors();
+    } else if (data.success) {
+      resultEl.className = 'scan-result ok';
+      resultEl.innerHTML = `✅ ${data.message}` + renderExtracted(data.extracted);
+      resultEl.style.display = 'block';
+    }
+  } catch (e) {
+    resultEl.className = 'scan-result err';
+    resultEl.textContent = `❌ ${e.message}`;
+    resultEl.style.display = 'block';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔍 Scan & Create Bill';
+}
+
+function renderExtracted(ex) {
+  if (!ex) return '';
+  let html = '<div class="scan-detail">';
+  html += `<p><strong>Vendor:</strong> ${ex.vendorName || '—'} · <strong>Total:</strong> $${(ex.total || 0).toFixed(2)}`;
+  if (ex.billNumber) html += ` · <strong>Bill #:</strong> ${ex.billNumber}`;
+  html += '</p>';
+  if (ex.lineItems?.length) {
+    html += '<table><thead><tr><th>Description</th><th>Qty</th><th>Unit Cost</th><th>Category</th></tr></thead><tbody>';
+    for (const li of ex.lineItems) {
+      html += `<tr><td>${li.description}</td><td>${li.quantity}</td><td>$${(li.unitCost || 0).toFixed(2)}</td><td>${li.category}</td></tr>`;
+    }
+    html += '</tbody></table>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderVendorPicker() {
+  return `<div class="vendor-select" id="vendorPickerWrap">
+    <label>Select QBO Vendor manually:</label>
+    <select id="vendorPicker" onchange="onVendorPicked()">
+      <option value="">Loading vendors...</option>
+    </select>
+  </div>`;
+}
+
+async function loadQBOVendors() {
+  try {
+    const res = await fetch(`${API_BASE}/expense-to-bill?listVendors=1`);
+    // The function doesn't have this endpoint yet — fallback: use the approve-bill vendor list if available
+    // For now, just let the user type/pick — we'll POST with vendorId
+  } catch (e) {}
+  // Fallback: fetch vendors from a simple query endpoint
+  try {
+    const res = await fetch(`${API_BASE}/approve-bill?vendors=1`);
+    // If that doesn't work either, we do a direct search approach
+  } catch (e) {}
+  // Simple approach: add a text input for vendor search
+  const wrap = document.getElementById('vendorPickerWrap');
+  if (wrap) {
+    wrap.innerHTML = `
+      <label>Vendor not found automatically. Enter QBO vendor name and retry:</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <input type="text" id="vendorNameOverride" placeholder="Vendor name in QBO" style="flex:1;padding:8px;border:1px solid #D1D5DB;border-radius:6px;font-size:0.85rem" value="${(expenseExtracted?.vendorName || '').replace(/"/g, '&quot;')}">
+        <button class="primary" style="padding:8px 16px;font-size:0.82rem" onclick="retryWithVendor()">Create Bill</button>
+      </div>
+    `;
+  }
+}
+
+async function retryWithVendor() {
+  if (!expenseExtracted || !expenseFile) return;
+  const vendorName = document.getElementById('vendorNameOverride')?.value;
+  if (!vendorName) { alert('Enter a vendor name'); return; }
+
+  const btn = event.target;
+  const resultEl = document.getElementById('scanResult');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const base64 = await fileToBase64(expenseFile);
+    const res = await fetch(`${API_BASE}/expense-to-bill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sfJobId: expenseSfJob,
+        resqCode: expenseResqCode,
+        fileData: base64,
+        mediaType: expenseFile.type || 'application/pdf',
+        vendorNameHint: vendorName,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (data.needsVendor) {
+      resultEl.className = 'scan-result err';
+      resultEl.innerHTML = `❌ Still can't find vendor "${vendorName}" in QBO. Create the vendor in QuickBooks first.`;
+    } else if (data.success) {
+      resultEl.className = 'scan-result ok';
+      resultEl.innerHTML = `✅ ${data.message}` + renderExtracted(data.extracted);
+    }
+  } catch (e) {
+    resultEl.className = 'scan-result err';
+    resultEl.textContent = `❌ ${e.message}`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Create Bill';
+}
+
+document.getElementById('expenseModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('expenseModal')) closeExpense();
 });
 </script>
 </body>
