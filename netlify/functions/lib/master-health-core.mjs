@@ -7,7 +7,7 @@ const SITES = [
   {
     id: 'apbg',
     name: 'APBG 3rd Party Billing',
-    healthUrl: 'https://pacer-billing.netlify.app/.netlify/functions/health-watchdog',
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
   },
   {
     id: 'melt',
@@ -17,7 +17,7 @@ const SITES = [
   {
     id: 'pacer',
     name: 'Pacer Finance',
-    healthUrl: 'https://pacer-finance.netlify.app/api/health',
+    healthUrl: 'https://pacerfinance.netlify.app/api/health',
   },
 ];
 
