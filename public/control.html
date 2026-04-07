@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Master Control — APBG Systems</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#0F172A;color:#E2E8F0;min-height:100vh}
+.gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.gate-card{background:#1E293B;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;border:1px solid #334155}
+.gate-card h1{color:#F8FAFC;font-size:1.3rem;margin-bottom:8px}
+.gate-card p{color:#94A3B8;font-size:0.85rem;margin-bottom:20px}
+.gate-card input{width:100%;padding:14px;border:1px solid #475569;border-radius:8px;font-size:1rem;text-align:center;letter-spacing:2px;background:#0F172A;color:#F8FAFC}
+.gate-card input:focus{outline:none;border-color:#3B82F6}
+.gate-card .err{color:#EF4444;font-size:0.8rem;margin-top:8px;display:none}
+
+header{background:linear-gradient(135deg,#1E3A5F,#1F4E79);color:#fff;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155}
+header h1{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:10px}
+header .links a{color:rgba(255,255,255,0.6);text-decoration:none;font-size:0.82rem;margin-left:16px;transition:color 0.15s}
+header .links a:hover{color:#fff}
+
+.container{max-width:1200px;margin:0 auto;padding:28px}
+
+.refresh-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.refresh-bar .last{font-size:0.78rem;color:#64748B}
+.refresh-bar button{padding:10px 24px;border:none;border-radius:8px;font-weight:600;font-size:0.85rem;cursor:pointer;background:#3B82F6;color:#fff;transition:all 0.15s}
+.refresh-bar button:hover{background:#2563EB}
+.refresh-bar button:disabled{background:#475569;cursor:not-allowed}
+
+.sites-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin-bottom:28px}
+
+.site-card{background:#1E293B;border-radius:12px;border:1px solid #334155;overflow:hidden;transition:border-color 0.2s}
+.site-card:hover{border-color:#475569}
+.site-card .card-header{padding:18px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155}
+.site-card .card-header .name{font-weight:700;font-size:1rem;display:flex;align-items:center;gap:8px}
+.site-card .card-header .overall{font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px}
+.overall.healthy{background:#064E3B;color:#34D399}
+.overall.degraded{background:#78350F;color:#FBBF24}
+.overall.down{background:#7F1D1D;color:#FCA5A5}
+.overall.unknown{background:#334155;color:#94A3B8}
+
+.card-body{padding:16px 20px}
+.check-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #1E293B}
+.check-row:last-child{border-bottom:none}
+.check-row .check-name{display:flex;align-items:center;gap:8px;font-size:0.85rem;font-weight:500}
+.check-row .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot.ok{background:#34D399}
+.dot.warn{background:#FBBF24}
+.dot.fail{background:#EF4444}
+.dot.unknown{background:#475569}
+.check-row .check-detail{font-size:0.72rem;color:#64748B;text-align:right;max-width:200px}
+
+.card-footer{padding:12px 20px;border-top:1px solid #334155;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.card-footer .timestamp{font-size:0.7rem;color:#475569;font-family:'JetBrains Mono',monospace}
+.reconnect-btn{padding:6px 14px;border:1px solid #475569;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;background:transparent;color:#94A3B8;text-decoration:none;transition:all 0.15s;display:inline-block}
+.reconnect-btn:hover{border-color:#3B82F6;color:#3B82F6;background:#1E3A5F}
+.reconnect-btn.warn{border-color:#D97706;color:#FBBF24}
+.reconnect-btn.warn:hover{background:#78350F}
+.reconnect-btn.danger{border-color:#EF4444;color:#FCA5A5}
+.reconnect-btn.danger:hover{background:#7F1D1D}
+
+.keepalive-section{background:#1E293B;border-radius:12px;border:1px solid #334155;padding:20px;margin-bottom:28px}
+.keepalive-section h2{font-size:0.9rem;font-weight:700;color:#F8FAFC;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.keepalive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.keepalive-item{background:#0F172A;border-radius:8px;padding:14px;border:1px solid #334155}
+.keepalive-item .label{font-size:0.7rem;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.keepalive-item .value{font-size:0.85rem;font-weight:600}
+.keepalive-item .age{font-size:0.7rem;color:#64748B;margin-top:2px}
+
+.log-section{background:#1E293B;border-radius:12px;border:1px solid #334155;overflow:hidden}
+.log-section h2{font-size:0.9rem;font-weight:700;color:#F8FAFC;padding:16px 20px;border-bottom:1px solid #334155}
+.log{font-family:'JetBrains Mono',monospace;font-size:0.72rem;background:#0F172A;color:#94A3B8;padding:16px 20px;max-height:250px;overflow-y:auto;white-space:pre-wrap}
+.log .ok{color:#34D399}
+.log .err{color:#EF4444}
+.log .info{color:#60A5FA}
+.log .warn{color:#FBBF24}
+
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.2);border-top-color:#3B82F6;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.pulsing{animation:pulse 2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<!-- PIN Gate -->
+<div id="gate" class="gate">
+<div class="gate-card">
+  <h1>Master Control</h1>
+  <p>Enter PIN to access the system dashboard</p>
+  <input type="password" id="pin" placeholder="PIN" maxlength="8" autofocus>
+  <div class="err" id="pinErr">Invalid PIN</div>
+</div>
+</div>
+
+<!-- Dashboard -->
+<div id="app" style="display:none">
+<header>
+  <h1>🎛️ Master Control — APBG Systems</h1>
+  <div class="links">
+    <a href="https://apbg-billing.netlify.app" target="_blank">APBG Billing</a>
+    <a href="https://melt-dashboard.netlify.app" target="_blank">Melt Dashboard</a>
+    <a href="https://apbg-billing.netlify.app/setup.html" target="_blank">Setup</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="refresh-bar">
+    <div class="last" id="lastCheck">Checking systems...</div>
+    <button id="refreshBtn" onclick="refreshAll()">↻ Refresh All</button>
+  </div>
+
+  <div class="sites-grid" id="sitesGrid"></div>
+
+  <div class="keepalive-section">
+    <h2>🫀 Token Keep-Alive Status</h2>
+    <div class="keepalive-grid" id="keepaliveGrid"></div>
+  </div>
+
+  <div class="log-section">
+    <h2>Activity Log</h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+</div>
+
+<script>
+// ═══ CONFIG ═══
+const SITES = {
+  apbg: {
+    name: 'APBG 3rd Party Billing',
+    icon: '📋',
+    url: 'https://apbg-billing.netlify.app',
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
+    checks: ['qbo', 'serviceFusion', 'resq'],
+    labels: { qbo: 'QuickBooks', serviceFusion: 'Service Fusion', resq: 'ResQ' },
+    reconnect: {
+      qbo: buildQboUrl('ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK', 'https://apbg-billing.netlify.app/.netlify/functions/oauth-callback'),
+      serviceFusion: buildSfUrl('f8cqiTHnjoFS-QMeuc', 'https://apbg-billing.netlify.app/.netlify/functions/sf-oauth-callback'),
+    },
+  },
+  melt: {
+    name: 'Melt Equipment Dashboard',
+    icon: '🔥',
+    url: 'https://melt-dashboard.netlify.app',
+    healthUrl: 'https://melt-dashboard.netlify.app/api/health',
+    checks: ['qbo', 'cache', 'resq'],
+    labels: { qbo: 'QuickBooks', cache: 'Data Cache', resq: 'ResQ' },
+    reconnect: {
+      qbo: buildQboUrl('ABcbkH2VkVLsWzXS2UuOdAg9DmXG6UecHk938uNEqe3ir5v6N1', 'https://melt-dashboard.netlify.app/.netlify/functions/oauth-callback'),
+    },
+  },
+  pacer: {
+    name: 'Pacer Finance',
+    icon: '💰',
+    url: 'https://pacerfinance.netlify.app',
+    healthUrl: 'https://pacerfinance.netlify.app/api/health',
+    checks: ['qbo'],
+    labels: { qbo: 'QuickBooks' },
+    reconnect: {
+      qbo: null, // TODO: add Pacer QBO client ID
+    },
+  },
+};
+
+function buildQboUrl(clientId, redirectUri) {
+  return 'https://appcenter.intuit.com/connect/oauth2?client_id=' + clientId
+    + '&redirect_uri=' + encodeURIComponent(redirectUri)
+    + '&response_type=code&scope=com.intuit.quickbooks.accounting&state=master-' + Date.now();
+}
+function buildSfUrl(clientId, redirectUri) {
+  return 'https://api.servicefusion.com/oauth/authorize?client_id=' + clientId
+    + '&redirect_uri=' + encodeURIComponent(redirectUri)
+    + '&response_type=code&state=sf-' + Date.now();
+}
+
+// ═══ STATE ═══
+let siteData = {};
+let logLines = [];
+const logEl = () => document.getElementById('log');
+
+function log(msg, cls = '') {
+  const ts = new Date().toLocaleTimeString();
+  logLines.unshift({ ts, msg, cls });
+  if (logLines.length > 100) logLines.pop();
+  renderLog();
+}
+function renderLog() {
+  const el = logEl();
+  if (!el) return;
+  el.innerHTML = logLines.map(l => `<span class="${l.cls}">[${l.ts}] ${l.msg}</span>`).join('\n');
+}
+
+// ═══ PIN GATE ═══
+document.getElementById('pin').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    if (this.value === '2026' || this.value === 'brix2026') {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      refreshAll();
+      setInterval(refreshAll, 60000); // auto-refresh every 60s
+    } else {
+      document.getElementById('pinErr').style.display = 'block';
+    }
+  }
+});
+
+// ═══ HEALTH FETCHER ═══
+async function fetchSiteHealth(key, site) {
+  try {
+    log(`Checking ${site.name}...`, 'info');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const r = await fetch(site.healthUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    siteData[key] = { status: 'ok', data, fetchedAt: new Date() };
+    log(`${site.name}: ${data.overall || 'ok'}`, data.overall === 'healthy' || data.overall === 'ok' ? 'ok' : 'warn');
+  } catch (e) {
+    siteData[key] = { status: 'error', error: e.message, fetchedAt: new Date() };
+    log(`${site.name}: UNREACHABLE — ${e.message}`, 'err');
+  }
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Checking...';
+
+  await Promise.allSettled(
+    Object.entries(SITES).map(([key, site]) => fetchSiteHealth(key, site))
+  );
+
+  btn.disabled = false;
+  btn.innerHTML = '↻ Refresh All';
+  document.getElementById('lastCheck').textContent = 'Last check: ' + new Date().toLocaleTimeString();
+  renderSites();
+  renderKeepalive();
+}
+
+// ═══ RENDER ═══
+function getCheckStatus(siteKey, checkName) {
+  const site = siteData[siteKey];
+  if (!site || site.status === 'error') return { ok: false, status: 'unknown', message: 'Unreachable' };
+  const d = site.data;
+
+  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'error', detail:'...'}, ... } }
+  if (d.checks && d.checks[checkName]) {
+    const c = d.checks[checkName];
+    const isOk = c.ok === true || c.status === 'ok';
+    return { ok: isOk, status: isOk ? 'ok' : (c.status === 'warn' ? 'warn' : 'fail'), message: c.detail || c.message || '' };
+  }
+  // Melt health-check format: { qbo: {ok,message}, cache: {...}, resq: {...} }
+  if (d[checkName]) {
+    const c = d[checkName];
+    return { ok: c.ok, status: c.ok ? 'ok' : 'fail', message: c.message || '' };
+  }
+  return { ok: false, status: 'unknown', message: 'No data' };
+}
+
+function getOverall(siteKey) {
+  const site = siteData[siteKey];
+  if (!site) return 'unknown';
+  if (site.status === 'error') return 'down';
+  const d = site.data;
+  if (d.overall) return d.overall === 'ok' ? 'healthy' : d.overall;
+  return 'unknown';
+}
+
+function renderSites() {
+  const grid = document.getElementById('sitesGrid');
+  grid.innerHTML = Object.entries(SITES).map(([key, site]) => {
+    const overall = getOverall(key);
+    const sd = siteData[key];
+    const checkedAt = sd?.data?.checkedAt || sd?.data?.timestamp || sd?.fetchedAt?.toISOString() || '';
+    const checks = site.checks.map(ck => {
+      const s = getCheckStatus(key, ck);
+      const dotCls = s.status === 'ok' ? 'ok' : s.status === 'fail' ? 'fail' : s.status === 'warn' ? 'warn' : 'unknown';
+      const reconnectUrl = site.reconnect?.[ck];
+      const reconnectHtml = reconnectUrl && s.status !== 'ok'
+        ? ` <a href="${reconnectUrl}" target="_blank" class="reconnect-btn danger" style="margin-left:8px;font-size:0.65rem;padding:2px 8px">Reconnect</a>`
+        : '';
+      return `<div class="check-row">
+        <div class="check-name"><span class="dot ${dotCls}"></span>${site.labels[ck]}${reconnectHtml}</div>
+        <div class="check-detail">${s.message}</div>
+      </div>`;
+    }).join('');
+
+    // Reconnect buttons in footer
+    const reconnectBtns = Object.entries(site.reconnect || {}).map(([ck, url]) => {
+      if (!url) return '';
+      const s = getCheckStatus(key, ck);
+      const cls = s.status !== 'ok' ? 'danger' : '';
+      return `<a href="${url}" target="_blank" class="reconnect-btn ${cls}">🔑 ${site.labels[ck]}</a>`;
+    }).join(' ');
+
+    return `<div class="site-card">
+      <div class="card-header">
+        <div class="name">${site.icon} ${site.name}</div>
+        <span class="overall ${overall}">${overall}</span>
+      </div>
+      <div class="card-body">${checks}</div>
+      <div class="card-footer">
+        <div class="timestamp">${checkedAt ? new Date(checkedAt).toLocaleString() : '—'}</div>
+        <div>${reconnectBtns}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderKeepalive() {
+  const grid = document.getElementById('keepaliveGrid');
+  const items = Object.entries(SITES).map(([key, site]) => {
+    const sd = siteData[key];
+    let lastRefresh = '—', age = '—', color = '#94A3B8';
+
+    if (sd?.status === 'ok') {
+      const d = sd.data;
+      // Melt format has cache.lastRefresh
+      const lr = d.cache?.lastRefresh || d.checks?.syncFreshness?.lastSync || d.timestamp || d.checkedAt;
+      if (lr) {
+        lastRefresh = new Date(lr).toLocaleString();
+        const mins = Math.round((Date.now() - new Date(lr).getTime()) / 60000);
+        age = mins < 60 ? `${mins}m ago` : `${Math.round(mins/60)}h ago`;
+        color = mins < 120 ? '#34D399' : mins < 360 ? '#FBBF24' : '#EF4444';
+      }
+    } else if (sd?.status === 'error') {
+      lastRefresh = 'UNREACHABLE';
+      color = '#EF4444';
+    }
+
+    return `<div class="keepalive-item">
+      <div class="label">${site.icon} ${site.name}</div>
+      <div class="value" style="color:${color}">${lastRefresh === 'UNREACHABLE' ? '❌ Down' : '✓ Active'}</div>
+      <div class="age">${lastRefresh !== '—' && lastRefresh !== 'UNREACHABLE' ? 'Last activity: ' + age : ''}</div>
+    </div>`;
+  }).join('');
+  grid.innerHTML = items;
+}
+</script>
+</body>
+</html>

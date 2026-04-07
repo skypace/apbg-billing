@@ -18,6 +18,12 @@
 [functions."health-watchdog"]
   timeout = 60
 
+[functions."master-health"]
+  timeout = 30
+
+[functions."master-health-cron"]
+  timeout = 60
+
 [[headers]]
   for = "/*"
   [headers.values]
