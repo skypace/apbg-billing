@@ -156,11 +156,10 @@ const SITES = {
     url: 'https://pacerfinance.netlify.app',
     healthUrl: null, // No dedicated health endpoint — uses probe mode
     probeEndpoints: {
-      qbo: { url: 'https://pacerfinance.netlify.app/qbo', method: 'GET' },
-      zoho: { url: 'https://pacerfinance.netlify.app/zoho', method: 'GET' },
+      site: { url: 'https://pacerfinance.netlify.app/', method: 'GET' },
     },
-    checks: ['qbo', 'zoho'],
-    labels: { qbo: 'QuickBooks MCP', zoho: 'Zoho MCP' },
+    checks: ['site'],
+    labels: { site: 'Site Online' },
     reconnect: {
       qbo: null,
     },
@@ -222,11 +221,10 @@ async function fetchSiteHealth(key, site) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 10000);
-          const r = await fetch(cfg.url, { method: cfg.method || 'GET', signal: controller.signal, mode: 'no-cors' });
+          const r = await fetch(cfg.url, { method: cfg.method || 'GET', signal: controller.signal });
           clearTimeout(timeout);
-          // no-cors returns opaque response (status 0) — if fetch didn't throw, the server responded
-          const alive = true;
-          results[name] = { ok: alive, message: 'Endpoint responding' };
+          const alive = r.status !== 404 && r.status !== 502 && r.status !== 503;
+          results[name] = { ok: alive, message: alive ? `Responding (HTTP ${r.status})` : `Down (HTTP ${r.status})` };
           if (!alive) allOk = false;
         } catch (e) {
           results[name] = { ok: false, message: e.name === 'AbortError' ? 'Timeout' : e.message };

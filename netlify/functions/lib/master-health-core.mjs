@@ -19,6 +19,7 @@ const SITES = [
     name: 'Pacer Finance',
     healthUrl: null,
     probeEndpoints: {
+      site: { url: 'https://pacerfinance.netlify.app/', method: 'GET' },
       qbo: { url: 'https://pacerfinance.netlify.app/qbo', method: 'POST' },
       zoho: { url: 'https://pacerfinance.netlify.app/zoho', method: 'POST' },
     },
