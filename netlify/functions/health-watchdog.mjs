@@ -86,7 +86,7 @@ async function checkSyncFreshness() {
     if (!raw) return { status: 'warn', detail: 'No last-sync record found' };
 
     const data = JSON.parse(raw);
-    const ts = data.finishedAt || data.startedAt || data.ts;
+    const ts = data.completed || data.finishedAt || data.started || data.startedAt || data.ts;
     if (!ts) return { status: 'warn', detail: 'last-sync blob has no timestamp' };
 
     const age = Date.now() - new Date(ts).getTime();
