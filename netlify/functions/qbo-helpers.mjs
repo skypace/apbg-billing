@@ -8,10 +8,18 @@ import { getStore } from "@netlify/blobs";
 const QBO_BASE = 'https://quickbooks.api.intuit.com';
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
+function getBlobStore() {
+  return getStore({
+    name: "qbo-tokens",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_ACCESS_TOKEN,
+  });
+}
+
 export async function getAccessToken() {
   const clientId = process.env.QBO_CLIENT_ID;
   const clientSecret = process.env.QBO_CLIENT_SECRET;
-  const store = getStore("qbo-tokens");
+  const store = getBlobStore();
 
   // 1. Return cached access token if still valid
   try {

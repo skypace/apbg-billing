@@ -1,6 +1,14 @@
 import { corsHeaders } from './qbo-helpers.mjs';
 import { getStore } from "@netlify/blobs";
 
+function getBlobStore() {
+  return getStore({
+    name: "qbo-tokens",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_ACCESS_TOKEN,
+  });
+}
+
 // Handles the OAuth callback from Intuit after authorization
 // Exchanges the auth code for access + refresh tokens
 // Stores tokens in Netlify Blobs (instant) + env vars (backup)
@@ -45,7 +53,7 @@ export async function handler(event) {
     const tokens = await res.json();
 
     // Store in Netlify Blobs FIRST (instant, no redeploy needed)
-    const store = getStore("qbo-tokens");
+    const store = getBlobStore();
     if (tokens.refresh_token) {
       await store.set("refresh-token", tokens.refresh_token);
       await store.set("refresh-token-updated", new Date().toISOString());
