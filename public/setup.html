@@ -34,19 +34,17 @@ a.sf:hover{background:#2E75B6}
 <p style="margin-top:32px;font-size:0.75rem;color:#ccc;">After connecting, return to <a href="/" style="color:#1F4E79">the billing loader</a></p>
 </div>
 <script>
-const origin = window.location.origin;
-
-// QBO OAuth URL
+// QBO OAuth URL — hardcoded redirect to prevent mismatch
 const qboClientId = 'ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK';
-const qboRedirect = encodeURIComponent(origin + '/.netlify/functions/oauth-callback');
+const qboRedirect = encodeURIComponent('https://apbg-billing.netlify.app/.netlify/functions/oauth-callback');
 const qboScope = encodeURIComponent('com.intuit.quickbooks.accounting');
 document.getElementById('qboBtn').href =
   'https://appcenter.intuit.com/connect/oauth2?client_id=' + qboClientId
   + '&redirect_uri=' + qboRedirect + '&response_type=code&scope=' + qboScope + '&state=qbo-' + Date.now();
 
-// Service Fusion OAuth URL
+// Service Fusion OAuth URL — hardcoded redirect
 const sfClientId = 'f8cqiTHnjoFS-QMeuc';
-const sfRedirect = encodeURIComponent(origin + '/.netlify/functions/sf-oauth-callback');
+const sfRedirect = encodeURIComponent('https://apbg-billing.netlify.app/.netlify/functions/sf-oauth-callback');
 document.getElementById('sfBtn').href =
   'https://api.servicefusion.com/oauth/authorize?client_id=' + sfClientId
   + '&redirect_uri=' + sfRedirect + '&response_type=code&state=sf-' + Date.now();
