@@ -131,7 +131,7 @@ const SITES = {
     name: 'APBG 3rd Party Billing',
     icon: '📋',
     url: 'https://apbg-billing.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog?refresh=1',
     checks: ['qbo', 'serviceFusion', 'resq'],
     labels: { qbo: 'QuickBooks', serviceFusion: 'Service Fusion', resq: 'ResQ' },
     reconnect: {

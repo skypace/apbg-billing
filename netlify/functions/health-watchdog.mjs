@@ -255,32 +255,39 @@ function buildAlertEmail(results, timestamp) {
 // ── Main handler ──
 
 export default async function handler(req) {
-  // Handle GET requests — return last health check result
+  // Handle GET requests — return last health check result (or live with ?refresh=1)
   if (req.method === 'GET') {
-    try {
-      const store = await getBlobStore('health-watchdog');
-      if (!store) {
-        return new Response(JSON.stringify({ error: 'Blob store unavailable' }), {
-          status: 503,
+    const url = new URL(req.url);
+    const wantRefresh = url.searchParams.get('refresh') === '1';
+
+    // If ?refresh=1, fall through to run live checks below
+    if (!wantRefresh) {
+      try {
+        const store = await getBlobStore('health-watchdog');
+        if (!store) {
+          return new Response(JSON.stringify({ error: 'Blob store unavailable' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          });
+        }
+        const raw = await store.get('last-result');
+        if (!raw) {
+          return new Response(JSON.stringify({ error: 'No health check results yet' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          });
+        }
+        return new Response(raw, {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 500,
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
       }
-      const raw = await store.get('last-result');
-      if (!raw) {
-        return new Response(JSON.stringify({ error: 'No health check results yet' }), {
-          status: 404,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        });
-      }
-      return new Response(raw, {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      });
-    } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      });
     }
+    // else: fall through to run live checks
   }
 
   // Handle OPTIONS for CORS
