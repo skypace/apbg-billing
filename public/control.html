@@ -151,15 +151,12 @@ const SITES = {
     },
   },
   pacer: {
-    name: 'Pacer Finance',
+    name: 'MCP Pacer Finance',
     icon: '💰',
     url: 'https://pacerfinance.netlify.app',
-    healthUrl: null, // No dedicated health endpoint — uses probe mode
-    probeEndpoints: {
-      site: { url: 'https://pacerfinance.netlify.app/', method: 'GET' },
-    },
-    checks: ['site'],
-    labels: { site: 'Site Online' },
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/pacer-health',
+    checks: ['qbo', 'zoho'],
+    labels: { qbo: 'QuickBooks', zoho: 'Zoho Books' },
     reconnect: {
       qbo: null,
     },
