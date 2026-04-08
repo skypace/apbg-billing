@@ -75,7 +75,31 @@ export async function getSFAccessToken() {
     throw new Error('SF_REFRESH_TOKEN not set. Go to /setup.html and connect Service Fusion.');
   }
 
-  // 3. Refresh
+  // 3. Lock — prevent concurrent refresh races that kill tokens
+  if (store) {
+    try {
+      const lockRaw = await store.get('refresh-lock');
+      if (lockRaw) {
+        const lock = JSON.parse(lockRaw);
+        if (lock.ts && Date.now() - lock.ts < 15000) {
+          // Another function is refreshing — wait and check for cached token
+          await new Promise(r => setTimeout(r, 3000));
+          const retryCache = await store.get('access-token');
+          if (retryCache) {
+            const parsed = JSON.parse(retryCache);
+            if (parsed.token && parsed.expires > Date.now()) {
+              memCache.accessToken = parsed.token;
+              memCache.accessExpires = parsed.expires;
+              return parsed.token;
+            }
+          }
+        }
+      }
+      await store.set('refresh-lock', JSON.stringify({ ts: Date.now() }));
+    } catch(e) {}
+  }
+
+  // 4. Refresh
   const res = await fetch(SF_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -84,6 +108,8 @@ export async function getSFAccessToken() {
 
   if (!res.ok) {
     const err = await res.text();
+    // Release lock on failure
+    if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
     // If refresh failed and we used a blob token, try env var as last resort
     if (refreshToken !== process.env.SF_REFRESH_TOKEN && process.env.SF_REFRESH_TOKEN) {
       const res2 = await fetch(SF_TOKEN_URL, {
@@ -96,6 +122,7 @@ export async function getSFAccessToken() {
       }
       const data2 = await res2.json();
       await cacheTokens(store, data2);
+      if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
       return data2.access_token;
     }
     throw new Error(`SF token refresh failed: ${res.status} ${err}`);
@@ -103,6 +130,8 @@ export async function getSFAccessToken() {
 
   const data = await res.json();
   await cacheTokens(store, data);
+  // Release lock
+  if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
   return data.access_token;
 }
 
