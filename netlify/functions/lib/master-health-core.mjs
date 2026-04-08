@@ -17,7 +17,11 @@ const SITES = [
   {
     id: 'pacer',
     name: 'Pacer Finance',
-    healthUrl: 'https://pacerfinance.netlify.app/api/health',
+    healthUrl: null,
+    probeEndpoints: {
+      qbo: { url: 'https://pacerfinance.netlify.app/qbo', method: 'POST' },
+      zoho: { url: 'https://pacerfinance.netlify.app/zoho', method: 'POST' },
+    },
   },
 ];
 
@@ -39,8 +43,52 @@ async function getStore() {
   }
 }
 
+// ── Probe mode: test individual endpoints (for sites without a health endpoint) ──
+async function checkSiteProbe(site) {
+  const checks = {};
+  let allOk = true;
+
+  for (const [name, cfg] of Object.entries(site.probeEndpoints)) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(cfg.url, {
+        method: cfg.method || 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: cfg.method === 'POST' ? '{}' : undefined,
+      });
+      clearTimeout(timeout);
+      const alive = res.status !== 404 && res.status !== 502 && res.status !== 503;
+      checks[name] = {
+        status: alive ? 'ok' : 'error',
+        detail: alive ? `Responding (HTTP ${res.status})` : `Down (HTTP ${res.status})`,
+      };
+      if (!alive) allOk = false;
+    } catch (e) {
+      checks[name] = {
+        status: 'error',
+        detail: e.name === 'AbortError' ? 'Timeout (10s)' : e.message,
+      };
+      allOk = false;
+    }
+  }
+
+  return {
+    id: site.id,
+    name: site.name,
+    status: allOk ? 'ok' : 'error',
+    checks,
+  };
+}
+
 // ── Fetch a site's health endpoint with timeout ──
 async function checkSite(site) {
+  // Probe mode: no health endpoint, test endpoints directly
+  if (site.probeEndpoints && !site.healthUrl) {
+    return checkSiteProbe(site);
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 

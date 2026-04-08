@@ -154,11 +154,15 @@ const SITES = {
     name: 'Pacer Finance',
     icon: '💰',
     url: 'https://pacerfinance.netlify.app',
-    healthUrl: 'https://pacerfinance.netlify.app/api/health',
-    checks: ['qbo'],
-    labels: { qbo: 'QuickBooks' },
+    healthUrl: null, // No dedicated health endpoint — uses probe mode
+    probeEndpoints: {
+      qbo: { url: 'https://pacerfinance.netlify.app/qbo', method: 'POST' },
+      zoho: { url: 'https://pacerfinance.netlify.app/zoho', method: 'POST' },
+    },
+    checks: ['qbo', 'zoho'],
+    labels: { qbo: 'QuickBooks MCP', zoho: 'Zoho MCP' },
     reconnect: {
-      qbo: null, // TODO: add Pacer QBO client ID
+      qbo: null,
     },
   },
 };
@@ -209,6 +213,38 @@ document.getElementById('pin').addEventListener('keydown', function(e) {
 async function fetchSiteHealth(key, site) {
   try {
     log(`Checking ${site.name}...`, 'info');
+
+    // Probe mode: no health endpoint, test individual endpoints directly
+    if (site.probeEndpoints && !site.healthUrl) {
+      const results = {};
+      let allOk = true;
+      for (const [name, cfg] of Object.entries(site.probeEndpoints)) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const r = await fetch(cfg.url, {
+            method: cfg.method || 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: cfg.method === 'POST' ? '{}' : undefined,
+          });
+          clearTimeout(timeout);
+          // Any response other than 404/502/503 means the function is alive
+          const alive = r.status !== 404 && r.status !== 502 && r.status !== 503;
+          results[name] = { ok: alive, message: alive ? `Endpoint responding (HTTP ${r.status})` : `Endpoint down (HTTP ${r.status})` };
+          if (!alive) allOk = false;
+        } catch (e) {
+          results[name] = { ok: false, message: e.name === 'AbortError' ? 'Timeout' : e.message };
+          allOk = false;
+        }
+      }
+      const data = { ...results, overall: allOk ? 'healthy' : 'degraded', checkedAt: new Date().toISOString() };
+      siteData[key] = { status: 'ok', data, fetchedAt: new Date() };
+      log(`${site.name}: ${data.overall}`, allOk ? 'ok' : 'warn');
+      return;
+    }
+
+    // Standard mode: fetch health endpoint
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     const r = await fetch(site.healthUrl, { signal: controller.signal });
