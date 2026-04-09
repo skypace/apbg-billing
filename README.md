@@ -1,104 +1,179 @@
-# Pacer Billing v3 — Email-to-Bill Automation
+# APBG 3rd Party Billing
 
-Complete vendor bill processing system: email a bill → Claude scans it → Whitney approves → Bill created in QBO → matched to existing invoice → margin calculated.
+AI-powered bill processing and approval system for Alameda Point Beverage Group. Vendor bills arrive via email or web upload, Claude AI scans and extracts data, then routes through an approval workflow before creating entries in QuickBooks Online.
 
-## How It Works
+## Tech Stack
+
+- **Frontend:** Vanilla HTML/JS (no framework, no build step)
+- **Backend:** Netlify Functions v2 (serverless)
+- **Storage:** Netlify Blobs
+- **Accounting:** QuickBooks Online API
+- **Field Service:** Service Fusion REST API
+- **Maintenance:** ResQ GraphQL API
+- **AI:** Anthropic Claude API (PDF scanning and data extraction)
+- **Email:** SendGrid / Resend
+- **Data:** Google Sheets
+
+## Architecture
+
+```
+public/                  Static HTML pages served by Netlify
+netlify/functions/       Serverless functions (ESM, .mjs)
+netlify/functions/lib/   Shared library modules
+```
+
+No build step. Netlify serves `public/` as static files and deploys `netlify/functions/` as Lambda-compatible endpoints.
+
+## Bill Processing Workflow
 
 ```
 Vendor bill arrives (email or web upload)
-         ↓
-Claude scans the PDF — extracts vendor, line items, amounts
-         ↓
-Approval email sent to Whitney with "Review & Approve" link
-         ↓
-Whitney opens link → edits vendor, account, location, job number
-         ↓
+         |
+Claude AI scans the PDF -- extracts vendor, line items, amounts
+         |
+Approval email sent with signed review link
+         |
+Approver opens link -- edits vendor, account, location, job number
+         |
 Clicks "Approve & Create Bill"
-         ↓
-Bill created in QBO → System searches invoices for job number
-         ↓
-MATCH → Confirmation email with margin calculation
-NO MATCH → Warning email: "No invoice on file"
+         |
+Bill created in QBO -- system searches invoices for job number
+         |
+MATCH --> Confirmation email with margin calculation
+NO MATCH --> Warning email: "No invoice on file"
 ```
 
-## Setup Steps
+## Functions
 
-### 1. Deploy to Netlify
-Add these files to the pacerfinance repo, or deploy as standalone:
-```bash
-netlify deploy --prod --site pacer-billing --dir public --functions netlify/functions
-```
+### Core Bill Processing
 
-### 2. Add Environment Variables
-The following env vars are needed on the Netlify site:
+| Function | Description |
+|----------|-------------|
+| `process-inbound.mjs` | Receives vendor bills (email/web upload), scans PDF with Claude AI, extracts vendor/amount/items, sends approval email with signed URL |
+| `approve-bill.mjs` | Creates bill in QBO from approval form, matches against invoices, calculates margin |
+| `approve-customer.mjs` | Creates new customer in QBO from approval form |
+| `create-vendor.mjs` | Creates vendor in QBO on-the-fly |
+| `create-invoice.mjs` | Creates QBO invoice |
+| `decode-token.mjs` | Decodes HMAC-signed approval URL tokens |
 
-| Variable | Purpose | Notes |
-|----------|---------|-------|
-| QBO_CLIENT_ID | QBO OAuth | Already on pacerfinance |
-| QBO_CLIENT_SECRET | QBO OAuth | Already on pacerfinance |
-| QBO_REALM_ID | QBO company ID | Already on pacerfinance |
-| QBO_REFRESH_TOKEN | QBO auth token | Already on pacerfinance |
-| QBO_ENVIRONMENT | production | Already on pacerfinance |
-| ANTHROPIC_API_KEY | Claude API for PDF scanning | Get from console.anthropic.com |
-| SENDGRID_API_KEY | Email sending | OR use RESEND_API_KEY |
-| APPROVAL_EMAIL | Who gets approval emails | Default: wgrandell@brixbev.com |
-| EMAIL_FROM | Sender address | Default: billing@brixbev.com |
-| TOKEN_SECRET | Signs approval URLs | Optional — falls back to QBO_CLIENT_SECRET |
+### Query Endpoints
 
-### 3. Set Up Email Receiving (for email-based intake)
+| Function | Description |
+|----------|-------------|
+| `get-vendors.mjs` | Lists QBO vendors |
+| `get-customers.mjs` | Lists QBO customers |
+| `get-departments.mjs` | Lists QBO departments |
 
-**Option A: SendGrid Inbound Parse (recommended)**
-1. Create SendGrid account → Settings → Inbound Parse
-2. Add domain (e.g., billing.brixbev.com)
-3. Set MX records per SendGrid instructions
-4. Set webhook URL: `https://pacer-billing.netlify.app/.netlify/functions/process-inbound`
-5. Enable "POST the raw, full MIME message"
+### ResQ-SF Sync
 
-**Option B: Mailgun Inbound Routes**
-1. Create Mailgun account → add domain
-2. Set up Route: match `bills@billing.brixbev.com` → forward to webhook URL
-3. Webhook: `https://pacer-billing.netlify.app/.netlify/functions/process-inbound`
+| Function | Description |
+|----------|-------------|
+| `resq-sf-sync.mjs` | Dispatcher for bidirectional ResQ-to-Service Fusion sync |
+| `resq-sf-sync-background.mjs` | Long-running (15 min timeout) background sync worker |
+| `resq-sf-sync-cron.mjs` | Scheduled every 5 minutes, triggers background sync |
+| `sf-fix-numbers.mjs` | Finds recent SF jobs with R-code numbers |
 
-**Option C: Manual forwarding (no setup needed)**
-- Use the web upload page at `https://pacer-billing.netlify.app/`
-- Drop a PDF → approval email sent automatically
+### Health & Monitoring
 
-### 4. Password Protect (optional but recommended)
-In Netlify dashboard → Site Configuration → Access Control → set a password.
+| Function | Description |
+|----------|-------------|
+| `health-watchdog.mjs` | Scheduled health check for QBO/SF/ResQ connectivity |
+| `master-health.mjs` | Health dashboard API for control.html |
+| `master-health-cron.mjs` | 12-hour keep-alive for health checks |
+| `pacer-health.mjs` | Proxy health check for Pacer Finance |
 
-## URLs
-- **Home / Upload**: `https://pacer-billing.netlify.app/`
-- **Manual Approval Form**: `https://pacer-billing.netlify.app/approve.html`
-- **Inbound Webhook**: `https://pacer-billing.netlify.app/.netlify/functions/process-inbound`
+### OAuth & Auth
 
-## Files
+| Function | Description |
+|----------|-------------|
+| `oauth-callback.mjs` | QBO OAuth callback |
+| `sf-oauth-callback.mjs` | Service Fusion OAuth callback |
+| `sf-token-debug.mjs` | SF token diagnostic/export endpoint |
 
-| File | Purpose |
-|------|---------|
-| `process-inbound.mjs` | Receives email/upload, scans PDF with Claude, sends approval email |
-| `approve-bill.mjs` | Creates QBO bill, searches for matching invoice, sends confirmation |
-| `decode-token.mjs` | Decodes signed approval URL for the review page |
-| `email-helpers.mjs` | Email sending + HTML templates (approval, confirmation, warning) |
-| `token-helpers.mjs` | HMAC-signed stateless tokens (no database needed) |
-| `qbo-helpers.mjs` | QBO OAuth token refresh + API wrapper |
-| `get-vendors.mjs` | Lists QBO vendors for dropdown |
-| `get-customers.mjs` | Lists Melt + Starbird customers for dropdown |
-| `create-vendor.mjs` | Creates new vendor in QBO on the fly |
-| `index.html` | Landing page with PDF drop zone |
-| `approve.html` | Full approval form (from email link or manual entry) |
+### Shared Helpers
+
+| Module | Description |
+|--------|-------------|
+| `qbo-helpers.mjs` | Shared QBO token management (refresh, cache, API wrapper) |
+| `sf-helpers.mjs` | Service Fusion API wrapper |
+| `resq-helpers.mjs` | ResQ API helpers (CSRF + GraphQL) |
+| `email-helpers.mjs` | Email sending + HTML templates |
+| `token-helpers.mjs` | HMAC-signed stateless tokens for approval URLs |
+| `lib/master-health-core.mjs` | Core health check logic |
+
+## HTML Pages
+
+| Page | Description |
+|------|-------------|
+| `index.html` | PDF drop zone for uploading vendor bills |
+| `approve.html` | Bill approval form (vendor, line items, account, job number) |
+| `customer-approve.html` | New customer creation form |
+| `setup.html` | OAuth connection management (QBO + Service Fusion) |
+| `sync.html` | ResQ-SF sync dashboard with status, work orders, and logs |
+| `control.html` | Master control dashboard (health status, token monitoring) |
+
+## Scheduled Functions
+
+| Function | Schedule | Purpose |
+|----------|----------|---------|
+| `resq-sf-sync-cron` | Every 5 minutes | Triggers bidirectional ResQ-SF work order sync |
+| `health-watchdog` | Scheduled | Checks QBO/SF/ResQ connectivity, sends email alerts on failure |
+| `master-health-cron` | 12-hour interval | Keep-alive ping for health monitoring |
 
 ## QBO Account Mapping
 
-| COGS Account | ID | Use For |
-|--------------|----|---------|
-| Service Expense | 101 | Labor, service calls, repairs |
-| Equipment Sales COGS | 42 | Parts, materials, equipment |
+| COGS Account | Account ID | Use For |
+|--------------|------------|---------|
+| Service COGS | 101 | Labor, service calls, repairs, consulting |
+| Equipment Sales COGS | 42 | Parts, materials, equipment, supplies |
 
-## Invoice Matching Logic
+## Invoice Matching
+
 The system searches QBO invoices for the job number in:
 1. Invoice number (DocNumber)
 2. Private notes
 3. Customer memo
 4. Line item descriptions
 
-Searches across: the selected customer, THE MELT, THE MELT MAIN, and THE MELT -EQUIPMENT (PAYMENT PLAN).
+Searches across the selected customer plus THE MELT, THE MELT MAIN, and THE MELT -EQUIPMENT (PAYMENT PLAN).
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `QBO_CLIENT_ID` | QuickBooks OAuth client ID |
+| `QBO_CLIENT_SECRET` | QuickBooks OAuth client secret |
+| `QBO_REALM_ID` | QuickBooks company ID |
+| `QBO_REFRESH_TOKEN` | QuickBooks refresh token (auto-managed) |
+| `QBO_ENVIRONMENT` | `production` or `sandbox` |
+| `ANTHROPIC_API_KEY` | Claude API key for PDF scanning |
+| `SENDGRID_API_KEY` | SendGrid email API key |
+| `RESEND_API_KEY` | Resend email API key (alternative to SendGrid) |
+| `APPROVAL_EMAIL` | Recipient for approval emails |
+| `EMAIL_FROM` | Sender address for outbound emails |
+| `TOKEN_SECRET` | HMAC secret for signing approval URLs |
+| `RESQ_EMAIL` | ResQ login email |
+| `RESQ_PASSWORD` | ResQ login password |
+| `SF_CLIENT_ID` | Service Fusion OAuth client ID |
+| `SF_CLIENT_SECRET` | Service Fusion OAuth client secret |
+| `SF_REFRESH_TOKEN` | Service Fusion refresh token (auto-managed) |
+| `NETLIFY_SITE_ID` | Netlify site ID (for env var updates) |
+| `NETLIFY_ACCESS_TOKEN` | Netlify API token (for env var updates) |
+
+## Branch Deploys
+
+- **`main`** — Production (`pacer-billing.netlify.app`)
+- **`dev`** — Testing (`dev--pacer-billing.netlify.app`)
+
+Both branches share environment variables and blob storage.
+
+## Local Development
+
+No build step required. To run locally:
+
+```bash
+npm install
+netlify dev
+```
+
+Functions are served at `http://localhost:8888/.netlify/functions/` and static files at `http://localhost:8888/`.
