@@ -2,6 +2,10 @@
   publish = "public"
   functions = "netlify/functions"
 
+# Branch deploys — "dev" branch auto-deploys to dev--apbg-billing.netlify.app
+[context.branch-deploy]
+  # Same build config; shares env vars + blob stores with production
+
 [functions]
   node_bundler = "esbuild"
 
