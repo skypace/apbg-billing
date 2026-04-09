@@ -91,6 +91,10 @@ export async function handler(event) {
 
       try {
         if (mapping[wo.id]) {
+          // Skip deleted SF jobs — they 404 every time and bloat errors
+          if (mapping[wo.id].sfDeleted) {
+            continue;
+          }
           // Already mapped — bidirectional status sync
           // 30s timeout — photo/invoice transfers can take longer
           const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 30000, `sync ${wo.code}`);
@@ -118,9 +122,10 @@ export async function handler(event) {
       if ((i + 1) % 4 === 0) await saveProgress();
     }
 
-    // 5. Save final results
+    // 5. Save final results — truncate errors to prevent massive blobs
     log.completed = new Date().toISOString();
     log.mappingCount = Object.keys(mapping).length;
+    log.errors = log.errors.map(e => typeof e === 'string' && e.length > 300 ? e.substring(0, 300) + '...' : e);
     await Promise.all([
       saveMapping(mapping),
       saveBlob('last-sync', JSON.stringify(log)),
@@ -182,7 +187,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
     result.created++;
     result.steps.push(`✓ Created SF #${sfJob.id} (${resqRef}) for ${wo.code} (${wo.facility})`);
   } catch (e) {
-    result.errors.push(`Create SF job for ${wo.code}: ${e.message}`);
+    result.errors.push(`Create SF job for ${wo.code}: ${e.message.substring(0, 300)}`);
   }
   return result;
 }
@@ -197,7 +202,15 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     try {
       sfJob = await sfRequest('GET', `/jobs/${mapEntry.sfJobId}`);
     } catch (e) {
-      result.errors.push(`Can't read SF job ${mapEntry.sfJobId}: ${e.message}`);
+      const errMsg = e.message.length > 200 ? e.message.substring(0, 200) + '...' : e.message;
+      // If SF returns 404, the job was deleted — mark it dead so we stop retrying
+      if (e.message.includes('404')) {
+        mapEntry.sfDeleted = true;
+        mapEntry.lastSyncAt = new Date().toISOString();
+        result.errors.push(`SF job ${mapEntry.sfJobId} deleted (404) — marked dead, will skip`);
+      } else {
+        result.errors.push(`Can't read SF job ${mapEntry.sfJobId}: ${errMsg}`);
+      }
       return result;
     }
 
@@ -240,7 +253,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           result.updated++;
         }
       } catch (e) {
-        result.errors.push(`Visit complete ${resqWO.code}: ${e.message}`);
+        result.errors.push(`Visit complete ${resqWO.code}: ${e.message.substring(0, 200)}`);
       }
     }
 
@@ -262,7 +275,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           mapEntry.photosSent = true; // nothing to send
         }
       } catch (e) {
-        result.errors.push(`Photos ${resqWO.code}: ${e.message}`);
+        result.errors.push(`Photos ${resqWO.code}: ${e.message.substring(0, 200)}`);
       }
     }
 
@@ -277,7 +290,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         if (invResult.updated > 0) {
           mapEntry.invoiceSubmitted = true;
         }
-      } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message}`); }
+      } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message.substring(0, 200)}`); }
     }
 
     // Update mapping with current states
@@ -286,7 +299,7 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     mapEntry.lastSyncAt = new Date().toISOString();
 
   } catch (e) {
-    result.errors.push(`Sync ${resqWO.code}: ${e.message}`);
+    result.errors.push(`Sync ${resqWO.code}: ${e.message.substring(0, 200)}`);
   }
   return result;
 }
@@ -372,7 +385,7 @@ async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
   try {
     sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=pictures,documents`);
   } catch (e) {
-    result.errors.push(`Fetch SF photos for ${sfJobId}: ${e.message}`);
+    result.errors.push(`Fetch SF photos for ${sfJobId}: ${e.message.substring(0, 200)}`);
     return result;
   }
 
@@ -520,7 +533,7 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   try {
     sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=invoices,products,services,labor_charges,expenses,other_charges`);
   } catch (e) {
-    result.errors.push(`Fetch SF invoice data for ${sfJobId}: ${e.message}`);
+    result.errors.push(`Fetch SF invoice data for ${sfJobId}: ${e.message.substring(0, 200)}`);
     return result;
   }
 
