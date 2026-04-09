@@ -258,7 +258,10 @@ gateInput.addEventListener('keyup', (e) => {
 async function loadStatus() {
   try {
     const res = await fetch(`${API_BASE}/resq-sf-sync`);
-    const data = await res.json();
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error(`Invalid JSON (${text.length} chars): ${text.substring(0, 100)}...`); }
 
     // Mapped count — show active (exclude done statuses)
     const allMappings = Object.values(data.mappings || {});
@@ -330,7 +333,10 @@ async function runSync() {
 
   try {
     const res = await fetch(`${API_BASE}/resq-sf-sync`, { method: 'POST' });
-    const data = await res.json();
+    if (!res.ok && res.status !== 202) throw new Error(`Server returned ${res.status}`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error(`Invalid response: ${text.substring(0, 100)}`); }
 
     if (res.status === 202 || data.status === 'started') {
       // Background function kicked off — poll for results
@@ -346,7 +352,9 @@ async function runSync() {
           await loadStatus();
           // Check if sync completed (no longer "running")
           const statusRes = await fetch(`${API_BASE}/resq-sf-sync`);
-          const statusData = await statusRes.json();
+          const statusText = await statusRes.text();
+          let statusData;
+          try { statusData = JSON.parse(statusText); } catch(e) { return; }
           if (statusData.lastSync && !statusData.lastSync.running) {
             clearInterval(poll);
             btn.disabled = false;
