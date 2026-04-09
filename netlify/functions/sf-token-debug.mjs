@@ -56,8 +56,17 @@ export async function handler(event) {
     : 'NOT SET';
   results.envClientId = process.env.SF_CLIENT_ID ? 'SET' : 'NOT SET';
 
-  // 3. If action=fix, manually save the provided token to blobs
+  // 3. Export full refresh token (for cross-site sync)
   const qs = event.queryStringParameters || {};
+  if (qs.export === 'true') {
+    try {
+      const store = getStore({ name: 'sf-tokens', siteID: process.env.NETLIFY_SITE_ID, token: process.env.NETLIFY_ACCESS_TOKEN });
+      const rt = await store.get('refresh-token');
+      if (rt) results.refreshTokenFull = rt;
+    } catch (e) { results.exportError = e.message; }
+  }
+
+  // 4. If action=fix, manually save the provided token to blobs
   if (qs.action === 'fix' && qs.token) {
     try {
       const store = getStore({
