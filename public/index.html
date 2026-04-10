@@ -45,10 +45,10 @@
   </div>
   <div id="result"></div>
   <div class="or">— or —</div>
-  <a href="/approve.html" class="manual">Enter a bill manually →</a>
+  <a href="/billing/approve.html" class="manual">Enter a bill manually →</a>
 </div>
 <script>
-const API='/.netlify/functions';
+const API='/billing/.netlify/functions';
 const drop=document.getElementById('drop'),fi=document.getElementById('file'),res=document.getElementById('result');
 ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,()=>drop.classList.remove('over')));
@@ -69,7 +69,7 @@ async function go(file){
     if(d.success && d.approveUrl){
       // Redirect to approval form — rewrite URL to use our domain
       const token=new URL(d.approveUrl).searchParams.get('token');
-      window.location.href='/approve.html?token='+encodeURIComponent(token);
+      window.location.href='/billing/approve.html?token='+encodeURIComponent(token);
     }else{
       res.innerHTML='<div class="status err">✗ '+(d.error||'Failed')+'</div>';
     }
