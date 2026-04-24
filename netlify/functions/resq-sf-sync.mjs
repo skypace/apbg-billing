@@ -10,6 +10,7 @@ export async function handler(event) {
   if (qs.lookup) return handleLookup(qs.lookup);
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
+  if (qs.deleteMapping) return handleDeleteMapping(qs.deleteMapping);
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
   if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
@@ -363,6 +364,30 @@ async function handleResetFlags(code) {
       return json({ reset: true, code });
     }
     return json({ reset: false, code, message: 'Not found in mapping' });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Delete Mapping: Remove a WO entry from wo-mapping entirely ---
+async function handleDeleteMapping(code) {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    const removed = [];
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === code || k === code) {
+        removed.push({ key: k, resqCode: v.resqCode, sfJobId: v.sfJobId });
+        delete mapping[k];
+      }
+    }
+    if (removed.length === 0) {
+      return json({ deleted: false, code, message: 'Not found in mapping' }, 404);
+    }
+    await store.set('wo-mapping', JSON.stringify(mapping));
+    return json({ deleted: true, code, removed });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

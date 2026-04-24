@@ -88,6 +88,9 @@ tr:hover td{background:#F9FAFB}
 /* Expense modal */
 .expense-btn{padding:4px 10px;font-size:0.72rem;border-radius:4px;cursor:pointer;border:1px solid #D1D5DB;background:#fff;color:#92400E;font-weight:600}
 .expense-btn:hover{background:#FEF3C7}
+.clear-btn{padding:4px 10px;font-size:0.72rem;border-radius:4px;cursor:pointer;border:1px solid #FCA5A5;background:#fff;color:#991B1B;font-weight:600}
+.clear-btn:hover{background:#FEE2E2}
+.clear-btn:disabled{opacity:0.5;cursor:wait}
 .expense-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center}
 .expense-modal.show{display:flex}
 .expense-box{background:#fff;border-radius:12px;padding:32px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto}
@@ -382,6 +385,27 @@ async function runSync() {
   }
 }
 
+// --- Clear (delete) a mapping entry ---
+async function clearMapping(code) {
+  if (!code) return;
+  if (!confirm(`Remove ${code} from sync? This deletes the local mapping only — it does NOT touch ResQ or SF.`)) return;
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?deleteMapping=${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (!res.ok || !data.deleted) {
+      alert(`Could not clear ${code}: ${data.message || data.error || res.status}`);
+      if (btn) { btn.disabled = false; btn.textContent = '✕ Clear'; }
+      return;
+    }
+    await loadStatus();
+  } catch (e) {
+    alert(`Clear failed: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = '✕ Clear'; }
+  }
+}
+
 // --- Render Helpers ---
 function renderMappings(mappings) {
   const entries = Object.entries(mappings);
@@ -407,7 +431,7 @@ function renderMappings(mappings) {
   let html = `<table>
     <thead><tr>
       <th>ResQ Code</th><th>Title</th><th>Facility</th><th>SF Job #</th>
-      <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Expenses</th><th>Last Synced</th>
+      <th>ResQ Status</th><th>SF Status</th><th>Photos</th><th>Expenses</th><th>Last Synced</th><th>Clear</th>
     </tr></thead><tbody>`;
 
   for (const [resqId, m] of active) {
@@ -432,6 +456,7 @@ function renderMappings(mappings) {
       <td>${photoBtn}</td>
       <td>${expenseBtn}</td>
       <td>${synced}</td>
+      <td><button class="clear-btn" onclick="clearMapping('${m.resqCode || resqId}')">✕ Clear</button></td>
     </tr>`;
   }
 
