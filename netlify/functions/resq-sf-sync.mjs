@@ -343,27 +343,33 @@ async function handleVisitPhotos(event, resqWoId) {
   }
 }
 
-// --- Reset Flags: Clear photosSent/invoiceSubmitted for a WO code ---
+// --- Reset Flags: Clear photosSent/invoiceSubmitted/sfDeleted on a mapping ---
+// Lookup by ResQ code, SF job ID, or 'all'.
 async function handleResetFlags(code) {
   try {
     const store = await getStore();
     if (!store) return json({ error: 'Blob store not available' }, 500);
     const raw = await store.get('wo-mapping');
     const mapping = raw ? JSON.parse(raw) : {};
-    let found = false;
+    const cleared = [];
     for (const [k, v] of Object.entries(mapping)) {
-      if (v.resqCode === code || code === 'all') {
+      const matches = code === 'all'
+        || v.resqCode === code
+        || String(v.sfJobId) === String(code)
+        || String(v.sfJobNumber) === String(code);
+      if (matches) {
         delete v.photosSent;
         delete v.invoiceSubmitted;
         delete v.visitCompleted;
-        found = true;
+        delete v.sfDeleted;
+        cleared.push({ key: k, resqCode: v.resqCode, sfJobId: v.sfJobId });
       }
     }
-    if (found) {
+    if (cleared.length > 0) {
       await store.set('wo-mapping', JSON.stringify(mapping));
-      return json({ reset: true, code });
+      return json({ reset: true, code, cleared });
     }
-    return json({ reset: false, code, message: 'Not found in mapping' });
+    return json({ reset: false, code, message: 'Not found in mapping' }, 404);
   } catch (e) {
     return json({ error: e.message }, 500);
   }
