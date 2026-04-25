@@ -8,18 +8,16 @@
 // Env vars needed:
 //   QBO_CLIENT_ID, QBO_CLIENT_SECRET, QBO_REFRESH_TOKEN, QBO_REALM_ID
 //   SUPABASE_URL (https://gfsdpwiqzshhexkofiif.supabase.co)
-//   SUPABASE_SERVICE_KEY (service_role key — not anon)
+//   SUPABASE_SERVICE_KEY (service_role key, not anon)
 // ═══════════════════════════════════════════════════════════════════
 
 import type { Config } from "@netlify/functions";
 
-// ── CONFIG ──────────────────────────────────────────────────────
 const QBO_BASE = "https://quickbooks.api.intuit.com/v3/company";
 const QBO_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
-const PAGE_SIZE = 500; // conservative to avoid timeouts
+const PAGE_SIZE = 500;
 
-// Revenue account IDs → revenue_line labels for invoice line classification
-const REVENUE_LINE_MAP: Record&lt;string, string&gt; = {
+const REVENUE_LINE_MAP: Record<string, string> = {
   "120": "BIB - 3 Gallon",
   "121": "BIB - 5 Gallon",
   "273": "BIB - Delivery Fees",
@@ -37,42 +35,41 @@ const REVENUE_LINE_MAP: Record&lt;string, string&gt; = {
   "312": "Shopify Shipping",
   "230": "Shipping Income",
   "229": "Markup",
-  "10":  "Shipping &amp; Delivery",
+  "10":  "Shipping and Delivery",
 };
 
 // ── QBO AUTH ────────────────────────────────────────────────────
 let accessToken = "";
 
-async function refreshQBOToken(): Promise&lt;string&gt; {
+async function refreshQBOToken(): Promise<string> {
+  const creds = btoa(process.env.QBO_CLIENT_ID + ":" + process.env.QBO_CLIENT_SECRET);
   const res = await fetch(QBO_TOKEN_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(
-        `${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`
-      )}`,
+      Authorization: "Basic " + creds,
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: process.env.QBO_REFRESH_TOKEN!,
+      refresh_token: process.env.QBO_REFRESH_TOKEN || "",
     }),
   });
   const data = await res.json();
   if (data.access_token) {
     accessToken = data.access_token;
-    if (data.refresh_token &amp;&amp; data.refresh_token !== process.env.QBO_REFRESH_TOKEN) {
-      console.log("[QBO] ⚠️ Refresh token rotated — update NETLIFY env var!");
+    if (data.refresh_token && data.refresh_token !== process.env.QBO_REFRESH_TOKEN) {
+      console.log("[QBO] Refresh token rotated - update NETLIFY env var!");
     }
     return accessToken;
   }
-  throw new Error(`QBO token refresh failed: ${JSON.stringify(data)}`);
+  throw new Error("QBO token refresh failed: " + JSON.stringify(data));
 }
 
-async function qboQuery(query: string): Promise&lt;any&gt; {
+async function qboQuery(query: string): Promise<any> {
   const realm = process.env.QBO_REALM_ID || "9130352144155116";
-  const url = `${QBO_BASE}/${realm}/query?query=${encodeURIComponent(query)}`;
+  const url = QBO_BASE + "/" + realm + "/query?query=" + encodeURIComponent(query);
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
   });
   if (res.status === 401) {
     await refreshQBOToken();
@@ -81,11 +78,11 @@ async function qboQuery(query: string): Promise&lt;any&gt; {
   return res.json();
 }
 
-async function qboRead(entity: string, id: string): Promise&lt;any&gt; {
+async function qboRead(entity: string, id: string): Promise<any> {
   const realm = process.env.QBO_REALM_ID || "9130352144155116";
-  const url = `${QBO_BASE}/${realm}/${entity}/${id}`;
+  const url = QBO_BASE + "/" + realm + "/" + entity + "/" + id;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
   });
   if (res.status === 401) {
     await refreshQBOToken();
@@ -94,12 +91,12 @@ async function qboRead(entity: string, id: string): Promise&lt;any&gt; {
   return res.json();
 }
 
-async function qboReport(reportName: string, params: Record&lt;string, string&gt;): Promise&lt;any&gt; {
+async function qboReport(reportName: string, params: Record<string, string>): Promise<any> {
   const realm = process.env.QBO_REALM_ID || "9130352144155116";
   const qs = new URLSearchParams(params).toString();
-  const url = `${QBO_BASE}/${realm}/reports/${reportName}?${qs}`;
+  const url = QBO_BASE + "/" + realm + "/reports/" + reportName + "?" + qs;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
   });
   if (res.status === 401) {
     await refreshQBOToken();
@@ -111,48 +108,48 @@ async function qboReport(reportName: string, params: Record&lt;string, string&gt
 // ── SUPABASE HELPERS ────────────────────────────────────────────
 const SB_URL = process.env.SUPABASE_URL || "https://gfsdpwiqzshhexkofiif.supabase.co";
 
-async function sbUpsert(table: string, rows: any[], onConflict?: string) {
-  const url = `${SB_URL}/rest/v1/${table}`;
-  const headers: Record&lt;string, string&gt; = {
-    apikey: process.env.SUPABASE_SERVICE_KEY!,
-    Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY!}`,
-    "Content-Type": "application/json",
+async function sbFetch(method: string, table: string, opts: {
+  body?: any;
+  filter?: string;
+  headers?: Record<string, string>;
+} = {}) {
+  let url = SB_URL + "/rest/v1/" + table;
+  if (opts.filter) url += "?" + opts.filter;
+  const hdrs: Record<string, string> = {
+    apikey: process.env.SUPABASE_SERVICE_KEY || "",
+    Authorization: "Bearer " + (process.env.SUPABASE_SERVICE_KEY || ""),
     "Accept-Profile": "ops",
     "Content-Profile": "ops",
-    Prefer: onConflict
-      ? `resolution=merge-duplicates`
-      : "return=minimal",
+    "Content-Type": "application/json",
+    ...opts.headers,
   };
-  if (onConflict) headers["Prefer"] = "resolution=merge-duplicates";
-
-  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(rows) });
-  if (!res.ok) {
+  const init: RequestInit = { method, headers: hdrs };
+  if (opts.body) init.body = JSON.stringify(opts.body);
+  const res = await fetch(url, init);
+  if (!res.ok && method !== "DELETE") {
     const err = await res.text();
-    throw new Error(`Supabase upsert ${table}: ${res.status} ${err}`);
+    throw new Error("Supabase " + method + " " + table + ": " + res.status + " " + err);
   }
   return res;
 }
 
-async function sbDelete(table: string, filter: string) {
-  const url = `${SB_URL}/rest/v1/${table}?${filter}`;
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: {
-      apikey: process.env.SUPABASE_SERVICE_KEY!,
-      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY!}`,
-      "Accept-Profile": "ops",
-      "Content-Profile": "ops",
-    },
+async function sbUpsert(table: string, rows: any[], onConflict?: string) {
+  return sbFetch("POST", table, {
+    body: rows,
+    headers: { Prefer: onConflict ? "resolution=merge-duplicates" : "return=minimal" },
   });
-  return res;
 }
 
-async function sbSelect(table: string, params: string) {
-  const url = `${SB_URL}/rest/v1/${table}?${params}`;
+async function sbDelete(table: string, filter: string) {
+  return sbFetch("DELETE", table, { filter });
+}
+
+async function sbSelect(table: string, params: string): Promise<any[]> {
+  const url = SB_URL + "/rest/v1/" + table + "?" + params;
   const res = await fetch(url, {
     headers: {
-      apikey: process.env.SUPABASE_SERVICE_KEY!,
-      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY!}`,
+      apikey: process.env.SUPABASE_SERVICE_KEY || "",
+      Authorization: "Bearer " + (process.env.SUPABASE_SERVICE_KEY || ""),
       "Accept-Profile": "ops",
     },
   });
@@ -160,79 +157,79 @@ async function sbSelect(table: string, params: string) {
 }
 
 // ── SYNC: INVOICES ──────────────────────────────────────────────
-async function syncInvoices(startDate: string, endDate: string): Promise&lt;number&gt; {
+async function syncInvoices(startDate: string, endDate: string): Promise<number> {
   let synced = 0;
   let startPos = 1;
   let hasMore = true;
 
   while (hasMore) {
-    const query = `SELECT Id, DocNumber, TxnDate, DueDate, TotalAmt, Balance, CustomerRef, DepartmentRef, PrivateNote, MetaData FROM Invoice WHERE TxnDate >= '${startDate}' AND TxnDate <= '${endDate}' STARTPOSITION ${startPos} MAXRESULTS ${PAGE_SIZE}`;
-    const result = await qboQuery(query);
+    const q = "SELECT Id, DocNumber, TxnDate, DueDate, TotalAmt, Balance, CustomerRef, DepartmentRef, PrivateNote, MetaData FROM Invoice WHERE TxnDate >= '" + startDate + "' AND TxnDate <= '" + endDate + "' STARTPOSITION " + startPos + " MAXRESULTS " + PAGE_SIZE;
+    const result = await qboQuery(q);
     const invoices = result?.QueryResponse?.Invoice || [];
 
     if (invoices.length === 0) { hasMore = false; break; }
 
-    // Upsert invoice headers
-    const rows = invoices.map((inv: any) => ({
-      qbo_invoice_id: inv.Id,
-      doc_number: inv.DocNumber || null,
-      txn_date: inv.TxnDate,
-      due_date: inv.DueDate || null,
-      customer_ref_id: inv.CustomerRef?.value || null,
-      customer_name: inv.CustomerRef?.name || null,
-      total_amount: parseFloat(inv.TotalAmt) || 0,
-      balance: parseFloat(inv.Balance) || 0,
-      status: parseFloat(inv.Balance) === 0 ? "paid" : "open",
-      department: inv.DepartmentRef?.name || null,
-      memo: inv.PrivateNote || null,
-      synced_at: new Date().toISOString(),
-      qbo_updated_at: inv.MetaData?.LastUpdatedTime || null,
-    }));
+    const rows = invoices.map(function(inv: any) {
+      return {
+        qbo_invoice_id: inv.Id,
+        doc_number: inv.DocNumber || null,
+        txn_date: inv.TxnDate,
+        due_date: inv.DueDate || null,
+        customer_ref_id: inv.CustomerRef?.value || null,
+        customer_name: inv.CustomerRef?.name || null,
+        total_amount: parseFloat(inv.TotalAmt) || 0,
+        balance: parseFloat(inv.Balance) || 0,
+        status: parseFloat(inv.Balance) === 0 ? "paid" : "open",
+        department: inv.DepartmentRef?.name || null,
+        memo: inv.PrivateNote || null,
+        synced_at: new Date().toISOString(),
+        qbo_updated_at: inv.MetaData?.LastUpdatedTime || null,
+      };
+    });
 
     await sbUpsert("qbo_invoices", rows, "qbo_invoice_id");
 
-    // Fetch full invoice details for line items (batched)
     for (const inv of invoices) {
       try {
         const full = await qboRead("invoice", inv.Id);
         const lines = full?.Invoice?.Line || [];
 
-        // Get Supabase ID for FK
-        const invRows = await sbSelect("qbo_invoices", `select=id&amp;qbo_invoice_id=eq.${inv.Id}`);
+        const invRows = await sbSelect("qbo_invoices", "select=id&qbo_invoice_id=eq." + inv.Id);
         const invRow = invRows?.[0];
         if (!invRow) continue;
 
-        const lineRows = lines
-          .filter((l: any) => l.DetailType === "SalesItemLineDetail")
-          .map((l: any, idx: number) =&gt; {
-            const d = l.SalesItemLineDetail || {};
-            const acctId = d.ItemAccountRef?.value || "";
-            return {
-              invoice_id: invRow.id,
-              line_num: idx + 1,
-              description: l.Description || null,
-              quantity: d.Qty || null,
-              unit_price: d.UnitPrice || null,
-              amount: parseFloat(l.Amount) || 0,
-              item_ref_id: d.ItemRef?.value || null,
-              item_name: d.ItemRef?.name || null,
-              account_ref_id: acctId,
-              account_name: d.ItemAccountRef?.name || null,
-              revenue_line: REVENUE_LINE_MAP[acctId] || null,
-              department: inv.DepartmentRef?.name || null,
-            };
+        const lineRows: any[] = [];
+        let idx = 0;
+        for (const l of lines) {
+          if (l.DetailType !== "SalesItemLineDetail") continue;
+          idx++;
+          const d = l.SalesItemLineDetail || {};
+          const acctId = d.ItemAccountRef?.value || "";
+          lineRows.push({
+            invoice_id: invRow.id,
+            line_num: idx,
+            description: l.Description || null,
+            quantity: d.Qty || null,
+            unit_price: d.UnitPrice || null,
+            amount: parseFloat(l.Amount) || 0,
+            item_ref_id: d.ItemRef?.value || null,
+            item_name: d.ItemRef?.name || null,
+            account_ref_id: acctId,
+            account_name: d.ItemAccountRef?.name || null,
+            revenue_line: REVENUE_LINE_MAP[acctId] || null,
+            department: inv.DepartmentRef?.name || null,
           });
+        }
 
         if (lineRows.length > 0) {
-          await sbDelete("qbo_invoice_lines", `invoice_id=eq.${invRow.id}`);
+          await sbDelete("qbo_invoice_lines", "invoice_id=eq." + invRow.id);
           await sbUpsert("qbo_invoice_lines", lineRows);
         }
       } catch (e: any) {
-        console.error(`[SYNC] Invoice ${inv.Id} line read failed:`, e.message);
+        console.error("[SYNC] Invoice " + inv.Id + " line read failed:", e.message);
       }
 
-      // Rate limit: ~2 reads/sec to stay under QBO 500/min
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise(function(r) { setTimeout(r, 150); });
     }
 
     synced += invoices.length;
@@ -243,8 +240,8 @@ async function syncInvoices(startDate: string, endDate: string): Promise&lt;numb
   return synced;
 }
 
-// ── SYNC: P&L SNAPSHOTS ────────────────────────────────────────
-async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise&lt;number&gt; {
+// ── SYNC: P/L SNAPSHOTS ────────────────────────────────────────
+async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise<number> {
   const report = await qboReport("ProfitAndLoss", {
     start_date: monthStart,
     end_date: monthEnd,
@@ -256,11 +253,11 @@ async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise&lt;
   function extract(section: any, accountType: string) {
     if (!section?.Row) return;
     for (const row of section.Row) {
-      if (row.type === "Data" &amp;&amp; row.ColData) {
+      if (row.type === "Data" && row.ColData) {
         const name = row.ColData[0]?.value;
         const id = row.ColData[0]?.id;
         const amt = parseFloat(row.ColData[1]?.value) || 0;
-        if (name &amp;&amp; id) {
+        if (name && id) {
           rows.push({
             period: monthStart,
             account_id: id,
@@ -276,7 +273,8 @@ async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise&lt;
     }
   }
 
-  for (const section of (report?.Rows?.Row || [])) {
+  const sections = report?.Rows?.Row || [];
+  for (const section of sections) {
     const h = section.Header?.ColData?.[0]?.value || "";
     let t = "Other";
     if (h === "Income") t = "Income";
@@ -286,7 +284,7 @@ async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise&lt;
   }
 
   if (rows.length > 0) {
-    await sbDelete("pl_snapshots", `period=eq.${monthStart}&amp;entity=eq.combined`);
+    await sbDelete("pl_snapshots", "period=eq." + monthStart + "&entity=eq.combined");
     await sbUpsert("pl_snapshots", rows);
   }
 
@@ -294,72 +292,77 @@ async function syncPLSnapshot(monthStart: string, monthEnd: string): Promise&lt;
 }
 
 // ── SYNC LOG ────────────────────────────────────────────────────
-async function logSync(syncType: string, status: string, count: number, error?: string, meta?: any) {
-  await sbUpsert("sync_log", [{
-    source: "qbo",
-    sync_type: syncType,
-    status,
-    records_synced: count,
-    error_message: error || null,
-    completed_at: new Date().toISOString(),
-    metadata: meta || {},
-  }]);
+async function logSync(syncType: string, status: string, count: number, errMsg?: string, meta?: any) {
+  try {
+    await sbUpsert("sync_log", [{
+      source: "qbo",
+      sync_type: syncType,
+      status: status,
+      records_synced: count,
+      error_message: errMsg || null,
+      completed_at: new Date().toISOString(),
+      metadata: meta || {},
+    }]);
+  } catch (e) {
+    console.error("[SYNC] Failed to write sync_log:", e);
+  }
 }
 
 // ── HANDLER ─────────────────────────────────────────────────────
-export default async (req: Request) =&gt; {
+export default async function handler(req: Request) {
   const url = new URL(req.url);
   const mode = url.searchParams.get("mode") || "incremental";
 
   const now = new Date();
-  let startDate = url.searchParams.get("start") ||
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const pad = function(n: number) { return String(n).padStart(2, "0"); };
+  let startDate = url.searchParams.get("start") || (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-01");
   let endDate = url.searchParams.get("end") || now.toISOString().split("T")[0];
 
   if (mode === "full") startDate = "2025-01-01";
 
-  console.log(`[SYNC] QBO sync: ${mode} | ${startDate} → ${endDate}`);
+  console.log("[SYNC] QBO sync: " + mode + " | " + startDate + " to " + endDate);
 
   try {
     await refreshQBOToken();
 
     // Invoices
     const invCount = await syncInvoices(startDate, endDate);
-    console.log(`[SYNC] ✅ ${invCount} invoices synced`);
-    await logSync("invoices", "success", invCount, undefined, { start_date: startDate, end_date: endDate, mode });
+    console.log("[SYNC] " + invCount + " invoices synced");
+    await logSync("invoices", "success", invCount, undefined, { start_date: startDate, end_date: endDate, mode: mode });
 
-    // P&L monthly snapshots
+    // P/L monthly snapshots
     let plCount = 0;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const startD = new Date(startDate);
+    const endD = new Date(endDate);
+    const cur = new Date(startD.getFullYear(), startD.getMonth(), 1);
 
-    while (cur &lt;= end) {
+    while (cur <= endD) {
       const ms = cur.toISOString().split("T")[0];
       const me = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).toISOString().split("T")[0];
       plCount += await syncPLSnapshot(ms, me);
       cur.setMonth(cur.getMonth() + 1);
     }
 
-    console.log(`[SYNC] ✅ ${plCount} P&amp;L rows synced`);
+    console.log("[SYNC] " + plCount + " PL rows synced");
     await logSync("pl_snapshots", "success", plCount, undefined, { start_date: startDate, end_date: endDate });
 
     return new Response(JSON.stringify({
-      status: "success", mode,
+      status: "success",
+      mode: mode,
       date_range: { start: startDate, end: endDate },
       invoices_synced: invCount,
       pl_rows_synced: plCount,
     }), { status: 200, headers: { "Content-Type": "application/json" } });
 
   } catch (err: any) {
-    console.error("[SYNC] ❌ Fatal:", err);
-    await logSync("fatal", "error", 0, err.message).catch(() =&gt; {});
+    console.error("[SYNC] Fatal:", err);
+    await logSync("fatal", "error", 0, err.message);
     return new Response(JSON.stringify({ status: "error", message: err.message }),
       { status: 500, headers: { "Content-Type": "application/json" } });
   }
-};
+}
 
 export const config: Config = {
-  schedule: "0 9 * * *",  // 2am Pacific = 9am UTC
+  schedule: "0 9 * * *",
   path: "/sync-qbo",
 };
