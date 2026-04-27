@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PACER Ops Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2235;--border:#1e2d4a;--accent:#22d3ee;--accent2:#818cf8;--green:#34d399;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--muted:#64748b;--white:#f8fafc}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:50}
+.sidebar .logo{padding:20px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;letter-spacing:1.5px;color:var(--accent)}
+.sidebar .logo span{color:var(--muted);font-weight:400;font-size:11px;display:block;margin-top:2px}
+.nav-item{padding:10px 16px;cursor:pointer;font-size:13px;color:var(--muted);transition:all .15s;display:flex;align-items:center;gap:8px;border-left:3px solid transparent}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--surface2);color:var(--accent);border-left-color:var(--accent)}
+.nav-section{padding:10px 16px 4px;font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-top:8px}
+.main{margin-left:220px;padding:24px 28px}
+.page-title{font-size:22px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+.badge{font-size:10px;padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:.5px}
+.badge-live{background:rgba(52,211,153,.15);color:var(--green)}
+.badge-pending{background:rgba(251,191,36,.15);color:var(--amber)}
+.grid{display:grid;gap:16px}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+.card-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
+.card-value{font-size:28px;font-weight:700;line-height:1.1}
+.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600}
+tbody td{padding:8px 12px;border-bottom:1px solid var(--border)}
+tbody tr:hover{background:var(--surface2)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot-g{background:var(--green)}.dot-a{background:var(--amber)}.dot-r{background:var(--red)}
+.pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.pill-d{background:rgba(34,211,238,.12);color:var(--accent)}
+.pill-s{background:rgba(129,140,248,.12);color:var(--accent2)}
+.pill-m{background:rgba(251,191,36,.12);color:var(--amber)}
+.pill-a{background:rgba(100,116,139,.15);color:var(--muted)}
+.ph{border:2px dashed var(--border);border-radius:12px;padding:60px 40px;text-align:center;color:var(--muted)}
+.ph h3{font-size:18px;margin-bottom:8px;color:var(--text)}
+.ph p{font-size:13px;max-width:500px;margin:0 auto}
+.ld{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)}
+@media(max-width:900px){.sidebar{width:60px}.sidebar .logo span,.nav-item span,.nav-section{display:none}.main{margin-left:60px;padding:16px}.grid-4{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:1fr}}
+@media(max-width:500px){.grid-4,.grid-2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const SB='https://gfsdpwiqzshhexkofiif.supabase.co';
+const SK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const hd={'apikey':SK,'Accept-Profile':'ops','Content-Type':'application/json'};
+const q=async(t,p='')=>{const r=await fetch(SB+'/rest/v1/'+t+'?'+p,{headers:hd});return r.json()};
+const fm=n=>n==null?'-':'$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
+const fd=n=>n==null?'-':'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fp=n=>n==null?'-':(Number(n)*100).toFixed(1)+'%';
+const ft=d=>{if(!d)return'-';return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'})};
+
+function C({title,value,sub,accent}){
+  return <div className="card"><div className="card-title">{title}</div>
+    <div className="card-value" style={accent?{color:accent}:{}}>{value}</div>
+    {sub&amp;&amp;<div className="card-sub">{sub}</div>}</div>
+}
+
+function ExecPage(){
+  const[d,setD]=React.useState(null);
+  React.useEffect(()=>{Promise.all([
+    q('qbo_invoices','select=total_amount,balance,txn_date,due_date,status,customer_name&amp;order=txn_date.desc&amp;limit=500'),
+    q('pl_snapshots','select=period,account_name,account_type,amount&amp;order=period.desc&amp;limit=200'),
+    q('staff','select=display_name,department,annual_wage,status&amp;status=eq.active')
+  ]).then(([inv,pl,staff])=>setD({inv,pl,staff})).catch(console.error)},[]);
+  if(!d) return <div className="ld">Loading executive data...</div>;
+  const totalRev=d.inv.reduce((s,i)=>s+Number(i.total_amount||0),0);
+  const totalAR=d.inv.reduce((s,i)=>s+Number(i.balance||0),0);
+  const now=new Date();
+  const overdue=d.inv.filter(i=>i.balance>0&amp;&amp;i.due_date&amp;&amp;new Date(i.due_date)<now);
+  const payroll=d.staff.reduce((s,st)=>s+Number(st.annual_wage||0),0);
+  const rev=d.pl.filter(p=>p.account_type==='Income');
+  const cogs=d.pl.filter(p=>p.account_type==='Cost of Goods Sold');
+  const rT=rev.reduce((s,r)=>s+Number(r.amount||0),0);
+  const cT=cogs.reduce((s,r)=>s+Math.abs(Number(r.amount||0)),0);
+  const gp=rT-cT;const gm=rT>0?gp/rT:0;
+  const aging=[['Current',i=>!i.due_date||new Date(i.due_date)>=now],['1-30d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>0&amp;&amp;x<=30}],['31-60d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>30&amp;&amp;x<=60}],['61-90d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>60&amp;&amp;x<=90}],['90d+',i=>(now-new Date(i.due_date))/864e5>90]];
+  const top=Object.entries(d.inv.reduce((a,i)=>{const n=i.customer_name||'?';if(!a[n])a[n]={r:0,a:0};a[n].r+=Number(i.total_amount||0);a[n].a+=Number(i.balance||0);return a},{})).sort((a,b)=>b[1].r-a[1].r).slice(0,10);
+  return <div>
+    <div className="page-title">Executive Dashboard <span className="badge badge-live">LIVE DATA</span></div>
+    <div className="grid grid-4" style={{marginBottom:16}}>
+      <C title="TOTAL INVOICED" value={fm(totalRev)} sub={d.inv.length+' invoices'}/>
+      <C title="AR OUTSTANDING" value={fm(totalAR)} accent={totalAR>50000?'var(--amber)':null} sub={overdue.length+' overdue ('+fm(overdue.reduce((s,i)=>s+Number(i.balance),0))+')'}/>
+      <C title="ACTIVE STAFF" value={d.staff.length} sub={fm(payroll)+' annual payroll'}/>
+      <C title="GROSS MARGIN" value={fp(gm)} accent={gm>.45?'var(--green)':'var(--amber)'} sub={'GP: '+fm(gp)}/>
+    </div>
+    <div className="grid grid-2">
+      <div className="card"><div className="card-title">AR AGING</div><table><thead><tr><th>Bucket</th><th>Count</th><th>Amount</th></tr></thead><tbody>
+      {aging.map(([l,fn])=>{const b=d.inv.filter(i=>i.balance>0&amp;&amp;fn(i));return <tr key={l}><td>{l}</td><td className="mono">{b.length}</td><td className="mono">{fm(b.reduce((s,i)=>s+Number(i.balance),0))}</td></tr>})}
+      </tbody></table></div>
+      <div className="card"><div className="card-title">TOP CUSTOMERS BY REVENUE</div><table><thead><tr><th>Customer</th><th>Revenue</th><th>AR</th></tr></thead><tbody>
+      {top.map(([n,v])=><tr key={n}><td>{n.substring(0,30)}</td><td className="mono">{fm(v.r)}</td><td className="mono" style={{color:v.a>5000?'var(--amber)':''}}>{fm(v.a)}</td></tr>)}
+      </tbody></table></div>
+    </div>
+  </div>
+}
+
+function DeptPage({table,title,nameField,dateField,totalField}){
+  const[d,setD]=React.useState(null);
+  React.useEffect(()=>{q(table,'select=*&amp;order='+dateField+'.desc&amp;limit=100').then(setD).catch(console.error)},[]);
+  if(!d) return <div className="ld">Loading...</div>;
+  const by={};d.forEach(j=>{const n=j[nameField]||'Unassigned';if(!by[n])by[n]={c:0,r:0};by[n].c++;by[n].r+=Number(j[totalField]||0)});
+  return <div>
+    <div className="page-title">{title} <span className="badge badge-live">LIVE</span></div>
+    <div className="grid grid-4" style={{marginBottom:16}}>
+      <C title="TOTAL RECORDS" value={d.length}/>
+      <C title="REVENUE CAPTURED" value={fm(d.reduce((s,i)=>s+Number(i[totalField]||0),0))}/>
+      <C title="AVG VALUE" value={fd(d.reduce((s,i)=>s+Number(i[totalField]||0),0)/Math.max(d.length,1))}/>
+      <C title="STALE (UNINVOICED)" value={d.filter(s=>Number(s[totalField])>0&amp;&amp;!s.qbo_invoice_matched).length} accent="var(--amber)"/>
+    </div>
+    <div className="grid grid-2">
+      <div className="card"><div className="card-title">BY PERSON</div><table><thead><tr><th>Name</th><th>Count</th><th>Revenue</th><th>Avg</th></tr></thead><tbody>
+      {Object.entries(by).sort((a,b)=>b[1].c-a[1].c).map(([n,v])=><tr key={n}><td><span className="dot dot-g"></span>{n}</td><td className="mono">{v.c}</td><td className="mono">{fm(v.r)}</td><td className="mono">{fd(v.r/v.c)}</td></tr>)}
+      </tbody></table></div>
+      <div className="card"><div className="card-title">RECENT</div><table><thead><tr><th>Date</th><th>Customer</th><th>Person</th><th>Amount</th></tr></thead><tbody>
+      {d.slice(0,15).map(j=><tr key={j.id}><td className="mono">{ft(j[dateField])}</td><td>{(j.customer_name||'').substring(0,25)}</td><td>{j[nameField]||'-'}</td><td className="mono">{fd(j[totalField])}</td></tr>)}
+      </tbody></table></div>
+    </div>
+  </div>
+}
+
+function FleetPage(){
+  return <div><div className="page-title">Fleet Management <span className="badge badge-pending">SETUP NEEDED</span></div>
+  <div className="ph"><h3>AT&amp;T FleetComplete / Powerfleet</h3><p>Schema deployed: fleet_vehicles, fleet_trips, fleet_fuel_transactions, fleet_maintenance. Waiting for API token from Powerfleet portal.</p><br/><p style={{fontSize:12,color:'var(--accent)'}}>API Docs: tlshosted.fleetcomplete.com/Integration/v8_5_0/Help</p></div>
+  <div className="grid grid-4" style={{marginTop:16}}><C title="VEHICLES" value="-" sub="Pending sync"/><C title="FUEL COST/MO" value="-" sub="Pending"/><C title="MILES/MO" value="-" sub="Pending"/><C title="AVG MPG" value="-" sub="Pending"/></div>
+  <div className="grid grid-3" style={{marginTop:16}}>
+    <div className="card"><div className="card-title">FLEET KPIs</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Miles/day/driver - Cost/mile - Idle time % - Hard brakes - Speed violations - First departure - Fuel cost/stop</div></div>
+    <div className="card"><div className="card-title">FUEL MGMT</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Transaction log - Price/gal tracking - MPG by vehicle - Cost per delivery stop - Monthly budget vs actual</div></div>
+    <div className="card"><div className="card-title">MAINTENANCE</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Scheduled vs unscheduled - Cost/vehicle/month - Next service alerts - Vendor spend - Downtime tracking</div></div>
+  </div></div>
+}
+
+function HRPage(){
+  return <div><div className="page-title">Human Resources <span className="badge badge-pending">INTEGRATION PENDING</span></div>
+  <div className="ph"><h3>HR Management</h3><p>Schema deployed: hr_employees, hr_time_off, hr_documents, hr_performance, hr_onboarding.</p><br/>
+  <p style={{fontSize:12}}><strong style={{color:'var(--accent)'}}>Bambee</strong> - Outsourced HR manager ($99/mo). Manual/CSV data.<br/><strong style={{color:'var(--accent2)'}}>BambooHR</strong> - HRIS with REST API for auto-sync.</p></div>
+  <div className="grid grid-3" style={{marginTop:16}}>
+    <div className="card"><div className="card-title">EMPLOYEES</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Directory - Status tracking - Pay rates - Supervisor hierarchy - W-2/1099 classification</div></div>
+    <div className="card"><div className="card-title">TIME OFF</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>PTO requests - Approval workflow - FMLA compliance - Accrual balances - Calendar view</div></div>
+    <div className="card"><div className="card-title">COMPLIANCE</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>I-9/W-4 tracking - Handbook acks - Performance reviews - Disciplinary records - Cert expiry alerts</div></div>
+  </div></div>
+}
+
+function RosterPage(){
+  const[d,setD]=React.useState(null);
+  React.useEffect(()=>{Promise.all([
+    q('staff','select=*&amp;order=department,display_name'),
+    q('staff_roles','select=*'),
+    q('role_types','select=*&amp;order=sort_order')
+  ]).then(([s,r,t])=>setD({s,r,t})).catch(console.error)},[]);
+  if(!d) return <div className="ld">Loading roster...</div>;
+  const rm={};d.r.forEach(r=>{if(!rm[r.staff_id])rm[r.staff_id]=[];rm[r.staff_id].push(r.role_code)});
+  const tm={};d.t.forEach(t=>tm[t.role_code]=t.label);
+  const dc={delivery:'pill-d',service:'pill-s',reman:'pill-m',admin:'pill-a',ops:'pill-a',sales:'pill-a'};
+  return <div>
+    <div className="page-title">Staff Roster <span className="badge badge-live">LIVE</span></div>
+    <div className="grid grid-4" style={{marginBottom:16}}>
+      <C title="TOTAL STAFF" value={d.s.length}/>
+      <C title="ACTIVE" value={d.s.filter(x=>x.status==='active').length} accent="var(--green)"/>
+      <C title="ROLES ASSIGNED" value={Object.keys(rm).length}/>
+      <C title="ANNUAL PAYROLL" value={fm(d.s.reduce((s,x)=>s+Number(x.annual_wage||0),0))}/>
+    </div>
+    <div className="card"><div className="card-title">TEAM</div><table><thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Entity</th><th>Wage</th><th>Status</th></tr></thead><tbody>
+    {d.s.map(x=><tr key={x.staff_id}><td><strong>{x.display_name}</strong></td>
+      <td>{x.department?<span className={'pill '+(dc[x.department]||'pill-a')}>{x.department}</span>:'-'}</td>
+      <td style={{fontSize:12}}>{(rm[x.staff_id]||[]).map(c=>tm[c]||c).join(', ')||<span style={{color:'var(--muted)'}}>-</span>}</td>
+      <td className="mono" style={{fontSize:11}}>{x.entity||'-'}</td>
+      <td className="mono">{x.annual_wage?fm(x.annual_wage):'-'}</td>
+      <td><span className={'dot '+(x.status==='active'?'dot-g':'dot-r')}></span>{x.status}</td></tr>)}
+    </tbody></table></div>
+  </div>
+}
+
+function App(){
+  const[p,setP]=React.useState('exec');
+  const pages={exec:()=><ExecPage/>,
+    delivery:()=><DeptPage table="delivery_stops" title="Delivery Operations" nameField="driver_name" dateField="stop_date" totalField="sf_total"/>,
+    service:()=><DeptPage table="service_jobs" title="Service Operations" nameField="tech_name" dateField="job_date" totalField="sf_total"/>,
+    reman:()=><DeptPage table="reman_jobs" title="Remanufacturing" nameField="tech_name" dateField="intake_date" totalField="sf_total"/>,
+    fleet:()=><FleetPage/>,hr:()=><HRPage/>,roster:()=><RosterPage/>};
+  const nav=[{id:'exec',l:'Executive',i:'\u{1F4CA}'},{id:'delivery',l:'Delivery',i:'\u{1F69B}'},{id:'service',l:'Service',i:'\u{1F527}'},{id:'reman',l:'Reman',i:'\u{267B}\u{FE0F}'},{id:'fleet',l:'Fleet',i:'\u{1F6E3}\u{FE0F}'},{id:'hr',l:'HR',i:'\u{1F465}'},{id:'roster',l:'Roster',i:'\u{1F4CB}'}];
+  const Pg=pages[p]||pages.exec;
+  return <React.Fragment>
+    <div className="sidebar">
+      <div className="logo">PACER OPS<span>Operational Dashboard</span></div>
+      <div className="nav-section">Departments</div>
+      {nav.map(n=><div key={n.id} className={'nav-item '+(p===n.id?'active':'')} onClick={()=>setP(n.id)}><span style={{fontSize:15}}>{n.i}</span><span>{n.l}</span></div>)}
+    </div>
+    <div className="main"><Pg/></div>
+  </React.Fragment>
+}
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+</body>
+</html>
