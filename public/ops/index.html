@@ -3,207 +3,368 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PACER Ops Dashboard</title>
+<title>PACER Ops</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2235;--border:#1e2d4a;--accent:#22d3ee;--accent2:#818cf8;--green:#34d399;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--muted:#64748b;--white:#f8fafc}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-.mono{font-family:'JetBrains Mono',monospace}
-.sidebar{position:fixed;left:0;top:0;bottom:0;width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:50}
-.sidebar .logo{padding:20px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;letter-spacing:1.5px;color:var(--accent)}
-.sidebar .logo span{color:var(--muted);font-weight:400;font-size:11px;display:block;margin-top:2px}
-.nav-item{padding:10px 16px;cursor:pointer;font-size:13px;color:var(--muted);transition:all .15s;display:flex;align-items:center;gap:8px;border-left:3px solid transparent}
-.nav-item:hover{background:var(--surface2);color:var(--text)}
-.nav-item.active{background:var(--surface2);color:var(--accent);border-left-color:var(--accent)}
-.nav-section{padding:10px 16px 4px;font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-top:8px}
-.main{margin-left:220px;padding:24px 28px}
-.page-title{font-size:22px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:10px}
-.badge{font-size:10px;padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:.5px}
-.badge-live{background:rgba(52,211,153,.15);color:var(--green)}
-.badge-pending{background:rgba(251,191,36,.15);color:var(--amber)}
-.grid{display:grid;gap:16px}
-.grid-4{grid-template-columns:repeat(4,1fr)}
-.grid-3{grid-template-columns:repeat(3,1fr)}
-.grid-2{grid-template-columns:repeat(2,1fr)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
-.card-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px}
-.card-value{font-size:28px;font-weight:700;line-height:1.1}
-.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-thead th{text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600}
-tbody td{padding:8px 12px;border-bottom:1px solid var(--border)}
-tbody tr:hover{background:var(--surface2)}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-.dot-g{background:var(--green)}.dot-a{background:var(--amber)}.dot-r{background:var(--red)}
-.pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
-.pill-d{background:rgba(34,211,238,.12);color:var(--accent)}
-.pill-s{background:rgba(129,140,248,.12);color:var(--accent2)}
-.pill-m{background:rgba(251,191,36,.12);color:var(--amber)}
-.pill-a{background:rgba(100,116,139,.15);color:var(--muted)}
-.ph{border:2px dashed var(--border);border-radius:12px;padding:60px 40px;text-align:center;color:var(--muted)}
-.ph h3{font-size:18px;margin-bottom:8px;color:var(--text)}
-.ph p{font-size:13px;max-width:500px;margin:0 auto}
-.ld{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)}
-@media(max-width:900px){.sidebar{width:60px}.sidebar .logo span,.nav-item span,.nav-section{display:none}.main{margin-left:60px;padding:16px}.grid-4{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:1fr}}
-@media(max-width:500px){.grid-4,.grid-2{grid-template-columns:1fr}}
+:root{--bg:#0a0e17;--sf:#111827;--sf2:#1a2235;--bd:#1e2d4a;--ac:#22d3ee;--ac2:#818cf8;--gn:#34d399;--rd:#f87171;--am:#fbbf24;--tx:#e2e8f0;--mt:#64748b}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
+.mn{font-family:'Courier New',monospace}
+.sb{position:fixed;left:0;top:0;bottom:0;width:200px;background:var(--sf);border-right:1px solid var(--bd);display:flex;flex-direction:column;z-index:50}
+.sb .lg{padding:18px 14px;border-bottom:1px solid var(--bd);font-weight:700;font-size:13px;letter-spacing:1.5px;color:var(--ac)}
+.sb .lg small{color:var(--mt);font-weight:400;font-size:10px;display:block;margin-top:2px}
+.ni{padding:9px 14px;cursor:pointer;font-size:12px;color:var(--mt);transition:all .15s;display:flex;align-items:center;gap:7px;border-left:3px solid transparent}
+.ni:hover{background:var(--sf2);color:var(--tx)}
+.ni.on{background:var(--sf2);color:var(--ac);border-left-color:var(--ac)}
+.ns{padding:10px 14px 4px;font-size:9px;letter-spacing:1.5px;color:var(--mt);text-transform:uppercase;margin-top:6px}
+.ma{margin-left:200px;padding:20px 24px}
+.pt{font-size:20px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.bg{font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.5px}
+.bg-l{background:rgba(52,211,153,.15);color:var(--gn)}
+.bg-p{background:rgba(251,191,36,.15);color:var(--am)}
+.gr{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.cd{background:var(--sf);border:1px solid var(--bd);border-radius:7px;padding:16px 18px}
+.ct{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--mt);margin-bottom:6px}
+.cv{font-size:26px;font-weight:700;line-height:1.1}
+.cs{font-size:11px;color:var(--mt);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{text-align:left;padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--mt);border-bottom:1px solid var(--bd);font-weight:600}
+tbody td{padding:7px 10px;border-bottom:1px solid var(--bd)}
+tbody tr:hover{background:var(--sf2)}
+.dt{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.dg{background:var(--gn)}.da{background:var(--am)}.dr{background:var(--rd)}
+.pl{display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600}
+.ph{border:2px dashed var(--bd);border-radius:10px;padding:50px 30px;text-align:center;color:var(--mt)}
+.ph h3{font-size:16px;margin-bottom:6px;color:var(--tx)}
+.ph p{font-size:12px;max-width:480px;margin:0 auto}
+.ld{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--mt);font-size:12px}
+@media(max-width:768px){.sb{width:54px}.sb .lg small,.ni span:last-child,.ns{display:none}.sb .lg{padding:14px 8px;font-size:10px;text-align:center}.ni{justify-content:center;padding:10px 0}.ma{margin-left:54px;padding:14px}.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const SB='https://gfsdpwiqzshhexkofiif.supabase.co';
-const SK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
-const hd={'apikey':SK,'Accept-Profile':'ops','Content-Type':'application/json'};
-const q=async(t,p='')=>{const r=await fetch(SB+'/rest/v1/'+t+'?'+p,{headers:hd});return r.json()};
-const fm=n=>n==null?'-':'$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
-const fd=n=>n==null?'-':'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const fp=n=>n==null?'-':(Number(n)*100).toFixed(1)+'%';
-const ft=d=>{if(!d)return'-';return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'})};
+const SB_URL='https://gfsdpwiqzshhexkofiif.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 
-function C({title,value,sub,accent}){
-  return <div className="card"><div className="card-title">{title}</div>
-    <div className="card-value" style={accent?{color:accent}:{}}>{value}</div>
-    {sub&amp;&amp;<div className="card-sub">{sub}</div>}</div>
+async function sbq(tbl, params) {
+  var url = SB_URL + '/rest/v1/' + tbl;
+  if (params) url = url + '?' + params;
+  var res = await fetch(url, {
+    headers: { 'apikey': SB_KEY, 'Accept-Profile': 'ops', 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) return [];
+  return res.json();
 }
 
-function ExecPage(){
-  const[d,setD]=React.useState(null);
-  React.useEffect(()=>{Promise.all([
-    q('qbo_invoices','select=total_amount,balance,txn_date,due_date,status,customer_name&amp;order=txn_date.desc&amp;limit=500'),
-    q('pl_snapshots','select=period,account_name,account_type,amount&amp;order=period.desc&amp;limit=200'),
-    q('staff','select=display_name,department,annual_wage,status&amp;status=eq.active')
-  ]).then(([inv,pl,staff])=>setD({inv,pl,staff})).catch(console.error)},[]);
-  if(!d) return <div className="ld">Loading executive data...</div>;
-  const totalRev=d.inv.reduce((s,i)=>s+Number(i.total_amount||0),0);
-  const totalAR=d.inv.reduce((s,i)=>s+Number(i.balance||0),0);
-  const now=new Date();
-  const overdue=d.inv.filter(i=>i.balance>0&amp;&amp;i.due_date&amp;&amp;new Date(i.due_date)<now);
-  const payroll=d.staff.reduce((s,st)=>s+Number(st.annual_wage||0),0);
-  const rev=d.pl.filter(p=>p.account_type==='Income');
-  const cogs=d.pl.filter(p=>p.account_type==='Cost of Goods Sold');
-  const rT=rev.reduce((s,r)=>s+Number(r.amount||0),0);
-  const cT=cogs.reduce((s,r)=>s+Math.abs(Number(r.amount||0)),0);
-  const gp=rT-cT;const gm=rT>0?gp/rT:0;
-  const aging=[['Current',i=>!i.due_date||new Date(i.due_date)>=now],['1-30d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>0&amp;&amp;x<=30}],['31-60d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>30&amp;&amp;x<=60}],['61-90d',i=>{const x=(now-new Date(i.due_date))/864e5;return x>60&amp;&amp;x<=90}],['90d+',i=>(now-new Date(i.due_date))/864e5>90]];
-  const top=Object.entries(d.inv.reduce((a,i)=>{const n=i.customer_name||'?';if(!a[n])a[n]={r:0,a:0};a[n].r+=Number(i.total_amount||0);a[n].a+=Number(i.balance||0);return a},{})).sort((a,b)=>b[1].r-a[1].r).slice(0,10);
-  return <div>
-    <div className="page-title">Executive Dashboard <span className="badge badge-live">LIVE DATA</span></div>
-    <div className="grid grid-4" style={{marginBottom:16}}>
-      <C title="TOTAL INVOICED" value={fm(totalRev)} sub={d.inv.length+' invoices'}/>
-      <C title="AR OUTSTANDING" value={fm(totalAR)} accent={totalAR>50000?'var(--amber)':null} sub={overdue.length+' overdue ('+fm(overdue.reduce((s,i)=>s+Number(i.balance),0))+')'}/>
-      <C title="ACTIVE STAFF" value={d.staff.length} sub={fm(payroll)+' annual payroll'}/>
-      <C title="GROSS MARGIN" value={fp(gm)} accent={gm>.45?'var(--green)':'var(--amber)'} sub={'GP: '+fm(gp)}/>
-    </div>
-    <div className="grid grid-2">
-      <div className="card"><div className="card-title">AR AGING</div><table><thead><tr><th>Bucket</th><th>Count</th><th>Amount</th></tr></thead><tbody>
-      {aging.map(([l,fn])=>{const b=d.inv.filter(i=>i.balance>0&amp;&amp;fn(i));return <tr key={l}><td>{l}</td><td className="mono">{b.length}</td><td className="mono">{fm(b.reduce((s,i)=>s+Number(i.balance),0))}</td></tr>})}
-      </tbody></table></div>
-      <div className="card"><div className="card-title">TOP CUSTOMERS BY REVENUE</div><table><thead><tr><th>Customer</th><th>Revenue</th><th>AR</th></tr></thead><tbody>
-      {top.map(([n,v])=><tr key={n}><td>{n.substring(0,30)}</td><td className="mono">{fm(v.r)}</td><td className="mono" style={{color:v.a>5000?'var(--amber)':''}}>{fm(v.a)}</td></tr>)}
-      </tbody></table></div>
-    </div>
-  </div>
+function fm(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {maximumFractionDigits:0}) }
+function fd(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) }
+function fp(n) { return n == null ? '-' : (Number(n)*100).toFixed(1) + '%' }
+function ft(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('en-US', {month:'short', day:'numeric'}) }
+function sum(arr, key) { return arr.reduce(function(s, i) { return s + Number(i[key] || 0) }, 0) }
+
+function C(props) {
+  return React.createElement('div', {className:'cd'},
+    React.createElement('div', {className:'ct'}, props.title),
+    React.createElement('div', {className:'cv', style: props.accent ? {color: props.accent} : {}}, props.value),
+    props.sub ? React.createElement('div', {className:'cs'}, props.sub) : null
+  )
 }
 
-function DeptPage({table,title,nameField,dateField,totalField}){
-  const[d,setD]=React.useState(null);
-  React.useEffect(()=>{q(table,'select=*&amp;order='+dateField+'.desc&amp;limit=100').then(setD).catch(console.error)},[]);
-  if(!d) return <div className="ld">Loading...</div>;
-  const by={};d.forEach(j=>{const n=j[nameField]||'Unassigned';if(!by[n])by[n]={c:0,r:0};by[n].c++;by[n].r+=Number(j[totalField]||0)});
-  return <div>
-    <div className="page-title">{title} <span className="badge badge-live">LIVE</span></div>
-    <div className="grid grid-4" style={{marginBottom:16}}>
-      <C title="TOTAL RECORDS" value={d.length}/>
-      <C title="REVENUE CAPTURED" value={fm(d.reduce((s,i)=>s+Number(i[totalField]||0),0))}/>
-      <C title="AVG VALUE" value={fd(d.reduce((s,i)=>s+Number(i[totalField]||0),0)/Math.max(d.length,1))}/>
-      <C title="STALE (UNINVOICED)" value={d.filter(s=>Number(s[totalField])>0&amp;&amp;!s.qbo_invoice_matched).length} accent="var(--amber)"/>
-    </div>
-    <div className="grid grid-2">
-      <div className="card"><div className="card-title">BY PERSON</div><table><thead><tr><th>Name</th><th>Count</th><th>Revenue</th><th>Avg</th></tr></thead><tbody>
-      {Object.entries(by).sort((a,b)=>b[1].c-a[1].c).map(([n,v])=><tr key={n}><td><span className="dot dot-g"></span>{n}</td><td className="mono">{v.c}</td><td className="mono">{fm(v.r)}</td><td className="mono">{fd(v.r/v.c)}</td></tr>)}
-      </tbody></table></div>
-      <div className="card"><div className="card-title">RECENT</div><table><thead><tr><th>Date</th><th>Customer</th><th>Person</th><th>Amount</th></tr></thead><tbody>
-      {d.slice(0,15).map(j=><tr key={j.id}><td className="mono">{ft(j[dateField])}</td><td>{(j.customer_name||'').substring(0,25)}</td><td>{j[nameField]||'-'}</td><td className="mono">{fd(j[totalField])}</td></tr>)}
-      </tbody></table></div>
-    </div>
-  </div>
+function ExecPage() {
+  var ref = React.useState(null);
+  var d = ref[0], setD = ref[1];
+
+  React.useEffect(function() {
+    Promise.all([
+      sbq('qbo_invoices', 'select=total_amount,balance,txn_date,due_date,status,customer_name&order=txn_date.desc&limit=500'),
+      sbq('pl_snapshots', 'select=period,account_name,account_type,amount&order=period.desc&limit=200'),
+      sbq('staff', 'select=display_name,department,annual_wage,status&status=eq.active')
+    ]).then(function(results) {
+      setD({inv: results[0], pl: results[1], staff: results[2]});
+    }).catch(function(e) { console.error(e) });
+  }, []);
+
+  if (!d) return React.createElement('div', {className:'ld'}, 'Loading executive data...');
+
+  var totalRev = sum(d.inv, 'total_amount');
+  var totalAR = sum(d.inv, 'balance');
+  var now = new Date();
+  var overdue = d.inv.filter(function(i) { return i.balance > 0 && i.due_date && new Date(i.due_date) < now });
+  var overdueAmt = sum(overdue, 'balance');
+  var payroll = sum(d.staff, 'annual_wage');
+  var revItems = d.pl.filter(function(p) { return p.account_type === 'Income' });
+  var cogsItems = d.pl.filter(function(p) { return p.account_type === 'Cost of Goods Sold' });
+  var rT = sum(revItems, 'amount');
+  var cT = cogsItems.reduce(function(s, r) { return s + Math.abs(Number(r.amount || 0)) }, 0);
+  var gp = rT - cT;
+  var gm = rT > 0 ? gp / rT : 0;
+
+  var custMap = {};
+  d.inv.forEach(function(i) {
+    var n = i.customer_name || 'Unknown';
+    if (!custMap[n]) custMap[n] = {r:0, a:0};
+    custMap[n].r += Number(i.total_amount || 0);
+    custMap[n].a += Number(i.balance || 0);
+  });
+  var top10 = Object.keys(custMap).map(function(k) { return [k, custMap[k]] })
+    .sort(function(a, b) { return b[1].r - a[1].r }).slice(0, 10);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Executive Dashboard ', React.createElement('span', {className:'bg bg-l'}, 'LIVE DATA')),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:14}},
+      React.createElement(C, {title:'TOTAL INVOICED', value:fm(totalRev), sub:d.inv.length + ' invoices'}),
+      React.createElement(C, {title:'AR OUTSTANDING', value:fm(totalAR), accent: totalAR > 50000 ? 'var(--am)' : null, sub: overdue.length + ' overdue (' + fm(overdueAmt) + ')'}),
+      React.createElement(C, {title:'ACTIVE STAFF', value:d.staff.length, sub:fm(payroll) + ' annual payroll'}),
+      React.createElement(C, {title:'GROSS MARGIN', value:fp(gm), accent: gm > .45 ? 'var(--gn)' : 'var(--am)', sub:'GP: ' + fm(gp)})
+    ),
+    React.createElement('div', {className:'gr g2'},
+      React.createElement('div', {className:'cd'},
+        React.createElement('div', {className:'ct'}, 'TOP CUSTOMERS BY REVENUE'),
+        React.createElement('table', null,
+          React.createElement('thead', null, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'), React.createElement('th', null, 'Revenue'), React.createElement('th', null, 'AR'))),
+          React.createElement('tbody', null, top10.map(function(item) {
+            return React.createElement('tr', {key: item[0]},
+              React.createElement('td', null, item[0].substring(0,28)),
+              React.createElement('td', {className:'mn'}, fm(item[1].r)),
+              React.createElement('td', {className:'mn', style:{color: item[1].a > 5000 ? 'var(--am)' : ''}}, fm(item[1].a))
+            )
+          }))
+        )
+      ),
+      React.createElement('div', {className:'cd'},
+        React.createElement('div', {className:'ct'}, 'AR AGING SUMMARY'),
+        React.createElement('table', null,
+          React.createElement('thead', null, React.createElement('tr', null,
+            React.createElement('th', null, 'Bucket'), React.createElement('th', null, 'Count'), React.createElement('th', null, 'Amount'))),
+          React.createElement('tbody', null,
+            ['Current', '1-30d', '31-60d', '61-90d', '90d+'].map(function(label, idx) {
+              var bucket = d.inv.filter(function(i) {
+                if (i.balance <= 0) return false;
+                if (!i.due_date) return idx === 0;
+                var diff = (now - new Date(i.due_date)) / 86400000;
+                if (idx === 0) return diff <= 0;
+                if (idx === 1) return diff > 0 && diff <= 30;
+                if (idx === 2) return diff > 30 && diff <= 60;
+                if (idx === 3) return diff > 60 && diff <= 90;
+                return diff > 90;
+              });
+              var amt = sum(bucket, 'balance');
+              return React.createElement('tr', {key: label},
+                React.createElement('td', null, label),
+                React.createElement('td', {className:'mn'}, bucket.length),
+                React.createElement('td', {className:'mn'}, fm(amt))
+              )
+            })
+          )
+        )
+      )
+    )
+  )
 }
 
-function FleetPage(){
-  return <div><div className="page-title">Fleet Management <span className="badge badge-pending">SETUP NEEDED</span></div>
-  <div className="ph"><h3>AT&amp;T FleetComplete / Powerfleet</h3><p>Schema deployed: fleet_vehicles, fleet_trips, fleet_fuel_transactions, fleet_maintenance. Waiting for API token from Powerfleet portal.</p><br/><p style={{fontSize:12,color:'var(--accent)'}}>API Docs: tlshosted.fleetcomplete.com/Integration/v8_5_0/Help</p></div>
-  <div className="grid grid-4" style={{marginTop:16}}><C title="VEHICLES" value="-" sub="Pending sync"/><C title="FUEL COST/MO" value="-" sub="Pending"/><C title="MILES/MO" value="-" sub="Pending"/><C title="AVG MPG" value="-" sub="Pending"/></div>
-  <div className="grid grid-3" style={{marginTop:16}}>
-    <div className="card"><div className="card-title">FLEET KPIs</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Miles/day/driver - Cost/mile - Idle time % - Hard brakes - Speed violations - First departure - Fuel cost/stop</div></div>
-    <div className="card"><div className="card-title">FUEL MGMT</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Transaction log - Price/gal tracking - MPG by vehicle - Cost per delivery stop - Monthly budget vs actual</div></div>
-    <div className="card"><div className="card-title">MAINTENANCE</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Scheduled vs unscheduled - Cost/vehicle/month - Next service alerts - Vendor spend - Downtime tracking</div></div>
-  </div></div>
+function DeptPage(props) {
+  var ref = React.useState(null);
+  var d = ref[0], setD = ref[1];
+
+  React.useEffect(function() {
+    sbq(props.table, 'select=*&order=' + props.dateField + '.desc&limit=100')
+      .then(setD).catch(function(e) { console.error(e) });
+  }, []);
+
+  if (!d) return React.createElement('div', {className:'ld'}, 'Loading...');
+
+  var byPerson = {};
+  d.forEach(function(j) {
+    var n = j[props.nameField] || 'Unassigned';
+    if (!byPerson[n]) byPerson[n] = {c:0, r:0};
+    byPerson[n].c++;
+    byPerson[n].r += Number(j[props.totalField] || 0);
+  });
+  var personList = Object.keys(byPerson).map(function(k) { return [k, byPerson[k]] })
+    .sort(function(a, b) { return b[1].c - a[1].c });
+  var totalRev = sum(d, props.totalField);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, props.title, ' ', React.createElement('span', {className:'bg bg-l'}, 'LIVE')),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:14}},
+      React.createElement(C, {title:'TOTAL RECORDS', value: d.length}),
+      React.createElement(C, {title:'REVENUE', value: fm(totalRev)}),
+      React.createElement(C, {title:'AVG VALUE', value: fd(d.length > 0 ? totalRev / d.length : 0)}),
+      React.createElement(C, {title:'STALE', value: d.filter(function(s) { return Number(s[props.totalField]) > 0 && !s.qbo_invoice_matched }).length, accent:'var(--am)'})
+    ),
+    React.createElement('div', {className:'gr g2'},
+      React.createElement('div', {className:'cd'},
+        React.createElement('div', {className:'ct'}, 'BY PERSON'),
+        React.createElement('table', null,
+          React.createElement('thead', null, React.createElement('tr', null,
+            React.createElement('th', null, 'Name'), React.createElement('th', null, 'Count'), React.createElement('th', null, 'Revenue'))),
+          React.createElement('tbody', null, personList.map(function(item) {
+            return React.createElement('tr', {key: item[0]},
+              React.createElement('td', null, React.createElement('span', {className:'dt dg'}), item[0]),
+              React.createElement('td', {className:'mn'}, item[1].c),
+              React.createElement('td', {className:'mn'}, fm(item[1].r))
+            )
+          }))
+        )
+      ),
+      React.createElement('div', {className:'cd'},
+        React.createElement('div', {className:'ct'}, 'RECENT'),
+        React.createElement('table', null,
+          React.createElement('thead', null, React.createElement('tr', null,
+            React.createElement('th', null, 'Date'), React.createElement('th', null, 'Customer'), React.createElement('th', null, 'Amount'))),
+          React.createElement('tbody', null, d.slice(0, 12).map(function(j, idx) {
+            return React.createElement('tr', {key: idx},
+              React.createElement('td', {className:'mn'}, ft(j[props.dateField])),
+              React.createElement('td', null, (j.customer_name || '').substring(0, 25)),
+              React.createElement('td', {className:'mn'}, fd(j[props.totalField]))
+            )
+          }))
+        )
+      )
+    )
+  )
 }
 
-function HRPage(){
-  return <div><div className="page-title">Human Resources <span className="badge badge-pending">INTEGRATION PENDING</span></div>
-  <div className="ph"><h3>HR Management</h3><p>Schema deployed: hr_employees, hr_time_off, hr_documents, hr_performance, hr_onboarding.</p><br/>
-  <p style={{fontSize:12}}><strong style={{color:'var(--accent)'}}>Bambee</strong> - Outsourced HR manager ($99/mo). Manual/CSV data.<br/><strong style={{color:'var(--accent2)'}}>BambooHR</strong> - HRIS with REST API for auto-sync.</p></div>
-  <div className="grid grid-3" style={{marginTop:16}}>
-    <div className="card"><div className="card-title">EMPLOYEES</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>Directory - Status tracking - Pay rates - Supervisor hierarchy - W-2/1099 classification</div></div>
-    <div className="card"><div className="card-title">TIME OFF</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>PTO requests - Approval workflow - FMLA compliance - Accrual balances - Calendar view</div></div>
-    <div className="card"><div className="card-title">COMPLIANCE</div><div style={{fontSize:12,color:'var(--muted)',lineHeight:1.8}}>I-9/W-4 tracking - Handbook acks - Performance reviews - Disciplinary records - Cert expiry alerts</div></div>
-  </div></div>
+function FleetPage() {
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Fleet Management ', React.createElement('span', {className:'bg bg-p'}, 'SETUP NEEDED')),
+    React.createElement('div', {className:'ph'},
+      React.createElement('h3', null, 'AT&T FleetComplete / Powerfleet'),
+      React.createElement('p', null, 'Schema deployed: fleet_vehicles, fleet_trips, fleet_fuel_transactions, fleet_maintenance. Waiting for API token from Powerfleet portal.'),
+      React.createElement('br'),
+      React.createElement('p', {style:{fontSize:11, color:'var(--ac)'}}, 'API: tlshosted.fleetcomplete.com/Integration/v8_5_0/Help')
+    ),
+    React.createElement('div', {className:'gr g4', style:{marginTop:14}},
+      React.createElement(C, {title:'VEHICLES', value:'-', sub:'Pending sync'}),
+      React.createElement(C, {title:'FUEL COST/MO', value:'-', sub:'Pending'}),
+      React.createElement(C, {title:'MILES/MO', value:'-', sub:'Pending'}),
+      React.createElement(C, {title:'AVG MPG', value:'-', sub:'Pending'})
+    ),
+    React.createElement('div', {className:'gr g3', style:{marginTop:14}},
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'FLEET KPIs'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'Miles/day/driver \u2022 Cost/mile \u2022 Idle time % \u2022 Hard brakes \u2022 Speed violations \u2022 First departure \u2022 Fuel cost/stop')),
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'FUEL MGMT'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'Transaction log \u2022 Price/gal \u2022 MPG by vehicle \u2022 Cost per delivery stop \u2022 Budget vs actual')),
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'MAINTENANCE'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'Scheduled vs unscheduled \u2022 Cost/vehicle/month \u2022 Service alerts \u2022 Vendor spend \u2022 Downtime'))
+    )
+  )
 }
 
-function RosterPage(){
-  const[d,setD]=React.useState(null);
-  React.useEffect(()=>{Promise.all([
-    q('staff','select=*&amp;order=department,display_name'),
-    q('staff_roles','select=*'),
-    q('role_types','select=*&amp;order=sort_order')
-  ]).then(([s,r,t])=>setD({s,r,t})).catch(console.error)},[]);
-  if(!d) return <div className="ld">Loading roster...</div>;
-  const rm={};d.r.forEach(r=>{if(!rm[r.staff_id])rm[r.staff_id]=[];rm[r.staff_id].push(r.role_code)});
-  const tm={};d.t.forEach(t=>tm[t.role_code]=t.label);
-  const dc={delivery:'pill-d',service:'pill-s',reman:'pill-m',admin:'pill-a',ops:'pill-a',sales:'pill-a'};
-  return <div>
-    <div className="page-title">Staff Roster <span className="badge badge-live">LIVE</span></div>
-    <div className="grid grid-4" style={{marginBottom:16}}>
-      <C title="TOTAL STAFF" value={d.s.length}/>
-      <C title="ACTIVE" value={d.s.filter(x=>x.status==='active').length} accent="var(--green)"/>
-      <C title="ROLES ASSIGNED" value={Object.keys(rm).length}/>
-      <C title="ANNUAL PAYROLL" value={fm(d.s.reduce((s,x)=>s+Number(x.annual_wage||0),0))}/>
-    </div>
-    <div className="card"><div className="card-title">TEAM</div><table><thead><tr><th>Name</th><th>Dept</th><th>Role</th><th>Entity</th><th>Wage</th><th>Status</th></tr></thead><tbody>
-    {d.s.map(x=><tr key={x.staff_id}><td><strong>{x.display_name}</strong></td>
-      <td>{x.department?<span className={'pill '+(dc[x.department]||'pill-a')}>{x.department}</span>:'-'}</td>
-      <td style={{fontSize:12}}>{(rm[x.staff_id]||[]).map(c=>tm[c]||c).join(', ')||<span style={{color:'var(--muted)'}}>-</span>}</td>
-      <td className="mono" style={{fontSize:11}}>{x.entity||'-'}</td>
-      <td className="mono">{x.annual_wage?fm(x.annual_wage):'-'}</td>
-      <td><span className={'dot '+(x.status==='active'?'dot-g':'dot-r')}></span>{x.status}</td></tr>)}
-    </tbody></table></div>
-  </div>
+function HRPage() {
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Human Resources ', React.createElement('span', {className:'bg bg-p'}, 'INTEGRATION PENDING')),
+    React.createElement('div', {className:'ph'},
+      React.createElement('h3', null, 'HR Management'),
+      React.createElement('p', null, 'Schema deployed: hr_employees, hr_time_off, hr_documents, hr_performance, hr_onboarding.'),
+      React.createElement('br'),
+      React.createElement('p', {style:{fontSize:11}}, 'Bambee \u2014 Outsourced HR manager. Manual/CSV data. | BambooHR \u2014 HRIS with REST API for auto-sync.')
+    ),
+    React.createElement('div', {className:'gr g3', style:{marginTop:14}},
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'EMPLOYEES'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'Directory \u2022 Status tracking \u2022 Pay rates \u2022 Supervisor hierarchy \u2022 W-2/1099')),
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'TIME OFF'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'PTO requests \u2022 Approval workflow \u2022 FMLA compliance \u2022 Accrual balances')),
+      React.createElement('div', {className:'cd'}, React.createElement('div', {className:'ct'}, 'COMPLIANCE'), React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}}, 'I-9/W-4 \u2022 Handbook acks \u2022 Reviews \u2022 Disciplinary \u2022 Cert expiry alerts'))
+    )
+  )
 }
 
-function App(){
-  const[p,setP]=React.useState('exec');
-  const pages={exec:()=><ExecPage/>,
-    delivery:()=><DeptPage table="delivery_stops" title="Delivery Operations" nameField="driver_name" dateField="stop_date" totalField="sf_total"/>,
-    service:()=><DeptPage table="service_jobs" title="Service Operations" nameField="tech_name" dateField="job_date" totalField="sf_total"/>,
-    reman:()=><DeptPage table="reman_jobs" title="Remanufacturing" nameField="tech_name" dateField="intake_date" totalField="sf_total"/>,
-    fleet:()=><FleetPage/>,hr:()=><HRPage/>,roster:()=><RosterPage/>};
-  const nav=[{id:'exec',l:'Executive',i:'\u{1F4CA}'},{id:'delivery',l:'Delivery',i:'\u{1F69B}'},{id:'service',l:'Service',i:'\u{1F527}'},{id:'reman',l:'Reman',i:'\u{267B}\u{FE0F}'},{id:'fleet',l:'Fleet',i:'\u{1F6E3}\u{FE0F}'},{id:'hr',l:'HR',i:'\u{1F465}'},{id:'roster',l:'Roster',i:'\u{1F4CB}'}];
-  const Pg=pages[p]||pages.exec;
-  return <React.Fragment>
-    <div className="sidebar">
-      <div className="logo">PACER OPS<span>Operational Dashboard</span></div>
-      <div className="nav-section">Departments</div>
-      {nav.map(n=><div key={n.id} className={'nav-item '+(p===n.id?'active':'')} onClick={()=>setP(n.id)}><span style={{fontSize:15}}>{n.i}</span><span>{n.l}</span></div>)}
-    </div>
-    <div className="main"><Pg/></div>
-  </React.Fragment>
+function RosterPage() {
+  var ref = React.useState(null);
+  var d = ref[0], setD = ref[1];
+
+  React.useEffect(function() {
+    Promise.all([
+      sbq('staff', 'select=*&order=department,display_name'),
+      sbq('staff_roles', 'select=*'),
+      sbq('role_types', 'select=*&order=sort_order')
+    ]).then(function(results) {
+      setD({s: results[0], r: results[1], t: results[2]});
+    }).catch(function(e) { console.error(e) });
+  }, []);
+
+  if (!d) return React.createElement('div', {className:'ld'}, 'Loading roster...');
+
+  var rm = {};
+  d.r.forEach(function(r) { if (!rm[r.staff_id]) rm[r.staff_id] = []; rm[r.staff_id].push(r.role_code) });
+  var tm = {};
+  d.t.forEach(function(t) { tm[t.role_code] = t.label });
+  var dc = {delivery:'rgba(34,211,238,.12)', service:'rgba(129,140,248,.12)', reman:'rgba(251,191,36,.12)', admin:'rgba(100,116,139,.15)', ops:'rgba(100,116,139,.15)'};
+  var tc = {delivery:'var(--ac)', service:'var(--ac2)', reman:'var(--am)', admin:'var(--mt)', ops:'var(--mt)'};
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Staff Roster ', React.createElement('span', {className:'bg bg-l'}, 'LIVE')),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:14}},
+      React.createElement(C, {title:'TOTAL', value:d.s.length}),
+      React.createElement(C, {title:'ACTIVE', value:d.s.filter(function(x) { return x.status === 'active' }).length, accent:'var(--gn)'}),
+      React.createElement(C, {title:'ROLES ASSIGNED', value:Object.keys(rm).length}),
+      React.createElement(C, {title:'PAYROLL', value:fm(sum(d.s, 'annual_wage'))})
+    ),
+    React.createElement('div', {className:'cd'},
+      React.createElement('div', {className:'ct'}, 'TEAM'),
+      React.createElement('table', null,
+        React.createElement('thead', null, React.createElement('tr', null,
+          React.createElement('th', null, 'Name'), React.createElement('th', null, 'Dept'), React.createElement('th', null, 'Role'),
+          React.createElement('th', null, 'Entity'), React.createElement('th', null, 'Wage'), React.createElement('th', null, 'Status'))),
+        React.createElement('tbody', null, d.s.map(function(x) {
+          var roles = (rm[x.staff_id] || []).map(function(c) { return tm[c] || c }).join(', ');
+          return React.createElement('tr', {key: x.staff_id},
+            React.createElement('td', null, React.createElement('strong', null, x.display_name)),
+            React.createElement('td', null, x.department ? React.createElement('span', {className:'pl', style:{background: dc[x.department] || dc.admin, color: tc[x.department] || tc.admin}}, x.department) : '-'),
+            React.createElement('td', {style:{fontSize:11}}, roles || '-'),
+            React.createElement('td', {className:'mn', style:{fontSize:10}}, x.entity || '-'),
+            React.createElement('td', {className:'mn'}, x.annual_wage ? fm(x.annual_wage) : '-'),
+            React.createElement('td', null, React.createElement('span', {className:'dt ' + (x.status === 'active' ? 'dg' : 'dr')}), x.status)
+          )
+        }))
+      )
+    )
+  )
 }
-ReactDOM.render(<App/>, document.getElementById('root'));
+
+var NAV = [
+  {id:'exec', label:'Executive', icon:'\u{1F4CA}'},
+  {id:'delivery', label:'Delivery', icon:'\u{1F69B}'},
+  {id:'service', label:'Service', icon:'\u{1F527}'},
+  {id:'reman', label:'Reman', icon:'\u{267B}'},
+  {id:'fleet', label:'Fleet', icon:'\u{1F6E3}'},
+  {id:'hr', label:'HR', icon:'\u{1F465}'},
+  {id:'roster', label:'Roster', icon:'\u{1F4CB}'}
+];
+
+function App() {
+  var ref = React.useState('exec');
+  var page = ref[0], setPage = ref[1];
+
+  var content;
+  if (page === 'exec') content = React.createElement(ExecPage);
+  else if (page === 'delivery') content = React.createElement(DeptPage, {table:'delivery_stops', title:'Delivery Operations', nameField:'driver_name', dateField:'stop_date', totalField:'sf_total'});
+  else if (page === 'service') content = React.createElement(DeptPage, {table:'service_jobs', title:'Service Operations', nameField:'tech_name', dateField:'job_date', totalField:'sf_total'});
+  else if (page === 'reman') content = React.createElement(DeptPage, {table:'reman_jobs', title:'Remanufacturing', nameField:'tech_name', dateField:'intake_date', totalField:'sf_total'});
+  else if (page === 'fleet') content = React.createElement(FleetPage);
+  else if (page === 'hr') content = React.createElement(HRPage);
+  else if (page === 'roster') content = React.createElement(RosterPage);
+  else content = React.createElement(ExecPage);
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', {className:'sb'},
+      React.createElement('div', {className:'lg'}, 'PACER OPS', React.createElement('small', null, 'Operational Dashboard')),
+      React.createElement('div', {className:'ns'}, 'Departments'),
+      NAV.map(function(n) {
+        return React.createElement('div', {key: n.id, className: 'ni' + (page === n.id ? ' on' : ''), onClick: function() { setPage(n.id) }},
+          React.createElement('span', {style:{fontSize:14}}, n.icon),
+          React.createElement('span', null, n.label)
+        )
+      })
+    ),
+    React.createElement('div', {className:'ma'}, content)
+  )
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById('root'));
 </script>
 </body>
 </html>
