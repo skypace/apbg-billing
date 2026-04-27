@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PACER Ops Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
+  .card-header { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 12px; }
+  .metric { font-size: 28px; font-weight: 700; color: #f8fafc; }
+  .metric-sm { font-size: 20px; font-weight: 600; color: #f8fafc; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #064e3b; color: #6ee7b7; }
+  .badge-amber { background: #78350f; color: #fcd34d; }
+  .badge-red { background: #7f1d1d; color: #fca5a5; }
+  .badge-blue { background: #1e3a5f; color: #93c5fd; }
+  .badge-gray { background: #374151; color: #9ca3af; }
+  .nav-tab { padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 14px; transition: all 0.2s; }
+  .nav-tab:hover { background: #334155; }
+  .nav-tab.active { background: #3b82f6; color: white; }
+  .table-row { border-bottom: 1px solid #334155; padding: 10px 0; }
+  .table-row:last-child { border-bottom: none; }
+  .loading { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .section-placeholder { border: 2px dashed #475569; border-radius: 12px; padding: 40px; text-align: center; color: #64748b; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const { createClient } = supabase;
+const sb = createClient(
+  'https://gfsdpwiqzshhexkofiif.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY'
+);
+
+const app = document.getElementById('app');
+let currentTab = 'executive';
+
+const TABS = [
+  { id: 'executive', label: 'Executive' },
+  { id: 'delivery', label: 'Delivery' },
+  { id: 'service', label: 'Service' },
+  { id: 'reman', label: 'Reman' },
+  { id: 'fleet', label: 'Fleet' },
+  { id: 'hr', label: 'HR' },
+  { id: 'roster', label: 'Roster' },
+];
+
+const fmt = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmtD = (n) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (n) => n == null ? '—' : (Number(n) * 100).toFixed(1) + '%';
+
+async function loadExecutive() {
+  const [invoices, plSnap, arData, staleJobs, staffData] = await Promise.all([
+    sb.from('qbo_invoices').select('total_amount, balance, txn_date, status').gte('txn_date', '2026-01-01'),
+    sb.from('pl_snapshots').select('account_name, account_type, amount, period').order('period', { ascending: false }).limit(200),
+    sb.from('qbo_invoices').select('total_amount, balance, due_date').gt('balance', 0),
+    sb.from('service_jobs').select('sf_total, job_date, qbo_invoice_matched').eq('qbo_invoice_matched', false).gt('sf_total', 0),
+    sb.from('staff').select('display_name, department, annual_wage, entity, status').eq('status', 'active'),
+  ]);
+
+  const inv = invoices.data || [];
+  const totalRev2026 = inv.reduce((s, i) => s + Number(i.total_amount || 0), 0);
+  const totalAR = (arData.data || []).reduce((s, i) => s + Number(i.balance || 0), 0);
+  const staleCount = (staleJobs.data || []).length;
+  const staleValue = (staleJobs.data || []).reduce((s, j) => s + Number(j.sf_total || 0), 0);
+  const activeStaff = (staffData.data || []).filter(s => s.status === 'active');
+  const totalPayroll = activeStaff.reduce((s, e) => s + Number(e.annual_wage || 0), 0);
+
+  // AR Aging buckets
+  const today = new Date();
+  const arBuckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0 };
+  (arData.data || []).forEach(i => {
+    if (!i.due_date || Number(i.balance) <= 0) return;
+    const days = Math.floor((today - new Date(i.due_date)) / 86400000);
+    const bal = Number(i.balance);
+    if (days <= 0) arBuckets.current += bal;
+    else if (days <= 30) arBuckets.d30 += bal;
+    else if (days <= 60) arBuckets.d60 += bal;
+    else if (days <= 90) arBuckets.d90 += bal;
+    else arBuckets.d90plus += bal;
+  });
+
+  // P&L latest period
+  const periods = [...new Set((plSnap.data || []).map(p => p.period))].sort().reverse();
+  const latestPeriod = periods[0] || 'N/A';
+  const latestPL = (plSnap.data || []).filter(p => p.period === latestPeriod);
+  const plRevenue = latestPL.filter(p => p.account_type === 'Income').reduce((s, p) => s + Number(p.amount || 0), 0);
+  const plCOGS = latestPL.filter(p => p.account_type === 'Cost of Goods Sold').reduce((s, p) => s + Math.abs(Number(p.amount || 0)), 0);
+  const plExpense = latestPL.filter(p => p.account_type === 'Expense').reduce((s, p) => s + Math.abs(Number(p.amount || 0)), 0);
+  const gp = plRevenue - plCOGS;
+  const gpPct = plRevenue > 0 ? gp / plRevenue : 0;
+  const netIncome = gp - plExpense;
+
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div class="card"><div class="card-header">YTD Revenue (2026)</div><div class="metric">${fmt(totalRev2026)}</div><div class="text-xs text-slate-400">${inv.length.toLocaleString()} invoices</div></div>
+      <div class="card"><div class="card-header">Open AR</div><div class="metric">${fmt(totalAR)}</div><div class="text-xs text-slate-400">${(arData.data || []).length} open invoices</div></div>
+      <div class="card"><div class="card-header">Stale Invoices</div><div class="metric-sm" style="color:${staleCount > 0 ? '#fca5a5' : '#6ee7b7'}">${staleCount}</div><div class="text-xs text-slate-400">${fmt(staleValue)} at risk</div></div>
+      <div class="card"><div class="card-header">Active Headcount</div><div class="metric-sm">${activeStaff.length}</div><div class="text-xs text-slate-400">${fmt(totalPayroll)}/yr payroll</div></div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+      <div class="card">
+        <div class="card-header">P&L Snapshot — ${latestPeriod}</div>
+        <div class="space-y-2">
+          <div class="flex justify-between"><span class="text-slate-400">Revenue</span><span class="text-green-400 font-semibold">${fmt(plRevenue)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">COGS</span><span class="text-red-400 font-semibold">(${fmt(plCOGS)})</span></div>
+          <div class="flex justify-between border-t border-slate-600 pt-2"><span class="text-slate-300 font-semibold">Gross Profit</span><span class="text-slate-100 font-semibold">${fmt(gp)} <span class="text-xs text-slate-400">${pct(gpPct)}</span></span></div>
+          <div class="flex justify-between"><span class="text-slate-400">OpEx</span><span class="text-amber-400 font-semibold">(${fmt(plExpense)})</span></div>
+          <div class="flex justify-between border-t border-slate-600 pt-2"><span class="text-slate-300 font-semibold">Net Income</span><span class="${netIncome >= 0 ? 'text-green-400' : 'text-red-400'} font-semibold">${fmt(netIncome)}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">AR Aging</div>
+        <div class="space-y-2">
+          <div class="flex justify-between"><span class="text-slate-400">Current</span><span class="badge badge-green">${fmt(arBuckets.current)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">1-30 days</span><span class="badge badge-green">${fmt(arBuckets.d30)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">31-60 days</span><span class="badge badge-amber">${fmt(arBuckets.d60)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">61-90 days</span><span class="badge badge-amber">${fmt(arBuckets.d90)}</span></div>
+          <div class="flex justify-between"><span class="text-slate-400">90+ days</span><span class="badge badge-red">${fmt(arBuckets.d90plus)}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Payroll by Department</div>
+      <div class="space-y-2">
+        ${['delivery','service','reman','admin'].map(dept => {
+          const deptStaff = activeStaff.filter(s => s.department === dept);
+          const deptPay = deptStaff.reduce((s, e) => s + Number(e.annual_wage || 0), 0);
+          return `<div class="flex justify-between items-center"><span class="text-slate-400 capitalize">${dept} (${deptStaff.length})</span><span class="font-semibold">${fmt(deptPay)}</span></div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+async function loadDelivery() {
+  const { data: stops } = await sb.from('delivery_stops').select('*').order('stop_date', { ascending: false }).limit(50);
+  const rows = (stops || []);
+  const totalStops = rows.length;
+  const withDriver = rows.filter(s => s.driver_name);
+  const drivers = [...new Set(withDriver.map(s => s.driver_name))];
+
+  return `
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="card"><div class="card-header">Recent Stops</div><div class="metric">${totalStops}</div><div class="text-xs text-slate-400">last 50 records</div></div>
+      <div class="card"><div class="card-header">Active Drivers</div><div class="metric-sm">${drivers.length}</div><div class="text-xs text-slate-400">${drivers.join(', ') || 'No data'}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Recent Delivery Stops</div>
+      <div class="overflow-x-auto">
+        ${rows.slice(0, 20).map(s => `
+          <div class="table-row flex justify-between items-center text-sm">
+            <div>
+              <div class="font-medium">${s.customer_name || 'Unknown'}</div>
+              <div class="text-xs text-slate-500">${s.stop_date} • ${s.driver_name || 'Unassigned'}</div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold">${s.sf_total > 0 ? fmtD(s.sf_total) : '—'}</div>
+              <div>${s.qbo_invoice_matched ? '<span class="badge badge-green">Invoiced</span>' : s.sf_total > 0 ? '<span class="badge badge-amber">Pending</span>' : '<span class="badge badge-gray">N/A</span>'}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+async function loadService() {
+  const { data: jobs } = await sb.from('service_jobs').select('*').order('job_date', { ascending: false }).limit(50);
+  const rows = (jobs || []);
+  const techs = [...new Set(rows.filter(j => j.tech_name).map(j => j.tech_name))];
+  const stale = rows.filter(j => !j.qbo_invoice_matched && Number(j.sf_total) > 0);
+
+  return `
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="card"><div class="card-header">Recent Jobs</div><div class="metric">${rows.length}</div></div>
+      <div class="card"><div class="card-header">Uninvoiced</div><div class="metric-sm" style="color:${stale.length > 0 ? '#fca5a5' : '#6ee7b7'}">${stale.length}</div><div class="text-xs text-slate-400">${fmt(stale.reduce((s,j) => s + Number(j.sf_total||0), 0))} at risk</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Service Jobs</div>
+      ${rows.slice(0, 20).map(j => `
+        <div class="table-row flex justify-between items-center text-sm">
+          <div>
+            <div class="font-medium">${j.customer_name || 'Unknown'}</div>
+            <div class="text-xs text-slate-500">${j.job_date} • ${j.tech_name || 'Unassigned'} • ${j.sf_job_number || ''}</div>
+          </div>
+          <div class="text-right">
+            <div class="font-semibold">${Number(j.sf_total) > 0 ? fmtD(j.sf_total) : '—'}</div>
+            <div>${j.qbo_invoice_matched ? '<span class="badge badge-green">Invoiced</span>' : Number(j.sf_total) > 0 ? '<span class="badge badge-red">Stale</span>' : '<span class="badge badge-gray">$0</span>'}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadReman() {
+  const { data: jobs } = await sb.from('reman_jobs').select('*').order('intake_date', { ascending: false }).limit(50);
+  const rows = (jobs || []);
+  return `
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="card"><div class="card-header">Reman Jobs</div><div class="metric">${rows.length}</div></div>
+      <div class="card"><div class="card-header">In Progress</div><div class="metric-sm">${rows.filter(j => j.status === 'in_progress').length}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Reman Pipeline</div>
+      ${rows.length === 0 ? '<div class="text-slate-500 text-sm">No reman jobs synced yet</div>' : rows.map(j => `
+        <div class="table-row flex justify-between items-center text-sm">
+          <div>
+            <div class="font-medium">${j.equipment_type || 'Equipment'} ${j.serial_number ? '• ' + j.serial_number : ''}</div>
+            <div class="text-xs text-slate-500">${j.intake_date} • ${j.tech_name || 'Unassigned'}</div>
+          </div>
+          <div><span class="badge ${j.status === 'complete' ? 'badge-green' : j.status === 'in_progress' ? 'badge-blue' : 'badge-amber'}">${j.status}</span></div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadFleet() {
+  const { data: vehicles } = await sb.from('fleet_vehicles').select('*').limit(20);
+  const { data: trips } = await sb.from('fleet_trips').select('*').order('trip_date', { ascending: false }).limit(20);
+  const { data: fuel } = await sb.from('fleet_fuel_transactions').select('*').order('txn_date', { ascending: false }).limit(20);
+  const vCount = (vehicles || []).length;
+  const tCount = (trips || []).length;
+  const fCount = (fuel || []).length;
+
+  if (vCount === 0 && tCount === 0 && fCount === 0) {
+    return `
+      <div class="section-placeholder">
+        <div class="text-2xl mb-2">🚛</div>
+        <div class="text-lg font-semibold text-slate-400 mb-2">AT&T FleetComplete Integration</div>
+        <div class="text-sm mb-4">Tables ready: fleet_vehicles, fleet_trips, fleet_fuel_transactions, fleet_maintenance, fleet_daily</div>
+        <div class="text-xs text-slate-500 max-w-md mx-auto">
+          <strong>Next steps:</strong> Provide your FleetComplete API token. The sync edge function will pull vehicles, trips, fuel transactions, and driving behavior data into these tables automatically.
+          <br><br>
+          <strong>API Base:</strong> tlshosted.fleetcomplete.com/Integration/v8_5_0<br>
+          <strong>Docs:</strong> fleetcomplete.com/api/<br>
+          <strong>Token setup:</strong> fleetcomplete.com → Integration → API Token Authentication
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="card"><div class="card-header">Vehicles</div><div class="metric-sm">${vCount}</div></div>
+      <div class="card"><div class="card-header">Trips</div><div class="metric-sm">${tCount}</div></div>
+      <div class="card"><div class="card-header">Fuel Txns</div><div class="metric-sm">${fCount}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Recent Trips</div>
+      ${(trips || []).map(t => `
+        <div class="table-row flex justify-between items-center text-sm">
+          <div><div class="font-medium">${t.start_address || ''} → ${t.end_address || ''}</div><div class="text-xs text-slate-500">${t.trip_date} • ${t.distance_miles || 0} mi</div></div>
+          <div class="text-right text-xs"><div>${t.drive_time_min || 0} min drive</div><div>${t.idle_time_min || 0} min idle</div></div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadHR() {
+  const { data: employees } = await sb.from('hr_employees').select('*').limit(30);
+  const { data: docs } = await sb.from('hr_documents').select('*').order('created_at', { ascending: false }).limit(20);
+  const { data: timeoff } = await sb.from('hr_time_off').select('*').order('start_date', { ascending: false }).limit(20);
+  const { data: perf } = await sb.from('hr_performance').select('*').order('review_date', { ascending: false }).limit(20);
+  const eCount = (employees || []).length;
+
+  if (eCount === 0) {
+    return `
+      <div class="section-placeholder">
+        <div class="text-2xl mb-2">👥</div>
+        <div class="text-lg font-semibold text-slate-400 mb-2">HR / Bambee Integration</div>
+        <div class="text-sm mb-4">Tables ready: hr_employees, hr_time_off, hr_documents, hr_performance, hr_onboarding</div>
+        <div class="text-xs text-slate-500 max-w-md mx-auto">
+          <strong>Note:</strong> Bambee does not offer a public API. Employee records will be managed manually through this dashboard or via CSV import.
+          <br><br>
+          <strong>Available fields:</strong> Personal info, employment status/type, pay rate, exempt status, emergency contacts, supervisor chain.
+          <br><br>
+          <strong>Sub-modules:</strong> Time-off requests &amp; approvals, document management (I-9, W-4, handbook acks, certs), performance reviews &amp; warnings, onboarding checklists.
+          <br><br>
+          <em>If you migrate to BambooHR in the future, the bamboohr_id column is ready for API sync.</em>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="card"><div class="card-header">Employees</div><div class="metric">${eCount}</div></div>
+      <div class="card"><div class="card-header">Pending Docs</div><div class="metric-sm">${(docs||[]).filter(d => d.status === 'pending').length}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Employee Directory</div>
+      ${(employees||[]).map(e => `
+        <div class="table-row flex justify-between items-center text-sm">
+          <div><div class="font-medium">${e.first_name} ${e.last_name}</div><div class="text-xs text-slate-500">${e.employment_type || ''} • ${e.pay_type || ''}</div></div>
+          <div><span class="badge ${e.employment_status === 'active' ? 'badge-green' : 'badge-red'}">${e.employment_status}</span></div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function loadRoster() {
+  const { data: staff } = await sb.from('staff').select('*').order('department', { ascending: true });
+  const { data: roles } = await sb.from('staff_roles').select('*');
+  const { data: roleTypes } = await sb.from('role_types').select('*');
+  const roleMap = {};
+  (roles || []).forEach(r => { roleMap[r.staff_id] = roleMap[r.staff_id] || []; roleMap[r.staff_id].push(r); });
+  const rtMap = {};
+  (roleTypes || []).forEach(rt => { rtMap[rt.role_code] = rt.label; });
+
+  const deptColors = { delivery: 'badge-blue', service: 'badge-green', reman: 'badge-amber', admin: 'badge-gray', sales: 'badge-blue' };
+
+  return `
+    <div class="card mb-4">
+      <div class="card-header">Team Roster — ${(staff||[]).filter(s => s.status === 'active').length} Active / ${(staff||[]).length} Total</div>
+      ${(staff||[]).map(s => {
+        const sRoles = roleMap[s.staff_id] || [];
+        const primaryRole = sRoles.find(r => r.is_primary);
+        return `
+          <div class="table-row text-sm">
+            <div class="flex justify-between items-start">
+              <div>
+                <div class="font-medium">${s.display_name} ${s.is_lead ? '⭐' : ''}</div>
+                <div class="text-xs text-slate-500 mt-1">
+                  ${s.department ? `<span class="badge ${deptColors[s.department] || 'badge-gray'}">${s.department}</span>` : ''}
+                  ${s.entity ? `<span class="badge badge-gray ml-1">${s.entity}</span>` : ''}
+                  ${primaryRole ? `<span class="ml-1">${rtMap[primaryRole.role_code] || primaryRole.role_code}</span>` : '<span class="text-amber-400">No role assigned</span>'}
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold">${s.annual_wage ? fmt(s.annual_wage) : '—'}</div>
+                <div><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${s.status}</span></div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="card">
+      <div class="card-header">COGS Account Mapping</div>
+      <div id="cogs-map" class="text-sm text-slate-400">Loading...</div>
+    </div>
+  `;
+}
+
+async function render() {
+  const header = `
+    <div class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700 px-4 py-3">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-lg font-bold text-white">PACER Ops</div>
+          <div class="text-xs text-slate-500">APBG + FreeFlow</div>
+        </div>
+        <div class="text-xs text-slate-500" id="sync-status">Loading...</div>
+      </div>
+      <div class="flex gap-1 overflow-x-auto pb-1" id="tabs">
+        ${TABS.map(t => `<div class="nav-tab ${t.id === currentTab ? 'active' : ''}" onclick="switchTab('${t.id}')">${t.label}</div>`).join('')}
+      </div>
+    </div>
+  `;
+
+  app.innerHTML = header + '<div class="p-4 max-w-4xl mx-auto" id="content"><div class="loading text-center text-slate-500 py-12">Loading dashboard...</div></div>';
+
+  // Load sync status
+  const { data: syncLogs } = await sb.from('sync_log').select('source, status, completed_at, records_synced').order('completed_at', { ascending: false }).limit(10);
+  const lastQBO = (syncLogs || []).find(s => s.source === 'qbo' && s.status === 'success');
+  const lastSF = (syncLogs || []).find(s => s.source === 'sf' && s.status === 'success');
+  document.getElementById('sync-status').innerHTML = `
+    QBO: ${lastQBO ? new Date(lastQBO.completed_at).toLocaleDateString() : '—'}<br>
+    SF: ${lastSF ? new Date(lastSF.completed_at).toLocaleDateString() : '—'}
+  `;
+
+  const loaders = { executive: loadExecutive, delivery: loadDelivery, service: loadService, reman: loadReman, fleet: loadFleet, hr: loadHR, roster: loadRoster };
+  try {
+    document.getElementById('content').innerHTML = await loaders[currentTab]();
+    // Load COGS map if on roster tab
+    if (currentTab === 'roster') {
+      const { data: cogs } = await sb.from('cogs_accounts').select('*');
+      const cogsEl = document.getElementById('cogs-map');
+      if (cogsEl && cogs) {
+        cogsEl.innerHTML = cogs.map(c => `<div class="flex justify-between table-row"><span class="capitalize">${c.department}</span><span>${c.qbo_account_name} (${c.qbo_account_id})</span></div>`).join('');
+      }
+    }
+  } catch (err) {
+    document.getElementById('content').innerHTML = `<div class="card text-red-400">Error: ${err.message}</div>`;
+  }
+}
+
+window.switchTab = function(tab) {
+  currentTab = tab;
+  render();
+};
+
+render();
+</script>
+</body>
+</html>
