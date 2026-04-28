@@ -14,6 +14,7 @@ export async function handler(event) {
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
   if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
+  if (qs.dedupeReport) return handleDedupeReport();
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -399,19 +400,35 @@ async function handleGet() {
     const store = await getStore();
     if (!store) return json({ error: 'Blob store not available' }, 500);
 
-    const [mappingRaw, lastRunRaw, lastErrorsRaw] = await Promise.all([
+    const [mappingRaw, lastRunRaw, lastErrorsRaw, dedupeRaw] = await Promise.all([
       store.get('wo-mapping').catch(() => null),
       store.get('last-sync').catch(() => null),
       store.get('last-errors').catch(() => null),
+      store.get('dedupe-report').catch(() => null),
     ]);
 
     const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
+    const dedupe = dedupeRaw ? JSON.parse(dedupeRaw) : null;
     return json({
       lastSync: lastRunRaw ? JSON.parse(lastRunRaw) : null,
       lastErrors: lastErrorsRaw ? JSON.parse(lastErrorsRaw) : [],
       mappingCount: Object.keys(mapping).length,
       mappings: mapping,
+      dedupeReportSummary: dedupe ? { generated: dedupe.generated, totalIssues: dedupe.totalIssues, byReason: dedupe.byReason } : null,
     });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Dedupe Report: full list of WOs that need manual review ---
+async function handleDedupeReport() {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('dedupe-report').catch(() => null);
+    if (!raw) return json({ generated: null, totalIssues: 0, items: [] });
+    return json(JSON.parse(raw));
   } catch (e) {
     return json({ error: e.message }, 500);
   }

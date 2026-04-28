@@ -45,12 +45,28 @@ const RESQ_TO_SF_STATUS = {
   'CLOSED': 'Invoiced',
 };
 
+// Sync lock — prevents overlapping sync runs from creating duplicate SF jobs.
+// Cron fires every 5min; manual POST can also fire; lock TTL must cover a normal run.
+const SYNC_LOCK_KEY = 'sync-lock';
+const SYNC_LOCK_TTL_MS = 10 * 60 * 1000; // 10 min
+
 export async function handler(event) {
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
+  const dedupeReport = [];
 
   const saveProgress = async () => {
     try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
   };
+
+  // Acquire global sync lock to prevent overlapping runs from racing on SF job creation.
+  const lockAcquired = await acquireSyncLock();
+  if (!lockAcquired) {
+    log.steps.push('Skipped: another sync run is in progress (lock held)');
+    log.completed = new Date().toISOString();
+    log.skipped = true;
+    try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
+    return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: true }) };
+  }
 
   try {
     // 1. Connect to ResQ
@@ -100,6 +116,7 @@ export async function handler(event) {
           const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 30000, `sync ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
+          if (r.report?.length) dedupeReport.push(...r.report);
           log.updated += r.updated || 0;
         } else {
           // New WO — skip if already done (awaiting payment, closed, etc.)
@@ -112,11 +129,17 @@ export async function handler(event) {
           const r = await withTimeout(processNewWO(wo, mapping, sfCustomerNames), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
+          if (r.report?.length) dedupeReport.push(...r.report);
           log.created += r.created || 0;
         }
       } catch (e) {
         log.errors.push(`WO ${wo.code} failed: ${e.message}`);
       }
+
+      // Persist mapping after every WO so concurrent runs (and crash recovery)
+      // see fresh entries — closes the race window where two runs could both
+      // see a missing entry and create duplicate SF jobs.
+      await saveMapping(mapping);
 
       // Save progress every 4 WOs
       if ((i + 1) % 4 === 0) await saveProgress();
@@ -126,22 +149,59 @@ export async function handler(event) {
     log.completed = new Date().toISOString();
     log.mappingCount = Object.keys(mapping).length;
     log.errors = log.errors.map(e => typeof e === 'string' && e.length > 300 ? e.substring(0, 300) + '...' : e);
+    log.dedupeReportCount = dedupeReport.length;
+
+    const reportBlob = {
+      generated: new Date().toISOString(),
+      totalIssues: dedupeReport.length,
+      byReason: dedupeReport.reduce((acc, r) => { acc[r.reason] = (acc[r.reason] || 0) + 1; return acc; }, {}),
+      items: dedupeReport,
+    };
+
     await Promise.all([
       saveMapping(mapping),
       saveBlob('last-sync', JSON.stringify(log)),
       log.errors.length ? saveBlob('last-errors', JSON.stringify(log.errors)) : saveBlob('last-errors', '[]'),
+      saveBlob('dedupe-report', JSON.stringify(reportBlob)),
     ]);
 
-    console.log(`[SYNC] Done: ${log.created} created, ${log.updated} updated, ${log.errors.length} errors`);
+    console.log(`[SYNC] Done: ${log.created} created, ${log.updated} updated, ${log.errors.length} errors, ${dedupeReport.length} review items`);
 
   } catch (e) {
     log.errors.push(e.message);
     log.completed = new Date().toISOString();
     try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
     console.error('[SYNC] Failed:', e.message);
+  } finally {
+    await releaseSyncLock();
   }
 
   return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+}
+
+// --- Sync lock ---
+async function acquireSyncLock() {
+  const store = await getStore();
+  if (!store) return true; // best-effort: proceed if blobs unavailable
+  try {
+    const raw = await store.get(SYNC_LOCK_KEY);
+    if (raw) {
+      const lock = JSON.parse(raw);
+      if (lock && lock.ts && (Date.now() - lock.ts) < SYNC_LOCK_TTL_MS) {
+        return false;
+      }
+    }
+    await store.set(SYNC_LOCK_KEY, JSON.stringify({ ts: Date.now() }));
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+
+async function releaseSyncLock() {
+  const store = await getStore();
+  if (!store) return;
+  try { await store.delete(SYNC_LOCK_KEY); } catch (e) {}
 }
 
 // --- Timeout wrapper ---
@@ -154,7 +214,7 @@ function withTimeout(promise, ms, label) {
 
 // --- Process new unmapped WO ---
 async function processNewWO(wo, mapping, sfCustomerNames) {
-  const result = { steps: [], errors: [], created: 0 };
+  const result = { steps: [], errors: [], created: 0, report: [] };
   const sfCustomerKey = classifyFacility(wo.facility);
   if (!sfCustomerKey) {
     result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt`);
@@ -168,6 +228,71 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
   }
 
   const resqRef = wo.code.startsWith('R') ? wo.code : `R${wo.code}`;
+
+  // Safety net: before creating, check SF for any existing job with this po_number.
+  // Catches: prior crashed runs, parallel sync races, and SF returning a job
+  // creation success that our code mis-handled.
+  try {
+    const existing = await findSfJobsByPoNumber(resqRef);
+    if (existing.length > 0) {
+      const best = pickBestSfJob(existing, null);
+
+      if (best) {
+        // A progressed match exists — link to it and cancel Unscheduled duplicates.
+        for (const j of existing) {
+          if (String(j.id) === String(best.id)) continue;
+          if (isSfUnscheduled(j.status)) {
+            const c = await cancelSfJob(j.id);
+            if (c.ok) result.steps.push(`🧹 Cancelled duplicate Unscheduled SF #${j.id} for ${wo.code}`);
+            else {
+              result.errors.push(`Cancel SF #${j.id} for ${wo.code}: ${c.error}`);
+              result.report?.push({ resqCode: wo.code, reason: 'cancel_failed', sfJobId: j.id, status: j.status, error: c.error });
+            }
+          }
+        }
+        mapping[wo.id] = {
+          sfJobId: best.id,
+          sfJobNumber: best.number || best.job_number || best.id,
+          resqCode: wo.code, resqStatus: wo.status,
+          sfStatus: best.status || 'Unscheduled',
+          facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+          createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+          linkedExisting: true, reconciled: true,
+        };
+        result.steps.push(`🔗 Linked existing progressed SF #${best.id} (${best.status}) for ${wo.code}`);
+        return result;
+      }
+
+      // No progressed match. Pick one of the existing jobs to link to (so we
+      // don't create yet another), but flag for manual review if there are
+      // multiple matches or a non-trivial status mix.
+      const fallback = existing.find(j => isSfUnscheduled(j.status)) || existing[0];
+      mapping[wo.id] = {
+        sfJobId: fallback.id,
+        sfJobNumber: fallback.number || fallback.job_number || fallback.id,
+        resqCode: wo.code, resqStatus: wo.status,
+        sfStatus: fallback.status || 'Unscheduled',
+        facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+        createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+        linkedExisting: true, reconciled: true,
+      };
+      result.steps.push(`🔗 Linked existing SF #${fallback.id} (${fallback.status}) for ${wo.code} (no progressed match)`);
+      if (existing.length > 1) {
+        result.report?.push({
+          resqCode: wo.code,
+          reason: 'duplicates_no_progressed',
+          message: `${existing.length} SF jobs match po_number=${resqRef}, none in a progressed status. Manual review needed to consolidate.`,
+          linkedTo: fallback.id,
+          sfJobs: existing.map(j => ({ id: j.id, number: j.number || j.job_number || null, status: j.status, created_at: j.created_at || null })),
+        });
+      }
+      return result;
+    }
+  } catch (e) {
+    // Lookup failure is non-fatal — log and proceed to create. Better to risk a
+    // duplicate than skip the WO entirely.
+    result.steps.push(`po_number lookup failed for ${wo.code}: ${e.message.substring(0, 150)}`);
+  }
 
   // Create new SF job
   try {
@@ -183,6 +308,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
       resqCode: wo.code, resqStatus: wo.status, sfStatus: targetSfStatus,
       facility: wo.facility, customer: sfCustomerKey, title: wo.title,
       createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+      reconciled: true,
     };
     result.created++;
     result.steps.push(`✓ Created SF #${sfJob.id} (${resqRef}) for ${wo.code} (${wo.facility})`);
@@ -194,9 +320,65 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
 
 // --- Bidirectional Status Sync ---
 async function syncBidirectional(session, resqWO, mapEntry) {
-  const result = { steps: [], errors: [], updated: 0 };
+  const result = { steps: [], errors: [], updated: 0, report: [] };
 
   try {
+    // One-shot duplicate reconciliation for entries created before the
+    // duplicate-prevention fix. Runs once per WO (gated by mapEntry.reconciled).
+    if (!mapEntry.reconciled) {
+      try {
+        const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
+        const matches = await findSfJobsByPoNumber(resqRef);
+        if (matches.length > 1) {
+          const best = pickBestSfJob(matches, mapEntry.sfJobId);
+          if (best) {
+            // Progressed match exists — re-link mapping to it and cancel any Unscheduled duplicates.
+            if (String(best.id) !== String(mapEntry.sfJobId)) {
+              result.steps.push(`🔗 Re-linked ${resqWO.code}: SF #${mapEntry.sfJobId} → SF #${best.id} (${best.status})`);
+              mapEntry.replacedSfJobId = mapEntry.sfJobId;
+              mapEntry.sfJobId = best.id;
+              mapEntry.sfJobNumber = best.number || best.job_number || best.id;
+              mapEntry.sfStatus = best.status;
+              mapEntry.relinkedAt = new Date().toISOString();
+            }
+            for (const j of matches) {
+              if (String(j.id) === String(best.id)) continue;
+              if (isSfUnscheduled(j.status)) {
+                const c = await cancelSfJob(j.id);
+                if (c.ok) result.steps.push(`🧹 Cancelled duplicate Unscheduled SF #${j.id} for ${resqWO.code}`);
+                else {
+                  result.errors.push(`Cancel duplicate SF #${j.id} for ${resqWO.code}: ${c.error}`);
+                  result.report?.push({ resqCode: resqWO.code, reason: 'cancel_failed', sfJobId: j.id, status: j.status, error: c.error });
+                }
+              }
+            }
+          } else {
+            // Multiple matches but none progressed — flag for manual review.
+            result.report?.push({
+              resqCode: resqWO.code,
+              reason: 'duplicates_no_progressed',
+              message: `${matches.length} SF jobs match po_number=${resqRef}, none in a progressed status. Manual review needed.`,
+              currentlyLinked: mapEntry.sfJobId,
+              sfJobs: matches.map(j => ({ id: j.id, number: j.number || j.job_number || null, status: j.status, created_at: j.created_at || null })),
+            });
+          }
+        } else if (matches.length === 0 && mapEntry.sfJobId) {
+          // We had a mapping but SF returned no jobs with this po_number.
+          // The job may have been deleted manually, OR (more concerning) the
+          // mapping is stale.
+          result.report?.push({
+            resqCode: resqWO.code,
+            reason: 'no_sf_match',
+            message: `Mapping points to SF #${mapEntry.sfJobId} but no SF job has po_number=${resqRef}. Possibly deleted or never created.`,
+            currentlyLinked: mapEntry.sfJobId,
+          });
+        }
+        mapEntry.reconciled = true;
+      } catch (e) {
+        result.errors.push(`Reconcile ${resqWO.code}: ${e.message.substring(0, 200)}`);
+      }
+    }
+
     // Fetch current SF job status
     let sfJob;
     try {
@@ -342,6 +524,95 @@ async function fetchSyncableWOs(session) {
         equipment: n.equipment?.name || '',
       };
     });
+}
+
+// --- SF Duplicate-prevention Helpers ---
+
+// Find all SF jobs whose po_number matches the ResQ ref. Used to:
+//   1. Avoid creating a 2nd SF job when one already exists (race-safety)
+//   2. Reconcile pre-existing duplicates: re-link mapping to the progressed
+//      job and cancel the unscheduled one(s).
+async function findSfJobsByPoNumber(poNumber) {
+  if (!poNumber) return [];
+  // Try filter first (cheaper). Fall back to scanning recent jobs if filter unsupported.
+  try {
+    const res = await sfRequest('GET', `/jobs?filters[po_number]=${encodeURIComponent(poNumber)}&per-page=50`);
+    const items = res.items || res.data || [];
+    if (items.length) {
+      // Some SF deployments ignore the filter and return all jobs; double-check po_number client-side.
+      const exact = items.filter(j => String(j.po_number || '').trim() === String(poNumber).trim());
+      if (exact.length) return exact;
+    }
+  } catch (e) { /* fall through to scan */ }
+
+  // Fallback: scan a few pages of recent jobs and match po_number client-side.
+  const matches = [];
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const res = await sfRequest('GET', `/jobs?per-page=100&sort=-created_at&page=${page}`);
+      const jobs = res.items || res.data || [];
+      if (jobs.length === 0) break;
+      for (const j of jobs) {
+        if (String(j.po_number || '').trim() === String(poNumber).trim()) matches.push(j);
+      }
+    } catch (e) { break; }
+  }
+  return matches;
+}
+
+function isSfUnscheduled(status) {
+  return (status || '').toLowerCase().includes('unschedul');
+}
+
+// Whitelist of statuses that mean "actively progressed" — only these qualify
+// as a re-link target, and only their presence justifies cancelling an
+// Unscheduled duplicate. Cancelled / On Hold / unknown statuses are treated
+// like Unscheduled: never linked to, and never trigger auto-cancel.
+function isSfProgressed(status) {
+  const s = (status || '').toLowerCase().trim();
+  if (!s) return false;
+  if (s.includes('unschedul')) return false;
+  if (s.includes('cancel')) return false;
+  if (s.includes('hold')) return false;
+  return s.includes('schedul') ||   // Scheduled- Service / Re-scheduled / etc.
+         s.includes('assign') ||    // Assigned / Re-assigned
+         s.includes('dispatch') ||  // Dispatched
+         s.includes('progress') ||  // In Progress
+         s.includes('site') ||      // On Site
+         s.includes('complet') ||   // Completed- Service
+         s.includes('invoic');      // Invoiced
+}
+
+// Pick which SF job a duplicate set should collapse to.
+// Only ever returns a *progressed* job. Returns null when no progressed match
+// exists, signalling "leave alone — needs manual review".
+function pickBestSfJob(jobs, currentLinkedId) {
+  if (!jobs.length) return null;
+  const progressed = jobs.filter(j => isSfProgressed(j.status));
+  if (progressed.length === 0) return null;
+  if (progressed.length === 1) return progressed[0];
+
+  // Prefer the currently-linked job if it's already progressed.
+  if (currentLinkedId) {
+    const cur = progressed.find(j => String(j.id) === String(currentLinkedId));
+    if (cur) return cur;
+  }
+  const order = ['invoic', 'complet', 'progress', 'site', 'dispatch', 'assign', 'schedul'];
+  for (const stage of order) {
+    const m = progressed.find(j => (j.status || '').toLowerCase().includes(stage));
+    if (m) return m;
+  }
+  return progressed[0];
+}
+
+// Cancel an SF job (soft — set status to Cancelled, preserve history).
+async function cancelSfJob(jobId) {
+  try {
+    await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Cancelled' });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e.message || '').substring(0, 200) };
+  }
 }
 
 // --- SF Helpers ---
