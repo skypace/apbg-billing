@@ -52,6 +52,7 @@ const SYNC_LOCK_TTL_MS = 10 * 60 * 1000; // 10 min
 
 export async function handler(event) {
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
+  const dedupeReport = [];
 
   const saveProgress = async () => {
     try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
@@ -115,6 +116,7 @@ export async function handler(event) {
           const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 30000, `sync ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
+          if (r.report?.length) dedupeReport.push(...r.report);
           log.updated += r.updated || 0;
         } else {
           // New WO — skip if already done (awaiting payment, closed, etc.)
@@ -127,6 +129,7 @@ export async function handler(event) {
           const r = await withTimeout(processNewWO(wo, mapping, sfCustomerNames), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
+          if (r.report?.length) dedupeReport.push(...r.report);
           log.created += r.created || 0;
         }
       } catch (e) {
@@ -146,13 +149,23 @@ export async function handler(event) {
     log.completed = new Date().toISOString();
     log.mappingCount = Object.keys(mapping).length;
     log.errors = log.errors.map(e => typeof e === 'string' && e.length > 300 ? e.substring(0, 300) + '...' : e);
+    log.dedupeReportCount = dedupeReport.length;
+
+    const reportBlob = {
+      generated: new Date().toISOString(),
+      totalIssues: dedupeReport.length,
+      byReason: dedupeReport.reduce((acc, r) => { acc[r.reason] = (acc[r.reason] || 0) + 1; return acc; }, {}),
+      items: dedupeReport,
+    };
+
     await Promise.all([
       saveMapping(mapping),
       saveBlob('last-sync', JSON.stringify(log)),
       log.errors.length ? saveBlob('last-errors', JSON.stringify(log.errors)) : saveBlob('last-errors', '[]'),
+      saveBlob('dedupe-report', JSON.stringify(reportBlob)),
     ]);
 
-    console.log(`[SYNC] Done: ${log.created} created, ${log.updated} updated, ${log.errors.length} errors`);
+    console.log(`[SYNC] Done: ${log.created} created, ${log.updated} updated, ${log.errors.length} errors, ${dedupeReport.length} review items`);
 
   } catch (e) {
     log.errors.push(e.message);
@@ -201,7 +214,7 @@ function withTimeout(promise, ms, label) {
 
 // --- Process new unmapped WO ---
 async function processNewWO(wo, mapping, sfCustomerNames) {
-  const result = { steps: [], errors: [], created: 0 };
+  const result = { steps: [], errors: [], created: 0, report: [] };
   const sfCustomerKey = classifyFacility(wo.facility);
   if (!sfCustomerKey) {
     result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt`);
@@ -223,30 +236,56 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
     const existing = await findSfJobsByPoNumber(resqRef);
     if (existing.length > 0) {
       const best = pickBestSfJob(existing, null);
-      const hasNonUnsched = existing.some(j => !isSfUnscheduled(j.status));
 
-      // If a non-Unscheduled match exists, cancel any Unscheduled duplicates.
-      if (hasNonUnsched) {
+      if (best) {
+        // A progressed match exists — link to it and cancel Unscheduled duplicates.
         for (const j of existing) {
           if (String(j.id) === String(best.id)) continue;
           if (isSfUnscheduled(j.status)) {
             const c = await cancelSfJob(j.id);
             if (c.ok) result.steps.push(`🧹 Cancelled duplicate Unscheduled SF #${j.id} for ${wo.code}`);
-            else result.errors.push(`Cancel SF #${j.id} for ${wo.code}: ${c.error}`);
+            else {
+              result.errors.push(`Cancel SF #${j.id} for ${wo.code}: ${c.error}`);
+              result.report?.push({ resqCode: wo.code, reason: 'cancel_failed', sfJobId: j.id, status: j.status, error: c.error });
+            }
           }
         }
+        mapping[wo.id] = {
+          sfJobId: best.id,
+          sfJobNumber: best.number || best.job_number || best.id,
+          resqCode: wo.code, resqStatus: wo.status,
+          sfStatus: best.status || 'Unscheduled',
+          facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+          createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
+          linkedExisting: true, reconciled: true,
+        };
+        result.steps.push(`🔗 Linked existing progressed SF #${best.id} (${best.status}) for ${wo.code}`);
+        return result;
       }
 
+      // No progressed match. Pick one of the existing jobs to link to (so we
+      // don't create yet another), but flag for manual review if there are
+      // multiple matches or a non-trivial status mix.
+      const fallback = existing.find(j => isSfUnscheduled(j.status)) || existing[0];
       mapping[wo.id] = {
-        sfJobId: best.id,
-        sfJobNumber: best.number || best.job_number || best.id,
+        sfJobId: fallback.id,
+        sfJobNumber: fallback.number || fallback.job_number || fallback.id,
         resqCode: wo.code, resqStatus: wo.status,
-        sfStatus: best.status || 'Unscheduled',
+        sfStatus: fallback.status || 'Unscheduled',
         facility: wo.facility, customer: sfCustomerKey, title: wo.title,
         createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
         linkedExisting: true, reconciled: true,
       };
-      result.steps.push(`🔗 Linked existing SF #${best.id} for ${wo.code} (skipped create, ${existing.length} match${existing.length === 1 ? '' : 'es'})`);
+      result.steps.push(`🔗 Linked existing SF #${fallback.id} (${fallback.status}) for ${wo.code} (no progressed match)`);
+      if (existing.length > 1) {
+        result.report?.push({
+          resqCode: wo.code,
+          reason: 'duplicates_no_progressed',
+          message: `${existing.length} SF jobs match po_number=${resqRef}, none in a progressed status. Manual review needed to consolidate.`,
+          linkedTo: fallback.id,
+          sfJobs: existing.map(j => ({ id: j.id, number: j.number || j.job_number || null, status: j.status, created_at: j.created_at || null })),
+        });
+      }
       return result;
     }
   } catch (e) {
@@ -281,7 +320,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
 
 // --- Bidirectional Status Sync ---
 async function syncBidirectional(session, resqWO, mapEntry) {
-  const result = { steps: [], errors: [], updated: 0 };
+  const result = { steps: [], errors: [], updated: 0, report: [] };
 
   try {
     // One-shot duplicate reconciliation for entries created before the
@@ -291,12 +330,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
         const matches = await findSfJobsByPoNumber(resqRef);
         if (matches.length > 1) {
-          const hasNonUnsched = matches.some(j => !isSfUnscheduled(j.status));
-          // Per spec: only act when there's a progressed (non-Unscheduled) match.
-          // If all matches are Unscheduled, treat as "the only job" — leave alone.
-          if (hasNonUnsched) {
-            const best = pickBestSfJob(matches, mapEntry.sfJobId);
-            // Re-link mapping to the progressed job if needed.
+          const best = pickBestSfJob(matches, mapEntry.sfJobId);
+          if (best) {
+            // Progressed match exists — re-link mapping to it and cancel any Unscheduled duplicates.
             if (String(best.id) !== String(mapEntry.sfJobId)) {
               result.steps.push(`🔗 Re-linked ${resqWO.code}: SF #${mapEntry.sfJobId} → SF #${best.id} (${best.status})`);
               mapEntry.replacedSfJobId = mapEntry.sfJobId;
@@ -305,16 +341,37 @@ async function syncBidirectional(session, resqWO, mapEntry) {
               mapEntry.sfStatus = best.status;
               mapEntry.relinkedAt = new Date().toISOString();
             }
-            // Cancel every other Unscheduled match (only Unscheduled — never touch progressed jobs).
             for (const j of matches) {
               if (String(j.id) === String(best.id)) continue;
               if (isSfUnscheduled(j.status)) {
                 const c = await cancelSfJob(j.id);
                 if (c.ok) result.steps.push(`🧹 Cancelled duplicate Unscheduled SF #${j.id} for ${resqWO.code}`);
-                else result.errors.push(`Cancel duplicate SF #${j.id} for ${resqWO.code}: ${c.error}`);
+                else {
+                  result.errors.push(`Cancel duplicate SF #${j.id} for ${resqWO.code}: ${c.error}`);
+                  result.report?.push({ resqCode: resqWO.code, reason: 'cancel_failed', sfJobId: j.id, status: j.status, error: c.error });
+                }
               }
             }
+          } else {
+            // Multiple matches but none progressed — flag for manual review.
+            result.report?.push({
+              resqCode: resqWO.code,
+              reason: 'duplicates_no_progressed',
+              message: `${matches.length} SF jobs match po_number=${resqRef}, none in a progressed status. Manual review needed.`,
+              currentlyLinked: mapEntry.sfJobId,
+              sfJobs: matches.map(j => ({ id: j.id, number: j.number || j.job_number || null, status: j.status, created_at: j.created_at || null })),
+            });
           }
+        } else if (matches.length === 0 && mapEntry.sfJobId) {
+          // We had a mapping but SF returned no jobs with this po_number.
+          // The job may have been deleted manually, OR (more concerning) the
+          // mapping is stale.
+          result.report?.push({
+            resqCode: resqWO.code,
+            reason: 'no_sf_match',
+            message: `Mapping points to SF #${mapEntry.sfJobId} but no SF job has po_number=${resqRef}. Possibly deleted or never created.`,
+            currentlyLinked: mapEntry.sfJobId,
+          });
         }
         mapEntry.reconciled = true;
       } catch (e) {
@@ -507,35 +564,45 @@ function isSfUnscheduled(status) {
   return (status || '').toLowerCase().includes('unschedul');
 }
 
+// Whitelist of statuses that mean "actively progressed" — only these qualify
+// as a re-link target, and only their presence justifies cancelling an
+// Unscheduled duplicate. Cancelled / On Hold / unknown statuses are treated
+// like Unscheduled: never linked to, and never trigger auto-cancel.
+function isSfProgressed(status) {
+  const s = (status || '').toLowerCase().trim();
+  if (!s) return false;
+  if (s.includes('unschedul')) return false;
+  if (s.includes('cancel')) return false;
+  if (s.includes('hold')) return false;
+  return s.includes('schedul') ||   // Scheduled- Service / Re-scheduled / etc.
+         s.includes('assign') ||    // Assigned / Re-assigned
+         s.includes('dispatch') ||  // Dispatched
+         s.includes('progress') ||  // In Progress
+         s.includes('site') ||      // On Site
+         s.includes('complet') ||   // Completed- Service
+         s.includes('invoic');      // Invoiced
+}
+
 // Pick which SF job a duplicate set should collapse to.
-// Preference order: invoiced > completed > scheduled/assigned > anything-non-unscheduled
-//   > the currently-linked one > the oldest unscheduled (last resort).
+// Only ever returns a *progressed* job. Returns null when no progressed match
+// exists, signalling "leave alone — needs manual review".
 function pickBestSfJob(jobs, currentLinkedId) {
   if (!jobs.length) return null;
-  if (jobs.length === 1) return jobs[0];
+  const progressed = jobs.filter(j => isSfProgressed(j.status));
+  if (progressed.length === 0) return null;
+  if (progressed.length === 1) return progressed[0];
 
-  const nonUnsched = jobs.filter(j => !isSfUnscheduled(j.status));
-  if (nonUnsched.length > 0) {
-    // Prefer the currently-linked job if it's already non-unscheduled.
-    if (currentLinkedId) {
-      const cur = nonUnsched.find(j => String(j.id) === String(currentLinkedId));
-      if (cur) return cur;
-    }
-    const order = ['invoic', 'complet', 'schedul', 'assign'];
-    for (const stage of order) {
-      const m = nonUnsched.find(j => (j.status || '').toLowerCase().includes(stage));
-      if (m) return m;
-    }
-    return nonUnsched[0];
-  }
-
-  // All unscheduled. Per spec: don't treat as duplicates — keep currently-linked or oldest.
+  // Prefer the currently-linked job if it's already progressed.
   if (currentLinkedId) {
-    const cur = jobs.find(j => String(j.id) === String(currentLinkedId));
+    const cur = progressed.find(j => String(j.id) === String(currentLinkedId));
     if (cur) return cur;
   }
-  // Oldest first (smallest id is typically oldest in SF).
-  return jobs.slice().sort((a, b) => Number(a.id) - Number(b.id))[0];
+  const order = ['invoic', 'complet', 'progress', 'site', 'dispatch', 'assign', 'schedul'];
+  for (const stage of order) {
+    const m = progressed.find(j => (j.status || '').toLowerCase().includes(stage));
+    if (m) return m;
+  }
+  return progressed[0];
 }
 
 // Cancel an SF job (soft — set status to Cancelled, preserve history).
