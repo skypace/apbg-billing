@@ -28,6 +28,9 @@
 [functions."master-health-cron"]
   timeout = 60
 
+[functions."sync-qbo-items"]
+  timeout = 60
+
 [[headers]]
   for = "/*"
   [headers.values]

@@ -62,6 +62,21 @@ async function sbq(tbl, params) {
   return res.json();
 }
 
+async function sbrpc(fn, args) {
+  var res = await fetch(SB_URL + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Profile': 'ops',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(args || {})
+  });
+  if (!res.ok) { console.error('rpc ' + fn, res.status, await res.text()); return []; }
+  return res.json();
+}
+
 function fm(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {maximumFractionDigits:0}) }
 function fd(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) }
 function fp(n) { return n == null ? '-' : (Number(n)*100).toFixed(1) + '%' }
@@ -232,6 +247,187 @@ function DeptPage(props) {
   )
 }
 
+function MarginPage() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+
+  var fState = React.useState({start: ytdStart, end: todayStr, entity: null, category: null, customer: null, item: null});
+  var f = fState[0], setF = fState[1];
+  var dState = React.useState('category');
+  var dim = dState[0], setDim = dState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var tState = React.useState(null);
+  var tot = tState[0], setTot = tState[1];
+  var lState = React.useState(false);
+  var loading = lState[0], setLoading = lState[1];
+
+  React.useEffect(function() {
+    setLoading(true);
+    var args = {
+      p_start: f.start, p_end: f.end,
+      p_entity: f.entity, p_category: f.category,
+      p_customer: f.customer, p_item: f.item
+    };
+    Promise.all([
+      sbrpc('fn_sales_pivot', Object.assign({}, args, {p_dim: dim, p_limit: 250})),
+      sbrpc('fn_sales_totals', args)
+    ]).then(function(res) {
+      setRows(res[0] || []);
+      setTot((res[1] && res[1][0]) || null);
+      setLoading(false);
+    });
+  }, [dim, f.start, f.end, f.entity, f.category, f.customer, f.item]);
+
+  function setFilter(key, val) { var n = Object.assign({}, f); n[key] = val; setF(n); }
+  function clearFilter(key) { setFilter(key, null); }
+  function drill(row) {
+    // When clicking a row, set the corresponding filter, then move dim down the hierarchy
+    var hierarchy = ['entity', 'category', 'customer', 'item'];
+    var next = {category: 'customer', customer: 'item', entity: 'category', item: 'month', month: 'item'};
+    if (dim === 'category') setFilter('category', row.dim_label);
+    else if (dim === 'customer') setFilter('customer', row.dim_label);
+    else if (dim === 'item') setFilter('item', row.dim_label);
+    else if (dim === 'entity') setFilter('entity', row.dim_label);
+    setDim(next[dim] || 'item');
+  }
+
+  var DIMS = [
+    {id:'category', label:'Category'},
+    {id:'item', label:'Item'},
+    {id:'customer', label:'Customer'},
+    {id:'month', label:'Month'},
+    {id:'entity', label:'Entity'}
+  ];
+
+  var activeChips = [];
+  ['entity','category','customer','item'].forEach(function(k) {
+    if (f[k]) activeChips.push({k:k, v:f[k]});
+  });
+
+  var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
+    React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'From'),
+      React.createElement('input', {type:'date', value:f.start, onChange:function(e){setFilter('start', e.target.value)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'To'),
+      React.createElement('input', {type:'date', value:f.end, onChange:function(e){setFilter('end', e.target.value)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Entity'),
+      React.createElement('select', {value: f.entity || '', onChange:function(e){setFilter('entity', e.target.value || null)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}},
+        React.createElement('option', {value:''}, 'All'),
+        React.createElement('option', {value:'brix'}, 'Brix / AS'),
+        React.createElement('option', {value:'AS'}, 'AS'),
+        React.createElement('option', {value:'freeflow'}, 'FreeFlow'),
+        React.createElement('option', {value:'FF'}, 'FF')
+      ),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Group by'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        DIMS.map(function(d) {
+          return React.createElement('button', {
+            key:d.id,
+            onClick: function() { setDim(d.id) },
+            style:{
+              background: dim === d.id ? 'var(--ac)' : 'var(--sf2)',
+              color: dim === d.id ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: dim === d.id ? 700 : 400
+            }
+          }, d.label);
+        })
+      )
+    ),
+    activeChips.length > 0 ? React.createElement('div', {style:{marginTop:8, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}},
+      React.createElement('span', {style:{color:'var(--mt)', fontSize:10, textTransform:'uppercase', letterSpacing:1}}, 'Filters:'),
+      activeChips.map(function(c) {
+        return React.createElement('span', {key:c.k, style:{background:'var(--sf2)', border:'1px solid var(--bd)', padding:'3px 8px', borderRadius:12, fontSize:11, display:'inline-flex', alignItems:'center', gap:6}},
+          React.createElement('span', {style:{color:'var(--mt)'}}, c.k + ':'),
+          React.createElement('span', null, c.v.length > 32 ? c.v.substring(0,32) + '…' : c.v),
+          React.createElement('span', {style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function() { clearFilter(c.k) }}, ' ×')
+        );
+      }),
+      React.createElement('button', {onClick: function() { setF(Object.assign({}, f, {entity:null, category:null, customer:null, item:null})); setDim('category') }, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'2px 8px', borderRadius:4, fontSize:10, cursor:'pointer', marginLeft:6}}, 'CLEAR ALL')
+    ) : null
+  );
+
+  var coverage = tot && tot.cost_coverage_pct != null ? Number(tot.cost_coverage_pct) : null;
+
+  var kpis = React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+    React.createElement(C, {title:'REVENUE', value: fm(tot ? tot.revenue : 0), sub: (tot ? Number(tot.line_count).toLocaleString() : '0') + ' lines'}),
+    React.createElement(C, {title:'INVOICES', value: tot ? Number(tot.invoice_count).toLocaleString() : '-', sub: (tot ? tot.customer_count : '-') + ' customers / ' + (tot ? tot.item_count : '-') + ' items'}),
+    React.createElement(C, {title:'EST. MARGIN', value: tot && tot.est_margin != null ? fm(tot.est_margin) : '—', accent: tot && tot.margin_pct != null ? (Number(tot.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)') : null, sub: tot && tot.margin_pct != null ? fp(tot.margin_pct) + ' margin' : 'awaiting item-cost sync'}),
+    React.createElement(C, {title:'COST COVERAGE', value: coverage != null ? fp(coverage) : '0%', accent: coverage != null && coverage > 0.5 ? 'var(--gn)' : 'var(--am)', sub:'% of revenue with item cost'})
+  );
+
+  var headerLabel = (DIMS.find(function(x){return x.id===dim}) || {label:'Item'}).label;
+  var totRev = (rows || []).reduce(function(s,r){return s + Number(r.revenue || 0)}, 0);
+
+  var table = React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'BY ' + headerLabel.toUpperCase() + ' — ' + (rows ? rows.length : 0) + ' ROWS'),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'click row to drill down')
+    ),
+    loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+    React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+      React.createElement('table', null,
+        React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+          React.createElement('th', null, headerLabel),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+          React.createElement('th', {style:{textAlign:'right'}}, '% of Total'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Avg Price'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Est. Cost'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Est. Margin'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Margin %')
+        )),
+        React.createElement('tbody', null, (rows || []).map(function(r) {
+          var pctTotal = totRev > 0 ? Number(r.revenue || 0) / totRev : 0;
+          var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
+          return React.createElement('tr', {key: r.dim_label, style:{cursor: dim === 'month' ? 'default' : 'pointer'}, onClick: dim === 'month' ? null : function() { drill(r) }},
+            React.createElement('td', {style:{maxWidth:360, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.dim_label),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(r.line_count).toLocaleString()),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.qty != null ? Number(r.qty).toLocaleString(undefined, {maximumFractionDigits:1}) : '-'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fp(pctTotal)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.avg_price != null ? fd(r.avg_price) : '-'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.est_cost != null ? fm(r.est_cost) : '—'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.est_margin != null ? fm(r.est_margin) : '—'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color: mp == null ? 'var(--mt)' : (mp >= 0.4 ? 'var(--gn)' : (mp >= 0.2 ? 'var(--am)' : 'var(--rd)'))}}, mp != null ? fp(mp) : '—')
+          );
+        }))
+      )
+    )
+  );
+
+  function syncItems() {
+    if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
+    setLoading(true);
+    fetch('/.netlify/functions/sync-qbo-items')
+      .then(function(r) { return r.json() })
+      .then(function(j) {
+        alert(j.ok
+          ? 'Synced ' + j.synced + ' items (' + j.with_purchase_cost + ' with purchase cost). Refreshing…'
+          : 'Sync failed: ' + (j.error || 'unknown'));
+        if (j.ok) setF(Object.assign({}, f)); // re-trigger effect
+        else setLoading(false);
+      })
+      .catch(function(e) { alert('Sync error: ' + e.message); setLoading(false) });
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt', style:{justifyContent:'space-between'}},
+      React.createElement('div', null, 'Margin Analytics ',
+        React.createElement('span', {className:'bg bg-l'}, 'LIVE SALES'),
+        coverage == null || coverage === 0 ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'COSTS PENDING') : null
+      ),
+      React.createElement('button', {onClick: syncItems, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--ac)', padding:'6px 12px', borderRadius:5, fontSize:11, cursor:'pointer', fontWeight:600, letterSpacing:.5}}, 'SYNC ITEM COSTS')
+    ),
+    filterBar,
+    kpis,
+    table
+  );
+}
+
 function FleetPage() {
   return React.createElement('div', null,
     React.createElement('div', {className:'pt'}, 'Fleet Management ', React.createElement('span', {className:'bg bg-p'}, 'SETUP NEEDED')),
@@ -327,6 +523,7 @@ function RosterPage() {
 
 var NAV = [
   {id:'exec', label:'Executive', icon:'\u{1F4CA}'},
+  {id:'margin', label:'Margin', icon:'\u{1F4B0}'},
   {id:'delivery', label:'Delivery', icon:'\u{1F69B}'},
   {id:'service', label:'Service', icon:'\u{1F527}'},
   {id:'reman', label:'Reman', icon:'\u{267B}'},
@@ -341,6 +538,7 @@ function App() {
 
   var content;
   if (page === 'exec') content = React.createElement(ExecPage);
+  else if (page === 'margin') content = React.createElement(MarginPage);
   else if (page === 'delivery') content = React.createElement(DeptPage, {table:'delivery_stops', title:'Delivery Operations', nameField:'driver_name', dateField:'stop_date', totalField:'sf_total'});
   else if (page === 'service') content = React.createElement(DeptPage, {table:'service_jobs', title:'Service Operations', nameField:'tech_name', dateField:'job_date', totalField:'sf_total'});
   else if (page === 'reman') content = React.createElement(DeptPage, {table:'reman_jobs', title:'Remanufacturing', nameField:'tech_name', dateField:'intake_date', totalField:'sf_total'});
