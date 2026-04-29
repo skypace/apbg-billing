@@ -109,6 +109,36 @@ tr:hover td{background:#F9FAFB}
 .scan-result.ok{background:#D1FAE5;color:#065F46}
 .scan-result.err{background:#FEE2E2;color:#991B1B}
 .scan-result.pending{background:#FEF3C7;color:#92400E}
+
+/* Needs Manual Review */
+.review-section h2{display:flex;align-items:center;gap:8px}
+.review-count{display:inline-block;background:#DC2626;color:#fff;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:auto}
+.review-count.zero{background:#10B981}
+.review-item{padding:14px 20px;border-top:1px solid #F3F4F6;display:flex;flex-direction:column;gap:8px}
+.review-item:first-child{border-top:0}
+.review-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.review-head .code{font-weight:700;color:#1F2937;font-family:'JetBrains Mono',monospace}
+.review-reason{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
+.review-reason.dup{background:#FEF3C7;color:#92400E}
+.review-reason.no_sf_match{background:#FEE2E2;color:#991B1B}
+.review-reason.cancel_failed{background:#FEE2E2;color:#991B1B}
+.review-msg{font-size:0.82rem;color:#6B7280}
+.review-jobs{margin-top:6px;border:1px solid #E5E7EB;border-radius:6px;overflow:hidden}
+.review-job{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:0.8rem;border-top:1px solid #F3F4F6}
+.review-job:first-child{border-top:0}
+.review-job .meta{flex:1}
+.review-job .meta strong{font-family:'JetBrains Mono',monospace}
+.review-job .actions{display:flex;gap:6px}
+.review-job .linked-pill{font-size:0.65rem;background:#1F4E79;color:#fff;padding:2px 6px;border-radius:3px;font-weight:600;margin-left:6px}
+.review-btn{padding:4px 10px;font-size:0.72rem;border-radius:4px;cursor:pointer;font-weight:600;border:1px solid;background:#fff}
+.review-btn.cancel{border-color:#FCA5A5;color:#991B1B}
+.review-btn.cancel:hover{background:#FEE2E2}
+.review-btn.link{border-color:#A7C3E8;color:#1F4E79}
+.review-btn.link:hover{background:#EFF6FF}
+.review-btn.dismiss{border-color:#D1D5DB;color:#6B7280}
+.review-btn.dismiss:hover{background:#F3F4F6}
+.review-btn:disabled{opacity:0.5;cursor:wait}
+.review-actions-row{display:flex;justify-content:flex-end;margin-top:4px}
 .scan-detail{margin-top:8px;font-size:0.78rem;color:#374151}
 .scan-detail table{width:100%;border-collapse:collapse;margin-top:6px}
 .scan-detail td,.scan-detail th{padding:4px 8px;border:1px solid #E5E7EB;font-size:0.75rem}
@@ -182,6 +212,12 @@ tr:hover td{background:#F9FAFB}
       <div id="mappingTable">
         <div class="empty">Loading...</div>
       </div>
+    </div>
+
+    <!-- Needs Manual Review -->
+    <div class="section review-section" id="reviewSection" style="display:none">
+      <h2>⚠️ Needs Manual Review <span class="review-count" id="reviewCount">0</span></h2>
+      <div id="reviewList"></div>
     </div>
 
     <!-- Sync Log -->
@@ -292,6 +328,9 @@ async function loadStatus() {
 
     // Mapping table
     renderMappings(data.mappings || {});
+
+    // Needs Manual Review
+    renderReview(data.dedupeReport || { items: [] });
 
     // Health checks (async, non-blocking)
     loadHealth();
@@ -462,6 +501,122 @@ function renderMappings(mappings) {
 
   html += '</tbody></table>';
   document.getElementById('mappingTable').innerHTML = html;
+}
+
+function renderReview(report) {
+  const items = (report && report.items) || [];
+  const section = document.getElementById('reviewSection');
+  const list = document.getElementById('reviewList');
+  const count = document.getElementById('reviewCount');
+
+  if (items.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  count.textContent = items.length;
+  count.className = 'review-count' + (items.length === 0 ? ' zero' : '');
+
+  const reasonLabel = {
+    duplicates_no_progressed: 'Duplicates',
+    no_sf_match: 'Missing SF Job',
+    cancel_failed: 'Cancel Failed',
+  };
+  const reasonClass = {
+    duplicates_no_progressed: 'dup',
+    no_sf_match: 'no_sf_match',
+    cancel_failed: 'cancel_failed',
+  };
+
+  list.innerHTML = items.map(item => {
+    const code = (item.resqCode || '').replace(/'/g, '');
+    const linkedId = item.currentlyLinked || item.linkedTo;
+    const jobsHtml = (item.sfJobs || []).map(j => {
+      const isLinked = linkedId && String(j.id) === String(linkedId);
+      const status = j.status || '—';
+      const num = j.number || j.id;
+      return `<div class="review-job">
+        <div class="meta">
+          <strong>SF #${j.id}</strong> ${num !== j.id ? `(${num})` : ''} —
+          ${statusBadge(status)}
+          ${j.created_at ? `<span style="color:#9CA3AF;font-size:0.72rem;margin-left:6px">created ${new Date(j.created_at).toLocaleDateString()}</span>` : ''}
+          ${isLinked ? '<span class="linked-pill">CURRENTLY LINKED</span>' : ''}
+        </div>
+        <div class="actions">
+          ${!isLinked ? `<button class="review-btn link" onclick="relinkTo('${code}', '${j.id}', this)">🔗 Link to this</button>` : ''}
+          <button class="review-btn cancel" onclick="cancelSfJobUI('${j.id}', '${code}', this)">🗑 Cancel SF #${j.id}</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    // For cancel_failed, the item has sfJobId not sfJobs
+    const cancelFailedHtml = item.reason === 'cancel_failed'
+      ? `<div class="review-job">
+          <div class="meta">
+            <strong>SF #${item.sfJobId}</strong> — ${statusBadge(item.status || 'Unscheduled')}
+            <span style="color:#991B1B;font-size:0.72rem;margin-left:6px">last error: ${(item.error || '').substring(0, 80)}</span>
+          </div>
+          <div class="actions">
+            <button class="review-btn cancel" onclick="cancelSfJobUI('${item.sfJobId}', '${code}', this)">🗑 Retry Cancel</button>
+          </div>
+        </div>`
+      : '';
+
+    return `<div class="review-item">
+      <div class="review-head">
+        <span class="code">${item.resqCode || '—'}</span>
+        <span class="review-reason ${reasonClass[item.reason] || 'dup'}">${reasonLabel[item.reason] || item.reason}</span>
+      </div>
+      <div class="review-msg">${item.message || ''}</div>
+      <div class="review-jobs">${jobsHtml}${cancelFailedHtml}</div>
+      <div class="review-actions-row">
+        <button class="review-btn dismiss" onclick="dismissReview('${code}', this)">Dismiss (no action)</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function cancelSfJobUI(jobId, resqCode, btn) {
+  if (!confirm(`Cancel SF Job #${jobId}?\n\nThis sets the SF job's status to Cancelled. The job stays in SF for history.`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?cancelSfJob=${encodeURIComponent(jobId)}&resqCode=${encodeURIComponent(resqCode || '')}`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    await loadStatus();
+  } catch (e) {
+    alert(`Cancel failed: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = `🗑 Cancel SF #${jobId}`; }
+  }
+}
+
+async function relinkTo(resqCode, sfJobId, btn) {
+  if (!confirm(`Re-link mapping for ${resqCode} to SF Job #${sfJobId}?\n\nFuture syncs will update this SF job instead of the current one.`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?relink=${encodeURIComponent(resqCode)}&toSfJobId=${encodeURIComponent(sfJobId)}`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    await loadStatus();
+  } catch (e) {
+    alert(`Relink failed: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = '🔗 Link to this'; }
+  }
+}
+
+async function dismissReview(resqCode, btn) {
+  if (!confirm(`Dismiss ${resqCode} from the review list?\n\nThis hides it from the report. The SF jobs are not changed.`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?dismissIssue=${encodeURIComponent(resqCode)}`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    await loadStatus();
+  } catch (e) {
+    alert(`Dismiss failed: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = 'Dismiss (no action)'; }
+  }
 }
 
 function renderLog(data) {

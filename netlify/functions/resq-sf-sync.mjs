@@ -15,6 +15,9 @@ export async function handler(event) {
   if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
   if (qs.dedupeReport) return handleDedupeReport();
+  if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
+  if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
+  if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -408,13 +411,13 @@ async function handleGet() {
     ]);
 
     const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
-    const dedupe = dedupeRaw ? JSON.parse(dedupeRaw) : null;
+    const dedupe = dedupeRaw ? JSON.parse(dedupeRaw) : { totalIssues: 0, items: [] };
     return json({
       lastSync: lastRunRaw ? JSON.parse(lastRunRaw) : null,
       lastErrors: lastErrorsRaw ? JSON.parse(lastErrorsRaw) : [],
       mappingCount: Object.keys(mapping).length,
       mappings: mapping,
-      dedupeReportSummary: dedupe ? { generated: dedupe.generated, totalIssues: dedupe.totalIssues, byReason: dedupe.byReason } : null,
+      dedupeReport: dedupe,
     });
   } catch (e) {
     return json({ error: e.message }, 500);
@@ -429,6 +432,123 @@ async function handleDedupeReport() {
     const raw = await store.get('dedupe-report').catch(() => null);
     if (!raw) return json({ generated: null, totalIssues: 0, items: [] });
     return json(JSON.parse(raw));
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Cancel SF Job: PUT /jobs/{id} with status=Cancelled ---
+async function handleCancelSfJob(jobId, resqCode) {
+  if (!jobId) return json({ error: 'jobId required' }, 400);
+  try {
+    const { sfRequest } = await import('./sf-helpers.mjs');
+    await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Cancelled' });
+
+    // Drop the cancelled job from the dedupe report so it disappears from the UI immediately.
+    const store = await getStore();
+    if (store) {
+      try {
+        const raw = await store.get('dedupe-report');
+        if (raw) {
+          const r = JSON.parse(raw);
+          for (const item of (r.items || [])) {
+            if (item.sfJobs) item.sfJobs = item.sfJobs.filter(j => String(j.id) !== String(jobId));
+          }
+          // Remove items that lose their last SF job, OR whose duplicate set drops below 2.
+          r.items = (r.items || []).filter(i => {
+            if (i.reason === 'duplicates_no_progressed') {
+              return (i.sfJobs?.length || 0) > 1;
+            }
+            if (i.reason === 'cancel_failed' && String(i.sfJobId) === String(jobId)) {
+              return false;
+            }
+            return true;
+          });
+          r.totalIssues = r.items.length;
+          r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+          await store.set('dedupe-report', JSON.stringify(r));
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+
+    return json({ ok: true, jobId, status: 'Cancelled', resqCode });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Relink: point a mapping at a different SF job ---
+async function handleRelink(resqCode, toSfJobId) {
+  if (!resqCode || !toSfJobId) return json({ error: 'resqCode and toSfJobId required' }, 400);
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    let found = null;
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === resqCode || k === resqCode) {
+        v.replacedSfJobId = v.sfJobId;
+        v.sfJobId = toSfJobId;
+        v.relinkedAt = new Date().toISOString();
+        v.lastSyncAt = new Date().toISOString();
+        v.reconciled = true;
+        delete v.sfDeleted;
+        found = v;
+      }
+    }
+    if (!found) return json({ error: 'No mapping found for ' + resqCode }, 404);
+    await store.set('wo-mapping', JSON.stringify(mapping));
+
+    // Drop this WO from the dedupe report — user has resolved it.
+    try {
+      const reportRaw = await store.get('dedupe-report');
+      if (reportRaw) {
+        const r = JSON.parse(reportRaw);
+        r.items = (r.items || []).filter(i => i.resqCode !== resqCode);
+        r.totalIssues = r.items.length;
+        r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+        await store.set('dedupe-report', JSON.stringify(r));
+      }
+    } catch (e) { /* non-fatal */ }
+
+    return json({ ok: true, resqCode, sfJobId: toSfJobId });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Dismiss: remove a WO from the report without taking action ---
+async function handleDismissIssue(resqCode) {
+  if (!resqCode) return json({ error: 'resqCode required' }, 400);
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('dedupe-report').catch(() => null);
+    if (!raw) return json({ ok: true, dismissed: 0 });
+    const r = JSON.parse(raw);
+    const before = (r.items || []).length;
+    r.items = (r.items || []).filter(i => i.resqCode !== resqCode);
+    r.totalIssues = r.items.length;
+    r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+    await store.set('dedupe-report', JSON.stringify(r));
+
+    // Also mark the mapping as reconciled so the next sync doesn't re-flag it.
+    try {
+      const mappingRaw = await store.get('wo-mapping');
+      if (mappingRaw) {
+        const mapping = JSON.parse(mappingRaw);
+        for (const [k, v] of Object.entries(mapping)) {
+          if (v.resqCode === resqCode) {
+            v.reconciled = true;
+            v.dismissedAt = new Date().toISOString();
+          }
+        }
+        await store.set('wo-mapping', JSON.stringify(mapping));
+      }
+    } catch (e) { /* non-fatal */ }
+
+    return json({ ok: true, dismissed: before - r.totalIssues });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

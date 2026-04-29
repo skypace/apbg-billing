@@ -233,7 +233,9 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
   // Catches: prior crashed runs, parallel sync races, and SF returning a job
   // creation success that our code mis-handled.
   try {
-    const existing = await findSfJobsByPoNumber(resqRef);
+    const allMatches = await findSfJobsByPoNumber(resqRef);
+    // Ignore Cancelled jobs — they're already handled and shouldn't be linked to or counted as duplicates.
+    const existing = allMatches.filter(j => !isSfCancelled(j.status));
     if (existing.length > 0) {
       const best = pickBestSfJob(existing, null);
 
@@ -328,7 +330,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     if (!mapEntry.reconciled) {
       try {
         const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
-        const matches = await findSfJobsByPoNumber(resqRef);
+        const allMatches = await findSfJobsByPoNumber(resqRef);
+        // Skip Cancelled jobs — already handled, not duplicates.
+        const matches = allMatches.filter(j => !isSfCancelled(j.status));
         if (matches.length > 1) {
           const best = pickBestSfJob(matches, mapEntry.sfJobId);
           if (best) {
@@ -362,10 +366,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
               sfJobs: matches.map(j => ({ id: j.id, number: j.number || j.job_number || null, status: j.status, created_at: j.created_at || null })),
             });
           }
-        } else if (matches.length === 0 && mapEntry.sfJobId) {
-          // We had a mapping but SF returned no jobs with this po_number.
-          // The job may have been deleted manually, OR (more concerning) the
-          // mapping is stale.
+        } else if (allMatches.length === 0 && mapEntry.sfJobId) {
+          // No SF job at all has this po_number. Mapping points to a job that's
+          // been deleted, or the po_number was changed manually.
           result.report?.push({
             resqCode: resqWO.code,
             reason: 'no_sf_match',
@@ -562,6 +565,13 @@ async function findSfJobsByPoNumber(poNumber) {
 
 function isSfUnscheduled(status) {
   return (status || '').toLowerCase().includes('unschedul');
+}
+
+// Cancelled jobs are treated as "already handled" — never re-flagged as
+// duplicates and never re-linked to. This means cancelling a duplicate via
+// the UI immediately removes it from the next sync's report.
+function isSfCancelled(status) {
+  return (status || '').toLowerCase().includes('cancel');
 }
 
 // Whitelist of statuses that mean "actively progressed" — only these qualify
