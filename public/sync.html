@@ -111,9 +111,14 @@ tr:hover td{background:#F9FAFB}
 .scan-result.pending{background:#FEF3C7;color:#92400E}
 
 /* Needs Manual Review */
-.review-section h2{display:flex;align-items:center;gap:8px}
-.review-count{display:inline-block;background:#DC2626;color:#fff;font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:auto}
-.review-count.zero{background:#10B981}
+.review-section{border:2px solid #DC2626 !important}
+.review-section h2{display:flex;align-items:center;gap:8px;background:#DC2626;color:#fff;font-size:1rem;padding:14px 20px;margin:0;font-weight:700}
+.review-section.zero{border-color:#10B981 !important}
+.review-section.zero h2{background:#10B981}
+.review-stripe{height:6px;background:repeating-linear-gradient(45deg,#DC2626,#DC2626 10px,#FEE2E2 10px,#FEE2E2 20px)}
+.review-section.zero .review-stripe{background:repeating-linear-gradient(45deg,#10B981,#10B981 10px,#D1FAE5 10px,#D1FAE5 20px)}
+.review-count{display:inline-block;background:#fff;color:#DC2626;font-size:0.8rem;font-weight:700;padding:2px 10px;border-radius:10px;margin-left:auto}
+.review-section.zero .review-count{color:#065F46}
 .review-item{padding:14px 20px;border-top:1px solid #F3F4F6;display:flex;flex-direction:column;gap:8px}
 .review-item:first-child{border-top:0}
 .review-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -214,10 +219,11 @@ tr:hover td{background:#F9FAFB}
       </div>
     </div>
 
-    <!-- Needs Manual Review -->
-    <div class="section review-section" id="reviewSection" style="display:none">
-      <h2>⚠️ Needs Manual Review <span class="review-count" id="reviewCount">0</span></h2>
-      <div id="reviewList"></div>
+    <!-- Jobs with Sync Issues -->
+    <div class="section review-section" id="reviewSection">
+      <h2>⚠️ Jobs with Sync Issues: <span class="review-count" id="reviewCount">0</span></h2>
+      <div class="review-stripe"></div>
+      <div id="reviewList"><div class="empty" style="padding:20px;color:#9CA3AF">Loading...</div></div>
     </div>
 
     <!-- Sync Log -->
@@ -509,13 +515,14 @@ function renderReview(report) {
   const list = document.getElementById('reviewList');
   const count = document.getElementById('reviewCount');
 
-  // Always visible so users can confirm the section loaded and see the all-clear state.
+  // Always visible. Red border + stripe when there are issues, green when clear.
   section.style.display = 'block';
+  section.className = 'section review-section' + (items.length === 0 ? ' zero' : '');
   count.textContent = items.length;
-  count.className = 'review-count' + (items.length === 0 ? ' zero' : '');
 
   if (items.length === 0) {
-    list.innerHTML = `<div class="empty" style="padding:20px;color:#059669">
+    list.innerHTML = `<div class="empty" style="padding:20px;color:#059669;font-weight:600">
+
       ✓ All clear — no work orders need manual review.
     </div>`;
     return;
