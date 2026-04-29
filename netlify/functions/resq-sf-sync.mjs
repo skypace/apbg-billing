@@ -18,6 +18,7 @@ export async function handler(event) {
   if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
+  if (qs.clearErrors) return handleClearErrors();
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost();
   return { statusCode: 405, body: 'GET or POST only' };
@@ -513,6 +514,39 @@ async function handleRelink(resqCode, toSfJobId) {
     } catch (e) { /* non-fatal */ }
 
     return json({ ok: true, resqCode, sfJobId: toSfJobId });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Clear errors: wipe last-errors and remove errors from the last sync log ---
+async function handleClearErrors() {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    let cleared = 0;
+
+    // Reset last-errors to empty.
+    try {
+      const before = await store.get('last-errors').catch(() => null);
+      if (before) cleared += JSON.parse(before).length || 0;
+      await store.set('last-errors', '[]');
+    } catch (e) {}
+
+    // Strip errors out of the last-sync log so the dashboard log stops showing them.
+    try {
+      const raw = await store.get('last-sync');
+      if (raw) {
+        const log = JSON.parse(raw);
+        if (Array.isArray(log.errors)) {
+          cleared += log.errors.length;
+          log.errors = [];
+        }
+        await store.set('last-sync', JSON.stringify(log));
+      }
+    } catch (e) {}
+
+    return json({ ok: true, cleared });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

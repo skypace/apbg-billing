@@ -451,9 +451,11 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           mapEntry.photosSent = true;
           result.updated++;
         } else if (photoResult.errors.length) {
-          // Photos exist but couldn't be auto-downloaded — don't mark as sent
-          result.steps.push(`📸 ${resqWO.code}: manual upload needed via sync.html`);
-          result.errors.push(...photoResult.errors);
+          // Photos exist but couldn't be auto-downloaded — don't mark as sent.
+          // Surface as a step (informational), NOT an error: SF doesn't expose
+          // photo download endpoints, so this is a known limitation, not a
+          // sync failure. The user uploads via the dashboard.
+          result.steps.push(`📸 ${resqWO.code}: manual upload needed via sync.html (${photoResult.errors[0]})`);
         } else {
           // No photos on the SF job at all
           result.steps.push(`No photos on SF job for ${resqWO.code}`);
