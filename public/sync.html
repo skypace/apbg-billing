@@ -209,6 +209,7 @@ tr:hover td{background:#F9FAFB}
     <div class="actions">
       <button class="primary" id="syncBtn" onclick="runSync()">▶ Run Sync Now</button>
       <button class="secondary" onclick="loadStatus()">↻ Refresh Status</button>
+      <button class="secondary" id="clearErrBtn" onclick="clearErrors()">🧹 Clear Errors</button>
     </div>
 
     <!-- Mapping Table -->
@@ -428,6 +429,24 @@ async function runSync() {
     btn.disabled = false;
     btn.innerHTML = '▶ Run Sync Now';
   }
+}
+
+// --- Clear stored errors (last-errors blob + errors in last-sync log) ---
+async function clearErrors() {
+  if (!confirm('Clear all stored sync errors? This wipes the error log without changing any sync data — new errors will reappear on the next sync if they recur.')) return;
+  const btn = document.getElementById('clearErrBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Clearing...';
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?clearErrors=1`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    await loadStatus();
+  } catch (e) {
+    alert(`Clear failed: ${e.message}`);
+  }
+  btn.disabled = false;
+  btn.innerHTML = '🧹 Clear Errors';
 }
 
 // --- Clear (delete) a mapping entry ---
