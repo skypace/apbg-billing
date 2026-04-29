@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PACER Margin Analytics</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e17;--sf:#111827;--sf2:#1a2235;--bd:#1e2d4a;--ac:#22d3ee;--ac2:#818cf8;--gn:#34d399;--rd:#f87171;--am:#fbbf24;--tx:#e2e8f0;--mt:#64748b}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
+.mn{font-family:'Courier New',monospace}
+.tb{background:var(--sf);border-bottom:1px solid var(--bd);padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
+.tb .lg{font-weight:700;font-size:13px;letter-spacing:1.5px;color:var(--ac)}
+.tb .lg small{color:var(--mt);font-weight:400;font-size:10px;margin-left:8px;letter-spacing:.5px}
+.ma{padding:18px 24px}
+.pt{font-size:20px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.bg{font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;letter-spacing:.5px}
+.bg-l{background:rgba(52,211,153,.15);color:var(--gn)}
+.bg-p{background:rgba(251,191,36,.15);color:var(--am)}
+.gr{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.cd{background:var(--sf);border:1px solid var(--bd);border-radius:7px;padding:16px 18px}
+.ct{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--mt);margin-bottom:6px}
+.cv{font-size:26px;font-weight:700;line-height:1.1}
+.cs{font-size:11px;color:var(--mt);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{text-align:left;padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--mt);border-bottom:1px solid var(--bd);font-weight:600}
+tbody td{padding:7px 10px;border-bottom:1px solid var(--bd)}
+tbody tr:hover{background:var(--sf2)}
+.ld{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--mt);font-size:12px}
+@media(max-width:768px){.ma{padding:12px}.tb{padding:10px 14px}.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const SB_URL='https://gfsdpwiqzshhexkofiif.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+
+async function sbq(tbl, params) {
+  var url = SB_URL + '/rest/v1/' + tbl;
+  if (params) url = url + '?' + params;
+  var res = await fetch(url, {
+    headers: { 'apikey': SB_KEY, 'Accept-Profile': 'ops', 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+async function sbrpc(fn, args) {
+  var res = await fetch(SB_URL + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Profile': 'ops',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(args || {})
+  });
+  if (!res.ok) { console.error('rpc ' + fn, res.status, await res.text()); return []; }
+  return res.json();
+}
+
+function fm(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {maximumFractionDigits:0}) }
+function fd(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) }
+function fp(n) { return n == null ? '-' : (Number(n)*100).toFixed(1) + '%' }
+
+function C(props) {
+  return React.createElement('div', {className:'cd'},
+    React.createElement('div', {className:'ct'}, props.title),
+    React.createElement('div', {className:'cv', style: props.accent ? {color: props.accent} : {}}, props.value),
+    props.sub ? React.createElement('div', {className:'cs'}, props.sub) : null
+  )
+}
+
+function MultiPicker(props) {
+  var qState = React.useState('');
+  var query = qState[0], setQuery = qState[1];
+  var oState = React.useState(false);
+  var open = oState[0], setOpen = oState[1];
+  var wrapRef = React.useRef(null);
+
+  React.useEffect(function() {
+    if (!open) return;
+    function onDoc(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return function() { document.removeEventListener('mousedown', onDoc) };
+  }, [open]);
+
+  function pick(m) {
+    if (!m) return;
+    props.onAdd(m);
+    setQuery('');
+  }
+
+  var q = query.toLowerCase();
+  var selectedSet = {};
+  (props.selected || []).forEach(function(s) { selectedSet[s] = true });
+  var matches = (props.options || []).filter(function(opt) {
+    if (selectedSet[opt]) return false;
+    if (!q) return true;
+    return opt && opt.toLowerCase().indexOf(q) >= 0;
+  });
+  var truncated = matches.length > 80;
+  var shown = matches.slice(0, 80);
+  var optionsLoaded = (props.options || []).length > 0;
+
+  return React.createElement('div', {style:{display:'flex', alignItems:'flex-start', gap:8}},
+    React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, fontSize:10, minWidth:70, paddingTop:6}}, props.label + (props.selected && props.selected.length ? ' (' + props.selected.length + ')' : '')),
+    React.createElement('div', {ref: wrapRef, style:{flex:1, position:'relative'}},
+      React.createElement('div', {style:{display:'flex', flexWrap:'wrap', gap:4, alignItems:'center', minHeight:28, background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, padding:'3px 6px', cursor:'text'}, onClick: function(e) {
+          var inp = e.currentTarget.querySelector('input'); if (inp) inp.focus();
+        }},
+        (props.selected || []).map(function(v) {
+          return React.createElement('span', {key:v, style:{background:'var(--bg)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:10, fontSize:11, display:'inline-flex', alignItems:'center', gap:5, maxWidth:'100%'}},
+            React.createElement('span', {style:{whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:280}}, v),
+            React.createElement('span', {role:'button', style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function(e) { e.stopPropagation(); props.onRemove(v) }}, '×')
+          );
+        }),
+        React.createElement('input', {
+          type:'text',
+          value: query,
+          onChange: function(e) { setQuery(e.target.value); setOpen(true) },
+          onFocus: function() { setOpen(true) },
+          onKeyDown: function(e) {
+            if (e.key === 'Escape') { setOpen(false); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (shown.length) pick(shown[0]); }
+            else if (e.key === 'Backspace' && !query && (props.selected || []).length) {
+              props.onRemove(props.selected[props.selected.length - 1]);
+            }
+          },
+          placeholder: (props.selected && props.selected.length) ? '' : (optionsLoaded ? ('+ add ' + props.label.toLowerCase()) : 'loading…'),
+          style:{background:'transparent', border:'none', outline:'none', color:'var(--tx)', fontSize:11, padding:'2px 4px', minWidth:160, flex:1}
+        })
+      ),
+      open ? React.createElement('div', {style:{position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:4, maxHeight:280, overflow:'auto', zIndex:50, boxShadow:'0 6px 20px rgba(0,0,0,0.5)'}},
+        !optionsLoaded ? React.createElement('div', {style:{padding:'8px 10px', fontSize:11, color:'var(--mt)'}}, 'Loading list…')
+        : shown.length === 0 ? React.createElement('div', {style:{padding:'8px 10px', fontSize:11, color:'var(--mt)'}}, query ? 'No matches' : 'All values selected')
+        : [].concat(
+            shown.map(function(m) {
+              return React.createElement('div', {
+                key: m,
+                onMouseDown: function(e) { e.preventDefault(); pick(m); },
+                onClick: function(e) { e.preventDefault(); pick(m); },
+                style:{padding:'5px 9px', fontSize:11, cursor:'pointer', borderBottom:'1px solid var(--bd)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'},
+                onMouseEnter: function(e) { e.currentTarget.style.background = 'var(--sf2)' },
+                onMouseLeave: function(e) { e.currentTarget.style.background = '' }
+              }, m);
+            }),
+            truncated ? [React.createElement('div', {key:'__more', style:{padding:'5px 9px', fontSize:10, color:'var(--mt)', fontStyle:'italic'}}, '+ ' + (matches.length - 80) + ' more — keep typing to narrow')] : []
+          )
+      ) : null
+    )
+  );
+}
+
+function MarginPage() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+
+  var fState = React.useState({
+    start: ytdStart, end: todayStr,
+    entities: [], categories: [], customers: [], items: []
+  });
+  var f = fState[0], setF = fState[1];
+  var dState = React.useState('category');
+  var dim = dState[0], setDim = dState[1];
+  var cmpState = React.useState('none');
+  var compare = cmpState[0], setCompare = cmpState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var tState = React.useState(null);
+  var tot = tState[0], setTot = tState[1];
+  var lState = React.useState(false);
+  var loading = lState[0], setLoading = lState[1];
+  var syncState = React.useState(null);
+  var syncInfo = syncState[0], setSyncInfo = syncState[1];
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: []});
+  var values = dimVals[0], setValues = dimVals[1];
+
+  function computePrev(start, end, mode) {
+    if (mode === 'none') return [null, null];
+    var s = new Date(start), e = new Date(end);
+    if (mode === 'prior_year') {
+      var ps = new Date(s); ps.setFullYear(ps.getFullYear() - 1);
+      var pe = new Date(e); pe.setFullYear(pe.getFullYear() - 1);
+      return [ps.toISOString().slice(0,10), pe.toISOString().slice(0,10)];
+    }
+    var span = Math.round((e - s) / 86400000) + 1;
+    var pe2 = new Date(s); pe2.setDate(pe2.getDate() - 1);
+    var ps2 = new Date(pe2); ps2.setDate(ps2.getDate() - span + 1);
+    return [ps2.toISOString().slice(0,10), pe2.toISOString().slice(0,10)];
+  }
+  var prev = computePrev(f.start, f.end, compare);
+
+  React.useEffect(function() {
+    setLoading(true);
+    var args = {
+      p_start: f.start, p_end: f.end,
+      p_entities: f.entities.length ? f.entities : null,
+      p_categories: f.categories.length ? f.categories : null,
+      p_customers: f.customers.length ? f.customers : null,
+      p_items: f.items.length ? f.items : null
+    };
+    var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
+    if (compare !== 'none') {
+      pivotArgs.p_prev_start = prev[0];
+      pivotArgs.p_prev_end = prev[1];
+    }
+    var pivotFn = compare === 'none' ? 'fn_sales_pivot' : 'fn_sales_pivot_compare';
+    Promise.all([
+      sbrpc(pivotFn, pivotArgs),
+      sbrpc('fn_sales_totals', args)
+    ]).then(function(res) {
+      setRows(res[0] || []);
+      setTot((res[1] && res[1][0]) || null);
+      setLoading(false);
+    });
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|')]);
+
+  React.useEffect(function() {
+    sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
+      .then(function(rs) {
+        if (rs && rs.length) setSyncInfo({synced_at: rs[0].synced_at});
+        else setSyncInfo({synced_at: null});
+      });
+  }, []);
+
+  // Pre-fetch distinct values for each dim once we know the date range
+  React.useEffect(function() {
+    var dims = ['entity','category','customer','item'];
+    Promise.all(dims.map(function(d) {
+      return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
+    })).then(function(res) {
+      var v = {};
+      dims.forEach(function(d, i) {
+        v[d] = (res[i] || []).map(function(r) { return r.label });
+      });
+      setValues(v);
+    });
+  }, [f.start, f.end]);
+
+  function addFilter(dimKey, label) {
+    var listKey = dimKey + 's';
+    if (!label) return;
+    var cur = f[listKey] || [];
+    if (cur.indexOf(label) >= 0) return;
+    var n = Object.assign({}, f); n[listKey] = cur.concat([label]); setF(n);
+  }
+  function removeFilter(dimKey, label) {
+    var listKey = dimKey + 's';
+    var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
+  }
+  function clearAllFilters() {
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[]}));
+  }
+  function drill(row) {
+    if (dim === 'month') return;
+    addFilter(dim, row.dim_label);
+  }
+
+  var DIMS = [
+    {id:'category', label:'Category'},
+    {id:'item', label:'Item'},
+    {id:'customer', label:'Customer'},
+    {id:'month', label:'Month'},
+    {id:'entity', label:'Entity'}
+  ];
+  var FILTER_DIMS = [
+    {id:'category', label:'Categories', listKey:'categories'},
+    {id:'item', label:'Items', listKey:'items'},
+    {id:'customer', label:'Customers', listKey:'customers'},
+    {id:'entity', label:'Entities', listKey:'entities'}
+  ];
+
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length;
+
+  var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
+    React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'From'),
+      React.createElement('input', {type:'date', value:f.start, onChange:function(e){setF(Object.assign({}, f, {start:e.target.value}))}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'To'),
+      React.createElement('input', {type:'date', value:f.end, onChange:function(e){setF(Object.assign({}, f, {end:e.target.value}))}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Group by'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        DIMS.map(function(d) {
+          return React.createElement('button', {
+            key:d.id,
+            onClick: function() { setDim(d.id) },
+            style:{
+              background: dim === d.id ? 'var(--ac)' : 'var(--sf2)',
+              color: dim === d.id ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: dim === d.id ? 700 : 400
+            }
+          }, d.label);
+        })
+      ),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Compare'),
+      React.createElement('select', {value: compare, onChange:function(e){setCompare(e.target.value)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}},
+        React.createElement('option', {value:'none'}, 'None'),
+        React.createElement('option', {value:'prior_period'}, 'Prior Period'),
+        React.createElement('option', {value:'prior_year'}, 'Prior Year')
+      ),
+      compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
+      activeFilterCount > 0 ? React.createElement('button', {onClick: clearAllFilters, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'2px 8px', borderRadius:4, fontSize:10, cursor:'pointer', marginLeft:'auto'}}, 'CLEAR ALL FILTERS (' + activeFilterCount + ')') : null
+    ),
+    React.createElement('div', {style:{marginTop:10, display:'grid', gap:6, gridTemplateColumns:'minmax(0,1fr)'}},
+      FILTER_DIMS.map(function(fd) {
+        return React.createElement(MultiPicker, {
+          key: fd.id,
+          dimKey: fd.id,
+          label: fd.label,
+          options: values[fd.id] || [],
+          selected: f[fd.listKey] || [],
+          onAdd: function(v) { addFilter(fd.id, v) },
+          onRemove: function(v) { removeFilter(fd.id, v) }
+        });
+      })
+    )
+  );
+
+  var coverage = tot && tot.cost_coverage_pct != null ? Number(tot.cost_coverage_pct) : null;
+
+  var kpis = React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+    React.createElement(C, {title:'REVENUE', value: fm(tot ? tot.revenue : 0), sub: (tot ? Number(tot.line_count).toLocaleString() : '0') + ' lines'}),
+    React.createElement(C, {title:'INVOICES', value: tot ? Number(tot.invoice_count).toLocaleString() : '-', sub: (tot ? tot.customer_count : '-') + ' customers / ' + (tot ? tot.item_count : '-') + ' items'}),
+    React.createElement(C, {title:'EST. MARGIN', value: tot && tot.est_margin != null ? fm(tot.est_margin) : '—', accent: tot && tot.margin_pct != null ? (Number(tot.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)') : null, sub: tot && tot.margin_pct != null ? fp(tot.margin_pct) + ' margin' : 'awaiting item-cost sync'}),
+    React.createElement(C, {title:'COST COVERAGE', value: coverage != null ? fp(coverage) : '0%', accent: coverage != null && coverage > 0.5 ? 'var(--gn)' : 'var(--am)', sub:'% of revenue with item cost'})
+  );
+
+  var headerLabel = (DIMS.find(function(x){return x.id===dim}) || {label:'Item'}).label;
+  var totRev = (rows || []).reduce(function(s,r){return s + Number(r.revenue || 0)}, 0);
+  var showCompare = compare !== 'none';
+
+  function exportCsv() {
+    if (!rows || !rows.length) return;
+    var cols = ['dim_label','line_count','qty','revenue','avg_price','est_cost','est_margin','margin_pct'];
+    if (showCompare) cols = cols.concat(['prev_revenue','delta_revenue','delta_pct']);
+    var header = [headerLabel,'Lines','Qty','Revenue','Avg Price','Est Cost','Est Margin','Margin %'];
+    if (showCompare) header = header.concat(['Prev Revenue','Δ Revenue','Δ %']);
+    var esc = function(v) {
+      if (v == null) return '';
+      var s = String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    var lines = [header.join(',')];
+    rows.forEach(function(r) {
+      lines.push(cols.map(function(c){ return esc(r[c]) }).join(','));
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/csv'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'margin_' + dim + '_' + f.start + '_to_' + f.end + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  var table = React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'BY ' + headerLabel.toUpperCase() + ' — ' + (rows ? rows.length : 0) + ' ROWS'),
+      React.createElement('div', {style:{display:'flex', gap:10, alignItems:'center'}},
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'click row to drill down'),
+        React.createElement('button', {onClick: exportCsv, disabled: !rows || !rows.length, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'3px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}}, 'EXPORT CSV')
+      )
+    ),
+    loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+    React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+      React.createElement('table', null,
+        React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+          React.createElement('th', null, headerLabel),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+          React.createElement('th', {style:{textAlign:'right'}}, '% of Total'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Avg Price'),
+          showCompare ? React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'Prev Rev') : null,
+          showCompare ? React.createElement('th', {style:{textAlign:'right'}}, 'Δ Rev') : null,
+          showCompare ? React.createElement('th', {style:{textAlign:'right'}}, 'Δ %') : null,
+          React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'Est. Cost'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Est. Margin'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Margin %')
+        )),
+        React.createElement('tbody', null, (rows || []).map(function(r) {
+          var pctTotal = totRev > 0 ? Number(r.revenue || 0) / totRev : 0;
+          var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
+          var dr = r.delta_revenue != null ? Number(r.delta_revenue) : null;
+          var dp = r.delta_pct != null ? Number(r.delta_pct) : null;
+          return React.createElement('tr', {key: r.dim_label, style:{cursor: dim === 'month' ? 'default' : 'pointer'}, onClick: dim === 'month' ? null : function() { drill(r) }},
+            React.createElement('td', {style:{maxWidth:360, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.dim_label),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(r.line_count).toLocaleString()),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.qty != null ? Number(r.qty).toLocaleString(undefined, {maximumFractionDigits:1}) : '-'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fp(pctTotal)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.avg_price != null ? fd(r.avg_price) : '-'),
+            showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color:'var(--mt)'}}, r.prev_revenue != null ? fm(r.prev_revenue) : '—') : null,
+            showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', color: dr == null ? 'var(--mt)' : (dr >= 0 ? 'var(--gn)' : 'var(--rd)')}}, dr != null ? (dr >= 0 ? '+' : '') + fm(dr) : '—') : null,
+            showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', color: dp == null ? 'var(--mt)' : (dp >= 0 ? 'var(--gn)' : 'var(--rd)')}}, dp != null ? (dp >= 0 ? '+' : '') + fp(dp) : '—') : null,
+            React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, r.est_cost != null ? fm(r.est_cost) : '—'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.est_margin != null ? fm(r.est_margin) : '—'),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color: mp == null ? 'var(--mt)' : (mp >= 0.4 ? 'var(--gn)' : (mp >= 0.2 ? 'var(--am)' : 'var(--rd)'))}}, mp != null ? fp(mp) : '—')
+          );
+        }))
+      )
+    )
+  );
+
+  function syncItems() {
+    if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
+    setLoading(true);
+    fetch('/.netlify/functions/sync-qbo-items')
+      .then(function(r) { return r.json() })
+      .then(function(j) {
+        alert(j.ok
+          ? 'Synced ' + j.synced + ' items (' + j.with_purchase_cost + ' with purchase cost). Refreshing…'
+          : 'Sync failed: ' + (j.error || 'unknown'));
+        if (j.ok) setF(Object.assign({}, f)); // re-trigger effect
+        else setLoading(false);
+      })
+      .catch(function(e) { alert('Sync error: ' + e.message); setLoading(false) });
+  }
+
+  var syncFresh = '';
+  if (syncInfo && syncInfo.synced_at) {
+    var ageMin = Math.round((Date.now() - new Date(syncInfo.synced_at).getTime()) / 60000);
+    syncFresh = ageMin < 60 ? ageMin + 'm ago'
+              : ageMin < 1440 ? Math.round(ageMin/60) + 'h ago'
+              : Math.round(ageMin/1440) + 'd ago';
+  } else if (syncInfo) {
+    syncFresh = 'never';
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt', style:{justifyContent:'space-between'}},
+      React.createElement('div', null, 'Margin Analytics ',
+        React.createElement('span', {className:'bg bg-l'}, 'LIVE SALES'),
+        coverage == null || coverage === 0 ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'COSTS PENDING') : null
+      ),
+      React.createElement('div', {style:{display:'flex', gap:10, alignItems:'center'}},
+        syncFresh ? React.createElement('span', {style:{fontSize:10, color:'var(--mt)'}}, 'items: ' + syncFresh) : null,
+        React.createElement('button', {onClick: syncItems, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--ac)', padding:'6px 12px', borderRadius:5, fontSize:11, cursor:'pointer', fontWeight:600, letterSpacing:.5}}, 'SYNC ITEM COSTS')
+      )
+    ),
+    filterBar,
+    kpis,
+    table
+  );
+}
+
+function App() {
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', {className:'tb'},
+      React.createElement('div', {className:'lg'}, 'PACER \u00b7 MARGIN ANALYTICS',
+        React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
+      )
+    ),
+    React.createElement('div', {className:'ma'}, React.createElement(MarginPage))
+  )
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById('root'));
+</script>
+</body>
+</html>

@@ -8,7 +8,7 @@ You are building the PACER Ops Dashboard — an operational KPI platform for PAC
 Supabase (Postgres)          Netlify (this repo)
 ───────────────────          ──────────────────
 ops.* schema (31 tables)     public/         → static HTML (existing billing tool)
-  - QBO invoices (11,843)    public/ops/     → THIS DASHBOARD (React SPA shell exists)
+  - QBO invoices (11,843)    public/sales/   → THIS DASHBOARD (React SPA shell exists)
   - QBO invoice lines (46K)  netlify/functions/ → existing billing + ResQ-SF sync
   - P&L snapshots (1,130)
   - SF delivery stops (297)  Supabase Edge Functions (separate deploy)
@@ -29,9 +29,17 @@ ops.* schema (31 tables)     public/         → static HTML (existing billing t
 - **Netlify site**: linked to this repo, auto-deploys on push to `main`
 - **Publish dir**: `public/`
 
-## Current state of `public/ops/index.html`
+## Current state of `public/sales/index.html`
 
-A single-file React 18 + Babel + Tailwind CDN dashboard shell. It works but is a prototype:
+Single-file React 18 + Babel CDN SPA, scoped to **Margin Minder-style sales analytics only**. Other ops modules (Delivery, Service, Reman, Fleet, HR, Roster) were removed from this dashboard — their data remains in Supabase if a separate dashboard is built later.
+
+- Margin pivot: drill by category, item, customer, month, or entity over `qbo_invoice_lines`
+- Filters: date range, entity, plus row-click drill-down with chip filters
+- Compare: prior period / prior year columns + Δ %
+- Export: CSV of the current pivot
+- Sync: "Sync Item Costs" triggers `netlify/functions/sync-qbo-items` to populate `ops.qbo_items.purchase_cost`, which lights up the est. cost / est. margin / margin % columns
+
+(Old multi-tab content kept here for historical reference:)
 - Executive page: pulls live QBO invoices, P&L snapshots, AR aging, top customers
 - Delivery page: pulls live SF delivery stops, driver summary
 - Service page: pulls live SF service jobs, tech summary
@@ -207,7 +215,7 @@ public/                ← Netlify publish dir
   control.html         ← admin control panel
   sync.html            ← ResQ-SF sync dashboard
   setup.html
-  ops/index.html       ← PACER Ops Dashboard (prototype shell)
+  sales/index.html     ← PACER Ops Dashboard (prototype shell; old /ops/ path 301-redirects here)
 netlify/functions/     ← billing + ResQ-SF functions (DO NOT BREAK)
 netlify.toml           ← build config + function schedules
 package.json

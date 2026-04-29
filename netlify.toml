@@ -28,6 +28,22 @@
 [functions."master-health-cron"]
   timeout = 60
 
+[functions."sync-qbo-items"]
+  timeout = 60
+
+# Old /ops/ path → /sales/ (kept for any saved bookmarks)
+[[redirects]]
+  from = "/ops"
+  to = "/sales/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/ops/*"
+  to = "/sales/:splat"
+  status = 301
+  force = true
+
 [[headers]]
   for = "/*"
   [headers.values]
