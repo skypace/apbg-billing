@@ -1,7 +1,7 @@
 # PACER Ops Dashboard - Quick Reference
 
 ## Live Dashboard
-- **URL**: `/ops/` on your APBG-billing Netlify site
+- **URL**: `/sales/` on your APBG-billing Netlify site (gateway: `alamedapointbg.com/sales`). Old `/ops/` path 301-redirects.
 - **Stack**: React 18 + Tailwind (single HTML, no build step)
 - **Data**: Direct Supabase REST API (ops schema)
 
