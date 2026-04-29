@@ -623,8 +623,27 @@ var NAV = [
 ];
 
 function App() {
-  var ref = React.useState('exec');
+  var validIds = NAV.map(function(n) { return n.id });
+  function pageFromHash() {
+    var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
+    return validIds.indexOf(h) >= 0 ? h : 'exec';
+  }
+  var ref = React.useState(pageFromHash);
   var page = ref[0], setPage = ref[1];
+
+  React.useEffect(function() {
+    function onHash() { setPage(pageFromHash()) }
+    window.addEventListener('hashchange', onHash);
+    return function() { window.removeEventListener('hashchange', onHash) };
+  }, []);
+
+  function navTo(id) {
+    if (id === page) return;
+    if (window.location.hash !== '#' + id) {
+      window.history.replaceState(null, '', '#' + id);
+    }
+    setPage(id);
+  }
 
   var content;
   if (page === 'exec') content = React.createElement(ExecPage);
@@ -642,7 +661,7 @@ function App() {
       React.createElement('div', {className:'lg'}, 'PACER OPS', React.createElement('small', null, 'Operational Dashboard')),
       React.createElement('div', {className:'ns'}, 'Departments'),
       NAV.map(function(n) {
-        return React.createElement('div', {key: n.id, className: 'ni' + (page === n.id ? ' on' : ''), onClick: function() { setPage(n.id) }},
+        return React.createElement('a', {key: n.id, href: '#' + n.id, className: 'ni' + (page === n.id ? ' on' : ''), onClick: function(e) { e.preventDefault(); navTo(n.id) }, style:{textDecoration:'none', color:'inherit'}},
           React.createElement('span', {style:{fontSize:14}}, n.icon),
           React.createElement('span', null, n.label)
         )
