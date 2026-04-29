@@ -79,16 +79,82 @@ function C(props) {
   )
 }
 
+function MultiPicker(props) {
+  var qState = React.useState('');
+  var query = qState[0], setQuery = qState[1];
+  var oState = React.useState(false);
+  var open = oState[0], setOpen = oState[1];
+  var hostRef = React.useRef(null);
+
+  React.useEffect(function() {
+    function onDoc(e) {
+      if (hostRef.current && !hostRef.current.contains(e.target)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', onDoc);
+      return function() { document.removeEventListener('mousedown', onDoc) };
+    }
+  }, [open]);
+
+  var q = query.toLowerCase();
+  var selectedSet = {};
+  (props.selected || []).forEach(function(s) { selectedSet[s] = true });
+  var matches = (props.options || []).filter(function(opt) {
+    if (selectedSet[opt]) return false;
+    if (!q) return true;
+    return opt && opt.toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 50);
+
+  return React.createElement('div', {ref: hostRef, style:{display:'flex', alignItems:'flex-start', gap:8, position:'relative'}},
+    React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, fontSize:10, minWidth:70, paddingTop:6}}, props.label),
+    React.createElement('div', {style:{flex:1, display:'flex', flexWrap:'wrap', gap:4, alignItems:'center', minHeight:28, background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, padding:'3px 6px'}},
+      (props.selected || []).map(function(v) {
+        return React.createElement('span', {key:v, style:{background:'var(--bg)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:10, fontSize:11, display:'inline-flex', alignItems:'center', gap:5}},
+          React.createElement('span', null, v.length > 36 ? v.substring(0,36) + '…' : v),
+          React.createElement('span', {style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function() { props.onRemove(v) }}, '×')
+        );
+      }),
+      React.createElement('input', {
+        type:'text',
+        value: query,
+        onChange: function(e) { setQuery(e.target.value); setOpen(true) },
+        onFocus: function() { setOpen(true) },
+        onKeyDown: function(e) {
+          if (e.key === 'Escape') setOpen(false);
+          else if (e.key === 'Enter' && matches.length) { props.onAdd(matches[0]); setQuery(''); }
+          else if (e.key === 'Backspace' && !query && (props.selected || []).length) {
+            props.onRemove(props.selected[props.selected.length - 1]);
+          }
+        },
+        placeholder: (props.selected && props.selected.length) ? '' : ('+ add ' + props.label.toLowerCase()),
+        style:{background:'transparent', border:'none', outline:'none', color:'var(--tx)', fontSize:11, padding:'2px 4px', minWidth:140, flex:1}
+      })
+    ),
+    open && matches.length ? React.createElement('div', {style:{position:'absolute', top:'100%', left:78, right:0, background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:4, marginTop:2, maxHeight:240, overflow:'auto', zIndex:30, boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}},
+      matches.map(function(m) {
+        return React.createElement('div', {
+          key: m,
+          onMouseDown: function(e) { e.preventDefault(); props.onAdd(m); setQuery(''); },
+          style:{padding:'5px 9px', fontSize:11, cursor:'pointer', borderBottom:'1px solid var(--bd)'}
+        }, m);
+      })
+    ) : null
+  );
+}
+
 function MarginPage() {
   var today = new Date();
   var ytdStart = today.getFullYear() + '-01-01';
   var todayStr = today.toISOString().slice(0,10);
 
-  var fState = React.useState({start: ytdStart, end: todayStr, entity: null, category: null, customer: null, item: null});
+  var fState = React.useState({
+    start: ytdStart, end: todayStr,
+    entities: [], categories: [], customers: [], items: []
+  });
   var f = fState[0], setF = fState[1];
   var dState = React.useState('category');
   var dim = dState[0], setDim = dState[1];
-  var cmpState = React.useState('none'); // 'none' | 'prior_period' | 'prior_year'
+  var cmpState = React.useState('none');
   var compare = cmpState[0], setCompare = cmpState[1];
   var rState = React.useState(null);
   var rows = rState[0], setRows = rState[1];
@@ -98,6 +164,8 @@ function MarginPage() {
   var loading = lState[0], setLoading = lState[1];
   var syncState = React.useState(null);
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: []});
+  var values = dimVals[0], setValues = dimVals[1];
 
   function computePrev(start, end, mode) {
     if (mode === 'none') return [null, null];
@@ -107,7 +175,6 @@ function MarginPage() {
       var pe = new Date(e); pe.setFullYear(pe.getFullYear() - 1);
       return [ps.toISOString().slice(0,10), pe.toISOString().slice(0,10)];
     }
-    // prior_period: shift back by (end - start + 1) days
     var span = Math.round((e - s) / 86400000) + 1;
     var pe2 = new Date(s); pe2.setDate(pe2.getDate() - 1);
     var ps2 = new Date(pe2); ps2.setDate(ps2.getDate() - span + 1);
@@ -119,8 +186,10 @@ function MarginPage() {
     setLoading(true);
     var args = {
       p_start: f.start, p_end: f.end,
-      p_entity: f.entity, p_category: f.category,
-      p_customer: f.customer, p_item: f.item
+      p_entities: f.entities.length ? f.entities : null,
+      p_categories: f.categories.length ? f.categories : null,
+      p_customers: f.customers.length ? f.customers : null,
+      p_items: f.items.length ? f.items : null
     };
     var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
     if (compare !== 'none') {
@@ -136,7 +205,7 @@ function MarginPage() {
       setTot((res[1] && res[1][0]) || null);
       setLoading(false);
     });
-  }, [dim, compare, f.start, f.end, f.entity, f.category, f.customer, f.item]);
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|')]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
@@ -146,17 +215,37 @@ function MarginPage() {
       });
   }, []);
 
-  function setFilter(key, val) { var n = Object.assign({}, f); n[key] = val; setF(n); }
-  function clearFilter(key) { setFilter(key, null); }
+  // Pre-fetch distinct values for each dim once we know the date range
+  React.useEffect(function() {
+    var dims = ['entity','category','customer','item'];
+    Promise.all(dims.map(function(d) {
+      return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
+    })).then(function(res) {
+      var v = {};
+      dims.forEach(function(d, i) {
+        v[d] = (res[i] || []).map(function(r) { return r.label });
+      });
+      setValues(v);
+    });
+  }, [f.start, f.end]);
+
+  function addFilter(dimKey, label) {
+    var listKey = dimKey + 's';
+    if (!label) return;
+    var cur = f[listKey] || [];
+    if (cur.indexOf(label) >= 0) return;
+    var n = Object.assign({}, f); n[listKey] = cur.concat([label]); setF(n);
+  }
+  function removeFilter(dimKey, label) {
+    var listKey = dimKey + 's';
+    var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
+  }
+  function clearAllFilters() {
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[]}));
+  }
   function drill(row) {
-    // When clicking a row, set the corresponding filter, then move dim down the hierarchy
-    var hierarchy = ['entity', 'category', 'customer', 'item'];
-    var next = {category: 'customer', customer: 'item', entity: 'category', item: 'month', month: 'item'};
-    if (dim === 'category') setFilter('category', row.dim_label);
-    else if (dim === 'customer') setFilter('customer', row.dim_label);
-    else if (dim === 'item') setFilter('item', row.dim_label);
-    else if (dim === 'entity') setFilter('entity', row.dim_label);
-    setDim(next[dim] || 'item');
+    if (dim === 'month') return;
+    addFilter(dim, row.dim_label);
   }
 
   var DIMS = [
@@ -166,26 +255,21 @@ function MarginPage() {
     {id:'month', label:'Month'},
     {id:'entity', label:'Entity'}
   ];
+  var FILTER_DIMS = [
+    {id:'category', label:'Categories', listKey:'categories'},
+    {id:'item', label:'Items', listKey:'items'},
+    {id:'customer', label:'Customers', listKey:'customers'},
+    {id:'entity', label:'Entities', listKey:'entities'}
+  ];
 
-  var activeChips = [];
-  ['entity','category','customer','item'].forEach(function(k) {
-    if (f[k]) activeChips.push({k:k, v:f[k]});
-  });
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length;
 
   var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
     React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'From'),
-      React.createElement('input', {type:'date', value:f.start, onChange:function(e){setFilter('start', e.target.value)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
+      React.createElement('input', {type:'date', value:f.start, onChange:function(e){setF(Object.assign({}, f, {start:e.target.value}))}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'To'),
-      React.createElement('input', {type:'date', value:f.end, onChange:function(e){setFilter('end', e.target.value)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
-      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Entity'),
-      React.createElement('select', {value: f.entity || '', onChange:function(e){setFilter('entity', e.target.value || null)}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}},
-        React.createElement('option', {value:''}, 'All'),
-        React.createElement('option', {value:'brix'}, 'Brix / AS'),
-        React.createElement('option', {value:'AS'}, 'AS'),
-        React.createElement('option', {value:'freeflow'}, 'FreeFlow'),
-        React.createElement('option', {value:'FF'}, 'FF')
-      ),
+      React.createElement('input', {type:'date', value:f.end, onChange:function(e){setF(Object.assign({}, f, {end:e.target.value}))}, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11}}),
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Group by'),
       React.createElement('div', {style:{display:'inline-flex', gap:4}},
         DIMS.map(function(d) {
@@ -207,19 +291,22 @@ function MarginPage() {
         React.createElement('option', {value:'prior_period'}, 'Prior Period'),
         React.createElement('option', {value:'prior_year'}, 'Prior Year')
       ),
-      compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null
+      compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
+      activeFilterCount > 0 ? React.createElement('button', {onClick: clearAllFilters, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'2px 8px', borderRadius:4, fontSize:10, cursor:'pointer', marginLeft:'auto'}}, 'CLEAR ALL FILTERS (' + activeFilterCount + ')') : null
     ),
-    activeChips.length > 0 ? React.createElement('div', {style:{marginTop:8, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}},
-      React.createElement('span', {style:{color:'var(--mt)', fontSize:10, textTransform:'uppercase', letterSpacing:1}}, 'Filters:'),
-      activeChips.map(function(c) {
-        return React.createElement('span', {key:c.k, style:{background:'var(--sf2)', border:'1px solid var(--bd)', padding:'3px 8px', borderRadius:12, fontSize:11, display:'inline-flex', alignItems:'center', gap:6}},
-          React.createElement('span', {style:{color:'var(--mt)'}}, c.k + ':'),
-          React.createElement('span', null, c.v.length > 32 ? c.v.substring(0,32) + '…' : c.v),
-          React.createElement('span', {style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function() { clearFilter(c.k) }}, ' ×')
-        );
-      }),
-      React.createElement('button', {onClick: function() { setF(Object.assign({}, f, {entity:null, category:null, customer:null, item:null})); setDim('category') }, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'2px 8px', borderRadius:4, fontSize:10, cursor:'pointer', marginLeft:6}}, 'CLEAR ALL')
-    ) : null
+    React.createElement('div', {style:{marginTop:10, display:'grid', gap:6, gridTemplateColumns:'minmax(0,1fr)'}},
+      FILTER_DIMS.map(function(fd) {
+        return React.createElement(MultiPicker, {
+          key: fd.id,
+          dimKey: fd.id,
+          label: fd.label,
+          options: values[fd.id] || [],
+          selected: f[fd.listKey] || [],
+          onAdd: function(v) { addFilter(fd.id, v) },
+          onRemove: function(v) { removeFilter(fd.id, v) }
+        });
+      })
+    )
   );
 
   var coverage = tot && tot.cost_coverage_pct != null ? Number(tot.cost_coverage_pct) : null;
