@@ -509,14 +509,17 @@ function renderReview(report) {
   const list = document.getElementById('reviewList');
   const count = document.getElementById('reviewCount');
 
-  if (items.length === 0) {
-    section.style.display = 'none';
-    return;
-  }
-
+  // Always visible so users can confirm the section loaded and see the all-clear state.
   section.style.display = 'block';
   count.textContent = items.length;
   count.className = 'review-count' + (items.length === 0 ? ' zero' : '');
+
+  if (items.length === 0) {
+    list.innerHTML = `<div class="empty" style="padding:20px;color:#059669">
+      ✓ All clear — no work orders need manual review.
+    </div>`;
+    return;
+  }
 
   const reasonLabel = {
     duplicates_no_progressed: 'Duplicates',
