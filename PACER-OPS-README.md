@@ -1,9 +1,10 @@
-# PACER Ops Dashboard - Quick Reference
+# PACER Margin Analytics - Quick Reference
 
 ## Live Dashboard
 - **URL**: `/sales/` on your APBG-billing Netlify site (gateway: `alamedapointbg.com/sales`). Old `/ops/` path 301-redirects.
-- **Stack**: React 18 + Tailwind (single HTML, no build step)
-- **Data**: Direct Supabase REST API (ops schema)
+- **Scope**: Margin-Minder-style sales/margin pivot — drill by category, item, customer, month, or entity, with prior-period / YoY comparison and CSV export.
+- **Stack**: React 18 single-file SPA (no build step). Aggregation lives in Postgres RPCs (`ops.fn_sales_pivot`, `ops.fn_sales_pivot_compare`, `ops.fn_sales_totals`) on top of `ops.v_sales_lines`.
+- **Data**: Direct Supabase REST API (ops schema). Item costs populated by `netlify/functions/sync-qbo-items.mjs` (manual trigger via the "Sync Item Costs" button).
 
 ## Supabase Project
 - **ID**: `gfsdpwiqzshhexkofiif` (APBG-BILLING)
@@ -73,11 +74,10 @@
 - `fleet_daily` (0) - Legacy fleet summary (replaced by fleet_trips)
 - `sync_log` (550) - Audit trail for all syncs
 
-## Remaining Build Items for Claude Code
-1. Wire FleetComplete API sync edge function
-2. Add qbo_expenses to sync-qbo edge function
-3. Build KPI rollup pg_cron function
-4. Upgrade dashboard from single HTML to Next.js app
-5. Add roster CRUD (add/edit/deactivate staff)
-6. Add HR data entry forms or BambooHR API sync
-7. Implement auth (Supabase Auth or simple password)
+## Remaining Build Items
+1. Bills/POs sync into `ops.qbo_expenses` to replace static `Item.PurchaseCost` with weighted-avg actual landed cost
+2. Per-row monthly sparkline column in the pivot
+3. Auth gate (Supabase Auth or shared password) before exposing through the public gateway
+4. Salesperson dimension once that field is populated upstream
+
+(Other ops modules — Delivery, Service, Reman, Fleet, HR, Roster — were removed from this dashboard's scope. Tables remain in Supabase if a separate dashboard is built later.)

@@ -31,7 +31,15 @@ ops.* schema (31 tables)     public/         → static HTML (existing billing t
 
 ## Current state of `public/sales/index.html`
 
-A single-file React 18 + Babel + Tailwind CDN dashboard shell. It works but is a prototype:
+Single-file React 18 + Babel CDN SPA, scoped to **Margin Minder-style sales analytics only**. Other ops modules (Delivery, Service, Reman, Fleet, HR, Roster) were removed from this dashboard — their data remains in Supabase if a separate dashboard is built later.
+
+- Margin pivot: drill by category, item, customer, month, or entity over `qbo_invoice_lines`
+- Filters: date range, entity, plus row-click drill-down with chip filters
+- Compare: prior period / prior year columns + Δ %
+- Export: CSV of the current pivot
+- Sync: "Sync Item Costs" triggers `netlify/functions/sync-qbo-items` to populate `ops.qbo_items.purchase_cost`, which lights up the est. cost / est. margin / margin % columns
+
+(Old multi-tab content kept here for historical reference:)
 - Executive page: pulls live QBO invoices, P&L snapshots, AR aging, top customers
 - Delivery page: pulls live SF delivery stops, driver summary
 - Service page: pulls live SF service jobs, tech summary
