@@ -84,17 +84,22 @@ function MultiPicker(props) {
   var query = qState[0], setQuery = qState[1];
   var oState = React.useState(false);
   var open = oState[0], setOpen = oState[1];
-  var hostRef = React.useRef(null);
+  var wrapRef = React.useRef(null);
 
   React.useEffect(function() {
+    if (!open) return;
     function onDoc(e) {
-      if (hostRef.current && !hostRef.current.contains(e.target)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
     }
-    if (open) {
-      document.addEventListener('mousedown', onDoc);
-      return function() { document.removeEventListener('mousedown', onDoc) };
-    }
+    document.addEventListener('mousedown', onDoc);
+    return function() { document.removeEventListener('mousedown', onDoc) };
   }, [open]);
+
+  function pick(m) {
+    if (!m) return;
+    props.onAdd(m);
+    setQuery('');
+  }
 
   var q = query.toLowerCase();
   var selectedSet = {};
@@ -103,42 +108,57 @@ function MultiPicker(props) {
     if (selectedSet[opt]) return false;
     if (!q) return true;
     return opt && opt.toLowerCase().indexOf(q) >= 0;
-  }).slice(0, 50);
+  });
+  var truncated = matches.length > 80;
+  var shown = matches.slice(0, 80);
+  var optionsLoaded = (props.options || []).length > 0;
 
-  return React.createElement('div', {ref: hostRef, style:{display:'flex', alignItems:'flex-start', gap:8, position:'relative'}},
-    React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, fontSize:10, minWidth:70, paddingTop:6}}, props.label),
-    React.createElement('div', {style:{flex:1, display:'flex', flexWrap:'wrap', gap:4, alignItems:'center', minHeight:28, background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, padding:'3px 6px'}},
-      (props.selected || []).map(function(v) {
-        return React.createElement('span', {key:v, style:{background:'var(--bg)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:10, fontSize:11, display:'inline-flex', alignItems:'center', gap:5}},
-          React.createElement('span', null, v.length > 36 ? v.substring(0,36) + '…' : v),
-          React.createElement('span', {style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function() { props.onRemove(v) }}, '×')
-        );
-      }),
-      React.createElement('input', {
-        type:'text',
-        value: query,
-        onChange: function(e) { setQuery(e.target.value); setOpen(true) },
-        onFocus: function() { setOpen(true) },
-        onKeyDown: function(e) {
-          if (e.key === 'Escape') setOpen(false);
-          else if (e.key === 'Enter' && matches.length) { props.onAdd(matches[0]); setQuery(''); }
-          else if (e.key === 'Backspace' && !query && (props.selected || []).length) {
-            props.onRemove(props.selected[props.selected.length - 1]);
-          }
-        },
-        placeholder: (props.selected && props.selected.length) ? '' : ('+ add ' + props.label.toLowerCase()),
-        style:{background:'transparent', border:'none', outline:'none', color:'var(--tx)', fontSize:11, padding:'2px 4px', minWidth:140, flex:1}
-      })
-    ),
-    open && matches.length ? React.createElement('div', {style:{position:'absolute', top:'100%', left:78, right:0, background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:4, marginTop:2, maxHeight:240, overflow:'auto', zIndex:30, boxShadow:'0 4px 16px rgba(0,0,0,0.4)'}},
-      matches.map(function(m) {
-        return React.createElement('div', {
-          key: m,
-          onMouseDown: function(e) { e.preventDefault(); props.onAdd(m); setQuery(''); },
-          style:{padding:'5px 9px', fontSize:11, cursor:'pointer', borderBottom:'1px solid var(--bd)'}
-        }, m);
-      })
-    ) : null
+  return React.createElement('div', {style:{display:'flex', alignItems:'flex-start', gap:8}},
+    React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, fontSize:10, minWidth:70, paddingTop:6}}, props.label + (props.selected && props.selected.length ? ' (' + props.selected.length + ')' : '')),
+    React.createElement('div', {ref: wrapRef, style:{flex:1, position:'relative'}},
+      React.createElement('div', {style:{display:'flex', flexWrap:'wrap', gap:4, alignItems:'center', minHeight:28, background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, padding:'3px 6px', cursor:'text'}, onClick: function(e) {
+          var inp = e.currentTarget.querySelector('input'); if (inp) inp.focus();
+        }},
+        (props.selected || []).map(function(v) {
+          return React.createElement('span', {key:v, style:{background:'var(--bg)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:10, fontSize:11, display:'inline-flex', alignItems:'center', gap:5, maxWidth:'100%'}},
+            React.createElement('span', {style:{whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:280}}, v),
+            React.createElement('span', {role:'button', style:{cursor:'pointer', color:'var(--mt)', fontWeight:700}, onClick: function(e) { e.stopPropagation(); props.onRemove(v) }}, '×')
+          );
+        }),
+        React.createElement('input', {
+          type:'text',
+          value: query,
+          onChange: function(e) { setQuery(e.target.value); setOpen(true) },
+          onFocus: function() { setOpen(true) },
+          onKeyDown: function(e) {
+            if (e.key === 'Escape') { setOpen(false); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (shown.length) pick(shown[0]); }
+            else if (e.key === 'Backspace' && !query && (props.selected || []).length) {
+              props.onRemove(props.selected[props.selected.length - 1]);
+            }
+          },
+          placeholder: (props.selected && props.selected.length) ? '' : (optionsLoaded ? ('+ add ' + props.label.toLowerCase()) : 'loading…'),
+          style:{background:'transparent', border:'none', outline:'none', color:'var(--tx)', fontSize:11, padding:'2px 4px', minWidth:160, flex:1}
+        })
+      ),
+      open ? React.createElement('div', {style:{position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:4, maxHeight:280, overflow:'auto', zIndex:50, boxShadow:'0 6px 20px rgba(0,0,0,0.5)'}},
+        !optionsLoaded ? React.createElement('div', {style:{padding:'8px 10px', fontSize:11, color:'var(--mt)'}}, 'Loading list…')
+        : shown.length === 0 ? React.createElement('div', {style:{padding:'8px 10px', fontSize:11, color:'var(--mt)'}}, query ? 'No matches' : 'All values selected')
+        : [].concat(
+            shown.map(function(m) {
+              return React.createElement('div', {
+                key: m,
+                onMouseDown: function(e) { e.preventDefault(); pick(m); },
+                onClick: function(e) { e.preventDefault(); pick(m); },
+                style:{padding:'5px 9px', fontSize:11, cursor:'pointer', borderBottom:'1px solid var(--bd)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'},
+                onMouseEnter: function(e) { e.currentTarget.style.background = 'var(--sf2)' },
+                onMouseLeave: function(e) { e.currentTarget.style.background = '' }
+              }, m);
+            }),
+            truncated ? [React.createElement('div', {key:'__more', style:{padding:'5px 9px', fontSize:10, color:'var(--mt)', fontStyle:'italic'}}, '+ ' + (matches.length - 80) + ' more — keep typing to narrow')] : []
+          )
+      ) : null
+    )
   );
 }
 
