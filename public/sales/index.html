@@ -169,7 +169,7 @@ function MarginPage() {
 
   var fState = React.useState({
     start: ytdStart, end: todayStr,
-    entities: [], categories: [], customers: [], items: [], channels: []
+    entities: [], categories: [], customers: [], items: [], channels: [], segments: []
   });
   var f = fState[0], setF = fState[1];
   var dState = React.useState('category');
@@ -184,7 +184,7 @@ function MarginPage() {
   var loading = lState[0], setLoading = lState[1];
   var syncState = React.useState(null);
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
-  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: []});
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: []});
   var values = dimVals[0], setValues = dimVals[1];
 
   function computePrev(start, end, mode) {
@@ -210,7 +210,8 @@ function MarginPage() {
       p_categories: f.categories.length ? f.categories : null,
       p_customers: f.customers.length ? f.customers : null,
       p_items: f.items.length ? f.items : null,
-      p_channels: f.channels.length ? f.channels : null
+      p_channels: f.channels.length ? f.channels : null,
+      p_segments: f.segments.length ? f.segments : null
     };
     var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
     if (compare !== 'none') {
@@ -226,7 +227,7 @@ function MarginPage() {
       setTot((res[1] && res[1][0]) || null);
       setLoading(false);
     });
-  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|')]);
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|'), f.segments.join('|')]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
@@ -238,7 +239,7 @@ function MarginPage() {
 
   // Pre-fetch distinct values for each dim once we know the date range
   React.useEffect(function() {
-    var dims = ['entity','category','customer','item','channel'];
+    var dims = ['entity','category','customer','item','channel','segment'];
     Promise.all(dims.map(function(d) {
       return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
     })).then(function(res) {
@@ -262,7 +263,7 @@ function MarginPage() {
     var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
   }
   function clearAllFilters() {
-    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[]}));
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[], segments:[]}));
   }
   function drill(row) {
     if (dim === 'month') return;
@@ -270,14 +271,16 @@ function MarginPage() {
   }
 
   var DIMS = [
+    {id:'segment', label:'Segment'},
+    {id:'channel', label:'Channel'},
     {id:'category', label:'Category'},
     {id:'item', label:'Item'},
     {id:'customer', label:'Customer'},
-    {id:'channel', label:'Channel'},
     {id:'month', label:'Month'},
     {id:'entity', label:'Entity'}
   ];
   var FILTER_DIMS = [
+    {id:'segment', label:'Segments', listKey:'segments'},
     {id:'channel', label:'Channels', listKey:'channels'},
     {id:'category', label:'Categories', listKey:'categories'},
     {id:'item', label:'Items', listKey:'items'},
@@ -285,7 +288,7 @@ function MarginPage() {
     {id:'entity', label:'Entities', listKey:'entities'}
   ];
 
-  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length;
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length + f.segments.length;
 
   var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
     React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
