@@ -19,13 +19,12 @@ const ACCOUNT_MAP = {
 const DEFAULT_ACCOUNT = ACCOUNT_MAP.service;
 
 // QBO customer name to attach to bills coming from each ResQ facility.
-// Bills for ResQ-tracked jobs MUST attach to one of these so QBO can
-// roll costs up by customer. The keys match the customer keys stored
-// on each wo-mapping entry (set by classifyFacility in resq-sf-sync-background.mjs).
+// Only facilities listed here trigger the customer attachment; bills for
+// other facilities (e.g. Brix warehouse) are still created but without
+// a CustomerRef, matching pre-feature behavior.
 const RESQ_CUSTOMER_MAP = {
   starbird: 'STARBIRD: RESQ',
   melt:     'THE MELT RESQ',
-  brix:     'BRIX BEVERAGE: RESQ',
 };
 
 export async function handler(event) {
@@ -158,23 +157,13 @@ Rules:
     }
 
     // ── 2b. Resolve QBO customer the bill should attach to ──
-    // ResQ-imported bills must always attach to a ResQ customer in QBO so costs
-    // roll up correctly per customer.
+    // Only Starbird and Melt jobs auto-attach a QBO customer. Bills for any
+    // other facility (Brix warehouse, unmapped receipts, etc.) are still
+    // created — just without a CustomerRef.
     const customerResult = await resolveResqCustomer({ sfJobId, resqCode });
-    if (!customerResult) {
-      return {
-        statusCode: 200,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          needsCustomer: true,
-          extracted,
-          vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
-          message: `Could not determine which QBO customer this bill belongs to (SF Job #${sfJobId} / ResQ ${resqCode || 'unknown'}). Confirm the SF job is linked to a Starbird, Melt, or Brix facility.`,
-        }),
-      };
-    }
-    if (!customerResult.qboCustomer) {
+    if (customerResult.qboName && !customerResult.qboCustomer) {
+      // We identified a facility we DO want to attach (Starbird or Melt) but
+      // the QBO customer doesn't exist. Block bill creation so the user fixes it.
       return {
         statusCode: 200,
         headers: corsHeaders(),
@@ -191,7 +180,7 @@ Rules:
     // ── 3. Create QBO bill ──
     const billResult = await createQBOBill({
       vendor: qboVendor,
-      customer: customerResult.qboCustomer,
+      customer: customerResult.qboCustomer || null,
       extracted,
       sfJobId,
       resqCode,
@@ -204,9 +193,13 @@ Rules:
         success: true,
         extracted,
         vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
-        customer: { id: customerResult.qboCustomer.Id, name: customerResult.qboCustomer.DisplayName },
+        customer: customerResult.qboCustomer
+          ? { id: customerResult.qboCustomer.Id, name: customerResult.qboCustomer.DisplayName }
+          : null,
         bill: billResult,
-        message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName} → ${customerResult.qboCustomer.DisplayName} — $${billResult.total.toFixed(2)}`,
+        message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName}` +
+          (customerResult.qboCustomer ? ` → ${customerResult.qboCustomer.DisplayName}` : '') +
+          ` — $${billResult.total.toFixed(2)}`,
       }),
     };
 
@@ -375,7 +368,11 @@ async function resolveResqCustomer({ sfJobId, resqCode }) {
     } catch (e) { /* fall through */ }
   }
 
-  if (!key || !RESQ_CUSTOMER_MAP[key]) return null;
+  // Facility not in the auto-attach list (or unknown) — return a "no attachment"
+  // result. The handler will create the bill without a CustomerRef.
+  if (!key || !RESQ_CUSTOMER_MAP[key]) {
+    return { key, qboName: null, qboCustomer: null };
+  }
 
   const qboName = RESQ_CUSTOMER_MAP[key];
   const qboCustomer = await findQBOCustomer(qboName);
