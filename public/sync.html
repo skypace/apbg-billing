@@ -940,6 +940,11 @@ async function doScanReceipt() {
       resultEl.style.display = 'block';
       // Load QBO vendors for picker
       loadQBOVendors();
+    } else if (data.needsCustomer) {
+      // ResQ customer couldn't be resolved or doesn't exist in QBO — bill blocked.
+      resultEl.className = 'scan-result err';
+      resultEl.innerHTML = `❌ ${data.message}` + renderExtracted(data.extracted);
+      resultEl.style.display = 'block';
     } else if (data.success) {
       resultEl.className = 'scan-result ok';
       resultEl.innerHTML = `✅ ${data.message}` + renderExtracted(data.extracted);
