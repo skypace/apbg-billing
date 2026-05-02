@@ -169,7 +169,7 @@ function MarginPage() {
 
   var fState = React.useState({
     start: ytdStart, end: todayStr,
-    entities: [], categories: [], customers: [], items: []
+    entities: [], categories: [], customers: [], items: [], channels: []
   });
   var f = fState[0], setF = fState[1];
   var dState = React.useState('category');
@@ -184,7 +184,7 @@ function MarginPage() {
   var loading = lState[0], setLoading = lState[1];
   var syncState = React.useState(null);
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
-  var dimVals = React.useState({entity: [], category: [], customer: [], item: []});
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: []});
   var values = dimVals[0], setValues = dimVals[1];
 
   function computePrev(start, end, mode) {
@@ -209,7 +209,8 @@ function MarginPage() {
       p_entities: f.entities.length ? f.entities : null,
       p_categories: f.categories.length ? f.categories : null,
       p_customers: f.customers.length ? f.customers : null,
-      p_items: f.items.length ? f.items : null
+      p_items: f.items.length ? f.items : null,
+      p_channels: f.channels.length ? f.channels : null
     };
     var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
     if (compare !== 'none') {
@@ -225,7 +226,7 @@ function MarginPage() {
       setTot((res[1] && res[1][0]) || null);
       setLoading(false);
     });
-  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|')]);
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|')]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
@@ -237,7 +238,7 @@ function MarginPage() {
 
   // Pre-fetch distinct values for each dim once we know the date range
   React.useEffect(function() {
-    var dims = ['entity','category','customer','item'];
+    var dims = ['entity','category','customer','item','channel'];
     Promise.all(dims.map(function(d) {
       return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
     })).then(function(res) {
@@ -261,7 +262,7 @@ function MarginPage() {
     var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
   }
   function clearAllFilters() {
-    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[]}));
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[]}));
   }
   function drill(row) {
     if (dim === 'month') return;
@@ -272,17 +273,19 @@ function MarginPage() {
     {id:'category', label:'Category'},
     {id:'item', label:'Item'},
     {id:'customer', label:'Customer'},
+    {id:'channel', label:'Channel'},
     {id:'month', label:'Month'},
     {id:'entity', label:'Entity'}
   ];
   var FILTER_DIMS = [
+    {id:'channel', label:'Channels', listKey:'channels'},
     {id:'category', label:'Categories', listKey:'categories'},
     {id:'item', label:'Items', listKey:'items'},
     {id:'customer', label:'Customers', listKey:'customers'},
     {id:'entity', label:'Entities', listKey:'entities'}
   ];
 
-  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length;
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length;
 
   var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
     React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
@@ -460,14 +463,226 @@ function MarginPage() {
   );
 }
 
+function CustomersPage() {
+  var sState = React.useState('');
+  var search = sState[0], setSearch = sState[1];
+  var fState = React.useState('');     // '' | 'unassigned' | <channel label>
+  var chFilter = fState[0], setChFilter = fState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var lState = React.useState(false);
+  var loading = lState[0], setLoading = lState[1];
+  var savingState = React.useState({});
+  var saving = savingState[0], setSaving = savingState[1];
+  var chOptsState = React.useState([]);
+  var chOpts = chOptsState[0], setChOpts = chOptsState[1];
+
+  React.useEffect(function() {
+    sbq('channels', 'select=label&is_active=eq.true&order=sort_order')
+      .then(function(rs) { setChOpts((rs || []).map(function(r){return r.label})) });
+  }, []);
+
+  function reload() {
+    setLoading(true);
+    sbrpc('fn_customer_classification_list', {
+      p_search: search || null,
+      p_channel: chFilter || null,
+      p_start: '2025-01-01',
+      p_end: new Date().toISOString().slice(0,10),
+      p_limit: 300,
+      p_offset: 0
+    }).then(function(rs) { setRows(rs || []); setLoading(false) });
+  }
+
+  React.useEffect(reload, []);
+  React.useEffect(function() {
+    var t = setTimeout(reload, 300);
+    return function(){ clearTimeout(t) };
+  }, [search, chFilter]);
+
+  function saveChannels(custId, labels, primaryLabel) {
+    setSaving(function(prev){ var n = Object.assign({}, prev); n[custId] = true; return n });
+    sbrpc('fn_set_customer_channels', {
+      p_qbo_customer_id: custId,
+      p_channel_labels: labels,
+      p_primary_label: primaryLabel || null
+    }).then(function() {
+      setRows(function(prev) {
+        return (prev || []).map(function(r) {
+          if (r.qbo_customer_id !== custId) return r;
+          return Object.assign({}, r, {channels: labels, primary_channel: primaryLabel});
+        });
+      });
+    }).finally(function() {
+      setSaving(function(prev){ var n = Object.assign({}, prev); delete n[custId]; return n });
+    });
+  }
+
+  var counts = { total: rows ? rows.length : 0, classified: 0, revenue_classified: 0, revenue_unclassified: 0 };
+  (rows || []).forEach(function(r) {
+    if (r.channels && r.channels.length) { counts.classified++; counts.revenue_classified += Number(r.ytd_revenue || 0) }
+    else { counts.revenue_unclassified += Number(r.ytd_revenue || 0) }
+  });
+
+  var FILTER_PILLS = [
+    {label:'All', value:''},
+    {label:'Unassigned', value:'unassigned'}
+  ].concat(chOpts.map(function(c){return {label:c, value:c}}));
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Customer Channels ',
+      React.createElement('span', {className:'bg bg-l'}, 'CLASSIFY')
+    ),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'CUSTOMERS SHOWN', value: counts.total}),
+      React.createElement(C, {title:'CLASSIFIED', value: counts.classified, accent: counts.classified > 0 ? 'var(--gn)' : null, sub: counts.total ? Math.round(100 * counts.classified / counts.total) + '% of shown' : '0%'}),
+      React.createElement(C, {title:'REVENUE CLASSIFIED', value: fm(counts.revenue_classified), sub: 'YTD'}),
+      React.createElement(C, {title:'REVENUE UNCLASSIFIED', value: fm(counts.revenue_unclassified), accent: 'var(--am)', sub: 'click rows below to fix'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}},
+      React.createElement('input', {
+        type:'text', value: search, onChange: function(e){ setSearch(e.target.value) },
+        placeholder:'Search customer name\u2026',
+        style:{flex:'1 1 240px', minWidth:200, background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'6px 10px', borderRadius:4, fontSize:12}
+      }),
+      React.createElement('div', {style:{display:'flex', gap:4, flexWrap:'wrap'}},
+        FILTER_PILLS.map(function(p) {
+          var on = chFilter === p.value;
+          return React.createElement('button', {
+            key: p.value || 'all',
+            onClick: function(){ setChFilter(p.value) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, p.label);
+        })
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      loading ? React.createElement('div', {className:'ld'}, 'Loading\u2026') :
+      React.createElement('div', {style:{maxHeight:'68vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', {style:{textAlign:'right', whiteSpace:'nowrap'}}, 'YTD Rev'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Inv'),
+            React.createElement('th', null, 'Channels'),
+            React.createElement('th', null, 'Primary')
+          )),
+          React.createElement('tbody', null, (rows || []).map(function(r) {
+            return React.createElement(CustomerRow, {
+              key: r.qbo_customer_id,
+              row: r,
+              chOpts: chOpts,
+              isSaving: !!saving[r.qbo_customer_id],
+              onSave: saveChannels
+            });
+          }))
+        )
+      )
+    )
+  );
+}
+
+function CustomerRow(props) {
+  var r = props.row;
+  var labels = r.channels || [];
+  var primary = r.primary_channel || (labels[0] || null);
+
+  function setLabels(newLabels, newPrimary) {
+    var p = newPrimary;
+    if (p && newLabels.indexOf(p) < 0) p = newLabels[0] || null;
+    props.onSave(r.qbo_customer_id, newLabels, p);
+  }
+
+  return React.createElement('tr', {style:{opacity: props.isSaving ? 0.6 : 1}},
+    React.createElement('td', null,
+      React.createElement('div', {style:{fontWeight:600}}, r.display_name),
+      r.state || r.is_sub_customer || r.customer_type_name
+        ? React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}},
+            [r.state, r.is_sub_customer ? 'sub' : null, r.customer_type_name].filter(Boolean).join(' \u00b7 '))
+        : null
+    ),
+    React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.ytd_revenue)),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
+    React.createElement('td', {style:{minWidth:300, maxWidth:480}},
+      React.createElement(MultiPicker, {
+        label:'Channels',
+        options: props.chOpts,
+        selected: labels,
+        onAdd: function(v) { setLabels(labels.concat([v]), primary || v) },
+        onRemove: function(v) {
+          var nl = labels.filter(function(x){return x !== v});
+          var np = primary === v ? (nl[0] || null) : primary;
+          setLabels(nl, np);
+        }
+      })
+    ),
+    React.createElement('td', {style:{minWidth:160}},
+      labels.length === 0
+        ? React.createElement('span', {style:{color:'var(--mt)', fontSize:11}}, '\u2014')
+        : React.createElement('select', {
+            value: primary || '',
+            onChange: function(e) { setLabels(labels, e.target.value || null) },
+            style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11, width:'100%'}
+          }, labels.map(function(l) {
+            return React.createElement('option', {key:l, value:l}, l);
+          }))
+    )
+  );
+}
+
 function App() {
+  var validViews = ['margin', 'customers'];
+  function viewFromHash() {
+    var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
+    return validViews.indexOf(h) >= 0 ? h : 'margin';
+  }
+  var vState = React.useState(viewFromHash);
+  var view = vState[0], setView = vState[1];
+
+  React.useEffect(function() {
+    function onHash() { setView(viewFromHash()) }
+    window.addEventListener('hashchange', onHash);
+    return function(){ window.removeEventListener('hashchange', onHash) };
+  }, []);
+
+  function navTo(id) {
+    if (id === view) return;
+    if (window.location.hash !== '#' + id) {
+      window.history.replaceState(null, '', '#' + id);
+    }
+    setView(id);
+  }
+
+  function tab(id, label) {
+    var on = view === id;
+    return React.createElement('a', {
+      key:id, href:'#' + id, onClick: function(e){ e.preventDefault(); navTo(id) },
+      style:{
+        textDecoration:'none',
+        background: on ? 'var(--ac)' : 'transparent',
+        color: on ? 'var(--bg)' : 'var(--tx)',
+        border:'1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
+        padding:'5px 12px', borderRadius:4, fontSize:11, fontWeight: on ? 700 : 500,
+        letterSpacing:.5, marginRight:6
+      }
+    }, label);
+  }
+
+  var content = view === 'customers' ? React.createElement(CustomersPage) : React.createElement(MarginPage);
+
   return React.createElement(React.Fragment, null,
     React.createElement('div', {className:'tb'},
       React.createElement('div', {className:'lg'}, 'PACER \u00b7 MARGIN ANALYTICS',
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
-      )
+      ),
+      React.createElement('div', null, tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'))
     ),
-    React.createElement('div', {className:'ma'}, React.createElement(MarginPage))
+    React.createElement('div', {className:'ma'}, content)
   )
 }
 
