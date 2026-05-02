@@ -67,6 +67,38 @@ async function sbrpc(fn, args) {
   return res.json();
 }
 
+function sbWriteHeaders() {
+  return {
+    'apikey': SB_KEY,
+    'Authorization': 'Bearer ' + SB_KEY,
+    'Content-Profile': 'ops',
+    'Accept-Profile': 'ops',
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+}
+async function sbInsert(table, row) {
+  var res = await fetch(SB_URL + '/rest/v1/' + table, {
+    method: 'POST', headers: sbWriteHeaders(), body: JSON.stringify(row)
+  });
+  if (!res.ok) { console.error('insert', table, res.status, await res.text()); return null; }
+  return res.json();
+}
+async function sbUpdate(table, where, patch) {
+  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, {
+    method: 'PATCH', headers: sbWriteHeaders(), body: JSON.stringify(patch)
+  });
+  if (!res.ok) { console.error('update', table, res.status, await res.text()); return null; }
+  return res.json();
+}
+async function sbDelete(table, where) {
+  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, {
+    method: 'DELETE', headers: sbWriteHeaders()
+  });
+  if (!res.ok) { console.error('delete', table, res.status, await res.text()); return false; }
+  return true;
+}
+
 function fm(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {maximumFractionDigits:0}) }
 function fd(n) { return n == null ? '-' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) }
 function fp(n) { return n == null ? '-' : (Number(n)*100).toFixed(1) + '%' }
@@ -701,8 +733,544 @@ function CustomerRow(props) {
   );
 }
 
+// =========================================================================
+// SETTINGS PAGE
+// =========================================================================
+
+var SETTINGS_TABS = [
+  {id:'channels',   label:'Channels'},
+  {id:'segments',   label:'Segments'},
+  {id:'categories', label:'Category → Segment'},
+  {id:'items',      label:'Item Overrides'},
+  {id:'buckets',    label:'Expense Buckets'},
+  {id:'sync',       label:'Connections / Sync'}
+];
+
+function SettingsPage() {
+  var tabState = React.useState('channels');
+  var tab = tabState[0], setTab = tabState[1];
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Control Panel ',
+      React.createElement('span', {className:'bg bg-l'}, 'ADMIN')
+    ),
+    React.createElement('div', {style:{display:'flex', gap:6, flexWrap:'wrap', marginBottom:12}},
+      SETTINGS_TABS.map(function(t) {
+        var on = tab === t.id;
+        return React.createElement('button', {
+          key:t.id, onClick: function(){ setTab(t.id) },
+          style:{
+            background: on ? 'var(--ac)' : 'var(--sf2)',
+            color: on ? 'var(--bg)' : 'var(--tx)',
+            border:'1px solid var(--bd)', padding:'6px 12px', borderRadius:4,
+            fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 500, letterSpacing:.5
+          }
+        }, t.label.toUpperCase());
+      })
+    ),
+    tab === 'channels'   ? React.createElement(ChannelsEditor)
+    : tab === 'segments'   ? React.createElement(SegmentsEditor)
+    : tab === 'categories' ? React.createElement(CategoryMapEditor)
+    : tab === 'items'      ? React.createElement(ItemOverridesEditor)
+    : tab === 'buckets'    ? React.createElement(BucketsEditor)
+    : tab === 'sync'       ? React.createElement(SyncPanel)
+    : null
+  );
+}
+
+// ----- Channels editor -----
+function ChannelsEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var nState = React.useState({code:'', label:'', sort_order:''});
+  var nu = nState[0], setNu = nState[1];
+
+  function load() {
+    sbq('channels', 'select=*&order=sort_order').then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(load, []);
+
+  function save(code, patch) {
+    sbUpdate('channels', 'channel_code=eq.' + encodeURIComponent(code), patch).then(load);
+  }
+  function addNew() {
+    if (!nu.code || !nu.label) return alert('code and label are required');
+    sbInsert('channels', {
+      channel_code: nu.code.trim(), label: nu.label.trim(),
+      sort_order: nu.sort_order ? Number(nu.sort_order) : 100,
+      is_active: true
+    }).then(function(){ setNu({code:'', label:'', sort_order:''}); load() });
+  }
+  function del(code) {
+    if (!confirm('Delete channel "' + code + '"? This will fail if any customers are still assigned to it.')) return;
+    sbDelete('channels', 'channel_code=eq.' + encodeURIComponent(code)).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'CHANNELS — ' + rows.length),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'who you sell to')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Code'),
+        React.createElement('th', null, 'Label'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Sort'),
+        React.createElement('th', {style:{textAlign:'center'}}, 'Active'),
+        React.createElement('th', null, '')
+      )),
+      React.createElement('tbody', null,
+        rows.map(function(r) {
+          return React.createElement('tr', {key: r.channel_code},
+            React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.channel_code),
+            React.createElement('td', null,
+              React.createElement(InlineText, {value: r.label, onSave: function(v){ save(r.channel_code, {label:v}) }})
+            ),
+            React.createElement('td', {style:{textAlign:'right'}},
+              React.createElement(InlineNum, {value: r.sort_order, onSave: function(v){ save(r.channel_code, {sort_order:v}) }})
+            ),
+            React.createElement('td', {style:{textAlign:'center'}},
+              React.createElement('input', {type:'checkbox', checked: r.is_active, onChange: function(e){ save(r.channel_code, {is_active: e.target.checked}) }})
+            ),
+            React.createElement('td', {style:{textAlign:'right'}},
+              React.createElement('button', {onClick: function(){ del(r.channel_code) }, style: btnDanger()}, '×')
+            )
+          );
+        }),
+        React.createElement('tr', {style:{background:'var(--sf2)'}},
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'new_code', value:nu.code, onChange:function(e){ setNu(Object.assign({}, nu, {code:e.target.value})) }, style:inp()})),
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'New Label', value:nu.label, onChange:function(e){ setNu(Object.assign({}, nu, {label:e.target.value})) }, style:inp()})),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('input', {type:'number', placeholder:'100', value:nu.sort_order, onChange:function(e){ setNu(Object.assign({}, nu, {sort_order:e.target.value})) }, style:Object.assign({}, inp(), {width:60})})),
+          React.createElement('td', null),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: addNew, style: btnPrimary()}, '+ ADD'))
+        )
+      )
+    )
+  );
+}
+
+// ----- Segments editor -----
+function SegmentsEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var nState = React.useState({code:'', label:'', sort_order:''});
+  var nu = nState[0], setNu = nState[1];
+
+  function load() {
+    sbq('segments', 'select=*&order=sort_order').then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(load, []);
+
+  function save(code, patch) {
+    sbUpdate('segments', 'segment_code=eq.' + encodeURIComponent(code), patch).then(load);
+  }
+  function addNew() {
+    if (!nu.code || !nu.label) return alert('code and label required');
+    sbInsert('segments', {
+      segment_code: nu.code.trim(), label: nu.label.trim(),
+      sort_order: nu.sort_order ? Number(nu.sort_order) : 100, is_active: true
+    }).then(function(){ setNu({code:'', label:'', sort_order:''}); load() });
+  }
+  function del(code) {
+    if (!confirm('Delete segment "' + code + '"?')) return;
+    sbDelete('segments', 'segment_code=eq.' + encodeURIComponent(code)).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'SEGMENTS — ' + rows.length),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'what you sell')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Code'),
+        React.createElement('th', null, 'Label'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Sort'),
+        React.createElement('th', {style:{textAlign:'center'}}, 'Active'),
+        React.createElement('th', null, '')
+      )),
+      React.createElement('tbody', null,
+        rows.map(function(r) {
+          return React.createElement('tr', {key:r.segment_code},
+            React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.segment_code),
+            React.createElement('td', null, React.createElement(InlineText, {value:r.label, onSave: function(v){ save(r.segment_code, {label:v}) }})),
+            React.createElement('td', {style:{textAlign:'right'}}, React.createElement(InlineNum, {value:r.sort_order, onSave: function(v){ save(r.segment_code, {sort_order:v}) }})),
+            React.createElement('td', {style:{textAlign:'center'}}, React.createElement('input', {type:'checkbox', checked:r.is_active, onChange: function(e){ save(r.segment_code, {is_active: e.target.checked}) }})),
+            React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: function(){ del(r.segment_code) }, style:btnDanger()}, '×'))
+          );
+        }),
+        React.createElement('tr', {style:{background:'var(--sf2)'}},
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'new_code', value:nu.code, onChange:function(e){ setNu(Object.assign({}, nu, {code:e.target.value})) }, style:inp()})),
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'New Label', value:nu.label, onChange:function(e){ setNu(Object.assign({}, nu, {label:e.target.value})) }, style:inp()})),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('input', {type:'number', placeholder:'100', value:nu.sort_order, onChange:function(e){ setNu(Object.assign({}, nu, {sort_order:e.target.value})) }, style:Object.assign({}, inp(), {width:60})})),
+          React.createElement('td', null),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: addNew, style:btnPrimary()}, '+ ADD'))
+        )
+      )
+    )
+  );
+}
+
+// ----- Category → Segment mapping -----
+function CategoryMapEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var sState = React.useState([]);
+  var segs = sState[0], setSegs = sState[1];
+
+  function load() {
+    var today = new Date().toISOString().slice(0,10);
+    Promise.all([
+      sbrpc('fn_list_categories', {p_start:'2025-01-01', p_end: today}),
+      sbq('segments', 'select=segment_code,label&is_active=eq.true&order=sort_order')
+    ]).then(function(res) {
+      setRows(res[0] || []);
+      setSegs(res[1] || []);
+    });
+  }
+  React.useEffect(load, []);
+
+  function setSegment(category, code) {
+    sbrpc('fn_set_category_segment', {p_category: category, p_segment_code: code || null}).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  var unmapped = rows.filter(function(r){ return !r.segment_code }).length;
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'CATEGORY → SEGMENT — ' + rows.length + ' CATEGORIES'),
+      React.createElement('div', {style:{fontSize:10, color: unmapped > 0 ? 'var(--am)' : 'var(--mt)'}}, unmapped + ' unmapped')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Category (revenue_line)'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'YTD Revenue'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
+        React.createElement('th', null, 'Segment')
+      )),
+      React.createElement('tbody', null, rows.map(function(r) {
+        return React.createElement('tr', {key: r.category, style: r.segment_code ? null : {background:'rgba(251,191,36,.05)'}},
+          React.createElement('td', null, r.category),
+          React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.ytd_revenue)),
+          React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, Number(r.line_count).toLocaleString()),
+          React.createElement('td', null,
+            React.createElement('select', {value:r.segment_code || '', onChange: function(e){ setSegment(r.category, e.target.value) }, style:Object.assign({}, inp(), {width:'100%', maxWidth:240})},
+              React.createElement('option', {value:''}, '— unmapped —'),
+              segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
+            )
+          )
+        );
+      }))
+    )
+  );
+}
+
+// ----- Item-level segment overrides -----
+function ItemOverridesEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var sState = React.useState([]);
+  var segs = sState[0], setSegs = sState[1];
+  var nState = React.useState({item:'', segment:''});
+  var nu = nState[0], setNu = nState[1];
+
+  function load() {
+    Promise.all([
+      sbq('item_segments', 'select=*,segments(label)&order=item_name'),
+      sbq('segments', 'select=segment_code,label&is_active=eq.true&order=sort_order')
+    ]).then(function(res){ setRows(res[0] || []); setSegs(res[1] || []) });
+  }
+  React.useEffect(load, []);
+
+  function add() {
+    if (!nu.item || !nu.segment) return;
+    sbrpc('fn_set_item_segment', {p_item_name: nu.item.trim(), p_segment_code: nu.segment})
+      .then(function(){ setNu({item:'', segment:''}); load() });
+  }
+  function del(item) {
+    if (!confirm('Remove override for "' + item + '"?')) return;
+    sbrpc('fn_set_item_segment', {p_item_name: item, p_segment_code: null}).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'ITEM-LEVEL SEGMENT OVERRIDES — ' + rows.length),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'beats category mapping when set')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Item Name'),
+        React.createElement('th', null, 'Segment'),
+        React.createElement('th', null, 'Notes'),
+        React.createElement('th', null, '')
+      )),
+      React.createElement('tbody', null,
+        rows.map(function(r) {
+          return React.createElement('tr', {key:r.item_name},
+            React.createElement('td', {style:{maxWidth:380, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
+            React.createElement('td', null,
+              React.createElement('select', {value:r.segment_code, onChange: function(e){ sbrpc('fn_set_item_segment', {p_item_name:r.item_name, p_segment_code: e.target.value}).then(load) }, style:Object.assign({}, inp(), {width:'100%', maxWidth:200})},
+                segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
+              )
+            ),
+            React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, r.notes || ''),
+            React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: function(){ del(r.item_name) }, style:btnDanger()}, '×'))
+          );
+        }),
+        React.createElement('tr', {style:{background:'var(--sf2)'}},
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'paste item name…', value:nu.item, onChange:function(e){ setNu(Object.assign({}, nu, {item:e.target.value})) }, style:Object.assign({}, inp(), {width:'100%'})})),
+          React.createElement('td', null,
+            React.createElement('select', {value:nu.segment, onChange: function(e){ setNu(Object.assign({}, nu, {segment:e.target.value})) }, style:Object.assign({}, inp(), {width:'100%'})},
+              React.createElement('option', {value:''}, '— pick segment —'),
+              segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
+            )
+          ),
+          React.createElement('td', null),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick:add, style:btnPrimary()}, '+ ADD'))
+        )
+      )
+    )
+  );
+}
+
+// ----- Expense buckets editor -----
+function BucketsEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var btState = React.useState([]);
+  var types = btState[0], setTypes = btState[1];
+  var fState = React.useState('');   // 'all' | 'unmapped' | bucket_code
+  var filt = fState[0], setFilt = fState[1];
+
+  function load() {
+    var today = new Date().toISOString().slice(0,10);
+    Promise.all([
+      sbrpc('fn_list_pl_accounts', {p_start:'2025-01-01', p_end: today}),
+      sbq('expense_bucket_types', 'select=*&order=sort_order')
+    ]).then(function(res){ setRows(res[0] || []); setTypes(res[1] || []) });
+  }
+  React.useEffect(load, []);
+
+  function setBucket(account, code) {
+    sbrpc('fn_set_account_bucket', {p_account_name: account, p_bucket_code: code || 'oh'}).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  var visible = rows;
+  if (filt === 'unmapped') visible = rows.filter(function(r){ return !r.bucket_assigned });
+  else if (filt && filt !== 'all') visible = rows.filter(function(r){ return r.bucket_code === filt });
+
+  var unmappedCount = rows.filter(function(r){ return !r.bucket_assigned }).length;
+
+  var totals = {};
+  rows.forEach(function(r) {
+    var k = r.bucket_code;
+    totals[k] = (totals[k] || 0) + Math.abs(Number(r.total || 0));
+  });
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr', style:{gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', marginBottom:10}},
+      types.map(function(t) {
+        return React.createElement('div', {key:t.bucket_code, className:'cd', style:{padding:'8px 10px', cursor:'pointer', borderColor: filt === t.bucket_code ? 'var(--ac)' : 'var(--bd)'}, onClick: function(){ setFilt(filt === t.bucket_code ? 'all' : t.bucket_code) }},
+          React.createElement('div', {className:'ct', style:{margin:0}}, t.label.toUpperCase()),
+          React.createElement('div', {style:{fontSize:14, fontWeight:600, marginTop:3}}, fm(totals[t.bucket_code] || 0))
+        );
+      })
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', gap:10, flexWrap:'wrap'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'EXPENSE ACCOUNTS — ' + visible.length + (filt && filt !== 'all' ? ' / ' + rows.length : '')),
+        React.createElement('div', {style:{display:'flex', gap:6}},
+          React.createElement('button', {onClick: function(){ setFilt(filt === 'unmapped' ? 'all' : 'unmapped') }, style: filt === 'unmapped' ? btnPrimary() : btnSecondary()}, 'UNMAPPED (' + unmappedCount + ')'),
+          React.createElement('button', {onClick: function(){ setFilt('all') }, style: !filt || filt === 'all' ? btnPrimary() : btnSecondary()}, 'ALL')
+        )
+      ),
+      React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Account'),
+            React.createElement('th', null, 'Type'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Total'),
+            React.createElement('th', null, 'Bucket')
+          )),
+          React.createElement('tbody', null, visible.map(function(r) {
+            return React.createElement('tr', {key:r.account_name, style: !r.bucket_assigned ? {background:'rgba(251,191,36,.05)'} : null},
+              React.createElement('td', null, r.account_name),
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, r.account_type),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(Math.abs(Number(r.total || 0)))),
+              React.createElement('td', null,
+                React.createElement('select', {value:r.bucket_code, onChange: function(e){ setBucket(r.account_name, e.target.value) }, style:Object.assign({}, inp(), {width:'100%', maxWidth:220})},
+                  types.map(function(t){ return React.createElement('option', {key:t.bucket_code, value:t.bucket_code}, t.label) })
+                )
+              )
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
+// ----- Sync / Connections panel -----
+var SYNC_FUNCTIONS = [
+  {slug:'sync-qbo',           label:'QBO Invoices + P&L', desc:'Pulls Invoices and P&L snapshots. Nightly cron.'},
+  {slug:'sync-qbo-items',     label:'QBO Items',          desc:'Pulls Item master + PurchaseCost. Powers est_cost.'},
+  {slug:'sync-qbo-customers', label:'QBO Customers',      desc:'Pulls Customer master + CustomerType for channel mapping.'},
+  {slug:'sync-qbo-employees', label:'QBO Employees',      desc:'Mirrors QBO Payroll employee list to ops.qbo_employees_cache.'},
+  {slug:'sync-sf',            label:'ServiceFusion Jobs', desc:'Delivery + service jobs. Every 30 min.'}
+];
+
+function SyncPanel() {
+  var tState = React.useState(null);
+  var tok = tState[0], setTok = tState[1];
+  var rState = React.useState({});
+  var running = rState[0], setRunning = rState[1];
+  var msgState = React.useState({});
+  var msg = msgState[0], setMsg = msgState[1];
+  var lState = React.useState(null);
+  var logs = lState[0], setLogs = lState[1];
+
+  function load() {
+    Promise.all([
+      sbq('v_qbo_token_status', 'select=*'),
+      sbq('sync_log', 'select=function_name,status,started_at,finished_at,note&order=started_at.desc&limit=20')
+    ]).then(function(res) {
+      setTok((res[0] || [])[0] || null);
+      setLogs(res[1] || []);
+    });
+  }
+  React.useEffect(load, []);
+
+  function trigger(slug) {
+    setRunning(function(p){ var n = Object.assign({}, p); n[slug] = true; return n });
+    setMsg(function(p){ var n = Object.assign({}, p); n[slug] = 'running…'; return n });
+    fetch(SB_URL + '/functions/v1/' + slug, {
+      method:'POST', headers:{ 'apikey':SB_KEY, 'Authorization':'Bearer '+SB_KEY }
+    }).then(function(r){ return r.json() })
+      .then(function(j) {
+        var summary;
+        if (j.ok) {
+          summary = 'OK';
+          if (j.synced != null) summary += ' · ' + j.synced + ' synced';
+          if (j.upserted != null && j.upserted !== j.synced) summary += ' / ' + j.upserted + ' upserted';
+          if (j.with_purchase_cost != null) summary += ' · ' + j.with_purchase_cost + ' w/cost';
+          if (j.with_qbo_type != null) summary += ' · ' + j.with_qbo_type + ' w/type';
+          if (j.duration_ms) summary += ' · ' + j.duration_ms + 'ms';
+        } else {
+          summary = 'FAIL: ' + (j.error || 'unknown');
+        }
+        setMsg(function(p){ var n = Object.assign({}, p); n[slug] = summary; return n });
+        load();
+      })
+      .catch(function(e) {
+        setMsg(function(p){ var n = Object.assign({}, p); n[slug] = 'ERROR: ' + e.message; return n });
+      })
+      .finally(function() {
+        setRunning(function(p){ var n = Object.assign({}, p); delete n[slug]; return n });
+      });
+  }
+
+  function fmtAge(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts);
+    var min = Math.round((Date.now() - d.getTime()) / 60000);
+    if (min < 60) return min + 'm ago';
+    if (min < 1440) return Math.round(min/60) + 'h ago';
+    return Math.round(min/1440) + 'd ago';
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{marginBottom:10}},
+      React.createElement('div', {className:'ct'}, 'QBO TOKEN STATUS — REALM ' + (tok ? tok.realm_id : '—')),
+      tok ? React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.7}},
+        'Access token expires: ' + new Date(tok.access_token_expires_at).toLocaleString(),
+        React.createElement('br'),
+        'Refresh token expires: ' + new Date(tok.refresh_token_expires_at).toLocaleString(),
+        React.createElement('br'),
+        'Refresh count: ' + tok.refresh_count + ' · last by: ' + (tok.last_refreshed_by || '—'),
+        tok.last_error ? React.createElement('div', {style:{color:'var(--rd)', marginTop:6}}, 'Last error: ' + tok.last_error) : null
+      ) : React.createElement('div', {style:{color:'var(--mt)', fontSize:11}}, 'Loading…')
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'EDGE FUNCTIONS')
+      ),
+      React.createElement('table', null,
+        React.createElement('thead', null, React.createElement('tr', null,
+          React.createElement('th', null, 'Function'),
+          React.createElement('th', null, 'Description'),
+          React.createElement('th', null, 'Last Result'),
+          React.createElement('th', {style:{textAlign:'right'}}, '')
+        )),
+        React.createElement('tbody', null, SYNC_FUNCTIONS.map(function(fn) {
+          var lastLog = (logs || []).find(function(l){ return l.function_name === fn.slug });
+          return React.createElement('tr', {key:fn.slug},
+            React.createElement('td', null,
+              React.createElement('div', {style:{fontWeight:600}}, fn.label),
+              React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, fn.slug)
+            ),
+            React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, fn.desc),
+            React.createElement('td', {style:{fontSize:11}},
+              msg[fn.slug] ? React.createElement('div', null, msg[fn.slug]) : null,
+              lastLog ? React.createElement('div', {style:{color:'var(--mt)', fontSize:10}}, lastLog.status + ' · ' + fmtAge(lastLog.finished_at || lastLog.started_at)) : null
+            ),
+            React.createElement('td', {style:{textAlign:'right'}},
+              React.createElement('button', {onClick: function(){ trigger(fn.slug) }, disabled: !!running[fn.slug], style:btnPrimary()}, running[fn.slug] ? '…' : 'RUN')
+            )
+          );
+        }))
+      )
+    ),
+    React.createElement('div', {className:'cd'},
+      React.createElement('div', {className:'ct'}, 'PUSH BACK TO QBO (PLANNED)'),
+      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6}},
+        'QBO Customer.CustomerType is single-value but writable via the API. We can push each primary channel as the QBO CustomerType so the classification shows up in QBO too.',
+        React.createElement('br'), React.createElement('br'),
+        'To enable this we need to (1) ensure the 10 channels exist as CustomerType records in QBO, and (2) deploy a push-qbo-customer-types edge function. Ask Claude when ready.'
+      )
+    )
+  );
+}
+
+// Tiny inline UI helpers
+function InlineText(props) {
+  var sState = React.useState(props.value || '');
+  var v = sState[0], setV = sState[1];
+  React.useEffect(function(){ setV(props.value || '') }, [props.value]);
+  return React.createElement('input', {
+    type:'text', value:v, onChange:function(e){ setV(e.target.value) },
+    onBlur: function(){ if (v !== props.value) props.onSave(v) },
+    onKeyDown: function(e){ if (e.key === 'Enter') e.target.blur() },
+    style: Object.assign({}, inp(), {width:'100%'})
+  });
+}
+function InlineNum(props) {
+  var sState = React.useState(props.value == null ? '' : String(props.value));
+  var v = sState[0], setV = sState[1];
+  React.useEffect(function(){ setV(props.value == null ? '' : String(props.value)) }, [props.value]);
+  return React.createElement('input', {
+    type:'number', value:v, onChange:function(e){ setV(e.target.value) },
+    onBlur: function(){ var n = Number(v); if (n !== props.value) props.onSave(n) },
+    onKeyDown: function(e){ if (e.key === 'Enter') e.target.blur() },
+    style: Object.assign({}, inp(), {width:60})
+  });
+}
+function inp() { return {background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11} }
+function btnPrimary() { return {background:'var(--ac)', color:'var(--bg)', border:'1px solid var(--ac)', padding:'4px 10px', borderRadius:4, fontSize:10, cursor:'pointer', fontWeight:700, letterSpacing:.5} }
+function btnSecondary() { return {background:'var(--sf2)', color:'var(--tx)', border:'1px solid var(--bd)', padding:'4px 10px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5} }
+function btnDanger() { return {background:'transparent', color:'var(--rd)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:4, fontSize:11, cursor:'pointer'} }
+
 function App() {
-  var validViews = ['margin', 'customers'];
+  var validViews = ['margin', 'customers', 'settings'];
   function viewFromHash() {
     var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
     return validViews.indexOf(h) >= 0 ? h : 'margin';
@@ -739,14 +1307,16 @@ function App() {
     }, label);
   }
 
-  var content = view === 'customers' ? React.createElement(CustomersPage) : React.createElement(MarginPage);
+  var content = view === 'customers' ? React.createElement(CustomersPage)
+              : view === 'settings'  ? React.createElement(SettingsPage)
+              : React.createElement(MarginPage);
 
   return React.createElement(React.Fragment, null,
     React.createElement('div', {className:'tb'},
       React.createElement('div', {className:'lg'}, 'PACER \u00b7 MARGIN ANALYTICS',
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
-      React.createElement('div', null, tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'))
+      React.createElement('div', null, tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('settings', 'SETTINGS'))
     ),
     React.createElement('div', {className:'ma'}, content)
   )
