@@ -418,7 +418,10 @@ function MarginPage() {
   function syncItems() {
     if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
     setLoading(true);
-    fetch('/.netlify/functions/sync-qbo-items')
+    fetch(SB_URL + '/functions/v1/sync-qbo-items', {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+    })
       .then(function(r) { return r.json() })
       .then(function(j) {
         alert(j.ok
