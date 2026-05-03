@@ -232,7 +232,7 @@ function MarginPage() {
 
   var fState = React.useState({
     start: ytdStart, end: todayStr,
-    entities: [], categories: [], customers: [], items: [], channels: [], segments: []
+    entities: [], categories: [], customers: [], items: [], channels: [], segments: [], sales_reps: []
   });
   var f = fState[0], setF = fState[1];
   var dState = React.useState('category');
@@ -247,7 +247,7 @@ function MarginPage() {
   var loading = lState[0], setLoading = lState[1];
   var syncState = React.useState(null);
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
-  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: []});
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: [], sales_rep: []});
   var values = dimVals[0], setValues = dimVals[1];
   var drState = React.useState(null);
   var drillState = drState[0], setDrill = drState[1];
@@ -331,7 +331,8 @@ function MarginPage() {
       p_customers: f.customers.length ? f.customers : null,
       p_items: f.items.length ? f.items : null,
       p_channels: f.channels.length ? f.channels : null,
-      p_segments: f.segments.length ? f.segments : null
+      p_segments: f.segments.length ? f.segments : null,
+      p_sales_reps: f.sales_reps.length ? f.sales_reps : null
     };
     var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
     if (compare !== 'none') {
@@ -347,7 +348,7 @@ function MarginPage() {
       setTot((res[1] && res[1][0]) || null);
       setLoading(false);
     });
-  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|'), f.segments.join('|')]);
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|'), f.segments.join('|'), f.sales_reps.join('|')]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
@@ -395,7 +396,7 @@ function MarginPage() {
   }, [f.start, f.end]);
 
   React.useEffect(function() {
-    var dims = ['entity','category','customer','item','channel','segment'];
+    var dims = ['entity','category','customer','item','channel','segment','sales_rep'];
     Promise.all(dims.map(function(d) {
       return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
     })).then(function(res) {
@@ -419,7 +420,7 @@ function MarginPage() {
     var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
   }
   function clearAllFilters() {
-    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[], segments:[]}));
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[], segments:[], sales_reps:[]}));
   }
   function drill(row) {
     if (dim === 'month') return;
@@ -449,6 +450,7 @@ function MarginPage() {
   var DIMS = [
     {id:'segment', label:'Segment'},
     {id:'channel', label:'Channel'},
+    {id:'sales_rep', label:'Sales Rep'},
     {id:'category', label:'Category'},
     {id:'item', label:'Item'},
     {id:'customer', label:'Customer'},
@@ -458,13 +460,14 @@ function MarginPage() {
   var FILTER_DIMS = [
     {id:'segment', label:'Segments', listKey:'segments'},
     {id:'channel', label:'Channels', listKey:'channels'},
+    {id:'sales_rep', label:'Sales Reps', listKey:'sales_reps'},
     {id:'category', label:'Categories', listKey:'categories'},
     {id:'item', label:'Items', listKey:'items'},
     {id:'customer', label:'Customers', listKey:'customers'},
     {id:'entity', label:'Entities', listKey:'entities'}
   ];
 
-  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length + f.segments.length;
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length + f.segments.length + f.sales_reps.length;
 
   var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
     React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
@@ -810,10 +813,17 @@ function CustomersPage() {
   var saving = savingState[0], setSaving = savingState[1];
   var chOptsState = React.useState([]);
   var chOpts = chOptsState[0], setChOpts = chOptsState[1];
+  var repOptsState = React.useState([]);
+  var repOpts = repOptsState[0], setRepOpts = repOptsState[1];
 
   React.useEffect(function() {
-    sbq('channels', 'select=label&is_active=eq.true&order=sort_order')
-      .then(function(rs) { setChOpts((rs || []).map(function(r){return r.label})) });
+    Promise.all([
+      sbq('channels', 'select=label&is_active=eq.true&order=sort_order'),
+      sbq('sales_reps', 'select=name&is_active=eq.true&order=sort_order')
+    ]).then(function(res) {
+      setChOpts((res[0] || []).map(function(r){return r.label}));
+      setRepOpts((res[1] || []).map(function(r){return r.name}));
+    });
   }, []);
 
   function reload() {
@@ -845,6 +855,24 @@ function CustomersPage() {
         return (prev || []).map(function(r) {
           if (r.qbo_customer_id !== custId) return r;
           return Object.assign({}, r, {channels: labels, primary_channel: primaryLabel});
+        });
+      });
+    }).finally(function() {
+      setSaving(function(prev){ var n = Object.assign({}, prev); delete n[custId]; return n });
+    });
+  }
+
+  function saveReps(custId, names, primaryName) {
+    setSaving(function(prev){ var n = Object.assign({}, prev); n[custId] = true; return n });
+    sbrpc('fn_set_customer_sales_reps', {
+      p_qbo_customer_id: custId,
+      p_rep_names: names,
+      p_primary_name: primaryName || null
+    }).then(function() {
+      setRows(function(prev) {
+        return (prev || []).map(function(r) {
+          if (r.qbo_customer_id !== custId) return r;
+          return Object.assign({}, r, {sales_reps: names, primary_sales_rep: primaryName});
         });
       });
     }).finally(function() {
@@ -904,15 +932,19 @@ function CustomersPage() {
             React.createElement('th', {style:{textAlign:'right', whiteSpace:'nowrap'}}, 'YTD Rev'),
             React.createElement('th', {style:{textAlign:'right'}}, 'Inv'),
             React.createElement('th', null, 'Channels'),
-            React.createElement('th', null, 'Primary')
+            React.createElement('th', null, 'Primary Channel'),
+            React.createElement('th', null, 'Sales Reps'),
+            React.createElement('th', null, 'Primary Rep')
           )),
           React.createElement('tbody', null, (rows || []).map(function(r) {
             return React.createElement(CustomerRow, {
               key: r.qbo_customer_id,
               row: r,
               chOpts: chOpts,
+              repOpts: repOpts,
               isSaving: !!saving[r.qbo_customer_id],
-              onSave: saveChannels
+              onSaveChannels: saveChannels,
+              onSaveReps: saveReps
             });
           }))
         )
@@ -923,13 +955,20 @@ function CustomersPage() {
 
 function CustomerRow(props) {
   var r = props.row;
-  var labels = r.channels || [];
-  var primary = r.primary_channel || (labels[0] || null);
+  var chs = r.channels || [];
+  var primaryCh = r.primary_channel || (chs[0] || null);
+  var reps = r.sales_reps || [];
+  var primaryRep = r.primary_sales_rep || (reps[0] || null);
 
-  function setLabels(newLabels, newPrimary) {
+  function setChs(newLabels, newPrimary) {
     var p = newPrimary;
     if (p && newLabels.indexOf(p) < 0) p = newLabels[0] || null;
-    props.onSave(r.qbo_customer_id, newLabels, p);
+    props.onSaveChannels(r.qbo_customer_id, newLabels, p);
+  }
+  function setReps(newNames, newPrimary) {
+    var p = newPrimary;
+    if (p && newNames.indexOf(p) < 0) p = newNames[0] || null;
+    props.onSaveReps(r.qbo_customer_id, newNames, p);
   }
 
   return React.createElement('tr', {style:{opacity: props.isSaving ? 0.6 : 1}},
@@ -942,29 +981,43 @@ function CustomerRow(props) {
     ),
     React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.ytd_revenue)),
     React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
-    React.createElement('td', {style:{minWidth:300, maxWidth:480}},
+    React.createElement('td', {style:{minWidth:240, maxWidth:380}},
       React.createElement(MultiPicker, {
-        label:'Channels',
-        options: props.chOpts,
-        selected: labels,
-        onAdd: function(v) { setLabels(labels.concat([v]), primary || v) },
+        label:'Channels', options: props.chOpts, selected: chs,
+        onAdd: function(v) { setChs(chs.concat([v]), primaryCh || v) },
         onRemove: function(v) {
-          var nl = labels.filter(function(x){return x !== v});
-          var np = primary === v ? (nl[0] || null) : primary;
-          setLabels(nl, np);
+          var nl = chs.filter(function(x){return x !== v});
+          var np = primaryCh === v ? (nl[0] || null) : primaryCh;
+          setChs(nl, np);
         }
       })
     ),
-    React.createElement('td', {style:{minWidth:160}},
-      labels.length === 0
-        ? React.createElement('span', {style:{color:'var(--mt)', fontSize:11}}, '\u2014')
+    React.createElement('td', {style:{minWidth:140}},
+      chs.length === 0 ? React.createElement('span', {style:{color:'var(--mt)', fontSize:11}}, '\u2014')
         : React.createElement('select', {
-            value: primary || '',
-            onChange: function(e) { setLabels(labels, e.target.value || null) },
-            style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11, width:'100%'}
-          }, labels.map(function(l) {
-            return React.createElement('option', {key:l, value:l}, l);
-          }))
+            value: primaryCh || '',
+            onChange: function(e) { setChs(chs, e.target.value || null) },
+            style: Object.assign({}, inp(), {width:'100%'})
+          }, chs.map(function(l){ return React.createElement('option', {key:l, value:l}, l) }))
+    ),
+    React.createElement('td', {style:{minWidth:200, maxWidth:300}},
+      React.createElement(MultiPicker, {
+        label:'Reps', options: props.repOpts || [], selected: reps,
+        onAdd: function(v) { setReps(reps.concat([v]), primaryRep || v) },
+        onRemove: function(v) {
+          var nl = reps.filter(function(x){return x !== v});
+          var np = primaryRep === v ? (nl[0] || null) : primaryRep;
+          setReps(nl, np);
+        }
+      })
+    ),
+    React.createElement('td', {style:{minWidth:130}},
+      reps.length === 0 ? React.createElement('span', {style:{color:'var(--mt)', fontSize:11}}, '\u2014')
+        : React.createElement('select', {
+            value: primaryRep || '',
+            onChange: function(e) { setReps(reps, e.target.value || null) },
+            style: Object.assign({}, inp(), {width:'100%'})
+          }, reps.map(function(n){ return React.createElement('option', {key:n, value:n}, n) }))
     )
   );
 }
@@ -976,6 +1029,7 @@ function CustomerRow(props) {
 var SETTINGS_TABS = [
   {id:'channels',   label:'Channels'},
   {id:'segments',   label:'Segments'},
+  {id:'reps',       label:'Sales Reps'},
   {id:'categories', label:'Category → Segment'},
   {id:'products',   label:'Products'},
   {id:'buckets',    label:'Expense Buckets'},
@@ -1007,6 +1061,7 @@ function SettingsPage() {
     tab === 'channels'   ? React.createElement(ChannelsEditor)
     : tab === 'segments'   ? React.createElement(SegmentsEditor)
     : tab === 'categories' ? React.createElement(CategoryMapEditor)
+    : tab === 'reps'       ? React.createElement(SalesRepsEditor)
     : tab === 'products'   ? React.createElement(ProductsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
     : tab === 'sync'       ? React.createElement(SyncPanel)
@@ -1203,6 +1258,71 @@ function CategoryMapEditor() {
           )
         );
       }))
+    )
+  );
+}
+
+// ----- Sales Reps editor -----
+function SalesRepsEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var nState = React.useState({code:'', name:'', email:'', sort_order:''});
+  var nu = nState[0], setNu = nState[1];
+
+  function load() {
+    sbq('sales_reps', 'select=*&order=sort_order').then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(load, []);
+
+  function save(code, patch) { sbUpdate('sales_reps', 'rep_code=eq.' + encodeURIComponent(code), patch).then(load); }
+  function addNew() {
+    if (!nu.code || !nu.name) return alert('code and name required');
+    sbInsert('sales_reps', {
+      rep_code: nu.code.trim(), name: nu.name.trim(), email: nu.email.trim() || null,
+      sort_order: nu.sort_order ? Number(nu.sort_order) : 100, is_active: true
+    }).then(function(){ setNu({code:'', name:'', email:'', sort_order:''}); load() });
+  }
+  function del(code) {
+    if (!confirm('Delete sales rep "' + code + '"? Will fail if any customers are still assigned.')) return;
+    sbDelete('sales_reps', 'rep_code=eq.' + encodeURIComponent(code)).then(load);
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'SALES REPS — ' + rows.length),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'assign customers to reps in Customers tab')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Code'),
+        React.createElement('th', null, 'Name'),
+        React.createElement('th', null, 'Email'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Sort'),
+        React.createElement('th', {style:{textAlign:'center'}}, 'Active'),
+        React.createElement('th', null, '')
+      )),
+      React.createElement('tbody', null,
+        rows.map(function(r) {
+          return React.createElement('tr', {key:r.rep_code},
+            React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.rep_code),
+            React.createElement('td', null, React.createElement(InlineText, {value:r.name, onSave: function(v){ save(r.rep_code, {name:v}) }})),
+            React.createElement('td', null, React.createElement(InlineText, {value: r.email || '', onSave: function(v){ save(r.rep_code, {email: v || null}) }})),
+            React.createElement('td', {style:{textAlign:'right'}}, React.createElement(InlineNum, {value:r.sort_order, onSave: function(v){ save(r.rep_code, {sort_order:v}) }})),
+            React.createElement('td', {style:{textAlign:'center'}}, React.createElement('input', {type:'checkbox', checked:r.is_active, onChange: function(e){ save(r.rep_code, {is_active: e.target.checked}) }})),
+            React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: function(){ del(r.rep_code) }, style:btnDanger()}, '×'))
+          );
+        }),
+        React.createElement('tr', {style:{background:'var(--sf2)'}},
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'new_code', value:nu.code, onChange:function(e){ setNu(Object.assign({}, nu, {code:e.target.value})) }, style:inp()})),
+          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'Full Name', value:nu.name, onChange:function(e){ setNu(Object.assign({}, nu, {name:e.target.value})) }, style:inp()})),
+          React.createElement('td', null, React.createElement('input', {type:'email', placeholder:'email@…', value:nu.email, onChange:function(e){ setNu(Object.assign({}, nu, {email:e.target.value})) }, style:inp()})),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('input', {type:'number', placeholder:'100', value:nu.sort_order, onChange:function(e){ setNu(Object.assign({}, nu, {sort_order:e.target.value})) }, style:Object.assign({}, inp(), {width:60})})),
+          React.createElement('td', null),
+          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: addNew, style:btnPrimary()}, '+ ADD'))
+        )
+      )
     )
   );
 }
