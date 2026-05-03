@@ -7,6 +7,8 @@ import { LoginPage } from './pages/LoginPage';
 import { MarginPage } from './pages/MarginPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { CustomerDetailPage } from './pages/CustomerDetailPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { PlansPage } from './pages/PlansPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 export function App() {
@@ -37,10 +39,10 @@ export function App() {
       body = <CustomersPage />;
       break;
     case 'reports':
-      body = <PlaceholderPage title="Reports" legacyHash="reports" />;
+      body = <ReportsPage />;
       break;
     case 'plans':
-      body = <PlaceholderPage title="Plans" legacyHash="plans" />;
+      body = <PlansPage />;
       break;
     case 'reps':
       body = <PlaceholderPage title="Reps" legacyHash="reps" />;
