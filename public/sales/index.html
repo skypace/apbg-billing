@@ -4210,6 +4210,10 @@ function PlanEditor(props) {
   var pickerOpen = pickerState[0], setPickerOpen = pickerState[1];
   var itemsState = React.useState([]);
   var itemOpts = itemsState[0], setItemOpts = itemsState[1];
+  var actualsState = React.useState(null);   // map: item_name → {m1..m12, total}
+  var actualsByItem = actualsState[0], setActualsByItem = actualsState[1];
+  var modeState = React.useState('lines');   // 'lines' | 'rollup' | 'vs_actuals'
+  var mode = modeState[0], setMode = modeState[1];
 
   function load() {
     Promise.all([
@@ -4221,6 +4225,30 @@ function PlanEditor(props) {
     });
   }
   React.useEffect(load, [plan.id]);
+
+  // Pull actuals by item for plan.fiscal_year, broken out by month
+  React.useEffect(function() {
+    if (mode !== 'vs_actuals') return;
+    var ms = [];
+    for (var i = 0; i < 12; i++) {
+      var start = plan.fiscal_year + '-' + String(i + 1).padStart(2, '0') + '-01';
+      var endD = new Date(plan.fiscal_year, i + 1, 0);
+      ms.push({i: i, start: start, end: endD.toISOString().slice(0, 10)});
+    }
+    Promise.all(ms.map(function(m) {
+      return sbrpc('fn_sales_pivot', {p_dim:'item', p_start: m.start, p_end: m.end, p_limit: 2000});
+    })).then(function(per) {
+      var byItem = {};
+      per.forEach(function(rows, mi) {
+        (rows || []).forEach(function(r) {
+          if (!byItem[r.dim_label]) byItem[r.dim_label] = {amounts: Array(12).fill(0), total: 0};
+          byItem[r.dim_label].amounts[mi] = Number(r.revenue || 0);
+          byItem[r.dim_label].total += Number(r.revenue || 0);
+        });
+      });
+      setActualsByItem(byItem);
+    });
+  }, [mode, plan.fiscal_year]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=qbo_item_id,name,fully_qualified_name,income_account_name,income_account_ref_id&active=eq.true&order=name&limit=2000')
@@ -4294,6 +4322,11 @@ function PlanEditor(props) {
   if (!lines || !rollup) return React.createElement('div', {className:'ld'}, 'Loading plan…');
 
   var totalAnnual = rollup.reduce(function(s, r){ return s + Number(r.total || 0) }, 0);
+  var modeBtns = [
+    {id:'lines',      label:'Plan Lines'},
+    {id:'rollup',     label:'Account Rollup'},
+    {id:'vs_actuals', label:'vs Actuals'}
+  ];
 
   return React.createElement('div', null,
     React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}},
@@ -4302,12 +4335,23 @@ function PlanEditor(props) {
         React.createElement('div', {style:{fontWeight:600, fontSize:14}}, plan.name + ' — FY' + plan.fiscal_year),
         React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, plan.scenario + ' · ' + lines.length + ' lines · ' + fm(totalAnnual) + ' annual')
       ),
-      React.createElement('div', {style:{marginLeft:'auto', display:'flex', gap:6}},
-        React.createElement('button', {onClick: copyFromActuals, style: btnSecondary()}, 'COPY FROM ' + (plan.fiscal_year - 1) + ' ACTUALS'),
-        React.createElement('button', {onClick: exportCsv, style: btnPrimary()}, 'EXPORT BUDGET CSV')
+      React.createElement('div', {style:{marginLeft:'auto', display:'flex', gap:6, flexWrap:'wrap'}},
+        modeBtns.map(function(m) {
+          var on = mode === m.id;
+          return React.createElement('button', {key: m.id, onClick: function(){ setMode(m.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'5px 11px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400, letterSpacing:.5
+            }
+          }, m.label.toUpperCase());
+        }),
+        React.createElement('button', {onClick: copyFromActuals, style: btnSecondary()}, 'COPY FROM ' + (plan.fiscal_year - 1)),
+        React.createElement('button', {onClick: exportCsv, style: btnPrimary()}, 'EXPORT CSV')
       )
     ),
-    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+    mode === 'lines' ? React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
       React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
         React.createElement('div', {className:'ct', style:{margin:0}}, 'PLAN LINES — ' + lines.length),
         React.createElement('button', {onClick: function(){ setPickerOpen(!pickerOpen) }, style: btnSecondary()}, '+ ADD ITEM')
@@ -4361,11 +4405,11 @@ function PlanEditor(props) {
             )
       )
     ),
-    React.createElement('div', {className:'cd', style:{padding:0}},
+    mode === 'rollup' ? React.createElement('div', {className:'cd', style:{padding:0}},
       React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
         React.createElement('div', {className:'ct', style:{margin:0}}, 'ROLLUP BY QBO INCOME ACCOUNT — what would push to QBO Budget'),
         React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
-          'These per-account monthly totals are what QBO Budget would receive. Use EXPORT BUDGET CSV above to import into QBO Budget UI (QBO Budget API write requires Plus tier; we can wire that up when ready).')
+          'These per-account monthly totals are what QBO Budget would receive. Use EXPORT CSV above to import into QBO Budget UI (QBO Budget API write requires Plus tier; we can wire that up when ready).')
       ),
       rollup.length === 0
         ? React.createElement('div', {className:'ld'}, 'Add lines above to see the rollup.')
@@ -4387,6 +4431,105 @@ function PlanEditor(props) {
               }))
             )
           )
+    ) : null,
+
+    mode === 'vs_actuals' ? React.createElement(PlanVsActuals, {plan: plan, lines: lines, actualsByItem: actualsByItem}) : null
+  );
+}
+
+function PlanVsActuals(props) {
+  var plan = props.plan, lines = props.lines, actuals = props.actualsByItem;
+  if (!actuals) return React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'Loading actuals for FY' + plan.fiscal_year + '…');
+
+  // Today's elapsed-month index (0..11) — months strictly before current month are "complete"
+  var today = new Date();
+  var elapsedIdx = (today.getFullYear() === plan.fiscal_year) ? today.getMonth() : (today.getFullYear() > plan.fiscal_year ? 12 : 0);
+
+  function summarize(line) {
+    var amts = line.amounts || Array(12).fill(0);
+    var act = (actuals[line.item_name] && actuals[line.item_name].amounts) || Array(12).fill(0);
+    var totalPlan = amts.reduce(function(s, v){ return s + Number(v || 0) }, 0);
+    var totalAct = act.reduce(function(s, v){ return s + Number(v || 0) }, 0);
+    // YTD comparison through completed months (or full year if past)
+    var ytdPlan = 0, ytdAct = 0;
+    for (var i = 0; i < elapsedIdx; i++) { ytdPlan += Number(amts[i] || 0); ytdAct += Number(act[i] || 0); }
+    return {amts: amts, act: act, totalPlan: totalPlan, totalAct: totalAct, ytdPlan: ytdPlan, ytdAct: ytdAct};
+  }
+
+  var summaries = lines.map(function(l){ return Object.assign({line: l}, summarize(l)) });
+  var grandPlan = summaries.reduce(function(s, x){ return s + x.totalPlan }, 0);
+  var grandAct  = summaries.reduce(function(s, x){ return s + x.totalAct  }, 0);
+  var grandYtdPlan = summaries.reduce(function(s, x){ return s + x.ytdPlan }, 0);
+  var grandYtdAct  = summaries.reduce(function(s, x){ return s + x.ytdAct  }, 0);
+  var grandVar = grandYtdPlan > 0 ? (grandYtdAct - grandYtdPlan) / grandYtdPlan : null;
+
+  function variancePct(actVal, planVal) {
+    if (!planVal) return null;
+    return (actVal - planVal) / planVal;
+  }
+  function color(v) {
+    if (v == null) return 'var(--mt)';
+    if (v >= 0.0) return 'var(--gn)';
+    if (v >= -0.1) return 'var(--am)';
+    return 'var(--rd)';
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
+      React.createElement(C, {title:'PLAN ANNUAL', value: fm(grandPlan), sub: lines.length + ' lines'}),
+      React.createElement(C, {title:'ACTUAL FY' + plan.fiscal_year, value: fm(grandAct), sub: (grandPlan > 0 ? Math.round(grandAct / grandPlan * 100) + '% of plan' : '')}),
+      React.createElement(C, {title:'YTD PLAN (M' + elapsedIdx + ')', value: fm(grandYtdPlan)}),
+      React.createElement(C, {title:'YTD VARIANCE', value: grandVar == null ? '—' : ((grandVar >= 0 ? '+' : '') + (grandVar * 100).toFixed(1) + '%'),
+        accent: color(grandVar), sub: fm(grandYtdAct) + ' vs ' + fm(grandYtdPlan)})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'PLAN VS ACTUAL — line by line'),
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+          'YTD compares plan and actual through completed months (' + elapsedIdx + '/12). Variance % colors: green = at/above plan, amber = ≤10% behind, red = >10% behind.')
+      ),
+      React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Item'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Plan Annual'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Actual'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Var %'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Plan'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Actual'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Var %'),
+            MONTHS_SHORT.map(function(m, i){
+              return React.createElement('th', {key:m, style:{textAlign:'right', fontSize:9, color:'var(--mt)'}}, m + (i < elapsedIdx ? '✓' : ''));
+            })
+          )),
+          React.createElement('tbody', null, summaries.sort(function(a, b){ return b.totalPlan - a.totalPlan }).map(function(s) {
+            var v = variancePct(s.totalAct, s.totalPlan);
+            var ytdV = variancePct(s.ytdAct, s.ytdPlan);
+            return React.createElement('tr', {key: s.line.id},
+              React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, s.line.item_name),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(s.totalPlan)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(s.totalAct)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: color(v)}},
+                v == null ? '—' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%')),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fm(s.ytdPlan)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(s.ytdAct)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: color(ytdV)}},
+                ytdV == null ? '—' : ((ytdV >= 0 ? '+' : '') + (ytdV * 100).toFixed(1) + '%')),
+              s.amts.map(function(plan, i) {
+                var act = Number(s.act[i] || 0);
+                var planV = Number(plan || 0);
+                var pctV = planV > 0 ? (act - planV) / planV : null;
+                var bg = pctV == null ? 'transparent' :
+                  pctV >= 0 ? 'rgba(52,211,153,0.12)' :
+                  pctV >= -0.1 ? 'rgba(251,191,36,0.10)' :
+                  'rgba(248,113,113,0.10)';
+                return React.createElement('td', {key:i, className:'mn', style:{textAlign:'right', fontSize:10, background: bg}},
+                  planV > 0 ? fm(act) : '—');
+              })
+            );
+          }))
+        )
+      )
     )
   );
 }
