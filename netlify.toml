@@ -1,6 +1,13 @@
 [build]
+  # Build the new Vite + React + TS app first; output goes to
+  # public/sales-next/. The legacy single-file SPA at public/sales/
+  # remains the source of truth until the migration is complete.
+  command = "npm install --prefix app && npm run build --prefix app"
   publish = "public"
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
 
 # Branch deploys — "dev" branch auto-deploys to dev--apbg-billing.netlify.app
 [context.branch-deploy]
