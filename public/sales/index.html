@@ -1878,6 +1878,7 @@ var SETTINGS_TABS = [
   {id:'buckets',    label:'Expense Buckets'},
   {id:'users',      label:'Users'},
   {id:'digest',     label:'Email Digest'},
+  {id:'exports',    label:'Exports'},
   {id:'sync',       label:'Connections / Sync'}
 ];
 
@@ -1912,6 +1913,7 @@ function SettingsPage() {
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
     : tab === 'users'      ? React.createElement(UsersEditor)
     : tab === 'digest'     ? React.createElement(DigestEditor)
+    : tab === 'exports'    ? React.createElement(ExportsPanel)
     : tab === 'sync'       ? React.createElement(SyncPanel)
     : null
   );
@@ -2788,6 +2790,79 @@ function DigestEditor() {
         }))
       )
     ) : null
+  );
+}
+
+// ----- Exports panel — Google Sheets IMPORTDATA URLs per saved view -----
+function ExportsPanel() {
+  var viewsState = React.useState(null);
+  var views = viewsState[0], setViews = viewsState[1];
+  var copiedState = React.useState(null);
+  var copied = copiedState[0], setCopied = copiedState[1];
+
+  function load() {
+    sbq('saved_views', 'select=id,name,is_shared,config&order=name').then(function(rs){ setViews(rs || []) });
+  }
+  React.useEffect(load, []);
+
+  function urlFor(v) {
+    return SB_URL + '/functions/v1/export-csv?view_id=' + encodeURIComponent(v.id);
+  }
+  function importData(v) {
+    return '=IMPORTDATA("' + urlFor(v) + '")';
+  }
+  async function copy(text, key) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(function(){ setCopied(null) }, 1500);
+    } catch (e) { alert('Copy failed: ' + e.message) }
+  }
+
+  if (!views) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'12px 14px', marginBottom:10}},
+      React.createElement('div', {className:'ct', style:{margin:0, marginBottom:6}}, 'GOOGLE SHEETS LIVE EXPORT'),
+      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6}},
+        'Each saved view has a public CSV endpoint. Paste the IMPORTDATA formula into a Google Sheet to get live-updating data without any OAuth setup. Sheets re-fetches every ~hour by default.',
+        React.createElement('br'),
+        'To gate the URLs with a shared token, set the EXPORT_TOKEN env var on the Supabase project — then append ?token=… to the URL.'
+      )
+    ),
+    !views.length
+      ? React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'No saved views yet. Build one in Margin → "+ SAVE" to get a public export URL here.')
+      : React.createElement('div', {className:'cd', style:{padding:0}},
+          React.createElement('table', null,
+            React.createElement('thead', null, React.createElement('tr', null,
+              React.createElement('th', null, 'View'),
+              React.createElement('th', null, 'Group by · period'),
+              React.createElement('th', {style:{textAlign:'right'}}, ''),
+              React.createElement('th', null, 'IMPORTDATA formula')
+            )),
+            React.createElement('tbody', null, views.map(function(v) {
+              var c = v.config || {};
+              var url = urlFor(v);
+              var formula = importData(v);
+              return React.createElement('tr', {key: v.id},
+                React.createElement('td', {style:{fontWeight:600}}, (v.is_shared ? '★ ' : '') + v.name),
+                React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}},
+                  (c.dim || 'category') + ' · ' + (c.start || '?') + ' → ' + (c.end || '?')),
+                React.createElement('td', {style:{textAlign:'right', whiteSpace:'nowrap'}},
+                  React.createElement('button', {onClick: function(){ copy(url, 'url-' + v.id) }, style: btnSecondary()},
+                    copied === 'url-' + v.id ? 'COPIED' : 'COPY URL'),
+                  React.createElement('button', {onClick: function(){ copy(formula, 'fmt-' + v.id) }, style: Object.assign({}, btnPrimary(), {marginLeft:4})},
+                    copied === 'fmt-' + v.id ? 'COPIED' : 'COPY FORMULA')
+                ),
+                React.createElement('td', null,
+                  React.createElement('input', {type:'text', readOnly: true, value: formula,
+                    style: Object.assign({}, inp(), {width:'100%', minWidth:280, fontFamily:'monospace', fontSize:10}),
+                    onClick: function(e){ e.target.select() }})
+                )
+              );
+            }))
+          )
+        )
   );
 }
 
