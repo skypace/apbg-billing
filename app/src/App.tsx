@@ -5,6 +5,8 @@ import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { MarginPage } from './pages/MarginPage';
+import { CustomersPage } from './pages/CustomersPage';
+import { CustomerDetailPage } from './pages/CustomerDetailPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 export function App() {
@@ -32,7 +34,7 @@ export function App() {
       body = <MarginPage />;
       break;
     case 'customers':
-      body = <PlaceholderPage title="Customers" legacyHash="customers" />;
+      body = <CustomersPage />;
       break;
     case 'reports':
       body = <PlaceholderPage title="Reports" legacyHash="reports" />;
@@ -53,12 +55,9 @@ export function App() {
       body = <PlaceholderPage title="Settings" legacyHash="settings" />;
       break;
     case 'customer-detail':
-      body = (
-        <PlaceholderPage
-          title={'Customer ' + (route.customerId ?? '')}
-          legacyHash={'customer-' + (route.customerId ?? '')}
-        />
-      );
+      body = route.customerId
+        ? <CustomerDetailPage customerId={route.customerId} />
+        : <PlaceholderPage title="Customer" legacyHash="customers" />;
       break;
   }
 
