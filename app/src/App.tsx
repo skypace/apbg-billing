@@ -9,6 +9,9 @@ import { CustomersPage } from './pages/CustomersPage';
 import { CustomerDetailPage } from './pages/CustomerDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { PlansPage } from './pages/PlansPage';
+import { RepsPage } from './pages/RepsPage';
+import { ComparePage } from './pages/ComparePage';
+import { InventoryPage } from './pages/InventoryPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 export function App() {
@@ -45,13 +48,13 @@ export function App() {
       body = <PlansPage />;
       break;
     case 'reps':
-      body = <PlaceholderPage title="Reps" legacyHash="reps" />;
+      body = <RepsPage />;
       break;
     case 'compare':
-      body = <PlaceholderPage title="Compare" legacyHash="compare" />;
+      body = <ComparePage />;
       break;
     case 'inventory':
-      body = <PlaceholderPage title="Inventory" legacyHash="inventory" />;
+      body = <InventoryPage />;
       break;
     case 'settings':
       body = <PlaceholderPage title="Settings" legacyHash="settings" />;
