@@ -2,6 +2,11 @@ import { corsHeaders } from './qbo-helpers.mjs';
 import { createToken } from './token-helpers.mjs';
 import { sendEmail, approvalEmailHtml, APPROVAL_EMAIL, SITE_URL } from './email-helpers.mjs';
 
+// SECURITY TODO: this endpoint is hit by an external email-forwarding webhook,
+// so Supabase user auth doesn't apply. It still needs HMAC signature verification
+// against a shared secret to prevent unauthenticated callers from forging inbound
+// emails (which trigger approval emails and create signed bill-approval tokens).
+
 // This function receives inbound emails via webhook from your email service
 // (SendGrid Inbound Parse, Mailgun Routes, or custom forwarding)
 //

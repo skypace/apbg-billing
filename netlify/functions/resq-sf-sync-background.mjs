@@ -17,6 +17,7 @@
 
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
@@ -51,6 +52,9 @@ const SYNC_LOCK_KEY = 'sync-lock';
 const SYNC_LOCK_TTL_MS = 10 * 60 * 1000; // 10 min
 
 export async function handler(event) {
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
   const dedupeReport = [];
 

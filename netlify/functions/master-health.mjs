@@ -2,11 +2,12 @@
 // Returns cached results or runs live cross-site health checks
 
 import { runMasterHealthChecks } from './lib/master-health-core.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
@@ -32,6 +33,9 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
+
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
 
   // Try cached result first (unless ?refresh=1)
   const url = new URL(req.url);
