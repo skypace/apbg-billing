@@ -1642,6 +1642,173 @@ function DrillModal(props) {
   );
 }
 
+function parseClassifyCsv(text) {
+  // Header-aware parser. Required: customer_id OR customer_name.
+  // Optional: channel (or channels comma-list), primary_channel,
+  //           sales_rep (or sales_reps comma-list), primary_sales_rep.
+  var lines = text.split(/\r?\n/).filter(function(l){ return l.trim() });
+  if (lines.length === 0) return {error: 'empty input', rows: []};
+  function splitRow(row) {
+    // simple CSV split — quoted commas supported
+    var out = [], cur = '', inQ = false;
+    for (var i = 0; i < row.length; i++) {
+      var c = row[i];
+      if (c === '"') {
+        if (inQ && row[i+1] === '"') { cur += '"'; i++; }
+        else { inQ = !inQ; }
+      } else if (c === ',' && !inQ) { out.push(cur); cur = ''; }
+      else { cur += c; }
+    }
+    out.push(cur);
+    return out.map(function(s){ return s.trim() });
+  }
+  var head = splitRow(lines[0]).map(function(h){ return h.toLowerCase().replace(/[^a-z0-9_]+/g, '_') });
+  var idx = function(names) { for (var n of names) { var i = head.indexOf(n); if (i >= 0) return i } return -1 };
+  var iId      = idx(['qbo_customer_id','customer_id','id']);
+  var iName    = idx(['customer_name','customer','name','display_name']);
+  var iCh      = idx(['channels','channel']);
+  var iPrimCh  = idx(['primary_channel']);
+  var iRep     = idx(['sales_reps','sales_rep','rep']);
+  var iPrimRep = idx(['primary_sales_rep','primary_rep']);
+  if (iId < 0 && iName < 0) return {error: 'CSV needs a qbo_customer_id or customer_name column', rows: []};
+  var rows = [];
+  for (var li = 1; li < lines.length; li++) {
+    var c = splitRow(lines[li]);
+    var raw = {
+      id: iId >= 0 ? c[iId] : null,
+      name: iName >= 0 ? c[iName] : null,
+      channels: iCh >= 0 ? c[iCh].split(/\s*[;|]\s*|\s*,\s*/).filter(Boolean) : null,
+      primary_channel: iPrimCh >= 0 ? c[iPrimCh] : null,
+      sales_reps: iRep >= 0 ? c[iRep].split(/\s*[;|]\s*|\s*,\s*/).filter(Boolean) : null,
+      primary_sales_rep: iPrimRep >= 0 ? c[iPrimRep] : null
+    };
+    rows.push(raw);
+  }
+  return {rows: rows};
+}
+
+function BulkClassifyModal(props) {
+  var s = props.state;
+  var custMapState = React.useState(null);
+  var custMap = custMapState[0], setCustMap = custMapState[1];
+
+  React.useEffect(function() {
+    sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&limit=2000')
+      .then(function(rs) {
+        var byId = {}, byName = {};
+        (rs || []).forEach(function(c) {
+          byId[c.qbo_customer_id] = c.display_name;
+          byName[(c.display_name || '').toLowerCase()] = c.qbo_customer_id;
+        });
+        setCustMap({byId: byId, byName: byName});
+      });
+  }, []);
+
+  function close() { props.setState(null) }
+  function parse() {
+    var p = parseClassifyCsv(s.text);
+    props.setState(Object.assign({}, s, {parsed: p, results: null}));
+  }
+  function resolveCustomer(r) {
+    if (r.id && custMap.byId[r.id]) return r.id;
+    if (r.name && custMap.byName[r.name.toLowerCase()]) return custMap.byName[r.name.toLowerCase()];
+    return null;
+  }
+  function apply(dryRun) {
+    if (!s.parsed || !s.parsed.rows.length) return;
+    props.setState(Object.assign({}, s, {applying: true, results: null}));
+    var ok = 0, fail = 0, missing = 0;
+    var errs = [];
+    var tasks = s.parsed.rows.map(function(r) {
+      var custId = resolveCustomer(r);
+      if (!custId) { missing++; return Promise.resolve() }
+      if (dryRun) { ok++; return Promise.resolve() }
+      var promises = [];
+      if (r.channels && r.channels.length) {
+        promises.push(sbrpc('fn_set_customer_channels', {
+          p_qbo_customer_id: custId,
+          p_channel_labels: r.channels,
+          p_primary_label: r.primary_channel || r.channels[0]
+        }));
+      }
+      if (r.sales_reps && r.sales_reps.length) {
+        promises.push(sbrpc('fn_set_customer_sales_reps', {
+          p_qbo_customer_id: custId,
+          p_rep_names: r.sales_reps,
+          p_primary_name: r.primary_sales_rep || r.sales_reps[0]
+        }));
+      }
+      return Promise.all(promises)
+        .then(function(){ ok++ })
+        .catch(function(e){ fail++; errs.push((r.name || r.id) + ': ' + e.message) });
+    });
+    Promise.all(tasks).then(function() {
+      props.setState(Object.assign({}, s, {applying: false, results: {ok: ok, fail: fail, missing: missing, errs: errs, dryRun: dryRun}}));
+    });
+  }
+
+  if (!custMap) return React.createElement('div', {style:{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center'}},
+    React.createElement('div', {className:'ld', style:{padding:'40px', background:'var(--sf)', borderRadius:8}}, 'Loading customer index…'));
+
+  return React.createElement('div', {style:{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20},
+      onClick: close},
+    React.createElement('div', {onClick: function(e){ e.stopPropagation() },
+      style:{background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:8, width:'min(960px, 100%)', maxHeight:'90vh', display:'flex', flexDirection:'column'}},
+      React.createElement('div', {style:{padding:'12px 18px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontWeight:700, fontSize:14}}, 'Bulk Classify Customers'),
+          React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:2}},
+            'CSV columns (any subset): qbo_customer_id | customer_name | channels | primary_channel | sales_reps | primary_sales_rep. Multi-value cells separated by ; or |. Headers are case-insensitive.')),
+        React.createElement('button', {onClick: close, style: btnSecondary()}, 'CLOSE')
+      ),
+      React.createElement('div', {style:{flex:1, overflow:'auto', padding:'12px 18px'}},
+        React.createElement('textarea', {
+          value: s.text,
+          onChange: function(e){ props.setState(Object.assign({}, s, {text: e.target.value, parsed: null, results: null})) },
+          placeholder: 'qbo_customer_id,channels,primary_channel,sales_reps\n123,Vending;Chain QSR,Vending,Sky Pace\n…',
+          style: Object.assign({}, inp(), {width:'100%', minHeight:160, fontFamily:'monospace', fontSize:11, resize:'vertical'})
+        }),
+        s.parsed && s.parsed.error ? React.createElement('div', {style:{color:'var(--rd)', fontSize:11, marginTop:8}}, s.parsed.error) : null,
+        s.parsed && s.parsed.rows.length ? React.createElement('div', {style:{marginTop:10}},
+          React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginBottom:6}}, 'Preview — ' + s.parsed.rows.length + ' rows'),
+          React.createElement('div', {style:{maxHeight:220, overflow:'auto', border:'1px solid var(--bd)', borderRadius:4}},
+            React.createElement('table', null,
+              React.createElement('thead', null, React.createElement('tr', null,
+                React.createElement('th', null, 'Customer'),
+                React.createElement('th', null, 'Match'),
+                React.createElement('th', null, 'Channels'),
+                React.createElement('th', null, 'Primary Ch'),
+                React.createElement('th', null, 'Sales Reps'),
+                React.createElement('th', null, 'Primary Rep'))),
+              React.createElement('tbody', null, s.parsed.rows.slice(0, 200).map(function(r, i) {
+                var resolved = resolveCustomer(r);
+                var matchLabel = resolved ? '✓ ' + (custMap.byId[resolved] || resolved) : '✗ no match';
+                return React.createElement('tr', {key:i, style: resolved ? null : {background:'rgba(248,113,113,0.08)'}},
+                  React.createElement('td', {style:{fontSize:10}}, r.name || r.id || '—'),
+                  React.createElement('td', {style:{fontSize:10, color: resolved ? 'var(--gn)' : 'var(--rd)'}}, matchLabel),
+                  React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, (r.channels || []).join(', ')),
+                  React.createElement('td', {style:{fontSize:10}}, r.primary_channel || ''),
+                  React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, (r.sales_reps || []).join(', ')),
+                  React.createElement('td', {style:{fontSize:10}}, r.primary_sales_rep || ''));
+              })))
+          )
+        ) : null,
+        s.results ? React.createElement('div', {style:{marginTop:10, padding:'10px 12px', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, fontSize:11}},
+          React.createElement('div', {style:{fontWeight:600}}, s.results.dryRun ? 'DRY RUN' : 'APPLIED'),
+          React.createElement('div', {style:{marginTop:4}}, 'OK: ' + s.results.ok + ' · No-match: ' + s.results.missing + ' · Failed: ' + s.results.fail),
+          s.results.errs.length ? React.createElement('div', {style:{marginTop:6, color:'var(--rd)', maxHeight:120, overflow:'auto'}}, s.results.errs.slice(0, 50).map(function(e, i){ return React.createElement('div', {key:i}, '· ' + e) })) : null
+        ) : null
+      ),
+      React.createElement('div', {style:{padding:'10px 18px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, justifyContent:'flex-end'}},
+        React.createElement('button', {onClick: parse, style: btnSecondary()}, 'PARSE'),
+        React.createElement('button', {onClick: function(){ apply(true) }, disabled: !s.parsed || s.parsed.error || s.applying, style: btnSecondary()}, s.applying ? '…' : 'DRY RUN'),
+        React.createElement('button', {onClick: function(){ if (confirm('Apply to ' + s.parsed.rows.length + ' rows? This writes to channels and reps.')) apply(false) }, disabled: !s.parsed || s.parsed.error || s.applying, style: btnPrimary()}, s.applying ? '…' : 'APPLY'),
+        s.results && !s.results.dryRun ? React.createElement('button', {onClick: props.onDone, style: btnPrimary()}, 'DONE') : null
+      )
+    )
+  );
+}
+
 function CustomersPage() {
   var sState = React.useState('');
   var search = sState[0], setSearch = sState[1];
@@ -1659,6 +1826,8 @@ function CustomersPage() {
   var repOpts = repOptsState[0], setRepOpts = repOptsState[1];
   var healthState = React.useState({});
   var health = healthState[0], setHealth = healthState[1];
+  var importState = React.useState(null);   // null | {text, parsed, applying, results}
+  var importer = importState[0], setImporter = importState[1];
 
   React.useEffect(function() {
     Promise.all([
@@ -1769,8 +1938,14 @@ function CustomersPage() {
             }
           }, p.label);
         })
-      )
+      ),
+      React.createElement('button', {onClick: function(){ setImporter({text:'', parsed:null, applying:false, results:null}) }, style: btnSecondary()}, 'IMPORT CSV')
     ),
+    importer ? React.createElement(BulkClassifyModal, {
+      state: importer, setState: setImporter,
+      chOpts: chOpts, repOpts: repOpts,
+      onDone: function(){ setImporter(null); reload() }
+    }) : null,
     React.createElement('div', {className:'cd', style:{padding:0}},
       loading ? React.createElement('div', {className:'ld'}, 'Loading\u2026') :
       React.createElement('div', {style:{maxHeight:'68vh', overflow:'auto'}},
@@ -3559,12 +3734,51 @@ function InventoryReorder(props) {
   }
 
   var totalShrink = rows.reduce(function(s, r){ return s + Number(r.shrinkage_qty || 0) }, 0);
+
+  function printOrderSheet() {
+    var w = window.open('', '_blank');
+    if (!w) { alert('Pop-up blocked — allow pop-ups to print the order sheet.'); return }
+    var date = new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+    var html = '<!doctype html><html><head><title>Order Sheet — ' + date + '</title>';
+    html += '<style>body{font-family:system-ui,sans-serif;padding:24px;color:#0a0e17}h1{font-size:18px;letter-spacing:1.5px}h2{font-size:13px;color:#666;font-weight:400;margin-top:0}table{width:100%;border-collapse:collapse;font-size:11px;margin-top:12px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #ccc}th{background:#f1f5f9;font-size:9px;text-transform:uppercase;letter-spacing:.5px}td.r,th.r{text-align:right}td.center,th.center{text-align:center}.crit{color:#dc2626;font-weight:700}.qty{font-weight:700}.box{display:flex;gap:24px;margin-top:6px;font-size:11px;color:#666}@media print{body{padding:14px}}</style>';
+    html += '</head><body>';
+    html += '<h1>PACER — REORDER SHEET</h1>';
+    html += '<h2>Generated ' + date + ' · ' + props.lookback + '-day velocity window · ' + rows.length + ' items</h2>';
+    html += '<div class="box"><span>Critical: ' + rows.filter(function(r){return r.status==='critical'}).length + '</span>';
+    html += '<span>Est. order value: $' + Math.round(totalSugg).toLocaleString() + '</span>';
+    html += '<span>Shrink in window: ' + Math.round(totalShrink).toLocaleString() + ' units</span></div>';
+    html += '<table><thead><tr>';
+    html += '<th>Item</th><th class="r">On Hand</th><th class="r">Velocity / day</th><th class="r">Days Sup</th><th class="r">Suggested Qty</th><th class="center">Status</th><th>Vendor / Notes</th>';
+    html += '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var crit = r.status === 'critical' ? ' class="crit"' : '';
+      html += '<tr>';
+      html += '<td>' + (r.item_name || '').replace(/[<>]/g,'') + '</td>';
+      html += '<td class="r"' + crit + '>' + (r.on_hand != null ? Number(r.on_hand).toLocaleString(undefined,{maximumFractionDigits:1}) : '—') + '</td>';
+      html += '<td class="r">' + (r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '—') + '</td>';
+      html += '<td class="r">' + (r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '—') + '</td>';
+      html += '<td class="r qty">' + (r.suggested_order_qty != null ? Number(r.suggested_order_qty).toLocaleString(undefined,{maximumFractionDigits:0}) : '—') + '</td>';
+      html += '<td class="center">' + r.status + '</td>';
+      html += '<td>' + (r.notes ? r.notes.replace(/[<>]/g,'') : '') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<p style="font-size:9px;color:#999;margin-top:18px">Velocity = (sales + shrinkage) / lookback. Suggested qty brings on-hand up to target days × velocity. Static cost from QBO Item.PurchaseCost.</p>';
+    html += '<script>setTimeout(function(){ window.print() }, 200);</' + 'script>';
+    html += '</body></html>';
+    w.document.write(html);
+    w.document.close();
+  }
+
   return React.createElement('div', null,
-    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
-      React.createElement(C, {title:'NEEDS REORDER', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
-      React.createElement(C, {title:'CRITICAL', value: rows.filter(function(r){return r.status==='critical'}).length, accent:'var(--rd)'}),
-      React.createElement(C, {title:'EST. ORDER VALUE', value: fm(totalSugg), sub:'qty × static cost'}),
-      React.createElement(C, {title:'SHRINK QTY (' + props.lookback + 'd)', value: fmtNum(totalShrink), accent: totalShrink > 0 ? 'var(--am)' : null, sub:'lost stock factored into velocity'})
+    React.createElement('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, gap:10, flexWrap:'wrap'}},
+      React.createElement('div', {className:'gr g4', style:{flex:1, marginBottom:0}},
+        React.createElement(C, {title:'NEEDS REORDER', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
+        React.createElement(C, {title:'CRITICAL', value: rows.filter(function(r){return r.status==='critical'}).length, accent:'var(--rd)'}),
+        React.createElement(C, {title:'EST. ORDER VALUE', value: fm(totalSugg), sub:'qty × static cost'}),
+        React.createElement(C, {title:'SHRINK QTY (' + props.lookback + 'd)', value: fmtNum(totalShrink), accent: totalShrink > 0 ? 'var(--am)' : null, sub:'lost stock factored into velocity'})
+      ),
+      rows.length > 0 ? React.createElement('button', {onClick: printOrderSheet, style: Object.assign({}, btnPrimary(), {alignSelf:'flex-start', whiteSpace:'nowrap'})}, 'PRINT ORDER SHEET') : null
     ),
     React.createElement('div', {className:'cd', style:{padding:0}},
       rows.length === 0
