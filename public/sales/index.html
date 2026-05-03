@@ -2922,6 +2922,279 @@ function MoverColumn(props) {
   );
 }
 
+// =========================================================================
+// PLANS PAGE — sales scenarios + rollup to QBO income accounts
+// =========================================================================
+
+var MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function PlansPage() {
+  var plansState = React.useState(null);
+  var plans = plansState[0], setPlans = plansState[1];
+  var activeState = React.useState(null);  // selected plan_id
+  var activeId = activeState[0], setActiveId = activeState[1];
+
+  function load() {
+    sbq('sales_plans', 'select=*&order=fiscal_year.desc,name')
+      .then(function(rs){ setPlans(rs || []) });
+  }
+  React.useEffect(load, []);
+
+  function createPlan() {
+    var name = prompt('Plan name (e.g. "FY2027 Base"):');
+    if (!name) return;
+    var year = parseInt(prompt('Fiscal year:', String(new Date().getFullYear() + 1)), 10);
+    if (!year) return;
+    sbAuth.auth.getSession().then(function(s) {
+      var uid = s && s.data && s.data.session && s.data.session.user && s.data.session.user.id;
+      sbInsert('sales_plans', {name: name.trim(), fiscal_year: year, scenario: 'base', created_by: uid})
+        .then(function(rows) {
+          load();
+          if (rows && rows[0]) setActiveId(rows[0].id);
+        });
+    });
+  }
+  function deletePlan(id, name) {
+    if (!confirm('Delete plan "' + name + '"? This removes all of its lines.')) return;
+    sbDelete('sales_plans', 'id=eq.' + encodeURIComponent(id)).then(function(){
+      if (activeId === id) setActiveId(null);
+      load();
+    });
+  }
+
+  if (!plans) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  var active = plans.find(function(p){ return p.id === activeId });
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Sales Plans ',
+      React.createElement('span', {className:'bg bg-l'}, 'BUDGET / SCENARIOS')
+    ),
+    !active ? React.createElement('div', null,
+      React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center'}},
+        React.createElement('button', {onClick: createPlan, style: btnPrimary()}, '+ NEW PLAN'),
+        React.createElement('div', {style:{fontSize:11, color:'var(--mt)'}}, plans.length + ' plan' + (plans.length === 1 ? '' : 's'))
+      ),
+      React.createElement('div', {className:'cd', style:{padding:0}},
+        plans.length === 0
+          ? React.createElement('div', {className:'ld'}, 'No plans yet. Click + NEW PLAN to start.')
+          : React.createElement('table', null,
+              React.createElement('thead', null, React.createElement('tr', null,
+                React.createElement('th', null, 'Name'),
+                React.createElement('th', null, 'Year'),
+                React.createElement('th', null, 'Scenario'),
+                React.createElement('th', null, 'Status'),
+                React.createElement('th', null, 'Updated'),
+                React.createElement('th', null, '')
+              )),
+              React.createElement('tbody', null, plans.map(function(p) {
+                return React.createElement('tr', {key:p.id, style:{cursor:'pointer'}, onClick: function(){ setActiveId(p.id) }},
+                  React.createElement('td', {style:{fontWeight:600}}, p.name),
+                  React.createElement('td', {className:'mn'}, p.fiscal_year),
+                  React.createElement('td', null, p.scenario),
+                  React.createElement('td', {style:{fontSize:11, color: p.status === 'pushed' ? 'var(--gn)' : 'var(--mt)'}}, p.status),
+                  React.createElement('td', {className:'mn', style:{fontSize:10, color:'var(--mt)'}}, new Date(p.updated_at).toLocaleDateString()),
+                  React.createElement('td', {style:{textAlign:'right'}},
+                    React.createElement('button', {onClick: function(e){ e.stopPropagation(); deletePlan(p.id, p.name) }, style: btnDanger()}, '×'))
+                );
+              }))
+            )
+      )
+    ) : React.createElement(PlanEditor, {plan: active, onBack: function(){ setActiveId(null); load() }})
+  );
+}
+
+function PlanEditor(props) {
+  var plan = props.plan;
+  var linesState = React.useState(null);
+  var lines = linesState[0], setLines = linesState[1];
+  var rollupState = React.useState(null);
+  var rollup = rollupState[0], setRollup = rollupState[1];
+  var pickerState = React.useState(false);
+  var pickerOpen = pickerState[0], setPickerOpen = pickerState[1];
+  var itemsState = React.useState([]);
+  var itemOpts = itemsState[0], setItemOpts = itemsState[1];
+
+  function load() {
+    Promise.all([
+      sbq('sales_plan_lines', 'select=*&plan_id=eq.' + plan.id + '&order=sort_order,item_name'),
+      sbrpc('fn_plan_account_rollup', {p_plan_id: plan.id})
+    ]).then(function(res) {
+      setLines(res[0] || []);
+      setRollup(res[1] || []);
+    });
+  }
+  React.useEffect(load, [plan.id]);
+
+  React.useEffect(function() {
+    sbq('qbo_items', 'select=qbo_item_id,name,fully_qualified_name,income_account_name,income_account_ref_id&active=eq.true&order=name&limit=2000')
+      .then(function(rs){ setItemOpts(rs || []) });
+  }, []);
+
+  function addItemLine(it) {
+    sbInsert('sales_plan_lines', {
+      plan_id: plan.id,
+      line_type: 'item',
+      qbo_item_id: it.qbo_item_id,
+      item_name: it.fully_qualified_name || it.name,
+      qbo_account_id: it.income_account_ref_id,
+      account_name: it.income_account_name,
+      amounts: [0,0,0,0,0,0,0,0,0,0,0,0]
+    }).then(function(){ setPickerOpen(false); load() });
+  }
+  function setAmount(line, monthIdx, value) {
+    var amounts = (line.amounts || [0,0,0,0,0,0,0,0,0,0,0,0]).slice();
+    amounts[monthIdx] = Number(value) || 0;
+    sbUpdate('sales_plan_lines', 'id=eq.' + line.id, {amounts: amounts, updated_at: new Date().toISOString()})
+      .then(load);
+  }
+  function deleteLine(id) {
+    sbDelete('sales_plan_lines', 'id=eq.' + id).then(load);
+  }
+  function fillFlat(line, total) {
+    var per = Math.round((Number(total) || 0) / 12 * 100) / 100;
+    sbUpdate('sales_plan_lines', 'id=eq.' + line.id, {amounts: Array(12).fill(per)}).then(load);
+  }
+  function copyFromActuals() {
+    if (!confirm('Replace this plan’s line amounts with actual revenue from ' + (plan.fiscal_year - 1) + '? Existing values will be overwritten.')) return;
+    // Pull actuals for prior year by item
+    sbrpc('fn_sales_pivot', {
+      p_dim: 'item', p_start: (plan.fiscal_year - 1) + '-01-01', p_end: (plan.fiscal_year - 1) + '-12-31', p_limit: 1000
+    }).then(function(rs) {
+      // For each plan line that has qbo_item_id, find matching actual and fetch month-by-month
+      // Simpler: just put total/12 per month for each existing item line
+      var byName = {};
+      (rs || []).forEach(function(r){ byName[r.dim_label] = Number(r.revenue || 0) });
+      Promise.all((lines || []).map(function(l) {
+        var v = byName[l.item_name] || 0;
+        var per = Math.round(v / 12 * 100) / 100;
+        return sbUpdate('sales_plan_lines', 'id=eq.' + l.id, {amounts: Array(12).fill(per)});
+      })).then(load);
+    });
+  }
+  function exportCsv() {
+    if (!rollup || !rollup.length) { alert('Nothing to export yet.'); return; }
+    var rows = [['Account', 'QBO Account ID'].concat(MONTHS_SHORT).concat(['Total'])];
+    rollup.forEach(function(r) {
+      rows.push([r.account_name, r.qbo_account_id || ''].concat(
+        ['m1','m2','m3','m4','m5','m6','m7','m8','m9','m10','m11','m12'].map(function(k){ return Number(r[k] || 0).toFixed(2) })
+      ).concat([Number(r.total || 0).toFixed(2)]));
+    });
+    var csv = rows.map(function(row){
+      return row.map(function(v) {
+        var s = String(v == null ? '' : v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',');
+    }).join('\n');
+    var blob = new Blob([csv], {type: 'text/csv'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = plan.name.replace(/\s+/g, '_') + '_FY' + plan.fiscal_year + '_budget.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  if (!lines || !rollup) return React.createElement('div', {className:'ld'}, 'Loading plan…');
+
+  var totalAnnual = rollup.reduce(function(s, r){ return s + Number(r.total || 0) }, 0);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}},
+      React.createElement('button', {onClick: props.onBack, style: btnSecondary()}, '← Plans'),
+      React.createElement('div', null,
+        React.createElement('div', {style:{fontWeight:600, fontSize:14}}, plan.name + ' — FY' + plan.fiscal_year),
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, plan.scenario + ' · ' + lines.length + ' lines · ' + fm(totalAnnual) + ' annual')
+      ),
+      React.createElement('div', {style:{marginLeft:'auto', display:'flex', gap:6}},
+        React.createElement('button', {onClick: copyFromActuals, style: btnSecondary()}, 'COPY FROM ' + (plan.fiscal_year - 1) + ' ACTUALS'),
+        React.createElement('button', {onClick: exportCsv, style: btnPrimary()}, 'EXPORT BUDGET CSV')
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'PLAN LINES — ' + lines.length),
+        React.createElement('button', {onClick: function(){ setPickerOpen(!pickerOpen) }, style: btnSecondary()}, '+ ADD ITEM')
+      ),
+      pickerOpen ? React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('select', {style: Object.assign({}, inp(), {width:'100%', maxWidth:600}),
+          onChange: function(e) {
+            var it = itemOpts.find(function(x){ return x.qbo_item_id === e.target.value });
+            if (it) addItemLine(it);
+          },
+          defaultValue: ''
+        },
+          React.createElement('option', {value:''}, '-- pick an item to add --'),
+          itemOpts.filter(function(it){ return !lines.some(function(l){ return l.qbo_item_id === it.qbo_item_id }) })
+            .map(function(it) {
+              return React.createElement('option', {key:it.qbo_item_id, value:it.qbo_item_id},
+                (it.fully_qualified_name || it.name) + (it.income_account_name ? ' → ' + it.income_account_name : ''));
+            })
+        )
+      ) : null,
+      React.createElement('div', {style:{maxHeight:'42vh', overflow:'auto'}},
+        lines.length === 0
+          ? React.createElement('div', {className:'ld'}, 'No lines yet. Click + ADD ITEM.')
+          : React.createElement('table', null,
+              React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+                React.createElement('th', null, 'Item'),
+                React.createElement('th', {style:{fontSize:9, color:'var(--mt)'}}, 'Account'),
+                MONTHS_SHORT.map(function(m){ return React.createElement('th', {key:m, style:{textAlign:'right', fontSize:9}}, m) }),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Total'),
+                React.createElement('th', null, '')
+              )),
+              React.createElement('tbody', null, lines.map(function(l) {
+                var amounts = l.amounts || [];
+                var total = amounts.reduce(function(s, v){ return s + Number(v || 0) }, 0);
+                return React.createElement('tr', {key: l.id},
+                  React.createElement('td', {style:{maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11}}, l.item_name || '—'),
+                  React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, l.account_name || '—'),
+                  amounts.map(function(v, idx) {
+                    return React.createElement('td', {key:idx, style:{textAlign:'right', padding:'2px 4px'}},
+                      React.createElement('input', {type:'number', defaultValue: v || 0,
+                        onBlur: function(e) { if (Number(e.target.value) !== Number(v)) setAmount(l, idx, e.target.value) },
+                        style: Object.assign({}, inp(), {width: 72, textAlign:'right', fontSize:10, padding:'3px 4px'})
+                      }));
+                  }),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(total)),
+                  React.createElement('td', {style:{textAlign:'right', whiteSpace:'nowrap'}},
+                    React.createElement('button', {onClick: function(){ var v = prompt('Annual total to spread evenly across 12 months:', String(Math.round(total))); if (v != null) fillFlat(l, v) }, style: Object.assign({}, btnSecondary(), {fontSize:9, padding:'2px 6px'})}, '÷12'),
+                    React.createElement('button', {onClick: function(){ deleteLine(l.id) }, style: Object.assign({}, btnDanger(), {marginLeft:4})}, '×'))
+                );
+              }))
+            )
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'ROLLUP BY QBO INCOME ACCOUNT — what would push to QBO Budget'),
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+          'These per-account monthly totals are what QBO Budget would receive. Use EXPORT BUDGET CSV above to import into QBO Budget UI (QBO Budget API write requires Plus tier; we can wire that up when ready).')
+      ),
+      rollup.length === 0
+        ? React.createElement('div', {className:'ld'}, 'Add lines above to see the rollup.')
+        : React.createElement('div', {style:{overflow:'auto'}},
+            React.createElement('table', null,
+              React.createElement('thead', null, React.createElement('tr', null,
+                React.createElement('th', null, 'Account'),
+                MONTHS_SHORT.map(function(m){ return React.createElement('th', {key:m, style:{textAlign:'right', fontSize:9}}, m) }),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Total')
+              )),
+              React.createElement('tbody', null, rollup.map(function(r) {
+                return React.createElement('tr', {key: r.qbo_account_id || r.account_name},
+                  React.createElement('td', {style:{fontWeight:600}}, r.account_name),
+                  ['m1','m2','m3','m4','m5','m6','m7','m8','m9','m10','m11','m12'].map(function(k, i) {
+                    return React.createElement('td', {key:i, className:'mn', style:{textAlign:'right'}}, fm(r[k]));
+                  }),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.total))
+                );
+              }))
+            )
+          )
+    )
+  );
+}
+
 function App() {
   var sessState = React.useState(undefined);
   var session = sessState[0], setSession = sessState[1];
@@ -2960,7 +3233,7 @@ function App() {
 }
 
 function MainApp(props) {
-  var validViews = ['margin', 'customers', 'reports', 'settings'];
+  var validViews = ['margin', 'customers', 'reports', 'plans', 'settings'];
   function viewFromHash() {
     var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
     return validViews.indexOf(h) >= 0 ? h : 'margin';
@@ -2999,6 +3272,7 @@ function MainApp(props) {
 
   var content = view === 'customers' ? React.createElement(CustomersPage)
               : view === 'reports'   ? React.createElement(ReportsPage)
+              : view === 'plans'     ? React.createElement(PlansPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
               : React.createElement(MarginPage);
 
@@ -3010,7 +3284,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
