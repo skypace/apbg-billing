@@ -165,6 +165,12 @@
     };
   }
 
+  // Capture native fetch at module-load time. Classic <script>s share their
+  // top-level let/const scope, so a `const fetch = APBG.auth.authedFetch` in
+  // an admin page would otherwise shadow the bare `fetch` identifier here
+  // and cause infinite recursion ("Maximum call stack size exceeded").
+  var nativeFetch = window.fetch.bind(window);
+
   async function authedFetch(input, init) {
     init = init || {};
     var session = readSession();
@@ -177,7 +183,7 @@
     var nextInit = {};
     for (var k in init) if (Object.prototype.hasOwnProperty.call(init, k)) nextInit[k] = init[k];
     nextInit.headers = headers;
-    return fetch(input, nextInit);
+    return nativeFetch(input, nextInit);
   }
 
   function getSupabase() {
