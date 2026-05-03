@@ -4,6 +4,7 @@ import { sbAuth } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
+import { OverviewPage } from './pages/OverviewPage';
 import { MarginPage } from './pages/MarginPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { CustomerDetailPage } from './pages/CustomerDetailPage';
@@ -35,6 +36,9 @@ export function App() {
 
   let body;
   switch (route.view) {
+    case 'overview':
+      body = <OverviewPage />;
+      break;
     case 'margin':
       body = <MarginPage />;
       break;
