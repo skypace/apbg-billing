@@ -148,6 +148,20 @@ function Sparkline(props) {
 
 var CHART_PALETTE = ['#22d3ee','#818cf8','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#22c55e','#ec4899','#06b6d4','#84cc16','#f472b6'];
 
+function metricValue(row, metric, allocFor) {
+  if (metric === 'real_net' && allocFor) {
+    var alloc = allocFor(row.revenue, row.effective_segment);
+    return Number(row.revenue || 0) - Number(row.est_cost || 0) - (alloc.total || 0);
+  }
+  if (metric === 'margin_pct') return row.margin_pct != null ? Number(row.margin_pct) * 100 : 0;
+  return Number(row[metric] || 0);
+}
+function metricFormat(v, metric) {
+  if (metric === 'qty') return Number(v).toLocaleString(undefined, {maximumFractionDigits:0});
+  if (metric === 'margin_pct') return v.toFixed(1) + '%';
+  return fm(v);
+}
+
 function ChartView(props) {
   if (props.mode === 'bar')  return React.createElement(BarChart,  props);
   if (props.mode === 'pie')  return React.createElement(PieChart,  props);
@@ -158,30 +172,38 @@ function ChartView(props) {
 function BarChart(props) {
   var top = (props.rows || []).slice(0, 25);
   if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
-  var showCompare = props.showCompare;
-  var labels = top.map(function(r){ return r.dim_label });
-  var maxVal = Math.max.apply(null, top.flatMap(function(r){
-    return [Math.abs(Number(r.revenue || 0)), showCompare ? Math.abs(Number(r.prev_revenue || 0)) : 0];
-  }).concat([1]));
+  var metric = props.metric || 'revenue';
+  // paired-bar mode (prior vs current) only valid when metric === 'revenue'
+  var showCompare = props.showCompare && metric === 'revenue';
+  var values = top.map(function(r){ return metricValue(r, metric, props.allocFor) });
+  var maxVal = Math.max.apply(null, values.map(Math.abs).concat(showCompare ? top.map(function(r){ return Math.abs(Number(r.prev_revenue || 0)) }) : [], [1]));
+  var hasNeg = values.some(function(v){ return v < 0 });
   var rowH = showCompare ? 28 : 22;
   var labelW = 280;
   var w = 1000, h = top.length * rowH + 30;
   var barAreaW = w - labelW - 100;
+  // For metrics that can be negative, draw bars from a center axis; otherwise from labelW.
+  var zeroX = labelW + (hasNeg ? barAreaW * 0.5 : 0);
+  var halfW = hasNeg ? barAreaW * 0.5 : barAreaW;
+
   return React.createElement('div', {style:{padding:'12px 14px', maxHeight:'70vh', overflow:'auto'}},
     React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+      hasNeg ? React.createElement('line', {x1: zeroX, y1: 0, x2: zeroX, y2: h, stroke:'var(--bd)', strokeWidth: 1}) : null,
       top.map(function(r, idx) {
         var y = idx * rowH + 6;
-        var rev = Number(r.revenue || 0);
+        var v = values[idx];
         var prev = Number(r.prev_revenue || 0);
-        var revW = Math.abs(rev) / maxVal * barAreaW;
-        var prevW = Math.abs(prev) / maxVal * barAreaW;
+        var bw = Math.abs(v) / maxVal * halfW;
+        var bx = v >= 0 ? zeroX : zeroX - bw;
+        var prevW = Math.abs(prev) / maxVal * halfW;
+        var color = v >= 0 ? 'var(--ac)' : 'var(--rd)';
         return React.createElement('g', {key: r.dim_label},
           React.createElement('text', {x: labelW - 8, y: y + (showCompare ? 14 : 13), fill:'var(--tx)', fontSize: 11, textAnchor:'end'},
             r.dim_label.length > 38 ? r.dim_label.substring(0, 38) + '…' : r.dim_label),
-          showCompare ? React.createElement('rect', {x: labelW, y: y, width: prevW, height: 9, fill:'var(--mt)', opacity: 0.6}) : null,
-          React.createElement('rect', {x: labelW, y: showCompare ? y + 11 : y + 4, width: revW, height: 12, fill: 'var(--ac)'}),
-          React.createElement('text', {x: labelW + Math.max(revW, prevW) + 6, y: y + (showCompare ? 17 : 14), fill:'var(--tx)', fontSize: 11},
-            fm(rev) + (showCompare && prev ? '  (was ' + fm(prev) + ')' : ''))
+          showCompare ? React.createElement('rect', {x: zeroX, y: y, width: prevW, height: 9, fill:'var(--mt)', opacity: 0.6}) : null,
+          React.createElement('rect', {x: bx, y: showCompare ? y + 11 : y + 4, width: bw, height: 12, fill: color}),
+          React.createElement('text', {x: Math.max(bx + bw, zeroX + prevW) + 6, y: y + (showCompare ? 17 : 14), fill:'var(--tx)', fontSize: 11},
+            metricFormat(v, metric) + (showCompare && prev ? '  (was ' + fm(prev) + ')' : ''))
         );
       })
     )
@@ -189,20 +211,23 @@ function BarChart(props) {
 }
 
 function PieChart(props) {
+  var metric = props.metric || 'revenue';
   var top = (props.rows || []).slice(0, 12);
   if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
   var rest = (props.rows || []).slice(12);
-  var slices = top.slice();
+  var slices = top.map(function(r) {
+    return Object.assign({}, r, { __value: metricValue(r, metric, props.allocFor) });
+  }).filter(function(r){ return r.__value > 0 });  // pie only renders positive values
   if (rest.length) {
-    var otherRev = rest.reduce(function(s, r){ return s + Number(r.revenue || 0) }, 0);
-    if (otherRev > 0) slices.push({dim_label: '+ ' + rest.length + ' more', revenue: otherRev});
+    var otherV = rest.reduce(function(s, r){ return s + Math.max(0, metricValue(r, metric, props.allocFor)) }, 0);
+    if (otherV > 0) slices.push({dim_label: '+ ' + rest.length + ' more', __value: otherV});
   }
-  var total = slices.reduce(function(s, r){ return s + Math.abs(Number(r.revenue || 0)) }, 0);
-  if (total === 0) return React.createElement('div', {className:'ld'}, 'All zero — nothing to chart.');
+  var total = slices.reduce(function(s, r){ return s + r.__value }, 0);
+  if (total === 0) return React.createElement('div', {className:'ld'}, 'All values zero or negative — nothing to chart for this metric.');
   var cx = 220, cy = 220, r = 180;
   var startAngle = -Math.PI / 2;
   var paths = slices.map(function(row, idx) {
-    var v = Math.abs(Number(row.revenue || 0));
+    var v = row.__value;
     var pct = v / total;
     var endAngle = startAngle + pct * Math.PI * 2;
     var large = pct > 0.5 ? 1 : 0;
@@ -236,7 +261,7 @@ function PieChart(props) {
         return React.createElement('div', {key: i, style:{display:'flex', alignItems:'center', gap: 8, padding:'4px 0', fontSize: 12, borderBottom:'1px solid var(--bd)'}},
           React.createElement('span', {style:{display:'inline-block', width: 12, height: 12, background: p.color, borderRadius: 2}}),
           React.createElement('span', {style:{flex: 1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, p.label),
-          React.createElement('span', {className:'mn', style:{color:'var(--mt)'}}, fm(p.value)),
+          React.createElement('span', {className:'mn', style:{color:'var(--mt)'}}, metricFormat(p.value, metric)),
           React.createElement('span', {className:'mn', style:{minWidth: 50, textAlign:'right'}}, (p.pct * 100).toFixed(1) + '%')
         );
       })
@@ -771,6 +796,8 @@ function MarginPage() {
 
   var viewModeState = React.useState('table');
   var viewMode = viewModeState[0], setViewMode = viewModeState[1];
+  var chartMetricState = React.useState('revenue');
+  var chartMetric = chartMetricState[0], setChartMetric = chartMetricState[1];
 
   // Sort state (#10): clicking a column header toggles sort; default is revenue desc.
   var sortStateH = React.useState({col:'revenue', dir:'desc'});
@@ -876,17 +903,44 @@ function MarginPage() {
     URL.revokeObjectURL(url);
   }
 
+  var CHART_METRICS = [
+    {id:'revenue',    label:'Revenue',     chartable: ['bar','pie','line']},
+    {id:'qty',        label:'Qty',         chartable: ['bar','pie']},
+    {id:'est_cost',   label:'Est. Cost',   chartable: ['bar','pie']},
+    {id:'est_margin', label:'Est. Margin', chartable: ['bar','pie']},
+    {id:'margin_pct', label:'Margin %',    chartable: ['bar']},
+    {id:'real_net',   label:'Real Net',    chartable: ['bar','pie']}
+  ];
+  var availableMetrics = CHART_METRICS.filter(function(m){ return m.chartable.indexOf(viewMode) >= 0 });
+  var effectiveMetric = availableMetrics.find(function(m){ return m.id === chartMetric }) ? chartMetric : 'revenue';
+
   var chartHeader = React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap'}},
-    React.createElement('div', {className:'ct', style:{margin:0}}, viewMode.toUpperCase() + ' — TOP ' + (viewMode === 'pie' ? 12 : viewMode === 'line' ? 8 : 25) + ' BY ' + headerLabel.toUpperCase()),
-    React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}},
-      viewMode === 'bar'  ? (showCompare ? 'paired bars: top = prior, bottom = current' : 'bars sized by revenue') :
-      viewMode === 'pie'  ? '% of total revenue' :
-      viewMode === 'line' ? 'trailing-12-month revenue per row' : '')
+    React.createElement('div', null,
+      React.createElement('div', {className:'ct', style:{margin:0}}, viewMode.toUpperCase() + ' — TOP ' + (viewMode === 'pie' ? 12 : viewMode === 'line' ? 8 : 25) + ' BY ' + headerLabel.toUpperCase()),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+        viewMode === 'bar'  ? (showCompare ? 'paired bars: prior on top, current below — ' : '') + 'bars sized by ' + (availableMetrics.find(function(m){return m.id===effectiveMetric})||{}).label :
+        viewMode === 'pie'  ? '% of total ' + (availableMetrics.find(function(m){return m.id===effectiveMetric})||{}).label :
+        viewMode === 'line' ? 'trailing-12-month revenue per row' : '')
+    ),
+    viewMode !== 'line' ? React.createElement('div', {style:{display:'inline-flex', gap:4}},
+      availableMetrics.map(function(m) {
+        var on = effectiveMetric === m.id;
+        return React.createElement('button', {key:m.id, onClick:function(){ setChartMetric(m.id) },
+          style:{
+            background: on ? 'var(--ac)' : 'var(--sf2)',
+            color: on ? 'var(--bg)' : 'var(--tx)',
+            border:'1px solid var(--bd)', padding:'3px 8px', borderRadius:4,
+            fontSize:10, cursor:'pointer', fontWeight: on ? 700 : 400, letterSpacing:.5
+          }
+        }, m.label.toUpperCase());
+      })
+    ) : null
   );
 
   var chartView = React.createElement('div', {className:'cd', style:{padding:0}},
     chartHeader,
-    React.createElement(ChartView, {mode: viewMode, rows: sortedRows, sparks: sparks, showCompare: showCompare, end: f.end})
+    React.createElement(ChartView, {mode: viewMode, rows: sortedRows, sparks: sparks,
+      showCompare: showCompare, end: f.end, metric: effectiveMetric, allocFor: allocFor})
   );
 
   var table = React.createElement('div', {className:'cd', style:{padding:0}},
