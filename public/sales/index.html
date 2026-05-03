@@ -2797,7 +2797,9 @@ var DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 var DIGEST_SECTIONS = [
   {id:'margin_summary', label:'YTD Margin Summary'},
   {id:'inactive',       label:'Lost / Inactive Customers'},
-  {id:'top_movers',     label:'Top Movers (vs prior year)'}
+  {id:'top_movers',     label:'Top Movers (vs prior year)'},
+  {id:'health_movers',  label:'Customer Health Movement'},
+  {id:'plan_alerts',    label:'Plan Variance Alerts'}
 ];
 
 function DigestEditor() {
@@ -3276,9 +3278,10 @@ function LoginScreen(props) {
 // =========================================================================
 
 var REPORT_TABS = [
-  {id:'inactive', label:'Lost / Inactive Customers'},
-  {id:'movers',   label:'Top Movers'},
-  {id:'voids',    label:'Product Voids / Cross-Sell'}
+  {id:'inactive',      label:'Lost / Inactive Customers'},
+  {id:'movers',        label:'Top Movers'},
+  {id:'health_movers', label:'Health Movers (RFM)'},
+  {id:'voids',         label:'Product Voids / Cross-Sell'}
 ];
 
 function ReportsPage() {
@@ -3303,9 +3306,10 @@ function ReportsPage() {
         }, t.label.toUpperCase());
       })
     ),
-    tab === 'inactive' ? React.createElement(InactiveCustomersReport)
-    : tab === 'movers' ? React.createElement(TopMoversReport)
-    : tab === 'voids'  ? React.createElement(VoidsReport)
+    tab === 'inactive'      ? React.createElement(InactiveCustomersReport)
+    : tab === 'movers'        ? React.createElement(TopMoversReport)
+    : tab === 'health_movers' ? React.createElement(HealthMoversReport)
+    : tab === 'voids'         ? React.createElement(VoidsReport)
     : null
   );
 }
@@ -3465,6 +3469,98 @@ function TopMoversReport() {
     React.createElement('div', {className:'gr g2'},
       MoverColumn({title:'TOP GAINERS', items: gainers, color:'var(--gn)'}),
       MoverColumn({title:'TOP DECLINERS', items: losers, color:'var(--rd)'})
+    )
+  );
+}
+
+function HealthMoversReport() {
+  var ageState = React.useState(14);
+  var maxAge = ageState[0], setMaxAge = ageState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var snapState = React.useState(null);
+  var snapMsg = snapState[0], setSnapMsg = snapState[1];
+
+  function load() {
+    setRows(null);
+    sbrpc('fn_health_movers', { p_max_age_days: Number(maxAge) || 14 })
+      .then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(load, [maxAge]);
+
+  function takeSnapshot() {
+    setSnapMsg('snapshotting…');
+    sbrpc('fn_take_health_snapshot', {}).then(function(n) {
+      setSnapMsg('snapshot taken: ' + (n || 0) + ' customers');
+      load();
+    }).catch(function(e){ setSnapMsg('error: ' + (e && e.message || e)) });
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  var promoted = rows.filter(function(r){ return Number(r.rfm_total_delta) > 0 || (r.prev_segment === null) });
+  var demoted  = rows.filter(function(r){ return Number(r.rfm_total_delta) < 0 });
+  var bigJump  = rows.filter(function(r){ return Math.abs(Number(r.rfm_total_delta) || 0) >= 3 });
+  var newCust  = rows.filter(function(r){ return r.prev_segment === null });
+
+  function deltaCell(n) {
+    if (n == null) return React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, '—');
+    var v = Number(n);
+    var color = v > 0 ? 'var(--gn)' : v < 0 ? 'var(--rd)' : 'var(--mt)';
+    var sign = v > 0 ? '+' : '';
+    return React.createElement('td', {className:'mn', style:{textAlign:'right', color:color, fontWeight:600}}, sign + v);
+  }
+  function moneyDeltaCell(n) {
+    if (n == null) return React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, '—');
+    var v = Number(n);
+    var color = v > 0 ? 'var(--gn)' : v < 0 ? 'var(--rd)' : 'var(--mt)';
+    var sign = v > 0 ? '+' : '';
+    return React.createElement('td', {className:'mn', style:{textAlign:'right', color:color, fontWeight:600}}, sign + fm(v));
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'CUSTOMERS WITH MOVEMENT', value: rows.length, accent:'var(--ac)'}),
+      React.createElement(C, {title:'PROMOTED', value: promoted.length, accent:'var(--gn)', sub:'higher RFM or new'}),
+      React.createElement(C, {title:'DEMOTED', value: demoted.length, accent:'var(--rd)', sub:'lower RFM total'}),
+      React.createElement(C, {title:'BIG MOVES (≥3)', value: bigJump.length, accent:'var(--am)', sub:'segment-changing magnitudes'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Compare vs snapshot within last'),
+      React.createElement('input', {type:'number', min:1, max:90, value:maxAge, onChange:function(e){ setMaxAge(e.target.value) }, style:Object.assign({}, inp(), {width:60})}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'days'),
+      React.createElement('button', {onClick: takeSnapshot, style: btnSecondary()}, 'TAKE SNAPSHOT NOW'),
+      snapMsg ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:8}}, snapMsg) : null,
+      newCust.length > 0 ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:'auto'}}, newCust.length + ' first-seen this period') : null
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No customer health movement detected. Either no prior snapshot exists in this window, or every customer is stable.') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', null, 'Channel'),
+            React.createElement('th', null, 'Rep'),
+            React.createElement('th', null, 'Was'),
+            React.createElement('th', null, 'Now'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'RFM Δ'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Monetary Δ'),
+            React.createElement('th', null, 'Movement')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            return React.createElement('tr', {key:r.qbo_customer_id},
+              React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
+              React.createElement('td', null, segmentChip(r.prev_segment)),
+              React.createElement('td', null, segmentChip(r.curr_segment)),
+              deltaCell(r.rfm_total_delta),
+              moneyDeltaCell(r.monetary_delta),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.movement || '—')
+            );
+          }))
+        )
+      )
     )
   );
 }
@@ -4178,6 +4274,22 @@ function healthBadge(h) {
     React.createElement('span', {style:{fontSize:10, color:'var(--mt)', fontFamily:'monospace'}},
       'R' + h.r_score + ' F' + h.f_score + ' M' + h.m_score + ' · ' + h.recency_days + 'd ago')
   );
+}
+
+function segmentChip(seg) {
+  if (!seg) return React.createElement('span', {style:{color:'var(--mt)', fontSize:10}}, '— new —');
+  var color = seg === 'Champion' ? 'var(--gn)'
+            : seg === 'Loyal' ? '#34d399'
+            : seg === 'New / Potential' ? 'var(--ac)'
+            : seg === 'At Risk — High Value' ? 'var(--am)'
+            : seg === 'At Risk' ? '#fbbf24'
+            : seg === 'Lost / Hibernating' ? 'var(--rd)'
+            : 'var(--mt)';
+  return React.createElement('span', {style:{
+    background:'rgba(255,255,255,0.04)', color:color,
+    border:'1px solid ' + color, padding:'1px 7px', borderRadius:12,
+    fontSize:9, fontWeight:700, letterSpacing:.5, whiteSpace:'nowrap'
+  }}, seg.toUpperCase());
 }
 
 function customerLink(id, name, opts) {
