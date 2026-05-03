@@ -2877,11 +2877,13 @@ function ExportsPanel() {
 
 // ----- Sync / Connections panel -----
 var SYNC_FUNCTIONS = [
-  {slug:'sync-qbo',           label:'QBO Invoices + P&L', desc:'Pulls Invoices and P&L snapshots. Nightly cron.'},
-  {slug:'sync-qbo-items',     label:'QBO Items',          desc:'Pulls Item master + PurchaseCost. Powers est_cost.'},
-  {slug:'sync-qbo-customers', label:'QBO Customers',      desc:'Pulls Customer master + CustomerType for channel mapping.'},
-  {slug:'sync-qbo-employees', label:'QBO Employees',      desc:'Mirrors QBO Payroll employee list to ops.qbo_employees_cache.'},
-  {slug:'sync-sf',            label:'ServiceFusion Jobs', desc:'Delivery + service jobs. Every 30 min.'}
+  {slug:'sync-qbo',                          label:'QBO Invoices + P&L',     desc:'Pulls Invoices and P&L snapshots. Nightly cron.'},
+  {slug:'sync-qbo-items',                    label:'QBO Items',              desc:'Pulls Item master + PurchaseCost. Powers est_cost.'},
+  {slug:'sync-qbo-customers',                label:'QBO Customers',          desc:'Pulls Customer master + CustomerType for channel mapping.'},
+  {slug:'sync-qbo-expenses',                 label:'QBO Bills + Purchases',  desc:'Bill / Purchase / VendorCredit lines for actual landed cost.'},
+  {slug:'sync-qbo-inventory-adjustments',    label:'QBO Inventory Adjustments', desc:'Shrinkage / write-offs / count corrections. Feeds Inventory velocity calc.'},
+  {slug:'sync-qbo-employees',                label:'QBO Employees',          desc:'Mirrors QBO Payroll employee list to ops.qbo_employees_cache.'},
+  {slug:'sync-sf',                           label:'ServiceFusion Jobs',     desc:'Delivery + service jobs. Every 30 min.'}
 ];
 
 function SyncPanel() {
@@ -3556,12 +3558,13 @@ function InventoryReorder(props) {
     );
   }
 
+  var totalShrink = rows.reduce(function(s, r){ return s + Number(r.shrinkage_qty || 0) }, 0);
   return React.createElement('div', null,
     React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
       React.createElement(C, {title:'NEEDS REORDER', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
       React.createElement(C, {title:'CRITICAL', value: rows.filter(function(r){return r.status==='critical'}).length, accent:'var(--rd)'}),
       React.createElement(C, {title:'EST. ORDER VALUE', value: fm(totalSugg), sub:'qty × static cost'}),
-      React.createElement(C, {title:'LOOKBACK', value: props.lookback + ' days', sub:'velocity window'})
+      React.createElement(C, {title:'SHRINK QTY (' + props.lookback + 'd)', value: fmtNum(totalShrink), accent: totalShrink > 0 ? 'var(--am)' : null, sub:'lost stock factored into velocity'})
     ),
     React.createElement('div', {className:'cd', style:{padding:0}},
       rows.length === 0
@@ -3573,6 +3576,7 @@ function InventoryReorder(props) {
                 React.createElement('th', null, 'Status'),
                 React.createElement('th', {style:{textAlign:'right'}}, 'On Hand'),
                 React.createElement('th', {style:{textAlign:'right'}}, 'Sold (' + props.lookback + 'd)'),
+                React.createElement('th', {style:{textAlign:'right', color:'var(--rd)'}}, 'Shrunk'),
                 React.createElement('th', {style:{textAlign:'right'}}, 'Velocity / day'),
                 React.createElement('th', {style:{textAlign:'right'}}, 'Days Supply'),
                 React.createElement('th', {style:{textAlign:'right'}}, 'Reorder At'),
@@ -3580,11 +3584,14 @@ function InventoryReorder(props) {
                 React.createElement('th', {style:{textAlign:'right'}}, 'Cycle Days')
               )),
               React.createElement('tbody', null, rows.map(function(r) {
+                var shrinkPct = r.sold_qty > 0 ? Number(r.shrinkage_qty || 0) / Number(r.sold_qty) : 0;
                 return React.createElement('tr', {key: r.qbo_item_id},
                   React.createElement('td', {style:{maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
                   React.createElement('td', null, statusCell(r.status)),
                   React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.on_hand <= 0 ? 'var(--rd)' : null}}, fmtNum(r.on_hand)),
                   React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.sold_qty)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.shrinkage_qty > 0 ? 'var(--rd)' : 'var(--mt)'},
+                    title: shrinkPct ? (shrinkPct * 100).toFixed(0) + '% of sold' : ''}, r.shrinkage_qty > 0 ? '−' + fmtNum(r.shrinkage_qty) : '—'),
                   React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.daily_velocity, 2)),
                   React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.days_of_supply == null ? 'var(--mt)' : (r.days_of_supply < r.lead_time_days ? 'var(--rd)' : null)}}, fmtNum(r.days_of_supply)),
                   React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fmtNum(r.reorder_point)),
@@ -3630,6 +3637,7 @@ function InventoryVelocity(props) {
           React.createElement('th', {onClick:function(){clickSort('sold_qty')}, style:{textAlign:'right', cursor:'pointer'}}, 'Sold', indicator('sold_qty')),
           React.createElement('th', {onClick:function(){clickSort('sold_revenue')}, style:{textAlign:'right', cursor:'pointer'}}, 'Revenue', indicator('sold_revenue')),
           React.createElement('th', {onClick:function(){clickSort('purchased_qty')}, style:{textAlign:'right', cursor:'pointer'}}, 'Purchased', indicator('purchased_qty')),
+          React.createElement('th', {onClick:function(){clickSort('shrinkage_qty')}, style:{textAlign:'right', cursor:'pointer', color:'var(--rd)'}}, 'Shrunk', indicator('shrinkage_qty')),
           React.createElement('th', {onClick:function(){clickSort('daily_velocity')}, style:{textAlign:'right', cursor:'pointer'}}, '/ day', indicator('daily_velocity')),
           React.createElement('th', {onClick:function(){clickSort('days_of_supply')}, style:{textAlign:'right', cursor:'pointer'}}, 'Days Sup', indicator('days_of_supply'))
         )),
@@ -3642,6 +3650,7 @@ function InventoryVelocity(props) {
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.sold_qty)),
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.sold_revenue)),
             React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fmtNum(r.purchased_qty)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.shrinkage_qty > 0 ? 'var(--rd)' : 'var(--mt)'}}, r.shrinkage_qty > 0 ? '−' + fmtNum(r.shrinkage_qty) : '—'),
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.daily_velocity, 2)),
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.days_of_supply))
           );
