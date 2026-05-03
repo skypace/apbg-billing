@@ -2675,8 +2675,86 @@ function ItemSetsEditor() {
                     React.createElement('button', {onClick: function(){ removeMember(m.qbo_item_id) }, style: btnDanger()}, '×'))
                 );
               }))
-            )
+            ),
+        members.length > 0 ? React.createElement(CompanionSuggestions, {
+          members: members,
+          onAdd: function(it){ addMember(it) }
+        }) : null
       )
+  );
+}
+
+function CompanionSuggestions(props) {
+  var members = props.members;
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var loadingState = React.useState(false);
+  var loading = loadingState[0], setLoading = loadingState[1];
+
+  function load() {
+    if (!members || members.length === 0) { setRows([]); return; }
+    setLoading(true);
+    var memberIds = {};
+    members.forEach(function(m){ memberIds[m.qbo_item_id] = true });
+    var promises = members.map(function(m) {
+      return sbrpc('fn_item_copurchase', {
+        p_anchor_item_id: m.qbo_item_id,
+        p_start: (new Date(Date.now() - 365*24*3600*1000)).toISOString().slice(0,10),
+        p_end:   new Date().toISOString().slice(0,10),
+        p_min_support: 5, p_limit: 30
+      });
+    });
+    Promise.all(promises).then(function(all) {
+      var bestByItem = {};
+      all.forEach(function(rs, i) {
+        var anchor = members[i].qbo_item_id;
+        (rs || []).forEach(function(p) {
+          var other = p.item_a_id === anchor ? {id: p.item_b_id, name: p.item_b_name} : {id: p.item_a_id, name: p.item_a_name};
+          if (memberIds[other.id]) return;
+          var lift = Number(p.lift) || 0;
+          var pn = Number(p.pair_invoices) || 0;
+          if (!bestByItem[other.id] || (lift > Number(bestByItem[other.id].lift))) {
+            bestByItem[other.id] = {qbo_item_id: other.id, name: other.name, lift: lift, pair_invoices: pn, anchor_name: members[i].item_name};
+          }
+        });
+      });
+      var arr = Object.values(bestByItem)
+        .sort(function(a, b){ return b.lift - a.lift || b.pair_invoices - a.pair_invoices })
+        .slice(0, 12);
+      setRows(arr);
+      setLoading(false);
+    });
+  }
+  React.useEffect(load, [members.length]);
+
+  if (!rows) return loading ? React.createElement('div', {className:'ld'}, 'Computing companions…') : null;
+  if (rows.length === 0) return React.createElement('div', {style:{padding:'14px', fontSize:11, color:'var(--mt)'}}, 'No companion suggestions — set is too small or items don\'t co-occur on shared invoices.');
+
+  return React.createElement('div', {style:{borderTop:'1px solid var(--bd)', padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'SUGGESTED COMPANIONS'),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+        'Items most often co-purchased with current set members (by lift over last 365 days). Click to add.')
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, 'Item'),
+        React.createElement('th', null, 'Co-purchased with'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Pair invoices'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Lift'),
+        React.createElement('th', null, '')
+      )),
+      React.createElement('tbody', null, rows.map(function(r) {
+        return React.createElement('tr', {key: r.qbo_item_id},
+          React.createElement('td', null, r.name),
+          React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.anchor_name),
+          React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.pair_invoices),
+          React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--ac)'}}, r.lift.toFixed(2) + '×'),
+          React.createElement('td', {style:{textAlign:'right'}},
+            React.createElement('button', {onClick: function(){ props.onAdd({qbo_item_id: r.qbo_item_id, name: r.name, fully_qualified_name: r.name}) }, style: btnPrimary()}, '+ ADD'))
+        );
+      }))
+    )
   );
 }
 
@@ -3281,6 +3359,7 @@ var REPORT_TABS = [
   {id:'inactive',      label:'Lost / Inactive Customers'},
   {id:'movers',        label:'Top Movers'},
   {id:'health_movers', label:'Health Movers (RFM)'},
+  {id:'anomalies',     label:'Revenue Anomalies'},
   {id:'voids',         label:'Product Voids / Cross-Sell'}
 ];
 
@@ -3309,6 +3388,7 @@ function ReportsPage() {
     tab === 'inactive'      ? React.createElement(InactiveCustomersReport)
     : tab === 'movers'        ? React.createElement(TopMoversReport)
     : tab === 'health_movers' ? React.createElement(HealthMoversReport)
+    : tab === 'anomalies'     ? React.createElement(AnomaliesReport)
     : tab === 'voids'         ? React.createElement(VoidsReport)
     : null
   );
@@ -3696,6 +3776,88 @@ function VoidsReport() {
               }),
               React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.channel || '—'),
               React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.rep || '— no rep —')
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
+function AnomaliesReport() {
+  var fState = React.useState({baseline_months:6, recent_months:1, min_baseline:500, sigma:2.0});
+  var f = fState[0], setF = fState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+
+  function load() {
+    setRows(null);
+    sbrpc('fn_revenue_anomalies', {
+      p_baseline_months: Number(f.baseline_months) || 6,
+      p_recent_months:   Number(f.recent_months) || 1,
+      p_min_baseline:    Number(f.min_baseline) || 0,
+      p_sigma_threshold: Number(f.sigma) || 2
+    }).then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(function() {
+    var t = setTimeout(load, 250);
+    return function(){ clearTimeout(t) };
+  }, [f.baseline_months, f.recent_months, f.min_baseline, f.sigma]);
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+  var spikes = rows.filter(function(r){ return r.direction === 'spike' });
+  var drops  = rows.filter(function(r){ return r.direction === 'drop' });
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'ANOMALIES', value: rows.length, accent:'var(--am)', sub:'>' + f.sigma + 'σ from baseline'}),
+      React.createElement(C, {title:'SPIKES', value: spikes.length, accent:'var(--gn)', sub:'recent revenue above trend'}),
+      React.createElement(C, {title:'DROPS', value: drops.length, accent:'var(--rd)', sub:'recent revenue below trend'}),
+      React.createElement(C, {title:'BIGGEST DROP', value: drops[0] ? fm(drops[0].baseline_avg) : '—', sub: drops[0] ? drops[0].customer_name : 'baseline @ risk'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Baseline months'),
+      React.createElement('input', {type:'number', min:2, max:24, value:f.baseline_months, onChange:function(e){ setF(Object.assign({}, f, {baseline_months:e.target.value})) }, style:Object.assign({}, inp(), {width:60})}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Recent months'),
+      React.createElement('input', {type:'number', min:1, max:6, value:f.recent_months, onChange:function(e){ setF(Object.assign({}, f, {recent_months:e.target.value})) }, style:Object.assign({}, inp(), {width:50})}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Min baseline $'),
+      React.createElement('input', {type:'number', value:f.min_baseline, onChange:function(e){ setF(Object.assign({}, f, {min_baseline:e.target.value})) }, style:Object.assign({}, inp(), {width:80})}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Sigma threshold'),
+      React.createElement('input', {type:'number', step:0.1, min:0.5, max:5, value:f.sigma, onChange:function(e){ setF(Object.assign({}, f, {sigma:e.target.value})) }, style:Object.assign({}, inp(), {width:60})})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No anomalies above threshold. Drop sigma to see softer signals.') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', null, 'Channel'),
+            React.createElement('th', null, 'Rep'),
+            React.createElement('th', null, 'Direction'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Baseline avg/mo'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Recent avg/mo'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Δ%'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Z-score')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            var dirColor = r.direction === 'spike' ? 'var(--gn)' : 'var(--rd)';
+            var dPct = Number(r.delta_pct);
+            var zs = Number(r.z_score);
+            return React.createElement('tr', {key:r.qbo_customer_id},
+              React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
+              React.createElement('td', null,
+                React.createElement('span', {style:{
+                  background:'rgba(255,255,255,0.04)', color:dirColor, border:'1px solid '+dirColor,
+                  padding:'1px 7px', borderRadius:12, fontSize:9, fontWeight:700, letterSpacing:.5
+                }}, r.direction.toUpperCase())),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.baseline_avg)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.recent_avg)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: dPct >= 0 ? 'var(--gn)' : 'var(--rd)', fontWeight:600}},
+                isFinite(dPct) ? ((dPct>=0?'+':'') + (dPct*100).toFixed(0) + '%') : '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:dirColor, fontWeight:600}},
+                isFinite(zs) ? (zs>=0?'+':'') + zs.toFixed(2) : '—')
             );
           }))
         )
