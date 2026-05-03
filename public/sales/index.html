@@ -166,7 +166,70 @@ function ChartView(props) {
   if (props.mode === 'bar')  return React.createElement(BarChart,  props);
   if (props.mode === 'pie')  return React.createElement(PieChart,  props);
   if (props.mode === 'line') return React.createElement(LineChart, props);
+  if (props.mode === 'heat') return React.createElement(Heatmap,   props);
   return null;
+}
+
+function Heatmap(props) {
+  var top = (props.rows || []).slice(0, 30);
+  if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
+  var sparks = props.sparks || {};
+  var endDate = new Date(props.end + 'T00:00:00');
+  var months = [];
+  for (var i = 11; i >= 0; i--) {
+    var d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  // Find max value across the entire grid for color scaling
+  var maxV = 0;
+  top.forEach(function(r) {
+    var data = sparks[r.dim_label] || {};
+    months.forEach(function(m){ var v = Number(data[m] || 0); if (v > maxV) maxV = v });
+  });
+  if (maxV === 0) return React.createElement('div', {className:'ld'}, 'No revenue across the trailing 12 months.');
+
+  // Color: log-scaled blend from sf2 (cold) → ac (hot)
+  function colorFor(v) {
+    if (v <= 0) return 'var(--sf2)';
+    var t = Math.log(1 + v) / Math.log(1 + maxV);  // 0..1
+    // Blend: at t=0, near-bg; at t=1, full ac. Use rgba.
+    var alpha = 0.15 + t * 0.85;
+    return 'rgba(34, 211, 238, ' + alpha.toFixed(3) + ')';
+  }
+
+  var labelW = 280;
+  var cellH = 22;
+  var cellW = 60;
+  var w = labelW + months.length * cellW + 110;
+  var h = top.length * cellH + 50;
+
+  return React.createElement('div', {style:{padding:'12px 14px', maxHeight:'70vh', overflow:'auto'}},
+    React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+      months.map(function(m, mi) {
+        return React.createElement('text', {key:m, x: labelW + mi * cellW + cellW / 2, y: 16, fontSize:9, fill:'var(--mt)', textAnchor:'middle'},
+          m.slice(2));
+      }),
+      top.map(function(r, ri) {
+        var y = 28 + ri * cellH;
+        var data = sparks[r.dim_label] || {};
+        var rowTotal = months.reduce(function(s, m){ return s + Number(data[m] || 0) }, 0);
+        return React.createElement('g', {key: r.dim_label},
+          React.createElement('text', {x: labelW - 8, y: y + 14, fontSize:11, fill:'var(--tx)', textAnchor:'end'},
+            r.dim_label.length > 38 ? r.dim_label.substring(0, 38) + '…' : r.dim_label),
+          months.map(function(m, mi) {
+            var v = Number(data[m] || 0);
+            var x = labelW + mi * cellW;
+            return React.createElement('g', {key: m},
+              React.createElement('rect', {x: x + 1, y: y + 2, width: cellW - 2, height: cellH - 4, fill: colorFor(v), stroke:'var(--bd)', strokeWidth: 0.5}),
+              v > 0 ? React.createElement('text', {x: x + cellW / 2, y: y + 14, fontSize:9, fill:'var(--bg)', textAnchor:'middle', fontWeight: 600},
+                v >= 1000 ? Math.round(v/1000) + 'k' : Math.round(v)) : null
+            );
+          }),
+          React.createElement('text', {x: labelW + months.length * cellW + 8, y: y + 14, fontSize:11, fill:'var(--tx)'}, fm(rowTotal))
+        );
+      })
+    )
+  );
 }
 
 function BarChart(props) {
@@ -1108,7 +1171,7 @@ function MarginPage() {
       compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'View'),
       React.createElement('div', {style:{display:'inline-flex', gap:4}},
-        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'stack',label:'Stack'},{id:'pie',label:'Pie'},{id:'line',label:'Line'},{id:'periods',label:'Periods'}].map(function(v) {
+        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'stack',label:'Stack'},{id:'pie',label:'Pie'},{id:'line',label:'Line'},{id:'heat',label:'Heatmap'},{id:'periods',label:'Periods'}].map(function(v) {
           var on = viewMode === v.id;
           return React.createElement('button', {key:v.id, onClick:function(){ setViewMode(v.id) },
             style:{
@@ -1291,9 +1354,10 @@ function MarginPage() {
       React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
         viewMode === 'bar'  ? (showCompare ? 'paired bars: prior on top, current below — ' : '') + 'bars sized by ' + (availableMetrics.find(function(m){return m.id===effectiveMetric})||{}).label :
         viewMode === 'pie'  ? '% of total ' + (availableMetrics.find(function(m){return m.id===effectiveMetric})||{}).label :
-        viewMode === 'line' ? 'trailing-12-month revenue per row' : '')
+        viewMode === 'line' ? 'trailing-12-month revenue per row' :
+        viewMode === 'heat' ? 'trailing-12-month revenue heatmap; cell brightness = revenue intensity (log scale)' : '')
     ),
-    viewMode !== 'line' ? React.createElement('div', {style:{display:'inline-flex', gap:4}},
+    viewMode !== 'line' && viewMode !== 'heat' ? React.createElement('div', {style:{display:'inline-flex', gap:4}},
       availableMetrics.map(function(m) {
         var on = effectiveMetric === m.id;
         return React.createElement('button', {key:m.id, onClick:function(){ setChartMetric(m.id) },
