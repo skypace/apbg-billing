@@ -116,6 +116,20 @@
     }
     var session = sessionResult && sessionResult.data && sessionResult.data.session;
     if (!session || !session.user) {
+      // Loop-breaker: if the gateway uses its own custom session storage
+      // ('apbg_session'), don't bounce back to the gateway — that creates
+      // an infinite cycle. Instead show what's stored so we can wire it up.
+      var apbgRaw = null;
+      try { apbgRaw = localStorage.getItem('apbg_session'); } catch (e) {}
+      if (apbgRaw) {
+        var pretty = apbgRaw;
+        try { pretty = JSON.stringify(JSON.parse(apbgRaw), null, 2); } catch (e) {}
+        showError(
+          'Gateway session detected but its format is not recognized by Supabase JS. Share the structure below with the dev so the storage adapter can be wired up — DO NOT post the access_token publicly.',
+          'localStorage.apbg_session:\n' + pretty
+        );
+        return new Promise(function () {});
+      }
       redirectToLogin();
       return new Promise(function () {}); // never resolves; page is redirecting
     }
