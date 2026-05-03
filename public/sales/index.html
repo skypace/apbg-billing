@@ -1815,7 +1815,7 @@ function CustomerRow(props) {
 
   return React.createElement('tr', {style:{opacity: props.isSaving ? 0.6 : 1}},
     React.createElement('td', null,
-      React.createElement('div', {style:{fontWeight:600}}, r.display_name),
+      React.createElement('div', {style:{fontWeight:600}}, customerLink(r.qbo_customer_id, r.display_name)),
       r.state || r.is_sub_customer || r.customer_type_name
         ? React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}},
             [r.state, r.is_sub_customer ? 'sub' : null, r.customer_type_name].filter(Boolean).join(' \u00b7 '))
@@ -3325,7 +3325,7 @@ function VoidsReport() {
           React.createElement('tbody', null, customers.map(function(c) {
             var coverage = c.set_total > 0 ? c.items_bought / c.set_total : 0;
             return React.createElement('tr', {key: c.id},
-              React.createElement('td', {style:{maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:600}}, c.name),
+              React.createElement('td', {style:{maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:600}}, customerLink(c.id, c.name)),
               React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(c.set_revenue)),
               React.createElement('td', {className:'mn', style:{textAlign:'center', color: coverage === 1 ? 'var(--gn)' : (coverage > 0.5 ? 'var(--am)' : 'var(--rd)')}},
                 c.items_bought + '/' + c.set_total),
@@ -3371,6 +3371,201 @@ function MoverColumn(props) {
           React.createElement('td', {className:'mn', style:{textAlign:'right', color: dp == null ? 'var(--mt)' : (dp >= 0 ? 'var(--gn)' : 'var(--rd)')}}, dp != null ? (dp >= 0 ? '+' : '') + fp(dp) : '—')
         );
       }))
+    )
+  );
+}
+
+// =========================================================================
+// CUSTOMER DETAIL PAGE
+// =========================================================================
+
+function customerLink(id, name, opts) {
+  if (!id || !name) return name || '';
+  return React.createElement('a', {
+    href: '#customer-' + id,
+    style: Object.assign({color:'var(--ac)', textDecoration:'none', cursor:'pointer'}, (opts && opts.style) || {}),
+    onClick: function(e) { e.stopPropagation && e.stopPropagation() }
+  }, name);
+}
+
+function CustomerDetailPage(props) {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+
+  var fState = React.useState({start: ytdStart, end: todayStr});
+  var f = fState[0], setF = fState[1];
+  var detailState = React.useState(null);
+  var detail = detailState[0], setDetail = detailState[1];
+  var itemsState = React.useState(null);
+  var items = itemsState[0], setItems = itemsState[1];
+  var monthlyState = React.useState(null);
+  var monthly = monthlyState[0], setMonthly = monthlyState[1];
+  var invoicesState = React.useState(null);
+  var invoices = invoicesState[0], setInvoices = invoicesState[1];
+
+  React.useEffect(function() {
+    if (!props.customerId) return;
+    Promise.all([
+      sbrpc('fn_customer_detail', {p_qbo_customer_id: props.customerId, p_start: f.start, p_end: f.end}),
+      // Get the customer's display name first via the detail rpc, then fetch items via pivot scoped by name.
+      // To avoid waiting, also kick off pivot once we have the name; do it inside .then below.
+    ]).then(async function(res) {
+      var d = res[0] && res[0][0];
+      setDetail(d || null);
+      if (!d) { setItems([]); setMonthly([]); setInvoices([]); return; }
+      var custName = d.display_name;
+      var pivot = await sbrpc('fn_sales_pivot', {
+        p_dim:'item', p_start: f.start, p_end: f.end,
+        p_customers: [custName], p_limit: 200
+      });
+      setItems(pivot || []);
+      var spark = await sbrpc('fn_sparkline', {
+        p_dim:'customer', p_labels: [custName], p_end: f.end,
+        p_customers: [custName]
+      });
+      setMonthly(spark || []);
+      var drill = await sbrpc('fn_pivot_drill', {
+        p_dim:'customer', p_dim_label: custName,
+        p_start: f.start, p_end: f.end,
+        p_customers: [custName],
+        p_limit: 200
+      });
+      setInvoices(drill || []);
+    });
+  }, [props.customerId, f.start, f.end]);
+
+  if (!props.customerId) return React.createElement('div', {className:'ld'}, 'No customer ID.');
+  if (!detail) return React.createElement('div', {className:'ld'}, 'Loading customer…');
+
+  // Build monthly map for sparkline-style chart
+  var monthlyMap = {};
+  (monthly || []).forEach(function(m){ monthlyMap[m.ym] = Number(m.revenue || 0) });
+  var endDate = new Date(f.end + 'T00:00:00');
+  var months = [];
+  for (var i = 11; i >= 0; i--) {
+    var d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  var monthVals = months.map(function(m){ return monthlyMap[m] || 0 });
+  var maxMonth = Math.max.apply(null, monthVals.concat([1]));
+
+  var addr = [detail.bill_addr_line1, detail.bill_addr_city, detail.bill_addr_state, detail.bill_addr_postal].filter(Boolean).join(', ');
+
+  return React.createElement('div', null,
+    React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10, marginBottom:14}},
+      React.createElement('a', {href:'#customers', style:{color:'var(--mt)', textDecoration:'none', fontSize:11}}, '← Customers'),
+      React.createElement('div', {className:'pt', style:{margin:0}}, detail.display_name,
+        detail.is_sub_customer ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'SUB') : null,
+        !detail.active ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'INACTIVE') : null
+      )
+    ),
+
+    React.createElement('div', {className:'cd', style:{padding:'12px 14px', marginBottom:12, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:14}},
+      React.createElement('div', null,
+        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Channel · Sales Rep'),
+        React.createElement('div', {style:{fontSize:13, marginTop:3}}, (detail.primary_channel || '— no channel —') + ' · ' + (detail.primary_sales_rep || '— no rep —')),
+        (detail.all_channels || []).length > 1 ? React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:2}}, '+ ' + ((detail.all_channels.length || 0) - 1) + ' more channel(s)') : null
+      ),
+      React.createElement('div', null,
+        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Address'),
+        React.createElement('div', {style:{fontSize:12, marginTop:3}}, addr || '—')
+      ),
+      React.createElement('div', null,
+        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Contact'),
+        React.createElement('div', {style:{fontSize:12, marginTop:3}}, [detail.email, detail.phone].filter(Boolean).join(' · ') || '—')
+      ),
+      React.createElement('div', null,
+        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'QBO Customer Type'),
+        React.createElement('div', {style:{fontSize:12, marginTop:3}}, detail.customer_type_name || '— not set in QBO —')
+      )
+    ),
+
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'YTD REVENUE', value: fm(detail.current_revenue), sub: detail.current_invoice_count + ' invoices · ' + detail.current_line_count + ' lines'}),
+      React.createElement(C, {title:'YTD MARGIN', value: detail.current_est_margin != null ? fm(detail.current_est_margin) : '—', accent: detail.current_margin_pct != null ? (Number(detail.current_margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)') : null, sub: detail.current_margin_pct != null ? fp(detail.current_margin_pct) : '—'}),
+      React.createElement(C, {title:'LIFETIME REVENUE', value: fm(detail.lifetime_revenue), sub: detail.lifetime_invoice_count + ' invoices · last ' + (detail.last_invoice_date || '—')}),
+      React.createElement(C, {title:'AR BALANCE', value: fm(detail.ar_balance), accent: Number(detail.ar_overdue) > 0 ? 'var(--am)' : null, sub: Number(detail.ar_overdue) > 0 ? fm(detail.ar_overdue) + ' overdue (' + detail.ar_overdue_count + ')' : 'no overdue'})
+    ),
+
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:12, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Period'),
+      React.createElement('input', {type:'date', value:f.start, onChange:function(e){ setF(Object.assign({}, f, {start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.end, onChange:function(e){ setF(Object.assign({}, f, {end:e.target.value})) }, style:inp()})
+    ),
+
+    React.createElement('div', {className:'gr g2', style:{marginBottom:12}},
+      React.createElement('div', {className:'cd', style:{padding:0}},
+        React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+          React.createElement('div', {className:'ct', style:{margin:0}}, 'TRAILING-12-MONTH REVENUE')),
+        React.createElement('div', {style:{padding:'12px 14px'}},
+          React.createElement('svg', {width: '100%', height: 200, viewBox:'0 0 600 200', preserveAspectRatio:'none'},
+            monthVals.map(function(v, i) {
+              var x = (i / (monthVals.length - 1 || 1)) * 580 + 10;
+              var bw = 580 / monthVals.length - 4;
+              var bh = (v / maxMonth) * 170;
+              return React.createElement('g', {key:i},
+                React.createElement('rect', {x: x - bw/2, y: 200 - bh - 16, width: bw, height: Math.max(bh, 1), fill: 'var(--ac)', opacity: 0.85}),
+                React.createElement('text', {x: x, y: 195, fontSize: 8, fill:'var(--mt)', textAnchor:'middle'}, months[i].slice(2))
+              );
+            })
+          ))),
+      React.createElement('div', {className:'cd', style:{padding:0}},
+        React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+          React.createElement('div', {className:'ct', style:{margin:0}}, 'TOP ITEMS — ' + (items ? items.length : 0))),
+        React.createElement('div', {style:{maxHeight:200, overflow:'auto'}},
+          !items ? React.createElement('div', {className:'ld'}, 'Loading…') :
+          items.length === 0 ? React.createElement('div', {className:'ld'}, 'No purchases in this window.') :
+          React.createElement('table', null,
+            React.createElement('thead', null, React.createElement('tr', null,
+              React.createElement('th', null, 'Item'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Margin %')
+            )),
+            React.createElement('tbody', null, items.slice(0, 100).map(function(r) {
+              var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
+              return React.createElement('tr', {key:r.dim_label},
+                React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11}}, r.dim_label),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', fontSize:11}}, r.qty != null ? Number(r.qty).toLocaleString(undefined, {maximumFractionDigits:0}) : '-'),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, fontSize:11}}, fm(r.revenue)),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', fontSize:11, color: mp == null ? 'var(--mt)' : (mp >= 0.4 ? 'var(--gn)' : (mp >= 0 ? 'var(--am)' : 'var(--rd)'))}}, mp != null ? fp(mp) : '—')
+              );
+            }))
+          ))
+      )
+    ),
+
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'RECENT INVOICE LINES — ' + (invoices ? invoices.length : 0))),
+      !invoices ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      invoices.length === 0 ? React.createElement('div', {className:'ld'}, 'No invoice lines.') :
+      React.createElement('div', {style:{maxHeight: 350, overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)'}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Date'),
+            React.createElement('th', null, 'Doc#'),
+            React.createElement('th', null, 'Item'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Price'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Margin')
+          )),
+          React.createElement('tbody', null, invoices.map(function(r, i) {
+            return React.createElement('tr', {key:i},
+              React.createElement('td', {className:'mn', style:{fontSize:11}}, r.txn_date),
+              React.createElement('td', {className:'mn', style:{fontSize:11}}, r.doc_number || '—'),
+              React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11}}, r.item_name || '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontSize:11}}, r.quantity != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:1}) : '-'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontSize:11}}, r.unit_price != null ? fd(r.unit_price) : '-'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, fontSize:11}}, fm(r.revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontSize:11, color: r.est_margin == null ? 'var(--mt)' : (Number(r.est_margin) >= 0 ? 'var(--gn)' : 'var(--rd)')}}, r.est_margin != null ? fm(r.est_margin) : '—')
+            );
+          }))
+        )
+      )
     )
   );
 }
@@ -3687,15 +3882,18 @@ function App() {
 
 function MainApp(props) {
   var validViews = ['margin', 'customers', 'reports', 'plans', 'settings'];
-  function viewFromHash() {
-    var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
-    return validViews.indexOf(h) >= 0 ? h : 'margin';
+  function parseHash() {
+    var raw = (window.location.hash || '').replace(/^#/, '').split('?')[0];
+    // 'customer-<id>' opens a customer detail page
+    if (raw.indexOf('customer-') === 0) return {view: 'customer-detail', customerId: raw.slice('customer-'.length)};
+    return {view: validViews.indexOf(raw) >= 0 ? raw : 'margin', customerId: null};
   }
-  var vState = React.useState(viewFromHash);
-  var view = vState[0], setView = vState[1];
+  var vState = React.useState(parseHash);
+  var route = vState[0], setRoute = vState[1];
+  var view = route.view;
 
   React.useEffect(function() {
-    function onHash() { setView(viewFromHash()) }
+    function onHash() { setRoute(parseHash()) }
     window.addEventListener('hashchange', onHash);
     return function(){ window.removeEventListener('hashchange', onHash) };
   }, []);
@@ -3705,7 +3903,7 @@ function MainApp(props) {
     if (window.location.hash !== '#' + id) {
       window.history.replaceState(null, '', '#' + id);
     }
-    setView(id);
+    setRoute({view: id, customerId: null});
   }
 
   function tab(id, label) {
@@ -3723,7 +3921,8 @@ function MainApp(props) {
     }, label);
   }
 
-  var content = view === 'customers' ? React.createElement(CustomersPage)
+  var content = view === 'customer-detail' ? React.createElement(CustomerDetailPage, {customerId: route.customerId})
+              : view === 'customers' ? React.createElement(CustomersPage)
               : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'plans'     ? React.createElement(PlansPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
