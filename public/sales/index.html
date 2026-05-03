@@ -1633,14 +1633,42 @@ function SyncPanel() {
         }))
       )
     ),
-    React.createElement('div', {className:'cd'},
-      React.createElement('div', {className:'ct'}, 'PUSH BACK TO QBO (PLANNED)'),
-      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6}},
-        'QBO Customer.CustomerType is single-value but writable via the API. We can push each primary channel as the QBO CustomerType so the classification shows up in QBO too.',
-        React.createElement('br'), React.createElement('br'),
-        'To enable this we need to (1) ensure the 10 channels exist as CustomerType records in QBO, and (2) deploy a push-qbo-customer-types edge function. Ask Claude when ready.'
-      )
-    )
+    React.createElement(PushBackPanel)
+  );
+}
+
+function PushBackPanel() {
+  var rState = React.useState(null);
+  var result = rState[0], setResult = rState[1];
+  var bState = React.useState(false);
+  var busy = bState[0], setBusy = bState[1];
+
+  function call(commit) {
+    setBusy(true); setResult(null);
+    fetch(SB_URL + '/functions/v1/push-qbo-customer-types', {
+      method:'POST',
+      headers:{ 'apikey':SB_KEY, 'Authorization':'Bearer '+SB_KEY, 'Content-Type':'application/json' },
+      body: JSON.stringify({ commit: !!commit })
+    }).then(function(r){ return r.json() })
+      .then(function(j){ setResult(j); setBusy(false) })
+      .catch(function(e){ setResult({ok:false, error:e.message}); setBusy(false) });
+  }
+
+  return React.createElement('div', {className:'cd'},
+    React.createElement('div', {className:'ct'}, 'PUSH PRIMARY CHANNELS TO QBO'),
+    React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6, marginBottom:12}},
+      'Writes each customer’s primary channel into Customer.CustomerType in QBO so the classification shows up there too. CustomerTypes are created automatically if they don’t already exist.',
+      React.createElement('br'),
+      'Sales-rep push back is a separate slice (QBO doesn’t have a built-in rep field on Customer; needs a CustomField mapping or Class on transactions — still TBD).'
+    ),
+    React.createElement('div', {style:{display:'flex', gap:8, marginBottom:10}},
+      React.createElement('button', {onClick: function(){ call(false) }, disabled: busy,
+        style: btnSecondary()}, busy ? '…' : 'DRY RUN (PREVIEW)'),
+      React.createElement('button', {onClick: function(){ if (!confirm('Commit changes to QBO? This will UPDATE customer records.')) return; call(true) }, disabled: busy,
+        style: Object.assign({}, btnPrimary(), {background:'var(--am)', borderColor:'var(--am)'})}, 'COMMIT TO QBO')
+    ),
+    result ? React.createElement('div', {style:{padding:'10px 12px', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, fontSize:11, fontFamily:'monospace', whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}},
+      JSON.stringify(result, null, 2)) : null
   );
 }
 
