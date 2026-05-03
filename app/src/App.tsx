@@ -13,6 +13,7 @@ import { PlansPage } from './pages/PlansPage';
 import { RepsPage } from './pages/RepsPage';
 import { ComparePage } from './pages/ComparePage';
 import { InventoryPage } from './pages/InventoryPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 export function App() {
@@ -61,7 +62,7 @@ export function App() {
       body = <InventoryPage />;
       break;
     case 'settings':
-      body = <PlaceholderPage title="Settings" legacyHash="settings" />;
+      body = <SettingsPage />;
       break;
     case 'customer-detail':
       body = route.customerId
