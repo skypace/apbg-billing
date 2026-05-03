@@ -331,6 +331,161 @@ function LineChart(props) {
 }
 
 // =========================================================================
+// STACKED-BAR VIEW — primary dim split by a secondary dim (e.g. customer × segment)
+// =========================================================================
+
+var STACK_DIMS = [
+  {id:'segment',  label:'Segment'},
+  {id:'channel',  label:'Channel'},
+  {id:'category', label:'Category'},
+  {id:'sales_rep',label:'Sales Rep'},
+  {id:'entity',   label:'Entity'},
+  {id:'month',    label:'Month'}
+];
+
+function StackedView(props) {
+  var stackByState = React.useState('segment');
+  var stackBy = stackByState[0], setStackBy = stackByState[1];
+  var rState = React.useState(null);
+  var data = rState[0], setData = rState[1];   // [{dim_label, stack_label, revenue}, ...]
+  var loadingState = React.useState(false);
+  var loading = loadingState[0], setLoading = loadingState[1];
+  var modeState = React.useState('absolute');   // 'absolute' | 'percent'
+  var mode = modeState[0], setMode = modeState[1];
+
+  var dim = props.dim;
+  // If primary and stack are the same, default stack to segment (or category if dim was segment)
+  var effectiveStack = stackBy === dim ? (dim === 'segment' ? 'category' : 'segment') : stackBy;
+
+  React.useEffect(function() {
+    setLoading(true);
+    sbrpc('fn_sales_stacked', {
+      p_dim: dim, p_stack: effectiveStack,
+      p_start: props.start, p_end: props.end,
+      p_entities:    props.entities && props.entities.length    ? props.entities : null,
+      p_categories:  props.categories && props.categories.length ? props.categories : null,
+      p_customers:   props.customers && props.customers.length  ? props.customers : null,
+      p_items:       props.items && props.items.length          ? props.items : null,
+      p_channels:    props.channels && props.channels.length    ? props.channels : null,
+      p_segments:    props.segments && props.segments.length    ? props.segments : null,
+      p_sales_reps:  props.sales_reps && props.sales_reps.length ? props.sales_reps : null,
+      p_limit: 25
+    }).then(function(rs) {
+      setData(rs || []);
+      setLoading(false);
+    });
+  }, [dim, effectiveStack, props.start, props.end,
+      (props.entities||[]).join('|'), (props.categories||[]).join('|'),
+      (props.customers||[]).join('|'), (props.items||[]).join('|'),
+      (props.channels||[]).join('|'), (props.segments||[]).join('|'),
+      (props.sales_reps||[]).join('|')]);
+
+  var stackLabels = [];
+  var rowsByDim = {};
+  var totalsByDim = {};
+  if (data) {
+    var seen = {};
+    data.forEach(function(d) {
+      if (!seen[d.stack_label]) { stackLabels.push(d.stack_label); seen[d.stack_label] = true; }
+      if (!rowsByDim[d.dim_label]) rowsByDim[d.dim_label] = {};
+      rowsByDim[d.dim_label][d.stack_label] = Number(d.revenue || 0);
+      totalsByDim[d.dim_label] = (totalsByDim[d.dim_label] || 0) + Number(d.revenue || 0);
+    });
+    // Stable order: stack labels by total contribution desc
+    var stackTotals = {};
+    stackLabels.forEach(function(s){ stackTotals[s] = 0 });
+    data.forEach(function(d){ stackTotals[d.stack_label] += Number(d.revenue || 0) });
+    stackLabels.sort(function(a,b){ return stackTotals[b] - stackTotals[a] });
+  }
+  var dimLabels = Object.keys(rowsByDim).sort(function(a,b){ return totalsByDim[b] - totalsByDim[a] });
+
+  var maxAbsoluteTotal = Math.max.apply(null, dimLabels.map(function(d){ return totalsByDim[d] || 0 }).concat([1]));
+
+  // Layout
+  var rowH = 24;
+  var labelW = 280;
+  var w = 1100, h = Math.max(dimLabels.length * rowH + 80, 200);
+  var barAreaW = w - labelW - 110;
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Stack by'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        STACK_DIMS.filter(function(s){ return s.id !== dim }).map(function(s) {
+          var on = effectiveStack === s.id;
+          return React.createElement('button', {key:s.id, onClick:function(){ setStackBy(s.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, s.label);
+        })
+      ),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Mode'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        [{id:'absolute', label:'$'}, {id:'percent', label:'%'}].map(function(m) {
+          var on = mode === m.id;
+          return React.createElement('button', {key:m.id, onClick:function(){ setMode(m.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, m.label);
+        })
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, props.headerLabel.toUpperCase() + ' STACKED BY ' + (STACK_DIMS.find(function(s){return s.id===effectiveStack})||{label:'?'}).label.toUpperCase()),
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+          mode === 'percent' ? 'Each bar normalized to 100% — read composition' : 'Bar widths scale to revenue — read both magnitude and mix')
+      ),
+      loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      !dimLabels.length ? React.createElement('div', {className:'ld'}, 'No data for this combination.') :
+      React.createElement('div', {style:{padding:'12px 14px', maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+          dimLabels.map(function(dl, idx) {
+            var y = idx * rowH + 4;
+            var total = totalsByDim[dl] || 0;
+            var barW = mode === 'percent' ? barAreaW : (total / maxAbsoluteTotal) * barAreaW;
+            var x = labelW;
+            var segs = [];
+            stackLabels.forEach(function(sl, si) {
+              var v = (rowsByDim[dl] || {})[sl] || 0;
+              if (v <= 0) return;
+              var segW = mode === 'percent' ? (v / total) * barAreaW : (v / maxAbsoluteTotal) * barAreaW;
+              segs.push({x: x, w: segW, color: CHART_PALETTE[si % CHART_PALETTE.length], label: sl, v: v});
+              x += segW;
+            });
+            return React.createElement('g', {key: dl},
+              React.createElement('text', {x: labelW - 8, y: y + 14, fill:'var(--tx)', fontSize: 11, textAnchor:'end'},
+                dl.length > 38 ? dl.substring(0, 38) + '…' : dl),
+              segs.map(function(s, si) {
+                return React.createElement('rect', {key:si, x: s.x, y: y + 4, width: s.w, height: 14, fill: s.color});
+              }),
+              React.createElement('text', {x: labelW + barW + 6, y: y + 14, fill:'var(--tx)', fontSize: 11},
+                fm(total))
+            );
+          })
+        )
+      ),
+      React.createElement('div', {style:{padding:'10px 14px', borderTop:'1px solid var(--bd)', display:'flex', flexWrap:'wrap', gap:14, fontSize:11}},
+        stackLabels.map(function(sl, si) {
+          return React.createElement('div', {key:sl, style:{display:'flex', alignItems:'center', gap:6}},
+            React.createElement('span', {style:{display:'inline-block', width:14, height:12, background: CHART_PALETTE[si % CHART_PALETTE.length], borderRadius:2}}),
+            React.createElement('span', null, sl)
+          );
+        })
+      )
+    )
+  );
+}
+
+// =========================================================================
 // MULTI-PERIOD VIEW — N date ranges side-by-side as columns
 // =========================================================================
 
@@ -953,7 +1108,7 @@ function MarginPage() {
       compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'View'),
       React.createElement('div', {style:{display:'inline-flex', gap:4}},
-        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'pie',label:'Pie'},{id:'line',label:'Line'},{id:'periods',label:'Periods'}].map(function(v) {
+        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'stack',label:'Stack'},{id:'pie',label:'Pie'},{id:'line',label:'Line'},{id:'periods',label:'Periods'}].map(function(v) {
           var on = viewMode === v.id;
           return React.createElement('button', {key:v.id, onClick:function(){ setViewMode(v.id) },
             style:{
@@ -1283,6 +1438,12 @@ function MarginPage() {
     viewMode === 'table' ? table
       : viewMode === 'periods' ? React.createElement(PeriodsView, {
           dim: dim, headerLabel: headerLabel,
+          entities: f.entities, categories: f.categories, customers: f.customers,
+          items: f.items, channels: f.channels, segments: f.segments,
+          sales_reps: f.sales_reps
+        })
+      : viewMode === 'stack' ? React.createElement(StackedView, {
+          dim: dim, headerLabel: headerLabel, start: f.start, end: f.end,
           entities: f.entities, categories: f.categories, customers: f.customers,
           items: f.items, channels: f.channels, segments: f.segments,
           sales_reps: f.sales_reps
