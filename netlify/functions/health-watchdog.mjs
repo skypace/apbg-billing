@@ -256,6 +256,18 @@ function buildAlertEmail(results, timestamp) {
 // ── Main handler ──
 
 export default async function handler(req, context) {
+  // CORS preflight must short-circuit BEFORE auth — preflights are unauthenticated.
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
+  }
+
   // Allow Netlify scheduler OR authenticated superadmin only.
   const auth = await requireScheduledOrAuth(req, context);
   if (!auth.ok) return auth.response;
