@@ -1889,6 +1889,230 @@ function LoginScreen(props) {
   );
 }
 
+// =========================================================================
+// REPORTS PAGE — preset analyses
+// =========================================================================
+
+var REPORT_TABS = [
+  {id:'inactive', label:'Lost / Inactive Customers'},
+  {id:'movers',   label:'Top Movers'}
+];
+
+function ReportsPage() {
+  var tabState = React.useState('inactive');
+  var tab = tabState[0], setTab = tabState[1];
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Reports ',
+      React.createElement('span', {className:'bg bg-l'}, 'PRESETS')
+    ),
+    React.createElement('div', {style:{display:'flex', gap:6, flexWrap:'wrap', marginBottom:12}},
+      REPORT_TABS.map(function(t) {
+        var on = tab === t.id;
+        return React.createElement('button', {
+          key:t.id, onClick:function(){ setTab(t.id) },
+          style:{
+            background: on ? 'var(--ac)' : 'var(--sf2)',
+            color: on ? 'var(--bg)' : 'var(--tx)',
+            border:'1px solid var(--bd)', padding:'6px 12px', borderRadius:4,
+            fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 500, letterSpacing:.5
+          }
+        }, t.label.toUpperCase());
+      })
+    ),
+    tab === 'inactive' ? React.createElement(InactiveCustomersReport)
+    : tab === 'movers' ? React.createElement(TopMoversReport)
+    : null
+  );
+}
+
+function InactiveCustomersReport() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+  var priorYearStart = (today.getFullYear() - 1) + '-01-01';
+  var priorYearEnd = (today.getFullYear() - 1) + '-12-31';
+
+  var fState = React.useState({
+    current_start: ytdStart, current_end: todayStr,
+    prior_start: priorYearStart, prior_end: priorYearEnd,
+    min_prior: 1000, max_current: 0
+  });
+  var f = fState[0], setF = fState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var lState = React.useState(false);
+  var loading = lState[0], setLoading = lState[1];
+
+  function load() {
+    setLoading(true);
+    sbrpc('fn_inactive_customers', {
+      p_current_start: f.current_start, p_current_end: f.current_end,
+      p_prior_start: f.prior_start, p_prior_end: f.prior_end,
+      p_min_prior_rev: Number(f.min_prior) || 1000,
+      p_max_current_rev: Number(f.max_current) || 0,
+      p_limit: 200
+    }).then(function(rs){ setRows(rs || []); setLoading(false) });
+  }
+  React.useEffect(function() {
+    var t = setTimeout(load, 250);
+    return function(){ clearTimeout(t) };
+  }, [f.current_start, f.current_end, f.prior_start, f.prior_end, f.min_prior, f.max_current]);
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+  var totalLost = rows.reduce(function(s,r){ return s + Number(r.prior_revenue || 0) }, 0);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'INACTIVE CUSTOMERS', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
+      React.createElement(C, {title:'PRIOR REV AT RISK', value: fm(totalLost), accent:'var(--am)', sub:'revenue from prior period not repeating'}),
+      React.createElement(C, {title:'BIGGEST LOSS', value: rows[0] ? fm(rows[0].prior_revenue) : '-', sub: rows[0] ? rows[0].customer_name : ''}),
+      React.createElement(C, {title:'WITH SALES REP', value: rows.filter(function(r){return r.primary_sales_rep}).length, sub:'have an assigned rep to call'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Prior'),
+      React.createElement('input', {type:'date', value:f.prior_start, onChange:function(e){ setF(Object.assign({}, f, {prior_start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.prior_end, onChange:function(e){ setF(Object.assign({}, f, {prior_end:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Current'),
+      React.createElement('input', {type:'date', value:f.current_start, onChange:function(e){ setF(Object.assign({}, f, {current_start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.current_end, onChange:function(e){ setF(Object.assign({}, f, {current_end:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Min prior $'),
+      React.createElement('input', {type:'number', value:f.min_prior, onChange:function(e){ setF(Object.assign({}, f, {min_prior:e.target.value})) }, style:Object.assign({}, inp(), {width:80})}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Max current $'),
+      React.createElement('input', {type:'number', value:f.max_current, onChange:function(e){ setF(Object.assign({}, f, {max_current:e.target.value})) }, style:Object.assign({}, inp(), {width:80})})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No inactive customers in this window — everyone is buying.') :
+      React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', null, 'Channel'),
+            React.createElement('th', null, 'Sales Rep'),
+            React.createElement('th', null, 'State'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Prior Rev'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Current Rev'),
+            React.createElement('th', null, 'Last Invoice')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            return React.createElement('tr', {key:r.qbo_customer_id},
+              React.createElement('td', {style:{fontWeight:600, maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.customer_name),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
+              React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.bill_state || '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--am)'}}, fm(r.prior_revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.current_revenue)),
+              React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.last_invoice_date || '—')
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
+function TopMoversReport() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+  var priorYearStart = (today.getFullYear() - 1) + '-01-01';
+  var priorYearEnd = (today.getFullYear() - 1) + '-12-31';
+
+  var fState = React.useState({
+    dim: 'customer',
+    current_start: ytdStart, current_end: todayStr,
+    prior_start: priorYearStart, prior_end: priorYearEnd
+  });
+  var f = fState[0], setF = fState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+
+  function load() {
+    sbrpc('fn_top_movers', {
+      p_dim: f.dim,
+      p_start: f.current_start, p_end: f.current_end,
+      p_prev_start: f.prior_start, p_prev_end: f.prior_end,
+      p_limit: 50
+    }).then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(function() {
+    var t = setTimeout(load, 250);
+    return function(){ clearTimeout(t) };
+  }, [f.dim, f.current_start, f.current_end, f.prior_start, f.prior_end]);
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
+  var gainers = rows.filter(function(r){ return Number(r.delta_rev) > 0 }).sort(function(a,b){ return Number(b.delta_rev) - Number(a.delta_rev) }).slice(0, 20);
+  var losers  = rows.filter(function(r){ return Number(r.delta_rev) < 0 }).sort(function(a,b){ return Number(a.delta_rev) - Number(b.delta_rev) }).slice(0, 20);
+
+  var DIMS = [
+    {id:'customer', label:'Customer'},
+    {id:'item', label:'Item'},
+    {id:'category', label:'Category'},
+    {id:'segment', label:'Segment'}
+  ];
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'By'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}}, DIMS.map(function(d) {
+        var on = f.dim === d.id;
+        return React.createElement('button', {
+          key:d.id, onClick:function(){ setF(Object.assign({}, f, {dim:d.id})) },
+          style:{
+            background: on ? 'var(--ac)' : 'var(--sf2)',
+            color: on ? 'var(--bg)' : 'var(--tx)',
+            border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+            fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+          }
+        }, d.label);
+      })),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Current'),
+      React.createElement('input', {type:'date', value:f.current_start, onChange:function(e){ setF(Object.assign({}, f, {current_start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.current_end, onChange:function(e){ setF(Object.assign({}, f, {current_end:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'vs Prior'),
+      React.createElement('input', {type:'date', value:f.prior_start, onChange:function(e){ setF(Object.assign({}, f, {prior_start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.prior_end, onChange:function(e){ setF(Object.assign({}, f, {prior_end:e.target.value})) }, style:inp()})
+    ),
+    React.createElement('div', {className:'gr g2'},
+      MoverColumn({title:'TOP GAINERS', items: gainers, color:'var(--gn)'}),
+      MoverColumn({title:'TOP DECLINERS', items: losers, color:'var(--rd)'})
+    )
+  );
+}
+
+function MoverColumn(props) {
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+      React.createElement('div', {className:'ct', style:{margin:0, color: props.color}}, props.title)
+    ),
+    React.createElement('table', null,
+      React.createElement('thead', null, React.createElement('tr', null,
+        React.createElement('th', null, ''),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Current'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Prior'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Δ $'),
+        React.createElement('th', {style:{textAlign:'right'}}, 'Δ %')
+      )),
+      React.createElement('tbody', null, props.items.map(function(r) {
+        var dr = Number(r.delta_rev || 0);
+        var dp = r.delta_pct != null ? Number(r.delta_pct) : null;
+        return React.createElement('tr', {key:r.dim_label},
+          React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.dim_label),
+          React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.current_rev)),
+          React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fm(r.prior_rev)),
+          React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color: dr >= 0 ? 'var(--gn)' : 'var(--rd)'}}, (dr >= 0 ? '+' : '') + fm(dr)),
+          React.createElement('td', {className:'mn', style:{textAlign:'right', color: dp == null ? 'var(--mt)' : (dp >= 0 ? 'var(--gn)' : 'var(--rd)')}}, dp != null ? (dp >= 0 ? '+' : '') + fp(dp) : '—')
+        );
+      }))
+    )
+  );
+}
+
 function App() {
   var sessState = React.useState(undefined);
   var session = sessState[0], setSession = sessState[1];
@@ -1927,7 +2151,7 @@ function App() {
 }
 
 function MainApp(props) {
-  var validViews = ['margin', 'customers', 'settings'];
+  var validViews = ['margin', 'customers', 'reports', 'settings'];
   function viewFromHash() {
     var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
     return validViews.indexOf(h) >= 0 ? h : 'margin';
@@ -1965,6 +2189,7 @@ function MainApp(props) {
   }
 
   var content = view === 'customers' ? React.createElement(CustomersPage)
+              : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
               : React.createElement(MarginPage);
 
@@ -1976,7 +2201,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
