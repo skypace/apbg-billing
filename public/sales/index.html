@@ -4902,6 +4902,25 @@ function PlanEditor(props) {
       })).then(load);
     });
   }
+  async function pushToQbo() {
+    if (!confirm('Build the QBO Budget payload for ' + plan.name + ' (FY' + plan.fiscal_year + ')?\n\nThis returns a CSV ready to import via QBO Web → Settings → Tools → Budgeting → Import.')) return;
+    var token = await _sbToken();
+    fetch(SB_URL + '/functions/v1/push-qbo-budget', {
+      method:'POST',
+      headers: { 'apikey':SB_KEY, 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+      body: JSON.stringify({plan_id: plan.id, write: false})
+    }).then(function(r){ return r.json() }).then(function(j) {
+      if (!j.ok) { alert('Failed: ' + (j.error || 'unknown')); return; }
+      var blob = new Blob([j.csv], {type: 'text/csv'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = plan.name.replace(/\s+/g, '_') + '_FY' + plan.fiscal_year + '_qbo_budget.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      alert('CSV downloaded — ' + j.budget_detail_count + ' detail rows across ' + j.rollup_count + ' accounts.\n\n' + (j.upload_instructions || []).join('\n'));
+    }).catch(function(e){ alert('Push failed: ' + e.message) });
+  }
   function exportCsv() {
     if (!rollup || !rollup.length) { alert('Nothing to export yet.'); return; }
     var rows = [['Account', 'QBO Account ID'].concat(MONTHS_SHORT).concat(['Total'])];
@@ -4955,6 +4974,7 @@ function PlanEditor(props) {
           }, m.label.toUpperCase());
         }),
         React.createElement('button', {onClick: copyFromActuals, style: btnSecondary()}, 'COPY FROM ' + (plan.fiscal_year - 1)),
+        React.createElement('button', {onClick: pushToQbo, style: btnSecondary()}, 'PUSH TO QBO'),
         React.createElement('button', {onClick: exportCsv, style: btnPrimary()}, 'EXPORT CSV')
       )
     ),
