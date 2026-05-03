@@ -2,7 +2,12 @@
 .netlify
 .claude/
 
-# Vite app build artifacts (rebuilt by Netlify on every deploy)
+# Vite app build artifacts
 app/node_modules
 app/dist
-public/sales-next
+
+# NOTE: public/sales-next/ is intentionally checked in for now because
+# Netlify's deploy doesn't appear to be running our build command from
+# netlify.toml. Until that's reconfigured, run `npm run build --prefix app`
+# locally before committing changes to the new app, and commit the
+# updated public/sales-next/ alongside.
