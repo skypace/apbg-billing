@@ -330,6 +330,222 @@ function LineChart(props) {
   );
 }
 
+// =========================================================================
+// MULTI-PERIOD VIEW — N date ranges side-by-side as columns
+// =========================================================================
+
+function defaultPeriods(preset) {
+  var now = new Date();
+  var y = now.getFullYear();
+  var m = now.getMonth();
+  function ymd(d) { return d.toISOString().slice(0,10) }
+  function startOfMonth(yr, mo) { return ymd(new Date(yr, mo, 1)) }
+  function endOfMonth(yr, mo) { return ymd(new Date(yr, mo + 1, 0)) }
+  function startOfQuarter(yr, qIdx) { return startOfMonth(yr, qIdx * 3) }
+  function endOfQuarter(yr, qIdx) { return endOfMonth(yr, qIdx * 3 + 2) }
+  if (preset === 'yearly') {
+    return [
+      {label: String(y - 2),       start: y - 2 + '-01-01', end: y - 2 + '-12-31'},
+      {label: String(y - 1),       start: y - 1 + '-01-01', end: y - 1 + '-12-31'},
+      {label: String(y) + ' YTD', start: y + '-01-01',     end: ymd(now)}
+    ];
+  }
+  if (preset === 'quarterly') {
+    var out = [];
+    var qNow = Math.floor(m / 3);
+    for (var i = 3; i >= 0; i--) {
+      var dq = qNow - i;
+      var yr = y, q = dq;
+      while (q < 0) { q += 4; yr -= 1; }
+      out.push({label: yr + ' Q' + (q + 1), start: startOfQuarter(yr, q), end: i === 0 ? ymd(now) : endOfQuarter(yr, q)});
+    }
+    return out;
+  }
+  // monthly: last 6 months
+  var out = [];
+  for (var i = 5; i >= 0; i--) {
+    var dm = m - i;
+    var yr2 = y;
+    while (dm < 0) { dm += 12; yr2 -= 1; }
+    out.push({label: yr2 + '-' + String(dm + 1).padStart(2, '0'), start: startOfMonth(yr2, dm), end: i === 0 ? ymd(now) : endOfMonth(yr2, dm)});
+  }
+  return out;
+}
+
+function PeriodsView(props) {
+  var presetState = React.useState('yearly');
+  var preset = presetState[0], setPreset = presetState[1];
+  var periodsState = React.useState(defaultPeriods('yearly'));
+  var periods = periodsState[0], setPeriods = periodsState[1];
+  var resState = React.useState(null);
+  var data = resState[0], setData = resState[1];   // {labels[], rowsByDim{label: {period: row}}, totals[]}
+  var loadingState = React.useState(false);
+  var loading = loadingState[0], setLoading = loadingState[1];
+  var metricState = React.useState('revenue');
+  var metric = metricState[0], setMetric = metricState[1];
+
+  function applyPreset(p) {
+    setPreset(p);
+    setPeriods(defaultPeriods(p));
+  }
+  function setPeriod(idx, patch) {
+    setPeriods(function(prev) {
+      var next = prev.slice();
+      next[idx] = Object.assign({}, next[idx], patch);
+      return next;
+    });
+  }
+  function removePeriod(idx) {
+    setPeriods(function(prev){ return prev.filter(function(_, i){ return i !== idx }) });
+  }
+  function addPeriod() {
+    var d = new Date();
+    setPeriods(function(prev){
+      return prev.concat([{label:'New', start: d.getFullYear() + '-01-01', end: d.toISOString().slice(0,10)}]);
+    });
+  }
+
+  React.useEffect(function() {
+    if (!periods.length) { setData(null); return; }
+    setLoading(true);
+    var sharedArgs = {
+      p_dim: props.dim,
+      p_entities:    props.entities && props.entities.length    ? props.entities : null,
+      p_categories:  props.categories && props.categories.length ? props.categories : null,
+      p_customers:   props.customers && props.customers.length  ? props.customers : null,
+      p_items:       props.items && props.items.length          ? props.items : null,
+      p_channels:    props.channels && props.channels.length    ? props.channels : null,
+      p_segments:    props.segments && props.segments.length    ? props.segments : null,
+      p_sales_reps:  props.sales_reps && props.sales_reps.length ? props.sales_reps : null,
+      p_limit: 500
+    };
+    Promise.all(periods.map(function(p) {
+      return sbrpc('fn_sales_pivot', Object.assign({}, sharedArgs, {p_start: p.start, p_end: p.end}));
+    })).then(function(responses) {
+      var rowsByDim = {};
+      var labels = periods.map(function(p){ return p.label });
+      responses.forEach(function(rows, idx) {
+        var label = labels[idx];
+        (rows || []).forEach(function(r) {
+          if (!rowsByDim[r.dim_label]) rowsByDim[r.dim_label] = {};
+          rowsByDim[r.dim_label][label] = r;
+        });
+      });
+      setData({labels: labels, rowsByDim: rowsByDim});
+      setLoading(false);
+    });
+  }, [periods.map(function(p){return p.start+'|'+p.end+'|'+p.label}).join('::'),
+      props.dim,
+      (props.entities||[]).join('|'), (props.categories||[]).join('|'),
+      (props.customers||[]).join('|'), (props.items||[]).join('|'),
+      (props.channels||[]).join('|'), (props.segments||[]).join('|'),
+      (props.sales_reps||[]).join('|')]);
+
+  function valOf(row) {
+    if (!row) return 0;
+    if (metric === 'margin_pct') return row.margin_pct != null ? Number(row.margin_pct) * 100 : null;
+    return Number(row[metric] || 0);
+  }
+  function fmtVal(v) {
+    if (v == null) return '—';
+    if (metric === 'qty') return Number(v).toLocaleString(undefined, {maximumFractionDigits:0});
+    if (metric === 'margin_pct') return v.toFixed(1) + '%';
+    return fm(v);
+  }
+
+  if (!data) return React.createElement('div', {className:'cd', style:{padding:'14px'}},
+    loading ? 'Loading…' : 'Pick a preset or add a period.');
+
+  var dimLabels = Object.keys(data.rowsByDim);
+  // Sort by total of metric across periods, desc
+  dimLabels.sort(function(a, b) {
+    var ta = data.labels.reduce(function(s, l){ return s + Math.abs(valOf(data.rowsByDim[a][l]) || 0) }, 0);
+    var tb = data.labels.reduce(function(s, l){ return s + Math.abs(valOf(data.rowsByDim[b][l]) || 0) }, 0);
+    return tb - ta;
+  });
+  dimLabels = dimLabels.slice(0, 200);
+
+  // Compute first→last delta (last period vs first period of metric)
+  function firstLastDelta(dim) {
+    if (data.labels.length < 2) return null;
+    var first = valOf(data.rowsByDim[dim][data.labels[0]]);
+    var last = valOf(data.rowsByDim[dim][data.labels[data.labels.length - 1]]);
+    if (first == null || last == null) return null;
+    if (first === 0) return last !== 0 ? null : 0;
+    return (last - first) / first;
+  }
+
+  var METRICS = [
+    {id:'revenue',    label:'Revenue'},
+    {id:'qty',        label:'Qty'},
+    {id:'est_cost',   label:'Est Cost'},
+    {id:'est_margin', label:'Est Margin'},
+    {id:'margin_pct', label:'Margin %'}
+  ];
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Preset'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        ['yearly','quarterly','monthly'].map(function(p) {
+          var on = preset === p;
+          return React.createElement('button', {key:p, onClick:function(){ applyPreset(p) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, p.charAt(0).toUpperCase() + p.slice(1));
+        })
+      ),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Metric'),
+      React.createElement('select', {value: metric, onChange: function(e){ setMetric(e.target.value) }, style: inp()},
+        METRICS.map(function(m){ return React.createElement('option', {key:m.id, value:m.id}, m.label) })),
+      React.createElement('button', {onClick: addPeriod, style: btnSecondary()}, '+ ADD PERIOD')
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'8px 12px', marginBottom:10, fontSize:11, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Periods:'),
+      periods.map(function(p, idx) {
+        return React.createElement('div', {key:idx, style:{display:'inline-flex', gap:4, alignItems:'center', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4, padding:'2px 6px'}},
+          React.createElement('input', {type:'text', value:p.label, onChange:function(e){ setPeriod(idx, {label:e.target.value}) }, style:Object.assign({}, inp(), {width:80, padding:'2px 4px', border:'none', background:'transparent'})}),
+          React.createElement('input', {type:'date', value:p.start, onChange:function(e){ setPeriod(idx, {start:e.target.value}) }, style:Object.assign({}, inp(), {padding:'2px 4px', border:'none', background:'transparent', fontSize:10})}),
+          React.createElement('span', {style:{color:'var(--mt)'}}, '–'),
+          React.createElement('input', {type:'date', value:p.end, onChange:function(e){ setPeriod(idx, {end:e.target.value}) }, style:Object.assign({}, inp(), {padding:'2px 4px', border:'none', background:'transparent', fontSize:10})}),
+          React.createElement('span', {onClick:function(){ removePeriod(idx) }, style:{cursor:'pointer', color:'var(--mt)', padding:'0 4px'}}, '×')
+        );
+      })
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, props.headerLabel),
+            data.labels.map(function(l) {
+              return React.createElement('th', {key:l, style:{textAlign:'right'}}, l);
+            }),
+            data.labels.length > 1 ? React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'First → Last') : null
+          )),
+          React.createElement('tbody', null, dimLabels.map(function(dim) {
+            var d = firstLastDelta(dim);
+            return React.createElement('tr', {key: dim},
+              React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, dim),
+              data.labels.map(function(l) {
+                var row = data.rowsByDim[dim][l];
+                var v = valOf(row);
+                return React.createElement('td', {key:l, className:'mn', style:{textAlign:'right', color: v === 0 ? 'var(--mt)' : null}}, fmtVal(v));
+              }),
+              data.labels.length > 1 ? React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color: d == null ? 'var(--mt)' : (d >= 0 ? 'var(--gn)' : 'var(--rd)')}},
+                d == null ? '—' : (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%') : null
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
 function grandTotalRow(rows, totRev, showOH, showCompare, allocBuckets, allocFor) {
   var t = {line_count:0, qty:0, revenue:0, est_cost:0, est_margin:0, prev_revenue:0, delta_revenue:0};
   var hasCost = false, hasPrev = false;
@@ -737,7 +953,7 @@ function MarginPage() {
       compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'View'),
       React.createElement('div', {style:{display:'inline-flex', gap:4}},
-        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'pie',label:'Pie'},{id:'line',label:'Line'}].map(function(v) {
+        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'pie',label:'Pie'},{id:'line',label:'Line'},{id:'periods',label:'Periods'}].map(function(v) {
           var on = viewMode === v.id;
           return React.createElement('button', {key:v.id, onClick:function(){ setViewMode(v.id) },
             style:{
@@ -1064,7 +1280,14 @@ function MarginPage() {
     ),
     filterBar,
     kpis,
-    viewMode === 'table' ? table : chartView,
+    viewMode === 'table' ? table
+      : viewMode === 'periods' ? React.createElement(PeriodsView, {
+          dim: dim, headerLabel: headerLabel,
+          entities: f.entities, categories: f.categories, customers: f.customers,
+          items: f.items, channels: f.channels, segments: f.segments,
+          sales_reps: f.sales_reps
+        })
+      : chartView,
     drillState ? React.createElement(DrillModal, {state: drillState, onClose: function(){ setDrill(null) }}) : null
   );
 }
