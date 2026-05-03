@@ -1,3 +1,8 @@
 # Local Netlify folder
 .netlify
 .claude/
+
+# Vite app build artifacts (rebuilt by Netlify on every deploy)
+app/node_modules
+app/dist
+public/sales-next
