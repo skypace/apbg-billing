@@ -3376,6 +3376,134 @@ function MoverColumn(props) {
 }
 
 // =========================================================================
+// COMPARE PAGE — two saved views side-by-side
+// =========================================================================
+
+function ComparePage() {
+  var viewsState = React.useState([]);
+  var savedViews = viewsState[0], setSavedViews = viewsState[1];
+  var leftIdState = React.useState('');
+  var leftId = leftIdState[0], setLeftId = leftIdState[1];
+  var rightIdState = React.useState('');
+  var rightId = rightIdState[0], setRightId = rightIdState[1];
+
+  React.useEffect(function() {
+    sbq('saved_views', 'select=*&order=name').then(function(rs){ setSavedViews(rs || []) });
+  }, []);
+
+  var leftView = savedViews.find(function(v){ return v.id === leftId });
+  var rightView = savedViews.find(function(v){ return v.id === rightId });
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Compare ',
+      React.createElement('span', {className:'bg bg-l'}, 'A/B SAVED VIEWS')
+    ),
+    !savedViews.length
+      ? React.createElement('div', {className:'cd', style:{padding:'14px'}},
+          'No saved views yet. Build a view in Margin → "+ SAVE", then come back here.')
+      : React.createElement('div', null,
+          React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}},
+            React.createElement('div', null,
+              React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginBottom:4}}, 'Left View'),
+              React.createElement('select', {value: leftId, onChange:function(e){ setLeftId(e.target.value) }, style:Object.assign({}, inp(), {width:'100%'})},
+                React.createElement('option', {value:''}, '— pick a view —'),
+                savedViews.map(function(v){ return React.createElement('option', {key:v.id, value:v.id}, (v.is_shared ? '★ ' : '') + v.name) }))
+            ),
+            React.createElement('div', null,
+              React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginBottom:4}}, 'Right View'),
+              React.createElement('select', {value: rightId, onChange:function(e){ setRightId(e.target.value) }, style:Object.assign({}, inp(), {width:'100%'})},
+                React.createElement('option', {value:''}, '— pick a view —'),
+                savedViews.map(function(v){ return React.createElement('option', {key:v.id, value:v.id}, (v.is_shared ? '★ ' : '') + v.name) }))
+            )
+          ),
+          (!leftView && !rightView) ? React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'Pick two views to compare.')
+          : React.createElement('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}},
+              leftView ? React.createElement(CompareSide, {view: leftView, side:'left', counterpart: rightView}) : React.createElement('div', {className:'cd', style:{padding:'14px', color:'var(--mt)'}}, 'Pick a left view.'),
+              rightView ? React.createElement(CompareSide, {view: rightView, side:'right', counterpart: leftView}) : React.createElement('div', {className:'cd', style:{padding:'14px', color:'var(--mt)'}}, 'Pick a right view.')
+            )
+        )
+  );
+}
+
+function CompareSide(props) {
+  var v = props.view;
+  var c = v.config || {};
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var tState = React.useState(null);
+  var tot = tState[0], setTot = tState[1];
+
+  React.useEffect(function() {
+    var args = {
+      p_dim: c.dim || 'category',
+      p_start: c.start, p_end: c.end,
+      p_entities:    (c.entities && c.entities.length)     ? c.entities    : null,
+      p_categories:  (c.categories && c.categories.length) ? c.categories  : null,
+      p_customers:   (c.customers && c.customers.length)   ? c.customers   : null,
+      p_items:       (c.items && c.items.length)           ? c.items       : null,
+      p_channels:    (c.channels && c.channels.length)     ? c.channels    : null,
+      p_segments:    (c.segments && c.segments.length)     ? c.segments    : null,
+      p_sales_reps:  (c.sales_reps && c.sales_reps.length) ? c.sales_reps  : null,
+      p_limit: 100
+    };
+    Promise.all([
+      sbrpc('fn_sales_pivot', args),
+      sbrpc('fn_sales_totals', {p_start: c.start, p_end: c.end,
+        p_entities: args.p_entities, p_categories: args.p_categories,
+        p_customers: args.p_customers, p_items: args.p_items,
+        p_channels: args.p_channels, p_segments: args.p_segments,
+        p_sales_reps: args.p_sales_reps})
+    ]).then(function(res) {
+      setRows(res[0] || []);
+      setTot((res[1] && res[1][0]) || null);
+    });
+  }, [v.id]);
+
+  // Build a quick lookup by dim_label for the counterpart so we can show Δ
+  var counterpartRowsByLabel = null;
+  if (props.counterpart && props.counterpart.config && props.counterpart.config.dim === c.dim && props._counterpartRows) {
+    counterpartRowsByLabel = {};
+    props._counterpartRows.forEach(function(r){ counterpartRowsByLabel[r.dim_label] = r });
+  }
+
+  if (!rows) return React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'Loading ' + v.name + '…');
+
+  var sameDimAsCounterpart = props.counterpart && props.counterpart.config && (props.counterpart.config.dim === c.dim);
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, v.name + (v.is_shared ? ' ★' : '')),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+        'Group by ' + (c.dim || 'category') + ' · ' + (c.start || '?') + ' → ' + (c.end || '?') +
+        (c.compare !== 'none' && c.compare ? ' · vs ' + c.compare.replace('_', ' ') : '') +
+        (sameDimAsCounterpart ? '' : ' · differs from other side'))
+    ),
+    React.createElement('div', {style:{padding:'10px 14px', display:'flex', gap:14, fontSize:11, borderBottom:'1px solid var(--bd)'}},
+      React.createElement('div', null, React.createElement('span', {style:{color:'var(--mt)'}}, 'Revenue: '), React.createElement('span', {style:{fontWeight:600}}, fm(tot ? tot.revenue : 0))),
+      React.createElement('div', null, React.createElement('span', {style:{color:'var(--mt)'}}, 'Margin %: '), React.createElement('span', {style:{fontWeight:600}}, tot && tot.margin_pct != null ? fp(tot.margin_pct) : '—')),
+      React.createElement('div', null, React.createElement('span', {style:{color:'var(--mt)'}}, 'Invoices: '), React.createElement('span', {style:{fontWeight:600}}, tot ? tot.invoice_count : '—'))
+    ),
+    React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+      React.createElement('table', null,
+        React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)'}}, React.createElement('tr', null,
+          React.createElement('th', null, c.dim),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+          React.createElement('th', {style:{textAlign:'right'}}, 'Margin %')
+        )),
+        React.createElement('tbody', null, rows.slice(0, 50).map(function(r) {
+          var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
+          return React.createElement('tr', {key: r.dim_label},
+            React.createElement('td', {style:{maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.dim_label),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color: mp == null ? 'var(--mt)' : (mp >= 0.4 ? 'var(--gn)' : (mp >= 0 ? 'var(--am)' : 'var(--rd)'))}}, mp != null ? fp(mp) : '—')
+          );
+        }))
+      )
+    )
+  );
+}
+
+// =========================================================================
 // CUSTOMER DETAIL PAGE
 // =========================================================================
 
@@ -3881,7 +4009,7 @@ function App() {
 }
 
 function MainApp(props) {
-  var validViews = ['margin', 'customers', 'reports', 'plans', 'settings'];
+  var validViews = ['margin', 'customers', 'reports', 'plans', 'compare', 'settings'];
   function parseHash() {
     var raw = (window.location.hash || '').replace(/^#/, '').split('?')[0];
     // 'customer-<id>' opens a customer detail page
@@ -3925,6 +4053,7 @@ function MainApp(props) {
               : view === 'customers' ? React.createElement(CustomersPage)
               : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'plans'     ? React.createElement(PlansPage)
+              : view === 'compare'   ? React.createElement(ComparePage)
               : view === 'settings'  ? React.createElement(SettingsPage)
               : React.createElement(MarginPage);
 
@@ -3936,7 +4065,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('compare', 'COMPARE'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
