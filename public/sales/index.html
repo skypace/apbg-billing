@@ -4537,13 +4537,77 @@ function CustomerDetailPage(props) {
 
   var addr = [detail.bill_addr_line1, detail.bill_addr_city, detail.bill_addr_state, detail.bill_addr_postal].filter(Boolean).join(', ');
 
+  function printScorecard() {
+    sbrpc('fn_customer_scorecard', {p_qbo_customer_id: props.customerId, p_window_days: 365}).then(function(rs) {
+      var s = (rs && rs[0]) || null;
+      if (!s) { alert('No scorecard data available'); return; }
+      var topItemsHtml = (items || []).slice(0, 10).map(function(r) {
+        var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
+        return '<tr><td>' + (r.dim_label || '') + '</td><td style="text-align:right">' +
+          (r.qty != null ? Number(r.qty).toLocaleString() : '-') + '</td><td style="text-align:right">' +
+          fm(r.revenue) + '</td><td style="text-align:right">' + (mp != null ? (mp*100).toFixed(1) + '%' : '-') + '</td></tr>';
+      }).join('');
+      var monthlyBars = monthVals.map(function(v, i) {
+        var bh = maxMonth ? Math.max(2, (v / maxMonth) * 90) : 2;
+        return '<div style="display:inline-block;width:7%;text-align:center;font-size:8px;color:#888"><div style="display:inline-block;width:60%;height:' + bh + 'px;background:#0ea5b8;vertical-align:bottom"></div><div>' + months[i].slice(2) + '</div></div>';
+      }).join('');
+      var w = window.open('', '_blank');
+      var html = [
+        '<html><head><title>Scorecard — ', s.customer_name, '</title>',
+        '<style>',
+        'body{font-family:system-ui,-apple-system,sans-serif;color:#0a0e17;max-width:780px;margin:24px auto;padding:0 24px}',
+        'h1{font-size:22px;margin:0 0 4px;color:#0a0e17;border-bottom:2px solid #0ea5b8;padding-bottom:6px}',
+        'h2{font-size:13px;letter-spacing:1px;color:#64748b;margin:18px 0 8px;text-transform:uppercase}',
+        'table{width:100%;border-collapse:collapse;font-size:12px}',
+        'td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}',
+        '.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 18px}',
+        '.kpi{border:1px solid #e2e8f0;padding:8px 10px;border-radius:4px}',
+        '.kpi .l{font-size:9px;color:#64748b;letter-spacing:1px;text-transform:uppercase}',
+        '.kpi .v{font-size:16px;font-weight:700;margin-top:2px}',
+        '.kpi .s{font-size:10px;color:#64748b;margin-top:2px}',
+        '.bar{height:120px;border-bottom:1px solid #e2e8f0;display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px}',
+        '.seg{display:inline-block;background:rgba(14,165,184,0.1);color:#0ea5b8;border:1px solid #0ea5b8;border-radius:14px;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:.5px}',
+        '@media print { body { margin: 0 } }',
+        '</style></head><body>',
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">',
+          '<div><h1>' + s.customer_name + '</h1>',
+          '<div style="font-size:11px;color:#64748b;margin-top:3px">',
+            (s.bill_city || ''), s.bill_city && s.bill_state ? ', ' : '', (s.bill_state || ''),
+            ' · ', (s.primary_channel || 'no channel'), ' · rep: ', (s.primary_sales_rep || 'unassigned'),
+          '</div></div>',
+          '<div><span class="seg">' + (s.rfm_segment || 'unscored').toUpperCase() + '</span>',
+          '<div style="font-size:10px;color:#64748b;margin-top:4px;text-align:right">RFM ' + (s.rfm_total != null ? s.rfm_total : '-') + '/15  ·  R' + (s.r_score||'-') + ' F' + (s.f_score||'-') + ' M' + (s.m_score||'-') + '</div></div>',
+        '</div>',
+        '<div class="kpis">',
+          '<div class="kpi"><div class="l">YTD Revenue</div><div class="v">' + fm(s.ytd_revenue) + '</div><div class="s">' + (s.total_invoices || 0) + ' invoices · last ' + (s.last_invoice_date || '-') + '</div></div>',
+          '<div class="kpi"><div class="l">Prior Year</div><div class="v">' + fm(s.prior_year_revenue) + '</div><div class="s">365d window</div></div>',
+          '<div class="kpi"><div class="l">Avg Order Value</div><div class="v">' + fm(s.avg_order_value) + '</div><div class="s">recency: ' + (s.recency_days != null ? s.recency_days + 'd' : '-') + '</div></div>',
+          '<div class="kpi"><div class="l">Est Margin %</div><div class="v">' + (s.est_margin_pct != null ? (Number(s.est_margin_pct)*100).toFixed(1) + '%' : '—') + '</div><div class="s">' + fm(s.est_margin) + ' margin</div></div>',
+        '</div>',
+        '<h2>Trailing-12-Month Revenue</h2>',
+        '<div class="bar">' + monthlyBars + '</div>',
+        '<h2>Top Items (last 365d)</h2>',
+        '<table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">Margin %</th></tr></thead><tbody>',
+        topItemsHtml || '<tr><td colspan="4" style="text-align:center;color:#64748b">No items in window</td></tr>',
+        '</tbody></table>',
+        '<div style="margin-top:24px;font-size:9px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px">',
+        'Generated ' + new Date().toISOString().slice(0,10) + ' · PACER Margin Dashboard · Customer first seen ' + (s.first_invoice_date || '-'),
+        '</div>',
+        '<script>setTimeout(function(){window.print()}, 350);</script>',
+        '</body></html>'
+      ].join('');
+      w.document.write(html); w.document.close();
+    });
+  }
+
   return React.createElement('div', null,
     React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10, marginBottom:14}},
       React.createElement('a', {href:'#customers', style:{color:'var(--mt)', textDecoration:'none', fontSize:11}}, '← Customers'),
       React.createElement('div', {className:'pt', style:{margin:0}}, detail.display_name,
         detail.is_sub_customer ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'SUB') : null,
         !detail.active ? React.createElement('span', {className:'bg bg-p', style:{marginLeft:6}}, 'INACTIVE') : null
-      )
+      ),
+      React.createElement('button', {onClick: printScorecard, style: Object.assign({}, btnPrimary(), {marginLeft:'auto'})}, 'PRINT SCORECARD')
     ),
 
     React.createElement('div', {className:'cd', style:{padding:'12px 14px', marginBottom:12, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:14}},
@@ -4867,7 +4931,8 @@ function PlanEditor(props) {
   var modeBtns = [
     {id:'lines',      label:'Plan Lines'},
     {id:'rollup',     label:'Account Rollup'},
-    {id:'vs_actuals', label:'vs Actuals'}
+    {id:'vs_actuals', label:'vs Actuals'},
+    {id:'forecast',   label:'Forecast'}
   ];
 
   return React.createElement('div', null,
@@ -4975,7 +5040,82 @@ function PlanEditor(props) {
           )
     ) : null,
 
-    mode === 'vs_actuals' ? React.createElement(PlanVsActuals, {plan: plan, lines: lines, actualsByItem: actualsByItem}) : null
+    mode === 'vs_actuals' ? React.createElement(PlanVsActuals, {plan: plan, lines: lines, actualsByItem: actualsByItem}) : null,
+    mode === 'forecast'   ? React.createElement(PlanForecast, {plan: plan}) : null
+  );
+}
+
+function PlanForecast(props) {
+  var plan = props.plan;
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+
+  React.useEffect(function() {
+    sbrpc('fn_plan_forecast', {p_plan_id: plan.id}).then(function(rs){ setRows(rs || []) });
+  }, [plan.id]);
+
+  if (!rows) return React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'Computing forecast…');
+
+  var totalFY    = rows.reduce(function(s,r){ return s + Number(r.full_year_plan || 0) }, 0);
+  var totalProj  = rows.reduce(function(s,r){ return s + Number(r.projected_full_year || 0) }, 0);
+  var totalAct   = rows.reduce(function(s,r){ return s + Number(r.ytd_actual || 0) }, 0);
+  var monthsDone = rows[0] ? rows[0].months_complete : 0;
+  var deltaPct   = totalFY > 0 ? (totalProj - totalFY) / totalFY : null;
+  var critical   = rows.filter(function(r){ return r.status === 'critical' });
+  var behind     = rows.filter(function(r){ return r.status === 'behind' });
+  var ahead      = rows.filter(function(r){ return r.status === 'ahead' });
+  var statusColor = function(s) {
+    return s === 'ahead' ? 'var(--gn)'
+         : s === 'on_track' ? 'var(--ac)'
+         : s === 'behind' ? 'var(--am)'
+         : s === 'critical' ? 'var(--rd)'
+         : 'var(--mt)';
+  };
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
+      React.createElement(C, {title:'FULL-YEAR PLAN', value: fm(totalFY), sub: rows.length + ' lines · FY' + plan.fiscal_year}),
+      React.createElement(C, {title:'YTD ACTUAL', value: fm(totalAct), sub: monthsDone + ' months complete'}),
+      React.createElement(C, {title:'PROJECTED FULL-YEAR', value: fm(totalProj), accent: deltaPct >= 0 ? 'var(--gn)' : 'var(--rd)',
+        sub: deltaPct == null ? '' : (deltaPct >= 0 ? '+' : '') + (deltaPct*100).toFixed(1) + '% vs plan'}),
+      React.createElement(C, {title:'CRITICAL / BEHIND', value: critical.length + ' / ' + behind.length, accent:'var(--rd)', sub: ahead.length + ' ahead'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No plan lines.') :
+      React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Item'),
+            React.createElement('th', null, 'Account'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Actual'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Plan'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Projected FY'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Plan FY'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Δ vs Plan'),
+            React.createElement('th', null, 'Status')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            var dPct = Number(r.projected_vs_plan_pct);
+            var color = statusColor(r.status);
+            return React.createElement('tr', {key:r.line_id},
+              React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:600}}, r.item_name || '—'),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.account_name || '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.ytd_actual)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fm(r.ytd_plan)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.projected_full_year)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fm(r.full_year_plan)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:color, fontWeight:600}},
+                isFinite(dPct) ? ((dPct>=0?'+':'') + (dPct*100).toFixed(0) + '%') : '—'),
+              React.createElement('td', null,
+                React.createElement('span', {style:{
+                  background:'rgba(255,255,255,0.04)', color:color, border:'1px solid '+color,
+                  padding:'1px 7px', borderRadius:12, fontSize:9, fontWeight:700, letterSpacing:.5
+                }}, r.status.toUpperCase().replace('_', ' ')))
+            );
+          }))
+        )
+      )
+    )
   );
 }
 
