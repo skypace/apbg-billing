@@ -2,6 +2,8 @@
 // Tests QBO and Zoho MCP endpoints server-side (no CORS issues)
 // Called by control dashboard frontend
 
+import { requireAuth } from './lib/auth.mjs';
+
 const MCP_KEY = process.env.MCP_API_KEY || process.env.QBO_PROXY_KEY;
 const PACER_BASE = 'https://pacerfinance.netlify.app';
 
@@ -47,6 +49,9 @@ async function checkEndpoint(path, toolName) {
 }
 
 export async function handler(event) {
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+
   const results = {
     qbo: await checkEndpoint('/qbo', 'QuickBooks'),
     zoho: await checkEndpoint('/zoho', 'Zoho'),

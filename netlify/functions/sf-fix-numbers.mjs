@@ -4,8 +4,12 @@
 // GET ?action=link  — link found matches to ResQ mapping + remove duplicates
 
 import { sfRequest } from './sf-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 export async function handler(event) {
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+
   const qs = event.queryStringParameters || {};
 
   // Quick lookup

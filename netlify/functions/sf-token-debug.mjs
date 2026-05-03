@@ -1,7 +1,11 @@
 // Diagnostic: check SF token blob state + test blob read/write
 import { getStore } from '@netlify/blobs';
+import { requireAuth } from './lib/auth.mjs';
 
 export async function handler(event) {
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+
   const results = {};
 
   // 1. Check blob store
