@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/approve.html'+location.search);</script>
   <title>APBG 3rd Party Billing Loader — Review</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/billing/auth.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -178,9 +180,11 @@
 <script>
 // ── ALL API CALLS GO TO PACERFINANCE (where QBO auth works) ──
 const API='/billing/.netlify/functions';
+const fetch = (...args) => APBG.auth.authedFetch(...args);
 let vendors=[],customers=[],lineCount=0;
 
 document.addEventListener('DOMContentLoaded',async()=>{
+  await APBG.auth.requireSuperadmin();
   const params=new URLSearchParams(window.location.search);
   const token=params.get('token');
 

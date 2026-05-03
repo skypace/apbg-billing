@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>APBG Billing — Connect Services</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/billing/auth.js"></script>
 <style>
 body{font-family:'DM Sans',sans-serif;background:#F4F6F9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
 .card{background:#fff;border-radius:12px;border:1px solid #E2E6ED;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
@@ -19,7 +21,8 @@ a.sf:hover{background:#2E75B6}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="card" id="authLoading"><h1>APBG Billing — Connect Services</h1><p>Checking access…</p></div>
+<div class="card" id="mainCard" style="display:none">
 <h1>APBG Billing — Connect Services</h1>
 <p>Authorize connections to QuickBooks and Service Fusion. One-time setup for each.</p>
 
@@ -34,6 +37,11 @@ a.sf:hover{background:#2E75B6}
 <p style="margin-top:32px;font-size:0.75rem;color:#ccc;">After connecting, return to <a href="/billing/" style="color:#1F4E79">the billing loader</a></p>
 </div>
 <script>
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('mainCard').style.display = 'block';
+});
+
 // QBO OAuth URL — hardcoded redirect to prevent mismatch
 const qboClientId = 'ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK';
 const qboRedirect = encodeURIComponent('https://apbg-billing.netlify.app/.netlify/functions/oauth-callback');

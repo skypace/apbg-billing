@@ -11,6 +11,7 @@
 
 import { sfRequest } from './sf-helpers.mjs';
 import { qboRequest, qboQuery, corsHeaders } from './qbo-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 const ACCOUNT_MAP = {
   equipment: { id: '42', name: 'Equipment Sales COGS' },
@@ -18,10 +19,22 @@ const ACCOUNT_MAP = {
 };
 const DEFAULT_ACCOUNT = ACCOUNT_MAP.service;
 
+// QBO customer name to attach to bills coming from each ResQ facility.
+// Only facilities listed here trigger the customer attachment; bills for
+// other facilities (e.g. Brix warehouse) are still created but without
+// a CustomerRef, matching pre-feature behavior.
+const RESQ_CUSTOMER_MAP = {
+  starbird: 'STARBIRD: RESQ',
+  melt:     'THE MELT RESQ',
+};
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
+
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
 
   const qs = event.queryStringParameters || {};
 
@@ -147,9 +160,31 @@ Rules:
       };
     }
 
+    // ── 2b. Resolve QBO customer the bill should attach to ──
+    // Only Starbird and Melt jobs auto-attach a QBO customer. Bills for any
+    // other facility (Brix warehouse, unmapped receipts, etc.) are still
+    // created — just without a CustomerRef.
+    const customerResult = await resolveResqCustomer({ sfJobId, resqCode });
+    if (customerResult.qboName && !customerResult.qboCustomer) {
+      // We identified a facility we DO want to attach (Starbird or Melt) but
+      // the QBO customer doesn't exist. Block bill creation so the user fixes it.
+      return {
+        statusCode: 200,
+        headers: corsHeaders(),
+        body: JSON.stringify({
+          success: false,
+          needsCustomer: true,
+          extracted,
+          vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
+          message: `Identified facility "${customerResult.key}" but could not find QBO customer "${customerResult.qboName}". Create that customer in QuickBooks first, then retry.`,
+        }),
+      };
+    }
+
     // ── 3. Create QBO bill ──
     const billResult = await createQBOBill({
       vendor: qboVendor,
+      customer: customerResult.qboCustomer || null,
       extracted,
       sfJobId,
       resqCode,
@@ -162,8 +197,13 @@ Rules:
         success: true,
         extracted,
         vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
+        customer: customerResult.qboCustomer
+          ? { id: customerResult.qboCustomer.Id, name: customerResult.qboCustomer.DisplayName }
+          : null,
         bill: billResult,
-        message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName} — $${billResult.total.toFixed(2)}`,
+        message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName}` +
+          (customerResult.qboCustomer ? ` → ${customerResult.qboCustomer.DisplayName}` : '') +
+          ` — $${billResult.total.toFixed(2)}`,
       }),
     };
 
@@ -177,11 +217,15 @@ Rules:
 // Body: { sfJobId, resqCode, vendorId, extracted }
 // Called when auto-match fails and user picks a vendor
 
-async function createQBOBill({ vendor, extracted, sfJobId, resqCode }) {
+async function createQBOBill({ vendor, customer, extracted, sfJobId, resqCode }) {
   const lineItems = extracted.lineItems || [];
   if (lineItems.length === 0) {
     throw new Error('No line items found on receipt');
   }
+
+  // Customer attached to every line for QBO job-costing rollup. NotBillable —
+  // we're not re-billing the customer here, just associating the cost.
+  const customerRef = customer ? { value: customer.Id } : null;
 
   const billLines = lineItems.map(item => {
     const acct = ACCOUNT_MAP[item.category] || DEFAULT_ACCOUNT;
@@ -193,6 +237,7 @@ async function createQBOBill({ vendor, extracted, sfJobId, resqCode }) {
       AccountBasedExpenseLineDetail: {
         AccountRef: { value: acct.id },
         BillableStatus: 'NotBillable',
+        ...(customerRef ? { CustomerRef: customerRef } : {}),
       },
     };
   });
@@ -208,6 +253,7 @@ async function createQBOBill({ vendor, extracted, sfJobId, resqCode }) {
       AccountBasedExpenseLineDetail: {
         AccountRef: { value: DEFAULT_ACCOUNT.id },
         BillableStatus: 'NotBillable',
+        ...(customerRef ? { CustomerRef: customerRef } : {}),
       },
     });
   }
@@ -286,6 +332,79 @@ async function findQBOVendor(name) {
     }
   } catch (e) {}
 
+  return null;
+}
+
+// ── Resolve which ResQ customer a bill belongs to ──
+// Strategy: look up the wo-mapping blob first (most reliable — it stores
+// the customer key set by classifyFacility). Fall back to inspecting the
+// SF job's customer_name.
+async function resolveResqCustomer({ sfJobId, resqCode }) {
+  let key = null;
+
+  // 1. wo-mapping blob keyed by ResQ code
+  if (resqCode) {
+    try {
+      const { getStore } = await import('@netlify/blobs');
+      const store = getStore({
+        name: 'resq-sf-sync',
+        siteID: process.env.NETLIFY_SITE_ID,
+        token: process.env.NETLIFY_ACCESS_TOKEN,
+      });
+      const raw = await store.get('wo-mapping');
+      if (raw) {
+        const mapping = JSON.parse(raw);
+        for (const v of Object.values(mapping)) {
+          if (v.resqCode === resqCode && v.customer) { key = v.customer; break; }
+        }
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  // 2. Inspect the SF job's customer_name
+  if (!key && sfJobId) {
+    try {
+      const sfJob = await sfRequest('GET', `/jobs/${sfJobId}`);
+      const sfName = (sfJob.customer_name || '').toLowerCase();
+      if (sfName.includes('starbird') || sfName.includes('star bird')) key = 'starbird';
+      else if (sfName.includes('melt') || sfName.includes('homeroom')) key = 'melt';
+      else if (sfName.includes('brix')) key = 'brix';
+    } catch (e) { /* fall through */ }
+  }
+
+  // Facility not in the auto-attach list (or unknown) — return a "no attachment"
+  // result. The handler will create the bill without a CustomerRef.
+  if (!key || !RESQ_CUSTOMER_MAP[key]) {
+    return { key, qboName: null, qboCustomer: null };
+  }
+
+  const qboName = RESQ_CUSTOMER_MAP[key];
+  const qboCustomer = await findQBOCustomer(qboName);
+  return { key, qboName, qboCustomer };
+}
+
+// ── Find QBO customer by exact DisplayName, then fuzzy fallback ──
+async function findQBOCustomer(name) {
+  if (!name) return null;
+  // Exact match first (fast path)
+  try {
+    const exact = await qboQuery(`SELECT * FROM Customer WHERE DisplayName = '${name.replace(/'/g, "\\'")}'`);
+    const customers = exact.QueryResponse?.Customer || [];
+    if (customers.length > 0) return customers[0];
+  } catch (e) {}
+  // Fuzzy: try the most distinctive word (skip "RESQ", "THE", short words)
+  try {
+    const words = name.split(/[\s:]+/).filter(w => w.length > 2 && !/^(resq|the)$/i.test(w));
+    for (const word of words) {
+      const clean = word.replace(/[^a-zA-Z0-9]/g, '');
+      if (!clean) continue;
+      const like = await qboQuery(`SELECT * FROM Customer WHERE DisplayName LIKE '%${clean}%'`);
+      const customers = like.QueryResponse?.Customer || [];
+      // Only return if it's the resq variant (must contain RESQ)
+      const resqMatch = customers.find(c => /resq/i.test(c.DisplayName || ''));
+      if (resqMatch) return resqMatch;
+    }
+  } catch (e) {}
   return null;
 }
 

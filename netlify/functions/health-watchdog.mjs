@@ -3,6 +3,7 @@
 // Sends alert email only when something is wrong
 
 import { qboQuery } from './qbo-helpers.mjs';
+import { requireScheduledOrAuth } from './lib/auth.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sendEmail, APPROVAL_EMAIL } from './email-helpers.mjs';
@@ -254,7 +255,23 @@ function buildAlertEmail(results, timestamp) {
 
 // ── Main handler ──
 
-export default async function handler(req) {
+export default async function handler(req, context) {
+  // CORS preflight must short-circuit BEFORE auth — preflights are unauthenticated.
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
+  }
+
+  // Allow Netlify scheduler OR authenticated superadmin only.
+  const auth = await requireScheduledOrAuth(req, context);
+  if (!auth.ok) return auth.response;
+
   // Handle GET requests — return last health check result (or live with ?refresh=1)
   if (req.method === 'GET') {
     const url = new URL(req.url);
@@ -297,7 +314,7 @@ export default async function handler(req) {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
     });
   }

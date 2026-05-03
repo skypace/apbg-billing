@@ -2,6 +2,11 @@ import { corsHeaders } from './qbo-helpers.mjs';
 import { createToken } from './token-helpers.mjs';
 import { sendEmail, SITE_URL } from './email-helpers.mjs';
 
+// SECURITY TODO: this endpoint is hit by an external QuestionScout webhook,
+// so Supabase user auth doesn't apply. It still needs HMAC signature verification
+// against a shared secret to prevent unauthenticated callers from forging
+// onboarding requests (which create QBO customers and send approval emails).
+
 // Approval recipients for customer/vendor onboarding
 const ONBOARD_EMAILS = ['service@brixbev.com', 'invoicing@brixbev.com'];
 
