@@ -54,12 +54,20 @@ async function sbq(tbl, params) {
   return res.json();
 }
 
+async function _sbToken() {
+  try {
+    var s = await sbAuth.auth.getSession();
+    return (s && s.data && s.data.session && s.data.session.access_token) || SB_KEY;
+  } catch (e) { return SB_KEY; }
+}
+
 async function sbrpc(fn, args) {
+  var token = await _sbToken();
   var res = await fetch(SB_URL + '/rest/v1/rpc/' + fn, {
     method: 'POST',
     headers: {
       'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY,
+      'Authorization': 'Bearer ' + token,
       'Content-Profile': 'ops',
       'Content-Type': 'application/json'
     },
@@ -69,10 +77,11 @@ async function sbrpc(fn, args) {
   return res.json();
 }
 
-function sbWriteHeaders() {
+async function sbWriteHeaders() {
+  var token = await _sbToken();
   return {
     'apikey': SB_KEY,
-    'Authorization': 'Bearer ' + SB_KEY,
+    'Authorization': 'Bearer ' + token,
     'Content-Profile': 'ops',
     'Accept-Profile': 'ops',
     'Content-Type': 'application/json',
@@ -80,23 +89,20 @@ function sbWriteHeaders() {
   };
 }
 async function sbInsert(table, row) {
-  var res = await fetch(SB_URL + '/rest/v1/' + table, {
-    method: 'POST', headers: sbWriteHeaders(), body: JSON.stringify(row)
-  });
+  var headers = await sbWriteHeaders();
+  var res = await fetch(SB_URL + '/rest/v1/' + table, { method: 'POST', headers: headers, body: JSON.stringify(row) });
   if (!res.ok) { console.error('insert', table, res.status, await res.text()); return null; }
   return res.json();
 }
 async function sbUpdate(table, where, patch) {
-  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, {
-    method: 'PATCH', headers: sbWriteHeaders(), body: JSON.stringify(patch)
-  });
+  var headers = await sbWriteHeaders();
+  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, { method: 'PATCH', headers: headers, body: JSON.stringify(patch) });
   if (!res.ok) { console.error('update', table, res.status, await res.text()); return null; }
   return res.json();
 }
 async function sbDelete(table, where) {
-  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, {
-    method: 'DELETE', headers: sbWriteHeaders()
-  });
+  var headers = await sbWriteHeaders();
+  var res = await fetch(SB_URL + '/rest/v1/' + table + '?' + where, { method: 'DELETE', headers: headers });
   if (!res.ok) { console.error('delete', table, res.status, await res.text()); return false; }
   return true;
 }
@@ -111,6 +117,29 @@ function C(props) {
     React.createElement('div', {className:'cv', style: props.accent ? {color: props.accent} : {}}, props.value),
     props.sub ? React.createElement('div', {className:'cs'}, props.sub) : null
   )
+}
+
+function Sparkline(props) {
+  var data = props.data;            // {ym: revenue, ...}
+  var endDate = new Date(props.end + 'T00:00:00');
+  var months = [];
+  for (var i = 11; i >= 0; i--) {
+    var d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  var values = months.map(function(ym){ return (data && data[ym]) || 0 });
+  var max = Math.max.apply(null, values.concat([0.0001]));
+  var w = 78, h = 22, gap = 1;
+  var bw = (w - gap * (values.length - 1)) / values.length;
+  return React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+    values.map(function(v, idx) {
+      var bh = max > 0 ? (v / max) * (h - 1) : 0;
+      var x = idx * (bw + gap);
+      var y = h - bh;
+      var color = v > 0 ? 'var(--ac)' : 'var(--bd)';
+      return React.createElement('rect', {key: idx, x: x, y: y, width: bw, height: Math.max(bh, 1), fill: color, opacity: idx === values.length - 1 ? 1 : 0.7});
+    })
+  );
 }
 
 function MultiPicker(props) {
@@ -220,12 +249,18 @@ function MarginPage() {
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
   var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: []});
   var values = dimVals[0], setValues = dimVals[1];
+  var drState = React.useState(null);
+  var drillState = drState[0], setDrill = drState[1];
+  var spState = React.useState({});
+  var sparks = spState[0], setSparks = spState[1];
   var bktState = React.useState(null);
-  var buckets = bktState[0], setBuckets = bktState[1];   // [{bucket_code,label,total,...}]
+  var buckets = bktState[0], setBuckets = bktState[1];
   var perState = React.useState(null);
   var periodRev = perState[0], setPeriodRev = perState[1];
   var ohState = React.useState(true);
   var showOH = ohState[0], setShowOH = ohState[1];
+  var segMapState = React.useState({});  // segment_code → label
+  var segMap = segMapState[0], setSegMap = segMapState[1];
 
   function computePrev(start, end, mode) {
     if (mode === 'none') return [null, null];
@@ -277,14 +312,40 @@ function MarginPage() {
       });
   }, []);
 
+  // Fetch trailing-12-month sparkline data for the visible top rows.
+  React.useEffect(function() {
+    if (!rows || !rows.length) { setSparks({}); return; }
+    var labels = rows.slice(0, 60).map(function(r){ return r.dim_label });
+    sbrpc('fn_sparkline', {
+      p_dim: dim, p_labels: labels, p_end: f.end,
+      p_entities: f.entities.length ? f.entities : null,
+      p_categories: f.categories.length ? f.categories : null,
+      p_customers: f.customers.length ? f.customers : null,
+      p_items: f.items.length ? f.items : null,
+      p_channels: f.channels.length ? f.channels : null,
+      p_segments: f.segments.length ? f.segments : null
+    }).then(function(rs) {
+      var m = {};
+      (rs || []).forEach(function(p) {
+        if (!m[p.dim_label]) m[p.dim_label] = {};
+        m[p.dim_label][p.ym] = Number(p.revenue || 0);
+      });
+      setSparks(m);
+    });
+  }, [rows, dim, f.end]);
+
   // Pre-fetch distinct values for each dim once we know the date range
   React.useEffect(function() {
     Promise.all([
       sbrpc('fn_period_cost_buckets', {p_start: f.start, p_end: f.end}),
-      sbrpc('fn_sales_totals', {p_start: f.start, p_end: f.end})  // unfiltered period total
+      sbrpc('fn_sales_totals', {p_start: f.start, p_end: f.end}),
+      sbq('segments', 'select=segment_code,label')
     ]).then(function(res) {
       setBuckets(res[0] || []);
       setPeriodRev(res[1] && res[1][0] ? Number(res[1][0].revenue || 0) : 0);
+      var m = {};
+      (res[2] || []).forEach(function(s){ m[s.segment_code] = s.label });
+      setSegMap(m);
     });
   }, [f.start, f.end]);
 
@@ -318,6 +379,26 @@ function MarginPage() {
   function drill(row) {
     if (dim === 'month') return;
     addFilter(dim, row.dim_label);
+  }
+
+  function openDrill(row) {
+    setDrill({dim: dim, label: row.dim_label, revenue: row.revenue, lines: null, loading: true});
+    sbrpc('fn_pivot_drill', {
+      p_dim: dim, p_dim_label: row.dim_label,
+      p_start: f.start, p_end: f.end,
+      p_entities: f.entities.length ? f.entities : null,
+      p_categories: f.categories.length ? f.categories : null,
+      p_customers: f.customers.length ? f.customers : null,
+      p_items: f.items.length ? f.items : null,
+      p_channels: f.channels.length ? f.channels : null,
+      p_segments: f.segments.length ? f.segments : null,
+      p_limit: 250
+    }).then(function(rs) {
+      setDrill(function(prev){
+        if (!prev || prev.label !== row.dim_label) return prev;
+        return Object.assign({}, prev, {lines: rs || [], loading: false});
+      });
+    });
   }
 
   var DIMS = [
@@ -398,14 +479,41 @@ function MarginPage() {
   var totRev = (rows || []).reduce(function(s,r){return s + Number(r.revenue || 0)}, 0);
   var showCompare = compare !== 'none';
 
-  // Cost bucket allocation: pro-rata by share of period revenue
+  // Cost-bucket allocation. Driver-based when the row has an effective
+  // segment AND the bucket has an applies_to_segments set; otherwise
+  // pro-rata over total period revenue. Buckets tagged 'cogs_material'
+  // are skipped (already counted via Item.PurchaseCost in est_cost).
   var allocBuckets = (buckets || []).filter(function(b) { return b.bucket_code !== 'cogs_material' });
-  function allocFor(rowRevenue) {
-    if (!periodRev || periodRev <= 0) return {};
-    var share = Number(rowRevenue || 0) / periodRev;
-    var out = {};
-    allocBuckets.forEach(function(b) { out[b.bucket_code] = share * Number(b.total || 0) });
-    out.total = allocBuckets.reduce(function(s, b) { return s + share * Number(b.total || 0) }, 0);
+
+  function allocFor(rowRevenue, effectiveSegment) {
+    var out = {total: 0};
+    if (!periodRev || periodRev <= 0) return out;
+    var rev = Number(rowRevenue || 0);
+    allocBuckets.forEach(function(b) {
+      var amt = 0;
+      var bucketTotal = Number(b.total || 0);
+      var applies = b.applies_to_segments;  // segment_codes
+      var hasSet = applies && applies.length > 0;
+      if (!hasSet) {
+        // Bucket spreads across all revenue
+        amt = rev * (bucketTotal / periodRev);
+      } else {
+        // Driver-based: only segments in the set get any allocation
+        var labelSet = applies.map(function(c){ return segMap[c] }).filter(Boolean);
+        if (effectiveSegment && labelSet.indexOf(effectiveSegment) >= 0) {
+          var applicable = Number(b.applicable_revenue || 0);
+          amt = applicable > 0 ? rev * (bucketTotal / applicable) : 0;
+        } else if (effectiveSegment) {
+          amt = 0;  // row's segment is outside the bucket's set
+        } else {
+          // No effective segment (e.g. month/customer dim where row spans
+          // segments) — fall back to pro-rata over period revenue
+          amt = rev * (bucketTotal / periodRev);
+        }
+      }
+      out[b.bucket_code] = amt;
+      out.total += amt;
+    });
     return out;
   }
 
@@ -431,7 +539,7 @@ function MarginPage() {
     rows.forEach(function(r) {
       var row = cols.map(function(c){ return esc(r[c]) });
       if (showOH) {
-        var a = allocFor(r.revenue);
+        var a = allocFor(r.revenue, r.effective_segment);
         allocBuckets.forEach(function(b) { row.push(esc(a[b.bucket_code] || 0)) });
         var realNet = Number(r.revenue || 0) - Number(r.est_cost || 0) - a.total;
         var realPct = Number(r.revenue) > 0 ? realNet / Number(r.revenue) : null;
@@ -466,6 +574,7 @@ function MarginPage() {
       React.createElement('table', null,
         React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
           React.createElement('th', null, headerLabel),
+          React.createElement('th', {style:{textAlign:'center', fontSize:8}}, 'TTM'),
           React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
           React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
           React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
@@ -488,14 +597,24 @@ function MarginPage() {
           var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
           var dr = r.delta_revenue != null ? Number(r.delta_revenue) : null;
           var dp = r.delta_pct != null ? Number(r.delta_pct) : null;
-          var alloc = showOH ? allocFor(r.revenue) : null;
+          var alloc = showOH ? allocFor(r.revenue, r.effective_segment) : null;
           var realNet = null, realPct = null;
           if (showOH && alloc) {
             realNet = Number(r.revenue || 0) - Number(r.est_cost || 0) - alloc.total;
             realPct = Number(r.revenue) > 0 ? realNet / Number(r.revenue) : null;
           }
           return React.createElement('tr', {key: r.dim_label, style:{cursor: dim === 'month' ? 'default' : 'pointer'}, onClick: dim === 'month' ? null : function() { drill(r) }},
-            React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.dim_label),
+            React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}},
+              React.createElement('span', null, r.dim_label),
+              React.createElement('span', {
+                title:'Show invoice lines',
+                onClick: function(e){ e.stopPropagation(); openDrill(r) },
+                style:{marginLeft:6, padding:'1px 5px', fontSize:9, color:'var(--mt)', cursor:'pointer', border:'1px solid var(--bd)', borderRadius:3}
+              }, '↳')
+            ),
+            React.createElement('td', {style:{padding:'0 6px', verticalAlign:'middle'}},
+              React.createElement(Sparkline, {data: sparks[r.dim_label], end: f.end})
+            ),
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(r.line_count).toLocaleString()),
             React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.qty != null ? Number(r.qty).toLocaleString(undefined, {maximumFractionDigits:1}) : '-'),
             React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
@@ -559,7 +678,61 @@ function MarginPage() {
     ),
     filterBar,
     kpis,
-    table
+    table,
+    drillState ? React.createElement(DrillModal, {state: drillState, onClose: function(){ setDrill(null) }}) : null
+  );
+}
+
+function DrillModal(props) {
+  var s = props.state;
+  return React.createElement('div', {
+    onClick: props.onClose,
+    style:{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20}
+  },
+    React.createElement('div', {
+      onClick: function(e){ e.stopPropagation() },
+      style:{background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:8, width:'min(1100px, 100%)', maxHeight:'90vh', display:'flex', flexDirection:'column'}
+    },
+      React.createElement('div', {style:{padding:'14px 18px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1.5}}, s.dim + ' detail'),
+          React.createElement('div', {style:{fontSize:16, fontWeight:600, marginTop:2}}, s.label),
+          React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:2}}, fm(s.revenue) + ' total · ' + (s.lines ? s.lines.length + ' lines shown' : 'loading…'))
+        ),
+        React.createElement('button', {onClick: props.onClose, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'4px 10px', borderRadius:4, fontSize:11, cursor:'pointer'}}, 'CLOSE')
+      ),
+      React.createElement('div', {style:{flex:1, overflow:'auto'}},
+        s.loading ? React.createElement('div', {className:'ld'}, 'Loading lines…') :
+        s.lines && s.lines.length ?
+          React.createElement('table', null,
+            React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)'}}, React.createElement('tr', null,
+              React.createElement('th', null, 'Date'),
+              React.createElement('th', null, 'Doc #'),
+              React.createElement('th', null, 'Customer'),
+              React.createElement('th', null, 'Item'),
+              React.createElement('th', null, 'Category'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Price'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Margin')
+            )),
+            React.createElement('tbody', null, s.lines.map(function(r, i) {
+              return React.createElement('tr', {key:i},
+                React.createElement('td', {className:'mn'}, r.txn_date),
+                React.createElement('td', {className:'mn', style:{fontSize:11}}, r.doc_number || '—'),
+                React.createElement('td', {style:{maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.customer_name),
+                React.createElement('td', {style:{maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name || '—'),
+                React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.category || '—'),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.quantity != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:1}) : '-'),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.unit_price != null ? fd(r.unit_price) : '-'),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.est_margin == null ? 'var(--mt)' : (Number(r.est_margin) >= 0 ? 'var(--gn)' : 'var(--rd)')}}, r.est_margin != null ? fm(r.est_margin) : '—')
+              );
+            }))
+          ) :
+          React.createElement('div', {className:'ld'}, 'No matching lines.')
+      )
+    )
   );
 }
 
