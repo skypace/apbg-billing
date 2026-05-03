@@ -1877,6 +1877,7 @@ var SETTINGS_TABS = [
   {id:'item_sets',  label:'Item Sets'},
   {id:'buckets',    label:'Expense Buckets'},
   {id:'users',      label:'Users'},
+  {id:'digest',     label:'Email Digest'},
   {id:'sync',       label:'Connections / Sync'}
 ];
 
@@ -1910,6 +1911,7 @@ function SettingsPage() {
     : tab === 'item_sets'  ? React.createElement(ItemSetsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
     : tab === 'users'      ? React.createElement(UsersEditor)
+    : tab === 'digest'     ? React.createElement(DigestEditor)
     : tab === 'sync'       ? React.createElement(SyncPanel)
     : null
   );
@@ -2601,6 +2603,191 @@ function UsersEditor() {
         }))
       )
     )
+  );
+}
+
+// ----- Email Digest editor -----
+var DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var DIGEST_SECTIONS = [
+  {id:'margin_summary', label:'YTD Margin Summary'},
+  {id:'inactive',       label:'Lost / Inactive Customers'},
+  {id:'top_movers',     label:'Top Movers (vs prior year)'}
+];
+
+function DigestEditor() {
+  var subsState = React.useState(null);
+  var subs = subsState[0], setSubs = subsState[1];
+  var logState = React.useState([]);
+  var logs = logState[0], setLogs = logState[1];
+  var msgState = React.useState('');
+  var msg = msgState[0], setMsg = msgState[1];
+  var prevState = React.useState(null);
+  var preview = prevState[0], setPreview = prevState[1];
+  var nState = React.useState({name:'', recipients:'', frequency:'weekly', day_of_week:1, hour_utc:14, sections:['margin_summary','inactive','top_movers']});
+  var nu = nState[0], setNu = nState[1];
+
+  function load() {
+    Promise.all([
+      sbq('digest_subscriptions', 'select=*&order=created_at.desc'),
+      sbq('digest_log', 'select=*&order=sent_at.desc&limit=20')
+    ]).then(function(res){ setSubs(res[0] || []); setLogs(res[1] || []) });
+  }
+  React.useEffect(load, []);
+
+  function addSub() {
+    if (!nu.name || !nu.recipients) return alert('name and recipients required');
+    var recips = nu.recipients.split(/[\s,;]+/).filter(Boolean);
+    sbAuth.auth.getSession().then(function(s) {
+      var uid = s && s.data && s.data.session && s.data.session.user && s.data.session.user.id;
+      sbInsert('digest_subscriptions', {
+        name: nu.name.trim(), recipients: recips,
+        frequency: nu.frequency, day_of_week: Number(nu.day_of_week),
+        hour_utc: Number(nu.hour_utc), sections: nu.sections,
+        is_active: true, created_by: uid
+      }).then(function(){
+        setNu({name:'', recipients:'', frequency:'weekly', day_of_week:1, hour_utc:14, sections:['margin_summary','inactive','top_movers']});
+        load();
+      });
+    });
+  }
+  function toggleActive(sub) {
+    sbUpdate('digest_subscriptions', 'id=eq.' + sub.id, {is_active: !sub.is_active}).then(load);
+  }
+  function delSub(id) {
+    if (!confirm('Delete this digest?')) return;
+    sbDelete('digest_subscriptions', 'id=eq.' + id).then(load);
+  }
+  async function send(sub, dryRun) {
+    setMsg(dryRun ? 'building preview…' : 'sending…');
+    var token = await _sbToken();
+    fetch(SB_URL + '/functions/v1/digest-email', {
+      method:'POST',
+      headers:{ 'apikey':SB_KEY, 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+      body: JSON.stringify({mode:'manual', subscription_id: sub.id, recipients: sub.recipients, sections: sub.sections, dry_run: dryRun})
+    }).then(function(r){ return r.json() })
+      .then(function(j) {
+        if (dryRun && j.html) {
+          setPreview({html: j.html, subject: j.subject, recipients: j.recipients});
+          setMsg('preview built (would send to ' + (j.recipients || []).join(', ') + ')');
+        } else {
+          setMsg(j.ok ? 'sent to ' + (sub.recipients || []).join(', ') : 'FAIL: ' + (j.error || 'unknown'));
+        }
+        load();
+      })
+      .catch(function(e){ setMsg('ERROR: ' + e.message) });
+  }
+
+  if (!subs) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  return React.createElement('div', null,
+    msg ? React.createElement('div', {style:{padding:'8px 12px', marginBottom:10, fontSize:11, color:'var(--mt)', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4}}, msg) : null,
+
+    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'CREATE A DIGEST'),
+        React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:3}},
+          'Sends via Resend; set RESEND_API_KEY env var on the Supabase project. Without it, sends fall back to dry-run preview.')
+      ),
+      React.createElement('div', {style:{padding:'12px 14px', display:'grid', gap:10, gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', alignItems:'end'}},
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Name'),
+          React.createElement('input', {type:'text', placeholder:'e.g. Sky weekly', value:nu.name, onChange:function(e){ setNu(Object.assign({}, nu, {name:e.target.value})) }, style: Object.assign({}, inp(), {width:'100%'})})),
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Recipients (comma-separated)'),
+          React.createElement('input', {type:'text', placeholder:'sky@…, accountant@…', value:nu.recipients, onChange:function(e){ setNu(Object.assign({}, nu, {recipients:e.target.value})) }, style: Object.assign({}, inp(), {width:'100%'})})),
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Frequency'),
+          React.createElement('select', {value:nu.frequency, onChange:function(e){ setNu(Object.assign({}, nu, {frequency:e.target.value})) }, style: Object.assign({}, inp(), {width:'100%'})},
+            ['daily','weekly','monthly'].map(function(f){ return React.createElement('option', {key:f, value:f}, f) }))),
+        nu.frequency === 'weekly' ? React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Day'),
+          React.createElement('select', {value:nu.day_of_week, onChange:function(e){ setNu(Object.assign({}, nu, {day_of_week:e.target.value})) }, style: Object.assign({}, inp(), {width:'100%'})},
+            DAYS_OF_WEEK.map(function(d, i){ return React.createElement('option', {key:i, value:i}, d) }))) : null,
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Hour (UTC)'),
+          React.createElement('input', {type:'number', min:0, max:23, value:nu.hour_utc, onChange:function(e){ setNu(Object.assign({}, nu, {hour_utc:e.target.value})) }, style: Object.assign({}, inp(), {width:'100%'})})),
+        React.createElement('div', {style:{gridColumn:'1 / -1'}},
+          React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', marginBottom:4}}, 'Sections'),
+          React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap'}},
+            DIGEST_SECTIONS.map(function(s) {
+              return React.createElement('label', {key:s.id, style:{display:'inline-flex', alignItems:'center', gap:5, fontSize:11, cursor:'pointer'}},
+                React.createElement('input', {type:'checkbox', checked: nu.sections.indexOf(s.id) >= 0,
+                  onChange: function(e) {
+                    var next = e.target.checked ? nu.sections.concat([s.id]) : nu.sections.filter(function(x){return x !== s.id});
+                    setNu(Object.assign({}, nu, {sections: next}));
+                  }}),
+                React.createElement('span', null, s.label));
+            }))
+        ),
+        React.createElement('button', {onClick: addSub, style: btnPrimary()}, '+ ADD DIGEST')
+      )
+    ),
+
+    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'ACTIVE DIGESTS — ' + subs.length)
+      ),
+      subs.length === 0
+        ? React.createElement('div', {className:'ld'}, 'No digests configured.')
+        : React.createElement('table', null,
+            React.createElement('thead', null, React.createElement('tr', null,
+              React.createElement('th', null, 'Name'),
+              React.createElement('th', null, 'Recipients'),
+              React.createElement('th', null, 'Schedule'),
+              React.createElement('th', null, 'Last Sent'),
+              React.createElement('th', null, 'Status'),
+              React.createElement('th', null, '')
+            )),
+            React.createElement('tbody', null, subs.map(function(s) {
+              var sched = s.frequency + (s.frequency === 'weekly' ? ' on ' + DAYS_OF_WEEK[s.day_of_week] : '') + ' @ ' + s.hour_utc + 'h UTC';
+              return React.createElement('tr', {key:s.id},
+                React.createElement('td', {style:{fontWeight:600}}, s.name),
+                React.createElement('td', {style:{fontSize:11}}, (s.recipients || []).join(', ')),
+                React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, sched),
+                React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, s.last_sent_at ? new Date(s.last_sent_at).toLocaleString() : '—'),
+                React.createElement('td', null,
+                  React.createElement('label', {style:{display:'inline-flex', alignItems:'center', gap:5, cursor:'pointer'}},
+                    React.createElement('input', {type:'checkbox', checked: s.is_active, onChange: function(){ toggleActive(s) }}),
+                    React.createElement('span', {style:{fontSize:11}}, s.is_active ? 'active' : 'paused'))),
+                React.createElement('td', {style:{textAlign:'right', whiteSpace:'nowrap'}},
+                  React.createElement('button', {onClick: function(){ send(s, true) }, style: btnSecondary()}, 'PREVIEW'),
+                  React.createElement('button', {onClick: function(){ send(s, false) }, style: Object.assign({}, btnPrimary(), {marginLeft:4})}, 'SEND NOW'),
+                  React.createElement('button', {onClick: function(){ delSub(s.id) }, style: Object.assign({}, btnDanger(), {marginLeft:4})}, '×'))
+              );
+            }))
+          )
+    ),
+
+    preview ? React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'PREVIEW: ' + preview.subject),
+        React.createElement('button', {onClick: function(){ setPreview(null) }, style:btnSecondary()}, 'CLOSE PREVIEW')
+      ),
+      React.createElement('iframe', {srcDoc: preview.html, style:{width:'100%', height:'500px', border:'none', background:'#fff'}})
+    ) : null,
+
+    logs.length > 0 ? React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'RECENT SENDS — ' + logs.length)
+      ),
+      React.createElement('table', null,
+        React.createElement('thead', null, React.createElement('tr', null,
+          React.createElement('th', null, 'When'),
+          React.createElement('th', null, 'Subject'),
+          React.createElement('th', null, 'To'),
+          React.createElement('th', null, 'Status')
+        )),
+        React.createElement('tbody', null, logs.map(function(l) {
+          return React.createElement('tr', {key:l.id},
+            React.createElement('td', {className:'mn', style:{fontSize:11}}, new Date(l.sent_at).toLocaleString()),
+            React.createElement('td', {style:{fontSize:11}}, l.subject || '—'),
+            React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, (l.recipients || []).join(', ')),
+            React.createElement('td', {style:{fontSize:11, color: l.status === 'sent' ? 'var(--gn)' : (l.status === 'failed' ? 'var(--rd)' : 'var(--mt)')}},
+              l.status + (l.error ? ' · ' + l.error.substring(0, 80) : ''))
+          );
+        }))
+      )
+    ) : null
   );
 }
 
