@@ -36,34 +36,85 @@
     location.href = GATEWAY_URL + '?next=' + encodeURIComponent(next);
   }
 
-  function showAccessDenied(role) {
+  function renderCard(opts) {
     document.body.innerHTML = '';
     var card = document.createElement('div');
     card.style.cssText =
-      'font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;padding:32px;text-align:center;border:1px solid #FCA5A5;border-radius:8px;background:#FEF2F2';
+      'font-family:system-ui,sans-serif;max-width:520px;margin:80px auto;padding:32px;text-align:center;border:1px solid ' +
+      (opts.borderColor || '#FCA5A5') +
+      ';border-radius:8px;background:' +
+      (opts.bgColor || '#FEF2F2');
     var h1 = document.createElement('h1');
-    h1.style.cssText = 'color:#991B1B;font-size:1.2rem;margin-bottom:8px';
-    h1.textContent = 'Access denied';
+    h1.style.cssText = 'color:' + (opts.titleColor || '#991B1B') + ';font-size:1.2rem;margin-bottom:8px';
+    h1.textContent = opts.title;
     var p = document.createElement('p');
-    p.style.cssText = 'color:#7F1D1D;font-size:0.9rem';
-    p.textContent =
-      'Your role (' +
-      (role || 'none') +
-      ') does not have access to this page. This page requires superadmin.';
+    p.style.cssText = 'color:' + (opts.bodyColor || '#7F1D1D') + ';font-size:0.9rem;white-space:pre-wrap';
+    p.textContent = opts.message;
+    card.appendChild(h1);
+    card.appendChild(p);
+    if (opts.detail) {
+      var pre = document.createElement('pre');
+      pre.style.cssText =
+        'margin-top:12px;padding:10px;background:#1F2937;color:#F3F4F6;font-size:0.72rem;border-radius:4px;text-align:left;overflow:auto;max-height:160px';
+      pre.textContent = opts.detail;
+      card.appendChild(pre);
+    }
     var link = document.createElement('a');
     link.href = GATEWAY_URL;
     link.style.cssText = 'color:#1F4E79;display:inline-block;margin-top:16px';
     link.textContent = '← Back to gateway';
-    card.appendChild(h1);
-    card.appendChild(p);
     card.appendChild(link);
     document.body.appendChild(card);
   }
 
+  function showAccessDenied(role) {
+    renderCard({
+      title: 'Access denied',
+      message:
+        'Your role (' +
+        (role || 'none') +
+        ') does not have access to this page. This page requires superadmin.',
+    });
+  }
+
+  function showError(message, detail) {
+    renderCard({
+      title: 'Auth check failed',
+      message: message,
+      detail: detail,
+      borderColor: '#FBBF24',
+      bgColor: '#FFFBEB',
+      titleColor: '#92400E',
+      bodyColor: '#78350F',
+    });
+  }
+
   async function requireSuperadmin() {
-    var sb = getSb();
-    var sessionResult = await sb.auth.getSession();
-    var session = sessionResult.data && sessionResult.data.session;
+    var sb;
+    try {
+      sb = getSb();
+    } catch (e) {
+      showError(
+        'The Supabase JS SDK did not load. This is usually caused by an ad-blocker or corporate proxy blocking unpkg.com.',
+        String(e && e.message ? e.message : e)
+      );
+      return new Promise(function () {});
+    }
+    var sessionResult;
+    try {
+      sessionResult = await sb.auth.getSession();
+    } catch (e) {
+      showError(
+        'Could not read your login session.',
+        String(e && e.message ? e.message : e)
+      );
+      return new Promise(function () {});
+    }
+    if (sessionResult && sessionResult.error) {
+      showError('Auth error from Supabase.', String(sessionResult.error.message || sessionResult.error));
+      return new Promise(function () {});
+    }
+    var session = sessionResult && sessionResult.data && sessionResult.data.session;
     if (!session || !session.user) {
       redirectToLogin();
       return new Promise(function () {}); // never resolves; page is redirecting
