@@ -1361,10 +1361,28 @@ function LoginScreen(props) {
 }
 
 function App() {
-  var sessState = React.useState(undefined);  // undefined = loading, null = no session, object = signed in
+  var sessState = React.useState(undefined);
   var session = sessState[0], setSession = sessState[1];
 
   React.useEffect(function() {
+    // If served through the apbg-gateway proxy, the gateway has already
+    // signed the user in and stored a session under 'apbg_session' in
+    // localStorage. Bootstrap the dashboard's Supabase session from it
+    // so users don't see a second login screen.
+    try {
+      var raw = localStorage.getItem('apbg_session');
+      if (raw) {
+        var g = JSON.parse(raw);
+        var exp = g && g.expiresAt;
+        var notExpired = exp && (
+          typeof exp === 'number' ? exp * 1000 > Date.now() : Date.parse(exp) > Date.now()
+        );
+        if (g && g.token && g.refreshToken && notExpired) {
+          sbAuth.auth.setSession({ access_token: g.token, refresh_token: g.refreshToken });
+        }
+      }
+    } catch (e) {}
+
     sbAuth.auth.getSession().then(function(res) { setSession(res.data.session || null) });
     var sub = sbAuth.auth.onAuthStateChange(function(_evt, s) { setSession(s || null) });
     return function(){ sub.data && sub.data.subscription && sub.data.subscription.unsubscribe() };
