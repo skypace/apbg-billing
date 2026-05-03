@@ -1180,6 +1180,7 @@ var SETTINGS_TABS = [
   {id:'categories', label:'Category → Segment'},
   {id:'products',   label:'Products'},
   {id:'buckets',    label:'Expense Buckets'},
+  {id:'users',      label:'Users'},
   {id:'sync',       label:'Connections / Sync'}
 ];
 
@@ -1211,6 +1212,7 @@ function SettingsPage() {
     : tab === 'reps'       ? React.createElement(SalesRepsEditor)
     : tab === 'products'   ? React.createElement(ProductsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
+    : tab === 'users'      ? React.createElement(UsersEditor)
     : tab === 'sync'       ? React.createElement(SyncPanel)
     : null
   );
@@ -1665,6 +1667,118 @@ function BucketsEditor() {
             );
           }))
         )
+      )
+    )
+  );
+}
+
+// ----- Users / Auth admin -----
+function UsersEditor() {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var roleState = React.useState([]);
+  var roles = roleState[0], setRoles = roleState[1];
+  var msgState = React.useState('');
+  var msg = msgState[0], setMsg = msgState[1];
+  var nState = React.useState({email:'', name:'', role:'viewer'});
+  var nu = nState[0], setNu = nState[1];
+
+  async function adminCall(action, body, method) {
+    var token = await _sbToken();
+    var url = SB_URL + '/functions/v1/admin-users' + (action ? '?action=' + action : '');
+    var res = await fetch(url, {
+      method: method || (body ? 'POST' : 'GET'),
+      headers: {
+        'apikey': SB_KEY, 'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    return res.json();
+  }
+
+  function load() {
+    Promise.all([adminCall('list'), adminCall('roles')]).then(function(res) {
+      if (res[0].ok) setRows(res[0].users || []);
+      else setMsg('list error: ' + (res[0].error || 'unknown'));
+      if (res[1].ok) setRoles(res[1].roles || []);
+    });
+  }
+  React.useEffect(load, []);
+
+  function invite() {
+    if (!nu.email) return alert('email required');
+    setMsg('inviting…');
+    adminCall('invite', {email: nu.email, name: nu.name, role: nu.role}).then(function(j) {
+      if (j.ok) { setMsg('invited ' + nu.email); setNu({email:'', name:'', role:'viewer'}); load(); }
+      else setMsg('invite error: ' + (j.error || 'unknown'));
+    });
+  }
+  function setRole(id, role) {
+    adminCall('update_role', {id, role}).then(function(j) {
+      if (j.ok) load(); else setMsg('role update error: ' + (j.error || 'unknown'));
+    });
+  }
+  function delUser(id, email) {
+    if (!confirm('Delete user ' + email + '? Cannot be undone.')) return;
+    adminCall('delete', {id}, 'DELETE').then(function(j) {
+      if (j.ok) load(); else setMsg('delete error: ' + (j.error || 'unknown'));
+    });
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, msg || 'Loading…');
+
+  return React.createElement('div', null,
+    msg ? React.createElement('div', {style:{padding:'8px 12px', marginBottom:10, fontSize:11, color:'var(--mt)', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4}}, msg) : null,
+    React.createElement('div', {className:'cd', style:{padding:0, marginBottom:10}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'INVITE NEW USER')
+      ),
+      React.createElement('div', {style:{padding:'12px 14px', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}},
+        React.createElement('input', {type:'email', placeholder:'email@…', value:nu.email,
+          onChange:function(e){ setNu(Object.assign({}, nu, {email:e.target.value})) },
+          style: Object.assign({}, inp(), {flex:'1 1 220px', minWidth:200})}),
+        React.createElement('input', {type:'text', placeholder:'Full name (optional)', value:nu.name,
+          onChange:function(e){ setNu(Object.assign({}, nu, {name:e.target.value})) },
+          style: Object.assign({}, inp(), {flex:'1 1 180px', minWidth:160})}),
+        React.createElement('select', {value:nu.role,
+          onChange:function(e){ setNu(Object.assign({}, nu, {role:e.target.value})) },
+          style: inp()},
+          roles.map(function(r) { return React.createElement('option', {key:r.value, value:r.value}, r.label); })
+        ),
+        React.createElement('button', {onClick: invite, style: btnPrimary()}, 'SEND INVITE')
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'USERS — ' + rows.length)
+      ),
+      React.createElement('table', null,
+        React.createElement('thead', null, React.createElement('tr', null,
+          React.createElement('th', null, 'Email'),
+          React.createElement('th', null, 'Name'),
+          React.createElement('th', null, 'Role'),
+          React.createElement('th', null, 'Last sign-in'),
+          React.createElement('th', null, 'Confirmed?'),
+          React.createElement('th', null, '')
+        )),
+        React.createElement('tbody', null, rows.map(function(u) {
+          return React.createElement('tr', {key:u.id},
+            React.createElement('td', {style:{fontWeight:600}}, u.email),
+            React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, u.name || '—'),
+            React.createElement('td', null,
+              React.createElement('select', {value: u.role || 'viewer', onChange: function(e){ setRole(u.id, e.target.value) }, style: inp()},
+                roles.map(function(r) { return React.createElement('option', {key:r.value, value:r.value}, r.label); })
+              )
+            ),
+            React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}},
+              u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString() : '—'),
+            React.createElement('td', {style:{fontSize:11, color: u.confirmed_at ? 'var(--gn)' : 'var(--am)'}},
+              u.confirmed_at ? '✓' : 'pending'),
+            React.createElement('td', {style:{textAlign:'right'}},
+              React.createElement('button', {onClick: function(){ delUser(u.id, u.email) }, style: btnDanger()}, '×'))
+          );
+        }))
       )
     )
   );
