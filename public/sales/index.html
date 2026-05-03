@@ -253,6 +253,51 @@ function MarginPage() {
   var drillState = drState[0], setDrill = drState[1];
   var spState = React.useState({});
   var sparks = spState[0], setSparks = spState[1];
+  var svState = React.useState([]);
+  var savedViews = svState[0], setSavedViews = svState[1];
+
+  function loadSavedViews() {
+    sbq('saved_views', 'select=id,name,description,is_shared,config,user_id&order=name')
+      .then(function(rs){ setSavedViews(rs || []) });
+  }
+  React.useEffect(loadSavedViews, []);
+
+  function applyView(v) {
+    var c = v.config || {};
+    setF({
+      start: c.start || ytdStart, end: c.end || todayStr,
+      entities: c.entities || [], categories: c.categories || [],
+      customers: c.customers || [], items: c.items || [],
+      channels: c.channels || [], segments: c.segments || []
+    });
+    setDim(c.dim || 'category');
+    setCompare(c.compare || 'none');
+    if (typeof c.showOH === 'boolean') setShowOH(c.showOH);
+  }
+
+  function saveCurrentView() {
+    var name = prompt('Name this view:');
+    if (!name) return;
+    var shared = confirm('Share with everyone? OK = shared, Cancel = just for me.');
+    var cfg = {
+      dim: dim, compare: compare,
+      start: f.start, end: f.end,
+      entities: f.entities, categories: f.categories,
+      customers: f.customers, items: f.items,
+      channels: f.channels, segments: f.segments,
+      showOH: showOH
+    };
+    sbAuth.auth.getSession().then(function(s) {
+      var uid = s && s.data && s.data.session && s.data.session.user && s.data.session.user.id;
+      if (!uid) { alert('Not signed in.'); return; }
+      sbInsert('saved_views', { user_id: uid, name: name, is_shared: shared, config: cfg })
+        .then(loadSavedViews);
+    });
+  }
+  function deleteView(id) {
+    if (!confirm('Delete this saved view?')) return;
+    sbDelete('saved_views', 'id=eq.' + encodeURIComponent(id)).then(loadSavedViews);
+  }
   var bktState = React.useState(null);
   var buckets = bktState[0], setBuckets = bktState[1];
   var perState = React.useState(null);
@@ -449,6 +494,22 @@ function MarginPage() {
         React.createElement('option', {value:'prior_year'}, 'Prior Year')
       ),
       compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Views'),
+      React.createElement('select', {
+        value:'', onChange: function(e) {
+          if (!e.target.value) return;
+          var v = savedViews.find(function(x){ return x.id === e.target.value });
+          if (v) applyView(v);
+          e.target.value = '';
+        },
+        style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'4px 6px', borderRadius:4, fontSize:11, maxWidth:160}
+      },
+        React.createElement('option', {value:''}, savedViews.length ? '— load —' : '— none yet —'),
+        savedViews.map(function(v){
+          return React.createElement('option', {key:v.id, value:v.id}, (v.is_shared ? '★ ' : '') + v.name);
+        })
+      ),
+      React.createElement('button', {onClick: saveCurrentView, style:{background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'3px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}}, '+ SAVE'),
       activeFilterCount > 0 ? React.createElement('button', {onClick: clearAllFilters, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'2px 8px', borderRadius:4, fontSize:10, cursor:'pointer', marginLeft:'auto'}}, 'CLEAR ALL FILTERS (' + activeFilterCount + ')') : null
     ),
     React.createElement('div', {style:{marginTop:10, display:'grid', gap:6, gridTemplateColumns:'minmax(0,1fr)'}},
