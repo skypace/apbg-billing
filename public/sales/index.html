@@ -1657,14 +1657,20 @@ function CustomersPage() {
   var chOpts = chOptsState[0], setChOpts = chOptsState[1];
   var repOptsState = React.useState([]);
   var repOpts = repOptsState[0], setRepOpts = repOptsState[1];
+  var healthState = React.useState({});
+  var health = healthState[0], setHealth = healthState[1];
 
   React.useEffect(function() {
     Promise.all([
       sbq('channels', 'select=label&is_active=eq.true&order=sort_order'),
-      sbq('sales_reps', 'select=name&is_active=eq.true&order=sort_order')
+      sbq('sales_reps', 'select=name&is_active=eq.true&order=sort_order'),
+      sbrpc('fn_customer_health', {p_window_days: 365})
     ]).then(function(res) {
       setChOpts((res[0] || []).map(function(r){return r.label}));
       setRepOpts((res[1] || []).map(function(r){return r.name}));
+      var h = {};
+      (res[2] || []).forEach(function(r){ h[r.qbo_customer_id] = r });
+      setHealth(h);
     });
   }, []);
 
@@ -1771,6 +1777,7 @@ function CustomersPage() {
         React.createElement('table', null,
           React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
             React.createElement('th', null, 'Customer'),
+            React.createElement('th', null, 'Health'),
             React.createElement('th', {style:{textAlign:'right', whiteSpace:'nowrap'}}, 'YTD Rev'),
             React.createElement('th', {style:{textAlign:'right'}}, 'Inv'),
             React.createElement('th', null, 'Channels'),
@@ -1784,6 +1791,7 @@ function CustomersPage() {
               row: r,
               chOpts: chOpts,
               repOpts: repOpts,
+              health: health[r.qbo_customer_id],
               isSaving: !!saving[r.qbo_customer_id],
               onSaveChannels: saveChannels,
               onSaveReps: saveReps
@@ -1821,6 +1829,7 @@ function CustomerRow(props) {
             [r.state, r.is_sub_customer ? 'sub' : null, r.customer_type_name].filter(Boolean).join(' \u00b7 '))
         : null
     ),
+    React.createElement('td', null, healthBadge(props.health)),
     React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.ytd_revenue)),
     React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
     React.createElement('td', {style:{minWidth:240, maxWidth:380}},
@@ -3927,6 +3936,27 @@ function CompareSide(props) {
 // CUSTOMER DETAIL PAGE
 // =========================================================================
 
+function healthBadge(h) {
+  if (!h) return React.createElement('span', {style:{color:'var(--mt)', fontSize:10}}, '—');
+  var seg = h.rfm_segment;
+  var color = seg === 'Champion' ? 'var(--gn)'
+            : seg === 'Loyal' ? '#34d399'
+            : seg === 'New / Potential' ? 'var(--ac)'
+            : seg === 'At Risk — High Value' ? 'var(--am)'
+            : seg === 'At Risk' ? '#fbbf24'
+            : seg === 'Lost / Hibernating' ? 'var(--rd)'
+            : 'var(--mt)';
+  return React.createElement('div', {style:{display:'flex', flexDirection:'column', gap:2}},
+    React.createElement('span', {style:{
+      background:'rgba(255,255,255,0.04)', color:color,
+      border:'1px solid ' + color, padding:'1px 7px', borderRadius:12,
+      fontSize:9, fontWeight:700, letterSpacing:.5, whiteSpace:'nowrap', alignSelf:'flex-start'
+    }}, seg.toUpperCase()),
+    React.createElement('span', {style:{fontSize:10, color:'var(--mt)', fontFamily:'monospace'}},
+      'R' + h.r_score + ' F' + h.f_score + ' M' + h.m_score + ' · ' + h.recency_days + 'd ago')
+  );
+}
+
 function customerLink(id, name, opts) {
   if (!id || !name) return name || '';
   return React.createElement('a', {
@@ -3951,6 +3981,16 @@ function CustomerDetailPage(props) {
   var monthly = monthlyState[0], setMonthly = monthlyState[1];
   var invoicesState = React.useState(null);
   var invoices = invoicesState[0], setInvoices = invoicesState[1];
+  var healthOneState = React.useState(null);
+  var health = healthOneState[0], setHealth = healthOneState[1];
+
+  React.useEffect(function() {
+    if (!props.customerId) return;
+    sbrpc('fn_customer_health', {p_window_days: 365}).then(function(rows) {
+      var h = (rows || []).find(function(x){ return x.qbo_customer_id === props.customerId });
+      setHealth(h || null);
+    });
+  }, [props.customerId]);
 
   React.useEffect(function() {
     if (!props.customerId) return;
@@ -4029,11 +4069,16 @@ function CustomerDetailPage(props) {
       )
     ),
 
-    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+    React.createElement('div', {className:'gr', style:{gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', marginBottom:12, gap:14}},
       React.createElement(C, {title:'YTD REVENUE', value: fm(detail.current_revenue), sub: detail.current_invoice_count + ' invoices · ' + detail.current_line_count + ' lines'}),
       React.createElement(C, {title:'YTD MARGIN', value: detail.current_est_margin != null ? fm(detail.current_est_margin) : '—', accent: detail.current_margin_pct != null ? (Number(detail.current_margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)') : null, sub: detail.current_margin_pct != null ? fp(detail.current_margin_pct) : '—'}),
       React.createElement(C, {title:'LIFETIME REVENUE', value: fm(detail.lifetime_revenue), sub: detail.lifetime_invoice_count + ' invoices · last ' + (detail.last_invoice_date || '—')}),
-      React.createElement(C, {title:'AR BALANCE', value: fm(detail.ar_balance), accent: Number(detail.ar_overdue) > 0 ? 'var(--am)' : null, sub: Number(detail.ar_overdue) > 0 ? fm(detail.ar_overdue) + ' overdue (' + detail.ar_overdue_count + ')' : 'no overdue'})
+      React.createElement(C, {title:'AR BALANCE', value: fm(detail.ar_balance), accent: Number(detail.ar_overdue) > 0 ? 'var(--am)' : null, sub: Number(detail.ar_overdue) > 0 ? fm(detail.ar_overdue) + ' overdue (' + detail.ar_overdue_count + ')' : 'no overdue'}),
+      React.createElement('div', {className:'cd'},
+        React.createElement('div', {className:'ct'}, 'HEALTH (RFM 365D)'),
+        React.createElement('div', {style:{marginTop:6}}, healthBadge(health)),
+        health ? React.createElement('div', {className:'cs'}, 'Score ' + health.rfm_total + '/15 · ' + health.frequency + ' invoices · ' + fm(health.monetary)) : null
+      )
     ),
 
     React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:12, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
