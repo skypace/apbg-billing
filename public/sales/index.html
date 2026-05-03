@@ -142,6 +142,56 @@ function Sparkline(props) {
   );
 }
 
+function grandTotalRow(rows, totRev, showOH, showCompare, allocBuckets, allocFor) {
+  var t = {line_count:0, qty:0, revenue:0, est_cost:0, est_margin:0, prev_revenue:0, delta_revenue:0};
+  var hasCost = false, hasPrev = false;
+  rows.forEach(function(r) {
+    t.line_count += Number(r.line_count || 0);
+    t.qty += Number(r.qty || 0);
+    t.revenue += Number(r.revenue || 0);
+    if (r.est_cost != null) { t.est_cost += Number(r.est_cost); hasCost = true; }
+    if (r.est_margin != null) t.est_margin += Number(r.est_margin);
+    if (r.prev_revenue != null) { t.prev_revenue += Number(r.prev_revenue); hasPrev = true; }
+    if (r.delta_revenue != null) t.delta_revenue += Number(r.delta_revenue);
+  });
+  var marginPct = t.revenue > 0 && hasCost ? (t.revenue - t.est_cost) / t.revenue : null;
+  var avgPrice = t.qty > 0 ? t.revenue / t.qty : null;
+  var deltaPct = hasPrev && t.prev_revenue !== 0 ? (t.revenue - t.prev_revenue) / t.prev_revenue : null;
+  // Sum of per-row allocations is the "true" total OH for the visible rows.
+  var allocTotal = 0;
+  var byBucket = {};
+  if (showOH) {
+    rows.forEach(function(r) {
+      var a = allocFor(r.revenue, r.effective_segment);
+      allocTotal += a.total || 0;
+      allocBuckets.forEach(function(b){ byBucket[b.bucket_code] = (byBucket[b.bucket_code] || 0) + (a[b.bucket_code] || 0) });
+    });
+  }
+  var realNet = showOH ? (t.revenue - t.est_cost - allocTotal) : null;
+  var realPct = showOH && t.revenue > 0 ? realNet / t.revenue : null;
+  var bg = {background:'var(--sf2)', fontWeight:700, borderTop:'2px solid var(--ac)', borderBottom:'2px solid var(--bd)'};
+  return React.createElement('tr', {key:'__total', style: bg},
+    React.createElement('td', null, 'TOTAL (' + rows.length + ')'),
+    React.createElement('td', null, ''),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(t.line_count).toLocaleString()),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(t.qty).toLocaleString(undefined, {maximumFractionDigits:1})),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(t.revenue)),
+    React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, '100.0%'),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, avgPrice != null ? fd(avgPrice) : '-'),
+    showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color:'var(--mt)'}}, hasPrev ? fm(t.prev_revenue) : '—') : null,
+    showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', color: t.delta_revenue >= 0 ? 'var(--gn)' : 'var(--rd)'}}, hasPrev ? (t.delta_revenue >= 0 ? '+' : '') + fm(t.delta_revenue) : '—') : null,
+    showCompare ? React.createElement('td', {className:'mn', style:{textAlign:'right', color: deltaPct == null ? 'var(--mt)' : (deltaPct >= 0 ? 'var(--gn)' : 'var(--rd)')}}, deltaPct != null ? (deltaPct >= 0 ? '+' : '') + fp(deltaPct) : '—') : null,
+    React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, hasCost ? fm(t.est_cost) : '—'),
+    React.createElement('td', {className:'mn', style:{textAlign:'right'}}, hasCost ? fm(t.est_margin) : '—'),
+    React.createElement('td', {className:'mn', style:{textAlign:'right', color: marginPct == null ? 'var(--mt)' : (marginPct >= 0.4 ? 'var(--gn)' : (marginPct >= 0 ? 'var(--am)' : 'var(--rd)'))}}, marginPct != null ? fp(marginPct) : '—'),
+    showOH ? allocBuckets.map(function(b) {
+      return React.createElement('td', {key:b.bucket_code, className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color:'var(--mt)'}}, fm(byBucket[b.bucket_code] || 0));
+    }) : null,
+    showOH ? React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color: realNet >= 0 ? 'var(--gn)' : 'var(--rd)'}}, fm(realNet)) : null,
+    showOH ? React.createElement('td', {className:'mn', style:{textAlign:'right', color: realPct == null ? 'var(--mt)' : (realPct >= 0 ? 'var(--gn)' : 'var(--rd)')}}, realPct != null ? fp(realPct) : '—') : null
+  );
+}
+
 function MultiPicker(props) {
   var qState = React.useState('');
   var query = qState[0], setQuery = qState[1];
@@ -540,8 +590,33 @@ function MarginPage() {
   );
 
   var headerLabel = (DIMS.find(function(x){return x.id===dim}) || {label:'Item'}).label;
-  var totRev = (rows || []).reduce(function(s,r){return s + Number(r.revenue || 0)}, 0);
   var showCompare = compare !== 'none';
+
+  // Sort state (#10): clicking a column header toggles sort; default is revenue desc.
+  var sortStateH = React.useState({col:'revenue', dir:'desc'});
+  var sortBy = sortStateH[0], setSortBy = sortStateH[1];
+  function clickSort(col) {
+    setSortBy(function(prev) {
+      if (prev.col === col) return {col: col, dir: prev.dir === 'desc' ? 'asc' : 'desc'};
+      return {col: col, dir: 'desc'};
+    });
+  }
+  function sortIndicator(col) {
+    if (sortBy.col !== col) return null;
+    return React.createElement('span', {style:{marginLeft:3, color:'var(--ac)'}}, sortBy.dir === 'desc' ? '▼' : '▲');
+  }
+  var sortedRows = (rows || []).slice().sort(function(a, b) {
+    var av = a[sortBy.col], bv = b[sortBy.col];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string' && typeof bv === 'string') {
+      return sortBy.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    }
+    var an = Number(av), bn = Number(bv);
+    return sortBy.dir === 'asc' ? an - bn : bn - an;
+  });
+  var totRev = sortedRows.reduce(function(s,r){return s + Number(r.revenue || 0)}, 0);
 
   // Cost-bucket allocation. Driver-based when the row has an effective
   // segment AND the bucket has an applies_to_segments set; otherwise
@@ -637,26 +712,26 @@ function MarginPage() {
     React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
       React.createElement('table', null,
         React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
-          React.createElement('th', null, headerLabel),
+          React.createElement('th', {onClick:function(){clickSort('dim_label')}, style:{cursor:'pointer'}}, headerLabel, sortIndicator('dim_label')),
           React.createElement('th', {style:{textAlign:'center', fontSize:8}}, 'TTM'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+          React.createElement('th', {onClick:function(){clickSort('line_count')}, style:{textAlign:'right', cursor:'pointer'}}, 'Lines', sortIndicator('line_count')),
+          React.createElement('th', {onClick:function(){clickSort('qty')}, style:{textAlign:'right', cursor:'pointer'}}, 'Qty', sortIndicator('qty')),
+          React.createElement('th', {onClick:function(){clickSort('revenue')}, style:{textAlign:'right', cursor:'pointer'}}, 'Revenue', sortIndicator('revenue')),
           React.createElement('th', {style:{textAlign:'right'}}, '% of Total'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Avg Price'),
-          showCompare ? React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'Prev Rev') : null,
-          showCompare ? React.createElement('th', {style:{textAlign:'right'}}, 'Δ Rev') : null,
-          showCompare ? React.createElement('th', {style:{textAlign:'right'}}, 'Δ %') : null,
-          React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'Est. Cost'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Est. Margin'),
-          React.createElement('th', {style:{textAlign:'right'}}, 'Margin %'),
+          React.createElement('th', {onClick:function(){clickSort('avg_price')}, style:{textAlign:'right', cursor:'pointer'}}, 'Avg Price', sortIndicator('avg_price')),
+          showCompare ? React.createElement('th', {onClick:function(){clickSort('prev_revenue')}, style:{textAlign:'right', cursor:'pointer', borderLeft:'1px solid var(--bd)'}}, 'Prev Rev', sortIndicator('prev_revenue')) : null,
+          showCompare ? React.createElement('th', {onClick:function(){clickSort('delta_revenue')}, style:{textAlign:'right', cursor:'pointer'}}, 'Δ Rev', sortIndicator('delta_revenue')) : null,
+          showCompare ? React.createElement('th', {onClick:function(){clickSort('delta_pct')}, style:{textAlign:'right', cursor:'pointer'}}, 'Δ %', sortIndicator('delta_pct')) : null,
+          React.createElement('th', {onClick:function(){clickSort('est_cost')}, style:{textAlign:'right', cursor:'pointer', borderLeft:'1px solid var(--bd)'}}, 'Est. Cost', sortIndicator('est_cost')),
+          React.createElement('th', {onClick:function(){clickSort('est_margin')}, style:{textAlign:'right', cursor:'pointer'}}, 'Est. Margin', sortIndicator('est_margin')),
+          React.createElement('th', {onClick:function(){clickSort('margin_pct')}, style:{textAlign:'right', cursor:'pointer'}}, 'Margin %', sortIndicator('margin_pct')),
           showOH ? allocBuckets.map(function(b) {
             return React.createElement('th', {key:b.bucket_code, style:{textAlign:'right', borderLeft:'1px solid var(--bd)', color:'var(--mt)', whiteSpace:'nowrap'}}, b.label.toUpperCase());
           }) : null,
           showOH ? React.createElement('th', {style:{textAlign:'right', borderLeft:'1px solid var(--bd)'}}, 'Real Net') : null,
           showOH ? React.createElement('th', {style:{textAlign:'right'}}, 'Real %') : null
         )),
-        React.createElement('tbody', null, (rows || []).map(function(r) {
+        React.createElement('tbody', null, [grandTotalRow(sortedRows, totRev, showOH, showCompare, allocBuckets, allocFor)].concat(sortedRows.map(function(r) {
           var pctTotal = totRev > 0 ? Number(r.revenue || 0) / totRev : 0;
           var mp = r.margin_pct != null ? Number(r.margin_pct) : null;
           var dr = r.delta_revenue != null ? Number(r.delta_revenue) : null;
@@ -696,7 +771,7 @@ function MarginPage() {
             showOH ? React.createElement('td', {className:'mn', style:{textAlign:'right', borderLeft:'1px solid var(--bd)', fontWeight:600, color: realNet == null ? 'var(--mt)' : (realNet >= 0 ? 'var(--gn)' : 'var(--rd)')}}, realNet != null ? fm(realNet) : '—') : null,
             showOH ? React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color: realPct == null ? 'var(--mt)' : (realPct >= 0.15 ? 'var(--gn)' : (realPct >= 0 ? 'var(--am)' : 'var(--rd)'))}}, realPct != null ? fp(realPct) : '—') : null
           );
-        }))
+        })))
       )
     )
   );
@@ -749,6 +824,38 @@ function MarginPage() {
 
 function DrillModal(props) {
   var s = props.state;
+  var modeState = React.useState('lines');
+  var mode = modeState[0], setMode = modeState[1];
+
+  var lines = s.lines || [];
+
+  // Aggregate lines by the selected dimension. 'lines' = no aggregation.
+  function aggregate(byKey) {
+    var m = {};
+    lines.forEach(function(r) {
+      var k = byKey(r) || '(none)';
+      if (!m[k]) m[k] = {key:k, lines:0, qty:0, revenue:0, est_cost:0, est_margin:0};
+      m[k].lines++;
+      m[k].qty += Number(r.quantity || 0);
+      m[k].revenue += Number(r.revenue || 0);
+      if (r.est_cost != null) m[k].est_cost += Number(r.est_cost);
+      if (r.est_margin != null) m[k].est_margin += Number(r.est_margin);
+    });
+    return Object.values(m).sort(function(a,b){ return b.revenue - a.revenue });
+  }
+
+  var aggRows = mode === 'customers' ? aggregate(function(r){ return r.customer_name })
+              : mode === 'items'     ? aggregate(function(r){ return r.item_name })
+              : mode === 'months'    ? aggregate(function(r){ return (r.txn_date || '').slice(0,7) })
+              : null;
+
+  var MODES = [
+    {id:'lines',     label:'Invoice Lines'},
+    {id:'customers', label:'By Customer'},
+    {id:'items',     label:'By Item'},
+    {id:'months',    label:'By Month'}
+  ];
+
   return React.createElement('div', {
     onClick: props.onClose,
     style:{position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20}
@@ -757,17 +864,32 @@ function DrillModal(props) {
       onClick: function(e){ e.stopPropagation() },
       style:{background:'var(--sf)', border:'1px solid var(--bd)', borderRadius:8, width:'min(1100px, 100%)', maxHeight:'90vh', display:'flex', flexDirection:'column'}
     },
-      React.createElement('div', {style:{padding:'14px 18px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+      React.createElement('div', {style:{padding:'14px 18px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap'}},
         React.createElement('div', null,
           React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1.5}}, s.dim + ' detail'),
           React.createElement('div', {style:{fontSize:16, fontWeight:600, marginTop:2}}, s.label),
-          React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:2}}, fm(s.revenue) + ' total · ' + (s.lines ? s.lines.length + ' lines shown' : 'loading…'))
+          React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:2}}, fm(s.revenue) + ' total · ' + (s.lines ? s.lines.length + ' lines' : 'loading…'))
         ),
-        React.createElement('button', {onClick: props.onClose, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'4px 10px', borderRadius:4, fontSize:11, cursor:'pointer'}}, 'CLOSE')
+        React.createElement('div', {style:{display:'flex', gap:6, alignItems:'center'}},
+          React.createElement('div', {style:{display:'flex', gap:4}}, MODES.map(function(m) {
+            var on = mode === m.id;
+            return React.createElement('button', {
+              key: m.id, onClick: function(){ setMode(m.id) },
+              style:{
+                background: on ? 'var(--ac)' : 'var(--sf2)',
+                color: on ? 'var(--bg)' : 'var(--tx)',
+                border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+                fontSize:10, cursor:'pointer', fontWeight: on ? 700 : 400, letterSpacing:.5
+              }
+            }, m.label);
+          })),
+          React.createElement('button', {onClick: props.onClose, style:{background:'transparent', border:'1px solid var(--bd)', color:'var(--mt)', padding:'4px 10px', borderRadius:4, fontSize:11, cursor:'pointer'}}, 'CLOSE')
+        )
       ),
       React.createElement('div', {style:{flex:1, overflow:'auto'}},
         s.loading ? React.createElement('div', {className:'ld'}, 'Loading lines…') :
-        s.lines && s.lines.length ?
+        !lines.length ? React.createElement('div', {className:'ld'}, 'No matching lines.') :
+        mode === 'lines' ?
           React.createElement('table', null,
             React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)'}}, React.createElement('tr', null,
               React.createElement('th', null, 'Date'),
@@ -780,7 +902,7 @@ function DrillModal(props) {
               React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
               React.createElement('th', {style:{textAlign:'right'}}, 'Margin')
             )),
-            React.createElement('tbody', null, s.lines.map(function(r, i) {
+            React.createElement('tbody', null, lines.map(function(r, i) {
               return React.createElement('tr', {key:i},
                 React.createElement('td', {className:'mn'}, r.txn_date),
                 React.createElement('td', {className:'mn', style:{fontSize:11}}, r.doc_number || '—'),
@@ -794,7 +916,32 @@ function DrillModal(props) {
               );
             }))
           ) :
-          React.createElement('div', {className:'ld'}, 'No matching lines.')
+          React.createElement('table', null,
+            React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)'}}, React.createElement('tr', null,
+              React.createElement('th', null, mode === 'customers' ? 'Customer' : mode === 'items' ? 'Item' : 'Month'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Qty'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+              React.createElement('th', {style:{textAlign:'right'}}, '% of Total'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Est. Cost'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Margin'),
+              React.createElement('th', {style:{textAlign:'right'}}, 'Margin %')
+            )),
+            React.createElement('tbody', null, aggRows.map(function(r) {
+              var pctOfTotal = s.revenue > 0 ? r.revenue / Number(s.revenue) : 0;
+              var mp = r.revenue > 0 && r.est_cost > 0 ? (r.revenue - r.est_cost) / r.revenue : null;
+              return React.createElement('tr', {key:r.key},
+                React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.key),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.lines),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, Number(r.qty).toLocaleString(undefined, {maximumFractionDigits:1})),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fp(pctOfTotal)),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.est_cost > 0 ? fm(r.est_cost) : '—'),
+                React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.est_margin > 0 ? fm(r.est_margin) : (r.est_cost > 0 ? fm(r.est_margin) : '—')),
+                React.createElement('td', {className:'mn', style:{textAlign:'right', color: mp == null ? 'var(--mt)' : (mp >= 0.4 ? 'var(--gn)' : (mp >= 0 ? 'var(--am)' : 'var(--rd)'))}}, mp != null ? fp(mp) : '—')
+              );
+            }))
+          )
       )
     )
   );
