@@ -1,34 +1,67 @@
 // Shared Supabase Auth gate for APBG admin pages.
 //
+// Reads the gateway's session blob from localStorage (key: 'apbg_session'),
+// extracts the access_token JWT, and uses it as the Bearer for all API calls.
+// The gateway uses a custom storage shape:
+//   { token, refreshToken, expiresAt, user: { id, email, name, role } }
+// rather than the Supabase JS default. The JWT itself is a real Supabase
+// access_token, so server-side requireAuth verifies it via /auth/v1/user.
+//
 // Usage in any admin HTML page:
-//   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 //   <script src="/billing/auth.js"></script>
 //   <script>
-//     APBG.auth.requireSuperadmin().then(({ supabase, session }) => {
+//     APBG.auth.requireSuperadmin().then(({ session, user, role }) => {
 //       // ... page init runs only after auth check passes
 //     });
 //   </script>
 //
 // All API calls to /billing/.netlify/functions/* should go through
-// APBG.auth.authedFetch(...) instead of plain fetch() so the bearer token
-// is attached automatically.
+// APBG.auth.authedFetch(...) so the bearer token is attached automatically.
 
 (function () {
   var SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
   var SUPABASE_ANON_KEY =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
   var GATEWAY_URL = 'https://alamedapointbg.com/';
+  var STORAGE_KEY = 'apbg_session';
   var ALLOWED_ROLES = ['superadmin'];
 
-  function getSb() {
-    if (window.__apbgSb) return window.__apbgSb;
-    if (!window.supabase || !window.supabase.createClient) {
-      throw new Error(
-        'Supabase JS SDK not loaded — include the @supabase/supabase-js script before /billing/auth.js'
-      );
+  function readSession() {
+    var raw;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.token) return null;
+      return parsed;
+    } catch (e) {
+      return null;
     }
-    window.__apbgSb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    return window.__apbgSb;
+  }
+
+  function decodeJwt(token) {
+    try {
+      var parts = String(token).split('.');
+      if (parts.length < 2) return null;
+      var payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (payload.length % 4) payload += '=';
+      var decoded = atob(payload);
+      // Decode UTF-8 properly
+      try { decoded = decodeURIComponent(escape(decoded)); } catch (e) { /* ignore */ }
+      return JSON.parse(decoded);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isExpired(session) {
+    var ms = session && session.expiresAt;
+    if (!ms) {
+      var claims = decodeJwt(session && session.token);
+      if (claims && claims.exp) ms = claims.exp * 1000;
+    }
+    if (!ms) return false;
+    return Date.now() >= ms;
   }
 
   function redirectToLogin() {
@@ -90,87 +123,77 @@
   }
 
   async function requireSuperadmin() {
-    var sb;
-    try {
-      sb = getSb();
-    } catch (e) {
-      showError(
-        'The Supabase JS SDK did not load. This is usually caused by an ad-blocker or corporate proxy blocking unpkg.com.',
-        String(e && e.message ? e.message : e)
-      );
-      return new Promise(function () {});
-    }
-    var sessionResult;
-    try {
-      sessionResult = await sb.auth.getSession();
-    } catch (e) {
-      showError(
-        'Could not read your login session.',
-        String(e && e.message ? e.message : e)
-      );
-      return new Promise(function () {});
-    }
-    if (sessionResult && sessionResult.error) {
-      showError('Auth error from Supabase.', String(sessionResult.error.message || sessionResult.error));
-      return new Promise(function () {});
-    }
-    var session = sessionResult && sessionResult.data && sessionResult.data.session;
-    if (!session || !session.user) {
-      // Loop-breaker: if the gateway uses its own custom session storage
-      // ('apbg_session'), don't bounce back to the gateway — that creates
-      // an infinite cycle. Instead show what's stored so we can wire it up.
-      var apbgRaw = null;
-      try { apbgRaw = localStorage.getItem('apbg_session'); } catch (e) {}
-      if (apbgRaw) {
-        var pretty = apbgRaw;
-        try { pretty = JSON.stringify(JSON.parse(apbgRaw), null, 2); } catch (e) {}
-        showError(
-          'Gateway session detected but its format is not recognized by Supabase JS. Share the structure below with the dev so the storage adapter can be wired up — DO NOT post the access_token publicly.',
-          'localStorage.apbg_session:\n' + pretty
-        );
-        return new Promise(function () {});
-      }
+    var session = readSession();
+    if (!session) {
       redirectToLogin();
-      return new Promise(function () {}); // never resolves; page is redirecting
+      return new Promise(function () {});
     }
+    if (isExpired(session)) {
+      redirectToLogin();
+      return new Promise(function () {});
+    }
+    // Role check — server still enforces via /auth/v1/user, this is UX only.
+    // Prefer the JWT app_metadata claim (server-controlled) over the
+    // gateway's user.role field (which mirrors user_metadata).
+    var claims = decodeJwt(session.token);
     var role =
-      session.user.app_metadata && session.user.app_metadata.role
-        ? session.user.app_metadata.role
-        : null;
+      (claims && claims.app_metadata && claims.app_metadata.role) ||
+      (session.user && session.user.role) ||
+      null;
     if (ALLOWED_ROLES.indexOf(role) === -1) {
       showAccessDenied(role);
-      return new Promise(function () {}); // never resolves; access denied
+      return new Promise(function () {});
     }
-    sb.auth.onAuthStateChange(function (event, newSession) {
-      if (event === 'SIGNED_OUT' || !newSession) {
-        redirectToLogin();
-      }
-    });
-    return { supabase: sb, session: session, user: session.user, role: role };
+    // For pages that use supabase-js for direct queries (dashboard.html,
+    // ops/index.html), seed the client with this session.
+    var sb = null;
+    if (window.supabase && window.supabase.createClient) {
+      sb = getSupabase();
+      try {
+        await sb.auth.setSession({
+          access_token: session.token,
+          refresh_token: session.refreshToken,
+        });
+      } catch (e) { /* ignore — direct REST queries still work */ }
+    }
+    return {
+      supabase: sb,
+      session: session,
+      user: session.user || null,
+      role: role,
+      accessToken: session.token,
+    };
   }
 
   async function authedFetch(input, init) {
     init = init || {};
-    var sb = getSb();
-    var sessionResult = await sb.auth.getSession();
-    var session = sessionResult.data && sessionResult.data.session;
-    if (!session) {
+    var session = readSession();
+    if (!session || isExpired(session)) {
       redirectToLogin();
       throw new Error('Not authenticated');
     }
     var headers = new Headers(init.headers || {});
-    headers.set('Authorization', 'Bearer ' + session.access_token);
+    headers.set('Authorization', 'Bearer ' + session.token);
     var nextInit = {};
     for (var k in init) if (Object.prototype.hasOwnProperty.call(init, k)) nextInit[k] = init[k];
     nextInit.headers = headers;
     return fetch(input, nextInit);
   }
 
+  function getSupabase() {
+    if (window.__apbgSb) return window.__apbgSb;
+    if (!window.supabase || !window.supabase.createClient) return null;
+    window.__apbgSb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return window.__apbgSb;
+  }
+
   window.APBG = window.APBG || {};
   window.APBG.auth = {
     requireSuperadmin: requireSuperadmin,
     authedFetch: authedFetch,
-    getSupabase: getSb,
+    getSupabase: getSupabase,
     GATEWAY_URL: GATEWAY_URL,
   };
 })();
