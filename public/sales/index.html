@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0e17;--sf:#111827;--sf2:#1a2235;--bd:#1e2d4a;--ac:#22d3ee;--ac2:#818cf8;--gn:#34d399;--rd:#f87171;--am:#fbbf24;--tx:#e2e8f0;--mt:#64748b}
@@ -41,6 +42,7 @@ tbody tr:hover{background:var(--sf2)}
 <script type="text/babel">
 const SB_URL='https://gfsdpwiqzshhexkofiif.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const sbAuth = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
 
 async function sbq(tbl, params) {
   var url = SB_URL + '/rest/v1/' + tbl;
@@ -741,7 +743,7 @@ var SETTINGS_TABS = [
   {id:'channels',   label:'Channels'},
   {id:'segments',   label:'Segments'},
   {id:'categories', label:'Category → Segment'},
-  {id:'items',      label:'Item Overrides'},
+  {id:'products',   label:'Products'},
   {id:'buckets',    label:'Expense Buckets'},
   {id:'sync',       label:'Connections / Sync'}
 ];
@@ -771,7 +773,7 @@ function SettingsPage() {
     tab === 'channels'   ? React.createElement(ChannelsEditor)
     : tab === 'segments'   ? React.createElement(SegmentsEditor)
     : tab === 'categories' ? React.createElement(CategoryMapEditor)
-    : tab === 'items'      ? React.createElement(ItemOverridesEditor)
+    : tab === 'products'   ? React.createElement(ProductsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
     : tab === 'sync'       ? React.createElement(SyncPanel)
     : null
@@ -971,70 +973,117 @@ function CategoryMapEditor() {
   );
 }
 
-// ----- Item-level segment overrides -----
-function ItemOverridesEditor() {
+// ----- Products / Item-segment mapping -----
+function ProductsEditor() {
   var rState = React.useState(null);
   var rows = rState[0], setRows = rState[1];
   var sState = React.useState([]);
   var segs = sState[0], setSegs = sState[1];
-  var nState = React.useState({item:'', segment:''});
-  var nu = nState[0], setNu = nState[1];
+  var qState = React.useState('');
+  var query = qState[0], setQuery = qState[1];
+  var fState = React.useState('');
+  var filt = fState[0], setFilt = fState[1];
+  var lState = React.useState(false);
+  var loading = lState[0], setLoading = lState[1];
 
   function load() {
+    setLoading(true);
+    var today = new Date().toISOString().slice(0,10);
     Promise.all([
-      sbq('item_segments', 'select=*,segments(label)&order=item_name'),
+      sbrpc('fn_list_items', {p_start:'2025-01-01', p_end:today, p_search:query || null, p_filter:filt || null, p_limit:1500}),
       sbq('segments', 'select=segment_code,label&is_active=eq.true&order=sort_order')
-    ]).then(function(res){ setRows(res[0] || []); setSegs(res[1] || []) });
+    ]).then(function(res){ setRows(res[0] || []); setSegs(res[1] || []); setLoading(false) });
   }
   React.useEffect(load, []);
+  React.useEffect(function() {
+    var t = setTimeout(load, 300);
+    return function(){ clearTimeout(t) };
+  }, [query, filt]);
 
-  function add() {
-    if (!nu.item || !nu.segment) return;
-    sbrpc('fn_set_item_segment', {p_item_name: nu.item.trim(), p_segment_code: nu.segment})
-      .then(function(){ setNu({item:'', segment:''}); load() });
-  }
-  function del(item) {
-    if (!confirm('Remove override for "' + item + '"?')) return;
-    sbrpc('fn_set_item_segment', {p_item_name: item, p_segment_code: null}).then(load);
+  function setOverride(itemName, code) {
+    sbrpc('fn_set_item_segment', {p_item_name: itemName, p_segment_code: code || null}).then(load);
   }
 
   if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
 
-  return React.createElement('div', {className:'cd', style:{padding:0}},
-    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
-      React.createElement('div', {className:'ct', style:{margin:0}}, 'ITEM-LEVEL SEGMENT OVERRIDES — ' + rows.length),
-      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'beats category mapping when set')
+  var unmapped = rows.filter(function(r){ return !r.effective_segment }).length;
+  var unmappedRev = rows.filter(function(r){ return !r.effective_segment }).reduce(function(s,r){ return s + Number(r.ytd_revenue || 0) }, 0);
+  var FILTER_PILLS = [
+    {label:'All', value:''},
+    {label:'Unmapped (' + unmapped + ')', value:'unmapped'}
+  ].concat(segs.map(function(s){ return {label:s.label, value:s.label} }));
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
+      React.createElement(C, {title:'ITEMS SHOWN', value: rows.length}),
+      React.createElement(C, {title:'UNMAPPED', value: unmapped, accent: unmapped > 0 ? 'var(--am)' : null, sub:'no effective segment'}),
+      React.createElement(C, {title:'REVENUE UNMAPPED', value: fm(unmappedRev), accent: unmappedRev > 0 ? 'var(--am)' : null, sub:'YTD'}),
+      React.createElement(C, {title:'OVERRIDES SET', value: rows.filter(function(r){return r.override_segment_code}).length, sub:'item beats category'})
     ),
-    React.createElement('table', null,
-      React.createElement('thead', null, React.createElement('tr', null,
-        React.createElement('th', null, 'Item Name'),
-        React.createElement('th', null, 'Segment'),
-        React.createElement('th', null, 'Notes'),
-        React.createElement('th', null, '')
-      )),
-      React.createElement('tbody', null,
-        rows.map(function(r) {
-          return React.createElement('tr', {key:r.item_name},
-            React.createElement('td', {style:{maxWidth:380, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
-            React.createElement('td', null,
-              React.createElement('select', {value:r.segment_code, onChange: function(e){ sbrpc('fn_set_item_segment', {p_item_name:r.item_name, p_segment_code: e.target.value}).then(load) }, style:Object.assign({}, inp(), {width:'100%', maxWidth:200})},
-                segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}},
+      React.createElement('input', {
+        type:'text', value:query, onChange:function(e){ setQuery(e.target.value) },
+        placeholder:'Search item name…',
+        style:{flex:'1 1 240px', minWidth:200, background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'6px 10px', borderRadius:4, fontSize:12}
+      }),
+      React.createElement('div', {style:{display:'flex', gap:4, flexWrap:'wrap'}},
+        FILTER_PILLS.map(function(p) {
+          var on = filt === p.value;
+          return React.createElement('button', {
+            key:p.value || 'all', onClick:function(){ setFilt(p.value) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, p.label);
+        })
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Item'),
+            React.createElement('th', null, 'Type / QBO Income Account'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'YTD Rev'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Lines'),
+            React.createElement('th', null, 'Category'),
+            React.createElement('th', null, 'Effective Segment'),
+            React.createElement('th', null, 'Override → Segment')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            var unmappedRow = !r.effective_segment;
+            return React.createElement('tr', {key: r.item_name || ('null-' + Math.random()), style: unmappedRow ? {background:'rgba(251,191,36,.05)'} : null},
+              React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}},
+                r.item_name || '(null)',
+                r.active === false ? React.createElement('span', {style:{marginLeft:6, fontSize:9, color:'var(--mt)'}}, '(inactive)') : null
+              ),
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}},
+                (r.item_type || '—') + (r.income_account_name ? ' · ' + r.income_account_name : '')
+              ),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.ytd_revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, Number(r.line_count).toLocaleString()),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.top_category || '—'),
+              React.createElement('td', {style:{fontSize:11}},
+                r.effective_segment
+                  ? React.createElement('span', {style:{color: r.override_segment_code ? 'var(--ac)' : 'var(--tx)', fontWeight: r.override_segment_code ? 600 : 400}}, r.effective_segment + (r.override_segment_code ? ' (override)' : ''))
+                  : React.createElement('span', {style:{color:'var(--am)'}}, '— unmapped —')
+              ),
+              React.createElement('td', null,
+                React.createElement('select', {
+                  value: r.override_segment_code || '',
+                  onChange: function(e){ setOverride(r.item_name, e.target.value) },
+                  style: Object.assign({}, inp(), {width:'100%', maxWidth:200})
+                },
+                  React.createElement('option', {value:''}, r.override_segment_code ? '(remove override)' : '— inherit category —'),
+                  segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
+                )
               )
-            ),
-            React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, r.notes || ''),
-            React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: function(){ del(r.item_name) }, style:btnDanger()}, '×'))
-          );
-        }),
-        React.createElement('tr', {style:{background:'var(--sf2)'}},
-          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'paste item name…', value:nu.item, onChange:function(e){ setNu(Object.assign({}, nu, {item:e.target.value})) }, style:Object.assign({}, inp(), {width:'100%'})})),
-          React.createElement('td', null,
-            React.createElement('select', {value:nu.segment, onChange: function(e){ setNu(Object.assign({}, nu, {segment:e.target.value})) }, style:Object.assign({}, inp(), {width:'100%'})},
-              React.createElement('option', {value:''}, '— pick segment —'),
-              segs.map(function(s){ return React.createElement('option', {key:s.segment_code, value:s.segment_code}, s.label) })
-            )
-          ),
-          React.createElement('td', null),
-          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick:add, style:btnPrimary()}, '+ ADD'))
+            );
+          }))
         )
       )
     )
@@ -1269,7 +1318,68 @@ function btnPrimary() { return {background:'var(--ac)', color:'var(--bg)', borde
 function btnSecondary() { return {background:'var(--sf2)', color:'var(--tx)', border:'1px solid var(--bd)', padding:'4px 10px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5} }
 function btnDanger() { return {background:'transparent', color:'var(--rd)', border:'1px solid var(--bd)', padding:'2px 7px', borderRadius:4, fontSize:11, cursor:'pointer'} }
 
+function LoginScreen(props) {
+  var eState = React.useState('');
+  var email = eState[0], setEmail = eState[1];
+  var pState = React.useState('');
+  var password = pState[0], setPassword = pState[1];
+  var bState = React.useState(false);
+  var busy = bState[0], setBusy = bState[1];
+  var msgState = React.useState('');
+  var msg = msgState[0], setMsg = msgState[1];
+
+  function submit(e) {
+    e && e.preventDefault();
+    if (!email || !password) return;
+    setBusy(true); setMsg('');
+    sbAuth.auth.signInWithPassword({ email: email.trim(), password: password })
+      .then(function(res) {
+        if (res.error) { setMsg(res.error.message); setBusy(false); }
+        else { props.onLogin && props.onLogin(res.data.session); }
+      })
+      .catch(function(err) { setMsg(err.message || String(err)); setBusy(false); });
+  }
+
+  return React.createElement('div', {style:{minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20}},
+    React.createElement('form', {onSubmit: submit, className:'cd', style:{width:380, maxWidth:'100%', padding:'24px 28px'}},
+      React.createElement('div', {style:{fontSize:13, fontWeight:700, letterSpacing:1.5, color:'var(--ac)', marginBottom:4}}, 'PACER \u00b7 MARGIN ANALYTICS'),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginBottom:24, letterSpacing:.5}}, 'Sign in to continue'),
+      React.createElement('label', {style:{display:'block', fontSize:10, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginBottom:4}}, 'Email'),
+      React.createElement('input', {type:'email', autoComplete:'email', value:email, onChange:function(e){setEmail(e.target.value)},
+        style:{width:'100%', background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'8px 10px', borderRadius:4, fontSize:13, marginBottom:14}}),
+      React.createElement('label', {style:{display:'block', fontSize:10, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginBottom:4}}, 'Password'),
+      React.createElement('input', {type:'password', autoComplete:'current-password', value:password, onChange:function(e){setPassword(e.target.value)},
+        style:{width:'100%', background:'var(--sf2)', border:'1px solid var(--bd)', color:'var(--tx)', padding:'8px 10px', borderRadius:4, fontSize:13, marginBottom:18}}),
+      msg ? React.createElement('div', {style:{color:'var(--rd)', fontSize:11, marginBottom:12}}, msg) : null,
+      React.createElement('button', {type:'submit', disabled:busy,
+        style:{width:'100%', background:'var(--ac)', color:'var(--bg)', border:'none', padding:'10px', borderRadius:4, fontSize:12, fontWeight:700, letterSpacing:1, cursor:'pointer', textTransform:'uppercase'}},
+        busy ? 'Signing in\u2026' : 'Sign in'),
+      React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:14, lineHeight:1.5}},
+        'Accounts are managed in Supabase Studio. Ask Sky for credentials.')
+    )
+  );
+}
+
 function App() {
+  var sessState = React.useState(undefined);  // undefined = loading, null = no session, object = signed in
+  var session = sessState[0], setSession = sessState[1];
+
+  React.useEffect(function() {
+    sbAuth.auth.getSession().then(function(res) { setSession(res.data.session || null) });
+    var sub = sbAuth.auth.onAuthStateChange(function(_evt, s) { setSession(s || null) });
+    return function(){ sub.data && sub.data.subscription && sub.data.subscription.unsubscribe() };
+  }, []);
+
+  if (session === undefined) {
+    return React.createElement('div', {className:'ld', style:{minHeight:'100vh'}}, 'Loading\u2026');
+  }
+  if (session === null) {
+    return React.createElement(LoginScreen, {onLogin: function(s){ setSession(s) }});
+  }
+  return React.createElement(MainApp, {session: session, onLogout: function(){ sbAuth.auth.signOut().then(function(){ setSession(null) }) }});
+}
+
+function MainApp(props) {
   var validViews = ['margin', 'customers', 'settings'];
   function viewFromHash() {
     var h = (window.location.hash || '').replace(/^#/, '').split('?')[0];
@@ -1311,12 +1421,20 @@ function App() {
               : view === 'settings'  ? React.createElement(SettingsPage)
               : React.createElement(MarginPage);
 
+  var userEmail = props.session && props.session.user && props.session.user.email;
+
   return React.createElement(React.Fragment, null,
     React.createElement('div', {className:'tb'},
       React.createElement('div', {className:'lg'}, 'PACER \u00b7 MARGIN ANALYTICS',
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
-      React.createElement('div', null, tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('settings', 'SETTINGS'))
+      React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('settings', 'SETTINGS'),
+        React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
+        React.createElement('button', {onClick: props.onLogout,
+          style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
+          'SIGN OUT')
+      )
     ),
     React.createElement('div', {className:'ma'}, content)
   )
