@@ -5236,6 +5236,215 @@ function PlanVsActuals(props) {
   );
 }
 
+function RepsPage() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+  var fState = React.useState({start: ytdStart, end: todayStr});
+  var f = fState[0], setF = fState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  var rulesState = React.useState({});
+  var rules = rulesState[0], setRules = rulesState[1];
+  var activeState = React.useState(null);
+  var active = activeState[0], setActive = activeState[1];
+  var msgState = React.useState('');
+  var msg = msgState[0], setMsg = msgState[1];
+
+  function loadAll() {
+    Promise.all([
+      sbrpc('fn_rep_scorecard', {p_start: f.start, p_end: f.end}),
+      sbq('commission_rules', 'select=*')
+    ]).then(function(res) {
+      setRows(res[0] || []);
+      var byCode = {};
+      (res[1] || []).forEach(function(r){ byCode[r.rep_code] = r });
+      setRules(byCode);
+    });
+  }
+  React.useEffect(loadAll, [f.start, f.end]);
+
+  function saveRule(rep_code, patch) {
+    var existing = rules[rep_code];
+    if (existing) {
+      sbUpdate('commission_rules', 'rep_code=eq.' + encodeURIComponent(rep_code), Object.assign({}, patch, {updated_at: new Date().toISOString()}))
+        .then(loadAll);
+    } else {
+      sbInsert('commission_rules', Object.assign({rep_code: rep_code, rate_revenue: 0, rate_margin: 0, draw_monthly: 0, applies_to: 'primary'}, patch))
+        .then(loadAll);
+    }
+  }
+  function deleteRule(rep_code) {
+    if (!confirm('Remove commission rule for ' + rep_code + '?')) return;
+    sbDelete('commission_rules', 'rep_code=eq.' + encodeURIComponent(rep_code)).then(loadAll);
+  }
+
+  async function pushReps(commit) {
+    setMsg(commit ? 'pushing to QBO…' : 'dry-run…');
+    var token = await _sbToken();
+    fetch(SB_URL + '/functions/v1/push-qbo-sales-rep', {
+      method:'POST',
+      headers: { 'apikey':SB_KEY, 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+      body: JSON.stringify({commit: commit === true})
+    }).then(function(r){ return r.json() }).then(function(j) {
+      if (!j.ok) { setMsg('FAIL: ' + (j.error || 'unknown')); return; }
+      var s = j.summary || {};
+      setMsg((commit ? 'COMMITTED ' : 'DRY-RUN ') +
+        'updated=' + (s.updated || 0) + ' would_update=' + (s.would_update || 0) +
+        ' already_correct=' + (s.already_correct || 0) +
+        ' skipped_no_field=' + (s.skipped_no_field || []).length +
+        ' errors=' + (s.errors || []).length +
+        (j.setup_note ? ' · ' + j.setup_note : ''));
+    }).catch(function(e){ setMsg('ERROR: ' + e.message) });
+  }
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading reps…');
+
+  var totals = rows.reduce(function(t,r){
+    t.rev += Number(r.revenue || 0);
+    t.margin += Number(r.est_margin || 0);
+    t.commission += Number(r.commission || 0);
+    t.customers += Number(r.customer_count || 0);
+    return t;
+  }, {rev:0, margin:0, commission:0, customers:0});
+
+  if (active) return React.createElement(RepBookView, {repCode: active, repName: (rules[active] && rules[active].rep_code) || active, start: f.start, end: f.end, onBack: function(){ setActive(null) }});
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Sales Reps ',
+      React.createElement('span', {className:'bg bg-l'}, 'PERFORMANCE')
+    ),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'TOTAL REVENUE', value: fm(totals.rev), sub: rows.length + ' active reps'}),
+      React.createElement(C, {title:'TOTAL EST MARGIN', value: fm(totals.margin), sub: totals.rev > 0 ? fp(totals.margin/totals.rev) : '—'}),
+      React.createElement(C, {title:'CUSTOMERS COVERED', value: totals.customers, sub:'unique customer-rep links'}),
+      React.createElement(C, {title:'EARNED COMMISSION', value: fm(totals.commission), accent:'var(--ac)', sub:'rate × revenue + rate × margin'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Period'),
+      React.createElement('input', {type:'date', value:f.start, onChange:function(e){ setF(Object.assign({}, f, {start:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value:f.end, onChange:function(e){ setF(Object.assign({}, f, {end:e.target.value})) }, style:inp()}),
+      React.createElement('span', {style:{marginLeft:'auto', display:'flex', gap:6}},
+        React.createElement('button', {onClick: function(){ pushReps(false) }, style: btnSecondary()}, 'PUSH REPS TO QBO (DRY)'),
+        React.createElement('button', {onClick: function(){ pushReps(true)  }, style: btnPrimary()}, 'PUSH REPS TO QBO (COMMIT)')
+      )
+    ),
+    msg ? React.createElement('div', {style:{padding:'8px 12px', marginBottom:10, fontSize:11, color:'var(--mt)', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4}}, msg) : null,
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No reps configured. Add reps in Settings → Sales Reps and assign customers to reps.') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Rep'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Customers'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Active 30d'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Inactive 60d'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Invoices'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Margin'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Margin %'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'AOV'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Rate Rev'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Rate GP'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Commission'),
+            React.createElement('th', null, '')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            var rule = rules[r.rep_code] || {};
+            var rRev = rule.rate_revenue != null ? rule.rate_revenue : r.rate_revenue;
+            var rGP  = rule.rate_margin  != null ? rule.rate_margin  : r.rate_margin;
+            return React.createElement('tr', {key:r.rep_code},
+              React.createElement('td', {style:{fontWeight:600}},
+                React.createElement('a', {href:'#', onClick: function(e){ e.preventDefault(); setActive(r.rep_code) }, style:{color:'var(--ac)', textDecoration:'none'}}, r.rep_name)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.customer_count),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--gn)'}}, r.active_30d),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: Number(r.inactive_60d) > 0 ? 'var(--am)' : 'var(--mt)'}}, r.inactive_60d),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.est_margin)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.margin_pct == null ? 'var(--mt)' : (Number(r.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)')}}, r.margin_pct != null ? fp(r.margin_pct) : '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.avg_order_value != null ? fm(r.avg_order_value) : '—'),
+              React.createElement('td', {style:{textAlign:'right'}},
+                React.createElement('input', {type:'number', step:0.001, defaultValue: Number(rRev) || 0,
+                  onBlur: function(e){ var v = Number(e.target.value); if (v !== Number(rRev)) saveRule(r.rep_code, {rate_revenue: v}) },
+                  style: Object.assign({}, inp(), {width:62, fontSize:10, textAlign:'right'})})),
+              React.createElement('td', {style:{textAlign:'right'}},
+                React.createElement('input', {type:'number', step:0.01, defaultValue: Number(rGP) || 0,
+                  onBlur: function(e){ var v = Number(e.target.value); if (v !== Number(rGP)) saveRule(r.rep_code, {rate_margin: v}) },
+                  style: Object.assign({}, inp(), {width:62, fontSize:10, textAlign:'right'})})),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--ac)'}}, fm(r.commission)),
+              React.createElement('td', {style:{textAlign:'right'}},
+                rule && rule.rep_code ? React.createElement('button', {onClick: function(){ deleteRule(r.rep_code) }, style: btnDanger()}, '×') : null)
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
+function RepBookView(props) {
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+  React.useEffect(function() {
+    sbrpc('fn_rep_book', {p_rep_code: props.repCode, p_start: props.start, p_end: props.end})
+      .then(function(rs){ setRows(rs || []) });
+  }, [props.repCode, props.start, props.end]);
+
+  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading book…');
+  var totalRev = rows.reduce(function(s,r){ return s + Number(r.revenue || 0) }, 0);
+  var totalMargin = rows.reduce(function(s,r){ return s + Number(r.est_margin || 0) }, 0);
+  var inactiveCount = rows.filter(function(r){ return Number(r.recency_days || 0) > 60 || r.recency_days == null }).length;
+
+  return React.createElement('div', null,
+    React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10, marginBottom:14}},
+      React.createElement('button', {onClick: props.onBack, style: btnSecondary()}, '← Reps'),
+      React.createElement('div', {className:'pt', style:{margin:0}}, props.repCode + ' Book ',
+        React.createElement('span', {className:'bg bg-l', style:{marginLeft:6}}, rows.length + ' CUSTOMERS')
+      )
+    ),
+    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
+      React.createElement(C, {title:'BOOK REVENUE', value: fm(totalRev)}),
+      React.createElement(C, {title:'BOOK MARGIN', value: fm(totalMargin), sub: totalRev > 0 ? fp(totalMargin/totalRev) : '—'}),
+      React.createElement(C, {title:'INACTIVE', value: inactiveCount, accent: inactiveCount > 0 ? 'var(--am)' : 'var(--gn)', sub:'>60 days no order'}),
+      React.createElement(C, {title:'AVG REV / CUSTOMER', value: rows.length > 0 ? fm(totalRev / rows.length) : '—'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No customers assigned to this rep.') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', null, 'Channel'),
+            React.createElement('th', null, 'Segment'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Invoices'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Margin'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Margin %'),
+            React.createElement('th', null, 'Last Order'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Days Ago')
+          )),
+          React.createElement('tbody', null, rows.map(function(r) {
+            var stale = Number(r.recency_days || 0) > 60;
+            return React.createElement('tr', {key:r.qbo_customer_id},
+              React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
+              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
+              React.createElement('td', null, segmentChip(r.rfm_segment)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.est_margin)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.margin_pct == null ? 'var(--mt)' : (Number(r.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)')}}, r.margin_pct != null ? fp(r.margin_pct) : '—'),
+              React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.last_invoice || '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color: stale ? 'var(--am)' : 'var(--mt)', fontWeight: stale ? 600 : 400}}, r.recency_days != null ? r.recency_days : '—')
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
 function App() {
   var sessState = React.useState(undefined);
   var session = sessState[0], setSession = sessState[1];
@@ -5318,6 +5527,7 @@ function MainApp(props) {
               : view === 'customers' ? React.createElement(CustomersPage)
               : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'plans'     ? React.createElement(PlansPage)
+              : view === 'reps'      ? React.createElement(RepsPage)
               : view === 'compare'   ? React.createElement(ComparePage)
               : view === 'inventory' ? React.createElement(InventoryPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
@@ -5331,7 +5541,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('compare', 'COMPARE'), tab('inventory', 'INVENTORY'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('reps', 'REPS'), tab('compare', 'COMPARE'), tab('inventory', 'INVENTORY'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
