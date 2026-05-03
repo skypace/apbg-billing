@@ -1874,6 +1874,7 @@ var SETTINGS_TABS = [
   {id:'reps',       label:'Sales Reps'},
   {id:'categories', label:'Category → Segment'},
   {id:'products',   label:'Products'},
+  {id:'item_sets',  label:'Item Sets'},
   {id:'buckets',    label:'Expense Buckets'},
   {id:'users',      label:'Users'},
   {id:'sync',       label:'Connections / Sync'}
@@ -1906,6 +1907,7 @@ function SettingsPage() {
     : tab === 'categories' ? React.createElement(CategoryMapEditor)
     : tab === 'reps'       ? React.createElement(SalesRepsEditor)
     : tab === 'products'   ? React.createElement(ProductsEditor)
+    : tab === 'item_sets'  ? React.createElement(ItemSetsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
     : tab === 'users'      ? React.createElement(UsersEditor)
     : tab === 'sync'       ? React.createElement(SyncPanel)
@@ -2367,6 +2369,129 @@ function BucketsEditor() {
   );
 }
 
+// ----- Item Sets editor (powers Voids / Cross-sell report) -----
+function ItemSetsEditor() {
+  var setsState = React.useState(null);
+  var sets = setsState[0], setSets = setsState[1];
+  var activeState = React.useState(null);
+  var active = activeState[0], setActive = activeState[1];
+  var membersState = React.useState([]);
+  var members = membersState[0], setMembers = membersState[1];
+  var itemsState = React.useState([]);
+  var itemOpts = itemsState[0], setItemOpts = itemsState[1];
+
+  function loadSets() {
+    sbq('item_sets', 'select=*&order=sort_order,label').then(function(rs){ setSets(rs || []) });
+  }
+  function loadMembers(code) {
+    if (!code) { setMembers([]); return; }
+    sbq('item_set_items', 'select=*&set_code=eq.' + encodeURIComponent(code) + '&order=sort_order,item_name')
+      .then(function(rs){ setMembers(rs || []) });
+  }
+  React.useEffect(loadSets, []);
+  React.useEffect(function(){ loadMembers(active) }, [active]);
+  React.useEffect(function() {
+    sbq('qbo_items', 'select=qbo_item_id,name,fully_qualified_name&active=eq.true&order=name&limit=2000')
+      .then(function(rs){ setItemOpts(rs || []) });
+  }, []);
+
+  function createSet() {
+    var code = prompt('Set code (lowercase, no spaces, e.g. "fountain_core"):');
+    if (!code) return;
+    var label = prompt('Display name:', code) || code;
+    sbInsert('item_sets', {set_code: code.trim(), label: label.trim(), is_active: true})
+      .then(function(){ loadSets(); setActive(code.trim()) });
+  }
+  function deleteSet(code) {
+    if (!confirm('Delete set "' + code + '"? Members will be removed too.')) return;
+    sbDelete('item_sets', 'set_code=eq.' + encodeURIComponent(code)).then(function(){
+      if (active === code) setActive(null);
+      loadSets();
+    });
+  }
+  function addMember(it) {
+    if (!active) return;
+    sbInsert('item_set_items', {
+      set_code: active,
+      qbo_item_id: it.qbo_item_id,
+      item_name: it.fully_qualified_name || it.name
+    }).then(function(){ loadMembers(active) });
+  }
+  function removeMember(qbo_item_id) {
+    if (!active) return;
+    sbDelete('item_set_items', 'set_code=eq.' + encodeURIComponent(active) + '&qbo_item_id=eq.' + encodeURIComponent(qbo_item_id))
+      .then(function(){ loadMembers(active) });
+  }
+
+  if (!sets) return React.createElement('div', {className:'ld'}, 'Loading…');
+
+  var availableItems = itemOpts.filter(function(it){
+    return !members.some(function(m){ return m.qbo_item_id === it.qbo_item_id });
+  });
+
+  return React.createElement('div', {style:{display:'grid', gridTemplateColumns:'320px 1fr', gap:10}},
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
+        React.createElement('div', {className:'ct', style:{margin:0}}, 'SETS — ' + sets.length),
+        React.createElement('button', {onClick: createSet, style: btnPrimary()}, '+ NEW SET')
+      ),
+      sets.length === 0
+        ? React.createElement('div', {className:'ld'}, 'Define sets like "Fountain Core" or "Cans Lineup".')
+        : sets.map(function(s) {
+            var on = active === s.set_code;
+            return React.createElement('div', {key:s.set_code,
+              onClick: function(){ setActive(s.set_code) },
+              style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', cursor:'pointer',
+                background: on ? 'var(--sf2)' : 'transparent', borderLeft: on ? '3px solid var(--ac)' : '3px solid transparent'}
+            },
+              React.createElement('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'center'}},
+                React.createElement('div', null,
+                  React.createElement('div', {style:{fontWeight:600}}, s.label),
+                  React.createElement('div', {style:{fontSize:10, color:'var(--mt)', fontFamily:'monospace'}}, s.set_code)),
+                React.createElement('button', {onClick: function(e){ e.stopPropagation(); deleteSet(s.set_code) }, style: btnDanger()}, '×')
+              )
+            );
+          })
+    ),
+    !active ? React.createElement('div', {className:'cd', style:{padding:'14px'}}, 'Pick or create a set.')
+    : React.createElement('div', {className:'cd', style:{padding:0}},
+        React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+          React.createElement('div', {className:'ct', style:{margin:0}}, 'MEMBERS OF "' + active + '" — ' + members.length)
+        ),
+        React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+          React.createElement('select', {style: Object.assign({}, inp(), {width:'100%', maxWidth:600}),
+            onChange: function(e) {
+              var it = itemOpts.find(function(x){ return x.qbo_item_id === e.target.value });
+              if (it) { addMember(it); e.target.value = ''; }
+            },
+            defaultValue: ''
+          },
+            React.createElement('option', {value:''}, '+ add an item to this set'),
+            availableItems.map(function(it) {
+              return React.createElement('option', {key: it.qbo_item_id, value: it.qbo_item_id},
+                it.fully_qualified_name || it.name);
+            })
+          )
+        ),
+        members.length === 0
+          ? React.createElement('div', {className:'ld'}, 'No members yet.')
+          : React.createElement('table', null,
+              React.createElement('thead', null, React.createElement('tr', null,
+                React.createElement('th', null, 'Item'),
+                React.createElement('th', null, '')
+              )),
+              React.createElement('tbody', null, members.map(function(m) {
+                return React.createElement('tr', {key: m.qbo_item_id},
+                  React.createElement('td', null, m.item_name || m.qbo_item_id),
+                  React.createElement('td', {style:{textAlign:'right'}},
+                    React.createElement('button', {onClick: function(){ removeMember(m.qbo_item_id) }, style: btnDanger()}, '×'))
+                );
+              }))
+            )
+      )
+  );
+}
+
 // ----- Users / Auth admin -----
 function UsersEditor() {
   var rState = React.useState(null);
@@ -2704,7 +2829,8 @@ function LoginScreen(props) {
 
 var REPORT_TABS = [
   {id:'inactive', label:'Lost / Inactive Customers'},
-  {id:'movers',   label:'Top Movers'}
+  {id:'movers',   label:'Top Movers'},
+  {id:'voids',    label:'Product Voids / Cross-Sell'}
 ];
 
 function ReportsPage() {
@@ -2731,6 +2857,7 @@ function ReportsPage() {
     ),
     tab === 'inactive' ? React.createElement(InactiveCustomersReport)
     : tab === 'movers' ? React.createElement(TopMoversReport)
+    : tab === 'voids'  ? React.createElement(VoidsReport)
     : null
   );
 }
@@ -2890,6 +3017,145 @@ function TopMoversReport() {
     React.createElement('div', {className:'gr g2'},
       MoverColumn({title:'TOP GAINERS', items: gainers, color:'var(--gn)'}),
       MoverColumn({title:'TOP DECLINERS', items: losers, color:'var(--rd)'})
+    )
+  );
+}
+
+function VoidsReport() {
+  var today = new Date();
+  var ytdStart = today.getFullYear() + '-01-01';
+  var todayStr = today.toISOString().slice(0,10);
+
+  var setsState = React.useState([]);
+  var sets = setsState[0], setSets = setsState[1];
+  var setCodeState = React.useState('');
+  var setCode = setCodeState[0], setSetCode = setCodeState[1];
+  var fState = React.useState({start: ytdStart, end: todayStr, min_set_revenue: 0, require_some: true});
+  var f = fState[0], setF = fState[1];
+  var rowsState = React.useState(null);
+  var rows = rowsState[0], setRows = rowsState[1];
+  var loadingState = React.useState(false);
+  var loading = loadingState[0], setLoading = loadingState[1];
+
+  React.useEffect(function() {
+    sbq('item_sets', 'select=set_code,label,sort_order&is_active=eq.true&order=sort_order,label')
+      .then(function(rs){
+        setSets(rs || []);
+        if ((rs || []).length && !setCode) setSetCode(rs[0].set_code);
+      });
+  }, []);
+
+  React.useEffect(function() {
+    if (!setCode) { setRows(null); return; }
+    setLoading(true);
+    sbrpc('fn_product_voids', {
+      p_set_code: setCode, p_start: f.start, p_end: f.end,
+      p_min_set_revenue: Number(f.min_set_revenue) || 0,
+      p_require_some: f.require_some
+    }).then(function(rs){ setRows(rs || []); setLoading(false) });
+  }, [setCode, f.start, f.end, f.min_set_revenue, f.require_some]);
+
+  if (!sets.length) {
+    return React.createElement('div', {className:'cd', style:{padding:'20px'}},
+      React.createElement('div', {className:'ct'}, 'NO ITEM SETS DEFINED'),
+      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:6}},
+        'Set up product sets first in Settings → Item Sets. Each set is a list of items you expect customers to buy together (e.g. "Fountain Core" = Hangar 25 Cola + Diet Cola + Cable Car LL + Oaktown RB).'
+      )
+    );
+  }
+  if (!rows) return React.createElement('div', {className:'ld'}, loading ? 'Loading…' : 'Pick a set.');
+
+  // Pivot rows (customer × item) into customer-rows × item-cols matrix
+  var byCustomer = {};
+  var itemCols = [];
+  var seenItem = {};
+  rows.forEach(function(r) {
+    if (!seenItem[r.qbo_item_id]) {
+      itemCols.push({id: r.qbo_item_id, name: r.item_name});
+      seenItem[r.qbo_item_id] = true;
+    }
+    if (!byCustomer[r.qbo_customer_id]) {
+      byCustomer[r.qbo_customer_id] = {
+        id: r.qbo_customer_id, name: r.customer_name,
+        channel: r.primary_channel, rep: r.primary_sales_rep,
+        set_revenue: Number(r.customer_set_revenue || 0),
+        items_bought: r.customer_set_items_count,
+        set_total: r.set_total_items,
+        cells: {}
+      };
+    }
+    byCustomer[r.qbo_customer_id].cells[r.qbo_item_id] = {revenue: Number(r.revenue || 0), has: r.has_item};
+  });
+  var customers = Object.values(byCustomer).sort(function(a, b){ return b.set_revenue - a.set_revenue });
+
+  var totalCovered = customers.length === 0 ? 0 :
+    customers.reduce(function(s, c){ return s + c.items_bought }, 0) /
+    customers.reduce(function(s, c){ return s + c.set_total }, 0);
+  var totalGapDollars = customers.reduce(function(s, c) {
+    if (c.items_bought === 0 || c.set_total === 0) return s;
+    var avgPerItem = c.set_revenue / c.items_bought;
+    var missing = c.set_total - c.items_bought;
+    return s + (avgPerItem * missing);
+  }, 0);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
+      React.createElement(C, {title:'CUSTOMERS', value: customers.length, sub:'buying ≥1 item in this set'}),
+      React.createElement(C, {title:'AVG COVERAGE', value: (totalCovered * 100).toFixed(0) + '%', accent: totalCovered > 0.7 ? 'var(--gn)' : 'var(--am)', sub:'items bought / items in set'}),
+      React.createElement(C, {title:'EST. CROSS-SELL OPP.', value: fm(totalGapDollars), accent:'var(--am)', sub:'avg per-item rev × missing items'}),
+      React.createElement(C, {title:'ITEMS IN SET', value: itemCols.length})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Set'),
+      React.createElement('select', {value: setCode, onChange: function(e){ setSetCode(e.target.value) }, style: inp()},
+        sets.map(function(s){ return React.createElement('option', {key:s.set_code, value:s.set_code}, s.label) })),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'From'),
+      React.createElement('input', {type:'date', value: f.start, onChange: function(e){ setF(Object.assign({}, f, {start: e.target.value})) }, style: inp()}),
+      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
+      React.createElement('input', {type:'date', value: f.end, onChange: function(e){ setF(Object.assign({}, f, {end: e.target.value})) }, style: inp()}),
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:8}}, 'Min set $'),
+      React.createElement('input', {type:'number', value: f.min_set_revenue, onChange: function(e){ setF(Object.assign({}, f, {min_set_revenue: e.target.value})) }, style: Object.assign({}, inp(), {width:80})}),
+      React.createElement('label', {style:{display:'inline-flex', alignItems:'center', gap:5, marginLeft:8, cursor:'pointer'}},
+        React.createElement('input', {type:'checkbox', checked: f.require_some, onChange: function(e){ setF(Object.assign({}, f, {require_some: e.target.checked})) }}),
+        React.createElement('span', null, 'only customers with gaps'))
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      loading ? React.createElement('div', {className:'ld'}, 'Loading…') :
+      customers.length === 0 ? React.createElement('div', {className:'ld'}, 'No customers match — either no one bought any item in this set, or everyone has full coverage.') :
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', null, 'Customer'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Set Rev'),
+            React.createElement('th', {style:{textAlign:'center'}}, 'Cov'),
+            itemCols.map(function(it) {
+              return React.createElement('th', {key: it.id, style:{textAlign:'center', fontSize:9, maxWidth:80, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}, title: it.name},
+                it.name && it.name.length > 14 ? it.name.substring(0,14) + '…' : it.name);
+            }),
+            React.createElement('th', null, 'Channel'),
+            React.createElement('th', null, 'Rep')
+          )),
+          React.createElement('tbody', null, customers.map(function(c) {
+            var coverage = c.set_total > 0 ? c.items_bought / c.set_total : 0;
+            return React.createElement('tr', {key: c.id},
+              React.createElement('td', {style:{maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:600}}, c.name),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(c.set_revenue)),
+              React.createElement('td', {className:'mn', style:{textAlign:'center', color: coverage === 1 ? 'var(--gn)' : (coverage > 0.5 ? 'var(--am)' : 'var(--rd)')}},
+                c.items_bought + '/' + c.set_total),
+              itemCols.map(function(it) {
+                var cell = c.cells[it.id];
+                if (cell && cell.has) {
+                  return React.createElement('td', {key: it.id, className:'mn', style:{textAlign:'center', background:'rgba(52,211,153,0.08)', color:'var(--gn)', fontSize:10}},
+                    fm(cell.revenue));
+                }
+                return React.createElement('td', {key: it.id, style:{textAlign:'center', background:'rgba(248,113,113,0.06)', color:'var(--rd)', fontSize:11}}, '×');
+              }),
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.channel || '—'),
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.rep || '— no rep —')
+            );
+          }))
+        )
+      )
     )
   );
 }
