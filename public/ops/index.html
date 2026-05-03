@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/billing/auth.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0a0e17;--sf:#111827;--sf2:#1a2235;--bd:#1e2d4a;--ac:#22d3ee;--ac2:#818cf8;--gn:#34d399;--rd:#f87171;--am:#fbbf24;--tx:#e2e8f0;--mt:#64748b}
@@ -364,7 +366,9 @@ function App() {
   )
 }
 
-ReactDOM.render(React.createElement(App), document.getElementById('root'));
+APBG.auth.requireSuperadmin().then(function() {
+  ReactDOM.render(React.createElement(App), document.getElementById('root'));
+});
 </script>
 </body>
 </html>

@@ -4,6 +4,8 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/sync.html'+location.search);</script>
 <title>APBG — ResQ ↔ SF Sync</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/billing/auth.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#F4F6F9;color:#1F2937;min-height:100vh}
@@ -160,13 +162,11 @@ tr:hover td{background:#F9FAFB}
 </head>
 <body>
 
-<!-- Login Gate -->
-<div class="gate" id="gateScreen">
-  <div class="gate-card">
-    <h1>🔄 ResQ ↔ SF Sync</h1>
-    <p>Enter admin code to access the sync dashboard</p>
-    <input type="password" id="gateInput" placeholder="Admin code" autocomplete="off">
-    <div class="err" id="gateErr">Invalid code</div>
+<!-- Loading state while auth check runs -->
+<div id="authLoading" style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'DM Sans',system-ui,sans-serif;color:#6B7280">
+  <div style="text-align:center">
+    <div class="spinner" style="display:inline-block;width:32px;height:32px;border:3px solid #E2E6ED;border-top-color:#1F4E79;border-radius:50%;animation:spin 0.6s linear infinite;margin-bottom:12px"></div>
+    <div>Checking access…</div>
   </div>
 </div>
 
@@ -283,21 +283,14 @@ tr:hover td{background:#F9FAFB}
 </div>
 
 <script>
-const GATE_CODE = 'pacer2026';
 const API_BASE = '/billing/.netlify/functions';
+const fetch = (...args) => APBG.auth.authedFetch(...args);
 
-// --- Gate ---
-const gateInput = document.getElementById('gateInput');
-gateInput.addEventListener('keyup', (e) => {
-  if (gateInput.value === GATE_CODE) {
-    document.getElementById('gateScreen').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    loadStatus();
-  } else if (gateInput.value.length >= GATE_CODE.length) {
-    document.getElementById('gateErr').style.display = 'block';
-    setTimeout(() => { document.getElementById('gateErr').style.display = 'none'; }, 2000);
-    gateInput.value = '';
-  }
+// --- Auth gate ---
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  loadStatus();
 });
 
 // --- Load Status ---

@@ -4,6 +4,8 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/control'+location.search);</script>
 <title>Master Control — APBG Systems</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/billing/auth.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#0F172A;color:#E2E8F0;min-height:100vh}
@@ -84,15 +86,8 @@ header .links a:hover{color:#fff}
 </head>
 <body>
 
-<!-- PIN Gate -->
-<div id="gate" class="gate">
-<div class="gate-card">
-  <h1>Master Control</h1>
-  <p>Enter PIN to access the system dashboard</p>
-  <input type="password" id="pin" placeholder="PIN" maxlength="8" autofocus>
-  <div class="err" id="pinErr">Invalid PIN</div>
-</div>
-</div>
+<!-- Loading state while auth check runs -->
+<div id="authLoading" class="gate"><div class="gate-card"><h1>Master Control</h1><p>Checking access…</p></div></div>
 
 <!-- Dashboard -->
 <div id="app" style="display:none">
@@ -192,18 +187,13 @@ function renderLog() {
   el.innerHTML = logLines.map(l => `<span class="${l.cls}">[${l.ts}] ${l.msg}</span>`).join('\n');
 }
 
-// ═══ PIN GATE ═══
-document.getElementById('pin').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    if (this.value === '2026' || this.value === 'brix2026') {
-      document.getElementById('gate').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      refreshAll();
-      setInterval(refreshAll, 60000); // auto-refresh every 60s
-    } else {
-      document.getElementById('pinErr').style.display = 'block';
-    }
-  }
+// ═══ AUTH GATE ═══
+const fetch = (...args) => APBG.auth.authedFetch(...args);
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  refreshAll();
+  setInterval(refreshAll, 60000); // auto-refresh every 60s
 });
 
 // ═══ HEALTH FETCHER ═══
