@@ -142,6 +142,169 @@ function Sparkline(props) {
   );
 }
 
+// =========================================================================
+// CHART VIEWS — raw SVG, no external deps
+// =========================================================================
+
+var CHART_PALETTE = ['#22d3ee','#818cf8','#34d399','#fbbf24','#f87171','#a78bfa','#fb923c','#22c55e','#ec4899','#06b6d4','#84cc16','#f472b6'];
+
+function ChartView(props) {
+  if (props.mode === 'bar')  return React.createElement(BarChart,  props);
+  if (props.mode === 'pie')  return React.createElement(PieChart,  props);
+  if (props.mode === 'line') return React.createElement(LineChart, props);
+  return null;
+}
+
+function BarChart(props) {
+  var top = (props.rows || []).slice(0, 25);
+  if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
+  var showCompare = props.showCompare;
+  var labels = top.map(function(r){ return r.dim_label });
+  var maxVal = Math.max.apply(null, top.flatMap(function(r){
+    return [Math.abs(Number(r.revenue || 0)), showCompare ? Math.abs(Number(r.prev_revenue || 0)) : 0];
+  }).concat([1]));
+  var rowH = showCompare ? 28 : 22;
+  var labelW = 280;
+  var w = 1000, h = top.length * rowH + 30;
+  var barAreaW = w - labelW - 100;
+  return React.createElement('div', {style:{padding:'12px 14px', maxHeight:'70vh', overflow:'auto'}},
+    React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+      top.map(function(r, idx) {
+        var y = idx * rowH + 6;
+        var rev = Number(r.revenue || 0);
+        var prev = Number(r.prev_revenue || 0);
+        var revW = Math.abs(rev) / maxVal * barAreaW;
+        var prevW = Math.abs(prev) / maxVal * barAreaW;
+        return React.createElement('g', {key: r.dim_label},
+          React.createElement('text', {x: labelW - 8, y: y + (showCompare ? 14 : 13), fill:'var(--tx)', fontSize: 11, textAnchor:'end'},
+            r.dim_label.length > 38 ? r.dim_label.substring(0, 38) + '…' : r.dim_label),
+          showCompare ? React.createElement('rect', {x: labelW, y: y, width: prevW, height: 9, fill:'var(--mt)', opacity: 0.6}) : null,
+          React.createElement('rect', {x: labelW, y: showCompare ? y + 11 : y + 4, width: revW, height: 12, fill: 'var(--ac)'}),
+          React.createElement('text', {x: labelW + Math.max(revW, prevW) + 6, y: y + (showCompare ? 17 : 14), fill:'var(--tx)', fontSize: 11},
+            fm(rev) + (showCompare && prev ? '  (was ' + fm(prev) + ')' : ''))
+        );
+      })
+    )
+  );
+}
+
+function PieChart(props) {
+  var top = (props.rows || []).slice(0, 12);
+  if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
+  var rest = (props.rows || []).slice(12);
+  var slices = top.slice();
+  if (rest.length) {
+    var otherRev = rest.reduce(function(s, r){ return s + Number(r.revenue || 0) }, 0);
+    if (otherRev > 0) slices.push({dim_label: '+ ' + rest.length + ' more', revenue: otherRev});
+  }
+  var total = slices.reduce(function(s, r){ return s + Math.abs(Number(r.revenue || 0)) }, 0);
+  if (total === 0) return React.createElement('div', {className:'ld'}, 'All zero — nothing to chart.');
+  var cx = 220, cy = 220, r = 180;
+  var startAngle = -Math.PI / 2;
+  var paths = slices.map(function(row, idx) {
+    var v = Math.abs(Number(row.revenue || 0));
+    var pct = v / total;
+    var endAngle = startAngle + pct * Math.PI * 2;
+    var large = pct > 0.5 ? 1 : 0;
+    var x1 = cx + Math.cos(startAngle) * r;
+    var y1 = cy + Math.sin(startAngle) * r;
+    var x2 = cx + Math.cos(endAngle) * r;
+    var y2 = cy + Math.sin(endAngle) * r;
+    var d = ['M', cx, cy, 'L', x1, y1, 'A', r, r, 0, large, 1, x2, y2, 'Z'].join(' ');
+    var midAngle = (startAngle + endAngle) / 2;
+    var labelX = cx + Math.cos(midAngle) * (r * 0.65);
+    var labelY = cy + Math.sin(midAngle) * (r * 0.65);
+    var color = CHART_PALETTE[idx % CHART_PALETTE.length];
+    var elem = {d: d, color: color, label: row.dim_label, value: v, pct: pct, labelX: labelX, labelY: labelY};
+    startAngle = endAngle;
+    return elem;
+  });
+
+  return React.createElement('div', {style:{padding:'12px 14px', display:'flex', gap:24, flexWrap:'wrap'}},
+    React.createElement('svg', {width: 460, height: 460, viewBox:'0 0 460 460'},
+      paths.map(function(p, i) {
+        return React.createElement('g', {key: i},
+          React.createElement('path', {d: p.d, fill: p.color, stroke:'var(--bg)', strokeWidth: 2, opacity: 0.92}),
+          p.pct >= 0.05 ? React.createElement('text', {x: p.labelX, y: p.labelY, fill:'var(--bg)', fontSize: 11, fontWeight: 700, textAnchor:'middle'},
+            (p.pct * 100).toFixed(0) + '%') : null
+        );
+      })
+    ),
+    React.createElement('div', {style:{flex:'1 1 280px', minWidth: 240}},
+      React.createElement('div', {className:'ct', style:{marginBottom: 8}}, 'LEGEND'),
+      paths.map(function(p, i) {
+        return React.createElement('div', {key: i, style:{display:'flex', alignItems:'center', gap: 8, padding:'4px 0', fontSize: 12, borderBottom:'1px solid var(--bd)'}},
+          React.createElement('span', {style:{display:'inline-block', width: 12, height: 12, background: p.color, borderRadius: 2}}),
+          React.createElement('span', {style:{flex: 1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, p.label),
+          React.createElement('span', {className:'mn', style:{color:'var(--mt)'}}, fm(p.value)),
+          React.createElement('span', {className:'mn', style:{minWidth: 50, textAlign:'right'}}, (p.pct * 100).toFixed(1) + '%')
+        );
+      })
+    )
+  );
+}
+
+function LineChart(props) {
+  var top = (props.rows || []).slice(0, 8);
+  if (!top.length) return React.createElement('div', {className:'ld'}, 'No data to chart.');
+  var sparks = props.sparks || {};
+  var endDate = new Date(props.end + 'T00:00:00');
+  var months = [];
+  for (var i = 11; i >= 0; i--) {
+    var d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  var series = top.map(function(r) {
+    var data = sparks[r.dim_label] || {};
+    return { label: r.dim_label, values: months.map(function(ym){ return Number(data[ym] || 0) }) };
+  });
+  var maxY = Math.max.apply(null, series.flatMap(function(s){ return s.values }).concat([1]));
+  var w = 980, h = 360;
+  var padL = 70, padR = 20, padT = 16, padB = 50;
+  var chartW = w - padL - padR;
+  var chartH = h - padT - padB;
+  function x(i) { return padL + (i / (months.length - 1)) * chartW }
+  function y(v) { return padT + chartH - (v / maxY) * chartH }
+
+  return React.createElement('div', {style:{padding:'12px 14px'}},
+    React.createElement('svg', {width: w, height: h, viewBox: '0 0 ' + w + ' ' + h, style:{display:'block'}},
+      // y-axis grid (4 lines)
+      [0, 0.25, 0.5, 0.75, 1].map(function(frac, i) {
+        var v = maxY * (1 - frac);
+        var yy = padT + frac * chartH;
+        return React.createElement('g', {key: i},
+          React.createElement('line', {x1: padL, y1: yy, x2: w - padR, y2: yy, stroke:'var(--bd)', strokeWidth: 1, opacity: 0.5}),
+          React.createElement('text', {x: padL - 6, y: yy + 4, fontSize: 10, fill:'var(--mt)', textAnchor:'end'}, fm(v))
+        );
+      }),
+      // x-axis labels
+      months.map(function(m, i) {
+        return React.createElement('text', {key: i, x: x(i), y: h - padB + 16, fontSize: 9, fill:'var(--mt)', textAnchor:'middle'}, m.slice(2));
+      }),
+      // series lines
+      series.map(function(s, sidx) {
+        var color = CHART_PALETTE[sidx % CHART_PALETTE.length];
+        var path = s.values.map(function(v, i){ return (i === 0 ? 'M' : 'L') + x(i) + ' ' + y(v) }).join(' ');
+        return React.createElement('g', {key: sidx},
+          React.createElement('path', {d: path, fill:'none', stroke: color, strokeWidth: 2}),
+          s.values.map(function(v, i) {
+            return React.createElement('circle', {key: i, cx: x(i), cy: y(v), r: 3, fill: color});
+          })
+        );
+      })
+    ),
+    React.createElement('div', {style:{display:'flex', flexWrap:'wrap', gap: 12, marginTop: 8, fontSize: 11}},
+      series.map(function(s, idx) {
+        var color = CHART_PALETTE[idx % CHART_PALETTE.length];
+        return React.createElement('div', {key: idx, style:{display:'flex', alignItems:'center', gap: 6}},
+          React.createElement('span', {style:{display:'inline-block', width: 14, height: 3, background: color}}),
+          React.createElement('span', null, s.label.length > 32 ? s.label.substring(0, 32) + '…' : s.label)
+        );
+      })
+    )
+  );
+}
+
 function grandTotalRow(rows, totRev, showOH, showCompare, allocBuckets, allocFor) {
   var t = {line_count:0, qty:0, revenue:0, est_cost:0, est_margin:0, prev_revenue:0, delta_revenue:0};
   var hasCost = false, hasPrev = false;
@@ -547,6 +710,20 @@ function MarginPage() {
         React.createElement('option', {value:'prior_year'}, 'Prior Year')
       ),
       compare !== 'none' && prev[0] ? React.createElement('span', {style:{color:'var(--mt)', fontSize:10, marginLeft:4}}, 'vs ' + prev[0] + '–' + prev[1]) : null,
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'View'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        [{id:'table',label:'Table'},{id:'bar',label:'Bar'},{id:'pie',label:'Pie'},{id:'line',label:'Line'}].map(function(v) {
+          var on = viewMode === v.id;
+          return React.createElement('button', {key:v.id, onClick:function(){ setViewMode(v.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, v.label);
+        })
+      ),
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1, marginLeft:10}}, 'Views'),
       React.createElement('select', {
         value:'', onChange: function(e) {
@@ -591,6 +768,9 @@ function MarginPage() {
 
   var headerLabel = (DIMS.find(function(x){return x.id===dim}) || {label:'Item'}).label;
   var showCompare = compare !== 'none';
+
+  var viewModeState = React.useState('table');
+  var viewMode = viewModeState[0], setViewMode = viewModeState[1];
 
   // Sort state (#10): clicking a column header toggles sort; default is revenue desc.
   var sortStateH = React.useState({col:'revenue', dir:'desc'});
@@ -695,6 +875,19 @@ function MarginPage() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
+  var chartHeader = React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap'}},
+    React.createElement('div', {className:'ct', style:{margin:0}}, viewMode.toUpperCase() + ' — TOP ' + (viewMode === 'pie' ? 12 : viewMode === 'line' ? 8 : 25) + ' BY ' + headerLabel.toUpperCase()),
+    React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}},
+      viewMode === 'bar'  ? (showCompare ? 'paired bars: top = prior, bottom = current' : 'bars sized by revenue') :
+      viewMode === 'pie'  ? '% of total revenue' :
+      viewMode === 'line' ? 'trailing-12-month revenue per row' : '')
+  );
+
+  var chartView = React.createElement('div', {className:'cd', style:{padding:0}},
+    chartHeader,
+    React.createElement(ChartView, {mode: viewMode, rows: sortedRows, sparks: sparks, showCompare: showCompare, end: f.end})
+  );
 
   var table = React.createElement('div', {className:'cd', style:{padding:0}},
     React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap'}},
@@ -817,7 +1010,7 @@ function MarginPage() {
     ),
     filterBar,
     kpis,
-    table,
+    viewMode === 'table' ? table : chartView,
     drillState ? React.createElement(DrillModal, {state: drillState, onClose: function(){ setDrill(null) }}) : null
   );
 }
