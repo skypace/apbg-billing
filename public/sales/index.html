@@ -3451,6 +3451,351 @@ function MoverColumn(props) {
 }
 
 // =========================================================================
+// INVENTORY PAGE — analytics + reorder suggestions
+// =========================================================================
+
+var INV_TABS = [
+  {id:'reorder',  label:'Reorder Dashboard'},
+  {id:'velocity', label:'Item Velocity (All)'},
+  {id:'settings', label:'Item Settings'},
+  {id:'excludes', label:'Customer Exclusions'}
+];
+
+function InventoryPage() {
+  var tabState = React.useState('reorder');
+  var tab = tabState[0], setTab = tabState[1];
+  var lookbackState = React.useState(90);
+  var lookback = lookbackState[0], setLookback = lookbackState[1];
+  var rState = React.useState(null);
+  var rows = rState[0], setRows = rState[1];
+
+  function load() {
+    sbrpc('fn_inventory_health', {p_lookback_days: Number(lookback) || 90, p_managed_only: false})
+      .then(function(rs){ setRows(rs || []) });
+  }
+  React.useEffect(load, [lookback]);
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'pt'}, 'Inventory ',
+      React.createElement('span', {className:'bg bg-l'}, 'ANALYTICS')),
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
+      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Velocity Lookback'),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        [{v:30,l:'30d'},{v:60,l:'60d'},{v:90,l:'90d'},{v:180,l:'180d'},{v:365,l:'1y'}].map(function(o){
+          var on = lookback === o.v;
+          return React.createElement('button', {key:o.v, onClick:function(){ setLookback(o.v) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, o.l);
+        })
+      ),
+      React.createElement('div', {style:{marginLeft:'auto', display:'flex', gap:6}},
+        INV_TABS.map(function(t){
+          var on = tab === t.id;
+          return React.createElement('button', {key:t.id, onClick:function(){ setTab(t.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'5px 11px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 500, letterSpacing:.5
+            }
+          }, t.label.toUpperCase());
+        })
+      )
+    ),
+    !rows ? React.createElement('div', {className:'ld'}, 'Loading…') :
+    tab === 'reorder'  ? React.createElement(InventoryReorder, {rows: rows, lookback: lookback, onChange: load}) :
+    tab === 'velocity' ? React.createElement(InventoryVelocity, {rows: rows, lookback: lookback}) :
+    tab === 'settings' ? React.createElement(InventoryItemSettings, {rows: rows, onChange: load}) :
+    tab === 'excludes' ? React.createElement(InventoryExcludes, {onChange: load}) :
+    null
+  );
+}
+
+function statusCell(status) {
+  var color = status === 'critical' ? 'var(--rd)'
+            : status === 'reorder'  ? 'var(--am)'
+            : status === 'overstock'? '#a78bfa'
+            : status === 'idle'     ? 'var(--mt)'
+            : 'var(--gn)';
+  return React.createElement('span', {style:{
+    background: 'rgba(255,255,255,0.04)', color: color,
+    border: '1px solid ' + color, padding: '1px 7px',
+    borderRadius: 12, fontSize: 9, fontWeight: 700, textTransform:'uppercase', letterSpacing: .5
+  }}, status);
+}
+
+function fmtNum(v, digits) {
+  if (v == null) return '—';
+  return Number(v).toLocaleString(undefined, {maximumFractionDigits: digits == null ? 1 : digits});
+}
+
+function InventoryReorder(props) {
+  var rows = props.rows.filter(function(r){ return r.is_managed && (r.status === 'critical' || r.status === 'reorder') });
+  var totalSugg = rows.reduce(function(s, r){ return s + Number(r.suggested_order_qty || 0) * Number(r.static_purchase_cost || 0) }, 0);
+
+  if (props.rows.filter(function(r){ return r.is_managed }).length === 0) {
+    return React.createElement('div', {className:'cd', style:{padding:'18px'}},
+      React.createElement('div', {className:'ct', style:{margin:0, marginBottom:6}}, 'NO ITEMS UNDER INVENTORY MANAGEMENT'),
+      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6}},
+        'Open the Item Settings tab and turn on the items you actually carry stock for (BIB syrups, gas cylinders, etc.). Once enabled, this dashboard surfaces only those needing reorder.'
+      )
+    );
+  }
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'gr g4', style:{marginBottom:10}},
+      React.createElement(C, {title:'NEEDS REORDER', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
+      React.createElement(C, {title:'CRITICAL', value: rows.filter(function(r){return r.status==='critical'}).length, accent:'var(--rd)'}),
+      React.createElement(C, {title:'EST. ORDER VALUE', value: fm(totalSugg), sub:'qty × static cost'}),
+      React.createElement(C, {title:'LOOKBACK', value: props.lookback + ' days', sub:'velocity window'})
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      rows.length === 0
+        ? React.createElement('div', {className:'ld', style:{color:'var(--gn)'}}, '✓ Nothing needs reorder right now.')
+        : React.createElement('div', {style:{maxHeight:'58vh', overflow:'auto'}},
+            React.createElement('table', null,
+              React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+                React.createElement('th', null, 'Item'),
+                React.createElement('th', null, 'Status'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'On Hand'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Sold (' + props.lookback + 'd)'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Velocity / day'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Days Supply'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Reorder At'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Suggested Qty'),
+                React.createElement('th', {style:{textAlign:'right'}}, 'Cycle Days')
+              )),
+              React.createElement('tbody', null, rows.map(function(r) {
+                return React.createElement('tr', {key: r.qbo_item_id},
+                  React.createElement('td', {style:{maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
+                  React.createElement('td', null, statusCell(r.status)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.on_hand <= 0 ? 'var(--rd)' : null}}, fmtNum(r.on_hand)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.sold_qty)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.daily_velocity, 2)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.days_of_supply == null ? 'var(--mt)' : (r.days_of_supply < r.lead_time_days ? 'var(--rd)' : null)}}, fmtNum(r.days_of_supply)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fmtNum(r.reorder_point)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--ac)'}}, fmtNum(r.suggested_order_qty)),
+                  React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, r.suggested_order_cycle_days != null ? fmtNum(r.suggested_order_cycle_days, 0) : '—')
+                );
+              }))
+            )
+          )
+    )
+  );
+}
+
+function InventoryVelocity(props) {
+  var sortState = React.useState({col:'sold_revenue', dir:'desc'});
+  var sort = sortState[0], setSort = sortState[1];
+  function clickSort(col) {
+    setSort(function(p){ return p.col === col ? {col:col, dir: p.dir==='desc'?'asc':'desc'} : {col:col, dir:'desc'} });
+  }
+  function indicator(col) {
+    if (sort.col !== col) return null;
+    return React.createElement('span', {style:{marginLeft:3, color:'var(--ac)'}}, sort.dir === 'desc' ? '▼' : '▲');
+  }
+  var rows = props.rows.slice().sort(function(a, b) {
+    var av = a[sort.col], bv = b[sort.col];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sort.dir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
+  }).slice(0, 500);
+
+  return React.createElement('div', {className:'cd', style:{padding:0}},
+    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)'}},
+      React.createElement('div', {className:'ct', style:{margin:0}}, 'ALL ITEMS — ' + rows.length + ' shown')),
+    React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+      React.createElement('table', null,
+        React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+          React.createElement('th', {onClick:function(){clickSort('item_name')}, style:{cursor:'pointer'}}, 'Item', indicator('item_name')),
+          React.createElement('th', {style:{textAlign:'center'}}, 'Mgd'),
+          React.createElement('th', null, 'Status'),
+          React.createElement('th', {onClick:function(){clickSort('on_hand')}, style:{textAlign:'right', cursor:'pointer'}}, 'On Hand', indicator('on_hand')),
+          React.createElement('th', {onClick:function(){clickSort('sold_qty')}, style:{textAlign:'right', cursor:'pointer'}}, 'Sold', indicator('sold_qty')),
+          React.createElement('th', {onClick:function(){clickSort('sold_revenue')}, style:{textAlign:'right', cursor:'pointer'}}, 'Revenue', indicator('sold_revenue')),
+          React.createElement('th', {onClick:function(){clickSort('purchased_qty')}, style:{textAlign:'right', cursor:'pointer'}}, 'Purchased', indicator('purchased_qty')),
+          React.createElement('th', {onClick:function(){clickSort('daily_velocity')}, style:{textAlign:'right', cursor:'pointer'}}, '/ day', indicator('daily_velocity')),
+          React.createElement('th', {onClick:function(){clickSort('days_of_supply')}, style:{textAlign:'right', cursor:'pointer'}}, 'Days Sup', indicator('days_of_supply'))
+        )),
+        React.createElement('tbody', null, rows.map(function(r) {
+          return React.createElement('tr', {key: r.qbo_item_id},
+            React.createElement('td', {style:{maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
+            React.createElement('td', {style:{textAlign:'center', fontSize:10}}, r.is_managed ? '●' : '·'),
+            React.createElement('td', null, statusCell(r.status)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.on_hand)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.sold_qty)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.sold_revenue)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fmtNum(r.purchased_qty)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.daily_velocity, 2)),
+            React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.days_of_supply))
+          );
+        }))
+      )
+    )
+  );
+}
+
+function InventoryItemSettings(props) {
+  var qState = React.useState('');
+  var query = qState[0], setQuery = qState[1];
+  var fState = React.useState('all');     // 'all' | 'managed' | 'unmanaged'
+  var filter = fState[0], setFilter = fState[1];
+
+  function setManaged(item, on) {
+    sbrpc('fn_set_inventory_settings', {
+      p_qbo_item_id: item.qbo_item_id, p_is_managed: on,
+      p_target_days_supply: item.target_days_supply, p_lead_time_days: item.lead_time_days
+    }).then(props.onChange);
+  }
+  function setVal(item, field, value) {
+    var args = {p_qbo_item_id: item.qbo_item_id};
+    args[field] = Number(value);
+    sbrpc('fn_set_inventory_settings', args).then(props.onChange);
+  }
+
+  var q = query.toLowerCase();
+  var visible = props.rows.filter(function(r) {
+    if (filter === 'managed' && !r.is_managed) return false;
+    if (filter === 'unmanaged' && r.is_managed) return false;
+    if (q && (r.item_name || '').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  }).slice(0, 500);
+
+  var totalManaged = props.rows.filter(function(r){ return r.is_managed }).length;
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}},
+      React.createElement('input', {type:'text', value:query, onChange:function(e){ setQuery(e.target.value) },
+        placeholder:'Search items…',
+        style: Object.assign({}, inp(), {flex:'1 1 240px', minWidth:200, fontSize:12})}),
+      React.createElement('div', {style:{display:'inline-flex', gap:4}},
+        [{id:'all',label:'All'},{id:'managed',label:'Managed (' + totalManaged + ')'},{id:'unmanaged',label:'Unmanaged'}].map(function(o){
+          var on = filter === o.id;
+          return React.createElement('button', {key:o.id, onClick:function(){ setFilter(o.id) },
+            style:{
+              background: on ? 'var(--ac)' : 'var(--sf2)',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4,
+              fontSize:11, cursor:'pointer', fontWeight: on ? 700 : 400
+            }
+          }, o.label);
+        })
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
+        React.createElement('table', null,
+          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
+            React.createElement('th', {style:{textAlign:'center'}}, 'Manage'),
+            React.createElement('th', null, 'Item'),
+            React.createElement('th', {style:{fontSize:9, color:'var(--mt)'}}, 'Account'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'On Hand'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Sold (90d)'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Target Days'),
+            React.createElement('th', {style:{textAlign:'right'}}, 'Lead Days')
+          )),
+          React.createElement('tbody', null, visible.map(function(r) {
+            return React.createElement('tr', {key: r.qbo_item_id, style: r.is_managed ? {background:'rgba(34,211,238,0.04)'} : null},
+              React.createElement('td', {style:{textAlign:'center'}},
+                React.createElement('input', {type:'checkbox', checked: !!r.is_managed,
+                  onChange: function(e){ setManaged(r, e.target.checked) }})),
+              React.createElement('td', {style:{maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.item_name),
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, r.income_account_name || '—'),
+              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fmtNum(r.on_hand)),
+              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--mt)'}}, fmtNum(r.sold_qty)),
+              React.createElement('td', {style:{textAlign:'right'}},
+                React.createElement('input', {type:'number', defaultValue: r.target_days_supply,
+                  onBlur: function(e){ if (Number(e.target.value) !== Number(r.target_days_supply)) setVal(r, 'p_target_days_supply', e.target.value) },
+                  style: Object.assign({}, inp(), {width:60, textAlign:'right'})})),
+              React.createElement('td', {style:{textAlign:'right'}},
+                React.createElement('input', {type:'number', defaultValue: r.lead_time_days,
+                  onBlur: function(e){ if (Number(e.target.value) !== Number(r.lead_time_days)) setVal(r, 'p_lead_time_days', e.target.value) },
+                  style: Object.assign({}, inp(), {width:60, textAlign:'right'})}))
+            );
+          }))
+        )
+      )
+    )
+  );
+}
+
+function InventoryExcludes(props) {
+  var listState = React.useState(null);
+  var list = listState[0], setList = listState[1];
+  var custsState = React.useState([]);
+  var custs = custsState[0], setCusts = custsState[1];
+  var pickerState = React.useState('');
+  var picker = pickerState[0], setPicker = pickerState[1];
+
+  function load() {
+    Promise.all([
+      sbq('inventory_velocity_excludes', 'select=*'),
+      sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&order=display_name&limit=2000')
+    ]).then(function(r){ setList(r[0] || []); setCusts(r[1] || []) });
+  }
+  React.useEffect(load, []);
+
+  function add(custId, name) {
+    if (!custId) return;
+    var reason = prompt('Why exclude ' + name + ' from velocity? (e.g. "one-time bulk buy")', '');
+    sbInsert('inventory_velocity_excludes', {qbo_customer_id: custId, reason: reason || null, added_by: 'dashboard'})
+      .then(function(){ setPicker(''); load(); props.onChange && props.onChange() });
+  }
+  function remove(custId) {
+    sbDelete('inventory_velocity_excludes', 'qbo_customer_id=eq.' + encodeURIComponent(custId))
+      .then(function(){ load(); props.onChange && props.onChange() });
+  }
+
+  if (!list) return React.createElement('div', {className:'ld'}, 'Loading…');
+  var custMap = {};
+  custs.forEach(function(c){ custMap[c.qbo_customer_id] = c.display_name });
+  var availCusts = custs.filter(function(c){ return !list.some(function(x){ return x.qbo_customer_id === c.qbo_customer_id }) });
+
+  return React.createElement('div', null,
+    React.createElement('div', {className:'cd', style:{padding:'12px 14px', marginBottom:10}},
+      React.createElement('div', {className:'ct', style:{margin:0, marginBottom:6}}, 'CUSTOMER EXCLUSIONS — ' + list.length),
+      React.createElement('div', {style:{fontSize:11, color:'var(--mt)', lineHeight:1.6, marginBottom:10}},
+        'Excluded customers don\'t count toward demand velocity. Use this for one-time large buyers (e.g. a Melt installation that bought 200 BIB cases at launch) so they don\'t inflate normal-flow reorder suggestions.'),
+      React.createElement('select', {value: picker, onChange:function(e){
+          var c = availCusts.find(function(x){ return x.qbo_customer_id === e.target.value });
+          if (c) { add(c.qbo_customer_id, c.display_name) }
+        }, style: Object.assign({}, inp(), {width:'100%', maxWidth:500})},
+        React.createElement('option', {value:''}, '+ exclude a customer…'),
+        availCusts.map(function(c){ return React.createElement('option', {key:c.qbo_customer_id, value:c.qbo_customer_id}, c.display_name) })
+      )
+    ),
+    React.createElement('div', {className:'cd', style:{padding:0}},
+      list.length === 0
+        ? React.createElement('div', {className:'ld'}, 'No exclusions. All customers feed velocity.')
+        : React.createElement('table', null,
+            React.createElement('thead', null, React.createElement('tr', null,
+              React.createElement('th', null, 'Customer'),
+              React.createElement('th', null, 'Reason'),
+              React.createElement('th', null, 'Added'),
+              React.createElement('th', null, '')
+            )),
+            React.createElement('tbody', null, list.map(function(r) {
+              return React.createElement('tr', {key:r.qbo_customer_id},
+                React.createElement('td', {style:{fontWeight:600}}, customerLink(r.qbo_customer_id, custMap[r.qbo_customer_id] || r.qbo_customer_id)),
+                React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.reason || '—'),
+                React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, new Date(r.added_at).toLocaleDateString()),
+                React.createElement('td', {style:{textAlign:'right'}},
+                  React.createElement('button', {onClick: function(){ remove(r.qbo_customer_id) }, style: btnDanger()}, '×'))
+              );
+            }))
+          )
+    )
+  );
+}
+
+// =========================================================================
 // COMPARE PAGE — two saved views side-by-side
 // =========================================================================
 
@@ -4084,7 +4429,7 @@ function App() {
 }
 
 function MainApp(props) {
-  var validViews = ['margin', 'customers', 'reports', 'plans', 'compare', 'settings'];
+  var validViews = ['margin', 'customers', 'reports', 'plans', 'compare', 'inventory', 'settings'];
   function parseHash() {
     var raw = (window.location.hash || '').replace(/^#/, '').split('?')[0];
     // 'customer-<id>' opens a customer detail page
@@ -4129,6 +4474,7 @@ function MainApp(props) {
               : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'plans'     ? React.createElement(PlansPage)
               : view === 'compare'   ? React.createElement(ComparePage)
+              : view === 'inventory' ? React.createElement(InventoryPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
               : React.createElement(MarginPage);
 
@@ -4140,7 +4486,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('compare', 'COMPARE'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('compare', 'COMPARE'), tab('inventory', 'INVENTORY'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
