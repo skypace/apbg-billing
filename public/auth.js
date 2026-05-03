@@ -1,7 +1,7 @@
 // Shared Supabase Auth gate for APBG admin pages.
 //
 // Usage in any admin HTML page:
-//   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+//   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 //   <script src="/billing/auth.js"></script>
 //   <script>
 //     APBG.auth.requireSuperadmin().then(({ supabase, session }) => {
