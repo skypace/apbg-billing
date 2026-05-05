@@ -31,7 +31,6 @@ const DIMS: { id: Dim; label: string }[] = [
   { id: 'account',  label: 'Account' },
   { id: 'segment',  label: 'Segment' },
   { id: 'channel',  label: 'Channel' },
-  { id: 'rep',      label: 'Sales Rep' },
 ];
 
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
@@ -42,7 +41,6 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'item',     key: 'items',      label: 'Item' },
   { dim: 'channel',  key: 'channels',   label: 'Channel' },
   { dim: 'segment',  key: 'segments',   label: 'Segment' },
-  { dim: 'rep',      key: 'sales_reps', label: 'Rep' },
 ];
 
 const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
@@ -51,7 +49,6 @@ const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
   item:     'items',
   channel:  'channels',
   segment:  'segments',
-  rep:      'sales_reps',
   entity:   'entities',
 };
 
@@ -60,7 +57,6 @@ const DRILL_NEXT: Partial<Record<Dim, Dim>> = {
   segment:  'item',
   channel:  'customer',
   customer: 'item',
-  rep:      'customer',
   entity:   'category',
 };
 
@@ -219,7 +215,6 @@ export function MarginPage() {
   if (filters.items?.length) chips.push({ key: 'items', label: 'item', values: filters.items });
   if (filters.channels?.length) chips.push({ key: 'channels', label: 'channel', values: filters.channels });
   if (filters.segments?.length) chips.push({ key: 'segments', label: 'segment', values: filters.segments });
-  if (filters.sales_reps?.length) chips.push({ key: 'sales_reps', label: 'rep', values: filters.sales_reps });
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] =
     comparison ?? (rows ?? []);

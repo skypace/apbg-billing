@@ -42,9 +42,6 @@ export function App() {
     case 'plans':
       body = <PlaceholderPage title="Plans" legacyHash="plans" />;
       break;
-    case 'reps':
-      body = <PlaceholderPage title="Reps" legacyHash="reps" />;
-      break;
     case 'compare':
       body = <PlaceholderPage title="Compare" legacyHash="compare" />;
       break;
