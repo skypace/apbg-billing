@@ -116,7 +116,7 @@ export function CustomersPage() {
 
   function exportCsv() {
     if (!sorted || sorted.length === 0) return;
-    const head = ['Customer', 'Active', 'State', 'Channel', 'Sales Rep', 'YTD Revenue', 'Invoices', 'RFM Segment', 'RFM Total'];
+    const head = ['Customer', 'Active', 'State', 'Channel', 'YTD Revenue', 'Invoices', 'RFM Segment', 'RFM Total'];
     const data = sorted.map((r) => {
       const h = healthByCust[r.qbo_customer_id];
       return [
@@ -124,7 +124,6 @@ export function CustomersPage() {
         r.active ? 'Y' : 'N',
         r.state ?? '',
         r.primary_channel ?? '',
-        r.primary_sales_rep ?? '',
         Number(r.ytd_revenue ?? 0).toFixed(2),
         r.invoice_count,
         h?.rfm_segment ?? '',
@@ -196,7 +195,6 @@ export function CustomersPage() {
                   {header('display_name', 'Customer')}
                   {header('state', 'State')}
                   <th>Channel</th>
-                  <th>Sales Rep</th>
                   {header('ytd_revenue', 'YTD Revenue', 'right')}
                   {header('invoice_count', 'Invoices', 'right')}
                   <th>Segment</th>
@@ -232,7 +230,6 @@ export function CustomersPage() {
                       </td>
                       <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>{r.state ?? '—'}</td>
                       <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_sales_rep ?? '— no rep —'}</td>
                       <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(r.ytd_revenue)}</td>
                       <td className="mn" style={{ textAlign: 'right' }}>{fmtNum(r.invoice_count)}</td>
                       <td><SegmentChip segment={h?.rfm_segment ?? null} /></td>

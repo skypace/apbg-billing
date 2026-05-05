@@ -5,7 +5,6 @@ export type View =
   | 'customers'
   | 'reports'
   | 'plans'
-  | 'reps'
   | 'compare'
   | 'inventory'
   | 'settings'
@@ -26,7 +25,6 @@ export function parseHash(): Route {
     'customers',
     'reports',
     'plans',
-    'reps',
     'compare',
     'inventory',
     'settings',

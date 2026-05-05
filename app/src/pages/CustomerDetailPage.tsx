@@ -161,7 +161,6 @@ td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
     <div style="font-size:11px;color:#64748b;margin-top:3px">
       ${escapeHtml(sc.bill_city ?? '')}${sc.bill_city && sc.bill_state ? ', ' : ''}${escapeHtml(sc.bill_state ?? '')}
        · ${escapeHtml(sc.primary_channel ?? 'no channel')}
-       · rep: ${escapeHtml(sc.primary_sales_rep ?? 'unassigned')}
     </div>
   </div>
   <div>
@@ -232,10 +231,10 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
       >
         <div>
           <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Channel · Sales Rep
+            Channel
           </div>
           <div style={{ fontSize: 13, marginTop: 3 }}>
-            {(detail.primary_channel ?? '— no channel —') + ' · ' + (detail.primary_sales_rep ?? '— no rep —')}
+            {detail.primary_channel ?? '— no channel —'}
           </div>
         </div>
         <div>
