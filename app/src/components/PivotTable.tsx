@@ -8,6 +8,7 @@ type SortKey =
   | 'line_count'
   | 'qty'
   | 'revenue'
+  | 'est_cost'
   | 'est_margin'
   | 'margin_pct'
   | 'prior_revenue'
@@ -61,6 +62,46 @@ export function PivotTable({ dim, rows, showCompare, sparklines, onRowClick }: P
     return out;
   }, [rows, sort]);
 
+  // Grand total across the visible rows. Margin % is recomputed from the
+  // summed revenue/cost so it isn't a misleading mean of per-row percentages.
+  const totals = useMemo(() => {
+    let lineCount = 0;
+    let qty = 0;
+    let qtyHas = false;
+    let revenue = 0;
+    let estCost = 0;
+    let estCostHas = false;
+    let estMargin = 0;
+    let estMarginHas = false;
+    let priorRevenue = 0;
+    let priorHas = false;
+    for (const r of rows) {
+      lineCount += Number(r.line_count || 0);
+      if (r.qty != null) { qty += Number(r.qty); qtyHas = true; }
+      revenue += Number(r.revenue || 0);
+      if (r.est_cost != null) { estCost += Number(r.est_cost); estCostHas = true; }
+      if (r.est_margin != null) { estMargin += Number(r.est_margin); estMarginHas = true; }
+      if (isComparison(r) && r.prior_revenue != null) {
+        priorRevenue += Number(r.prior_revenue);
+        priorHas = true;
+      }
+    }
+    const marginPct = estCostHas && revenue > 0 ? (revenue - estCost) / revenue : null;
+    const deltaRev = priorHas ? revenue - priorRevenue : null;
+    const deltaPct = priorHas && priorRevenue > 0 ? (revenue - priorRevenue) / priorRevenue : null;
+    return {
+      lineCount,
+      qty: qtyHas ? qty : null,
+      revenue,
+      estCost: estCostHas ? estCost : null,
+      estMargin: estMarginHas ? estMargin : null,
+      marginPct,
+      priorRevenue: priorHas ? priorRevenue : null,
+      deltaRev,
+      deltaPct,
+    };
+  }, [rows]);
+
   function header(key: SortKey, label: string, align: 'left' | 'right' = 'left') {
     const on = sort.key === key;
     const arrow = on ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
@@ -103,6 +144,7 @@ export function PivotTable({ dim, rows, showCompare, sparklines, onRowClick }: P
             {showCompare && header('prior_revenue', 'Prior Rev', 'right')}
             {showCompare && header('delta_revenue', 'Δ $', 'right')}
             {showCompare && header('delta_pct', 'Δ %', 'right')}
+            {header('est_cost', 'Est Cost', 'right')}
             {header('est_margin', 'Est Margin', 'right')}
             {header('margin_pct', 'Margin %', 'right')}
           </tr>
@@ -176,6 +218,12 @@ export function PivotTable({ dim, rows, showCompare, sparklines, onRowClick }: P
                     {dPct == null ? '—' : (Number(dPct) >= 0 ? '+' : '') + (Number(dPct) * 100).toFixed(1) + '%'}
                   </td>
                 )}
+                <td
+                  className="mn"
+                  style={{ textAlign: 'right', borderLeft: '1px solid var(--bd)' }}
+                >
+                  {r.est_cost != null ? fm(r.est_cost) : '—'}
+                </td>
                 <td className="mn" style={{ textAlign: 'right' }}>
                   {r.est_margin != null ? fm(r.est_margin) : '—'}
                 </td>
@@ -189,6 +237,88 @@ export function PivotTable({ dim, rows, showCompare, sparklines, onRowClick }: P
             );
           })}
         </tbody>
+        <tfoot
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            background: 'var(--sf)',
+            borderTop: '2px solid var(--bd)',
+            fontWeight: 700,
+          }}
+        >
+          <tr>
+            <td>TOTAL ({rows.length})</td>
+            {sparklines && <td />}
+            <td className="mn" style={{ textAlign: 'right' }}>{fmtNum(totals.lineCount)}</td>
+            <td className="mn" style={{ textAlign: 'right' }}>
+              {totals.qty != null ? fmtNum(totals.qty) : '—'}
+            </td>
+            <td className="mn" style={{ textAlign: 'right' }}>{fm(totals.revenue)}</td>
+            {showCompare && (
+              <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>
+                {totals.priorRevenue != null ? fm(totals.priorRevenue) : '—'}
+              </td>
+            )}
+            {showCompare && (
+              <td
+                className="mn"
+                style={{
+                  textAlign: 'right',
+                  color: totals.deltaRev == null
+                    ? 'var(--mt)'
+                    : totals.deltaRev >= 0
+                      ? 'var(--gn)'
+                      : 'var(--rd)',
+                }}
+              >
+                {totals.deltaRev == null
+                  ? '—'
+                  : (totals.deltaRev >= 0 ? '+' : '') + fm(totals.deltaRev)}
+              </td>
+            )}
+            {showCompare && (
+              <td
+                className="mn"
+                style={{
+                  textAlign: 'right',
+                  color: totals.deltaPct == null
+                    ? 'var(--mt)'
+                    : totals.deltaPct >= 0
+                      ? 'var(--gn)'
+                      : 'var(--rd)',
+                }}
+              >
+                {totals.deltaPct == null
+                  ? '—'
+                  : (totals.deltaPct >= 0 ? '+' : '') + (totals.deltaPct * 100).toFixed(1) + '%'}
+              </td>
+            )}
+            <td
+              className="mn"
+              style={{ textAlign: 'right', borderLeft: '1px solid var(--bd)' }}
+            >
+              {totals.estCost != null ? fm(totals.estCost) : '—'}
+            </td>
+            <td className="mn" style={{ textAlign: 'right' }}>
+              {totals.estMargin != null ? fm(totals.estMargin) : '—'}
+            </td>
+            <td
+              className="mn"
+              style={{
+                textAlign: 'right',
+                color: totals.marginPct == null
+                  ? 'var(--mt)'
+                  : totals.marginPct >= 0.4
+                    ? 'var(--gn)'
+                    : totals.marginPct >= 0
+                      ? 'var(--am)'
+                      : 'var(--rd)',
+              }}
+            >
+              {fp(totals.marginPct)}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
