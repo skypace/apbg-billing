@@ -1,0 +1,298 @@
+{
+  "$schema": "./sync-manifest.schema.json",
+  "version": 1,
+  "last_updated": "2026-05-05",
+  "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
+
+  "writers": [
+    {
+      "name": "sync-qbo",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:00 UTC + every 3 min backfill",
+      "writes": [
+        "ops.qbo_invoices",
+        "ops.qbo_invoice_lines",
+        "ops.pl_snapshots",
+        "ops.qbo_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API"],
+      "notes": "Legacy QBO sync. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh().",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-items",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:30 UTC + on-demand from Margin UI",
+      "writes": ["ops.qbo_items", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Items"],
+      "notes": "Populates purchase_cost which powers est_cost / est_margin in v_sales_lines. Uses lease RPC for token refresh. Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-customers",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:35 UTC",
+      "writes": ["ops.qbo_customers", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Customers"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-expenses",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:40 UTC",
+      "writes": ["ops.qbo_expense_lines", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Purchase / Bill / VendorCredit"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-inventory-adjustments",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:50 UTC",
+      "writes": [
+        "ops.qbo_inventory_adjustments",
+        "ops.qbo_inventory_adjustment_lines",
+        "ops.qbo_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: InventoryAdjustment"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-employees",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "hourly (planned)",
+      "writes": ["ops.qbo_employees_cache", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Employees"],
+      "notes": "Lives in apbg-ops repo per its CLAUDE.md / README updates 2026-05-05. Uses the same lease RPC.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-sf",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "every 30 min",
+      "writes": [
+        "ops.delivery_stops",
+        "ops.service_jobs",
+        "ops.reman_jobs",
+        "ops.sf_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["Service Fusion API"],
+      "notes": "Pulls SF jobs into ops tables. Joint doc claims this writes; source not in either repo.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sf-oauth-callback",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "on-demand (HTTP)",
+      "writes": ["ops.sf_token_cache"],
+      "multi_writer": true,
+      "notes": "OAuth redirect target for Service Fusion auth flow.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "stale-invoice-alert",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "daily 7am PT",
+      "writes": [],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Read-only: scans delivery_stops / service_jobs / reman_jobs for SF $$ with no QBO match >5 days, emails Sky.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "digest-email",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "hourly (cron digest-email-hourly, 0 * * * *)",
+      "writes": ["ops.digest_log"],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Reads digest_subscriptions to decide which subs are due. Defined in 20260503m_digest_email.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "push-qbo-budget",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "on-demand",
+      "writes": ["ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online Budget API"],
+      "notes": "Reads sales_plans and pushes a budget to QBO. Defined in 20260503v_push_qbo_budget_function.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "health-alert",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "every 15 min",
+      "writes": ["ops.health_alerts_sent"],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Reads sync_log + qbo_token_diagnostics; emails Sky on sync_health red/yellow.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "fn_take_health_snapshot",
+      "kind": "sql-function-cron",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "weekly Mon 10:00 UTC (cron weekly-health-snapshot)",
+      "writes": ["ops.customer_health_snapshots"],
+      "notes": "Postgres function called by pg_cron. Defined in 20260503s_health_snapshots_plan_alerts.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "manual-ui:margin-minder-settings",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (user action)",
+      "writes": [
+        "ops.channels",
+        "ops.customer_channels",
+        "ops.segments",
+        "ops.category_segments",
+        "ops.item_segments",
+        "ops.expense_buckets",
+        "ops.expense_bucket_types",
+        "ops.sales_plans",
+        "ops.sales_plan_lines",
+        "ops.item_sets",
+        "ops.item_set_items",
+        "ops.inventory_settings",
+        "ops.inventory_velocity_excludes",
+        "ops.saved_views",
+        "ops.digest_subscriptions",
+        "ops.revenue_categories",
+        "ops.cogs_accounts",
+        "ops.dashboard_settings",
+        "ops.alert_settings"
+      ],
+      "notes": "Margin Minder dashboard settings UI writes via fn_set_* RPCs and direct table inserts. Authenticated only."
+    },
+    {
+      "name": "manual-ui:apbg-ops-roster",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "on-demand (user action)",
+      "writes": [
+        "ops.team_members",
+        "ops.staff",
+        "ops.staff_roles",
+        "ops.role_types",
+        "ops.third_party_crews"
+      ],
+      "notes": "Apbg-ops Staff Roster page writes via gateway-issued JWT against permissive policies."
+    },
+    {
+      "name": "all-sync-functions:sync-log-append",
+      "kind": "convention",
+      "source_repo": "multiple",
+      "schedule": "on every sync run",
+      "writes": ["ops.sync_log"],
+      "multi_writer": true,
+      "notes": "Every sync function appends a row to ops.sync_log on completion. No single owner; this is a logging convention."
+    }
+  ],
+
+  "orphans": [
+    {
+      "table": "ops.qbo_pto_cache",
+      "reason": "Table exists, 0 rows in prod. No sync function on schedule. Decision (Sky 2026-05-05): keep as dead-but-acceptable schema; either wire a syncer or drop in a future cleanup."
+    },
+    {
+      "table": "ops.balance_sheet_snapshots",
+      "reason": "Table exists, 0 rows. No cron, no edge function. Planned cadence and endpoint not yet specified."
+    },
+    {
+      "table": "ops.kpi_daily",
+      "reason": "Table exists per CLAUDE.md (apbg-billing); no rows. Planned: Postgres function + pg_cron nightly rollup. Not built."
+    },
+    {
+      "table": "ops.qbo_expenses",
+      "reason": "Empty stub. CLAUDE.md (apbg-billing) describes it as the planned Purchase-table sync target. sync-qbo-expenses currently writes ops.qbo_expense_lines instead. Decision pending: rename / drop / wire."
+    },
+    {
+      "table": "ops.kpi_embeddings",
+      "reason": "Vector embeddings table. Writer unknown. May be experimental / abandoned; needs investigation."
+    },
+    {
+      "table": "ops.crm_deals",
+      "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
+    },
+    {
+      "table": "ops.fc_token_cache",
+      "reason": "FleetComplete OAuth token store. Writer would be sync-fleetcomplete (planned, not built). Joint doc §3 priority item."
+    },
+    {
+      "table": "ops.fleet_vehicles",
+      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
+    },
+    {
+      "table": "ops.fleet_trips",
+      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
+    },
+    {
+      "table": "ops.fleet_fuel_transactions",
+      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
+    },
+    {
+      "table": "ops.fleet_maintenance",
+      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
+    },
+    {
+      "table": "ops.fleet_daily",
+      "reason": "FleetComplete daily rollup; planned, not built."
+    },
+    {
+      "table": "ops.hr_employees",
+      "reason": "HR integration placeholder. CLAUDE.md (apbg-billing) §3D: Bambee has no API; BambooHR has REST. Manual entry forms or BambooHR sync pending decision."
+    },
+    {
+      "table": "ops.hr_documents",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_onboarding",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_performance",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_time_off",
+      "reason": "HR integration placeholder; pending. Could be fed by qbo_pto_cache if that gets wired."
+    },
+    {
+      "table": "ops.db_health_snapshots",
+      "reason": "Periodic DB health metrics. Writer unknown — likely fn_take_health_snapshot() companion or separate apbg-ops cron. Needs ops verification."
+    },
+    {
+      "table": "ops.commission_rules",
+      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05). Will be removed at next migration apply. Lint should ignore once the drop runs."
+    },
+    {
+      "table": "ops.customer_sales_reps",
+      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05)."
+    },
+    {
+      "table": "ops.sales_reps",
+      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05)."
+    }
+  ]
+}
