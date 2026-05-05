@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export type View =
+  | 'overview'
   | 'margin'
   | 'customers'
   | 'reports'
@@ -21,6 +22,7 @@ export function parseHash(): Route {
     return { view: 'customer-detail', customerId: h.slice('customer-'.length) };
   }
   const known: View[] = [
+    'overview',
     'margin',
     'customers',
     'reports',
@@ -30,7 +32,7 @@ export function parseHash(): Route {
     'settings',
   ];
   if (known.includes(h as View)) return { view: h as View, customerId: null };
-  return { view: 'margin', customerId: null };
+  return { view: 'overview', customerId: null };
 }
 
 export function useRoute(): [Route, (v: View) => void] {

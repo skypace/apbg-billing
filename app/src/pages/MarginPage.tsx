@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
 import { PivotTable } from '../components/PivotTable';
-import { PivotChart, ChartKind } from '../components/PivotChart';
+import { BarChart } from '../components/charts/BarChart';
+import { DonutChart } from '../components/charts/DonutChart';
+import { AreaChart } from '../components/charts/AreaChart';
+import { CHART_COLORS } from '../components/charts/util';
+
+type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -476,8 +481,52 @@ export function MarginPage() {
       )}
 
       {chartKind !== 'none' && rows && rows.length > 0 && (
-        <div className="cd" style={{ padding: 8, marginBottom: 10 }}>
-          <PivotChart kind={chartKind} rows={rows} />
+        <div className="cd" style={{ padding: 12, marginBottom: 10 }}>
+          {chartKind === 'bar' && (
+            <BarChart
+              ariaLabel="Revenue by selected dimension"
+              data={rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r, i) => ({
+                label: r.dim_label,
+                value: Number(r.revenue || 0),
+                compareValue: comparison?.find((c) => c.dim_label === r.dim_label)?.prior_revenue ?? null,
+                color: CHART_COLORS[i % CHART_COLORS.length],
+              }))}
+              showCompare={!!comparison}
+            />
+          )}
+          {chartKind === 'pie' && (
+            <DonutChart
+              ariaLabel="Revenue share by selected dimension"
+              data={rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 8).map((r, i) => ({
+                label: r.dim_label,
+                value: Number(r.revenue || 0),
+                color: CHART_COLORS[i % CHART_COLORS.length],
+              }))}
+              centerLabel="Revenue"
+              centerValue={totals ? fm(totals.revenue) : undefined}
+            />
+          )}
+          {chartKind === 'line' && (
+            <AreaChart
+              ariaLabel="Revenue by selected dimension"
+              labels={rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => r.dim_label.length > 12 ? r.dim_label.slice(0, 10) + '…' : r.dim_label)}
+              series={[
+                {
+                  name: 'Current',
+                  color: '#22d3ee',
+                  values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)),
+                },
+                ...(comparison ? [{
+                  name: 'Prior',
+                  color: '#94a3b8',
+                  values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => {
+                    const c = comparison.find((cc) => cc.dim_label === r.dim_label);
+                    return c?.prior_revenue ?? 0;
+                  }),
+                }] : []),
+              ]}
+            />
+          )}
         </div>
       )}
 

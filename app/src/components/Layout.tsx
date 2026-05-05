@@ -4,6 +4,7 @@ import type { View } from '../lib/router';
 interface NavItem { id: View; label: string }
 
 const NAV: NavItem[] = [
+  { id: 'overview',  label: 'OVERVIEW'  },
   { id: 'margin',    label: 'MARGIN'    },
   { id: 'customers', label: 'CUSTOMERS' },
   { id: 'reports',   label: 'REPORTS'   },

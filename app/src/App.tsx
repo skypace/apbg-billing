@@ -4,9 +4,14 @@ import { sbAuth } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
+import { OverviewPage } from './pages/OverviewPage';
 import { MarginPage } from './pages/MarginPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { CustomerDetailPage } from './pages/CustomerDetailPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { PlansPage } from './pages/PlansPage';
+import { ComparePage } from './pages/ComparePage';
+import { InventoryPage } from './pages/InventoryPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
 export function App() {
@@ -30,6 +35,9 @@ export function App() {
 
   let body;
   switch (route.view) {
+    case 'overview':
+      body = <OverviewPage />;
+      break;
     case 'margin':
       body = <MarginPage />;
       break;
@@ -37,16 +45,16 @@ export function App() {
       body = <CustomersPage />;
       break;
     case 'reports':
-      body = <PlaceholderPage title="Reports" legacyHash="reports" />;
+      body = <ReportsPage />;
       break;
     case 'plans':
-      body = <PlaceholderPage title="Plans" legacyHash="plans" />;
+      body = <PlansPage />;
       break;
     case 'compare':
-      body = <PlaceholderPage title="Compare" legacyHash="compare" />;
+      body = <ComparePage />;
       break;
     case 'inventory':
-      body = <PlaceholderPage title="Inventory" legacyHash="inventory" />;
+      body = <InventoryPage />;
       break;
     case 'settings':
       body = <PlaceholderPage title="Settings" legacyHash="settings" />;
