@@ -1693,7 +1693,7 @@ function BulkClassifyModal(props) {
   var custMap = custMapState[0], setCustMap = custMapState[1];
 
   React.useEffect(function() {
-    sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&limit=2000')
+    sbrpc('fn_customer_directory', {})
       .then(function(rs) {
         var byId = {}, byName = {};
         (rs || []).forEach(function(c) {
@@ -4227,7 +4227,7 @@ function InventoryExcludes(props) {
   function load() {
     Promise.all([
       sbq('inventory_velocity_excludes', 'select=*'),
-      sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&order=display_name&limit=2000')
+      sbrpc('fn_customer_directory', {})
     ]).then(function(r){ setList(r[0] || []); setCusts(r[1] || []) });
   }
   React.useEffect(load, []);
