@@ -28,7 +28,6 @@ function configToFilters(c: SavedViewConfig): SalesFilters {
     items:      c.items ?? null,
     channels:   c.channels ?? null,
     segments:   c.segments ?? null,
-    sales_reps: c.sales_reps ?? null,
   };
 }
 

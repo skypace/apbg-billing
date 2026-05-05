@@ -9,7 +9,6 @@ const NAV: NavItem[] = [
   { id: 'customers', label: 'CUSTOMERS' },
   { id: 'reports',   label: 'REPORTS'   },
   { id: 'plans',     label: 'PLANS'     },
-  { id: 'reps',      label: 'REPS'      },
   { id: 'compare',   label: 'COMPARE'   },
   { id: 'inventory', label: 'INVENTORY' },
   { id: 'settings',  label: 'SETTINGS'  },

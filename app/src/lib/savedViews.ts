@@ -11,7 +11,6 @@ export interface SavedViewConfig {
   items?: string[] | null;
   channels?: string[] | null;
   segments?: string[] | null;
-  sales_reps?: string[] | null;
 }
 
 export interface SavedView {

@@ -99,7 +99,6 @@ export function AnomaliesReport() {
                 <tr>
                   <th>Customer</th>
                   <th>Channel</th>
-                  <th>Rep</th>
                   <th>Direction</th>
                   <th style={{ textAlign: 'right' }}>Baseline avg/mo</th>
                   <th style={{ textAlign: 'right' }}>Recent avg/mo</th>
@@ -126,7 +125,6 @@ export function AnomaliesReport() {
                         <CustomerLink qboCustomerId={r.qbo_customer_id} name={r.customer_name} />
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_sales_rep ?? '— no rep —'}</td>
                       <td>
                         <span
                           style={{

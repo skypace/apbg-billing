@@ -11,8 +11,6 @@ export interface CustomerListRow {
   invoice_count: number;
   channels: string[] | null;
   primary_channel: string | null;
-  sales_reps: string[] | null;
-  primary_sales_rep: string | null;
 }
 
 export interface CustomerDetail {
@@ -29,9 +27,7 @@ export interface CustomerDetail {
   active: boolean;
   notes: string | null;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   all_channels: string[] | null;
-  all_sales_reps: string[] | null;
   current_revenue: number;
   current_invoice_count: number;
   current_line_count: number;
@@ -50,7 +46,6 @@ export interface CustomerHealth {
   qbo_customer_id: string;
   customer_name: string;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   recency_days: number;
   frequency: number;
   monetary: number;
@@ -66,7 +61,6 @@ export interface CustomerScorecard {
   qbo_customer_id: string;
   customer_name: string;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   rfm_segment: string | null;
   rfm_total: number | null;
   r_score: number | null;

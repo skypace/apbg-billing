@@ -8,7 +8,6 @@ export interface InactiveCustomerRow {
   current_revenue: number;
   last_invoice_date: string | null;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   bill_state: string | null;
 }
 
@@ -24,7 +23,6 @@ export interface HealthMoverRow {
   qbo_customer_id: string;
   customer_name: string;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   prev_snapshot_date: string | null;
   prev_segment: string | null;
   prev_rfm_total: number | null;
@@ -41,7 +39,6 @@ export interface AnomalyRow {
   qbo_customer_id: string;
   customer_name: string;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   baseline_avg: number;
   baseline_stddev: number;
   recent_avg: number;
@@ -54,7 +51,6 @@ export interface VoidRow {
   qbo_customer_id: string;
   customer_name: string;
   primary_channel: string | null;
-  primary_sales_rep: string | null;
   qbo_item_id: string;
   item_name: string;
   revenue: number;

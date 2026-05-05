@@ -10,7 +10,6 @@ import { CustomersPage } from './pages/CustomersPage';
 import { CustomerDetailPage } from './pages/CustomerDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { PlansPage } from './pages/PlansPage';
-import { RepsPage } from './pages/RepsPage';
 import { ComparePage } from './pages/ComparePage';
 import { InventoryPage } from './pages/InventoryPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
@@ -50,9 +49,6 @@ export function App() {
       break;
     case 'plans':
       body = <PlansPage />;
-      break;
-    case 'reps':
-      body = <RepsPage />;
       break;
     case 'compare':
       body = <ComparePage />;

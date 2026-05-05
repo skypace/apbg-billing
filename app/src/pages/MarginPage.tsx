@@ -11,6 +11,8 @@ type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
+import { sbq } from '../lib/rpc';
+import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow,
   Dim,
@@ -36,7 +38,6 @@ const DIMS: { id: Dim; label: string }[] = [
   { id: 'account',  label: 'Account' },
   { id: 'segment',  label: 'Segment' },
   { id: 'channel',  label: 'Channel' },
-  { id: 'rep',      label: 'Sales Rep' },
 ];
 
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
@@ -47,7 +48,6 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'item',     key: 'items',      label: 'Item' },
   { dim: 'channel',  key: 'channels',   label: 'Channel' },
   { dim: 'segment',  key: 'segments',   label: 'Segment' },
-  { dim: 'rep',      key: 'sales_reps', label: 'Rep' },
 ];
 
 const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
@@ -56,7 +56,6 @@ const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
   item:     'items',
   channel:  'channels',
   segment:  'segments',
-  rep:      'sales_reps',
   entity:   'entities',
 };
 
@@ -65,7 +64,6 @@ const DRILL_NEXT: Partial<Record<Dim, Dim>> = {
   segment:  'item',
   channel:  'customer',
   customer: 'item',
-  rep:      'customer',
   entity:   'category',
 };
 
@@ -93,6 +91,50 @@ export function MarginPage() {
 
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
   const dimOptsLoading = useRef<Set<Dim>>(new Set());
+
+  const [syncedAt, setSyncedAt] = useState<string | null | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+
+  function loadSyncedAt() {
+    sbq<{ synced_at: string | null }>('qbo_items', 'select=synced_at&order=synced_at.desc&limit=1')
+      .then((rs) => setSyncedAt(rs?.[0]?.synced_at ?? null))
+      .catch(() => setSyncedAt(null));
+  }
+
+  useEffect(() => { loadSyncedAt(); }, []);
+
+  async function syncItemCosts() {
+    if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
+    setSyncing(true);
+    try {
+      const token = await _sbToken();
+      const res = await fetch(SB_URL + '/functions/v1/sync-qbo-items', {
+        method: 'POST',
+        headers: { apikey: SB_KEY, Authorization: 'Bearer ' + token },
+      });
+      const j = await res.json();
+      if (j.ok) {
+        alert(`Synced ${j.synced} items (${j.with_purchase_cost} with purchase cost). Refreshing…`);
+        loadSyncedAt();
+        setFilters((cur) => ({ ...cur }));
+      } else {
+        alert('Sync failed: ' + (j.error || 'unknown'));
+      }
+    } catch (e) {
+      alert('Sync error: ' + (e as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const syncFresh = useMemo(() => {
+    if (syncedAt === undefined) return '';
+    if (!syncedAt) return 'never';
+    const ageMin = Math.round((Date.now() - new Date(syncedAt).getTime()) / 60000);
+    if (ageMin < 60) return ageMin + 'm ago';
+    if (ageMin < 1440) return Math.round(ageMin / 60) + 'h ago';
+    return Math.round(ageMin / 1440) + 'd ago';
+  }, [syncedAt]);
 
   function ensureDimOptions(d: Dim) {
     if (dimOpts[d]) return;
@@ -224,7 +266,6 @@ export function MarginPage() {
   if (filters.items?.length) chips.push({ key: 'items', label: 'item', values: filters.items });
   if (filters.channels?.length) chips.push({ key: 'channels', label: 'channel', values: filters.channels });
   if (filters.segments?.length) chips.push({ key: 'segments', label: 'segment', values: filters.segments });
-  if (filters.sales_reps?.length) chips.push({ key: 'sales_reps', label: 'rep', values: filters.sales_reps });
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] =
     comparison ?? (rows ?? []);
@@ -322,7 +363,18 @@ export function MarginPage() {
           </span>
         </label>
 
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          {syncFresh && (
+            <span
+              style={{ color: 'var(--mt)', fontSize: 10, marginRight: 4 }}
+              title={syncedAt ? new Date(syncedAt).toLocaleString() : 'never synced'}
+            >
+              costs: {syncFresh}
+            </span>
+          )}
+          <button onClick={syncItemCosts} disabled={syncing} style={btnSecondary()}>
+            {syncing ? 'SYNCING…' : 'SYNC ITEM COSTS'}
+          </button>
           <button onClick={exportCsv} disabled={!rows?.length} style={btnPrimary()}>EXPORT CSV</button>
           <button
             onClick={() => {

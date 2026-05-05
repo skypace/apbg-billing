@@ -431,7 +431,6 @@ function StackedView(props) {
       p_items:       props.items && props.items.length          ? props.items : null,
       p_channels:    props.channels && props.channels.length    ? props.channels : null,
       p_segments:    props.segments && props.segments.length    ? props.segments : null,
-      p_sales_reps:  props.sales_reps && props.sales_reps.length ? props.sales_reps : null,
       p_limit: 25
     }).then(function(rs) {
       setData(rs || []);
@@ -634,7 +633,6 @@ function PeriodsView(props) {
       p_items:       props.items && props.items.length          ? props.items : null,
       p_channels:    props.channels && props.channels.length    ? props.channels : null,
       p_segments:    props.segments && props.segments.length    ? props.segments : null,
-      p_sales_reps:  props.sales_reps && props.sales_reps.length ? props.sales_reps : null,
       p_limit: 500
     };
     Promise.all(periods.map(function(p) {
@@ -1003,8 +1001,7 @@ function MarginPage() {
       p_customers: f.customers.length ? f.customers : null,
       p_items: f.items.length ? f.items : null,
       p_channels: f.channels.length ? f.channels : null,
-      p_segments: f.segments.length ? f.segments : null,
-      p_sales_reps: f.sales_reps.length ? f.sales_reps : null
+      p_segments: f.segments.length ? f.segments : null
     };
     var pivotArgs = Object.assign({}, args, {p_dim: dim, p_limit: 250});
     if (compare !== 'none') {
@@ -1693,7 +1690,7 @@ function BulkClassifyModal(props) {
   var custMap = custMapState[0], setCustMap = custMapState[1];
 
   React.useEffect(function() {
-    sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&limit=2000')
+    sbrpc('fn_customer_directory', {})
       .then(function(rs) {
         var byId = {}, byName = {};
         (rs || []).forEach(function(c) {
@@ -1729,13 +1726,6 @@ function BulkClassifyModal(props) {
           p_qbo_customer_id: custId,
           p_channel_labels: r.channels,
           p_primary_label: r.primary_channel || r.channels[0]
-        }));
-      }
-      if (r.sales_reps && r.sales_reps.length) {
-        promises.push(sbrpc('fn_set_customer_sales_reps', {
-          p_qbo_customer_id: custId,
-          p_rep_names: r.sales_reps,
-          p_primary_name: r.primary_sales_rep || r.sales_reps[0]
         }));
       }
       return Promise.all(promises)
@@ -1832,13 +1822,12 @@ function CustomersPage() {
   React.useEffect(function() {
     Promise.all([
       sbq('channels', 'select=label&is_active=eq.true&order=sort_order'),
-      sbq('sales_reps', 'select=name&is_active=eq.true&order=sort_order'),
       sbrpc('fn_customer_health', {p_window_days: 365})
     ]).then(function(res) {
       setChOpts((res[0] || []).map(function(r){return r.label}));
-      setRepOpts((res[1] || []).map(function(r){return r.name}));
+      setRepOpts([]);
       var h = {};
-      (res[2] || []).forEach(function(r){ h[r.qbo_customer_id] = r });
+      (res[1] || []).forEach(function(r){ h[r.qbo_customer_id] = r });
       setHealth(h);
     });
   }, []);
@@ -4227,7 +4216,7 @@ function InventoryExcludes(props) {
   function load() {
     Promise.all([
       sbq('inventory_velocity_excludes', 'select=*'),
-      sbq('qbo_customers', 'select=qbo_customer_id,display_name&active=eq.true&order=display_name&limit=2000')
+      sbrpc('fn_customer_directory', {})
     ]).then(function(r){ setList(r[0] || []); setCusts(r[1] || []) });
   }
   React.useEffect(load, []);
@@ -4353,7 +4342,6 @@ function CompareSide(props) {
       p_items:       (c.items && c.items.length)           ? c.items       : null,
       p_channels:    (c.channels && c.channels.length)     ? c.channels    : null,
       p_segments:    (c.segments && c.segments.length)     ? c.segments    : null,
-      p_sales_reps:  (c.sales_reps && c.sales_reps.length) ? c.sales_reps  : null,
       p_limit: 100
     };
     Promise.all([
@@ -4361,8 +4349,7 @@ function CompareSide(props) {
       sbrpc('fn_sales_totals', {p_start: c.start, p_end: c.end,
         p_entities: args.p_entities, p_categories: args.p_categories,
         p_customers: args.p_customers, p_items: args.p_items,
-        p_channels: args.p_channels, p_segments: args.p_segments,
-        p_sales_reps: args.p_sales_reps})
+        p_channels: args.p_channels, p_segments: args.p_segments})
     ]).then(function(res) {
       setRows(res[0] || []);
       setTot((res[1] && res[1][0]) || null);

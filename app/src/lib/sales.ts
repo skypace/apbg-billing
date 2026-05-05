@@ -12,8 +12,7 @@ export type Dim =
   | 'entity'
   | 'account'
   | 'segment'
-  | 'channel'
-  | 'rep';
+  | 'channel';
 
 export interface SalesPivotRow {
   dim_label: string;
@@ -54,7 +53,6 @@ export interface SalesFilters {
   items?: string[] | null;
   channels?: string[] | null;
   segments?: string[] | null;
-  sales_reps?: string[] | null;
 }
 
 export function rpcArgs(f: SalesFilters) {
@@ -67,7 +65,6 @@ export function rpcArgs(f: SalesFilters) {
     p_items:      f.items      && f.items.length      ? f.items      : null,
     p_channels:   f.channels   && f.channels.length   ? f.channels   : null,
     p_segments:   f.segments   && f.segments.length   ? f.segments   : null,
-    p_sales_reps: f.sales_reps && f.sales_reps.length ? f.sales_reps : null,
   };
 }
 

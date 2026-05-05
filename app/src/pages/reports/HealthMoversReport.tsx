@@ -91,7 +91,6 @@ export function HealthMoversReport() {
                 <tr>
                   <th>Customer</th>
                   <th>Channel</th>
-                  <th>Rep</th>
                   <th>Was</th>
                   <th>Now</th>
                   <th style={{ textAlign: 'right' }}>RFM Δ</th>
@@ -119,9 +118,6 @@ export function HealthMoversReport() {
                         <CustomerLink qboCustomerId={r.qbo_customer_id} name={r.customer_name} />
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                        {r.primary_sales_rep ?? '— no rep —'}
-                      </td>
                       <td><SegmentChip segment={r.prev_segment} /></td>
                       <td><SegmentChip segment={r.curr_segment} /></td>
                       <td className="mn" style={{ textAlign: 'right', color: dColor, fontWeight: 600 }}>

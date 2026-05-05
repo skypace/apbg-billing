@@ -10,7 +10,6 @@ interface CustomerCell {
   id: string;
   name: string;
   channel: string | null;
-  rep: string | null;
   set_revenue: number;
   items_bought: number;
   set_total: number;
@@ -77,7 +76,6 @@ export function VoidsReport() {
           id: r.qbo_customer_id,
           name: r.customer_name,
           channel: r.primary_channel,
-          rep: r.primary_sales_rep,
           set_revenue: Number(r.customer_set_revenue || 0),
           items_bought: r.customer_set_items_count,
           set_total: r.set_total_items,
@@ -180,7 +178,6 @@ export function VoidsReport() {
                 <tr>
                   <th style={{ minWidth: 200 }}>Customer</th>
                   <th>Channel</th>
-                  <th>Rep</th>
                   <th style={{ textAlign: 'right' }}>Set $</th>
                   <th style={{ textAlign: 'right' }}>Bought / Total</th>
                   {itemCols.map((it) => (
@@ -206,7 +203,6 @@ export function VoidsReport() {
                       <CustomerLink qboCustomerId={c.id} name={c.name} />
                     </td>
                     <td style={{ fontSize: 10, color: 'var(--mt)' }}>{c.channel ?? '—'}</td>
-                    <td style={{ fontSize: 10, color: 'var(--mt)' }}>{c.rep ?? '— no rep —'}</td>
                     <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(c.set_revenue)}</td>
                     <td
                       className="mn"

@@ -45,7 +45,7 @@ export function InactiveCustomersReport() {
   if (!rows) return <div className="ld">Loading…</div>;
 
   const totalLost = rows.reduce((s, r) => s + Number(r.prior_revenue || 0), 0);
-  const withRep = rows.filter((r) => r.primary_sales_rep).length;
+  const withChannel = rows.filter((r) => r.primary_channel).length;
   const biggest = rows[0];
 
   return (
@@ -68,9 +68,9 @@ export function InactiveCustomersReport() {
           sub={biggest?.customer_name ?? ''}
         />
         <KPICard
-          title="WITH SALES REP"
-          value={withRep}
-          sub="have an assigned rep to call"
+          title="WITH CHANNEL"
+          value={withChannel}
+          sub="have a classified channel"
         />
       </div>
 
@@ -124,7 +124,6 @@ export function InactiveCustomersReport() {
                 <tr>
                   <th>Customer</th>
                   <th>Channel</th>
-                  <th>Sales Rep</th>
                   <th>State</th>
                   <th style={{ textAlign: 'right' }}>Prior Rev</th>
                   <th style={{ textAlign: 'right' }}>Current Rev</th>
@@ -146,7 +145,6 @@ export function InactiveCustomersReport() {
                       <CustomerLink qboCustomerId={r.qbo_customer_id} name={r.customer_name} />
                     </td>
                     <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_sales_rep ?? '— no rep —'}</td>
                     <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>{r.bill_state ?? '—'}</td>
                     <td className="mn" style={{ textAlign: 'right', fontWeight: 600, color: 'var(--am)' }}>
                       {fm(r.prior_revenue)}
