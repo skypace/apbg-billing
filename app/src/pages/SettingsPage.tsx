@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { TaxonomyEditor } from './settings/TaxonomyEditor';
 import { ItemSetsEditor } from './settings/ItemSetsEditor';
 import { DigestEditor } from './settings/DigestEditor';
+import { ExpenseBucketsEditor } from './settings/ExpenseBucketsEditor';
+import { UsersEditor } from './settings/UsersEditor';
+import { CustomerClassificationEditor } from './settings/CustomerClassificationEditor';
 import {
   deleteChannel,
   deleteSegment,
@@ -90,19 +93,11 @@ export function SettingsPage() {
         />
       )}
 
-      {tab === 'item_sets'  && <ItemSetsEditor />}
-      {tab === 'digest'     && <DigestEditor />}
-
-      {(tab === 'classification' || tab === 'expense_buckets' || tab === 'users') && (
-        <div className="cd" style={{ padding: 18 }}>
-          <div className="ct" style={{ margin: '0 0 6px' }}>{TABS.find((t) => t.id === tab)?.label}</div>
-          <div style={{ fontSize: 12, color: 'var(--mt)' }}>
-            This editor isn't ported to the new app yet. Use the legacy{' '}
-            <a href={'/sales/#settings'}>/sales/#settings</a> page for now — the data and behavior
-            are identical.
-          </div>
-        </div>
-      )}
+      {tab === 'item_sets'       && <ItemSetsEditor />}
+      {tab === 'digest'          && <DigestEditor />}
+      {tab === 'classification'  && <CustomerClassificationEditor />}
+      {tab === 'expense_buckets' && <ExpenseBucketsEditor />}
+      {tab === 'users'           && <UsersEditor />}
     </div>
   );
 }

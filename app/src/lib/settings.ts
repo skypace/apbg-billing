@@ -1,6 +1,7 @@
 // Typed wrappers for the Settings tables. These are plain CRUD via
 // PostgREST — no RPCs needed since the rows are flat.
-import { sbDelete, sbInsert, sbUpdate, sbq } from './rpc';
+import { sbDelete, sbInsert, sbUpdate, sbq, sbrpc } from './rpc';
+import { SB_KEY, SB_URL, _sbToken } from './supabase';
 
 export interface Channel {
   channel_code: string;
@@ -98,3 +99,115 @@ export const deleteDigestSubscription = (id: string) =>
   sbDelete('digest_subscriptions', 'id=eq.' + id);
 export const fetchDigestLog = (limit = 30) =>
   sbq<DigestLogRow>('digest_log', 'select=*&order=sent_at.desc&limit=' + limit);
+
+// ----- Expense Buckets -----
+
+export interface ExpenseBucketType {
+  bucket_code: string;
+  label: string;
+  sort_order: number | null;
+}
+
+export interface PlAccount {
+  account_name: string;
+  account_type: string | null;
+  total: number | null;
+  bucket_code: string;
+  bucket_assigned: boolean;
+}
+
+export const fetchExpenseBucketTypes = () =>
+  sbq<ExpenseBucketType>('expense_bucket_types', 'select=*&order=sort_order,label');
+
+export const fetchPlAccounts = (start: string, end: string) =>
+  sbrpc<PlAccount[]>('fn_list_pl_accounts', { p_start: start, p_end: end });
+
+export const setAccountBucket = (account_name: string, bucket_code: string) =>
+  sbrpc('fn_set_account_bucket', { p_account_name: account_name, p_bucket_code: bucket_code || 'oh' });
+
+// ----- Users (admin-users edge function) -----
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string | null;
+  last_sign_in_at: string | null;
+  confirmed_at: string | null;
+}
+
+export interface UserRole {
+  value: string;
+  label: string;
+}
+
+async function adminUsersCall<T>(
+  action: string,
+  body?: Record<string, unknown>,
+  method?: 'GET' | 'POST' | 'DELETE',
+): Promise<T> {
+  const token = await _sbToken();
+  const url = SB_URL + '/functions/v1/admin-users' + (action ? '?action=' + action : '');
+  const res = await fetch(url, {
+    method: method || (body ? 'POST' : 'GET'),
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+export const adminUsersList = () => adminUsersCall<{ ok: boolean; users?: AdminUser[]; error?: string }>('list');
+export const adminUsersRoles = () => adminUsersCall<{ ok: boolean; roles?: UserRole[]; error?: string }>('roles');
+export const adminUsersInvite = (payload: { email: string; name?: string; role: string }) =>
+  adminUsersCall<{ ok: boolean; error?: string }>('invite', payload);
+export const adminUsersUpdateRole = (id: string, role: string) =>
+  adminUsersCall<{ ok: boolean; error?: string }>('update_role', { id, role });
+export const adminUsersDelete = (id: string) =>
+  adminUsersCall<{ ok: boolean; error?: string }>('delete', { id }, 'DELETE');
+
+// ----- Customer Classification (customer ↔ channel M:N) -----
+
+export interface CustomerClassificationRow {
+  qbo_customer_id: string;
+  display_name: string;
+  is_sub_customer: boolean;
+  active: boolean;
+  state: string | null;
+  customer_type_name: string | null;
+  ytd_revenue: number;
+  invoice_count: number;
+  channels: string[] | null;
+  primary_channel: string | null;
+}
+
+export const fetchCustomerClassificationList = (opts: {
+  search?: string;
+  channel?: string;
+  start: string;
+  end: string;
+  limit?: number;
+  offset?: number;
+}) =>
+  sbrpc<CustomerClassificationRow[]>('fn_customer_classification_list', {
+    p_search: opts.search ?? null,
+    p_channel: opts.channel ?? null,
+    p_start: opts.start,
+    p_end: opts.end,
+    p_limit: opts.limit ?? 200,
+    p_offset: opts.offset ?? 0,
+  });
+
+export const setCustomerChannels = (
+  qbo_customer_id: string,
+  channel_labels: string[],
+  primary_label: string | null,
+) =>
+  sbrpc('fn_set_customer_channels', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_channel_labels: channel_labels,
+    p_primary_label: primary_label,
+  });
