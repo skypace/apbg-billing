@@ -1,6 +1,6 @@
 {
   "$comment": "Snapshot of base tables in the ops.* schema, captured on 2026-05-05 from the live Supabase project (gfsdpwiqzshhexkofiif). The lint script compares this list against sync-manifest.json to detect drift. Regenerate with: node architecture/refresh-snapshot.mjs (TODO).",
-  "captured_at": "2026-05-05",
+  "captured_at": "2026-05-06",
   "schema": "ops",
   "tables": [
     "alert_settings",
@@ -38,12 +38,10 @@
     "item_set_items",
     "item_sets",
     "kpi_daily",
-    "kpi_embeddings",
     "pl_snapshots",
     "qbo_customers",
     "qbo_employees_cache",
     "qbo_expense_lines",
-    "qbo_expenses",
     "qbo_inventory_adjustment_lines",
     "qbo_inventory_adjustments",
     "qbo_invoice_lines",
