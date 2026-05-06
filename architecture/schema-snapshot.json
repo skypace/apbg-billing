@@ -1,5 +1,5 @@
 {
-  "$comment": "Snapshot of base tables in the ops.* schema, captured on 2026-05-05 from the live Supabase project (gfsdpwiqzshhexkofiif). The lint script compares this list against sync-manifest.json to detect drift. Regenerate with: node architecture/refresh-snapshot.mjs (TODO).",
+  "$comment": "Snapshot of base tables in the ops.* schema, captured from the live Supabase project (gfsdpwiqzshhexkofiif). The lint script compares this list against sync-manifest.json to detect drift. Refresh with: node architecture/refresh-snapshot.mjs",
   "captured_at": "2026-05-06",
   "schema": "ops",
   "tables": [
@@ -8,11 +8,9 @@
     "category_segments",
     "channels",
     "cogs_accounts",
-    "commission_rules",
     "crm_deals",
     "customer_channels",
     "customer_health_snapshots",
-    "customer_sales_reps",
     "dashboard_settings",
     "db_health_snapshots",
     "delivery_stops",
@@ -54,7 +52,6 @@
     "role_types",
     "sales_plan_lines",
     "sales_plans",
-    "sales_reps",
     "saved_views",
     "segments",
     "service_jobs",
