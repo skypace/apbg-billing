@@ -45,7 +45,15 @@ node architecture/lint-manifest.mjs
 
 ### Refreshing the snapshot
 
-Today this is manual: query `information_schema.tables` against the live Supabase project and replace the `tables` array in `schema-snapshot.json`. The snapshot for 2026-05-05 was captured via:
+Run the helper after any migration that creates or drops an `ops.*` table:
+
+```bash
+node architecture/refresh-snapshot.mjs
+```
+
+It calls the `ops.fn_list_ops_tables()` SECURITY DEFINER RPC (anon-callable; introspection only) and rewrites `schema-snapshot.json` with today's date. Prints a diff: tables added, tables removed. Flags any manifest entries (writers or orphans) that reference removed tables so you know to clean them up before the lint runs.
+
+Manual fallback (no Node, no anon key) — query `information_schema.tables` against the live Supabase project and replace the `tables` array in `schema-snapshot.json` directly:
 
 ```sql
 SELECT table_name
@@ -53,8 +61,6 @@ FROM information_schema.tables
 WHERE table_schema = 'ops' AND table_type = 'BASE TABLE'
 ORDER BY table_name;
 ```
-
-A `refresh-snapshot.mjs` helper (TODO) would automate this with a service-role key.
 
 ## Out of scope (intentional)
 
