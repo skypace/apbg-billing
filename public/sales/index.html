@@ -401,7 +401,6 @@ var STACK_DIMS = [
   {id:'segment',  label:'Segment'},
   {id:'channel',  label:'Channel'},
   {id:'category', label:'Category'},
-  {id:'sales_rep',label:'Sales Rep'},
   {id:'entity',   label:'Entity'},
   {id:'month',    label:'Month'}
 ];
@@ -439,8 +438,7 @@ function StackedView(props) {
   }, [dim, effectiveStack, props.start, props.end,
       (props.entities||[]).join('|'), (props.categories||[]).join('|'),
       (props.customers||[]).join('|'), (props.items||[]).join('|'),
-      (props.channels||[]).join('|'), (props.segments||[]).join('|'),
-      (props.sales_reps||[]).join('|')]);
+      (props.channels||[]).join('|'), (props.segments||[]).join('|')]);
 
   var stackLabels = [];
   var rowsByDim = {};
@@ -654,8 +652,7 @@ function PeriodsView(props) {
       props.dim,
       (props.entities||[]).join('|'), (props.categories||[]).join('|'),
       (props.customers||[]).join('|'), (props.items||[]).join('|'),
-      (props.channels||[]).join('|'), (props.segments||[]).join('|'),
-      (props.sales_reps||[]).join('|')]);
+      (props.channels||[]).join('|'), (props.segments||[]).join('|')]);
 
   function valOf(row) {
     if (!row) return 0;
@@ -902,7 +899,7 @@ function MarginPage() {
 
   var fState = React.useState({
     start: ytdStart, end: todayStr,
-    entities: [], categories: [], customers: [], items: [], channels: [], segments: [], sales_reps: []
+    entities: [], categories: [], customers: [], items: [], channels: [], segments: []
   });
   var f = fState[0], setF = fState[1];
   var dState = React.useState('category');
@@ -917,7 +914,7 @@ function MarginPage() {
   var loading = lState[0], setLoading = lState[1];
   var syncState = React.useState(null);
   var syncInfo = syncState[0], setSyncInfo = syncState[1];
-  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: [], sales_rep: []});
+  var dimVals = React.useState({entity: [], category: [], customer: [], item: [], channel: [], segment: []});
   var values = dimVals[0], setValues = dimVals[1];
   var drState = React.useState(null);
   var drillState = drState[0], setDrill = drState[1];
@@ -1017,7 +1014,7 @@ function MarginPage() {
       setTot((res[1] && res[1][0]) || null);
       setLoading(false);
     });
-  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|'), f.segments.join('|'), f.sales_reps.join('|')]);
+  }, [dim, compare, f.start, f.end, f.entities.join('|'), f.categories.join('|'), f.customers.join('|'), f.items.join('|'), f.channels.join('|'), f.segments.join('|')]);
 
   React.useEffect(function() {
     sbq('qbo_items', 'select=synced_at,purchase_cost&order=synced_at.desc&limit=1')
@@ -1065,7 +1062,7 @@ function MarginPage() {
   }, [f.start, f.end]);
 
   React.useEffect(function() {
-    var dims = ['entity','category','customer','item','channel','segment','sales_rep'];
+    var dims = ['entity','category','customer','item','channel','segment'];
     Promise.all(dims.map(function(d) {
       return sbrpc('fn_sales_dim_values', {p_dim: d, p_start: f.start, p_end: f.end, p_limit: 2000});
     })).then(function(res) {
@@ -1089,7 +1086,7 @@ function MarginPage() {
     var n = Object.assign({}, f); n[listKey] = (f[listKey] || []).filter(function(x){return x !== label}); setF(n);
   }
   function clearAllFilters() {
-    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[], segments:[], sales_reps:[]}));
+    setF(Object.assign({}, f, {entities:[], categories:[], customers:[], items:[], channels:[], segments:[]}));
   }
   function drill(row) {
     if (dim === 'month') return;
@@ -1119,7 +1116,6 @@ function MarginPage() {
   var DIMS = [
     {id:'segment', label:'Segment'},
     {id:'channel', label:'Channel'},
-    {id:'sales_rep', label:'Sales Rep'},
     {id:'category', label:'Category'},
     {id:'item', label:'Item'},
     {id:'customer', label:'Customer'},
@@ -1129,14 +1125,13 @@ function MarginPage() {
   var FILTER_DIMS = [
     {id:'segment', label:'Segments', listKey:'segments'},
     {id:'channel', label:'Channels', listKey:'channels'},
-    {id:'sales_rep', label:'Sales Reps', listKey:'sales_reps'},
     {id:'category', label:'Categories', listKey:'categories'},
     {id:'item', label:'Items', listKey:'items'},
     {id:'customer', label:'Customers', listKey:'customers'},
     {id:'entity', label:'Entities', listKey:'entities'}
   ];
 
-  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length + f.segments.length + f.sales_reps.length;
+  var activeFilterCount = f.entities.length + f.categories.length + f.customers.length + f.items.length + f.channels.length + f.segments.length;
 
   var filterBar = React.createElement('div', {className:'cd', style:{marginBottom:12, padding:'12px 14px'}},
     React.createElement('div', {style:{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', fontSize:11}},
@@ -1500,14 +1495,12 @@ function MarginPage() {
       : viewMode === 'periods' ? React.createElement(PeriodsView, {
           dim: dim, headerLabel: headerLabel,
           entities: f.entities, categories: f.categories, customers: f.customers,
-          items: f.items, channels: f.channels, segments: f.segments,
-          sales_reps: f.sales_reps
+          items: f.items, channels: f.channels, segments: f.segments
         })
       : viewMode === 'stack' ? React.createElement(StackedView, {
           dim: dim, headerLabel: headerLabel, start: f.start, end: f.end,
           entities: f.entities, categories: f.categories, customers: f.customers,
-          items: f.items, channels: f.channels, segments: f.segments,
-          sales_reps: f.sales_reps
+          items: f.items, channels: f.channels, segments: f.segments
         })
       : chartView,
     drillState ? React.createElement(DrillModal, {state: drillState, onClose: function(){ setDrill(null) }}) : null
@@ -1641,8 +1634,7 @@ function DrillModal(props) {
 
 function parseClassifyCsv(text) {
   // Header-aware parser. Required: customer_id OR customer_name.
-  // Optional: channel (or channels comma-list), primary_channel,
-  //           sales_rep (or sales_reps comma-list), primary_sales_rep.
+  // Optional: channel (or channels comma-list), primary_channel.
   var lines = text.split(/\r?\n/).filter(function(l){ return l.trim() });
   if (lines.length === 0) return {error: 'empty input', rows: []};
   function splitRow(row) {
@@ -1665,8 +1657,6 @@ function parseClassifyCsv(text) {
   var iName    = idx(['customer_name','customer','name','display_name']);
   var iCh      = idx(['channels','channel']);
   var iPrimCh  = idx(['primary_channel']);
-  var iRep     = idx(['sales_reps','sales_rep','rep']);
-  var iPrimRep = idx(['primary_sales_rep','primary_rep']);
   if (iId < 0 && iName < 0) return {error: 'CSV needs a qbo_customer_id or customer_name column', rows: []};
   var rows = [];
   for (var li = 1; li < lines.length; li++) {
@@ -1675,9 +1665,7 @@ function parseClassifyCsv(text) {
       id: iId >= 0 ? c[iId] : null,
       name: iName >= 0 ? c[iName] : null,
       channels: iCh >= 0 ? c[iCh].split(/\s*[;|]\s*|\s*,\s*/).filter(Boolean) : null,
-      primary_channel: iPrimCh >= 0 ? c[iPrimCh] : null,
-      sales_reps: iRep >= 0 ? c[iRep].split(/\s*[;|]\s*|\s*,\s*/).filter(Boolean) : null,
-      primary_sales_rep: iPrimRep >= 0 ? c[iPrimRep] : null
+      primary_channel: iPrimCh >= 0 ? c[iPrimCh] : null
     };
     rows.push(raw);
   }
@@ -1748,14 +1736,14 @@ function BulkClassifyModal(props) {
         React.createElement('div', null,
           React.createElement('div', {style:{fontWeight:700, fontSize:14}}, 'Bulk Classify Customers'),
           React.createElement('div', {style:{fontSize:11, color:'var(--mt)', marginTop:2}},
-            'CSV columns (any subset): qbo_customer_id | customer_name | channels | primary_channel | sales_reps | primary_sales_rep. Multi-value cells separated by ; or |. Headers are case-insensitive.')),
+            'CSV columns (any subset): qbo_customer_id | customer_name | channels | primary_channel. Multi-value cells separated by ; or |. Headers are case-insensitive.')),
         React.createElement('button', {onClick: close, style: btnSecondary()}, 'CLOSE')
       ),
       React.createElement('div', {style:{flex:1, overflow:'auto', padding:'12px 18px'}},
         React.createElement('textarea', {
           value: s.text,
           onChange: function(e){ props.setState(Object.assign({}, s, {text: e.target.value, parsed: null, results: null})) },
-          placeholder: 'qbo_customer_id,channels,primary_channel,sales_reps\n123,Vending;Chain QSR,Vending,Sky Pace\n…',
+          placeholder: 'qbo_customer_id,channels,primary_channel\n123,Vending;Chain QSR,Vending\n…',
           style: Object.assign({}, inp(), {width:'100%', minHeight:160, fontFamily:'monospace', fontSize:11, resize:'vertical'})
         }),
         s.parsed && s.parsed.error ? React.createElement('div', {style:{color:'var(--rd)', fontSize:11, marginTop:8}}, s.parsed.error) : null,
@@ -1767,9 +1755,7 @@ function BulkClassifyModal(props) {
                 React.createElement('th', null, 'Customer'),
                 React.createElement('th', null, 'Match'),
                 React.createElement('th', null, 'Channels'),
-                React.createElement('th', null, 'Primary Ch'),
-                React.createElement('th', null, 'Sales Reps'),
-                React.createElement('th', null, 'Primary Rep'))),
+                React.createElement('th', null, 'Primary Ch'))),
               React.createElement('tbody', null, s.parsed.rows.slice(0, 200).map(function(r, i) {
                 var resolved = resolveCustomer(r);
                 var matchLabel = resolved ? '✓ ' + (custMap.byId[resolved] || resolved) : '✗ no match';
@@ -1777,9 +1763,7 @@ function BulkClassifyModal(props) {
                   React.createElement('td', {style:{fontSize:10}}, r.name || r.id || '—'),
                   React.createElement('td', {style:{fontSize:10, color: resolved ? 'var(--gn)' : 'var(--rd)'}}, matchLabel),
                   React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, (r.channels || []).join(', ')),
-                  React.createElement('td', {style:{fontSize:10}}, r.primary_channel || ''),
-                  React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, (r.sales_reps || []).join(', ')),
-                  React.createElement('td', {style:{fontSize:10}}, r.primary_sales_rep || ''));
+                  React.createElement('td', {style:{fontSize:10}}, r.primary_channel || ''));
               })))
           )
         ) : null,
@@ -1792,7 +1776,7 @@ function BulkClassifyModal(props) {
       React.createElement('div', {style:{padding:'10px 18px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, justifyContent:'flex-end'}},
         React.createElement('button', {onClick: parse, style: btnSecondary()}, 'PARSE'),
         React.createElement('button', {onClick: function(){ apply(true) }, disabled: !s.parsed || s.parsed.error || s.applying, style: btnSecondary()}, s.applying ? '…' : 'DRY RUN'),
-        React.createElement('button', {onClick: function(){ if (confirm('Apply to ' + s.parsed.rows.length + ' rows? This writes to channels and reps.')) apply(false) }, disabled: !s.parsed || s.parsed.error || s.applying, style: btnPrimary()}, s.applying ? '…' : 'APPLY'),
+        React.createElement('button', {onClick: function(){ if (confirm('Apply to ' + s.parsed.rows.length + ' rows? This writes to channels.')) apply(false) }, disabled: !s.parsed || s.parsed.error || s.applying, style: btnPrimary()}, s.applying ? '…' : 'APPLY'),
         s.results && !s.results.dryRun ? React.createElement('button', {onClick: props.onDone, style: btnPrimary()}, 'DONE') : null
       )
     )
@@ -1812,8 +1796,6 @@ function CustomersPage() {
   var saving = savingState[0], setSaving = savingState[1];
   var chOptsState = React.useState([]);
   var chOpts = chOptsState[0], setChOpts = chOptsState[1];
-  var repOptsState = React.useState([]);
-  var repOpts = repOptsState[0], setRepOpts = repOptsState[1];
   var healthState = React.useState({});
   var health = healthState[0], setHealth = healthState[1];
   var importState = React.useState(null);   // null | {text, parsed, applying, results}
@@ -1825,7 +1807,6 @@ function CustomersPage() {
       sbrpc('fn_customer_health', {p_window_days: 365})
     ]).then(function(res) {
       setChOpts((res[0] || []).map(function(r){return r.label}));
-      setRepOpts([]);
       var h = {};
       (res[1] || []).forEach(function(r){ h[r.qbo_customer_id] = r });
       setHealth(h);
@@ -1861,24 +1842,6 @@ function CustomersPage() {
         return (prev || []).map(function(r) {
           if (r.qbo_customer_id !== custId) return r;
           return Object.assign({}, r, {channels: labels, primary_channel: primaryLabel});
-        });
-      });
-    }).finally(function() {
-      setSaving(function(prev){ var n = Object.assign({}, prev); delete n[custId]; return n });
-    });
-  }
-
-  function saveReps(custId, names, primaryName) {
-    setSaving(function(prev){ var n = Object.assign({}, prev); n[custId] = true; return n });
-    sbrpc('fn_set_customer_sales_reps', {
-      p_qbo_customer_id: custId,
-      p_rep_names: names,
-      p_primary_name: primaryName || null
-    }).then(function() {
-      setRows(function(prev) {
-        return (prev || []).map(function(r) {
-          if (r.qbo_customer_id !== custId) return r;
-          return Object.assign({}, r, {sales_reps: names, primary_sales_rep: primaryName});
         });
       });
     }).finally(function() {
@@ -1932,7 +1895,7 @@ function CustomersPage() {
     ),
     importer ? React.createElement(BulkClassifyModal, {
       state: importer, setState: setImporter,
-      chOpts: chOpts, repOpts: repOpts,
+      chOpts: chOpts,
       onDone: function(){ setImporter(null); reload() }
     }) : null,
     React.createElement('div', {className:'cd', style:{padding:0}},
@@ -1945,20 +1908,16 @@ function CustomersPage() {
             React.createElement('th', {style:{textAlign:'right', whiteSpace:'nowrap'}}, 'YTD Rev'),
             React.createElement('th', {style:{textAlign:'right'}}, 'Inv'),
             React.createElement('th', null, 'Channels'),
-            React.createElement('th', null, 'Primary Channel'),
-            React.createElement('th', null, 'Sales Reps'),
-            React.createElement('th', null, 'Primary Rep')
+            React.createElement('th', null, 'Primary Channel')
           )),
           React.createElement('tbody', null, (rows || []).map(function(r) {
             return React.createElement(CustomerRow, {
               key: r.qbo_customer_id,
               row: r,
               chOpts: chOpts,
-              repOpts: repOpts,
               health: health[r.qbo_customer_id],
               isSaving: !!saving[r.qbo_customer_id],
-              onSaveChannels: saveChannels,
-              onSaveReps: saveReps
+              onSaveChannels: saveChannels
             });
           }))
         )
@@ -1971,18 +1930,11 @@ function CustomerRow(props) {
   var r = props.row;
   var chs = r.channels || [];
   var primaryCh = r.primary_channel || (chs[0] || null);
-  var reps = r.sales_reps || [];
-  var primaryRep = r.primary_sales_rep || (reps[0] || null);
 
   function setChs(newLabels, newPrimary) {
     var p = newPrimary;
     if (p && newLabels.indexOf(p) < 0) p = newLabels[0] || null;
     props.onSaveChannels(r.qbo_customer_id, newLabels, p);
-  }
-  function setReps(newNames, newPrimary) {
-    var p = newPrimary;
-    if (p && newNames.indexOf(p) < 0) p = newNames[0] || null;
-    props.onSaveReps(r.qbo_customer_id, newNames, p);
   }
 
   return React.createElement('tr', {style:{opacity: props.isSaving ? 0.6 : 1}},
@@ -2014,25 +1966,6 @@ function CustomerRow(props) {
             onChange: function(e) { setChs(chs, e.target.value || null) },
             style: Object.assign({}, inp(), {width:'100%'})
           }, chs.map(function(l){ return React.createElement('option', {key:l, value:l}, l) }))
-    ),
-    React.createElement('td', {style:{minWidth:200, maxWidth:300}},
-      React.createElement(MultiPicker, {
-        label:'Reps', options: props.repOpts || [], selected: reps,
-        onAdd: function(v) { setReps(reps.concat([v]), primaryRep || v) },
-        onRemove: function(v) {
-          var nl = reps.filter(function(x){return x !== v});
-          var np = primaryRep === v ? (nl[0] || null) : primaryRep;
-          setReps(nl, np);
-        }
-      })
-    ),
-    React.createElement('td', {style:{minWidth:130}},
-      reps.length === 0 ? React.createElement('span', {style:{color:'var(--mt)', fontSize:11}}, '\u2014')
-        : React.createElement('select', {
-            value: primaryRep || '',
-            onChange: function(e) { setReps(reps, e.target.value || null) },
-            style: Object.assign({}, inp(), {width:'100%'})
-          }, reps.map(function(n){ return React.createElement('option', {key:n, value:n}, n) }))
     )
   );
 }
@@ -2044,7 +1977,6 @@ function CustomerRow(props) {
 var SETTINGS_TABS = [
   {id:'channels',   label:'Channels'},
   {id:'segments',   label:'Segments'},
-  {id:'reps',       label:'Sales Reps'},
   {id:'categories', label:'Category → Segment'},
   {id:'products',   label:'Products'},
   {id:'item_sets',  label:'Item Sets'},
@@ -2080,7 +2012,6 @@ function SettingsPage() {
     tab === 'channels'   ? React.createElement(ChannelsEditor)
     : tab === 'segments'   ? React.createElement(SegmentsEditor)
     : tab === 'categories' ? React.createElement(CategoryMapEditor)
-    : tab === 'reps'       ? React.createElement(SalesRepsEditor)
     : tab === 'products'   ? React.createElement(ProductsEditor)
     : tab === 'item_sets'  ? React.createElement(ItemSetsEditor)
     : tab === 'buckets'    ? React.createElement(BucketsEditor)
@@ -2281,71 +2212,6 @@ function CategoryMapEditor() {
           )
         );
       }))
-    )
-  );
-}
-
-// ----- Sales Reps editor -----
-function SalesRepsEditor() {
-  var rState = React.useState(null);
-  var rows = rState[0], setRows = rState[1];
-  var nState = React.useState({code:'', name:'', email:'', sort_order:''});
-  var nu = nState[0], setNu = nState[1];
-
-  function load() {
-    sbq('sales_reps', 'select=*&order=sort_order').then(function(rs){ setRows(rs || []) });
-  }
-  React.useEffect(load, []);
-
-  function save(code, patch) { sbUpdate('sales_reps', 'rep_code=eq.' + encodeURIComponent(code), patch).then(load); }
-  function addNew() {
-    if (!nu.code || !nu.name) return alert('code and name required');
-    sbInsert('sales_reps', {
-      rep_code: nu.code.trim(), name: nu.name.trim(), email: nu.email.trim() || null,
-      sort_order: nu.sort_order ? Number(nu.sort_order) : 100, is_active: true
-    }).then(function(){ setNu({code:'', name:'', email:'', sort_order:''}); load() });
-  }
-  function del(code) {
-    if (!confirm('Delete sales rep "' + code + '"? Will fail if any customers are still assigned.')) return;
-    sbDelete('sales_reps', 'rep_code=eq.' + encodeURIComponent(code)).then(load);
-  }
-
-  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading…');
-
-  return React.createElement('div', {className:'cd', style:{padding:0}},
-    React.createElement('div', {style:{padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between'}},
-      React.createElement('div', {className:'ct', style:{margin:0}}, 'SALES REPS — ' + rows.length),
-      React.createElement('div', {style:{fontSize:10, color:'var(--mt)'}}, 'assign customers to reps in Customers tab')
-    ),
-    React.createElement('table', null,
-      React.createElement('thead', null, React.createElement('tr', null,
-        React.createElement('th', null, 'Code'),
-        React.createElement('th', null, 'Name'),
-        React.createElement('th', null, 'Email'),
-        React.createElement('th', {style:{textAlign:'right'}}, 'Sort'),
-        React.createElement('th', {style:{textAlign:'center'}}, 'Active'),
-        React.createElement('th', null, '')
-      )),
-      React.createElement('tbody', null,
-        rows.map(function(r) {
-          return React.createElement('tr', {key:r.rep_code},
-            React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.rep_code),
-            React.createElement('td', null, React.createElement(InlineText, {value:r.name, onSave: function(v){ save(r.rep_code, {name:v}) }})),
-            React.createElement('td', null, React.createElement(InlineText, {value: r.email || '', onSave: function(v){ save(r.rep_code, {email: v || null}) }})),
-            React.createElement('td', {style:{textAlign:'right'}}, React.createElement(InlineNum, {value:r.sort_order, onSave: function(v){ save(r.rep_code, {sort_order:v}) }})),
-            React.createElement('td', {style:{textAlign:'center'}}, React.createElement('input', {type:'checkbox', checked:r.is_active, onChange: function(e){ save(r.rep_code, {is_active: e.target.checked}) }})),
-            React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: function(){ del(r.rep_code) }, style:btnDanger()}, '×'))
-          );
-        }),
-        React.createElement('tr', {style:{background:'var(--sf2)'}},
-          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'new_code', value:nu.code, onChange:function(e){ setNu(Object.assign({}, nu, {code:e.target.value})) }, style:inp()})),
-          React.createElement('td', null, React.createElement('input', {type:'text', placeholder:'Full Name', value:nu.name, onChange:function(e){ setNu(Object.assign({}, nu, {name:e.target.value})) }, style:inp()})),
-          React.createElement('td', null, React.createElement('input', {type:'email', placeholder:'email@…', value:nu.email, onChange:function(e){ setNu(Object.assign({}, nu, {email:e.target.value})) }, style:inp()})),
-          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('input', {type:'number', placeholder:'100', value:nu.sort_order, onChange:function(e){ setNu(Object.assign({}, nu, {sort_order:e.target.value})) }, style:Object.assign({}, inp(), {width:60})})),
-          React.createElement('td', null),
-          React.createElement('td', {style:{textAlign:'right'}}, React.createElement('button', {onClick: addNew, style:btnPrimary()}, '+ ADD'))
-        )
-      )
     )
   );
 }
@@ -3424,7 +3290,7 @@ function InactiveCustomersReport() {
       React.createElement(C, {title:'INACTIVE CUSTOMERS', value: rows.length, accent: rows.length > 0 ? 'var(--am)' : 'var(--gn)'}),
       React.createElement(C, {title:'PRIOR REV AT RISK', value: fm(totalLost), accent:'var(--am)', sub:'revenue from prior period not repeating'}),
       React.createElement(C, {title:'BIGGEST LOSS', value: rows[0] ? fm(rows[0].prior_revenue) : '-', sub: rows[0] ? rows[0].customer_name : ''}),
-      React.createElement(C, {title:'WITH SALES REP', value: rows.filter(function(r){return r.primary_sales_rep}).length, sub:'have an assigned rep to call'})
+      React.createElement(C, {title:'WITH CHANNEL', value: rows.filter(function(r){return r.primary_channel}).length, sub:'have a classified channel'})
     ),
     React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
       React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Prior'),
@@ -3448,7 +3314,6 @@ function InactiveCustomersReport() {
           React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
             React.createElement('th', null, 'Customer'),
             React.createElement('th', null, 'Channel'),
-            React.createElement('th', null, 'Sales Rep'),
             React.createElement('th', null, 'State'),
             React.createElement('th', {style:{textAlign:'right'}}, 'Prior Rev'),
             React.createElement('th', {style:{textAlign:'right'}}, 'Current Rev'),
@@ -3458,7 +3323,6 @@ function InactiveCustomersReport() {
             return React.createElement('tr', {key:r.qbo_customer_id},
               React.createElement('td', {style:{fontWeight:600, maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.customer_name),
               React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
-              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
               React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.bill_state || '—'),
               React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--am)'}}, fm(r.prior_revenue)),
               React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.current_revenue)),
@@ -3609,7 +3473,6 @@ function HealthMoversReport() {
           React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
             React.createElement('th', null, 'Customer'),
             React.createElement('th', null, 'Channel'),
-            React.createElement('th', null, 'Rep'),
             React.createElement('th', null, 'Was'),
             React.createElement('th', null, 'Now'),
             React.createElement('th', {style:{textAlign:'right'}}, 'RFM Δ'),
@@ -3620,7 +3483,6 @@ function HealthMoversReport() {
             return React.createElement('tr', {key:r.qbo_customer_id},
               React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
               React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
-              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
               React.createElement('td', null, segmentChip(r.prev_segment)),
               React.createElement('td', null, segmentChip(r.curr_segment)),
               deltaCell(r.rfm_total_delta),
@@ -3690,7 +3552,7 @@ function VoidsReport() {
     if (!byCustomer[r.qbo_customer_id]) {
       byCustomer[r.qbo_customer_id] = {
         id: r.qbo_customer_id, name: r.customer_name,
-        channel: r.primary_channel, rep: r.primary_sales_rep,
+        channel: r.primary_channel,
         set_revenue: Number(r.customer_set_revenue || 0),
         items_bought: r.customer_set_items_count,
         set_total: r.set_total_items,
@@ -3763,8 +3625,7 @@ function VoidsReport() {
                 }
                 return React.createElement('td', {key: it.id, style:{textAlign:'center', background:'rgba(248,113,113,0.06)', color:'var(--rd)', fontSize:11}}, '×');
               }),
-              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.channel || '—'),
-              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.rep || '— no rep —')
+              React.createElement('td', {style:{fontSize:10, color:'var(--mt)'}}, c.channel || '—')
             );
           }))
         )
@@ -3835,7 +3696,6 @@ function AnomaliesReport() {
             return React.createElement('tr', {key:r.qbo_customer_id},
               React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
               React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
-              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_sales_rep || '— no rep —'),
               React.createElement('td', null,
                 React.createElement('span', {style:{
                   background:'rgba(255,255,255,0.04)', color:dirColor, border:'1px solid '+dirColor,
@@ -4560,7 +4420,7 @@ function CustomerDetailPage(props) {
           '<div><h1>' + s.customer_name + '</h1>',
           '<div style="font-size:11px;color:#64748b;margin-top:3px">',
             (s.bill_city || ''), s.bill_city && s.bill_state ? ', ' : '', (s.bill_state || ''),
-            ' · ', (s.primary_channel || 'no channel'), ' · rep: ', (s.primary_sales_rep || 'unassigned'),
+            ' · ', (s.primary_channel || 'no channel'),
           '</div></div>',
           '<div><span class="seg">' + (s.rfm_segment || 'unscored').toUpperCase() + '</span>',
           '<div style="font-size:10px;color:#64748b;margin-top:4px;text-align:right">RFM ' + (s.rfm_total != null ? s.rfm_total : '-') + '/15  ·  R' + (s.r_score||'-') + ' F' + (s.f_score||'-') + ' M' + (s.m_score||'-') + '</div></div>',
@@ -4599,8 +4459,8 @@ function CustomerDetailPage(props) {
 
     React.createElement('div', {className:'cd', style:{padding:'12px 14px', marginBottom:12, display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:14}},
       React.createElement('div', null,
-        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Channel · Sales Rep'),
-        React.createElement('div', {style:{fontSize:13, marginTop:3}}, (detail.primary_channel || '— no channel —') + ' · ' + (detail.primary_sales_rep || '— no rep —')),
+        React.createElement('div', {style:{fontSize:9, color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Channel'),
+        React.createElement('div', {style:{fontSize:13, marginTop:3}}, detail.primary_channel || '— no channel —'),
         (detail.all_channels || []).length > 1 ? React.createElement('div', {style:{fontSize:10, color:'var(--mt)', marginTop:2}}, '+ ' + ((detail.all_channels.length || 0) - 1) + ' more channel(s)') : null
       ),
       React.createElement('div', null,
@@ -5223,214 +5083,6 @@ function PlanVsActuals(props) {
   );
 }
 
-function RepsPage() {
-  var today = new Date();
-  var ytdStart = today.getFullYear() + '-01-01';
-  var todayStr = today.toISOString().slice(0,10);
-  var fState = React.useState({start: ytdStart, end: todayStr});
-  var f = fState[0], setF = fState[1];
-  var rState = React.useState(null);
-  var rows = rState[0], setRows = rState[1];
-  var rulesState = React.useState({});
-  var rules = rulesState[0], setRules = rulesState[1];
-  var activeState = React.useState(null);
-  var active = activeState[0], setActive = activeState[1];
-  var msgState = React.useState('');
-  var msg = msgState[0], setMsg = msgState[1];
-
-  function loadAll() {
-    Promise.all([
-      sbrpc('fn_rep_scorecard', {p_start: f.start, p_end: f.end}),
-      sbq('commission_rules', 'select=*')
-    ]).then(function(res) {
-      setRows(res[0] || []);
-      var byCode = {};
-      (res[1] || []).forEach(function(r){ byCode[r.rep_code] = r });
-      setRules(byCode);
-    });
-  }
-  React.useEffect(loadAll, [f.start, f.end]);
-
-  function saveRule(rep_code, patch) {
-    var existing = rules[rep_code];
-    if (existing) {
-      sbUpdate('commission_rules', 'rep_code=eq.' + encodeURIComponent(rep_code), Object.assign({}, patch, {updated_at: new Date().toISOString()}))
-        .then(loadAll);
-    } else {
-      sbInsert('commission_rules', Object.assign({rep_code: rep_code, rate_revenue: 0, rate_margin: 0, draw_monthly: 0, applies_to: 'primary'}, patch))
-        .then(loadAll);
-    }
-  }
-  function deleteRule(rep_code) {
-    if (!confirm('Remove commission rule for ' + rep_code + '?')) return;
-    sbDelete('commission_rules', 'rep_code=eq.' + encodeURIComponent(rep_code)).then(loadAll);
-  }
-
-  async function pushReps(commit) {
-    setMsg(commit ? 'pushing to QBO…' : 'dry-run…');
-    var token = await _sbToken();
-    fetch(SB_URL + '/functions/v1/push-qbo-sales-rep', {
-      method:'POST',
-      headers: { 'apikey':SB_KEY, 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
-      body: JSON.stringify({commit: commit === true})
-    }).then(function(r){ return r.json() }).then(function(j) {
-      if (!j.ok) { setMsg('FAIL: ' + (j.error || 'unknown')); return; }
-      var s = j.summary || {};
-      setMsg((commit ? 'COMMITTED ' : 'DRY-RUN ') +
-        'updated=' + (s.updated || 0) + ' would_update=' + (s.would_update || 0) +
-        ' already_correct=' + (s.already_correct || 0) +
-        ' skipped_no_field=' + (s.skipped_no_field || []).length +
-        ' errors=' + (s.errors || []).length +
-        (j.setup_note ? ' · ' + j.setup_note : ''));
-    }).catch(function(e){ setMsg('ERROR: ' + e.message) });
-  }
-
-  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading reps…');
-
-  var totals = rows.reduce(function(t,r){
-    t.rev += Number(r.revenue || 0);
-    t.margin += Number(r.est_margin || 0);
-    t.commission += Number(r.commission || 0);
-    t.customers += Number(r.customer_count || 0);
-    return t;
-  }, {rev:0, margin:0, commission:0, customers:0});
-
-  if (active) return React.createElement(RepBookView, {repCode: active, repName: (rules[active] && rules[active].rep_code) || active, start: f.start, end: f.end, onBack: function(){ setActive(null) }});
-
-  return React.createElement('div', null,
-    React.createElement('div', {className:'pt'}, 'Sales Reps ',
-      React.createElement('span', {className:'bg bg-l'}, 'PERFORMANCE')
-    ),
-    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
-      React.createElement(C, {title:'TOTAL REVENUE', value: fm(totals.rev), sub: rows.length + ' active reps'}),
-      React.createElement(C, {title:'TOTAL EST MARGIN', value: fm(totals.margin), sub: totals.rev > 0 ? fp(totals.margin/totals.rev) : '—'}),
-      React.createElement(C, {title:'CUSTOMERS COVERED', value: totals.customers, sub:'unique customer-rep links'}),
-      React.createElement(C, {title:'EARNED COMMISSION', value: fm(totals.commission), accent:'var(--ac)', sub:'rate × revenue + rate × margin'})
-    ),
-    React.createElement('div', {className:'cd', style:{padding:'10px 12px', marginBottom:10, display:'flex', gap:10, alignItems:'center', flexWrap:'wrap', fontSize:11}},
-      React.createElement('span', {style:{color:'var(--mt)', textTransform:'uppercase', letterSpacing:1}}, 'Period'),
-      React.createElement('input', {type:'date', value:f.start, onChange:function(e){ setF(Object.assign({}, f, {start:e.target.value})) }, style:inp()}),
-      React.createElement('span', {style:{color:'var(--mt)'}}, 'to'),
-      React.createElement('input', {type:'date', value:f.end, onChange:function(e){ setF(Object.assign({}, f, {end:e.target.value})) }, style:inp()}),
-      React.createElement('span', {style:{marginLeft:'auto', display:'flex', gap:6}},
-        React.createElement('button', {onClick: function(){ pushReps(false) }, style: btnSecondary()}, 'PUSH REPS TO QBO (DRY)'),
-        React.createElement('button', {onClick: function(){ pushReps(true)  }, style: btnPrimary()}, 'PUSH REPS TO QBO (COMMIT)')
-      )
-    ),
-    msg ? React.createElement('div', {style:{padding:'8px 12px', marginBottom:10, fontSize:11, color:'var(--mt)', background:'var(--sf2)', border:'1px solid var(--bd)', borderRadius:4}}, msg) : null,
-    React.createElement('div', {className:'cd', style:{padding:0}},
-      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No reps configured. Add reps in Settings → Sales Reps and assign customers to reps.') :
-      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
-        React.createElement('table', null,
-          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
-            React.createElement('th', null, 'Rep'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Customers'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Active 30d'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Inactive 60d'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Invoices'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Margin'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Margin %'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'AOV'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Rate Rev'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Rate GP'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Commission'),
-            React.createElement('th', null, '')
-          )),
-          React.createElement('tbody', null, rows.map(function(r) {
-            var rule = rules[r.rep_code] || {};
-            var rRev = rule.rate_revenue != null ? rule.rate_revenue : r.rate_revenue;
-            var rGP  = rule.rate_margin  != null ? rule.rate_margin  : r.rate_margin;
-            return React.createElement('tr', {key:r.rep_code},
-              React.createElement('td', {style:{fontWeight:600}},
-                React.createElement('a', {href:'#', onClick: function(e){ e.preventDefault(); setActive(r.rep_code) }, style:{color:'var(--ac)', textDecoration:'none'}}, r.rep_name)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.customer_count),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', color:'var(--gn)'}}, r.active_30d),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', color: Number(r.inactive_60d) > 0 ? 'var(--am)' : 'var(--mt)'}}, r.inactive_60d),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.est_margin)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.margin_pct == null ? 'var(--mt)' : (Number(r.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)')}}, r.margin_pct != null ? fp(r.margin_pct) : '—'),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.avg_order_value != null ? fm(r.avg_order_value) : '—'),
-              React.createElement('td', {style:{textAlign:'right'}},
-                React.createElement('input', {type:'number', step:0.001, defaultValue: Number(rRev) || 0,
-                  onBlur: function(e){ var v = Number(e.target.value); if (v !== Number(rRev)) saveRule(r.rep_code, {rate_revenue: v}) },
-                  style: Object.assign({}, inp(), {width:62, fontSize:10, textAlign:'right'})})),
-              React.createElement('td', {style:{textAlign:'right'}},
-                React.createElement('input', {type:'number', step:0.01, defaultValue: Number(rGP) || 0,
-                  onBlur: function(e){ var v = Number(e.target.value); if (v !== Number(rGP)) saveRule(r.rep_code, {rate_margin: v}) },
-                  style: Object.assign({}, inp(), {width:62, fontSize:10, textAlign:'right'})})),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600, color:'var(--ac)'}}, fm(r.commission)),
-              React.createElement('td', {style:{textAlign:'right'}},
-                rule && rule.rep_code ? React.createElement('button', {onClick: function(){ deleteRule(r.rep_code) }, style: btnDanger()}, '×') : null)
-            );
-          }))
-        )
-      )
-    )
-  );
-}
-
-function RepBookView(props) {
-  var rState = React.useState(null);
-  var rows = rState[0], setRows = rState[1];
-  React.useEffect(function() {
-    sbrpc('fn_rep_book', {p_rep_code: props.repCode, p_start: props.start, p_end: props.end})
-      .then(function(rs){ setRows(rs || []) });
-  }, [props.repCode, props.start, props.end]);
-
-  if (!rows) return React.createElement('div', {className:'ld'}, 'Loading book…');
-  var totalRev = rows.reduce(function(s,r){ return s + Number(r.revenue || 0) }, 0);
-  var totalMargin = rows.reduce(function(s,r){ return s + Number(r.est_margin || 0) }, 0);
-  var inactiveCount = rows.filter(function(r){ return Number(r.recency_days || 0) > 60 || r.recency_days == null }).length;
-
-  return React.createElement('div', null,
-    React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10, marginBottom:14}},
-      React.createElement('button', {onClick: props.onBack, style: btnSecondary()}, '← Reps'),
-      React.createElement('div', {className:'pt', style:{margin:0}}, props.repCode + ' Book ',
-        React.createElement('span', {className:'bg bg-l', style:{marginLeft:6}}, rows.length + ' CUSTOMERS')
-      )
-    ),
-    React.createElement('div', {className:'gr g4', style:{marginBottom:12}},
-      React.createElement(C, {title:'BOOK REVENUE', value: fm(totalRev)}),
-      React.createElement(C, {title:'BOOK MARGIN', value: fm(totalMargin), sub: totalRev > 0 ? fp(totalMargin/totalRev) : '—'}),
-      React.createElement(C, {title:'INACTIVE', value: inactiveCount, accent: inactiveCount > 0 ? 'var(--am)' : 'var(--gn)', sub:'>60 days no order'}),
-      React.createElement(C, {title:'AVG REV / CUSTOMER', value: rows.length > 0 ? fm(totalRev / rows.length) : '—'})
-    ),
-    React.createElement('div', {className:'cd', style:{padding:0}},
-      rows.length === 0 ? React.createElement('div', {className:'ld'}, 'No customers assigned to this rep.') :
-      React.createElement('div', {style:{maxHeight:'62vh', overflow:'auto'}},
-        React.createElement('table', null,
-          React.createElement('thead', {style:{position:'sticky', top:0, background:'var(--sf)', zIndex:1}}, React.createElement('tr', null,
-            React.createElement('th', null, 'Customer'),
-            React.createElement('th', null, 'Channel'),
-            React.createElement('th', null, 'Segment'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Invoices'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Revenue'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Margin'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Margin %'),
-            React.createElement('th', null, 'Last Order'),
-            React.createElement('th', {style:{textAlign:'right'}}, 'Days Ago')
-          )),
-          React.createElement('tbody', null, rows.map(function(r) {
-            var stale = Number(r.recency_days || 0) > 60;
-            return React.createElement('tr', {key:r.qbo_customer_id},
-              React.createElement('td', {style:{fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, customerLink(r.qbo_customer_id, r.customer_name)),
-              React.createElement('td', {style:{fontSize:11, color:'var(--mt)'}}, r.primary_channel || '—'),
-              React.createElement('td', null, segmentChip(r.rfm_segment)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, r.invoice_count),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', fontWeight:600}}, fm(r.revenue)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right'}}, fm(r.est_margin)),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', color: r.margin_pct == null ? 'var(--mt)' : (Number(r.margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)')}}, r.margin_pct != null ? fp(r.margin_pct) : '—'),
-              React.createElement('td', {className:'mn', style:{fontSize:11, color:'var(--mt)'}}, r.last_invoice || '—'),
-              React.createElement('td', {className:'mn', style:{textAlign:'right', color: stale ? 'var(--am)' : 'var(--mt)', fontWeight: stale ? 600 : 400}}, r.recency_days != null ? r.recency_days : '—')
-            );
-          }))
-        )
-      )
-    )
-  );
-}
 
 function App() {
   var sessState = React.useState(undefined);
@@ -5514,7 +5166,6 @@ function MainApp(props) {
               : view === 'customers' ? React.createElement(CustomersPage)
               : view === 'reports'   ? React.createElement(ReportsPage)
               : view === 'plans'     ? React.createElement(PlansPage)
-              : view === 'reps'      ? React.createElement(RepsPage)
               : view === 'compare'   ? React.createElement(ComparePage)
               : view === 'inventory' ? React.createElement(InventoryPage)
               : view === 'settings'  ? React.createElement(SettingsPage)
@@ -5528,7 +5179,7 @@ function MainApp(props) {
         React.createElement('small', null, 'Sales \u00b7 Customers \u00b7 Items \u00b7 Margin')
       ),
       React.createElement('div', {style:{display:'flex', alignItems:'center', gap:10}},
-        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('reps', 'REPS'), tab('compare', 'COMPARE'), tab('inventory', 'INVENTORY'), tab('settings', 'SETTINGS'),
+        tab('margin', 'MARGIN'), tab('customers', 'CUSTOMERS'), tab('reports', 'REPORTS'), tab('plans', 'PLANS'), tab('compare', 'COMPARE'), tab('inventory', 'INVENTORY'), tab('settings', 'SETTINGS'),
         React.createElement('span', {style:{fontSize:10, color:'var(--mt)', marginLeft:6}}, userEmail || ''),
         React.createElement('button', {onClick: props.onLogout,
           style:{background:'transparent', color:'var(--mt)', border:'1px solid var(--bd)', padding:'4px 9px', borderRadius:4, fontSize:10, cursor:'pointer', letterSpacing:.5}},
