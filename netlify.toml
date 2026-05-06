@@ -1,8 +1,12 @@
 [build]
-  # Build the new Vite + React + TS app first; output goes to
-  # public/sales-next/. The legacy single-file SPA at public/sales/
-  # remains the source of truth until the migration is complete.
-  command = "npm install --prefix app && npm run build --prefix app"
+  # 1. Lint the cross-repo sync orchestration manifest (architecture/sync-manifest.json)
+  #    against the schema snapshot. Fails the build if the manifest claims tables
+  #    that don't exist, if a real table has no writer/orphan entry, or if a
+  #    multi-writer hotspot isn't explicitly opted in. See architecture/README.md.
+  # 2. Build the Vite + React + TS app; output goes to public/sales-next/. The
+  #    legacy single-file SPA at public/sales/ remains served until the migration
+  #    is complete.
+  command = "node architecture/lint-manifest.mjs && npm install --prefix app && npm run build --prefix app"
   publish = "public"
   functions = "netlify/functions"
 

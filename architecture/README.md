@@ -29,7 +29,7 @@ The lint script enforces:
 node architecture/lint-manifest.mjs
 ```
 
-Run before merging any PR that adds or removes an `ops.*` table, or that adds a new sync function. (CI wiring: TODO — add to a Netlify build step or a GitHub Action.)
+**Wired into Netlify CI** as the first step of the build command in `netlify.toml`. A dirty manifest fails the build before any Vite build runs, so drift can't ship to production. Run locally before pushing if you've added or removed an `ops.*` table or a sync function.
 
 ### Adding a new sync function
 
