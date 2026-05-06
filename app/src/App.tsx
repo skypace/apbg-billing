@@ -1,20 +1,24 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { sbAuth } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { OverviewPage } from './pages/OverviewPage';
-import { MarginPage } from './pages/MarginPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { CustomerDetailPage } from './pages/CustomerDetailPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { PlansPage } from './pages/PlansPage';
-import { ComparePage } from './pages/ComparePage';
-import { InventoryPage } from './pages/InventoryPage';
-import { OperationsPage } from './pages/OperationsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
+
+// Eager: Login (gate before session) + Overview (default landing).
+// Everything else is fetched on first navigation. Vite splits each lazy
+// import into its own chunk; the initial download shrinks accordingly.
+const MarginPage = lazy(() => import('./pages/MarginPage').then((m) => ({ default: m.MarginPage })));
+const CustomersPage = lazy(() => import('./pages/CustomersPage').then((m) => ({ default: m.CustomersPage })));
+const CustomerDetailPage = lazy(() => import('./pages/CustomerDetailPage').then((m) => ({ default: m.CustomerDetailPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const PlansPage = lazy(() => import('./pages/PlansPage').then((m) => ({ default: m.PlansPage })));
+const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })));
+const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
+const OperationsPage = lazy(() => import('./pages/OperationsPage').then((m) => ({ default: m.OperationsPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -78,7 +82,7 @@ export function App() {
       userEmail={session.user.email}
       onLogout={() => sbAuth.auth.signOut()}
     >
-      {body}
+      <Suspense fallback={<div className="ld">Loading…</div>}>{body}</Suspense>
     </Layout>
   );
 }
