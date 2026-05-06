@@ -166,6 +166,15 @@
       "last_verified": "2026-05-06"
     },
     {
+      "name": "snapshot_db_health",
+      "kind": "sql-function-cron",
+      "source_repo": "unknown",
+      "schedule": "daily 06:00 UTC (cron db_health_daily)",
+      "writes": ["ops.db_health_snapshots"],
+      "notes": "Postgres function ops.snapshot_db_health() called by pg_cron. Captures DB metrics into a jsonb blob. Defining migration not located in this repo's supabase/migrations/; function exists in prod and cron is scheduled.",
+      "last_verified": "2026-05-06"
+    },
+    {
       "name": "manual-ui:margin-minder-settings",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
@@ -229,11 +238,11 @@
     },
     {
       "table": "ops.qbo_expenses",
-      "reason": "Empty stub. CLAUDE.md (apbg-billing) describes it as the planned Purchase-table sync target. sync-qbo-expenses currently writes ops.qbo_expense_lines instead. Decision pending: rename / drop / wire."
+      "reason": "Empty stub. CLAUDE.md (apbg-billing) §3.A described it as the planned Purchase-table sync target, but the running sync-qbo-expenses cron (09:40 UTC, verified via cron.job 2026-05-06) writes ops.qbo_expense_lines instead. Decision pending: drop the unused qbo_expenses table, or expand sync-qbo-expenses to also populate it as a header-level rollup."
     },
     {
       "table": "ops.kpi_embeddings",
-      "reason": "Vector embeddings table. Writer unknown. May be experimental / abandoned; needs investigation."
+      "reason": "Vector embeddings table. Investigated 2026-05-06: 0 rows, no cron writer, no manual UI references. Likely experimental / abandoned. Drop in a future cleanup unless someone claims it."
     },
     {
       "table": "ops.crm_deals",
@@ -282,10 +291,6 @@
     {
       "table": "ops.hr_time_off",
       "reason": "HR integration placeholder; pending. Could be fed by qbo_pto_cache if that gets wired."
-    },
-    {
-      "table": "ops.db_health_snapshots",
-      "reason": "Periodic DB health metrics. Writer unknown — likely fn_take_health_snapshot() companion or separate apbg-ops cron. Needs ops verification."
     },
     {
       "table": "ops.commission_rules",
