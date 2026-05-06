@@ -12,6 +12,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { PlansPage } from './pages/PlansPage';
 import { ComparePage } from './pages/ComparePage';
 import { InventoryPage } from './pages/InventoryPage';
+import { OperationsPage } from './pages/OperationsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 
@@ -56,6 +57,9 @@ export function App() {
       break;
     case 'inventory':
       body = <InventoryPage />;
+      break;
+    case 'operations':
+      body = <OperationsPage />;
       break;
     case 'settings':
       body = <SettingsPage />;
