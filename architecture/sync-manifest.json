@@ -157,6 +157,15 @@
       "last_verified": "2026-05-05"
     },
     {
+      "name": "fn_compute_kpi_daily",
+      "kind": "sql-function-cron",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "nightly 11:00 UTC (cron nightly-kpi-daily) for current_date - 1",
+      "writes": ["ops.kpi_daily"],
+      "notes": "Postgres function called by pg_cron. Joins delivery_stops/service_jobs/reman_jobs to team_members via driver_id/tech_id and upserts per-(date, team_member) rows. Defined in 20260506b_kpi_daily_rollup.sql; backfills last 30 days at apply time.",
+      "last_verified": "2026-05-06"
+    },
+    {
       "name": "manual-ui:margin-minder-settings",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
@@ -217,10 +226,6 @@
     {
       "table": "ops.balance_sheet_snapshots",
       "reason": "Table exists, 0 rows. No cron, no edge function. Planned cadence and endpoint not yet specified."
-    },
-    {
-      "table": "ops.kpi_daily",
-      "reason": "Table exists per CLAUDE.md (apbg-billing); no rows. Planned: Postgres function + pg_cron nightly rollup. Not built."
     },
     {
       "table": "ops.qbo_expenses",
