@@ -283,18 +283,6 @@
     {
       "table": "ops.hr_time_off",
       "reason": "HR integration placeholder; pending. Could be fed by qbo_pto_cache if that gets wired."
-    },
-    {
-      "table": "ops.commission_rules",
-      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05). Will be removed at next migration apply. Lint should ignore once the drop runs."
-    },
-    {
-      "table": "ops.customer_sales_reps",
-      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05)."
-    },
-    {
-      "table": "ops.sales_reps",
-      "reason": "Scheduled for drop in 20260505d_taxonomy_drop_rep_tables.sql (PR #27, merged 2026-05-05)."
     }
   ]
 }
