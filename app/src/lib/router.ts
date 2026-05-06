@@ -8,6 +8,7 @@ export type View =
   | 'plans'
   | 'compare'
   | 'inventory'
+  | 'operations'
   | 'settings'
   | 'customer-detail';
 
@@ -29,6 +30,7 @@ export function parseHash(): Route {
     'plans',
     'compare',
     'inventory',
+    'operations',
     'settings',
   ];
   if (known.includes(h as View)) return { view: h as View, customerId: null };

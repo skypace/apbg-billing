@@ -4,14 +4,15 @@ import type { View } from '../lib/router';
 interface NavItem { id: View; label: string }
 
 const NAV: NavItem[] = [
-  { id: 'overview',  label: 'OVERVIEW'  },
-  { id: 'margin',    label: 'MARGIN'    },
-  { id: 'customers', label: 'CUSTOMERS' },
-  { id: 'reports',   label: 'REPORTS'   },
-  { id: 'plans',     label: 'PLANS'     },
-  { id: 'compare',   label: 'COMPARE'   },
-  { id: 'inventory', label: 'INVENTORY' },
-  { id: 'settings',  label: 'SETTINGS'  },
+  { id: 'overview',   label: 'OVERVIEW'   },
+  { id: 'margin',     label: 'MARGIN'     },
+  { id: 'operations', label: 'OPERATIONS' },
+  { id: 'customers',  label: 'CUSTOMERS'  },
+  { id: 'reports',    label: 'REPORTS'    },
+  { id: 'plans',      label: 'PLANS'      },
+  { id: 'compare',    label: 'COMPARE'    },
+  { id: 'inventory',  label: 'INVENTORY'  },
+  { id: 'settings',   label: 'SETTINGS'   },
 ];
 
 interface LayoutProps {
