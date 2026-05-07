@@ -175,6 +175,22 @@
       "last_verified": "2026-05-06"
     },
     {
+      "name": "sync-fleetcomplete",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "hourly :05 (cron disabled until env vars configured; see supabase/functions/sync-fleetcomplete/README.md)",
+      "writes": [
+        "ops.fc_token_cache",
+        "ops.fleet_vehicles",
+        "ops.fleet_trips",
+        "ops.fleet_fuel_transactions",
+        "ops.fleet_maintenance"
+      ],
+      "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Vehicles sync IMPLEMENTED; trips / fuel / maintenance STUBBED awaiting GraphQL queries from the GraphiQL IDE. Cron in 20260506h_sync_fleetcomplete_cron.sql ships disabled — uncomment + re-apply once FC_USERNAME / FC_PASSWORD secrets are set and a manual run verifies.",
+      "last_verified": "2026-05-06"
+    },
+    {
       "name": "manual-ui:margin-minder-settings",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
@@ -241,28 +257,8 @@
       "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
     },
     {
-      "table": "ops.fc_token_cache",
-      "reason": "FleetComplete OAuth token store. Writer would be sync-fleetcomplete (planned, not built). Joint doc §3 priority item."
-    },
-    {
-      "table": "ops.fleet_vehicles",
-      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
-    },
-    {
-      "table": "ops.fleet_trips",
-      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
-    },
-    {
-      "table": "ops.fleet_fuel_transactions",
-      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
-    },
-    {
-      "table": "ops.fleet_maintenance",
-      "reason": "FleetComplete integration; sync-fleetcomplete planned, not built."
-    },
-    {
       "table": "ops.fleet_daily",
-      "reason": "FleetComplete daily rollup; planned, not built."
+      "reason": "FleetComplete daily rollup. Will be written by a daily aggregator that joins fleet_trips + fleet_fuel_transactions. Not yet built; sync-fleetcomplete handles per-resource pulls but doesn't compute the daily rollup."
     },
     {
       "table": "ops.hr_employees",
