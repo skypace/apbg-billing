@@ -2,14 +2,14 @@
 
 Pulls fleet data from the Unity (Powerfleet / FleetComplete) GraphQL API at `https://api.fleetcomplete.com/graphql` and upserts into `ops.fleet_*` tables.
 
-Status:
+Status (verified against the live schema 2026-05-08):
 
-| Resource | Status |
-|---|---|
-| `getVehicles` → `ops.fleet_vehicles` | Implemented |
-| `getTrips` → `ops.fleet_trips` | Stubbed; paste GraphQL query from GraphiQL IDE |
-| `getFuelTransactions` → `ops.fleet_fuel_transactions` | Stubbed |
-| `getMaintenance` → `ops.fleet_maintenance` | Stubbed |
+| Resource | Status | Source |
+|---|---|---|
+| `ops.fleet_vehicles` | **Implemented** | `getVehicles { vin id name assignedGroups{...} assignedDevices{...} }` |
+| `ops.fleet_trips` | **Stubbed (data source confirmed)** | `getSnapshots(vehicleId, from, to)` works — needs trip-reconstruction logic. See [Filling in the stubs](#filling-in-the-stubs). |
+| `ops.fleet_fuel_transactions` | **Not possible via Unity** | No fuel-transaction API exists in Unity GraphQL. Needs a separate fuel-card integration (Wex / Fleetcor / Voyager). |
+| `ops.fleet_maintenance` | **Blocked upstream** | Only path is `getWrappedReport(reportId="maintenance-schedule")`. The report engine returns `php-exception` for every call regardless of input. Needs Powerfleet support ticket. |
 
 ## Setup
 
@@ -71,17 +71,88 @@ The function's `ensureToken()` handles the lifecycle: cache hit → use; access 
 
 Unity allows **one active request per user**. Sending parallel requests returns HTTP 429. The function makes calls strictly sequentially and retries once after a 2-second backoff if it ever hits 429.
 
-## Filling in the stubbed syncs
+## Filling in the stubs
 
-For trips / fuel / maintenance:
+GraphiQL has been flaky for us — we recommend probing the schema directly via SQL through the Supabase MCP server (or any HTTP client) using `pg_net.http_post` against `https://api.fleetcomplete.com/graphql` with `Bearer <api_token>` + `userId: <account_id>` headers. The current token sits in `ops.fc_token_cache` (id=1) and is rotated by every function run.
 
-1. Open `https://api.fleetcomplete.com/graphiql?path=/graphql` in your browser.
-2. In the **Headers** panel paste:
-   ```json
-   { "userId": "82273656-cd69-4044-a431-36288e840181", "Authorization": "Bearer <fresh-access_token>" }
-   ```
-3. Browse the schema sidebar for query names matching the stubbed resources (likely `getTrips`, `getFuelTransactions`, `getMaintenance` — names are guesses; the IDE's autocomplete will reveal the truth).
-4. Run a query, copy the working query string + the JSON shape of the result.
-5. Paste both into the corresponding stub function in `index.ts` (the TODO comments document exactly which `ops.fleet_*` columns to populate).
+### Trips — `getSnapshots`-based reconstruction
+
+There is no direct `getTrips` query. The data is in `getSnapshots(vehicleId: UUID!, from: DateTime!, to: DateTime!) -> [CommonFormat]`. Snapshots are **event-driven** (not at fixed intervals — there are bursts of records when the engine starts and around state changes). To turn snapshots into `fleet_trips` rows:
+
+1. For each `fc_asset_id` in `ops.fleet_vehicles`, look up the bigint `vehicle_id`.
+2. Call `getSnapshots` for the desired window (last 26 h to overlap with the previous run).
+3. Walk snapshots in `timestamp` order. A trip is a maximal segment where `ignition.engineStatus = true`, separated by ≥ 2 minutes of off.
+4. `fc_trip_id = sha1(fc_asset_id + start_timestamp)` for upsert idempotency.
+5. Compute per trip:
+   - `trip_date` — start_time at vehicle local TZ
+   - `distance_miles` — sum of haversine between consecutive `gps.{latitude,longitude}` (or sum `canBus.canDeltaDistance`) × 0.621371
+   - `drive_time_min` — (end - start) / 60_000
+   - `idle_time_min` — sum of intra-trip seconds with `gps.speed = 0` / 60
+   - `max_speed_mph` — `max(gps.speed) × 0.621371` (Unity reports km/h)
+   - `avg_speed_mph` — `distance_miles / (drive_time_min / 60)`
+   - `driver_id` — lookup `ops.staff` by `driver.driverId` or `driver.iButton` (driver records are sparse; many snapshots have `driver: null`)
+   - `hard_brakes` / `hard_accels` / `speed_violations` — from `driverBehaviour` events; left null until the `DriverBehaviourType` enum is mapped
+6. Upsert into `ops.fleet_trips` on `fc_trip_id`.
+
+Volume estimate at the current 9-asset fleet: ~75 K snapshots/day, ~5 MB JSON per daily run. Keep `getSnapshots` calls **strictly sequential** (Unity allows one active request per user).
+
+Once the wrapped-report engine is fixed, `getWrappedReport(reportId: "vehicle-trips", input: ...)` becomes the easier path — its `report` field is JSON with the trip rows already aggregated.
+
+### Maintenance — blocked
+
+Only path is `getWrappedReport(reportId: "maintenance-schedule")`. Every call to `getWrappedReport` we've tried returns:
+
+```json
+{ "errors": [{
+    "message": "Something went wrong",
+    "extensions": { "error": "php-exception", "classification": "BAD_REQUEST" }
+}]}
+```
+
+We confirmed this 2026-05-08 with empty input, full input matching `getWrappedReportInputs`, and explicit period/asset_uuids/timezone/working_hours. Other top-level queries (`getVehicles`, `getSnapshots`, `getPeople`, etc.) work — it is specifically the report engine. Open a Powerfleet support ticket with our userId (`82273656-cd69-4044-a431-36288e840181`) and timestamps of failing calls.
+
+When unblocked, the resolver returns `{ reportId, report }` where `report` is JSON with rows ready to map onto `ops.fleet_maintenance`.
+
+### Fuel — separate integration needed
+
+Unity GraphQL has no fuel-transaction API. Per-snapshot `CommonFormat.fuel` and `canBus.canFuel*` give telemetry (tank level, consumption rate) but not $-denominated transactions. For `ops.fleet_fuel_transactions` we need to integrate the fuel-card provider (Wex / Fleetcor / Voyager / Comdata, depending on what APBG uses). Build that as a separate edge function (`sync-wex-fuel` or similar) and add it to `architecture/sync-manifest.json`.
+
+## Schema discovery cheat sheet
+
+Top-level queries on the Unity endpoint (verified 2026-05-08):
+
+```
+getUserInfo, getVehicles, getActiveVehicles, getVehicleById, getVehiclesByVin,
+getPeople, getPersonById, getPersonCustomFields,
+getGeofences, getGeofenceById,
+getSnapshots, getLatestSnapshots,
+getWrappedReport, getWrappedReportInputs,
+getGroups, getMetaSensors, getVehicleMappedSensors, getVehicleCustomFields,
+getLabels, getDeviceById, getDevicesBySerial,
+getWorkSchedules, getWorkScheduleById,
+getVehicleTypes, getRules, getRuleById, getRoles,
+getDriverAssignments
+```
+
+`CommonFormat` (returned by `getSnapshots` / `getLatestSnapshots`) shape:
+
+```
+vehicleId         UUID
+timestamp         DateTime
+locationTimestamp DateTime
+locationTimeZone  String
+gps              { state, latitude, longitude, direction, altitude, speed }   // speed in km/h
+ignition         { engineStatus }                                              // boolean
+driver           { driverId, iButton, oneWire, rfidIButton, rfidIButtonHex, rfid, rfidHex, ... }
+canBus           { canDistance, canDeltaDistance, canTripDistance, canFuelUsed, canTripFuelUsed,
+                   canFuelRate, engineRunTime, engineIdleTime, ... ~80 fields }
+fuel             { fuel, rawFuel, fuelLevel, totalFuelEconomy, fuelTankSize }
+driverBehaviour  { driverBehaviourType, driverBehaviourValue }
+misc             { power, vehicleBusType }
+```
+
+Speeds are km/h; distances are km — convert before writing `fleet_trips` (multiply by 0.621371).
+
+Wrapped-report IDs available from `getWrappedReportInputs { id title description inputs }` (29 reports as of 2026-05-08): `distance-details, driver-performance, dvir-trips, emissions, engine-diagnostics, engine-diagnostics-summary, fleet-performance, fleet-sensors, geofence-interaction, geofence-list, group-list, ifta-distance, inspections, maintenance-schedule, people-list, safety-events, utilization, vehicle-activity, vehicle-daily-summary, vehicle-distance, vehicle-events, vehicle-idling, vehicle-period-summary, vehicle-positions, vehicle-sensor-measurements, vehicle-speeding, vehicle-stops, vehicle-towing, vehicle-trips, vehicles`. **All currently blocked by the upstream php-exception.**
 
 Once a stub is filled in, redeploy with `supabase functions deploy sync-fleetcomplete`.

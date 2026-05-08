@@ -26,16 +26,43 @@
 //   fleet_id   — Unity fleet UUID (informational; we use account_id)
 //   base_url   — defaults to https://api.fleetcomplete.com/
 //
-// Status of resource syncs:
-//   getVehicles         IMPLEMENTED  (queries vin / id / name / groups / devices)
-//   getTrips            STUBBED      (need GraphQL query name + shape from GraphiQL)
-//   getFuelTransactions STUBBED      (same)
-//   getMaintenance      STUBBED      (same)
+// Status of resource syncs (verified against the live schema 2026-05-08):
+//   getVehicles    IMPLEMENTED  via getVehicles { vin id name assignedGroups{...} assignedDevices{...} }
+//   syncTrips      STUBBED      — getSnapshots(vehicleId, from, to) works and returns CommonFormat
+//                                 records. Building fleet_trips rows requires reconstructing trips
+//                                 from event-driven snapshots (group by ignition.engineStatus
+//                                 transitions, sum haversine distance, max gps.speed). See the
+//                                 syncTrips comment for the concrete plan.
+//   syncFuel       NOT POSSIBLE — Unity GraphQL has no fuel-transaction API. Only per-snapshot
+//                                 CAN-bus fuel level / fuel rate (CommonFormat.canBus.canFuel*,
+//                                 CommonFormat.fuel.*). For $-denominated fuel transactions we
+//                                 need a separate fuel-card integration (Wex / Fleetcor / Voyager).
+//   syncMaintenance BLOCKED     — only path is getWrappedReport(reportId='maintenance-schedule').
+//                                 Every call to getWrappedReport returns
+//                                 {"error":"php-exception","message":"Something went wrong"}
+//                                 regardless of input shape (verified 2026-05-08 with empty
+//                                 input, full input matching getWrappedReportInputs schema, and
+//                                 explicit period/asset_uuids/timezone/working_hours). The other
+//                                 query types (getVehicles / getSnapshots / getPeople / etc.)
+//                                 work — the report engine itself is the problem. Needs Powerfleet
+//                                 support ticket: "getWrappedReport returns generic php-exception
+//                                 for all reportIds". Until that's fixed, no maintenance data.
 //
-// Once the GraphQL query strings are confirmed via the GraphiQL IDE at
-// https://api.fleetcomplete.com/graphiql?path=/graphql, fill in the
-// stubbed sync* functions below — the upsert plumbing is already wired
-// to the corresponding ops.fleet_* tables.
+// Schema discovery cheat sheet (use via direct GraphQL, not GraphiQL — GraphiQL has been
+// flaky for us):
+//   Top-level queries:  getVehicles, getActiveVehicles, getVehicleById, getPeople, getPersonById,
+//                       getGeofences, getSnapshots, getLatestSnapshots, getWrappedReport,
+//                       getWrappedReportInputs, getGroups, getDriverAssignments, ...
+//   CommonFormat fields: vehicleId, timestamp, locationTimestamp, locationTimeZone,
+//                        gps{state,latitude,longitude,direction,altitude,speed},
+//                        ignition{engineStatus},
+//                        driver{driverId,iButton,oneWire,rfidIButton,...},
+//                        canBus{canDistance,canDeltaDistance,canFuelUsed,canFuelRate,
+//                               engineRunTime,engineIdleTime,...},
+//                        fuel{fuel,rawFuel,fuelLevel,totalFuelEconomy,fuelTankSize},
+//                        driverBehaviour{driverBehaviourType,driverBehaviourValue},
+//                        misc{power,vehicleBusType}.
+//   Speeds are km/h, distances are km — convert to mph/miles before writing fleet_trips.
 
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -258,31 +285,91 @@ async function syncVehicles(ctx: { accessToken: string; userId: string }) {
 // ---------- stubbed syncs (paste GraphQL queries from GraphiQL IDE) ----------
 
 async function syncTrips(_ctx: { accessToken: string; userId: string }) {
-  // TODO(unity): replace with the real GraphQL query for trips. From the
-  // GraphiQL IDE at https://api.fleetcomplete.com/graphiql?path=/graphql,
-  // search the schema for getTrips / getJourneys / getRouteHistory or
-  // similar, then map fields onto ops.fleet_trips:
-  //   fc_trip_id, vehicle_id (FK to fleet_vehicles), driver_id, trip_date,
-  //   start_time, end_time, start_address, end_address, distance_miles,
-  //   drive_time_min, idle_time_min, max_speed_mph, avg_speed_mph,
-  //   hard_brakes, hard_accels, speed_violations.
-  return { skipped: 'TODO: GraphQL query for trips not yet wired' };
+  // STUB: data source confirmed. Implementation deferred.
+  //
+  // No direct getTrips query — Unity exposes raw snapshots and expects clients
+  // to reconstruct trips. Two paths:
+  //
+  // (a) getWrappedReport(reportId: "vehicle-trips", input: ...)
+  //     Description: "Details about trips made by each asset within the
+  //     selected time period (based on vehicle ignition & idling states)."
+  //     Currently broken — returns php-exception for every call (see file
+  //     header). When Powerfleet fixes it, this is the easy path: the report
+  //     `report` field is JSON with the per-trip rows ready to upsert.
+  //
+  // (b) getSnapshots(vehicleId: UUID!, from: DateTime!, to: DateTime!) -> [CommonFormat]
+  //     Works today. Returns event-driven snapshots (not at fixed intervals).
+  //     To build a trip row:
+  //       1. Look up vehicle_id (bigint) by fc_asset_id from ops.fleet_vehicles.
+  //       2. For each fc_asset_id, call getSnapshots for the sync window
+  //          (e.g. last 26h to overlap with the previous run).
+  //       3. Walk snapshots in timestamp order; a "trip" is a maximal segment
+  //          where ignition.engineStatus = true, separated by ≥2 min of off.
+  //       4. fc_trip_id = sha1(fc_asset_id + start_timestamp) → deterministic
+  //          for upsert idempotency.
+  //       5. Per trip, compute:
+  //            trip_date         = start_time at vehicle local TZ
+  //            distance_miles    = haversine sum (or sum canBus.canDeltaDistance) × 0.621371
+  //            drive_time_min    = (end - start) / 60_000
+  //            idle_time_min     = sum of intra-trip seconds with speed=0 / 60
+  //            max_speed_mph     = max(gps.speed) × 0.621371
+  //            avg_speed_mph     = distance_miles / (drive_time_min / 60)
+  //            driver_id         = lookup ops.staff by driver.driverId or driver.iButton
+  //          (hard_brakes / hard_accels / speed_violations come from
+  //          driverBehaviour.driverBehaviourType events; left null until we
+  //          map the DriverBehaviourType enum.)
+  //       6. Upsert into ops.fleet_trips on fc_trip_id.
+  //
+  // Cost estimate for option (b) on the current fleet (9 fc_asset_ids, ~700
+  // snapshots / vehicle / 2h ≈ 8K snapshots/vehicle/day): ~75K snapshots/day,
+  // ~5MB JSON per daily run. Keep getSnapshots calls strictly sequential
+  // (Unity's one-active-request rule).
+  return {
+    skipped:
+      'getSnapshots-based trip reconstruction not yet implemented. ' +
+      'Wrapped report (reportId=vehicle-trips) blocked by upstream php-exception.',
+  };
 }
 
 async function syncFuel(_ctx: { accessToken: string; userId: string }) {
-  // TODO(unity): replace with the real GraphQL query for fuel transactions.
-  // Map onto ops.fleet_fuel_transactions:
-  //   vehicle_id, driver_id, txn_date, gallons, price_per_gal, total_cost,
-  //   odometer_at, station_name, station_address, fuel_type, receipt_ref.
-  return { skipped: 'TODO: GraphQL query for fuel not yet wired' };
+  // NOT POSSIBLE via Unity GraphQL.
+  //
+  // Confirmed via getWrappedReportInputs() 2026-05-08: the only fuel-related
+  // reports Unity exposes are emissions and engine-diagnostics — neither
+  // includes $-denominated fuel transactions. Per-snapshot CommonFormat.fuel
+  // gives tank level / consumption (telemetry), not station purchases.
+  //
+  // To populate ops.fleet_fuel_transactions (gallons / price_per_gal /
+  // total_cost / station_name / receipt_ref) we need a separate integration
+  // with whichever fuel card APBG uses (Wex, Fleetcor, Voyager, Comdata).
+  // Build that as sync-<provider>-fuel and add it as a separate writer in
+  // architecture/sync-manifest.json.
+  return { skipped: 'no fuel-transaction API in Unity GraphQL; needs separate fuel-card integration' };
 }
 
 async function syncMaintenance(_ctx: { accessToken: string; userId: string }) {
-  // TODO(unity): replace with the real GraphQL query for maintenance records.
-  // Map onto ops.fleet_maintenance:
-  //   vehicle_id, service_date, service_type, description, vendor_name,
-  //   cost, odometer_at, next_due_date, next_due_miles.
-  return { skipped: 'TODO: GraphQL query for maintenance not yet wired' };
+  // BLOCKED upstream.
+  //
+  // Unity has no direct getMaintenance query. The only path is
+  // getWrappedReport(reportId: "maintenance-schedule", input: ...). The
+  // report engine returns
+  //   { "errors": [{ "message": "Something went wrong",
+  //                  "extensions": { "error": "php-exception", "classification": "BAD_REQUEST" } }] }
+  // for every call we've tried (verified 2026-05-08 with the four input
+  // shapes documented in the file header). Other top-level queries on the
+  // same endpoint work fine — it is specifically getWrappedReport that's
+  // failing.
+  //
+  // Action: open a Powerfleet support ticket with our userId
+  // (82273656-cd69-4044-a431-36288e840181) and the timestamps of a few
+  // failing calls. When fixed, replace this stub with:
+  //   getWrappedReport(input: { reportId: "maintenance-schedule", input: {
+  //     period: { begin: ..., end: ... },
+  //     asset_uuids: [<every fleet_vehicles.fc_asset_id>],
+  //     maintenance_plans: [<plan ids from a separate query>]
+  //   }})
+  // and map the JSON `report` rows onto ops.fleet_maintenance.
+  return { skipped: 'getWrappedReport(reportId=maintenance-schedule) blocked by upstream php-exception' };
 }
 
 // ---------- HTTP entry point ----------

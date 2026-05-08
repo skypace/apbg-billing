@@ -187,8 +187,8 @@
         "ops.fleet_maintenance"
       ],
       "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
-      "notes": "Source at supabase/functions/sync-fleetcomplete/. Vehicles sync IMPLEMENTED; trips / fuel / maintenance STUBBED awaiting GraphQL queries from the GraphiQL IDE. Cron in 20260506h_sync_fleetcomplete_cron.sql ships disabled — uncomment + re-apply once FC_USERNAME / FC_PASSWORD secrets are set and a manual run verifies.",
-      "last_verified": "2026-05-06"
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Vehicles sync IMPLEMENTED. Trips STUBBED (data source confirmed: getSnapshots(vehicleId, from, to) — needs trip-reconstruction logic from event-driven snapshots). Fuel NOT POSSIBLE via Unity (no fuel-transaction API; needs separate fuel-card integration). Maintenance BLOCKED upstream (only path is getWrappedReport which returns php-exception for every call regardless of input). See supabase/functions/sync-fleetcomplete/README.md for the full diagnostic. Cron in 20260506h_sync_fleetcomplete_cron.sql ships disabled — uncomment + re-apply once FC_USERNAME / FC_PASSWORD secrets are set and a manual run verifies.",
+      "last_verified": "2026-05-08"
     },
     {
       "name": "manual-ui:margin-minder-settings",
