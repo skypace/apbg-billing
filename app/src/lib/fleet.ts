@@ -170,3 +170,24 @@ export async function fetchGeocodeStats(): Promise<GeocodeStats> {
   ]);
   return { ok: ok.length, not_found: nf.length, attempted: att.length };
 }
+
+// ---------- billing reconciliation ----------
+
+export interface ReconcileRow {
+  qbo_customer_id: string;
+  activity_date: string;
+  customer_name: string | null;
+  visit_count: number | string | null;
+  total_dwell_min: number | string | null;
+  invoice_amount_pm1: number | string | null;
+  invoice_count_pm1: number | string | null;
+  flag: 'matched' | 'visit_no_bill' | 'billed_no_visit';
+}
+
+export async function fetchReconcileRows(days = 30): Promise<ReconcileRow[]> {
+  const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  return sbq<ReconcileRow>(
+    'v_fleet_stop_billing',
+    'select=*&activity_date=gte.' + since + '&order=activity_date.desc',
+  );
+}
