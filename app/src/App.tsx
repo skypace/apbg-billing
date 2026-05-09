@@ -17,6 +17,7 @@ const PlansPage = lazy(() => import('./pages/PlansPage').then((m) => ({ default:
 const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })));
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const OperationsPage = lazy(() => import('./pages/OperationsPage').then((m) => ({ default: m.OperationsPage })));
+const FleetPage = lazy(() => import('./pages/FleetPage').then((m) => ({ default: m.FleetPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
 
@@ -64,6 +65,9 @@ export function App() {
       break;
     case 'operations':
       body = <OperationsPage />;
+      break;
+    case 'fleet':
+      body = <FleetPage />;
       break;
     case 'settings':
       body = <SettingsPage />;

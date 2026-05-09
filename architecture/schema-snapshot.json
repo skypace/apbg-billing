@@ -21,6 +21,7 @@
     "fc_token_cache",
     "fleet_daily",
     "fleet_fuel_transactions",
+    "fleet_latest_snapshots",
     "fleet_maintenance",
     "fleet_trips",
     "fleet_vehicles",

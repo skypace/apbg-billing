@@ -7,6 +7,7 @@ const NAV: NavItem[] = [
   { id: 'overview',   label: 'OVERVIEW'   },
   { id: 'margin',     label: 'MARGIN'     },
   { id: 'operations', label: 'OPERATIONS' },
+  { id: 'fleet',      label: 'FLEET'      },
   { id: 'customers',  label: 'CUSTOMERS'  },
   { id: 'reports',    label: 'REPORTS'    },
   { id: 'plans',      label: 'PLANS'      },

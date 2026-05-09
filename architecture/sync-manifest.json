@@ -178,16 +178,17 @@
       "name": "sync-fleetcomplete",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "hourly :05 (cron disabled until env vars configured; see supabase/functions/sync-fleetcomplete/README.md)",
+      "schedule": "hourly :05 vehicles refresh (cron disabled until enabled in 20260506h); every 5 min latest-snapshots refresh (active cron fleetcomplete-latest-snapshots)",
       "writes": [
         "ops.fc_token_cache",
         "ops.fleet_vehicles",
+        "ops.fleet_latest_snapshots",
         "ops.fleet_trips",
         "ops.fleet_fuel_transactions",
         "ops.fleet_maintenance"
       ],
       "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
-      "notes": "Source at supabase/functions/sync-fleetcomplete/. Vehicles sync IMPLEMENTED. Trips STUBBED (data source confirmed: getSnapshots(vehicleId, from, to) — needs trip-reconstruction logic from event-driven snapshots). Fuel NOT POSSIBLE via Unity (no fuel-transaction API; needs separate fuel-card integration). Maintenance BLOCKED upstream (only path is getWrappedReport which returns php-exception for every call regardless of input). See supabase/functions/sync-fleetcomplete/README.md for the full diagnostic. Cron in 20260506h_sync_fleetcomplete_cron.sql ships disabled — uncomment + re-apply once FC_USERNAME / FC_PASSWORD secrets are set and a manual run verifies.",
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. mode=vehicles IMPLEMENTED (rosters incl. make/model/year/plate). mode=latest IMPLEMENTED — getLatestSnapshots writes one row per vehicle to fleet_latest_snapshots, refreshed every 5 min by cron fleetcomplete-latest-snapshots (20260508b); powers the Fleet live-map page. mode=trips STUBBED (data source confirmed: getSnapshots — needs trip reconstruction). mode=fuel NOT POSSIBLE via Unity. mode=maintenance BLOCKED upstream (getWrappedReport php-exception). See supabase/functions/sync-fleetcomplete/README.md.",
       "last_verified": "2026-05-08"
     },
     {
