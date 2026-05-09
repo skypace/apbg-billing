@@ -302,6 +302,85 @@ async function syncVehicles(ctx: { accessToken: string; userId: string }) {
   return { count: rows.length };
 }
 
+// ---------- latest-snapshot sync (live-map state) ----------
+
+interface FcLatestSnapshot {
+  vehicleId: string;
+  timestamp: string;
+  locationTimestamp: string | null;
+  gps: {
+    state: boolean | null;
+    latitude: number | null;
+    longitude: number | null;
+    direction: number | null;
+    speed: number | null;
+  } | null;
+  ignition: { engineStatus: boolean | null } | null;
+  driver: { driverId: string | null } | null;
+}
+
+const LATEST_QUERY = `query Latest($ids: [UUID!]!) {
+  getLatestSnapshots(vehicleIds: $ids) {
+    vehicleId
+    timestamp
+    locationTimestamp
+    gps      { state latitude longitude direction speed }
+    ignition { engineStatus }
+    driver   { driverId }
+  }
+}`;
+
+async function syncLatest(ctx: { accessToken: string; userId: string }) {
+  // Pull vehicle UUIDs from our own table — we always sync vehicles first
+  // when mode=all so this list is fresh.
+  const { data: vehicles, error: vErr } = await sb
+    .from('fleet_vehicles')
+    .select('fc_asset_id');
+  if (vErr) throw new Error('fleet_vehicles read: ' + vErr.message);
+  const ids = (vehicles ?? []).map((v) => v.fc_asset_id).filter(Boolean);
+  if (ids.length === 0) return { count: 0, note: 'no vehicles in fleet_vehicles yet' };
+
+  // graphql() helper takes a query string only; pass the variables inline
+  // by interpolating ids as a JSON literal. Cheaper than extending the
+  // helper to accept variables for this single call.
+  const res = await fetch(FC_BASE + '/graphql', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + ctx.accessToken,
+      'userId': ctx.userId,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query: LATEST_QUERY, variables: { ids } }),
+  });
+  if (!res.ok) throw new Error('graphql(latest): ' + res.status + ' ' + (await res.text()));
+  const j = await res.json() as { data?: { getLatestSnapshots: FcLatestSnapshot[] }; errors?: { message: string }[] };
+  if (j.errors?.length) throw new Error('graphql(latest) errors: ' + j.errors.map((e) => e.message).join('; '));
+  const snapshots = j.data?.getLatestSnapshots ?? [];
+
+  const now = new Date().toISOString();
+  const rows = snapshots.map((s) => ({
+    fc_asset_id:  s.vehicleId,
+    snapshot_at:  s.timestamp,
+    fetched_at:   now,
+    gps_fix:      s.gps?.state ?? null,
+    latitude:     s.gps?.latitude ?? null,
+    longitude:    s.gps?.longitude ?? null,
+    heading_deg:  s.gps?.direction ?? null,
+    speed_kmh:    s.gps?.speed ?? null,
+    ignition_on:  s.ignition?.engineStatus ?? null,
+    fc_driver_id: s.driver?.driverId ?? null,
+  }));
+
+  if (rows.length === 0) return { count: 0 };
+
+  const { error } = await sb
+    .from('fleet_latest_snapshots')
+    .upsert(rows, { onConflict: 'fc_asset_id' });
+  if (error) throw new Error('fleet_latest_snapshots upsert: ' + error.message);
+
+  return { count: rows.length };
+}
+
 // ---------- stubbed syncs (paste GraphQL queries from GraphiQL IDE) ----------
 
 async function syncTrips(_ctx: { accessToken: string; userId: string }) {
@@ -414,6 +493,7 @@ Deno.serve(async (req) => {
 
     // Sequential — Unity allows only one active request per user.
     if (mode === 'all' || mode === 'vehicles')    result.vehicles    = await syncVehicles(ctx);
+    if (mode === 'all' || mode === 'latest')      result.latest      = await syncLatest(ctx);
     if (mode === 'all' || mode === 'trips')       result.trips       = await syncTrips(ctx);
     if (mode === 'all' || mode === 'fuel')        result.fuel        = await syncFuel(ctx);
     if (mode === 'all' || mode === 'maintenance') result.maintenance = await syncMaintenance(ctx);
