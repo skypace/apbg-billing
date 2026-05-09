@@ -10,8 +10,10 @@ import {
   Department,
   KpiDailyRow,
   MemberRollup,
+  FuelCostMonthlyRow,
   aggregateByDay,
   fetchKpiDaily,
+  fetchFuelCostMonthly,
   rollupByMember,
 } from '../lib/kpi';
 
@@ -37,6 +39,7 @@ export function OperationsPage() {
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(todayStr);
   const [rows, setRows] = useState<KpiDailyRow[] | null>(null);
+  const [fuelRows, setFuelRows] = useState<FuelCostMonthlyRow[] | null>(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -48,6 +51,38 @@ export function OperationsPage() {
       .catch((e) => { if (!cancelled) setErr((e as Error).message); });
     return () => { cancelled = true; };
   }, [tab, start, end]);
+
+  // Fuel cost is a fleet-wide concept; load it once and only show it on the
+  // delivery tab where stops-per-month is the natural denominator.
+  useEffect(() => {
+    if (tab !== 'delivery') return;
+    let cancelled = false;
+    fetchFuelCostMonthly(6)
+      .then((rs) => { if (!cancelled) setFuelRows(rs); })
+      .catch(() => { /* non-fatal */ });
+    return () => { cancelled = true; };
+  }, [tab]);
+
+  // GPS-confirmed totals across the visible rows (where set).
+  const gpsAgg = useMemo(() => {
+    if (!rows) return null;
+    let stops = 0, dwell = 0, days = 0, matchSum = 0, matchDays = 0;
+    for (const r of rows) {
+      if (r.gps_stops_confirmed != null) {
+        stops += Number(r.gps_stops_confirmed);
+        dwell += Number(r.gps_dwell_min_total ?? 0);
+        days += 1;
+      }
+      if (r.gps_match_pct != null) {
+        matchSum += Number(r.gps_match_pct);
+        matchDays += 1;
+      }
+    }
+    return { stops, dwell, hasData: days > 0, avgMatchPct: matchDays > 0 ? matchSum / matchDays : null };
+  }, [rows]);
+
+  // Latest month's fuel cost per stop — show on the delivery KPI strip.
+  const latestFuel = fuelRows?.find((r) => r.fuel_per_stop_sf != null) ?? null;
 
   const daily = useMemo(() => (rows ? aggregateByDay(rows, tab) : []), [rows, tab]);
   const members = useMemo(() => (rows ? rollupByMember(rows, tab) : []), [rows, tab]);
@@ -193,6 +228,29 @@ export function OperationsPage() {
                 title="COST / STOP"
                 value={totals.costPerActivity != null ? fm(totals.costPerActivity) : '—'}
                 sub={fm(totals.cost) + ' total cost'}
+              />
+            )}
+            {tab === 'delivery' && gpsAgg?.hasData && (
+              <KPICard
+                title="GPS-CONFIRMED"
+                value={fmtNum(gpsAgg.stops)}
+                sub={
+                  totals.activity > 0
+                    ? Math.round(100 * gpsAgg.stops / totals.activity) + '% vs SF'
+                    : '—'
+                }
+                accent={
+                  totals.activity === 0 ? undefined :
+                  gpsAgg.stops / totals.activity >= 0.85 ? 'var(--gn)' :
+                  gpsAgg.stops / totals.activity >= 0.6  ? 'var(--am)' : 'var(--rd)'
+                }
+              />
+            )}
+            {tab === 'delivery' && latestFuel && (
+              <KPICard
+                title="FUEL / STOP"
+                value={'$' + Number(latestFuel.fuel_per_stop_sf).toFixed(2)}
+                sub={latestFuel.month.slice(0, 7) + ' · ' + fm(Number(latestFuel.fuel_expense)) + ' total'}
               />
             )}
             {tab === 'service' && (

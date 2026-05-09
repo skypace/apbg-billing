@@ -9,6 +9,7 @@ import {
   fetchCustomerNames,
   fetchGeocodeStats,
   fetchReconcileRows,
+  fetchDwellMismatchRows,
   type FleetMapRow,
   type FleetDriver,
   type FleetTrip,
@@ -16,6 +17,7 @@ import {
   type FleetStopVisit,
   type GeocodeStats,
   type ReconcileRow,
+  type DwellMismatchRow,
 } from '../lib/fleet';
 
 // Live fleet map.
@@ -680,17 +682,20 @@ function shortTime(iso: string): string {
 // non-on-site work, OR the truck doing the work isn't on FleetComplete).
 
 type ReconcileFilter = 'all' | 'billed_no_visit' | 'visit_no_bill' | 'matched';
+type ReconcileMode   = 'billing' | 'dwell';
 
 function ReconcileTab() {
+  const [mode, setMode] = useState<ReconcileMode>('billing');
   const [rows, setRows] = useState<ReconcileRow[]>([]);
+  const [dwellRows, setDwellRows] = useState<DwellMismatchRow[]>([]);
   const [filter, setFilter] = useState<ReconcileFilter>('billed_no_visit');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let stopped = false;
-    fetchReconcileRows(30)
-      .then((r) => { if (!stopped) { setRows(r); setLoading(false); } })
+    Promise.all([fetchReconcileRows(30), fetchDwellMismatchRows()])
+      .then(([r, d]) => { if (!stopped) { setRows(r); setDwellRows(d); setLoading(false); } })
       .catch((e) => { if (!stopped) { setErr(String(e)); setLoading(false); } });
     return () => { stopped = true; };
   }, []);
@@ -712,6 +717,24 @@ function ReconcileTab() {
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        {(['billing', 'dwell'] as ReconcileMode[]).map((m) => {
+          const on = mode === m;
+          const label = m === 'billing' ? 'Billing reconciliation' : 'Service-job dwell mismatch';
+          return (
+            <button key={m} onClick={() => setMode(m)} style={{
+              background: on ? 'var(--ac)' : 'transparent',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border: '1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
+              padding: '4px 12px', borderRadius: 4, fontSize: 11,
+              fontWeight: on ? 700 : 500, letterSpacing: 0.4, cursor: 'pointer',
+            }}>{label}</button>
+          );
+        })}
+      </div>
+      {mode === 'dwell' ? <DwellMismatchPanel rows={dwellRows} loading={loading} err={err} /> : null}
+      {mode === 'billing' && (
+      <>
       <div style={{
         background: 'var(--pn)', border: '1px solid var(--bd)',
         padding: 10, borderRadius: 4, marginBottom: 14, fontSize: 11, color: 'var(--mt)',
@@ -796,7 +819,104 @@ function ReconcileTab() {
           </tbody>
         </table>
       )}
+      </>
+      )}
     </div>
+  );
+}
+
+function DwellMismatchPanel({ rows, loading, err }: { rows: DwellMismatchRow[]; loading: boolean; err: string | null }) {
+  type DFilter = 'all' | 'over_billed' | 'under_billed' | 'no_gps' | 'matched';
+  const [filter, setFilter] = useState<DFilter>('over_billed');
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: rows.length, over_billed: 0, under_billed: 0, matched: 0, no_gps: 0 };
+    for (const r of rows) c[r.flag]++;
+    return c;
+  }, [rows]);
+
+  const filtered = filter === 'all' ? rows : rows.filter((r) => r.flag === filter);
+
+  return (
+    <>
+      <div style={{
+        background: 'var(--pn)', border: '1px solid var(--bd)',
+        padding: 10, borderRadius: 4, marginBottom: 14, fontSize: 11, color: 'var(--mt)',
+      }}>
+        <strong style={{ color: 'var(--tx)' }}>Service-job dwell mismatch.</strong>{' '}
+        Compares Service Fusion's reported job duration to GPS dwell time at the same customer on the same day. Customer match via fuzzy name similarity (pg_trgm threshold 0.5). <strong>Over-billed</strong> = SF duration exceeds GPS dwell by &gt;50% (and &gt;30 min). <strong>Under-billed</strong> = SF underreports vs GPS. <strong>No-gps</strong> = no GPS visit found (most rows today, since GPS history just started — backfills as days pass).
+      </div>
+      <div style={{ display: 'flex', gap: 18, marginBottom: 14, fontSize: 11 }}>
+        <Stat label="Total (90d)"   value={String(counts.all)} />
+        <Stat label="Over-billed"   value={String(counts.over_billed)} />
+        <Stat label="Under-billed"  value={String(counts.under_billed)} />
+        <Stat label="No GPS"        value={String(counts.no_gps)} />
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+        {(['over_billed','under_billed','no_gps','matched','all'] as DFilter[]).map((f) => {
+          const on = filter === f;
+          return (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              background: on ? 'var(--ac)' : 'transparent',
+              color: on ? 'var(--bg)' : 'var(--tx)',
+              border: '1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
+              padding: '3px 10px', borderRadius: 4, fontSize: 10,
+              fontWeight: on ? 700 : 500, letterSpacing: 0.4,
+              textTransform: 'uppercase', cursor: 'pointer',
+            }}>{f.replace(/_/g, ' ')}</button>
+          );
+        })}
+      </div>
+      {loading ? <div style={{ color: 'var(--mt)' }}>loading…</div> :
+       err     ? <div style={{ color: '#c44' }}>{err}</div> :
+       filtered.length === 0 ? (
+         <div style={{ color: 'var(--mt)' }}>Nothing in this bucket.</div>
+       ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <thead>
+            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Date</th>
+              <th style={th}>Job#</th>
+              <th style={th}>Customer (SF → QBO)</th>
+              <th style={th}>Tech</th>
+              <th style={th}>Flag</th>
+              <th style={thR}>SF min</th>
+              <th style={thR}>GPS min</th>
+              <th style={thR}>Δ min</th>
+              <th style={thR}>$ billed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const flagColor = r.flag === 'over_billed' ? '#d97a3a'
+                : r.flag === 'under_billed' ? '#3a78d9'
+                : r.flag === 'matched' ? 'var(--mt)'
+                : '#888';
+              return (
+                <tr key={r.service_job_id} style={{ borderTop: '1px solid var(--bd)' }}>
+                  <td style={td}>{r.job_date}</td>
+                  <td style={td}>{r.sf_job_number ?? '—'}</td>
+                  <td style={td}>
+                    {r.sf_customer_name}
+                    {r.qbo_customer_name && r.qbo_customer_name !== r.sf_customer_name && (
+                      <span style={{ color: 'var(--mt)' }}> → {r.qbo_customer_name}</span>
+                    )}
+                  </td>
+                  <td style={td}>{r.tech_name ?? '—'}</td>
+                  <td style={{ ...td, color: flagColor, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 10 }}>
+                    {r.flag.replace(/_/g, ' ')}
+                  </td>
+                  <td style={tdR}>{Number(r.sf_duration_min ?? 0).toFixed(0)}</td>
+                  <td style={tdR}>{r.gps_dwell_min != null ? Number(r.gps_dwell_min).toFixed(0) : '—'}</td>
+                  <td style={tdR}>{r.delta_min != null ? Number(r.delta_min).toFixed(0) : '—'}</td>
+                  <td style={tdR}>${Number(r.invoice_amount ?? r.sf_total ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 

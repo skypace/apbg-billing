@@ -47,7 +47,33 @@ export interface KpiDailyRow {
   margin_per_unit: number | null;
   turnaround_days: number | null;
 
+  // GPS-confirmed counts (added 20260509i). Populated for any team_member
+  // mapped to a fleet_driver in Settings → Fleet Drivers.
+  gps_stops_confirmed: number | null;
+  gps_dwell_min_total: number | null;
+  gps_match_pct: number | null;
+
   computed_at: string;
+}
+
+// Monthly fuel-cost-per-stop, computed from QBO P&L expense line / stop counts.
+// Backed by ops.v_fleet_fuel_cost_monthly.
+export interface FuelCostMonthlyRow {
+  month: string;
+  fuel_expense: number | string;
+  sf_stop_count: number;
+  gps_stop_count: number;
+  gps_matched_count: number;
+  fuel_per_stop_sf: number | string | null;
+  fuel_per_stop_gps: number | string | null;
+  gps_vs_sf_delta_pct: number | string | null;
+}
+
+export async function fetchFuelCostMonthly(months = 12): Promise<FuelCostMonthlyRow[]> {
+  return sbq<FuelCostMonthlyRow>(
+    'v_fleet_fuel_cost_monthly',
+    'select=*&order=month.desc&limit=' + months,
+  );
 }
 
 // Fetch all kpi_daily rows for a department within a date window.

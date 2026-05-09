@@ -191,3 +191,30 @@ export async function fetchReconcileRows(days = 30): Promise<ReconcileRow[]> {
     'select=*&activity_date=gte.' + since + '&order=activity_date.desc',
   );
 }
+
+// ---------- service-job dwell mismatch ----------
+
+export interface DwellMismatchRow {
+  service_job_id: number;
+  sf_job_number: string | null;
+  job_date: string;
+  sf_customer_name: string | null;
+  qbo_customer_name: string | null;
+  qbo_customer_id: string | null;
+  tech_name: string | null;
+  sf_duration_min: number | string | null;
+  gps_dwell_min: number | string | null;
+  gps_visits: number | null;
+  delta_min: number | string | null;
+  name_match_similarity: number | string | null;
+  invoice_amount: number | string | null;
+  sf_total: number | string | null;
+  flag: 'over_billed' | 'under_billed' | 'matched' | 'no_gps';
+}
+
+export async function fetchDwellMismatchRows(): Promise<DwellMismatchRow[]> {
+  return sbq<DwellMismatchRow>(
+    'v_service_dwell_mismatch',
+    'select=*&order=job_date.desc&limit=500',
+  );
+}

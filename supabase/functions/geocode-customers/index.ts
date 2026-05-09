@@ -126,11 +126,34 @@ function buildQuery(c: QboCustomerRow): string {
   return parts.join(', ');
 }
 
+// Strip suite/apt/unit numbers from line 1 — Nominatim chokes on "#110"
+// or "Suite 200" because it tries to match those as house numbers.
+// Used as a fallback when the first lookup returns no_found.
+function stripSuiteNumber(line1: string): string {
+  return line1
+    .replace(/(?:^|[\s,])(#|suite|ste|apt|unit|bldg)\.?\s*[\w-]+\b/gi, '')
+    .replace(/\s+,/g, ',')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 async function geocodeOne(c: QboCustomerRow): Promise<{ status: string; lat?: number; lon?: number; error?: string }> {
   const q = buildQuery(c);
   if (!q) return { status: 'no_address' };
   try {
-    const hit = await nominatimLookup(q);
+    let hit = await nominatimLookup(q);
+    // Fallback: if the first attempt missed, retry with the suite number
+    // stripped. Trades a second 1.1s sleep for ~50% more matches on the
+    // not_found set.
+    if (!hit && c.bill_addr_line1) {
+      const stripped = stripSuiteNumber(c.bill_addr_line1);
+      if (stripped && stripped !== c.bill_addr_line1) {
+        await sleep(REQ_INTERVAL_MS);
+        const retryQuery = [stripped, c.bill_addr_city, c.bill_addr_state, c.bill_addr_postal]
+          .map((p) => (p ?? '').trim()).filter(Boolean).join(', ');
+        hit = await nominatimLookup(retryQuery);
+      }
+    }
     if (!hit) return { status: 'not_found' };
     const lat = parseFloat(hit.lat);
     const lon = parseFloat(hit.lon);
