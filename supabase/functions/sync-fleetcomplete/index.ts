@@ -534,6 +534,10 @@ interface ReconstructedTrip {
   trip_date:         string;
   start_time:        string;
   end_time:          string;
+  start_lat:         number | null;
+  start_lon:         number | null;
+  end_lat:           number | null;
+  end_lon:           number | null;
   distance_miles:    number;
   drive_time_min:    number;
   idle_time_min:     number;
@@ -554,6 +558,12 @@ interface ActiveTrip {
   max_speed_kmh: number;
   idle_seconds: number;
   fc_driver_id: string | null;
+  // First and last GPS-locked points within the trip — used for trip
+  // endpoints. Stays null until we see a snapshot with non-zero coords.
+  first_lat: number | null;
+  first_lon: number | null;
+  last_lat:  number | null;
+  last_lon:  number | null;
 }
 
 async function reconstructTrips(fc_asset_id: string, snapshots: FcSnapshot[], now: string): Promise<ReconstructedTrip[]> {
@@ -589,6 +599,7 @@ async function reconstructTrips(fc_asset_id: string, snapshots: FcSnapshot[], no
           max_speed_kmh: 0,
           idle_seconds: 0,
           fc_driver_id: snap.driver?.driverId ?? null,
+          first_lat: null, first_lon: null, last_lat: null, last_lon: null,
         };
       }
       active.last_active_time = snap.timestamp;
@@ -596,6 +607,12 @@ async function reconstructTrips(fc_asset_id: string, snapshots: FcSnapshot[], no
       active.snapshots.push(snap);
       if (snap.driver?.driverId && !active.fc_driver_id) active.fc_driver_id = snap.driver.driverId;
       if (typeof speed === 'number' && speed > active.max_speed_kmh) active.max_speed_kmh = speed;
+      // Capture first + last GPS-locked points (skip the 0,0 sentinel).
+      if (typeof lat === 'number' && typeof lon === 'number' && !(lat === 0 && lon === 0)) {
+        if (active.first_lat === null) { active.first_lat = lat; active.first_lon = lon; }
+        active.last_lat = lat;
+        active.last_lon = lon;
+      }
       // Sum haversine if we have a previous in-trip GPS point (avoid the
       // 0,0 sentinel Unity emits before GPS lock).
       if (
@@ -675,6 +692,10 @@ async function finalizeTrip(
     trip_date,
     start_time: active.start_time,
     end_time: active.last_active_time,
+    start_lat: active.first_lat,
+    start_lon: active.first_lon,
+    end_lat:   active.last_lat,
+    end_lon:   active.last_lon,
     distance_miles,
     drive_time_min: drive_min,
     idle_time_min: idle_min,
@@ -717,6 +738,98 @@ function extractDriverEvents(fc_asset_id: string, snapshots: FcSnapshot[]): Driv
   return out;
 }
 
+// ---------- stop attribution (auto-geofence) ----------
+//
+// For each consecutive pair of trips on the same vehicle, the gap between
+// trip[i].end_time and trip[i+1].start_time is a "stop". We match the
+// stop's coordinates (trip[i].end_lat/end_lon) against the geocoded
+// customer list and write a fleet_stop_visits row whenever a customer is
+// within MATCH_RADIUS_M.
+//
+// MATCH_RADIUS_M is a balance: too small and we miss stops at strip-mall
+// addresses where the geocoded pin is on the building face; too large and
+// we wrongly attribute stops to whatever business shares the block.
+// 200m is a reasonable starting point — tune later if reports come in.
+
+const STOP_MATCH_RADIUS_M = 200;
+const MIN_DWELL_MIN = 5;     // Filter out traffic-light pauses; real visits are ≥ 5 min.
+
+interface GeocodedCustomer {
+  qbo_customer_id: string;
+  display_name: string | null;
+  lat: number;
+  lon: number;
+}
+
+async function loadGeocodedCustomers(): Promise<GeocodedCustomer[]> {
+  const { data, error } = await sb
+    .from('qbo_customers')
+    .select('qbo_customer_id,display_name,lat,lon')
+    .not('lat', 'is', null)
+    .not('lon', 'is', null);
+  if (error) throw new Error('qbo_customers geocoded read: ' + error.message);
+  return (data ?? []).filter((c: any) => typeof c.lat === 'number' && typeof c.lon === 'number') as GeocodedCustomer[];
+}
+
+interface StopVisitRow {
+  fc_asset_id: string;
+  fc_driver_id: string | null;
+  qbo_customer_id: string | null;
+  arrival_time: string;
+  departure_time: string;
+  dwell_minutes: number;
+  vehicle_lat: number | null;
+  vehicle_lon: number | null;
+  distance_m: number | null;
+}
+
+function matchCustomer(lat: number, lon: number, customers: GeocodedCustomer[]): { customer: GeocodedCustomer; distance_m: number } | null {
+  let best: { customer: GeocodedCustomer; distance_m: number } | null = null;
+  const radiusKm = STOP_MATCH_RADIUS_M / 1000;
+  for (const c of customers) {
+    const km = haversineKm(lat, lon, c.lat, c.lon);
+    if (km > radiusKm) continue;
+    if (!best || km < best.distance_m / 1000) {
+      best = { customer: c, distance_m: km * 1000 };
+    }
+  }
+  return best;
+}
+
+function buildStopVisits(
+  fc_asset_id: string,
+  trips: ReconstructedTrip[],
+  customers: GeocodedCustomer[],
+): StopVisitRow[] {
+  if (trips.length < 2) return [];
+  // Sort by start_time ascending (was sorted desc-by-default in some places).
+  const sorted = [...trips].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const out: StopVisitRow[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    const dwell = (Date.parse(b.start_time) - Date.parse(a.end_time)) / 60_000;
+    if (!isFinite(dwell) || dwell < MIN_DWELL_MIN) continue;
+    const lat = a.end_lat;
+    const lon = a.end_lon;
+    if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+
+    const m = matchCustomer(lat, lon, customers);
+    out.push({
+      fc_asset_id,
+      fc_driver_id: a.fc_driver_id ?? b.fc_driver_id ?? null,
+      qbo_customer_id: m?.customer.qbo_customer_id ?? null,
+      arrival_time: a.end_time,
+      departure_time: b.start_time,
+      dwell_minutes: Math.round(dwell * 10) / 10,
+      vehicle_lat: lat,
+      vehicle_lon: lon,
+      distance_m: m ? Math.round(m.distance_m) : null,
+    });
+  }
+  return out;
+}
+
 async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) {
   const { data: vehicles, error: vErr } = await sb.from('fleet_vehicles').select('fc_asset_id');
   if (vErr) throw new Error('fleet_vehicles read: ' + vErr.message);
@@ -729,9 +842,14 @@ async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) 
   const toIso   = to.toISOString();
   const nowIso  = to.toISOString();
 
+  // Geocoded customers: load once and reuse for all vehicles.
+  const customers = await loadGeocodedCustomers();
+
   let totalTrips = 0;
   let totalEvents = 0;
-  const perVehicle: { fc_asset_id: string; trips: number; events: number; snapshots: number }[] = [];
+  let totalStops = 0;
+  let totalStopsMatched = 0;
+  const perVehicle: { fc_asset_id: string; trips: number; events: number; snapshots: number; stops: number; stops_matched: number }[] = [];
 
   for (const fc_asset_id of ids) {
     // One vehicle per request — Unity rate limit.
@@ -766,7 +884,16 @@ async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) 
 
     const trips = await reconstructTrips(fc_asset_id, snapshots, nowIso);
     const events = extractDriverEvents(fc_asset_id, snapshots);
-    perVehicle.push({ fc_asset_id, trips: trips.length, events: events.length, snapshots: snapshots.length });
+    const stops  = buildStopVisits(fc_asset_id, trips, customers);
+    const stopsMatched = stops.filter((s) => s.qbo_customer_id).length;
+    perVehicle.push({
+      fc_asset_id,
+      trips: trips.length,
+      events: events.length,
+      snapshots: snapshots.length,
+      stops: stops.length,
+      stops_matched: stopsMatched,
+    });
 
     if (trips.length > 0) {
       const { error } = await sb.from('fleet_trips').upsert(trips, { onConflict: 'fc_trip_id' });
@@ -782,11 +909,22 @@ async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) 
       if (error) throw new Error('fleet_driver_events upsert (' + fc_asset_id + '): ' + error.message);
       totalEvents += events.length;
     }
+    if (stops.length > 0) {
+      const { error } = await sb.from('fleet_stop_visits').upsert(stops, {
+        onConflict: 'fc_asset_id,arrival_time',
+      });
+      if (error) throw new Error('fleet_stop_visits upsert (' + fc_asset_id + '): ' + error.message);
+      totalStops += stops.length;
+      totalStopsMatched += stopsMatched;
+    }
   }
 
   return {
     trips_upserted: totalTrips,
     events_upserted: totalEvents,
+    stops_upserted: totalStops,
+    stops_matched_to_customer: totalStopsMatched,
+    geocoded_customers_loaded: customers.length,
     vehicles_processed: ids.length,
     window: { from: fromIso, to: toIso },
     per_vehicle: perVehicle,

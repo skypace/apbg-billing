@@ -116,3 +116,57 @@ export async function fetchGeofenceCount(): Promise<number> {
   const rows = await sbq<{ fc_geofence_id: string }>('fleet_geofences', 'select=fc_geofence_id');
   return rows.length;
 }
+
+// ---------- stop visits (auto-geofence from QBO customers) ----------
+
+export interface FleetStopVisit {
+  id: number;
+  fc_asset_id: string;
+  fc_driver_id: string | null;
+  qbo_customer_id: string | null;
+  arrival_time: string;
+  departure_time: string | null;
+  dwell_minutes: number | string | null;
+  vehicle_lat: number | null;
+  vehicle_lon: number | null;
+  distance_m: number | string | null;
+}
+
+export interface QboCustomerLite {
+  qbo_customer_id: string;
+  display_name: string | null;
+}
+
+export async function fetchRecentStopVisits(days = 7): Promise<FleetStopVisit[]> {
+  const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+  return sbq<FleetStopVisit>(
+    'fleet_stop_visits',
+    'select=id,fc_asset_id,fc_driver_id,qbo_customer_id,arrival_time,departure_time,dwell_minutes,vehicle_lat,vehicle_lon,distance_m&arrival_time=gte.' + since + '&order=arrival_time.desc',
+  );
+}
+
+export async function fetchCustomerNames(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const filter = 'qbo_customer_id=in.(' + ids.map((s) => '"' + s + '"').join(',') + ')';
+  const rows = await sbq<QboCustomerLite>('qbo_customers', 'select=qbo_customer_id,display_name&' + filter);
+  for (const r of rows) {
+    if (r.qbo_customer_id) out.set(r.qbo_customer_id, r.display_name ?? '');
+  }
+  return out;
+}
+
+export interface GeocodeStats {
+  ok: number;
+  not_found: number;
+  attempted: number;
+}
+
+export async function fetchGeocodeStats(): Promise<GeocodeStats> {
+  const [ok, nf, att] = await Promise.all([
+    sbq<{ qbo_customer_id: string }>('qbo_customers', 'select=qbo_customer_id&geocode_status=eq.ok'),
+    sbq<{ qbo_customer_id: string }>('qbo_customers', 'select=qbo_customer_id&geocode_status=eq.not_found'),
+    sbq<{ qbo_customer_id: string }>('qbo_customers', 'select=qbo_customer_id&geocoded_at=not.is.null'),
+  ]);
+  return { ok: ok.length, not_found: nf.length, attempted: att.length };
+}

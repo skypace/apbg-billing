@@ -5,10 +5,15 @@ import {
   fetchRecentTrips,
   fetchRecentDriverEvents,
   fetchGeofenceCount,
+  fetchRecentStopVisits,
+  fetchCustomerNames,
+  fetchGeocodeStats,
   type FleetMapRow,
   type FleetDriver,
   type FleetTrip,
   type FleetDriverEvent,
+  type FleetStopVisit,
+  type GeocodeStats,
 } from '../lib/fleet';
 
 // Live fleet map.
@@ -79,14 +84,14 @@ function vehicleLabel(v: FleetMapRow): string {
   return v.vehicle_name || (v.year ? v.year + ' ' : '') + (v.make || '') + ' ' + (v.model || '') || v.fc_asset_id;
 }
 
-type Tab = 'map' | 'trips' | 'drivers' | 'safety';
+type Tab = 'map' | 'trips' | 'stops' | 'drivers' | 'safety';
 
 export function FleetPage() {
   const [tab, setTab] = useState<Tab>('map');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 70px)' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 4 }}>
-        {(['map', 'trips', 'drivers', 'safety'] as Tab[]).map((t) => (
+        {(['map', 'trips', 'stops', 'drivers', 'safety'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -108,6 +113,7 @@ export function FleetPage() {
       </div>
       {tab === 'map'     && <MapTab />}
       {tab === 'trips'   && <TripsTab />}
+      {tab === 'stops'   && <StopsTab />}
       {tab === 'drivers' && <DriversTab />}
       {tab === 'safety'  && <SafetyTab />}
     </div>
@@ -584,8 +590,8 @@ function SafetyTab() {
           background: 'var(--pn)', border: '1px solid var(--bd)',
           padding: 10, borderRadius: 4, marginBottom: 14, fontSize: 11, color: 'var(--mt)',
         }}>
-          <strong style={{ color: 'var(--tx)' }}>No geofences yet.</strong>{' '}
-          Auto-geofencing from QBO customer addresses is on the roadmap. In the meantime, you can also define them manually in the Powerfleet portal — one per Melt store / depot / fuel station unlocks stop attribution.
+          <strong style={{ color: 'var(--tx)' }}>No Unity geofences.</strong>{' '}
+          Stop attribution is using auto-geocoded QBO customer addresses instead — see the STOPS tab.
         </div>
       )}
       <div style={{ display: 'flex', gap: 18, marginBottom: 14, fontSize: 11 }}>
@@ -657,4 +663,130 @@ function shortTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------- Stops tab ----------
+//
+// Lists fleet_stop_visits over the last 7 days. Each row is a "vehicle was
+// parked here for ≥5 min" event, optionally matched to the nearest QBO
+// customer within 200m. Unmatched stops are still useful — they show where
+// the trucks stopped that we don't have a customer for (likely depots,
+// fuel stations, or accounts not yet billed in the last 90 days).
+
+function StopsTab() {
+  const [stops,    setStops]    = useState<FleetStopVisit[]>([]);
+  const [vehicles, setVehicles] = useState<FleetMapRow[]>([]);
+  const [drivers,  setDrivers]  = useState<FleetDriver[]>([]);
+  const [custNames, setCustNames] = useState<Map<string, string>>(new Map());
+  const [stats,    setStats]    = useState<GeocodeStats | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [err,      setErr]      = useState<string | null>(null);
+
+  useEffect(() => {
+    let stopped = false;
+    (async () => {
+      try {
+        const [s, v, d, st] = await Promise.all([
+          fetchRecentStopVisits(7),
+          fetchFleetMapRows(),
+          fetchFleetDrivers(),
+          fetchGeocodeStats(),
+        ]);
+        if (stopped) return;
+        setStops(s); setVehicles(v); setDrivers(d); setStats(st);
+
+        const ids = Array.from(new Set(s.map((row) => row.qbo_customer_id).filter(Boolean) as string[]));
+        if (ids.length > 0) {
+          const names = await fetchCustomerNames(ids);
+          if (!stopped) setCustNames(names);
+        }
+        setLoading(false);
+      } catch (e) {
+        if (!stopped) { setErr(String(e)); setLoading(false); }
+      }
+    })();
+    return () => { stopped = true; };
+  }, []);
+
+  const vehicleById = useMemo(() => {
+    const m = new Map<string, FleetMapRow>();
+    for (const v of vehicles) m.set(v.fc_asset_id, v);
+    return m;
+  }, [vehicles]);
+  const driverById = useMemo(() => {
+    const m = new Map<string, FleetDriver>();
+    for (const d of drivers) m.set(d.fc_person_id, d);
+    return m;
+  }, [drivers]);
+
+  const matched = stops.filter((s) => s.qbo_customer_id).length;
+  const unmatched = stops.length - matched;
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+      <div style={{
+        background: 'var(--pn)', border: '1px solid var(--bd)',
+        padding: 10, borderRadius: 4, marginBottom: 14, fontSize: 11, color: 'var(--mt)',
+      }}>
+        Auto-geofencing: each stop's GPS is matched against geocoded QBO customer addresses (200 m radius). Cohort = customers billed in the last 90 days, plus the Alameda depot. Unmatched stops are likely depots, fuel stops, or accounts not yet in the cohort.
+      </div>
+      <div style={{ display: 'flex', gap: 18, marginBottom: 14, fontSize: 11 }}>
+        <Stat label="Stops (7d)"          value={String(stops.length)} />
+        <Stat label="Matched to customer" value={String(matched)} />
+        <Stat label="Unmatched"           value={String(unmatched)} />
+        <Stat label="Geocoded customers"  value={stats ? String(stats.ok) : '—'} />
+        <Stat label="Geocode failures"    value={stats ? String(stats.not_found) : '—'} />
+      </div>
+      {loading ? <div style={{ color: 'var(--mt)' }}>loading…</div> :
+       err     ? <div style={{ color: '#c44' }}>{err}</div> :
+       stops.length === 0 ? (
+         <div style={{ color: 'var(--mt)' }}>
+           No stops in the last 7 days yet. The trip cron runs nightly at 02:00 PT — first batch lands tomorrow morning.
+         </div>
+       ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <thead>
+            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Date</th>
+              <th style={th}>Vehicle</th>
+              <th style={th}>Driver</th>
+              <th style={th}>Customer</th>
+              <th style={th}>Arrival</th>
+              <th style={th}>Departure</th>
+              <th style={thR}>Dwell</th>
+              <th style={thR}>Δ from customer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stops.map((s) => {
+              const v = vehicleById.get(s.fc_asset_id);
+              const d = s.fc_driver_id ? driverById.get(s.fc_driver_id) : null;
+              const customerName = s.qbo_customer_id ? custNames.get(s.qbo_customer_id) ?? '(unnamed)' : '(unmatched)';
+              const dwellMin = s.dwell_minutes != null ? Math.round(Number(s.dwell_minutes)) : 0;
+              const dwellLabel = dwellMin >= 60
+                ? Math.floor(dwellMin / 60) + 'h' + (dwellMin % 60 > 0 ? ' ' + (dwellMin % 60) + 'm' : '')
+                : dwellMin + 'm';
+              const dist = s.distance_m != null ? Math.round(Number(s.distance_m)) : null;
+              return (
+                <tr key={s.id} style={{ borderTop: '1px solid var(--bd)' }}>
+                  <td style={td}>{s.arrival_time.slice(0, 10)}</td>
+                  <td style={td}>{v ? vehicleLabel(v) : s.fc_asset_id.slice(0, 8) + '…'}</td>
+                  <td style={td}>{d ? [d.first_name, d.last_name].filter(Boolean).join(' ') : '—'}</td>
+                  <td style={{
+                    ...td,
+                    color: s.qbo_customer_id ? 'var(--tx)' : 'var(--mt)',
+                    fontWeight: s.qbo_customer_id ? 500 : 400,
+                  }}>{customerName}</td>
+                  <td style={td}>{shortTime(s.arrival_time)}</td>
+                  <td style={td}>{s.departure_time ? shortTime(s.departure_time) : '—'}</td>
+                  <td style={tdR}>{dwellLabel}</td>
+                  <td style={tdR}>{dist != null ? dist + ' m' : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }
