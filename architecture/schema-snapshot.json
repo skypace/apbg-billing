@@ -26,6 +26,7 @@
     "fleet_geofences",
     "fleet_latest_snapshots",
     "fleet_maintenance",
+    "fleet_stop_visits",
     "fleet_trips",
     "fleet_vehicles",
     "health_alerts_sent",

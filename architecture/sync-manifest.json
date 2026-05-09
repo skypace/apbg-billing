@@ -40,8 +40,19 @@
       "writes": ["ops.qbo_customers", "ops.qbo_token_cache"],
       "multi_writer": true,
       "external_inputs": ["QuickBooks Online API: Customers"],
-      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql. Writes the upstream customer record (display_name, addresses, etc.). Geocode columns (lat/lon/geocoded_at/geocode_status) are managed by the geocode-customers function.",
       "last_verified": "2026-05-05"
+    },
+    {
+      "name": "geocode-customers",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "nightly 10:30 UTC (cron geocode-customers-nightly, max=80 per run)",
+      "writes": ["ops.qbo_customers"],
+      "multi_writer": true,
+      "external_inputs": ["OpenStreetMap Nominatim geocoder"],
+      "notes": "Source at supabase/functions/geocode-customers/. Populates qbo_customers.lat/lon for the cohort: active + has billing address + (billed in last 90 days OR is the Alameda depot at '1951 Monarch'). Idempotent — skips already-geocoded rows unless qbo_updated_at advances. ~440-row backfill takes ~6 nightly runs (max=80 keeps each call under the 150s idle timeout). Drives auto-geofence stop attribution in sync-fleetcomplete (mode=trips). Cron in 20260509e.",
+      "last_verified": "2026-05-09"
     },
     {
       "name": "sync-qbo-expenses",
@@ -187,11 +198,12 @@
         "ops.fleet_geofences",
         "ops.fleet_trips",
         "ops.fleet_driver_events",
+        "ops.fleet_stop_visits",
         "ops.fleet_fuel_transactions",
         "ops.fleet_maintenance"
       ],
       "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
-      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, and extracts driverBehaviour events into fleet_driver_events at the same time. Fleet page in the SPA exposes Map / Trips / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, extracts driverBehaviour events into fleet_driver_events, and matches each stop (≥5 min dwell) to the nearest geocoded qbo_customer within 200 m → fleet_stop_visits. Fleet page in the SPA exposes Map / Trips / Stops / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
       "last_verified": "2026-05-09"
     },
     {
