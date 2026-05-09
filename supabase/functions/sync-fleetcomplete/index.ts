@@ -241,15 +241,35 @@ interface FcVehicle {
   vin: string | null;
   id: string;
   name: string | null;
+  licensePlate: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
   assignedGroups?: { id: string; description: string | null; name: string | null; fleetId: string; externalId: string | null }[];
   assignedDevices?: { id: string; serial: string | null; phoneNumber: string | null }[];
 }
 
+// NOTE: Vehicle.latestData (and its odometer / engineHours / fuel children) is
+// the obvious source for current odometer, but its resolver is broken on
+// Unity's side: any selection under latestData triggers
+//   "Invalid timestamp, ISO8601 format expected: 2023-08-01T00:00:00Z"
+// repeated once per vehicle (verified 2026-05-08, fleet of 9). The bug fires
+// even when `timestamp` is not in the selection set, so we cannot use this
+// path. Workarounds for current odometer:
+//   (a) getLatestSnapshots(vehicleIds: [UUID]) → CommonFormat.canBus.canDistance
+//       (cumulative km from CAN-bus; not all vehicles expose CAN data).
+//   (b) Sum CommonFormat.canBus.canDeltaDistance across getSnapshots over a
+//       sliding window, applied as a delta to the previous odometer reading.
+// Tracked alongside the wrapped-report bug for the Powerfleet support ticket.
 const VEHICLES_QUERY = `{
   getVehicles {
     vin
     id
     name
+    licensePlate
+    make
+    model
+    year
     assignedGroups { id description name fleetId externalId }
     assignedDevices { id serial phoneNumber }
   }
@@ -261,15 +281,15 @@ async function syncVehicles(ctx: { accessToken: string; userId: string }) {
   const now = new Date().toISOString();
 
   const rows = vehicles.map((v) => ({
-    fc_asset_id: v.id,
-    vehicle_name: v.name,
-    vin: v.vin,
-    // Unity's getVehicles doesn't expose make/model/year/license/odometer in
-    // this shape; if/when we find a richer query (e.g. getVehiclesById with a
-    // full projection), populate those fields here. For now, default status
-    // to 'active' to satisfy the CHECK constraint.
-    status: 'active' as const,
-    synced_at: now,
+    fc_asset_id:   v.id,
+    vehicle_name:  v.name,
+    vin:           v.vin,
+    license_plate: v.licensePlate,
+    make:          v.make,
+    model:         v.model,
+    year:          v.year,
+    status:        'active' as const,
+    synced_at:     now,
   }));
 
   if (rows.length === 0) return { count: 0 };
