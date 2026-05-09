@@ -381,54 +381,419 @@ async function syncLatest(ctx: { accessToken: string; userId: string }) {
   return { count: rows.length };
 }
 
-// ---------- stubbed syncs (paste GraphQL queries from GraphiQL IDE) ----------
+// ---------- people / drivers sync ----------
 
-async function syncTrips(_ctx: { accessToken: string; userId: string }) {
-  // STUB: data source confirmed. Implementation deferred.
-  //
-  // No direct getTrips query — Unity exposes raw snapshots and expects clients
-  // to reconstruct trips. Two paths:
-  //
-  // (a) getWrappedReport(reportId: "vehicle-trips", input: ...)
-  //     Description: "Details about trips made by each asset within the
-  //     selected time period (based on vehicle ignition & idling states)."
-  //     Currently broken — returns php-exception for every call (see file
-  //     header). When Powerfleet fixes it, this is the easy path: the report
-  //     `report` field is JSON with the per-trip rows ready to upsert.
-  //
-  // (b) getSnapshots(vehicleId: UUID!, from: DateTime!, to: DateTime!) -> [CommonFormat]
-  //     Works today. Returns event-driven snapshots (not at fixed intervals).
-  //     To build a trip row:
-  //       1. Look up vehicle_id (bigint) by fc_asset_id from ops.fleet_vehicles.
-  //       2. For each fc_asset_id, call getSnapshots for the sync window
-  //          (e.g. last 26h to overlap with the previous run).
-  //       3. Walk snapshots in timestamp order; a "trip" is a maximal segment
-  //          where ignition.engineStatus = true, separated by ≥2 min of off.
-  //       4. fc_trip_id = sha1(fc_asset_id + start_timestamp) → deterministic
-  //          for upsert idempotency.
-  //       5. Per trip, compute:
-  //            trip_date         = start_time at vehicle local TZ
-  //            distance_miles    = haversine sum (or sum canBus.canDeltaDistance) × 0.621371
-  //            drive_time_min    = (end - start) / 60_000
-  //            idle_time_min     = sum of intra-trip seconds with speed=0 / 60
-  //            max_speed_mph     = max(gps.speed) × 0.621371
-  //            avg_speed_mph     = distance_miles / (drive_time_min / 60)
-  //            driver_id         = lookup ops.staff by driver.driverId or driver.iButton
-  //          (hard_brakes / hard_accels / speed_violations come from
-  //          driverBehaviour.driverBehaviourType events; left null until we
-  //          map the DriverBehaviourType enum.)
-  //       6. Upsert into ops.fleet_trips on fc_trip_id.
-  //
-  // Cost estimate for option (b) on the current fleet (9 fc_asset_ids, ~700
-  // snapshots / vehicle / 2h ≈ 8K snapshots/vehicle/day): ~75K snapshots/day,
-  // ~5MB JSON per daily run. Keep getSnapshots calls strictly sequential
-  // (Unity's one-active-request rule).
+interface FcPerson {
+  id: string;
+  isDriver: boolean;
+  isUser: boolean;
+  fleetId: string;
+  email: string | null;
+  phone: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  employeeId: string | null;
+}
+
+const PEOPLE_QUERY = `{
+  getPeople {
+    id isDriver isUser fleetId
+    firstName lastName email phone employeeId
+  }
+}`;
+
+async function syncPeople(ctx: { accessToken: string; userId: string }) {
+  const data = await graphql<{ getPeople: FcPerson[] }>(PEOPLE_QUERY, ctx);
+  const all = data.getPeople ?? [];
+  // Only persist drivers — admin users / system entries don't belong in the roster.
+  const drivers = all.filter((p) => p.isDriver);
+  const now = new Date().toISOString();
+  const rows = drivers.map((p) => ({
+    fc_person_id: p.id,
+    first_name:   p.firstName,
+    last_name:    p.lastName,
+    email:        p.email,
+    phone:        p.phone,
+    employee_id:  p.employeeId,
+    is_driver:    p.isDriver,
+    is_user:      p.isUser,
+    fleet_id:     p.fleetId,
+    synced_at:    now,
+  }));
+  if (rows.length === 0) return { count: 0 };
+  const { error } = await sb.from('fleet_drivers').upsert(rows, { onConflict: 'fc_person_id' });
+  if (error) throw new Error('fleet_drivers upsert: ' + error.message);
+  return { count: rows.length, total_people: all.length };
+}
+
+// ---------- geofences sync ----------
+
+interface FcGeofence {
+  id: string;
+  name: string | null;
+  description: string | null;
+  type: string | null;
+  color: string | null;
+  geojson: unknown;
+  fleetId: string;
+}
+
+const GEOFENCES_QUERY = `{
+  getGeofences {
+    id name description type color geojson fleetId
+  }
+}`;
+
+async function syncGeofences(ctx: { accessToken: string; userId: string }) {
+  const data = await graphql<{ getGeofences: FcGeofence[] }>(GEOFENCES_QUERY, ctx);
+  const fences = data.getGeofences ?? [];
+  if (fences.length === 0) {
+    return { count: 0, note: 'no geofences defined in Unity portal — Tier-2 stop attribution stays dormant until you create some' };
+  }
+  const now = new Date().toISOString();
+  const rows = fences.map((g) => ({
+    fc_geofence_id: g.id,
+    name:           g.name,
+    description:    g.description,
+    type:           g.type,
+    color:          g.color,
+    geojson:        g.geojson,
+    fleet_id:       g.fleetId,
+    synced_at:      now,
+  }));
+  const { error } = await sb.from('fleet_geofences').upsert(rows, { onConflict: 'fc_geofence_id' });
+  if (error) throw new Error('fleet_geofences upsert: ' + error.message);
+  return { count: rows.length };
+}
+
+// ---------- trips + driver-event extraction ----------
+//
+// One pass over getSnapshots produces both:
+//   - ops.fleet_trips rows (one per ignition cycle ≥ 2 min apart)
+//   - ops.fleet_driver_events rows (one per driverBehaviour event)
+//
+// Sequential per vehicle (Unity allows one active GraphQL request per
+// user). Default window: last 26 hours, with 2-hour overlap with the
+// previous run for robustness.
+//
+// Idempotency: fc_trip_id = sha1(fc_asset_id + ':' + start_time);
+// fleet_driver_events has UNIQUE(fc_asset_id, event_at, event_type).
+
+interface FcSnapshot {
+  vehicleId: string;
+  timestamp: string;
+  locationTimestamp: string | null;
+  gps: {
+    state: boolean | null;
+    latitude: number | null;
+    longitude: number | null;
+    direction: number | null;
+    speed: number | null;
+  } | null;
+  ignition: { engineStatus: boolean | null } | null;
+  driver: { driverId: string | null } | null;
+  driverBehaviour: { driverBehaviourType: string | null; driverBehaviourValue: number | null } | null;
+  canBus: { canDeltaDistance: number | null; canDistance: number | null } | null;
+}
+
+const SNAPSHOTS_QUERY = `query Snap($vid: UUID!, $from: DateTime!, $to: DateTime!) {
+  getSnapshots(vehicleId: $vid, from: $from, to: $to) {
+    vehicleId timestamp locationTimestamp
+    gps      { state latitude longitude direction speed }
+    ignition { engineStatus }
+    driver   { driverId }
+    driverBehaviour { driverBehaviourType driverBehaviourValue }
+    canBus   { canDeltaDistance canDistance }
+  }
+}`;
+
+const KM_TO_MILES = 0.621371;
+const TRIP_GAP_MS = 2 * 60 * 1000;            // ≥2 min ignition-off splits trips
+const TRIPS_WINDOW_MS = 26 * 60 * 60 * 1000;  // last 26 hours
+
+function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6371;
+  const toRad = (d: number) => d * Math.PI / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const x = Math.sin(dLat/2)**2 + Math.sin(dLon/2)**2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+
+async function sha1Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+interface ReconstructedTrip {
+  fc_trip_id:        string;
+  fc_asset_id:       string;
+  fc_driver_id:      string | null;
+  trip_date:         string;
+  start_time:        string;
+  end_time:          string;
+  distance_miles:    number;
+  drive_time_min:    number;
+  idle_time_min:     number;
+  max_speed_mph:     number;
+  avg_speed_mph:     number;
+  hard_brakes:       number;
+  hard_accels:       number;
+  speed_violations:  number;
+  synced_at:         string;
+}
+
+interface ActiveTrip {
+  start_time: string;
+  last_active_time: string;
+  last_active_t: number;
+  snapshots: FcSnapshot[];
+  distance_km: number;
+  max_speed_kmh: number;
+  idle_seconds: number;
+  fc_driver_id: string | null;
+}
+
+async function reconstructTrips(fc_asset_id: string, snapshots: FcSnapshot[], now: string): Promise<ReconstructedTrip[]> {
+  // Sort by timestamp ascending. Unity returns mostly-sorted but not guaranteed.
+  snapshots.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  const trips: ReconstructedTrip[] = [];
+
+  let active: ActiveTrip | null = null;
+
+  let prevTime: number | null = null;
+  let prevWasIgnitionOn: boolean | null = null;
+  let prevLat: number | null = null;
+  let prevLon: number | null = null;
+  let prevSpeed: number | null = null;
+
+  for (const snap of snapshots) {
+    const t = Date.parse(snap.timestamp);
+    if (isNaN(t)) continue;
+    const ignOn = snap.ignition?.engineStatus === true;
+    const lat = snap.gps?.latitude ?? null;
+    const lon = snap.gps?.longitude ?? null;
+    const speed = snap.gps?.speed ?? null;
+
+    if (ignOn) {
+      if (!active) {
+        active = {
+          start_time: snap.timestamp,
+          last_active_time: snap.timestamp,
+          last_active_t: t,
+          snapshots: [],
+          distance_km: 0,
+          max_speed_kmh: 0,
+          idle_seconds: 0,
+          fc_driver_id: snap.driver?.driverId ?? null,
+        };
+      }
+      active.last_active_time = snap.timestamp;
+      active.last_active_t = t;
+      active.snapshots.push(snap);
+      if (snap.driver?.driverId && !active.fc_driver_id) active.fc_driver_id = snap.driver.driverId;
+      if (typeof speed === 'number' && speed > active.max_speed_kmh) active.max_speed_kmh = speed;
+      // Sum haversine if we have a previous in-trip GPS point (avoid the
+      // 0,0 sentinel Unity emits before GPS lock).
+      if (
+        prevTime !== null && prevWasIgnitionOn === true &&
+        typeof lat === 'number' && typeof lon === 'number' &&
+        typeof prevLat === 'number' && typeof prevLon === 'number' &&
+        !(lat === 0 && lon === 0) && !(prevLat === 0 && prevLon === 0)
+      ) {
+        const km = haversineKm(prevLat, prevLon, lat, lon);
+        if (km < 50) active.distance_km += km;   // sanity gate
+      }
+      // Idle accumulation: speed=0 while ignition on.
+      if (
+        prevTime !== null && prevWasIgnitionOn === true &&
+        typeof prevSpeed === 'number' && prevSpeed === 0 &&
+        typeof speed === 'number' && speed === 0
+      ) {
+        active.idle_seconds += (t - prevTime) / 1000;
+      }
+    } else {
+      // Ignition off: end the trip if it's been off long enough since last active sample.
+      if (active && (t - active.last_active_t) >= TRIP_GAP_MS) {
+        trips.push(await finalizeTrip(active, fc_asset_id, now));
+        active = null;
+      }
+    }
+
+    prevTime = t;
+    prevWasIgnitionOn = ignOn;
+    prevLat = lat;
+    prevLon = lon;
+    prevSpeed = speed;
+  }
+
+  // Window ended mid-trip: finalize what we have. Next run's overlap will pick up the rest.
+  if (active) {
+    trips.push(await finalizeTrip(active, fc_asset_id, now));
+  }
+  return trips;
+}
+
+async function finalizeTrip(
+  active: ActiveTrip,
+  fc_asset_id: string,
+  now: string,
+): Promise<ReconstructedTrip> {
+  const start_t = Date.parse(active.start_time);
+  const end_t   = Date.parse(active.last_active_time);
+  const drive_min = Math.max(0, (end_t - start_t) / 60_000);
+  const idle_min  = active.idle_seconds / 60;
+  const distance_miles = active.distance_km * KM_TO_MILES;
+  const dur_h = drive_min / 60;
+  const avg_speed_mph = dur_h > 0 ? distance_miles / dur_h : 0;
+  const max_speed_mph = active.max_speed_kmh * KM_TO_MILES;
+
+  // Hard-event counts from this trip's snapshots.
+  let hard_brakes = 0;
+  let hard_accels = 0;
+  let speed_violations = 0;
+  for (const s of active.snapshots) {
+    const ev = s.driverBehaviour?.driverBehaviourType;
+    if (ev === 'HARSH_BRAKING') hard_brakes++;
+    else if (ev === 'HARSH_ACCELERATION') hard_accels++;
+    else if (ev === 'MAX_SPEED_EXCEEDED' || ev === 'SPEED_SIGN_VIOLATION') speed_violations++;
+  }
+
+  const fc_trip_id = await sha1Hex(fc_asset_id + ':' + active.start_time);
+  // trip_date = ISO date portion of start_time (UTC). Local-TZ correction is
+  // a separate problem; cron runs at 11:00 UTC = 03:00 PT so most yesterday-
+  // PT trips fall into the right UTC date already. Refine if needed.
+  const trip_date = active.start_time.slice(0, 10);
+
   return {
-    skipped:
-      'getSnapshots-based trip reconstruction not yet implemented. ' +
-      'Wrapped report (reportId=vehicle-trips) blocked by upstream php-exception.',
+    fc_trip_id,
+    fc_asset_id,
+    fc_driver_id: active.fc_driver_id,
+    trip_date,
+    start_time: active.start_time,
+    end_time: active.last_active_time,
+    distance_miles,
+    drive_time_min: drive_min,
+    idle_time_min: idle_min,
+    max_speed_mph,
+    avg_speed_mph,
+    hard_brakes,
+    hard_accels,
+    speed_violations,
+    synced_at: now,
   };
 }
+
+interface DriverEventRow {
+  fc_asset_id: string;
+  fc_driver_id: string | null;
+  event_type: string;
+  event_value: number | null;
+  event_at: string;
+  latitude: number | null;
+  longitude: number | null;
+  speed_kmh: number | null;
+}
+
+function extractDriverEvents(fc_asset_id: string, snapshots: FcSnapshot[]): DriverEventRow[] {
+  const out: DriverEventRow[] = [];
+  for (const s of snapshots) {
+    const t = s.driverBehaviour?.driverBehaviourType;
+    if (!t || t === 'DRIVER_BEHAVIOUR_TYPE_UNKNOWN') continue;
+    out.push({
+      fc_asset_id,
+      fc_driver_id: s.driver?.driverId ?? null,
+      event_type: t,
+      event_value: s.driverBehaviour?.driverBehaviourValue ?? null,
+      event_at: s.timestamp,
+      latitude: s.gps?.latitude ?? null,
+      longitude: s.gps?.longitude ?? null,
+      speed_kmh: s.gps?.speed ?? null,
+    });
+  }
+  return out;
+}
+
+async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) {
+  const { data: vehicles, error: vErr } = await sb.from('fleet_vehicles').select('fc_asset_id');
+  if (vErr) throw new Error('fleet_vehicles read: ' + vErr.message);
+  const ids = (vehicles ?? []).map((v) => v.fc_asset_id).filter(Boolean) as string[];
+  if (ids.length === 0) return { trips_upserted: 0, events_upserted: 0, vehicles_processed: 0 };
+
+  const to = new Date();
+  const from = new Date(to.getTime() - TRIPS_WINDOW_MS);
+  const fromIso = from.toISOString();
+  const toIso   = to.toISOString();
+  const nowIso  = to.toISOString();
+
+  let totalTrips = 0;
+  let totalEvents = 0;
+  const perVehicle: { fc_asset_id: string; trips: number; events: number; snapshots: number }[] = [];
+
+  for (const fc_asset_id of ids) {
+    // One vehicle per request — Unity rate limit.
+    const res = await fetch(FC_BASE + '/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + ctx.accessToken,
+        'userId': ctx.userId,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: SNAPSHOTS_QUERY, variables: { vid: fc_asset_id, from: fromIso, to: toIso } }),
+    });
+    if (res.status === 429) {
+      // Back off + retry once for this vehicle, then continue.
+      await sleep(2000);
+      continue;
+    }
+    if (!res.ok) {
+      console.warn('graphql(snapshots) ' + fc_asset_id + ': ' + res.status);
+      continue;
+    }
+    const j = await res.json() as { data?: { getSnapshots: FcSnapshot[] }; errors?: { message: string }[] };
+    if (j.errors?.length) {
+      console.warn('graphql(snapshots) ' + fc_asset_id + ' errors: ' + j.errors.map((e) => e.message).join('; '));
+      continue;
+    }
+    const snapshots = j.data?.getSnapshots ?? [];
+    if (snapshots.length === 0) {
+      perVehicle.push({ fc_asset_id, trips: 0, events: 0, snapshots: 0 });
+      continue;
+    }
+
+    const trips = await reconstructTrips(fc_asset_id, snapshots, nowIso);
+    const events = extractDriverEvents(fc_asset_id, snapshots);
+    perVehicle.push({ fc_asset_id, trips: trips.length, events: events.length, snapshots: snapshots.length });
+
+    if (trips.length > 0) {
+      const { error } = await sb.from('fleet_trips').upsert(trips, { onConflict: 'fc_trip_id' });
+      if (error) throw new Error('fleet_trips upsert (' + fc_asset_id + '): ' + error.message);
+      totalTrips += trips.length;
+    }
+    if (events.length > 0) {
+      // ignoreDuplicates so re-runs over overlapping windows don't fail on the unique constraint.
+      const { error } = await sb.from('fleet_driver_events').upsert(events, {
+        onConflict: 'fc_asset_id,event_at,event_type',
+        ignoreDuplicates: true,
+      });
+      if (error) throw new Error('fleet_driver_events upsert (' + fc_asset_id + '): ' + error.message);
+      totalEvents += events.length;
+    }
+  }
+
+  return {
+    trips_upserted: totalTrips,
+    events_upserted: totalEvents,
+    vehicles_processed: ids.length,
+    window: { from: fromIso, to: toIso },
+    per_vehicle: perVehicle,
+  };
+}
+
+// ---------- still-stubbed syncs ----------
 
 async function syncFuel(_ctx: { accessToken: string; userId: string }) {
   // NOT POSSIBLE via Unity GraphQL.
@@ -494,7 +859,9 @@ Deno.serve(async (req) => {
     // Sequential — Unity allows only one active request per user.
     if (mode === 'all' || mode === 'vehicles')    result.vehicles    = await syncVehicles(ctx);
     if (mode === 'all' || mode === 'latest')      result.latest      = await syncLatest(ctx);
-    if (mode === 'all' || mode === 'trips')       result.trips       = await syncTrips(ctx);
+    if (mode === 'all' || mode === 'people')      result.people      = await syncPeople(ctx);
+    if (mode === 'all' || mode === 'geofences')   result.geofences   = await syncGeofences(ctx);
+    if (mode === 'all' || mode === 'trips')       result.trips       = await syncTripsAndEvents(ctx);
     if (mode === 'all' || mode === 'fuel')        result.fuel        = await syncFuel(ctx);
     if (mode === 'all' || mode === 'maintenance') result.maintenance = await syncMaintenance(ctx);
 

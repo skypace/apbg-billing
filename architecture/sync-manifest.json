@@ -178,18 +178,21 @@
       "name": "sync-fleetcomplete",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "hourly :05 vehicles refresh (cron disabled until enabled in 20260506h); every 5 min latest-snapshots refresh (active cron fleetcomplete-latest-snapshots)",
+      "schedule": "every 5 min latest-snapshots (cron fleetcomplete-latest-snapshots); hourly :05 roster — vehicles + people + geofences (cron fleetcomplete-roster); daily 09:00 UTC trips + driver-events (cron fleetcomplete-trips)",
       "writes": [
         "ops.fc_token_cache",
         "ops.fleet_vehicles",
         "ops.fleet_latest_snapshots",
+        "ops.fleet_drivers",
+        "ops.fleet_geofences",
         "ops.fleet_trips",
+        "ops.fleet_driver_events",
         "ops.fleet_fuel_transactions",
         "ops.fleet_maintenance"
       ],
       "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
-      "notes": "Source at supabase/functions/sync-fleetcomplete/. mode=vehicles IMPLEMENTED (rosters incl. make/model/year/plate). mode=latest IMPLEMENTED — getLatestSnapshots writes one row per vehicle to fleet_latest_snapshots, refreshed every 5 min by cron fleetcomplete-latest-snapshots (20260508b); powers the Fleet live-map page. mode=trips STUBBED (data source confirmed: getSnapshots — needs trip reconstruction). mode=fuel NOT POSSIBLE via Unity. mode=maintenance BLOCKED upstream (getWrappedReport php-exception). See supabase/functions/sync-fleetcomplete/README.md.",
-      "last_verified": "2026-05-08"
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, and extracts driverBehaviour events into fleet_driver_events at the same time. Fleet page in the SPA exposes Map / Trips / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
+      "last_verified": "2026-05-09"
     },
     {
       "name": "manual-ui:margin-minder-settings",
