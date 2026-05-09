@@ -8,12 +8,14 @@ import {
   fetchRecentStopVisits,
   fetchCustomerNames,
   fetchGeocodeStats,
+  fetchReconcileRows,
   type FleetMapRow,
   type FleetDriver,
   type FleetTrip,
   type FleetDriverEvent,
   type FleetStopVisit,
   type GeocodeStats,
+  type ReconcileRow,
 } from '../lib/fleet';
 
 // Live fleet map.
@@ -84,14 +86,14 @@ function vehicleLabel(v: FleetMapRow): string {
   return v.vehicle_name || (v.year ? v.year + ' ' : '') + (v.make || '') + ' ' + (v.model || '') || v.fc_asset_id;
 }
 
-type Tab = 'map' | 'trips' | 'stops' | 'drivers' | 'safety';
+type Tab = 'map' | 'trips' | 'stops' | 'reconcile' | 'drivers' | 'safety';
 
 export function FleetPage() {
   const [tab, setTab] = useState<Tab>('map');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 70px)' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 4 }}>
-        {(['map', 'trips', 'stops', 'drivers', 'safety'] as Tab[]).map((t) => (
+        {(['map', 'trips', 'stops', 'reconcile', 'drivers', 'safety'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -111,11 +113,12 @@ export function FleetPage() {
           </button>
         ))}
       </div>
-      {tab === 'map'     && <MapTab />}
-      {tab === 'trips'   && <TripsTab />}
-      {tab === 'stops'   && <StopsTab />}
-      {tab === 'drivers' && <DriversTab />}
-      {tab === 'safety'  && <SafetyTab />}
+      {tab === 'map'       && <MapTab />}
+      {tab === 'trips'     && <TripsTab />}
+      {tab === 'stops'     && <StopsTab />}
+      {tab === 'reconcile' && <ReconcileTab />}
+      {tab === 'drivers'   && <DriversTab />}
+      {tab === 'safety'    && <SafetyTab />}
     </div>
   );
 }
@@ -663,6 +666,138 @@ function shortTime(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------- Reconcile tab ----------
+//
+// Cross-reference of GPS-detected stops vs QBO invoices over the last 30
+// days, ±1 day tolerance. The ops.v_fleet_stop_billing view does the join;
+// this tab just paints it.
+//
+// Filter chips at the top let the user focus on one flag class at a time.
+// 'billed_no_visit' is the row class that needs explanation: customer was
+// billed but no truck arrived (the geocoded pin is wrong, the bill was for
+// non-on-site work, OR the truck doing the work isn't on FleetComplete).
+
+type ReconcileFilter = 'all' | 'billed_no_visit' | 'visit_no_bill' | 'matched';
+
+function ReconcileTab() {
+  const [rows, setRows] = useState<ReconcileRow[]>([]);
+  const [filter, setFilter] = useState<ReconcileFilter>('billed_no_visit');
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stopped = false;
+    fetchReconcileRows(30)
+      .then((r) => { if (!stopped) { setRows(r); setLoading(false); } })
+      .catch((e) => { if (!stopped) { setErr(String(e)); setLoading(false); } });
+    return () => { stopped = true; };
+  }, []);
+
+  const counts = useMemo(() => {
+    const c = { matched: 0, visit_no_bill: 0, billed_no_visit: 0, all: rows.length };
+    for (const r of rows) c[r.flag]++;
+    return c;
+  }, [rows]);
+
+  const filtered = useMemo(() => (
+    filter === 'all' ? rows : rows.filter((r) => r.flag === filter)
+  ), [rows, filter]);
+
+  const ghostBilledTotal = useMemo(() => (
+    rows.filter((r) => r.flag === 'billed_no_visit')
+        .reduce((s, r) => s + Number(r.invoice_amount_pm1 ?? 0), 0)
+  ), [rows]);
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+      <div style={{
+        background: 'var(--pn)', border: '1px solid var(--bd)',
+        padding: 10, borderRadius: 4, marginBottom: 14, fontSize: 11, color: 'var(--mt)',
+      }}>
+        <strong style={{ color: 'var(--tx)' }}>Billing reconciliation.</strong>{' '}
+        For each (customer, day) over the last 30 days, this compares GPS-detected stops to QBO invoices within ±1 day. <strong>Billed-no-visit</strong> = invoice landed but no truck went there (ghost stop, off-tracker truck, or stale geocode). <strong>Visit-no-bill</strong> = truck visited but no invoice (missed bill, depot, warranty).
+      </div>
+      <div style={{ display: 'flex', gap: 18, marginBottom: 14, fontSize: 11 }}>
+        <Stat label="Matched"            value={String(counts.matched)} />
+        <Stat label="Billed-no-visit"    value={String(counts.billed_no_visit)} />
+        <Stat label="Visit-no-bill"      value={String(counts.visit_no_bill)} />
+        <Stat label="$ on ghost stops"   value={'$' + ghostBilledTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} />
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+        {(['billed_no_visit', 'visit_no_bill', 'matched', 'all'] as ReconcileFilter[]).map((f) => {
+          const on = filter === f;
+          const label = f === 'all' ? 'all' : f.replace(/_/g, ' ');
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                background: on ? 'var(--ac)' : 'transparent',
+                color: on ? 'var(--bg)' : 'var(--tx)',
+                border: '1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
+                padding: '3px 10px',
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: on ? 700 : 500,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {loading ? <div style={{ color: 'var(--mt)' }}>loading…</div> :
+       err     ? <div style={{ color: '#c44' }}>{err}</div> :
+       filtered.length === 0 ? (
+         <div style={{ color: 'var(--mt)' }}>
+           Nothing in this bucket over the last 30 days.
+         </div>
+       ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <thead>
+            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Date</th>
+              <th style={th}>Customer</th>
+              <th style={th}>Flag</th>
+              <th style={thR}>Visits</th>
+              <th style={thR}>Dwell</th>
+              <th style={thR}>Invoices ±1d</th>
+              <th style={thR}>$ ±1d</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r, i) => {
+              const dwell = Number(r.total_dwell_min ?? 0);
+              const dwellLabel = dwell >= 60
+                ? Math.floor(dwell / 60) + 'h' + (dwell % 60 > 0 ? ' ' + Math.round(dwell % 60) + 'm' : '')
+                : Math.round(dwell) + 'm';
+              const flagColor = r.flag === 'matched' ? 'var(--mt)'
+                : r.flag === 'billed_no_visit' ? '#d97a3a'
+                : '#3a78d9';
+              return (
+                <tr key={r.qbo_customer_id + ':' + r.activity_date + ':' + i} style={{ borderTop: '1px solid var(--bd)' }}>
+                  <td style={td}>{r.activity_date}</td>
+                  <td style={td}>{r.customer_name ?? r.qbo_customer_id.slice(0, 8) + '…'}</td>
+                  <td style={{ ...td, color: flagColor, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 10 }}>
+                    {r.flag.replace(/_/g, ' ')}
+                  </td>
+                  <td style={tdR}>{r.visit_count ?? 0}</td>
+                  <td style={tdR}>{dwell > 0 ? dwellLabel : '—'}</td>
+                  <td style={tdR}>{r.invoice_count_pm1 ?? 0}</td>
+                  <td style={tdR}>${Number(r.invoice_amount_pm1 ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }
 
 // ---------- Stops tab ----------
