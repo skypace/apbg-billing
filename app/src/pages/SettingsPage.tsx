@@ -5,6 +5,7 @@ import { DigestEditor } from './settings/DigestEditor';
 import { ExpenseBucketsEditor } from './settings/ExpenseBucketsEditor';
 import { UsersEditor } from './settings/UsersEditor';
 import { CustomerClassificationEditor } from './settings/CustomerClassificationEditor';
+import { FleetDriversEditor } from './settings/FleetDriversEditor';
 import {
   deleteChannel,
   deleteSegment,
@@ -23,7 +24,8 @@ type Tab =
   | 'digest'
   | 'classification'
   | 'expense_buckets'
-  | 'users';
+  | 'users'
+  | 'fleet_drivers';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'channels',        label: 'Channels' },
@@ -32,6 +34,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'digest',          label: 'Email Digest' },
   { id: 'classification',  label: 'Customer Classification' },
   { id: 'expense_buckets', label: 'Expense Buckets' },
+  { id: 'fleet_drivers',   label: 'Fleet Drivers' },
   { id: 'users',           label: 'Users' },
 ];
 
@@ -97,6 +100,7 @@ export function SettingsPage() {
       {tab === 'digest'          && <DigestEditor />}
       {tab === 'classification'  && <CustomerClassificationEditor />}
       {tab === 'expense_buckets' && <ExpenseBucketsEditor />}
+      {tab === 'fleet_drivers'   && <FleetDriversEditor />}
       {tab === 'users'           && <UsersEditor />}
     </div>
   );
