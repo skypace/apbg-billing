@@ -6,6 +6,7 @@ import { ExpenseBucketsEditor } from './settings/ExpenseBucketsEditor';
 import { UsersEditor } from './settings/UsersEditor';
 import { CustomerClassificationEditor } from './settings/CustomerClassificationEditor';
 import { FleetDriversEditor } from './settings/FleetDriversEditor';
+import { SalesRepsEditor } from './settings/SalesRepsEditor';
 import {
   deleteChannel,
   deleteSegment,
@@ -20,6 +21,7 @@ import {
 type Tab =
   | 'channels'
   | 'segments'
+  | 'sales_reps'
   | 'item_sets'
   | 'digest'
   | 'classification'
@@ -30,6 +32,7 @@ type Tab =
 const TABS: { id: Tab; label: string }[] = [
   { id: 'channels',        label: 'Channels' },
   { id: 'segments',        label: 'Segments' },
+  { id: 'sales_reps',      label: 'Sales Reps' },
   { id: 'item_sets',       label: 'Item Sets' },
   { id: 'digest',          label: 'Email Digest' },
   { id: 'classification',  label: 'Customer Classification' },
@@ -40,31 +43,33 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('channels');
+  const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Settings';
 
   return (
     <div>
-      <div className="pt">Settings <span className="bg bg-l">CONTROL</span></div>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Taxonomy · classification · users</div>
+          <h1 className="hero-title">Settings</h1>
+          <div className="hero-meta">{activeLabel} · Brix Beverage · Alameda Soda Co</div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          {TABS.length} sections
+        </div>
+      </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {TABS.map((t) => {
           const on = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              style={{
-                background: on ? 'var(--ac)' : 'var(--sf2)',
-                color: on ? 'var(--bg)' : 'var(--tx)',
-                border: '1px solid var(--bd)',
-                padding: '6px 12px',
-                borderRadius: 4,
-                fontSize: 11,
-                cursor: 'pointer',
-                fontWeight: on ? 700 : 500,
-                letterSpacing: 0.5,
-              }}
+              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
+              style={on ? { fontWeight: 700 } : undefined}
             >
-              {t.label.toUpperCase()}
+              {t.label}
             </button>
           );
         })}
@@ -96,6 +101,7 @@ export function SettingsPage() {
         />
       )}
 
+      {tab === 'sales_reps'      && <SalesRepsEditor />}
       {tab === 'item_sets'       && <ItemSetsEditor />}
       {tab === 'digest'          && <DigestEditor />}
       {tab === 'classification'  && <CustomerClassificationEditor />}
