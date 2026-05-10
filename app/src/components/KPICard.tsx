@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface Props {
   title: string;
@@ -6,7 +7,7 @@ interface Props {
   sub?: ReactNode;
   /** Optional delta % vs prior period — drives sentiment coloring + arrow. */
   deltaPct?: number | null;
-  /** Optional 12-mo sparkline values for a microchart in the corner. */
+  /** Optional 12-mo sparkline values for a microchart at the bottom. */
   sparkline?: number[];
   /** Override sentiment hue (defaults to deltaPct sign). */
   accent?: string;
@@ -32,101 +33,53 @@ export function KPICard({
     deltaPct == null
       ? 'neutral'
       : polarity === 'normal'
-        ? deltaPct > 0
-          ? 'pos'
-          : deltaPct < 0
-            ? 'neg'
-            : 'neutral'
-        : deltaPct > 0
-          ? 'neg'
-          : deltaPct < 0
-            ? 'pos'
-            : 'neutral';
+        ? deltaPct > 0 ? 'pos' : deltaPct < 0 ? 'neg' : 'neutral'
+        : deltaPct > 0 ? 'neg' : deltaPct < 0 ? 'pos' : 'neutral';
 
   const sentimentColor =
-    sentiment === 'pos'
-      ? 'var(--success)'
-      : sentiment === 'neg'
-        ? 'var(--danger)'
-        : 'var(--mt)';
+    sentiment === 'pos' ? 'var(--success)' :
+    sentiment === 'neg' ? 'var(--danger)'  :
+                          'var(--mt)';
 
+  const sentimentBg =
+    sentiment === 'pos' ? 'rgba(0, 200, 150, 0.10)' :
+    sentiment === 'neg' ? 'rgba(224, 79, 95, 0.10)' :
+                          'rgba(255, 255, 255, 0.04)';
+
+  const TrendIcon = sentiment === 'pos' ? TrendingUp : sentiment === 'neg' ? TrendingDown : Minus;
   const valueColor = accent ?? undefined;
-
-  // Microchart values (simple bar sparkline, taller for more impact).
-  const sparklineSvg = sparkline && sparkline.length > 0 ? renderSparkline(sparkline, sentimentColor) : null;
 
   return (
     <div
-      className="cd"
+      className="kpi-card cd"
       onClick={onClick}
-      style={{
-        position: 'relative',
-        padding: '12px 14px 14px',
-        cursor: onClick ? 'pointer' : 'default',
-        background: 'var(--sf)',
-        backgroundImage: 'var(--grad-card)',
-      }}
+      style={{ cursor: onClick ? 'pointer' : 'default' }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginBottom: 4,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 9,
-            color: 'var(--mt)',
-            letterSpacing: 1.2,
-            textTransform: 'uppercase',
-            fontWeight: 600,
-          }}
-        >
-          {title}
-        </div>
+      <div className="kpi-head">
+        <div className="kpi-title">{title}</div>
         {deltaPct != null && (
           <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              color: sentimentColor,
-              fontFamily: 'monospace',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 2,
-            }}
+            className="kpi-delta"
+            style={{ color: sentimentColor, background: sentimentBg, borderColor: sentimentColor }}
           >
-            <span>{deltaPct > 0 ? '▲' : deltaPct < 0 ? '▼' : '◆'}</span>
+            <TrendIcon size={11} strokeWidth={2.5} />
             <span>{FMT_PCT(deltaPct)}</span>
           </div>
         )}
       </div>
 
       <div
-        style={{
-          fontSize: 22,
-          fontWeight: 700,
-          color: valueColor ?? 'var(--tx)',
-          fontVariantNumeric: 'tabular-nums',
-          marginBottom: sub ? 4 : 0,
-          lineHeight: 1.1,
-        }}
+        className="kpi-value"
+        style={{ color: valueColor ?? 'var(--tx)' }}
       >
         {value}
       </div>
 
-      {sub != null && (
-        <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.4 }}>
-          {sub}
-        </div>
-      )}
+      {sub != null && <div className="kpi-sub">{sub}</div>}
 
-      {sparklineSvg && (
-        <div style={{ marginTop: 8, height: 28 }}>
-          {sparklineSvg}
+      {sparkline && sparkline.length > 0 && (
+        <div className="kpi-spark">
+          {renderSparkline(sparkline, sentimentColor)}
         </div>
       )}
     </div>
@@ -136,33 +89,48 @@ export function KPICard({
 function renderSparkline(values: number[], color: string) {
   const max = Math.max(1, ...values);
   const w = 100;
-  const h = 28;
+  const h = 32;
   const stepX = w / Math.max(values.length - 1, 1);
-  const points = values
-    .map((v, i) => `${i * stepX},${h - (Math.max(0, v) / max) * (h - 2)}`)
-    .join(' ');
+  const pad = 2;
+
+  const pointsArr = values.map((v, i) => ({
+    x: i * stepX,
+    y: h - pad - (Math.max(0, v) / max) * (h - pad * 2),
+  }));
+
+  const linePoints = pointsArr.map((p) => `${p.x},${p.y}`).join(' ');
+  const areaPath =
+    `M ${pointsArr[0].x},${h} ` +
+    pointsArr.map((p) => `L ${p.x},${p.y}`).join(' ') +
+    ` L ${pointsArr[pointsArr.length - 1].x},${h} Z`;
+
+  // Stable-ish unique gradient id (color hash) so multiple cards on the page
+  // don't share the same defs.
+  const gid = 'g-' + (color.replace(/[^a-z0-9]/gi, '') || 'c') + '-' + values.length;
+
+  const last = pointsArr[pointsArr.length - 1];
+
   return (
     <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={color} stopOpacity="0.32" />
+          <stop offset="100%" stopColor={color} stopOpacity="0"    />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gid})`} stroke="none" />
       <polyline
-        points={points}
+        points={linePoints}
         fill="none"
         stroke={color}
-        strokeWidth={1.2}
-        opacity={0.85}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
+        opacity={0.95}
       />
-      {values.map((v, i) => {
-        if (i !== values.length - 1) return null;
-        return (
-          <circle
-            key={i}
-            cx={i * stepX}
-            cy={h - (Math.max(0, v) / max) * (h - 2)}
-            r={1.6}
-            fill={color}
-          />
-        );
-      })}
+      <circle cx={last.x} cy={last.y} r={2} fill={color} />
+      <circle cx={last.x} cy={last.y} r={4} fill={color} opacity={0.25} />
     </svg>
   );
 }
