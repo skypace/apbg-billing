@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import dayjs, { Dayjs } from 'dayjs';
+import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
 import { MarginGrid } from '../components/MarginGrid';
@@ -6,6 +8,8 @@ import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
 import { CHART_COLORS } from '../components/charts/util';
+import { KpiRowSkeleton, ChartSkeleton, TableSkeleton } from '../components/Skeletons';
+import { useToast } from '../lib/toast';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -119,6 +123,7 @@ function detectActivePreset(start: string, end: string, today: string): Preset {
 export function MarginPage() {
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
+  const toast = useToast();
 
   const [dim, setDim] = useState<Dim>('category');
   const [filters, setFilters] = useState<SalesFilters>({
@@ -154,6 +159,7 @@ export function MarginPage() {
   async function syncItemCosts() {
     if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
     setSyncing(true);
+    toast.info('Syncing item costs from QuickBooks…');
     try {
       const token = await _sbToken();
       const res = await fetch(SB_URL + '/functions/v1/sync-qbo-items', {
@@ -162,14 +168,16 @@ export function MarginPage() {
       });
       const j = await res.json();
       if (j.ok) {
-        alert(`Synced ${j.synced} items (${j.with_purchase_cost} with purchase cost). Refreshing…`);
+        toast.success(
+          `Synced ${j.synced} items (${j.with_purchase_cost} with purchase cost). Refreshing…`,
+        );
         loadSyncedAt();
         setFilters((cur) => ({ ...cur }));
       } else {
-        alert('Sync failed: ' + (j.error || 'unknown'));
+        toast.error('Sync failed: ' + (j.error || 'unknown'));
       }
     } catch (e) {
-      alert('Sync error: ' + (e as Error).message);
+      toast.error('Sync error: ' + (e as Error).message);
     } finally {
       setSyncing(false);
     }
@@ -292,6 +300,7 @@ export function MarginPage() {
       `margin_${dim}_${filters.start}_${filters.end}${comparison ? '_vs_' + compareMode : ''}.csv`,
       toCsv([header, ...data]),
     );
+    toast.success(`Exported ${data.length} rows to CSV`);
   }
 
   function drillInto(row: SalesPivotRow) {
@@ -318,6 +327,17 @@ export function MarginPage() {
   function applyPresetClick(p: Exclude<Preset, 'custom'>) {
     const r = applyPreset(p, today);
     setFilters((cur) => ({ ...cur, start: r.start, end: r.end }));
+  }
+
+  function onRangeChange(value: [Dayjs | null, Dayjs | null]) {
+    const [s, e] = value;
+    if (s && e) {
+      setFilters((cur) => ({
+        ...cur,
+        start: s.format('YYYY-MM-DD'),
+        end:   e.format('YYYY-MM-DD'),
+      }));
+    }
   }
 
   // KPI deltas vs prior period (drives the ▲/▼ % pill on each card)
@@ -377,33 +397,37 @@ export function MarginPage() {
       </div>
 
       {/* KPI row — with prior-period delta */}
-      <div className="gr g4" style={{ marginBottom: 18 }}>
-        <KPICard
-          title="Revenue"
-          value={totals ? fm(totals.revenue) : '…'}
-          deltaPct={kpiDeltas?.revenue ?? null}
-          sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined}
-        />
-        <KPICard
-          title="Est Margin"
-          value={totals ? fm(totals.est_margin) : '…'}
-          deltaPct={kpiDeltas?.margin ?? null}
-          sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined}
-        />
-        <KPICard
-          title="Customers"
-          value={totals ? fmtNum(totals.customer_count) : '…'}
-          deltaPct={kpiDeltas?.customers ?? null}
-          sub={totals ? fmtNum(totals.item_count) + ' items' : undefined}
-        />
-        <KPICard
-          title="Cost Coverage"
-          value={totals ? fp(totals.cost_coverage_pct) : '…'}
-          deltaPct={kpiDeltas?.cost_coverage ?? null}
-          sub="% of revenue with item-cost data"
-          accent={accent}
-        />
-      </div>
+      {totals == null && rows == null ? (
+        <KpiRowSkeleton count={4} />
+      ) : (
+        <div className="gr g4" style={{ marginBottom: 18 }}>
+          <KPICard
+            title="Revenue"
+            value={totals ? fm(totals.revenue) : '…'}
+            deltaPct={kpiDeltas?.revenue ?? null}
+            sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined}
+          />
+          <KPICard
+            title="Est Margin"
+            value={totals ? fm(totals.est_margin) : '…'}
+            deltaPct={kpiDeltas?.margin ?? null}
+            sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined}
+          />
+          <KPICard
+            title="Customers"
+            value={totals ? fmtNum(totals.customer_count) : '…'}
+            deltaPct={kpiDeltas?.customers ?? null}
+            sub={totals ? fmtNum(totals.item_count) + ' items' : undefined}
+          />
+          <KPICard
+            title="Cost Coverage"
+            value={totals ? fp(totals.cost_coverage_pct) : '…'}
+            deltaPct={kpiDeltas?.cost_coverage ?? null}
+            sub="% of revenue with item-cost data"
+            accent={accent}
+          />
+        </div>
+      )}
 
       {/* Toolbar — quick presets + dates + compare on row 1, dimension + entity + chart + buttons on row 2 */}
       <div className="toolbar">
@@ -428,20 +452,29 @@ export function MarginPage() {
           </div>
 
           <div className="toolbar-section">
-            <input
-              type="date"
-              value={filters.start}
-              onChange={(e) => setFilters({ ...filters, start: e.target.value })}
-              className="date-input"
-              aria-label="Start date"
-            />
-            <span style={{ color: 'var(--mt)', fontSize: 11 }}>→</span>
-            <input
-              type="date"
-              value={filters.end}
-              onChange={(e) => setFilters({ ...filters, end: e.target.value })}
-              className="date-input"
-              aria-label="End date"
+            <DateRangePicker
+              value={[dayjs(filters.start), dayjs(filters.end)]}
+              onChange={onRangeChange}
+              format="YYYY-MM-DD"
+              localeText={{ start: 'From', end: 'To' }}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: {
+                    width: 130,
+                    '& .MuiInputBase-root': {
+                      height: 30,
+                      fontFamily: 'var(--ff-mono)',
+                      fontSize: 12,
+                      background: 'var(--bg)',
+                      color: 'var(--tx)',
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
+                  },
+                },
+                fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
+              }}
             />
           </div>
 
@@ -665,7 +698,9 @@ export function MarginPage() {
       {err ? (
         <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>
       ) : rows == null ? (
-        <div className="ld">Loading</div>
+        <div className="cd" style={{ padding: 0 }}>
+          <TableSkeleton rows={8} cols={7} />
+        </div>
       ) : (
         <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
           <MarginGrid
