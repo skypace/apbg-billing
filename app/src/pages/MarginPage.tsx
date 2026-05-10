@@ -11,7 +11,7 @@ import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
 import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
-import { BrixMark } from '../components/BrixMark';
+import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
 
@@ -317,13 +317,23 @@ export function MarginPage() {
     compareMode === 'prior_period' ? 'vs prior period' :
     compareMode === 'prior_year'   ? 'vs same period last year' : '';
 
+  const heroEntity = filters.entities?.[0] ?? null;
+  const heroBrandLabel =
+    heroEntity === 'AS'       ? 'Alameda Soda Co.' :
+    heroEntity === 'freeflow' || heroEntity === 'FF' ? 'FreeFlow' :
+    heroEntity === 'brix'     ? 'Brix Beverage' :
+                                'Brix Beverage · Alameda Soda Co.';
+
   return (
     <div>
       <div className="hero">
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1, minWidth: 0 }}>
-          <BrixMark size={88} className="hero-mark" title="Brix Beverage" />
+          <EntityMark entity={heroEntity} size={88} className="hero-mark" />
           <div style={{ minWidth: 0 }}>
-            <div className="hero-eyebrow">Margin · Sales · Cost · Customer pivots{activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}</div>
+            <div className="hero-eyebrow">
+              {heroBrandLabel}
+              {activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}
+            </div>
             <h1 className="hero-title">Margin Control</h1>
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
@@ -415,7 +425,7 @@ export function MarginPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers">
+            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers and swaps the hero brand mark">
               <option value="">All</option>
               {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
