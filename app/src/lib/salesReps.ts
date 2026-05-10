@@ -1,51 +1,55 @@
 import { sbq, sbInsert, sbDelete, sbPatch } from './rpc';
 
+// ops.sales_reps schema:
+//   rep_code     TEXT PK    (e.g. 'SP', 'JM' — short code, also used as label)
+//   name         TEXT       full name
+//   sort_order   INT        for stable list ordering
+//   is_active    BOOL       inactive reps still selectable for legacy assignments
+//   created_at   TIMESTAMPTZ
 export interface SalesRep {
-  id:         string;
+  rep_code:   string;
   name:       string;
-  email:      string | null;
-  phone:      string | null;
-  initials:   string | null;
+  sort_order: number;
   is_active:  boolean;
-  notes:      string | null;
   created_at: string | null;
-  updated_at: string | null;
 }
 
+// ops.customer_sales_reps schema:
+//   PK is composite (qbo_customer_id, rep_code)
+//   is_primary marks the lead rep — used for ordering in v_sales_lines
+//   sales_reps[] aggregation
 export interface CustomerSalesRep {
   qbo_customer_id: string;
-  rep_id:          string;
-  assigned_at:     string | null;
+  rep_code:        string;
+  is_primary:      boolean;
+  created_at:      string | null;
 }
 
-// List all reps, optionally filtered to active only.
 export function fetchSalesReps(opts: { activeOnly?: boolean } = {}) {
   const filter = opts.activeOnly ? '&is_active=eq.true' : '';
   return sbq<SalesRep>(
     'sales_reps',
-    'select=id,name,email,phone,initials,is_active,notes,created_at,updated_at&order=name.asc' + filter,
+    'select=rep_code,name,sort_order,is_active,created_at&order=sort_order.asc,name.asc' + filter,
   );
 }
 
-export function insertSalesRep(rep: Pick<SalesRep, 'name'> & Partial<SalesRep>) {
+export function insertSalesRep(rep: { rep_code: string; name: string; sort_order?: number; is_active?: boolean }) {
   return sbInsert<Partial<SalesRep>>('sales_reps', {
-    name:      rep.name,
-    email:     rep.email     ?? null,
-    phone:     rep.phone     ?? null,
-    initials:  rep.initials  ?? null,
-    is_active: rep.is_active ?? true,
-    notes:     rep.notes     ?? null,
+    rep_code:   rep.rep_code.trim(),
+    name:       rep.name.trim(),
+    sort_order: rep.sort_order ?? 100,
+    is_active:  rep.is_active ?? true,
   });
 }
 
-export function updateSalesRep(id: string, patch: Partial<SalesRep>) {
-  return sbPatch<Partial<SalesRep>>('sales_reps', 'id=eq.' + id, patch);
+export function updateSalesRep(rep_code: string, patch: Partial<SalesRep>) {
+  return sbPatch<Partial<SalesRep>>('sales_reps', 'rep_code=eq.' + encodeURIComponent(rep_code), patch);
 }
 
-export function deleteSalesRep(id: string) {
-  // Cascade clears assignments first to avoid FK trouble.
-  return sbDelete('customer_sales_reps', 'rep_id=eq.' + id)
-    .then(() => sbDelete('sales_reps', 'id=eq.' + id));
+export function deleteSalesRep(rep_code: string) {
+  // Clear assignments first to avoid FK trouble.
+  return sbDelete('customer_sales_reps', 'rep_code=eq.' + encodeURIComponent(rep_code))
+    .then(() => sbDelete('sales_reps', 'rep_code=eq.' + encodeURIComponent(rep_code)));
 }
 
 // Customer ↔ rep assignment
@@ -53,21 +57,22 @@ export function deleteSalesRep(id: string) {
 export function fetchCustomerAssignments() {
   return sbq<CustomerSalesRep>(
     'customer_sales_reps',
-    'select=qbo_customer_id,rep_id,assigned_at',
+    'select=qbo_customer_id,rep_code,is_primary,created_at',
   );
 }
 
-export function assignCustomerToRep(qbo_customer_id: string, rep_id: string) {
-  // Upsert via insert on conflict — using sbInsert with RFC 6902 merge through Prefer header
-  // would be ideal, but our sbInsert wrapper is a plain POST. Emulate by deleting any
-  // existing row first, then inserting.
-  return sbDelete('customer_sales_reps', 'qbo_customer_id=eq.' + qbo_customer_id)
+// One-rep-per-customer UX: replace any existing assignment with the new
+// rep flagged is_primary=true. (Schema supports multiple reps per customer
+// — when we want that, this can become an additive insert.)
+export function assignCustomerToRep(qbo_customer_id: string, rep_code: string) {
+  return sbDelete('customer_sales_reps', 'qbo_customer_id=eq.' + encodeURIComponent(qbo_customer_id))
     .then(() => sbInsert<Partial<CustomerSalesRep>>('customer_sales_reps', {
       qbo_customer_id,
-      rep_id,
+      rep_code,
+      is_primary: true,
     }));
 }
 
 export function unassignCustomer(qbo_customer_id: string) {
-  return sbDelete('customer_sales_reps', 'qbo_customer_id=eq.' + qbo_customer_id);
+  return sbDelete('customer_sales_reps', 'qbo_customer_id=eq.' + encodeURIComponent(qbo_customer_id));
 }
