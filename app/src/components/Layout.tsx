@@ -1,24 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { View } from '../lib/router';
 import {
-  LayoutDashboard,
-  TrendingUp,
-  Activity,
-  Users,
-  FileText,
-  CalendarRange,
-  GitCompareArrows,
-  Package,
-  Settings as SettingsIcon,
-  LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
+  LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
+  GitCompareArrows, Package, Settings as SettingsIcon, LogOut,
+  PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
-import { BrixMark } from './BrixMark';
+import { AlamedaMark, BrixMark } from './BrixMark';
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
+// Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
 const NAV: NavItem[] = [
   { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
   { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
@@ -42,15 +34,17 @@ interface LayoutProps {
 const COLLAPSE_KEY = 'brix.sidebar.collapsed';
 
 export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(COLLAPSE_KEY) === '1';
-  });
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
-  }, [collapsed]);
+    try { setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1'); } catch { /* no-op */ }
+  }, []);
+
+  function toggleCollapse() {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* no-op */ }
+  }
 
   return (
     <div className="app-shell">
@@ -61,26 +55,24 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
         <button
           type="button"
           className="sidebar-toggle"
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={toggleCollapse}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed
-            ? <PanelLeftOpen  size={12} strokeWidth={2.4} />
-            : <PanelLeftClose size={12} strokeWidth={2.4} />}
+            ? <PanelLeftOpen size={13} strokeWidth={2.2} aria-hidden="true" />
+            : <PanelLeftClose size={13} strokeWidth={2.2} aria-hidden="true" />}
         </button>
 
         <div className="brand">
           <BrixMark size={collapsed ? 32 : 38} className="brand-mark-svg" title="Brix Beverage" />
-          {!collapsed && (
-            <div>
-              <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
-              <div className="brand-sub">
-                <span className="status-dot" aria-hidden="true" />
-                Margin Control
-              </div>
+          <div>
+            <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
+            <div className="brand-sub">
+              <span className="status-dot" aria-hidden="true" />
+              Margin Control
             </div>
-          )}
+          </div>
         </div>
         <nav className="nav">
           {NAV.map((n) => {
@@ -102,8 +94,15 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
           })}
         </nav>
         <div className="sidebar-footer">
-          {userEmail && !collapsed && <div className="user-email" title={userEmail}>{userEmail}</div>}
-          <button onClick={onLogout} className="sign-out" type="button" title={collapsed ? 'Sign out' : undefined}>
+          {!collapsed && (
+            <div className="sidebar-group" title="Alameda Beverage Group LLC">
+              <BrixMark size={14} />
+              <AlamedaMark size={16} variant="seal" />
+              <span>by Alameda Beverage Group</span>
+            </div>
+          )}
+          {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <button onClick={onLogout} className="sign-out" type="button" title="Sign out">
             <LogOut size={13} strokeWidth={2} aria-hidden="true" />
             <span>Sign out</span>
           </button>
