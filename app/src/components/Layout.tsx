@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { View } from '../lib/router';
 import {
   LayoutDashboard,
@@ -11,13 +11,14 @@ import {
   Package,
   Settings as SettingsIcon,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { BrixMark } from './BrixMark';
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
-// Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
 const NAV: NavItem[] = [
   { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
   { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
@@ -38,19 +39,48 @@ interface LayoutProps {
   children: ReactNode;
 }
 
+const COLLAPSE_KEY = 'brix.sidebar.collapsed';
+
 export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(COLLAPSE_KEY) === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
+
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside
+        className={'sidebar' + (collapsed ? ' sidebar--collapsed' : '')}
+        aria-label="Primary navigation"
+      >
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed
+            ? <PanelLeftOpen  size={12} strokeWidth={2.4} />
+            : <PanelLeftClose size={12} strokeWidth={2.4} />}
+        </button>
+
         <div className="brand">
-          <BrixMark size={38} className="brand-mark-svg" title="Brix Beverage" />
-          <div>
-            <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
-            <div className="brand-sub">
-              <span className="status-dot" aria-hidden="true" />
-              Margin Control
+          <BrixMark size={collapsed ? 32 : 38} className="brand-mark-svg" title="Brix Beverage" />
+          {!collapsed && (
+            <div>
+              <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
+              <div className="brand-sub">
+                <span className="status-dot" aria-hidden="true" />
+                Margin Control
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <nav className="nav">
           {NAV.map((n) => {
@@ -63,6 +93,7 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
                 onClick={(e) => { e.preventDefault(); onNav(n.id); }}
                 className={'nav-item' + (on ? ' nav-item--active' : '')}
                 aria-current={on ? 'page' : undefined}
+                title={collapsed ? n.label : undefined}
               >
                 <Icon size={16} strokeWidth={2} aria-hidden="true" />
                 <span>{n.label}</span>
@@ -71,8 +102,8 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
           })}
         </nav>
         <div className="sidebar-footer">
-          {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
-          <button onClick={onLogout} className="sign-out" type="button">
+          {userEmail && !collapsed && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <button onClick={onLogout} className="sign-out" type="button" title={collapsed ? 'Sign out' : undefined}>
             <LogOut size={13} strokeWidth={2} aria-hidden="true" />
             <span>Sign out</span>
           </button>
