@@ -4,6 +4,7 @@ import { fm, fmtNum } from '../lib/formatters';
 import { btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { SegmentChip } from '../components/SegmentChip';
+import { TableSkeleton } from '../components/Skeletons';
 
 type SortKey = 'display_name' | 'ytd_revenue' | 'invoice_count' | 'rfm_total' | 'state';
 
@@ -22,7 +23,6 @@ export function CustomersPage() {
   });
   const [err, setErr] = useState('');
 
-  // Customer list. Refetch whenever search / channel / window changes.
   useEffect(() => {
     let cancelled = false;
     setRows(null);
@@ -41,8 +41,6 @@ export function CustomersPage() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [search, channel, ytdStart, today]);
 
-  // RFM health computed once per session — joining client-side keeps the
-  // list RPC light, and RFM only updates daily anyway.
   useEffect(() => {
     fetchCustomerHealth(365)
       .then((rs) => {
@@ -135,13 +133,26 @@ export function CustomersPage() {
 
   return (
     <div>
-      <div className="pt">Customers</div>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Customer health · RFM · YTD</div>
+          <h1 className="hero-title">Customers</h1>
+          <div className="hero-meta">
+            {sorted ? `${fmtNum(sorted.length)} customers` : 'loading…'}
+            {channel ? ` · ${channel}` : ''}{showInactive ? ' · including inactive' : ''}
+          </div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          YTD {ytdStart} → {today}
+        </div>
+      </div>
 
       <div
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
@@ -169,7 +180,6 @@ export function CustomersPage() {
         </label>
 
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, color: 'var(--mt)' }}>
-          {sorted && fmtNum(sorted.length) + ' customers'}
           <button
             onClick={exportCsv}
             disabled={!sorted?.length}
@@ -183,7 +193,9 @@ export function CustomersPage() {
       {err ? (
         <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>
       ) : !sorted ? (
-        <div className="ld">Loading…</div>
+        <div className="cd" style={{ padding: 0 }}>
+          <TableSkeleton rows={10} cols={7} />
+        </div>
       ) : sorted.length === 0 ? (
         <div className="cd" style={{ padding: 14, color: 'var(--mt)' }}>No customers match.</div>
       ) : (
