@@ -21,8 +21,10 @@ export function SalesRepsEditor() {
   const [assignments, setAssignments] = useState<CustomerSalesRep[]>([]);
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState<{ name: string; email: string; initials: string }>({
-    name: '', email: '', initials: '',
+  const [draft, setDraft] = useState<{ rep_code: string; name: string; sort_order: number }>({
+    rep_code: '',
+    name: '',
+    sort_order: 100,
   });
 
   function load() {
@@ -36,15 +38,19 @@ export function SalesRepsEditor() {
   }
   useEffect(load, []);
 
-  const repById = useMemo(() => {
+  const repByCode = useMemo(() => {
     const m = new Map<string, SalesRep>();
-    for (const r of reps ?? []) m.set(r.id, r);
+    for (const r of reps ?? []) m.set(r.rep_code, r);
     return m;
   }, [reps]);
 
   const assignByCustomer = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of assignments) m.set(a.qbo_customer_id, a.rep_id);
+    // Pick the primary rep per customer; fall back to any rep if none flagged.
+    for (const a of assignments) {
+      const existing = m.get(a.qbo_customer_id);
+      if (!existing || a.is_primary) m.set(a.qbo_customer_id, a.rep_code);
+    }
     return m;
   }, [assignments]);
 
@@ -57,44 +63,50 @@ export function SalesRepsEditor() {
   }, [customers, search]);
 
   function addRep() {
-    if (!draft.name.trim()) {
+    const code = draft.rep_code.trim();
+    const name = draft.name.trim();
+    if (!code) {
+      toast.warn('Rep code is required (e.g. SP, JM)');
+      return;
+    }
+    if (!name) {
       toast.warn('Rep name is required');
       return;
     }
     insertSalesRep({
-      name: draft.name.trim(),
-      email: draft.email.trim() || null,
-      initials: draft.initials.trim().toUpperCase() || null,
+      rep_code: code,
+      name,
+      sort_order: Number(draft.sort_order) || 100,
       is_active: true,
     })
       .then(() => {
         setCreating(false);
-        setDraft({ name: '', email: '', initials: '' });
-        toast.success('Added ' + draft.name.trim());
+        setDraft({ rep_code: '', name: '', sort_order: 100 });
+        toast.success('Added ' + name + ' (' + code + ')');
         load();
       })
       .catch((e) => toast.error('Failed: ' + (e as Error).message));
   }
 
-  function patchRep(id: string, patch: Partial<SalesRep>) {
-    updateSalesRep(id, patch)
+  function patchRep(rep_code: string, patch: Partial<SalesRep>) {
+    updateSalesRep(rep_code, patch)
       .then(load)
       .catch((e) => toast.error('Failed: ' + (e as Error).message));
   }
 
   function removeRep(rep: SalesRep) {
-    if (!confirm(`Delete rep "${rep.name}"? Customer assignments will be cleared.`)) return;
-    deleteSalesRep(rep.id)
+    if (!confirm(`Delete rep "${rep.name}" (${rep.rep_code})? Customer assignments will be cleared.`)) return;
+    deleteSalesRep(rep.rep_code)
       .then(() => { toast.success('Removed ' + rep.name); load(); })
       .catch((e) => toast.error('Failed: ' + (e as Error).message));
   }
 
-  function assign(qbo_customer_id: string, rep_id: string) {
-    if (!rep_id) {
+  function assign(qbo_customer_id: string, rep_code: string) {
+    if (!rep_code) {
       unassignCustomer(qbo_customer_id).then(load);
       return;
     }
-    assignCustomerToRep(qbo_customer_id, rep_id)
+    assignCustomerToRep(qbo_customer_id, rep_code)
       .then(() => { toast.success('Assigned'); load(); })
       .catch((e) => toast.error('Failed: ' + (e as Error).message));
   }
@@ -132,29 +144,29 @@ export function SalesRepsEditor() {
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 type="text"
-                placeholder="name"
+                placeholder="code (e.g. SP)"
                 autoFocus
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                value={draft.rep_code}
+                onChange={(e) => setDraft({ ...draft, rep_code: e.target.value.toUpperCase() })}
                 className="login-input"
-                style={{ width: 160, padding: '6px 10px', fontSize: 12 }}
-              />
-              <input
-                type="email"
-                placeholder="email"
-                value={draft.email}
-                onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                className="login-input"
-                style={{ width: 200, padding: '6px 10px', fontSize: 12 }}
+                style={{ width: 110, padding: '6px 10px', fontSize: 12, textTransform: 'uppercase' }}
+                maxLength={8}
               />
               <input
                 type="text"
-                placeholder="abc"
-                maxLength={4}
-                value={draft.initials}
-                onChange={(e) => setDraft({ ...draft, initials: e.target.value })}
+                placeholder="full name"
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 className="login-input"
-                style={{ width: 70, padding: '6px 10px', fontSize: 12, textTransform: 'uppercase' }}
+                style={{ width: 220, padding: '6px 10px', fontSize: 12 }}
+              />
+              <input
+                type="number"
+                placeholder="sort"
+                value={draft.sort_order}
+                onChange={(e) => setDraft({ ...draft, sort_order: Number(e.target.value) || 100 })}
+                className="login-input"
+                style={{ width: 70, padding: '6px 10px', fontSize: 12 }}
               />
               <button onClick={addRep} className="tb-btn tb-btn--primary">Add</button>
               <button onClick={() => setCreating(false)} className="tb-btn">Cancel</button>
@@ -168,9 +180,9 @@ export function SalesRepsEditor() {
           <table>
             <thead>
               <tr>
-                <th>Initials</th>
+                <th>Code</th>
                 <th>Name</th>
-                <th>Email</th>
+                <th style={{ textAlign: 'right' }}>Sort</th>
                 <th>Active</th>
                 <th style={{ textAlign: 'right' }}>Customers</th>
                 <th style={{ textAlign: 'right' }} />
@@ -178,21 +190,56 @@ export function SalesRepsEditor() {
             </thead>
             <tbody>
               {reps.map((r) => {
-                const count = assignments.filter((a) => a.rep_id === r.id).length;
+                const count = assignments.filter((a) => a.rep_code === r.rep_code).length;
                 return (
-                  <tr key={r.id}>
+                  <tr key={r.rep_code}>
                     <td className="mn" style={{ fontWeight: 700, color: 'var(--ac)' }}>
-                      {r.initials ?? r.name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()}
+                      {r.rep_code}
                     </td>
-                    <td style={{ fontWeight: 600 }}>{r.name}</td>
-                    <td style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)', fontSize: 11 }}>
-                      {r.email ?? '—'}
+                    <td style={{ fontWeight: 600 }}>
+                      <input
+                        type="text"
+                        defaultValue={r.name}
+                        onBlur={(e) => {
+                          if (e.target.value.trim() !== r.name) {
+                            patchRep(r.rep_code, { name: e.target.value.trim() });
+                          }
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--tx)',
+                          fontWeight: 600,
+                          fontSize: 12,
+                          width: '100%',
+                          fontFamily: 'inherit',
+                        }}
+                      />
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        defaultValue={r.sort_order}
+                        onBlur={(e) => {
+                          const v = Number(e.target.value) || 100;
+                          if (v !== r.sort_order) patchRep(r.rep_code, { sort_order: v });
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--mt)',
+                          fontSize: 11,
+                          width: 50,
+                          textAlign: 'right',
+                          fontFamily: 'var(--ff-mono)',
+                        }}
+                      />
                     </td>
                     <td>
                       <input
                         type="checkbox"
                         checked={r.is_active}
-                        onChange={(e) => patchRep(r.id, { is_active: e.target.checked })}
+                        onChange={(e) => patchRep(r.rep_code, { is_active: e.target.checked })}
                         style={{ accentColor: 'var(--ac)' }}
                       />
                     </td>
@@ -230,7 +277,8 @@ export function SalesRepsEditor() {
               <UserPlus size={12} strokeWidth={2.2} aria-hidden="true" /> Customer assignments
             </div>
             <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>
-              Pick a rep for each customer. Empty = unassigned.
+              Pick a rep for each customer. Empty = unassigned. Each customer's primary rep
+              flows into v_sales_lines.sales_reps for filtering and reports.
             </div>
           </div>
           <input
@@ -256,8 +304,8 @@ export function SalesRepsEditor() {
               </thead>
               <tbody>
                 {filteredCustomers.map((c) => {
-                  const repId = assignByCustomer.get(c.qbo_customer_id) ?? '';
-                  const rep = repId ? repById.get(repId) : null;
+                  const code = assignByCustomer.get(c.qbo_customer_id) ?? '';
+                  const rep = code ? repByCode.get(code) : null;
                   return (
                     <tr key={c.qbo_customer_id}>
                       <td style={{ fontWeight: 600, maxWidth: 460 }}>
@@ -265,7 +313,7 @@ export function SalesRepsEditor() {
                       </td>
                       <td>
                         <select
-                          value={repId}
+                          value={code}
                           onChange={(e) => assign(c.qbo_customer_id, e.target.value)}
                           className="tb-select"
                           style={{
@@ -275,9 +323,13 @@ export function SalesRepsEditor() {
                           }}
                         >
                           <option value="">— unassigned —</option>
-                          {(reps ?? []).filter((r) => r.is_active || r.id === repId).map((r) => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
+                          {(reps ?? [])
+                            .filter((r) => r.is_active || r.rep_code === code)
+                            .map((r) => (
+                              <option key={r.rep_code} value={r.rep_code}>
+                                {r.rep_code} · {r.name}
+                              </option>
+                            ))}
                         </select>
                       </td>
                     </tr>
