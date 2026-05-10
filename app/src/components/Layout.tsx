@@ -16,7 +16,7 @@ import {
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
-// Fleet moved to apbg-ops.netlify.app — removed from Margin Minder nav.
+// Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
 const NAV: NavItem[] = [
   { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
   { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
@@ -42,10 +42,10 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="brand">
-          <div className="brand-mark">APBG</div>
+          <div className="brand-mark">BRIX</div>
           <div className="brand-sub">
             <span className="status-dot" aria-hidden="true" />
-            Margin Minder
+            Margin Control
           </div>
         </div>
         <nav className="nav">
