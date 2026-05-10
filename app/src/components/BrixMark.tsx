@@ -2,52 +2,36 @@ import type { CSSProperties } from 'react';
 
 interface Props {
   size?: number;
-  /** Reserved — bubble dots are part of the vector lockup, not the round badge. */
-  bubbles?: boolean;
   className?: string;
   style?: CSSProperties;
   title?: string;
-  /** 'round' = circular °bx badge PNG (default).
-   *  'vector' = the BrixVectorLogo gif lockup. */
-  variant?: 'round' | 'vector';
 }
 
-// Real brand asset committed to app/public/.
-// Vite serves /public files at import.meta.env.BASE_URL (e.g. /sales-next/).
-function assetUrl(filename: string): string {
+// Brand assets — all live in app/public/ (Vite serves from BASE_URL).
+const BRIX_ROUND      = 'Brix-Round-Logo.png';
+const ALAMEDA_SEAL    = 'Alameda-Soda-Seal-Logo-Red-2024.png';
+const ALAMEDA_SCRIPT  = 'ASC-Logo---Red.png';
+
+function publicUrl(filename: string) {
   return import.meta.env.BASE_URL + filename;
 }
 
-export function BrixMark({
-  size = 36,
-  className,
-  style,
-  title,
-  variant = 'round',
-}: Props) {
-  const src =
-    variant === 'vector'
-      ? assetUrl('BrixVectorLogo.gif')
-      : assetUrl('Brix-Round-Logo.png');
-
+/** Brix Beverage °bx round badge. The default brand mark for the dashboard. */
+export function BrixMark({ size = 36, className, style, title }: Props) {
   return (
     <img
-      src={src}
+      src={publicUrl(BRIX_ROUND)}
       alt={title ?? 'Brix Beverage'}
       width={size}
       height={size}
       className={className}
-      style={{
-        objectFit: 'contain',
-        flex: 'none',
-        ...style,
-      }}
+      style={{ ...style, objectFit: 'contain' }}
       draggable={false}
     />
   );
 }
 
-// "BRIX" wordmark — display-font, with the "X" tinted in bubble blue
+/** Brix wordmark (BRIX text with X tinted bubble blue). */
 export function BrixWordmark({ style }: { style?: CSSProperties }) {
   return (
     <span className="brand-mark" style={style}>
@@ -56,12 +40,40 @@ export function BrixWordmark({ style }: { style?: CSSProperties }) {
   );
 }
 
-// Helpers exposed for any caller that wants a direct asset URL
-export const BRAND_ASSETS = {
-  brixRound:    () => assetUrl('Brix-Round-Logo.png'),
-  brixVector:   () => assetUrl('BrixVectorLogo.gif'),
-  alamedaScript:() => assetUrl('ASC-Logo---Red.png'),
-  alamedaSeal:  () => assetUrl('Alameda-Soda-Seal-Logo-Red-2024.png'),
-  alamedaCans:  () => assetUrl('Alameda-Soda-Cans-Die-Cut.png'),
-  jetIcon:      () => assetUrl('Jet-Red-New-Icon-4x.png'),
-} as const;
+/** Alameda Soda Co. mark — seal (default) or script wordmark. */
+export function AlamedaMark({
+  size = 36,
+  variant = 'seal',
+  className,
+  style,
+  title,
+}: Props & { variant?: 'seal' | 'script' }) {
+  const file = variant === 'script' ? ALAMEDA_SCRIPT : ALAMEDA_SEAL;
+  // Script wordmark needs a wider aspect ratio than the square seal.
+  const width  = variant === 'script' ? Math.round(size * 2.6) : size;
+  const height = size;
+  return (
+    <img
+      src={publicUrl(file)}
+      alt={title ?? 'Alameda Soda Co.'}
+      width={width}
+      height={height}
+      className={className}
+      style={{ ...style, objectFit: 'contain' }}
+      draggable={false}
+    />
+  );
+}
+
+/** Renders the right brand mark for the currently-selected entity.
+ *  - AS                 → Alameda Soda Seal
+ *  - brix / freeflow / FF / null → Brix °bx (default)
+ *  Use on pages that have an entity filter so the hero mark becomes a
+ *  visual indicator of what's in scope. */
+export function EntityMark({
+  entity,
+  ...props
+}: Props & { entity: string | null }) {
+  if (entity === 'AS') return <AlamedaMark {...props} variant="seal" title="Alameda Soda Co." />;
+  return <BrixMark {...props} title="Brix Beverage" />;
+}
