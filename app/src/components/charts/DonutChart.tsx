@@ -45,12 +45,12 @@ export function DonutChart({
         margin={{ top: 10, right: 14, bottom: 10, left: 14 }}
         series={[{
           data: seriesData,
-          innerRadius: 56,
+          innerRadius: 58,
           outerRadius: Math.min(height / 2 - 10, 110),
-          paddingAngle: 1.6,
-          cornerRadius: 3,
+          paddingAngle: 2.4,
+          cornerRadius: 4,
           highlightScope: { faded: 'global', highlighted: 'item' },
-          faded: { innerRadius: 56, additionalRadius: -4, color: 'gray' },
+          faded: { innerRadius: 58, additionalRadius: -4, color: 'gray' },
           valueFormatter: (item: { value: number }) => {
             const pct = ((item.value / total) * 100).toFixed(1);
             return `${formatValue(item.value)} · ${pct}%`;
@@ -60,7 +60,7 @@ export function DonutChart({
           legend: {
             direction: 'column',
             position: { vertical: 'middle', horizontal: 'right' },
-            labelStyle: { fill: '#E6EEF1', fontSize: 11 },
+            labelStyle: { fill: '#E6EEF7', fontSize: 11 },
             itemMarkWidth: 10,
             itemMarkHeight: 10,
             markGap: 6,
@@ -68,8 +68,15 @@ export function DonutChart({
           },
         }}
         sx={{
-          '& .MuiChartsLegend-root':     { fontFamily: 'inherit' },
-          '& .MuiChartsTooltip-root':    { fontFamily: 'inherit' },
+          '& .MuiChartsLegend-root':   { fontFamily: 'inherit' },
+          '& .MuiChartsTooltip-root':  { fontFamily: 'inherit' },
+          '& .MuiPieArc-root':         {
+            filter: 'drop-shadow(0 4px 14px rgba(91, 181, 240, 0.22))',
+            transition: 'opacity 200ms ease, filter 200ms ease',
+          },
+          '& .MuiPieArc-root:hover':   {
+            filter: 'drop-shadow(0 8px 22px rgba(91, 181, 240, 0.55))',
+          },
         }}
       />
       {(centerLabel || centerValue) && (
@@ -78,9 +85,6 @@ export function DonutChart({
             position: 'absolute',
             top: 0,
             left: 0,
-            // Center over the donut hole. The pie sits in the left portion
-            // of the chart area because legend is positioned on the right;
-            // center horizontally on the pie's center, not the full width.
             width: 'calc(100% - 220px)',
             height: '100%',
             display: 'flex',
@@ -108,11 +112,12 @@ export function DonutChart({
             <div
               style={{
                 fontFamily: 'var(--ff-display)',
-                fontSize: 20,
+                fontSize: 22,
                 fontWeight: 700,
                 color: 'var(--tx)',
                 fontVariantNumeric: 'tabular-nums',
                 marginTop: 2,
+                textShadow: '0 0 18px rgba(91, 181, 240, 0.40)',
               }}
             >
               {centerValue}
