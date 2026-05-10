@@ -1,39 +1,32 @@
-/* APBG Margin Minder — design tokens + global system. */
+/* BRIX · Margin Control — design tokens + global system. */
 
 :root {
-  /* Surfaces */
   --bg:  #0A1218;
   --sf:  #0F1B22;
   --sf2: #15252E;
   --sf3: #1C313C;
 
-  /* Borders */
   --bd:  #1F3845;
   --bd2: #2E5667;
 
-  /* Text */
   --tx:  #E6EEF1;
   --tx2: #9FB3BB;
   --mt:  #6B8190;
 
-  /* Brand accents */
   --ac:    #2DCAD6;
   --ac2:   #1A8FA0;
   --brix:  #003A49;
   --amber: #F4B400;
 
-  /* Aliases (legacy) */
   --gn: var(--success);
   --am: var(--warning);
   --rd: var(--danger);
 
-  /* Semantic */
   --success: #00C896;
   --warning: #F4B400;
   --danger:  #E04F5F;
   --info:    #5BA8FF;
 
-  /* Shadow + radius */
   --shadow:    0 4px 14px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.50);
   --shadow-glow: 0 0 0 1px rgba(45, 202, 214, 0.18), 0 8px 24px rgba(45, 202, 214, 0.08);
@@ -41,19 +34,16 @@
   --r-md: 8px;
   --r-lg: 12px;
 
-  /* Gradients */
   --grad-acc:    linear-gradient(135deg, #2DCAD6 0%, #1A8FA0 100%);
   --grad-amber:  linear-gradient(135deg, #F4B400 0%, #C8910C 100%);
   --grad-brix:   linear-gradient(135deg, #003A49 0%, #1A8FA0 100%);
   --grad-card:   linear-gradient(180deg, rgba(45, 202, 214, 0.04) 0%, rgba(45, 202, 214, 0) 100%);
   --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(45, 202, 214, 0.12) 50%, transparent 100%);
 
-  /* Typography */
   --ff-display: 'Bricolage Grotesque', 'Söhne', system-ui, -apple-system, sans-serif;
   --ff-body:    'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ff-mono:    'JetBrains Mono', 'SF Mono', Consolas, monospace;
 
-  /* Layout */
   --sidebar-w: 224px;
 }
 
@@ -72,9 +62,6 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Ambient atmosphere — two large radial glows + subtle noise overlay.
- * Pinned with position: fixed so it doesn't scroll; pointer-events: none
- * so it never interferes with clicks. */
 body::before {
   content: '';
   position: fixed;
@@ -105,7 +92,6 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   border-radius: var(--r-sm);
 }
 
-/* Custom scrollbar so it doesn't look default-OS */
 ::-webkit-scrollbar { width: 10px; height: 10px }
 ::-webkit-scrollbar-track { background: var(--bg) }
 ::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 10px; border: 2px solid var(--bg) }
@@ -115,7 +101,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 
 table { width: 100%; border-collapse: collapse }
 th, td {
-  padding: 9px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--bd);
   text-align: left;
   vertical-align: middle;
@@ -142,10 +128,7 @@ td.mn, th.mn {
 
 /* ─────────── Sidebar shell ─────────── */
 
-.app-shell {
-  display: flex;
-  min-height: 100vh;
-}
+.app-shell { display: flex; min-height: 100vh }
 
 .sidebar {
   width: var(--sidebar-w);
@@ -178,9 +161,9 @@ td.mn, th.mn {
 }
 .brand-mark {
   font-family: var(--ff-display);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
-  letter-spacing: 1.5px;
+  letter-spacing: 2px;
   background: linear-gradient(120deg, #2DCAD6 0%, #5DEAF5 50%, #2DCAD6 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -238,7 +221,7 @@ td.mn, th.mn {
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.3px;
-  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
   cursor: pointer;
   user-select: none;
   position: relative;
@@ -307,12 +290,12 @@ td.mn, th.mn {
 .main {
   flex: 1;
   min-width: 0;
-  padding: 28px 36px;
+  padding: 28px 36px 48px;
   overflow-x: auto;
   position: relative;
 }
 
-/* Legacy top bar (kept for any direct .tb references in pages) */
+/* Legacy top bar */
 .tb {
   display: flex;
   align-items: center;
@@ -343,6 +326,73 @@ td.mn, th.mn {
 
 .ma { padding: 18px 22px }
 .app-shell .ma { padding: 0 }
+
+/* ─────────── Hero block (page header on Overview) ─────────── */
+
+.hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 0 26px;
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--bd);
+  position: relative;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 80px;
+  height: 1px;
+  background: var(--grad-acc);
+}
+.hero-eyebrow {
+  font-size: 10px;
+  color: var(--ac);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.hero-title {
+  font-family: var(--ff-display);
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin: 0;
+  line-height: 1;
+  color: var(--tx);
+}
+.hero-title .hero-accent {
+  font-family: var(--ff-mono);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--ac);
+  margin-left: 12px;
+  letter-spacing: 0;
+  vertical-align: 2px;
+}
+.hero-meta {
+  font-size: 11px;
+  color: var(--tx2);
+  margin-top: 8px;
+  letter-spacing: 0.3px;
+}
+.hero-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-family: var(--ff-mono);
+  color: var(--mt);
+  letter-spacing: 0.3px;
+  padding: 8px 12px;
+  border: 1px solid var(--bd);
+  border-radius: 999px;
+  background: var(--sf);
+}
 
 /* ─────────── Cards ─────────── */
 
@@ -406,6 +456,66 @@ td.mn, th.mn {
   z-index: 1;
 }
 
+/* ─────────── KPI cards ─────────── */
+
+.kpi-card {
+  padding: 14px 16px 16px;
+  position: relative;
+  z-index: 1;
+}
+.kpi-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  position: relative;
+  z-index: 1;
+}
+.kpi-title {
+  font-size: 9px;
+  color: var(--mt);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--ff-mono);
+  padding: 2px 7px 2px 5px;
+  border-radius: 999px;
+  border: 1px solid;
+  letter-spacing: 0.2px;
+}
+.kpi-value {
+  font-family: var(--ff-display);
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.6px;
+  line-height: 1.05;
+  margin-bottom: 4px;
+  position: relative;
+  z-index: 1;
+}
+.kpi-sub {
+  font-size: 10px;
+  color: var(--mt);
+  letter-spacing: 0.4px;
+  position: relative;
+  z-index: 1;
+}
+.kpi-spark {
+  margin-top: 10px;
+  height: 32px;
+  position: relative;
+  z-index: 1;
+}
+
 /* ─────────── Grid utility ─────────── */
 
 .gr { display: grid; gap: 14px }
@@ -413,7 +523,7 @@ td.mn, th.mn {
 .g3 { grid-template-columns: repeat(3, 1fr) }
 .g4 { grid-template-columns: repeat(4, 1fr) }
 
-/* ─────────── Page title ─────────── */
+/* ─────────── Page title (legacy .pt) ─────────── */
 
 .pt {
   font-family: var(--ff-display);
@@ -481,8 +591,6 @@ td.mn, th.mn {
   border-radius: var(--r-sm);
 }
 
-/* ─────────── Page-level fade-in (subtle entrance) ─────────── */
-
 .main > * {
   animation: fade-up 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -496,8 +604,12 @@ td.mn, th.mn {
 @media (max-width: 900px) {
   .g4 { grid-template-columns: 1fr 1fr }
   .g3 { grid-template-columns: 1fr 1fr }
-  .main { padding: 18px 16px }
+  .main { padding: 18px 16px 32px }
   .ma { padding: 12px 14px }
+  .hero { flex-direction: column; align-items: flex-start; gap: 12px }
+  .hero-title { font-size: 28px }
+  .hero-title .hero-accent { font-size: 22px }
+  .kpi-value { font-size: 24px }
 }
 @media (max-width: 700px) {
   .sidebar { width: 64px }
