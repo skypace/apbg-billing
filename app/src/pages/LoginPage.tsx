@@ -24,7 +24,7 @@ export function LoginPage() {
       <div className="login-bg" aria-hidden="true" />
       <div className="login-card-wrap">
         <div className="login-brand">
-          <BrixMark size={108} bubbles title="Brix Beverage" />
+          <BrixMark size={168} title="Brix Beverage" />
           <div className="brand-mark login-brand-mark">
             BRI<span className="brand-bx">X</span>
           </div>
