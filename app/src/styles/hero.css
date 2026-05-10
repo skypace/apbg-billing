@@ -1,5 +1,6 @@
-/* Hero-level accents — inline brand mark, scope toggle dropdown.
-   Loaded from main.tsx so it's available app-wide. */
+/* Hero-level accents — inline brand mark, scope toggle dropdown,
+   chain-rollup modifier bar. Loaded from main.tsx so it's available
+   app-wide. */
 
 .hero-mark {
   flex: none;
@@ -9,7 +10,7 @@
     drop-shadow(0 8px 24px rgba(0, 0, 0, 0.40));
 }
 
-/* Click-to-cycle scope toggle on Overview's hero title (e.g. "2026" / "This Month") */
+/* Scope toggle on Overview's hero title */
 .hero-scope-wrap {
   position: relative;
   display: inline-block;
@@ -95,4 +96,145 @@
   font-family: var(--ff-mono);
   letter-spacing: 0.3px;
   text-transform: none;
+}
+
+/* ─────────── Chain rollup modifier bar ─────────── */
+
+.modifier-bar {
+  background: linear-gradient(180deg, rgba(20, 57, 102, 0.42) 0%, rgba(14, 36, 71, 0.32) 100%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  position: relative;
+  overflow: hidden;
+}
+.modifier-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 12px; right: 12px;
+  height: 1px;
+  background: var(--glass-edge-line);
+  pointer-events: none;
+}
+.modifier-bar > * { position: relative; z-index: 1 }
+
+.modifier-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ac);
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding-right: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.modifier-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.modifier-group-label {
+  font-size: 9px;
+  color: var(--mt);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-right: 4px;
+  user-select: none;
+}
+
+.modifier-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 6px 12px;
+  background: rgba(11, 28, 57, 0.55);
+  color: var(--tx);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 150ms ease;
+  text-align: left;
+  min-width: 76px;
+  backdrop-filter: blur(12px) saturate(160%);
+}
+.modifier-btn:hover {
+  border-color: rgba(91, 181, 240, 0.40);
+  background: rgba(20, 57, 102, 0.60);
+}
+.modifier-btn--rollup {
+  border-color: rgba(91, 181, 240, 0.30);
+  background: rgba(20, 57, 102, 0.50);
+}
+.modifier-btn--active {
+  background: var(--grad-acc);
+  color: var(--bg);
+  border-color: transparent;
+  box-shadow: 0 6px 16px rgba(91, 181, 240, 0.36);
+  transform: translateY(-1px);
+}
+.modifier-btn--active.modifier-btn--rollup {
+  background: linear-gradient(135deg, #5BB5F0 0%, #2566A8 100%);
+}
+
+.modifier-code {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  font-family: var(--ff-display);
+  line-height: 1;
+}
+.modifier-name {
+  font-size: 9px;
+  color: var(--mt);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-top: 3px;
+  line-height: 1;
+}
+.modifier-btn--active .modifier-name {
+  color: rgba(6, 18, 31, 0.80);
+}
+
+.modifier-divider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.10);
+  flex: none;
+}
+
+.modifier-btn--clear {
+  flex-direction: row;
+  min-width: 0;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--rd);
+  border-color: rgba(255, 90, 95, 0.40);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: auto;
+  align-items: center;
+}
+.modifier-btn--clear:hover {
+  background: rgba(255, 90, 95, 0.08);
+  border-color: var(--rd);
+}
+
+@media (max-width: 900px) {
+  .modifier-bar { padding: 10px 12px; gap: 8px }
+  .modifier-divider { display: none }
+  .modifier-group { flex-wrap: wrap }
 }
