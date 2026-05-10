@@ -9,7 +9,6 @@ import { CHART_COLORS } from '../components/charts/util';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
-import { btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { sbq } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
@@ -69,6 +68,54 @@ const DRILL_NEXT: Partial<Record<Dim, Dim>> = {
 
 type CompareMode = 'off' | 'prior_period' | 'prior_year';
 
+type Preset = 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90' | 'last365' | 'custom';
+
+const PRESETS: { id: Preset; label: string }[] = [
+  { id: 'mtd',     label: 'MTD'    },
+  { id: 'qtd',     label: 'QTD'    },
+  { id: 'ytd',     label: 'YTD'    },
+  { id: 'last30',  label: '30d'    },
+  { id: 'last90',  label: '90d'    },
+  { id: 'last365', label: '12mo'   },
+];
+
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
+  const d = new Date(today + 'T00:00:00');
+  const Y = d.getFullYear();
+  const M = d.getMonth();
+  switch (preset) {
+    case 'mtd': return { start: `${Y}-${pad2(M + 1)}-01`, end: today };
+    case 'qtd': {
+      const qm = Math.floor(M / 3) * 3;
+      return { start: `${Y}-${pad2(qm + 1)}-01`, end: today };
+    }
+    case 'ytd': return { start: `${Y}-01-01`, end: today };
+    case 'last30': {
+      const dd = new Date(d); dd.setDate(dd.getDate() - 30);
+      return { start: dd.toISOString().slice(0, 10), end: today };
+    }
+    case 'last90': {
+      const dd = new Date(d); dd.setDate(dd.getDate() - 90);
+      return { start: dd.toISOString().slice(0, 10), end: today };
+    }
+    case 'last365': {
+      const dd = new Date(d); dd.setDate(dd.getDate() - 365);
+      return { start: dd.toISOString().slice(0, 10), end: today };
+    }
+  }
+}
+
+function detectActivePreset(start: string, end: string, today: string): Preset {
+  if (end !== today) return 'custom';
+  for (const p of PRESETS) {
+    const r = applyPreset(p.id as Exclude<Preset, 'custom'>, today);
+    if (r.start === start && r.end === end) return p.id;
+  }
+  return 'custom';
+}
+
 export function MarginPage() {
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
@@ -80,12 +127,13 @@ export function MarginPage() {
     entities: null,
   });
   const [showSparklines, setShowSparklines] = useState(false);
-  const [compareMode, setCompareMode] = useState<CompareMode>('off');
+  const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
   const [chartKind, setChartKind] = useState<ChartKind>('none');
 
   const [rows, setRows] = useState<SalesPivotRow[] | null>(null);
   const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
   const [totals, setTotals] = useState<SalesTotals | null>(null);
+  const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [err, setErr] = useState<string>('');
 
@@ -168,7 +216,21 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [dim, JSON.stringify(filters)]);
 
-  // Compare: fetch prior-period pivot using shifted bounds.
+  // Prior totals — drives the % delta on each KPI card.
+  useEffect(() => {
+    if (compareMode === 'off') {
+      setPriorTotals(null);
+      return;
+    }
+    let cancelled = false;
+    const { prior_start, prior_end } = computePriorBounds(filters.start, filters.end, compareMode);
+    fetchTotals({ ...filters, start: prior_start, end: prior_end })
+      .then((t) => { if (!cancelled) setPriorTotals(t); })
+      .catch(() => { if (!cancelled) setPriorTotals(null); });
+    return () => { cancelled = true; };
+  }, [compareMode, filters.start, filters.end, JSON.stringify(filters)]);
+
+  // Compare: prior-period pivot for the table + chart deltas.
   useEffect(() => {
     if (compareMode === 'off' || !rows) {
       setComparison(null);
@@ -253,6 +315,26 @@ export function MarginPage() {
     });
   }
 
+  function applyPresetClick(p: Exclude<Preset, 'custom'>) {
+    const r = applyPreset(p, today);
+    setFilters((cur) => ({ ...cur, start: r.start, end: r.end }));
+  }
+
+  // KPI deltas vs prior period (drives the ▲/▼ % pill on each card)
+  const kpiDeltas = useMemo(() => {
+    if (!totals || !priorTotals) return null;
+    function pct(cur: number | null | undefined, prev: number | null | undefined): number | null {
+      if (cur == null || prev == null || Number(prev) === 0) return null;
+      return (Number(cur) - Number(prev)) / Number(prev);
+    }
+    return {
+      revenue:       pct(totals.revenue,         priorTotals.revenue),
+      margin:        pct(totals.est_margin,      priorTotals.est_margin),
+      customers:     pct(totals.customer_count,  priorTotals.customer_count),
+      cost_coverage: pct(totals.cost_coverage_pct, priorTotals.cost_coverage_pct),
+    };
+  }, [totals, priorTotals]);
+
   const accent = useMemo(() => {
     if (totals?.cost_coverage_pct == null) return undefined;
     const v = Number(totals.cost_coverage_pct);
@@ -270,130 +352,207 @@ export function MarginPage() {
   const tableRows: SalesPivotRow[] | ComparisonRow[] =
     comparison ?? (rows ?? []);
 
+  const activePreset = detectActivePreset(filters.start, filters.end, today);
+
+  const compareLabel =
+    compareMode === 'prior_period' ? 'vs prior period' :
+    compareMode === 'prior_year'   ? 'vs same period last year' :
+                                     '';
+
   return (
     <div>
-      <div className="pt">
-        Margin <span className="bg bg-l">PIVOT</span>
+      {/* Hero header */}
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Margin · Sales · Cost · Customer pivots</div>
+          <h1 className="hero-title">Margin Control</h1>
+          <div className="hero-meta">
+            {filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}
+          </div>
+        </div>
+        <div className="hero-stamp" title={syncedAt ? 'Item costs last synced ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
+          <span className="status-dot" aria-hidden="true" />
+          Costs · {syncFresh || '—'}
+        </div>
       </div>
 
-      {totals && (
-        <div className="gr g4" style={{ marginBottom: 12 }}>
-          <KPICard title="REVENUE" value={fm(totals.revenue)} sub={fmtNum(totals.invoice_count) + ' invoices'} />
-          <KPICard title="EST MARGIN" value={fm(totals.est_margin)} sub={fp(totals.margin_pct)} />
-          <KPICard title="CUSTOMERS" value={fmtNum(totals.customer_count)} sub={fmtNum(totals.item_count) + ' items'} />
-          <KPICard title="COST COVERAGE" value={fp(totals.cost_coverage_pct)} sub="% of rev with item-cost data" accent={accent} />
-        </div>
-      )}
-
-      <div
-        className="cd"
-        style={{
-          padding: '10px 12px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 10,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          fontSize: 11,
-        }}
-      >
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>By</span>
-        <select value={dim} onChange={(e) => setDim(e.target.value as Dim)} style={inp()}>
-          {DIMS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-        </select>
-
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>From</span>
-        <input
-          type="date"
-          value={filters.start}
-          onChange={(e) => setFilters({ ...filters, start: e.target.value })}
-          style={inp()}
+      {/* KPI row — with prior-period delta */}
+      <div className="gr g4" style={{ marginBottom: 18 }}>
+        <KPICard
+          title="Revenue"
+          value={totals ? fm(totals.revenue) : '…'}
+          deltaPct={kpiDeltas?.revenue ?? null}
+          sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined}
         />
-        <span style={{ color: 'var(--mt)' }}>to</span>
-        <input
-          type="date"
-          value={filters.end}
-          onChange={(e) => setFilters({ ...filters, end: e.target.value })}
-          style={inp()}
+        <KPICard
+          title="Est Margin"
+          value={totals ? fm(totals.est_margin) : '…'}
+          deltaPct={kpiDeltas?.margin ?? null}
+          sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined}
         />
+        <KPICard
+          title="Customers"
+          value={totals ? fmtNum(totals.customer_count) : '…'}
+          deltaPct={kpiDeltas?.customers ?? null}
+          sub={totals ? fmtNum(totals.item_count) + ' items' : undefined}
+        />
+        <KPICard
+          title="Cost Coverage"
+          value={totals ? fp(totals.cost_coverage_pct) : '…'}
+          deltaPct={kpiDeltas?.cost_coverage ?? null}
+          sub="% of revenue with item-cost data"
+          accent={accent}
+        />
+      </div>
 
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>Entity</span>
-        <select
-          value={filters.entities?.[0] ?? ''}
-          onChange={(e) =>
-            setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })
-          }
-          style={inp()}
-        >
-          <option value="">All</option>
-          {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
-        </select>
+      {/* Toolbar — quick presets + dates + compare on row 1, dimension + entity + chart + buttons on row 2 */}
+      <div className="toolbar">
+        <div className="toolbar-row">
+          <div className="toolbar-section">
+            <span className="toolbar-label">Range</span>
+            <div className="preset-bar" role="group" aria-label="Quick date range">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')}
+                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {activePreset === 'custom' && (
+                <button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>
+              )}
+            </div>
+          </div>
 
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>vs</span>
-        <select
-          value={compareMode}
-          onChange={(e) => setCompareMode(e.target.value as CompareMode)}
-          style={inp()}
-        >
-          <option value="off">no compare</option>
-          <option value="prior_period">prior period</option>
-          <option value="prior_year">prior year</option>
-        </select>
+          <div className="toolbar-section">
+            <input
+              type="date"
+              value={filters.start}
+              onChange={(e) => setFilters({ ...filters, start: e.target.value })}
+              className="date-input"
+              aria-label="Start date"
+            />
+            <span style={{ color: 'var(--mt)', fontSize: 11 }}>→</span>
+            <input
+              type="date"
+              value={filters.end}
+              onChange={(e) => setFilters({ ...filters, end: e.target.value })}
+              className="date-input"
+              aria-label="End date"
+            />
+          </div>
 
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>Chart</span>
-        <select
-          value={chartKind}
-          onChange={(e) => setChartKind(e.target.value as ChartKind)}
-          style={inp()}
-        >
-          <option value="none">none</option>
-          <option value="bar">bar</option>
-          <option value="pie">pie</option>
-          <option value="line">line</option>
-        </select>
+          <div className="toolbar-divider" />
 
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
-          <input
-            type="checkbox"
-            checked={showSparklines}
-            onChange={(e) => setShowSparklines(e.target.checked)}
-          />
-          <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Trend col
-          </span>
-        </label>
+          <div className="toolbar-section">
+            <span className="toolbar-label">Compare</span>
+            <div className="seg" role="group" aria-label="Compare mode">
+              <button
+                type="button"
+                className={'seg-btn' + (compareMode === 'off' ? ' seg-btn--active' : '')}
+                onClick={() => setCompareMode('off')}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                className={'seg-btn' + (compareMode === 'prior_period' ? ' seg-btn--active' : '')}
+                onClick={() => setCompareMode('prior_period')}
+              >
+                Prior period
+              </button>
+              <button
+                type="button"
+                className={'seg-btn' + (compareMode === 'prior_year' ? ' seg-btn--active' : '')}
+                onClick={() => setCompareMode('prior_year')}
+              >
+                Prior year
+              </button>
+            </div>
+          </div>
 
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {syncFresh && (
-            <span
-              style={{ color: 'var(--mt)', fontSize: 10, marginRight: 4 }}
-              title={syncedAt ? new Date(syncedAt).toLocaleString() : 'never synced'}
-            >
-              costs: {syncFresh}
-            </span>
-          )}
-          <button onClick={syncItemCosts} disabled={syncing} style={btnSecondary()}>
-            {syncing ? 'SYNCING…' : 'SYNC ITEM COSTS'}
-          </button>
-          <button onClick={exportCsv} disabled={!rows?.length} style={btnPrimary()}>EXPORT CSV</button>
+          <div className="toolbar-spacer" />
+
           <button
+            type="button"
+            className="tb-btn"
             onClick={() => {
-              setFilters({ start: ytdStart, end: today, entities: null });
-              setCompareMode('off');
+              const ytd = applyPreset('ytd', today);
+              setFilters({ start: ytd.start, end: ytd.end, entities: null });
+              setCompareMode('prior_year');
               setChartKind('none');
             }}
-            style={btnSecondary()}
           >
-            RESET
+            Reset
           </button>
-        </span>
+        </div>
+
+        <div className="toolbar-row">
+          <div className="toolbar-section">
+            <span className="toolbar-label">Group by</span>
+            <select value={dim} onChange={(e) => setDim(e.target.value as Dim)} className="tb-select">
+              {DIMS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+          </div>
+
+          <div className="toolbar-section">
+            <span className="toolbar-label">Entity</span>
+            <select
+              value={filters.entities?.[0] ?? ''}
+              onChange={(e) =>
+                setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })
+              }
+              className="tb-select"
+            >
+              <option value="">All</option>
+              {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
+            </select>
+          </div>
+
+          <div className="toolbar-section">
+            <span className="toolbar-label">Chart</span>
+            <select
+              value={chartKind}
+              onChange={(e) => setChartKind(e.target.value as ChartKind)}
+              className="tb-select"
+            >
+              <option value="none">none</option>
+              <option value="bar">bar</option>
+              <option value="pie">pie</option>
+              <option value="line">line</option>
+            </select>
+          </div>
+
+          <label className="toolbar-section" style={{ cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={showSparklines}
+              onChange={(e) => setShowSparklines(e.target.checked)}
+              style={{ accentColor: 'var(--ac)' }}
+            />
+            <span className="toolbar-label" style={{ cursor: 'pointer' }}>Trend col</span>
+          </label>
+
+          <div className="toolbar-spacer" />
+
+          <button onClick={syncItemCosts} disabled={syncing} className="tb-btn">
+            {syncing ? 'Syncing…' : 'Sync item costs'}
+          </button>
+          <button onClick={exportCsv} disabled={!rows?.length} className="tb-btn tb-btn--primary">
+            Export CSV
+          </button>
+        </div>
       </div>
 
+      {/* Filter pickers */}
       <div
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'flex',
           gap: 14,
           alignItems: 'center',
@@ -425,19 +584,8 @@ export function MarginPage() {
       </div>
 
       {chips.length > 0 && (
-        <div
-          className="cd"
-          style={{
-            padding: '6px 10px',
-            marginBottom: 10,
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            fontSize: 10,
-          }}
-        >
-          <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginRight: 6 }}>
+        <div className="chip-row">
+          <span className="toolbar-label" style={{ marginRight: 6 }}>
             Filtered to
           </span>
           {chips.map((c) =>
@@ -446,19 +594,7 @@ export function MarginPage() {
                 key={c.key + ':' + v}
                 onClick={() => clearFilter(c.key, v)}
                 title="click to remove"
-                style={{
-                  background: 'rgba(34,211,238,.12)',
-                  color: 'var(--ac)',
-                  border: '1px solid var(--ac)',
-                  borderRadius: 12,
-                  padding: '1px 8px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 240,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
+                className="chip"
               >
                 {c.label}: {v} ×
               </span>
@@ -468,20 +604,16 @@ export function MarginPage() {
             onClick={() => {
               setFilters({ start: filters.start, end: filters.end, entities: null });
             }}
-            style={{
-              ...inp(),
-              cursor: 'pointer',
-              color: 'var(--rd)',
-              marginLeft: 'auto',
-            }}
+            className="tb-btn"
+            style={{ marginLeft: 'auto', color: 'var(--rd)', borderColor: 'var(--rd)' }}
           >
-            clear all
+            Clear all
           </button>
         </div>
       )}
 
       {chartKind !== 'none' && rows && rows.length > 0 && (
-        <div className="cd" style={{ padding: 12, marginBottom: 10 }}>
+        <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
           {chartKind === 'bar' && (
             <BarChart
               ariaLabel="Revenue by selected dimension"
@@ -513,12 +645,12 @@ export function MarginPage() {
               series={[
                 {
                   name: 'Current',
-                  color: '#22d3ee',
+                  color: '#2DCAD6',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)),
                 },
                 ...(comparison ? [{
                   name: 'Prior',
-                  color: '#94a3b8',
+                  color: '#6B8190',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => {
                     const c = comparison.find((cc) => cc.dim_label === r.dim_label);
                     return c?.prior_revenue ?? 0;
@@ -533,7 +665,7 @@ export function MarginPage() {
       {err ? (
         <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>
       ) : rows == null ? (
-        <div className="ld">Loading…</div>
+        <div className="ld">Loading</div>
       ) : (
         <div className="cd" style={{ padding: 0 }}>
           <PivotTable
