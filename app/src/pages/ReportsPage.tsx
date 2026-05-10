@@ -17,32 +17,33 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function ReportsPage() {
   const [tab, setTab] = useState<Tab>('inactive');
+  const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Reports';
 
   return (
     <div>
-      <div className="pt">
-        Reports <span className="bg bg-l">PRESETS</span>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Lost · Movers · Anomalies · Voids</div>
+          <h1 className="hero-title">Reports</h1>
+          <div className="hero-meta">{activeLabel}</div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          {TABS.length} preset reports
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {TABS.map((t) => {
           const on = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              style={{
-                background: on ? 'var(--ac)' : 'var(--sf2)',
-                color: on ? 'var(--bg)' : 'var(--tx)',
-                border: '1px solid var(--bd)',
-                padding: '6px 12px',
-                borderRadius: 4,
-                fontSize: 11,
-                cursor: 'pointer',
-                fontWeight: on ? 700 : 500,
-                letterSpacing: 0.5,
-              }}
+              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
+              style={on ? { fontWeight: 700 } : undefined}
             >
-              {t.label.toUpperCase()}
+              {t.label}
             </button>
           );
         })}
