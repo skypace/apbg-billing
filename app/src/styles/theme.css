@@ -1,45 +1,63 @@
-/* BRIX · Margin Control — design tokens + global system. */
+/* BRIX · Margin Control — design tokens + global system.
+   Palette is anchored to the actual Brix Beverage brand:
+   - brix navy   #143966  (logo circle, primary chrome)
+   - bubble blue #5BB5F0  (accents, the three "bubble" dots above the brix wordmark)
+   - amber       #F4B400  (warm secondary)
+   - alameda red #C8102E  (Alameda Soda Co cross-brand contexts) */
 
 :root {
-  --bg:  #0A1218;
-  --sf:  #0F1B22;
-  --sf2: #15252E;
-  --sf3: #1C313C;
+  /* Backgrounds — navy-tinted dark, not pure black */
+  --bg:  #06121F;
+  --sf:  #0E2240;
+  --sf2: #163052;
+  --sf3: #1E4068;
 
-  --bd:  #1F3845;
-  --bd2: #2E5667;
+  /* Borders — cool navy tones */
+  --bd:  #1B3A5E;
+  --bd2: #2A5285;
 
-  --tx:  #E6EEF1;
-  --tx2: #9FB3BB;
-  --mt:  #6B8190;
+  /* Text — slightly blue-tinted whites */
+  --tx:  #E6EEF7;
+  --tx2: #94A8BD;
+  --mt:  #6B8499;
 
-  --ac:    #2DCAD6;
-  --ac2:   #1A8FA0;
-  --brix:  #003A49;
-  --amber: #F4B400;
+  /* Brand */
+  --ac:        #5BB5F0;   /* bubble blue — primary accent */
+  --ac2:       #3A8FCC;   /* deeper bubble blue */
+  --ac3:       #7ACBF5;   /* brightest bubble */
+  --brix:      #143966;   /* brix navy — the logo circle */
+  --brix-deep: #0E2447;   /* deepest navy */
+  --amber:     #F4B400;
+  --alameda-red: #C8102E; /* Alameda Soda Co. crimson */
 
+  /* Semantic */
   --gn: var(--success);
   --am: var(--warning);
   --rd: var(--danger);
 
-  --success: #00C896;
+  --success: #2EB872;
   --warning: #F4B400;
-  --danger:  #E04F5F;
-  --info:    #5BA8FF;
+  --danger:  #FF5A5F;
+  --info:    #5BB5F0;
 
-  --shadow:    0 4px 14px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.50);
-  --shadow-glow: 0 0 0 1px rgba(45, 202, 214, 0.18), 0 8px 24px rgba(45, 202, 214, 0.08);
+  /* Shadows — cooler tint */
+  --shadow:    0 4px 14px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 1px rgba(91, 181, 240, 0.20), 0 8px 24px rgba(91, 181, 240, 0.10);
+
+  /* Radii */
   --r-sm: 4px;
   --r-md: 8px;
   --r-lg: 12px;
 
-  --grad-acc:    linear-gradient(135deg, #2DCAD6 0%, #1A8FA0 100%);
+  /* Brand gradients */
+  --grad-acc:    linear-gradient(135deg, #5BB5F0 0%, #3A8FCC 100%);
   --grad-amber:  linear-gradient(135deg, #F4B400 0%, #C8910C 100%);
-  --grad-brix:   linear-gradient(135deg, #003A49 0%, #1A8FA0 100%);
-  --grad-card:   linear-gradient(180deg, rgba(45, 202, 214, 0.04) 0%, rgba(45, 202, 214, 0) 100%);
-  --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(45, 202, 214, 0.12) 50%, transparent 100%);
+  --grad-brix:   linear-gradient(135deg, #143966 0%, #5BB5F0 100%);
+  --grad-card:   linear-gradient(180deg, rgba(91, 181, 240, 0.04) 0%, rgba(91, 181, 240, 0) 100%);
+  --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(91, 181, 240, 0.14) 50%, transparent 100%);
 
+  /* Fonts */
   --ff-display: 'Bricolage Grotesque', 'Söhne', system-ui, -apple-system, sans-serif;
   --ff-body:    'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ff-mono:    'JetBrains Mono', 'SF Mono', Consolas, monospace;
@@ -67,9 +85,9 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 90% 60% at 18% -10%, rgba(45, 202, 214, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 60% at 18% -10%, rgba(91, 181, 240, 0.10) 0%, transparent 60%),
     radial-gradient(ellipse 80% 50% at 85% 0%,  rgba(244, 180, 0,  0.04) 0%, transparent 55%),
-    radial-gradient(circle at 50% 100%, rgba(0, 58, 73, 0.25) 0%, transparent 70%);
+    radial-gradient(circle at 50% 100%, rgba(20, 57, 102, 0.30) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -84,7 +102,7 @@ body::before {
 }
 
 a { color: var(--ac); text-decoration: none; transition: color 150ms ease }
-a:hover { color: var(--ac2) }
+a:hover { color: var(--ac3) }
 input, select, textarea, button { font-family: inherit }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 2px solid var(--ac);
@@ -117,9 +135,9 @@ th {
   top: 0;
 }
 tbody tr { transition: background 120ms ease }
-tbody tr:hover { background: rgba(45, 202, 214, 0.05) }
+tbody tr:hover { background: rgba(91, 181, 240, 0.06) }
 tbody tr:nth-child(odd) { background: rgba(255, 255, 255, 0.012) }
-tbody tr:nth-child(odd):hover { background: rgba(45, 202, 214, 0.055) }
+tbody tr:nth-child(odd):hover { background: rgba(91, 181, 240, 0.065) }
 td.mn, th.mn {
   font-family: var(--ff-mono);
   font-size: 12px;
@@ -133,7 +151,7 @@ td.mn, th.mn {
 .sidebar {
   width: var(--sidebar-w);
   flex: none;
-  background: linear-gradient(180deg, var(--sf) 0%, #0D181F 100%);
+  background: linear-gradient(180deg, var(--sf) 0%, var(--brix-deep) 100%);
   border-right: 1px solid var(--bd);
   display: flex;
   flex-direction: column;
@@ -148,6 +166,9 @@ td.mn, th.mn {
   padding: 22px 20px 18px;
   border-bottom: 1px solid var(--bd);
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .brand::after {
   content: '';
@@ -159,19 +180,16 @@ td.mn, th.mn {
   background: var(--grad-acc);
   opacity: 0.4;
 }
+.brand-mark-svg { flex: none; width: 36px; height: 36px }
 .brand-mark {
   font-family: var(--ff-display);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 800;
-  letter-spacing: 2px;
-  background: linear-gradient(120deg, #2DCAD6 0%, #5DEAF5 50%, #2DCAD6 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  letter-spacing: 1.5px;
+  color: var(--tx);
   line-height: 1;
-  animation: shimmer-text 8s ease-in-out infinite;
 }
+.brand-mark .brand-bx { color: var(--ac) }
 @keyframes shimmer-text {
   0%, 100% { background-position: 0% 50% }
   50%      { background-position: 100% 50% }
@@ -182,7 +200,7 @@ td.mn, th.mn {
   color: var(--mt);
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  margin-top: 8px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -199,9 +217,9 @@ td.mn, th.mn {
   animation: pulse-dot 2.4s ease-in-out infinite;
 }
 @keyframes pulse-dot {
-  0%   { box-shadow: 0 0 0 0    rgba(0, 200, 150, 0.6) }
-  70%  { box-shadow: 0 0 0 7px  rgba(0, 200, 150, 0)   }
-  100% { box-shadow: 0 0 0 0    rgba(0, 200, 150, 0)   }
+  0%   { box-shadow: 0 0 0 0    rgba(46, 184, 114, 0.6) }
+  70%  { box-shadow: 0 0 0 7px  rgba(46, 184, 114, 0)   }
+  100% { box-shadow: 0 0 0 0    rgba(46, 184, 114, 0)   }
 }
 
 .nav {
@@ -227,11 +245,11 @@ td.mn, th.mn {
   position: relative;
 }
 .nav-item:hover {
-  background: rgba(45, 202, 214, 0.06);
+  background: rgba(91, 181, 240, 0.07);
   color: var(--tx);
 }
 .nav-item--active {
-  background: linear-gradient(90deg, rgba(45, 202, 214, 0.14) 0%, rgba(45, 202, 214, 0.04) 100%);
+  background: linear-gradient(90deg, rgba(91, 181, 240, 0.16) 0%, rgba(91, 181, 240, 0.04) 100%);
   color: var(--ac);
 }
 .nav-item--active::before {
@@ -243,7 +261,7 @@ td.mn, th.mn {
   width: 3px;
   background: var(--ac);
   border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 12px rgba(45, 202, 214, 0.6);
+  box-shadow: 0 0 12px rgba(91, 181, 240, 0.7);
 }
 .nav-item svg { flex: none; opacity: 0.85; transition: opacity 120ms ease }
 .nav-item:hover svg, .nav-item--active svg { opacity: 1 }
@@ -388,7 +406,7 @@ td.mn, th.mn {
 /* ─────────── Cards ─────────── */
 
 .cd {
-  background: linear-gradient(180deg, var(--sf) 0%, #0E1A20 100%);
+  background: linear-gradient(180deg, var(--sf) 0%, var(--brix-deep) 100%);
   border: 1px solid var(--bd);
   border-radius: var(--r-md);
   transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
@@ -510,7 +528,7 @@ td.mn, th.mn {
 /* ─────────── Toolbar (control panel) ─────────── */
 
 .toolbar {
-  background: linear-gradient(180deg, var(--sf) 0%, #0E1A20 100%);
+  background: linear-gradient(180deg, var(--sf) 0%, var(--brix-deep) 100%);
   border: 1px solid var(--bd);
   border-radius: var(--r-md);
   padding: 14px 16px;
@@ -568,9 +586,9 @@ td.mn, th.mn {
   font-family: inherit;
 }
 .preset-btn:last-child { border-right: 0 }
-.preset-btn:hover { background: rgba(45, 202, 214, 0.06); color: var(--tx) }
+.preset-btn:hover { background: rgba(91, 181, 240, 0.08); color: var(--tx) }
 .preset-btn--active {
-  background: rgba(45, 202, 214, 0.14);
+  background: rgba(91, 181, 240, 0.16);
   color: var(--ac);
 }
 
@@ -589,7 +607,7 @@ td.mn, th.mn {
 }
 .date-input:hover { border-color: var(--bd2) }
 .date-input::-webkit-calendar-picker-indicator {
-  filter: invert(0.65) sepia(1) saturate(2) hue-rotate(140deg);
+  filter: invert(0.65) sepia(1) saturate(2) hue-rotate(190deg);
   cursor: pointer;
 }
 
@@ -615,7 +633,7 @@ td.mn, th.mn {
   font-family: inherit;
 }
 .seg-btn:last-child { border-right: 0 }
-.seg-btn:hover { background: rgba(45, 202, 214, 0.06); color: var(--tx) }
+.seg-btn:hover { background: rgba(91, 181, 240, 0.08); color: var(--tx) }
 .seg-btn--active {
   background: var(--grad-acc);
   color: var(--bg);
@@ -663,7 +681,7 @@ td.mn, th.mn {
 
 /* Filter chip row */
 .chip-row {
-  background: linear-gradient(180deg, var(--sf) 0%, #0E1A20 100%);
+  background: linear-gradient(180deg, var(--sf) 0%, var(--brix-deep) 100%);
   border: 1px solid var(--bd);
   border-radius: var(--r-md);
   padding: 8px 12px;
@@ -677,7 +695,7 @@ td.mn, th.mn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(45, 202, 214, 0.10);
+  background: rgba(91, 181, 240, 0.12);
   color: var(--ac);
   border: 1px solid var(--ac);
   border-radius: 999px;
@@ -691,7 +709,7 @@ td.mn, th.mn {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.chip:hover { background: rgba(45, 202, 214, 0.18) }
+.chip:hover { background: rgba(91, 181, 240, 0.20) }
 
 /* ─────────── Grid utility ─────────── */
 
@@ -727,10 +745,11 @@ td.mn, th.mn {
   vertical-align: middle;
   text-transform: uppercase;
 }
-.bg-l { color: var(--ac);     border-color: var(--ac);     background: rgba(45, 202, 214, 0.10) }
+.bg-l { color: var(--ac);     border-color: var(--ac);     background: rgba(91, 181, 240, 0.12) }
 .bg-p { color: var(--am);     border-color: var(--am);     background: rgba(244, 180, 0, 0.10) }
-.bg-g { color: var(--gn);     border-color: var(--gn);     background: rgba(0, 200, 150, 0.10) }
-.bg-r { color: var(--rd);     border-color: var(--rd);     background: rgba(224, 79, 95, 0.10) }
+.bg-g { color: var(--gn);     border-color: var(--gn);     background: rgba(46, 184, 114, 0.10) }
+.bg-r { color: var(--rd);     border-color: var(--rd);     background: rgba(255, 90, 95, 0.10) }
+.bg-alameda { color: var(--alameda-red); border-color: var(--alameda-red); background: rgba(200, 16, 46, 0.10) }
 
 /* ─────────── Loading + skeleton ─────────── */
 
@@ -788,8 +807,7 @@ td.mn, th.mn {
 }
 @media (max-width: 700px) {
   .sidebar { width: 64px }
-  .nav-item span, .brand-sub, .user-email { display: none }
+  .nav-item span, .brand-sub, .user-email, .brand-mark { display: none }
   .brand { padding: 18px 14px }
-  .brand-mark { font-size: 16px; letter-spacing: 0.8px }
   :root { --sidebar-w: 64px }
 }
