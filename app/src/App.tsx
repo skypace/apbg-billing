@@ -5,6 +5,7 @@ import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { OverviewPage } from './pages/OverviewPage';
+import { BrixMark } from './components/BrixMark';
 
 // Eager: Login (gate before session) + Overview (default landing).
 // Everything else is fetched on first navigation. Vite splits each lazy
@@ -24,7 +25,10 @@ function Splash() {
   return (
     <div className="splash" role="status" aria-label="Loading BRIX Margin Control">
       <div>
-        <div className="splash-brand">BRIX</div>
+        <BrixMark size={88} title="Brix Beverage" />
+        <div className="splash-brand" style={{ marginTop: 18 }}>
+          BRI<span style={{ color: 'var(--ac)' }}>X</span>
+        </div>
         <div className="splash-sub">Margin Control</div>
       </div>
     </div>
