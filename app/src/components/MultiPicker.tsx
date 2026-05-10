@@ -11,12 +11,14 @@ interface Props {
   loading?: boolean;
   onChange: (next: string[]) => void;
   placeholder?: string;
-  /** Show revenue rank next to each option (default true). */
   showRevenue?: boolean;
+  /** Optional taxonomy classifier — when provided, options are grouped by
+   *  the returned string in the dropdown. */
+  groupBy?: (label: string) => string;
+  /** Optional rank map controlling group display order (lower = earlier). */
+  groupOrder?: Record<string, number>;
 }
 
-// Compact USD formatter used inline in dropdown rows so the heaviest hitters
-// are obvious without leaving the picker.
 function fmtCompact(v: number): string {
   if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
   if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
@@ -24,8 +26,6 @@ function fmtCompact(v: number): string {
   return '$' + Math.round(v).toString();
 }
 
-// MUI Autocomplete — multi-select, type-to-filter, chip-style selection,
-// async loading spinner, themed to match the rest of BRIX Margin Control.
 export function MultiPicker({
   label,
   values,
@@ -34,6 +34,8 @@ export function MultiPicker({
   onChange,
   placeholder,
   showRevenue = true,
+  groupBy,
+  groupOrder,
 }: Props) {
   const labels = useMemo(() => options?.map((o) => o.label) ?? [], [options]);
   const revenueByLabel = useMemo(() => {
@@ -44,14 +46,17 @@ export function MultiPicker({
     return m;
   }, [options]);
 
-  // Always include currently-selected values even if they aren't in the
-  // freshly-loaded options list (e.g. selected before options finished
-  // loading, or selected via drill-down from a different page).
   const allOptions = useMemo(() => {
     const set = new Set(labels);
     for (const v of values) set.add(v);
     return Array.from(set);
   }, [labels, values]);
+
+  function groupRank(label: string): number {
+    if (!groupBy) return 0;
+    const g = groupBy(label);
+    return groupOrder?.[g] ?? 999;
+  }
 
   return (
     <Autocomplete
@@ -101,23 +106,30 @@ export function MultiPicker({
       loading={loading}
       onChange={(_, next) => onChange(next as string[])}
       isOptionEqualToValue={(opt, val) => opt === val}
+      groupBy={groupBy}
       filterOptions={(opts, state) => {
         const q = state.inputValue.trim().toLowerCase();
         const list = q ? opts.filter((o) => o.toLowerCase().includes(q)) : opts;
-        // Sort: selected first, then by revenue desc, then alpha
         return list.slice().sort((a, b) => {
+          // 1. Selected first
           const aSel = values.includes(a) ? 1 : 0;
           const bSel = values.includes(b) ? 1 : 0;
           if (aSel !== bSel) return bSel - aSel;
+          // 2. Group rank (taxonomy order) so related rows cluster together
+          if (groupBy) {
+            const aR = groupRank(a);
+            const bR = groupRank(b);
+            if (aR !== bR) return aR - bR;
+          }
+          // 3. Revenue descending within group
           const aRev = revenueByLabel.get(a) ?? 0;
           const bRev = revenueByLabel.get(b) ?? 0;
           if (aRev !== bRev) return bRev - aRev;
+          // 4. Alpha fallback
           return a.localeCompare(b);
-        }).slice(0, 200);
+        }).slice(0, 300);
       }}
-      noOptionsText={
-        loading ? 'Loading…' : 'No matches.'
-      }
+      noOptionsText={loading ? 'Loading…' : 'No matches.'}
       loadingText="Loading…"
       renderInput={(params) => (
         <TextField
@@ -129,9 +141,7 @@ export function MultiPicker({
             ...params.InputProps,
             endAdornment: (
               <>
-                {loading ? (
-                  <CircularProgress size={13} sx={{ color: 'var(--ac)', mr: 0.5 }} />
-                ) : null}
+                {loading ? <CircularProgress size={13} sx={{ color: 'var(--ac)', mr: 0.5 }} /> : null}
                 {params.InputProps.endAdornment}
               </>
             ),
@@ -151,22 +161,15 @@ export function MultiPicker({
                 height: 20,
                 fontSize: 11,
                 fontFamily: 'inherit',
-                background: 'rgba(45, 202, 214, 0.12)',
-                border: '1px solid rgba(45, 202, 214, 0.40)',
+                background: 'rgba(91, 181, 240, 0.12)',
+                border: '1px solid rgba(91, 181, 240, 0.40)',
                 color: 'var(--ac)',
                 maxWidth: 200,
                 '& .MuiChip-label': {
-                  paddingLeft: '8px',
-                  paddingRight: '4px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  paddingLeft: '8px', paddingRight: '4px',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 },
-                '& .MuiChip-deleteIcon': {
-                  color: 'var(--ac)',
-                  fontSize: 14,
-                  marginRight: '3px',
-                },
+                '& .MuiChip-deleteIcon': { color: 'var(--ac)', fontSize: 14, marginRight: '3px' },
                 '& .MuiChip-deleteIcon:hover': { color: 'var(--rd)' },
               }}
             />
@@ -176,7 +179,6 @@ export function MultiPicker({
       renderOption={(props, option) => {
         const rev = revenueByLabel.get(option);
         const selected = values.includes(option);
-        // Strip the key out of props so we can pass it explicitly (React 18 warning fix).
         const { key, ...optProps } = props as React.HTMLAttributes<HTMLLIElement> & { key?: string };
         return (
           <li
@@ -184,41 +186,16 @@ export function MultiPicker({
             key={option}
             style={{
               ...optProps.style,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 10px',
-              fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 10px', fontSize: 12,
               color: selected ? 'var(--ac)' : 'var(--tx)',
               fontWeight: selected ? 600 : 400,
             }}
           >
-            <input
-              type="checkbox"
-              checked={selected}
-              readOnly
-              style={{ accentColor: 'var(--ac)', margin: 0 }}
-            />
-            <span
-              style={{
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {option}
-            </span>
+            <input type="checkbox" checked={selected} readOnly style={{ accentColor: 'var(--ac)', margin: 0 }} />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option}</span>
             {showRevenue && rev != null && rev > 0 && (
-              <span
-                className="mn"
-                style={{
-                  fontSize: 10,
-                  color: 'var(--mt)',
-                  fontFamily: 'var(--ff-mono)',
-                  marginLeft: 8,
-                }}
-              >
+              <span className="mn" style={{ fontSize: 10, color: 'var(--mt)', fontFamily: 'var(--ff-mono)', marginLeft: 8 }}>
                 {fmtCompact(rev)}
               </span>
             )}
@@ -233,22 +210,34 @@ export function MultiPicker({
             borderRadius: 2,
             color: 'var(--tx)',
             boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5)',
-            '& .MuiAutocomplete-option': {
-              borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+            '& .MuiAutocomplete-groupLabel': {
+              background: 'rgba(20, 57, 102, 0.65)',
+              backdropFilter: 'blur(10px)',
+              color: 'var(--ac)',
+              fontFamily: 'var(--ff-body)',
+              fontSize: 9,
+              letterSpacing: 1.4,
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              padding: '6px 12px',
+              lineHeight: 1.4,
+              borderBottom: '1px solid rgba(91, 181, 240, 0.15)',
+              position: 'sticky',
+              top: 0,
+              zIndex: 1,
             },
+            '& .MuiAutocomplete-option': { borderBottom: '1px solid rgba(255, 255, 255, 0.04)' },
             '& .MuiAutocomplete-option:hover, & .MuiAutocomplete-option.Mui-focused': {
-              background: 'rgba(45, 202, 214, 0.08) !important',
+              background: 'rgba(91, 181, 240, 0.08) !important',
             },
             '& .MuiAutocomplete-option[aria-selected="true"]': {
-              background: 'rgba(45, 202, 214, 0.16) !important',
+              background: 'rgba(91, 181, 240, 0.16) !important',
             },
             '& .MuiAutocomplete-option[aria-selected="true"].Mui-focused': {
-              background: 'rgba(45, 202, 214, 0.22) !important',
+              background: 'rgba(91, 181, 240, 0.22) !important',
             },
             '& .MuiAutocomplete-noOptions, & .MuiAutocomplete-loading': {
-              color: 'var(--mt)',
-              fontSize: 11,
-              fontFamily: 'inherit',
+              color: 'var(--mt)', fontSize: 11, fontFamily: 'inherit',
             },
           },
         },
