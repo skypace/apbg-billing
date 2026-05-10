@@ -4,8 +4,11 @@ import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { fm } from '../lib/formatters';
 import { SalesPlan, fetchPlans } from '../lib/plans';
 import { PlanEditor } from './plans/PlanEditor';
+import { useToast } from '../lib/toast';
+import { TableSkeleton } from '../components/Skeletons';
 
 export function PlansPage() {
+  const toast = useToast();
   const [plans, setPlans] = useState<SalesPlan[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -23,7 +26,10 @@ export function PlansPage() {
   useEffect(load, []);
 
   function createPlan() {
-    if (!newPlan.name.trim()) return alert('Name required');
+    if (!newPlan.name.trim()) {
+      toast.warn('Name required');
+      return;
+    }
     sbInsert<Partial<SalesPlan>>('sales_plans', {
       name: newPlan.name.trim(),
       fiscal_year: Number(newPlan.fiscal_year),
@@ -31,21 +37,37 @@ export function PlansPage() {
       status: 'active',
     })
       .then(() => {
+        toast.success('Created plan ' + newPlan.name.trim());
         setCreating(false);
         setNewPlan({ name: '', fiscal_year: new Date().getFullYear() + 1, scenario: 'plan' });
         load();
       })
-      .catch((e) => alert('Failed: ' + e.message));
+      .catch((e) => toast.error('Failed: ' + e.message));
   }
 
   function deletePlan(id: string, name: string) {
     if (!confirm(`Delete plan "${name}"? Lines will be deleted too.`)) return;
     sbDelete('sales_plan_lines', 'plan_id=eq.' + id).then(() =>
-      sbDelete('sales_plans', 'id=eq.' + id).then(load),
+      sbDelete('sales_plans', 'id=eq.' + id).then(() => {
+        toast.success('Deleted ' + name);
+        load();
+      }),
     );
   }
 
-  if (!plans) return <div className="ld">Loading plans…</div>;
+  if (!plans) return (
+    <div>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Sales budgeting · scenarios</div>
+          <h1 className="hero-title">Plans</h1>
+        </div>
+      </div>
+      <div className="cd" style={{ padding: 0 }}>
+        <TableSkeleton rows={5} cols={5} />
+      </div>
+    </div>
+  );
 
   const active = activeId ? plans.find((p) => p.id === activeId) : null;
   if (active) {
@@ -54,13 +76,23 @@ export function PlansPage() {
 
   return (
     <div>
-      <div className="pt">Plans <span className="bg bg-l">SALES BUDGETING</span></div>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Sales budgeting · scenarios</div>
+          <h1 className="hero-title">Plans</h1>
+          <div className="hero-meta">Plan vs actual · forecast · stretch · conservative</div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          {plans.length} plan{plans.length === 1 ? '' : 's'}
+        </div>
+      </div>
 
       <div
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
@@ -99,7 +131,6 @@ export function PlansPage() {
         ) : (
           <button onClick={() => setCreating(true)} style={btnPrimary()}>+ NEW PLAN</button>
         )}
-        <span style={{ marginLeft: 'auto', color: 'var(--mt)' }}>{plans.length} plans</span>
       </div>
 
       <div className="cd" style={{ padding: 0 }}>
@@ -155,5 +186,4 @@ export function PlansPage() {
   );
 }
 
-// Re-export for convenient consumer imports without a dedicated index file.
 export { fm };
