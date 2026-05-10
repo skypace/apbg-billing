@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
+import dayjs, { Dayjs } from 'dayjs';
+import { Printer } from 'lucide-react';
+import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { CustomerLink } from '../components/CustomerLink';
 import { AreaChart } from '../components/charts/AreaChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CHART_COLORS } from '../components/charts/util';
+import { MultiPicker } from '../components/MultiPicker';
+import { KpiRowSkeleton, ChartSkeleton } from '../components/Skeletons';
+import { useToast } from '../lib/toast';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import {
   Dim,
+  DimValue,
   SalesFilters,
   SalesPivotRow,
   SalesTotals,
+  computePriorBounds,
+  fetchDimValues,
   fetchPivot,
   fetchSparkline,
   fetchTotals,
@@ -24,14 +33,89 @@ import { fetchInventoryHealth } from '../lib/inventory';
 
 interface MonthRow extends SalesPivotRow { dim_label: string }
 
+type CompareMode = 'off' | 'prior_period' | 'prior_year';
+
+type Preset = 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90' | 'last365' | 'custom';
+
+const PRESETS: { id: Preset; label: string }[] = [
+  { id: 'mtd',     label: 'MTD'  },
+  { id: 'qtd',     label: 'QTD'  },
+  { id: 'ytd',     label: 'YTD'  },
+  { id: 'last30',  label: '30d'  },
+  { id: 'last90',  label: '90d'  },
+  { id: 'last365', label: '12mo' },
+];
+
+const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
+
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
+  const d = new Date(today + 'T00:00:00');
+  const Y = d.getFullYear();
+  const M = d.getMonth();
+  switch (preset) {
+    case 'mtd': return { start: `${Y}-${pad2(M + 1)}-01`, end: today };
+    case 'qtd': {
+      const qm = Math.floor(M / 3) * 3;
+      return { start: `${Y}-${pad2(qm + 1)}-01`, end: today };
+    }
+    case 'ytd':    return { start: `${Y}-01-01`, end: today };
+    case 'last30': { const dd = new Date(d); dd.setDate(dd.getDate() - 30);  return { start: dd.toISOString().slice(0, 10), end: today }; }
+    case 'last90': { const dd = new Date(d); dd.setDate(dd.getDate() - 90);  return { start: dd.toISOString().slice(0, 10), end: today }; }
+    case 'last365':{ const dd = new Date(d); dd.setDate(dd.getDate() - 365); return { start: dd.toISOString().slice(0, 10), end: today }; }
+  }
+}
+function detectActivePreset(start: string, end: string, today: string): Preset {
+  if (end !== today) return 'custom';
+  for (const p of PRESETS) {
+    const r = applyPreset(p.id as Exclude<Preset, 'custom'>, today);
+    if (r.start === start && r.end === end) return p.id;
+  }
+  return 'custom';
+}
+
 export function OverviewPage() {
   const today = new Date();
-  const ytdStart = today.getFullYear() + '-01-01';
   const todayStr = today.toISOString().slice(0, 10);
-  const priorStart = (today.getFullYear() - 1) + '-01-01';
-  const priorEndSameDay = (today.getFullYear() - 1) + todayStr.slice(4);
-  const priorYearEnd = (today.getFullYear() - 1) + '-12-31';
+  const ytdStart = today.getFullYear() + '-01-01';
+  const toast = useToast();
 
+  // Filters state — same shape as MarginPage so behavior carries.
+  const [filters, setFilters] = useState<SalesFilters>({
+    start:      ytdStart,
+    end:        todayStr,
+    entities:   null,
+    categories: null,
+    customers:  null,
+  });
+  const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
+
+  const priorFilters = useMemo<SalesFilters | null>(() => {
+    if (compareMode === 'off') return null;
+    const { prior_start, prior_end } = computePriorBounds(filters.start, filters.end, compareMode);
+    return { ...filters, start: prior_start, end: prior_end };
+  }, [compareMode, filters]);
+
+  // Pre-load category and customer dim options so the MultiPickers are
+  // populated the moment the user clicks them.
+  const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
+  const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
+
+  useEffect(() => {
+    setDimOpts({});
+    setDimOptsLoading({ category: true, customer: true });
+    for (const d of ['category', 'customer'] as Dim[]) {
+      fetchDimValues(d, filters.start, filters.end)
+        .then((rs) => {
+          setDimOpts((cur) => ({ ...cur, [d]: rs }));
+          setDimOptsLoading((cur) => ({ ...cur, [d]: false }));
+        })
+        .catch(() => setDimOptsLoading((cur) => ({ ...cur, [d]: false })));
+    }
+  }, [filters.start, filters.end]);
+
+  // Per-dataset state
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
   const [monthlyCurrent, setMonthlyCurrent] = useState<MonthRow[] | null>(null);
@@ -47,57 +131,55 @@ export function OverviewPage() {
     healthMovers: number;
   } | null>(null);
 
-  const filters: SalesFilters = useMemo(
-    () => ({ start: ytdStart, end: todayStr, entities: null }),
-    [ytdStart, todayStr],
-  );
-  const priorFilters: SalesFilters = useMemo(
-    () => ({ start: priorStart, end: priorEndSameDay, entities: null }),
-    [priorStart, priorEndSameDay],
-  );
-
-  // KPI totals: current + same-window prior year for delta.
+  // KPI totals (current + optional prior)
   useEffect(() => {
-    Promise.all([fetchTotals(filters), fetchTotals(priorFilters)])
-      .then(([cur, prev]) => { setTotals(cur); setPriorTotals(prev); })
-      .catch(() => { setTotals(null); setPriorTotals(null); });
-  }, [filters, priorFilters]);
+    let cancelled = false;
+    setTotals(null); setPriorTotals(null);
+    fetchTotals(filters)
+      .then((cur) => { if (!cancelled) setTotals(cur); })
+      .catch(() => { if (!cancelled) setTotals(null); });
+    if (priorFilters) {
+      fetchTotals(priorFilters)
+        .then((p) => { if (!cancelled) setPriorTotals(p); })
+        .catch(() => { if (!cancelled) setPriorTotals(null); });
+    }
+    return () => { cancelled = true; };
+  }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
 
-  // Monthly trend: current YTD vs prior year (full 12 months).
+  // Monthly trend — current period + (optional) compare
   useEffect(() => {
-    Promise.all([
-      fetchPivot('month' as Dim, filters, 24) as Promise<MonthRow[]>,
-      fetchPivot('month' as Dim, { ...priorFilters, end: priorYearEnd }, 24) as Promise<MonthRow[]>,
-    ]).then(([cur, prev]) => {
-      setMonthlyCurrent(cur ?? []);
-      setMonthlyPrior(prev ?? []);
-    });
-  }, [filters, priorFilters, priorYearEnd]);
+    let cancelled = false;
+    setMonthlyCurrent(null); setMonthlyPrior(null);
+    fetchPivot('month' as Dim, filters, 24)
+      .then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); })
+      .catch(() => { if (!cancelled) setMonthlyCurrent([]); });
+    if (priorFilters) {
+      fetchPivot('month' as Dim, priorFilters, 24)
+        .then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); })
+        .catch(() => { if (!cancelled) setMonthlyPrior([]); });
+    } else {
+      setMonthlyPrior([]);
+    }
+    return () => { cancelled = true; };
+  }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
 
-  // Trailing-12mo revenue sparkline for the headline KPI.
-  useEffect(() => {
-    fetchSparkline('customer' as Dim, ['__total__'], todayStr, filters)
-      .then(() => {/* no-op: sparkline RPC needs labels */})
-      .catch(() => {/* ignore */});
-  }, [filters, todayStr]);
-
-  // Top categories (donut).
+  // Top categories
   useEffect(() => {
     fetchPivot('category' as Dim, filters, 12)
       .then((rs) => setTopCategories((rs ?? []).slice(0, 8)))
       .catch(() => setTopCategories([]));
-  }, [filters]);
+  }, [JSON.stringify(filters)]);
 
-  // Top customers + their 12-mo sparklines.
+  // Top customers + sparklines
   useEffect(() => {
     fetchPivot('customer' as Dim, filters, 10)
       .then(async (rs) => {
         const top = rs ?? [];
         setTopCustomers(top);
-        if (top.length === 0) return;
+        if (top.length === 0) { setCustomerSparks({}); return; }
         const labels = top.map((r) => r.dim_label);
-        const sparkRows = await fetchSparkline('customer' as Dim, labels, todayStr, filters);
-        const keys = trailing12MonthKeys(todayStr);
+        const sparkRows = await fetchSparkline('customer' as Dim, labels, filters.end, filters);
+        const keys = trailing12MonthKeys(filters.end);
         const byLabel: Record<string, number[]> = {};
         for (const lb of labels) byLabel[lb] = Array(12).fill(0);
         for (const s of sparkRows) {
@@ -107,17 +189,17 @@ export function OverviewPage() {
         setCustomerSparks(byLabel);
       })
       .catch(() => setTopCustomers([]));
-  }, [filters, todayStr]);
+  }, [JSON.stringify(filters)]);
 
-  // Action panel counts (parallel; soft-fail individually).
+  // Action panel counts
   useEffect(() => {
     Promise.allSettled([
       fetchInventoryHealth({ lookback: 90, managed_only: true }),
       fetchInactiveCustomers({
-        current_start: ytdStart,
-        current_end: todayStr,
-        prior_start: priorStart,
-        prior_end: priorYearEnd,
+        current_start: filters.start,
+        current_end: filters.end,
+        prior_start: (today.getFullYear() - 1) + '-01-01',
+        prior_end: (today.getFullYear() - 1) + '-12-31',
         min_prior_rev: 1000,
         max_current_rev: 0,
         limit: 500,
@@ -134,12 +216,12 @@ export function OverviewPage() {
       const healthMovers = hm.status === 'fulfilled' ? hm.value.length : 0;
       setActions({ reorderNow, inactive, anomalies, healthMovers });
     });
-  }, [ytdStart, todayStr, priorStart, priorYearEnd]);
+  }, [filters.start, filters.end]);
 
-  // Build the trailing-12mo sparkline for revenue from the current monthly pivot.
+  // Build the trailing-12mo sparkline for the headline KPI
   useEffect(() => {
     if (!monthlyCurrent || !monthlyPrior) return;
-    const keys = trailing12MonthKeys(todayStr);
+    const keys = trailing12MonthKeys(filters.end);
     const byMonth = new Map<string, number>();
     for (const r of monthlyCurrent) byMonth.set(toYm(r.dim_label), Number(r.revenue || 0));
     for (const r of monthlyPrior) {
@@ -148,7 +230,7 @@ export function OverviewPage() {
     }
     const vals = keys.map((k) => byMonth.get(k) ?? 0);
     setRevenueSpark(vals);
-  }, [monthlyCurrent, monthlyPrior, todayStr]);
+  }, [monthlyCurrent, monthlyPrior, filters.end]);
 
   const kpiDeltas = useMemo(() => {
     function pct(cur: number | null | undefined, prev: number | null | undefined): number | null {
@@ -171,52 +253,228 @@ export function OverviewPage() {
 
   const aov = totals && totals.invoice_count > 0 ? Number(totals.revenue) / Number(totals.invoice_count) : 0;
 
+  const compareLabel =
+    compareMode === 'prior_period' ? 'vs prior period' :
+    compareMode === 'prior_year'   ? 'vs same period last year' :
+                                     '';
+  const activePreset = detectActivePreset(filters.start, filters.end, todayStr);
+
+  function applyPresetClick(p: Exclude<Preset, 'custom'>) {
+    const r = applyPreset(p, todayStr);
+    setFilters((cur) => ({ ...cur, start: r.start, end: r.end }));
+  }
+  function onRangeChange(value: [Dayjs | null, Dayjs | null]) {
+    const [s, e] = value;
+    if (s && e) {
+      setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
+    }
+  }
+  function printDashboard() {
+    toast.info('Opening print preview…');
+    setTimeout(() => window.print(), 250);
+  }
+  function clearFilter(key: keyof SalesFilters, value?: string) {
+    setFilters((cur) => {
+      const list = (cur[key] as string[] | null | undefined) ?? [];
+      const next = value ? list.filter((v) => v !== value) : [];
+      return { ...cur, [key]: next.length ? next : null };
+    });
+  }
+
+  const chips: { key: keyof SalesFilters; label: string; values: string[] }[] = [];
+  if (filters.entities?.length)   chips.push({ key: 'entities',   label: 'entity',   values: filters.entities });
+  if (filters.categories?.length) chips.push({ key: 'categories', label: 'category', values: filters.categories });
+  if (filters.customers?.length)  chips.push({ key: 'customers',  label: 'customer', values: filters.customers });
+
   return (
     <div>
       {/* Hero header */}
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Year to date · {today.getFullYear()}</div>
+          <div className="hero-eyebrow">{filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}</div>
           <h1 className="hero-title">
             Overview
             <span className="hero-accent">{today.getFullYear()}</span>
           </h1>
           <div className="hero-meta">Brix Beverage · Alameda Soda Co · combined entities</div>
         </div>
-        <div className="hero-stamp" title="Connected to live data">
-          <span className="status-dot" aria-hidden="true" />
-          Live · {today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div className="hero-stamp" title="Connected to live data">
+            <span className="status-dot" aria-hidden="true" />
+            Live · {today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </div>
+          <button
+            type="button"
+            onClick={printDashboard}
+            className="tb-btn tb-btn--primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Print or save the dashboard as PDF"
+          >
+            <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
+            <span>Print</span>
+          </button>
         </div>
       </div>
 
-      {/* KPI row */}
-      <div className="gr g4" style={{ marginBottom: 18 }}>
-        <KPICard
-          title="Revenue YTD"
-          value={totals ? fm(totals.revenue) : '…'}
-          deltaPct={kpiDeltas.revenue}
-          sparkline={revenueSpark ?? undefined}
-          sub={totals ? fmtNum(totals.invoice_count) + ' invoices · vs ' + fm(priorTotals?.revenue ?? 0) + ' prior YTD' : undefined}
-        />
-        <KPICard
-          title="Margin %"
-          value={totals ? fp(totals.margin_pct) : '…'}
-          deltaPct={kpiDeltas.margin}
-          sub={totals ? 'on ' + fm(totals.est_margin) + ' margin' : undefined}
-        />
-        <KPICard
-          title="Customers"
-          value={totals ? fmtNum(totals.customer_count) : '…'}
-          deltaPct={kpiDeltas.customers}
-          sub={totals ? fmtNum(totals.item_count) + ' items sold' : undefined}
-        />
-        <KPICard
-          title="Avg Order Value"
-          value={totals ? fm(aov) : '…'}
-          deltaPct={kpiDeltas.aov}
-          sub={totals && totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined}
-        />
+      {/* Toolbar — presets + date picker + compare on row 1, filters on row 2 */}
+      <div className="toolbar">
+        <div className="toolbar-row">
+          <div className="toolbar-section">
+            <span className="toolbar-label">Range</span>
+            <div className="preset-bar" role="group" aria-label="Quick date range">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')}
+                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {activePreset === 'custom' && (
+                <button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>
+              )}
+            </div>
+          </div>
+
+          <div className="toolbar-section">
+            <DateRangePicker
+              value={[dayjs(filters.start), dayjs(filters.end)]}
+              onChange={onRangeChange}
+              format="YYYY-MM-DD"
+              localeText={{ start: 'From', end: 'To' }}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: {
+                    width: 130,
+                    '& .MuiInputBase-root': {
+                      height: 30,
+                      fontFamily: 'var(--ff-mono)',
+                      fontSize: 12,
+                      background: 'var(--bg)',
+                      color: 'var(--tx)',
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
+                  },
+                },
+                fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
+              }}
+            />
+          </div>
+
+          <div className="toolbar-divider" />
+
+          <div className="toolbar-section">
+            <span className="toolbar-label">Compare</span>
+            <div className="seg" role="group" aria-label="Compare mode">
+              <button type="button" className={'seg-btn' + (compareMode === 'off' ? ' seg-btn--active' : '')} onClick={() => setCompareMode('off')}>Off</button>
+              <button type="button" className={'seg-btn' + (compareMode === 'prior_period' ? ' seg-btn--active' : '')} onClick={() => setCompareMode('prior_period')}>Prior period</button>
+              <button type="button" className={'seg-btn' + (compareMode === 'prior_year' ? ' seg-btn--active' : '')} onClick={() => setCompareMode('prior_year')}>Prior year</button>
+            </div>
+          </div>
+
+          <div className="toolbar-spacer" />
+
+          <button
+            type="button"
+            className="tb-btn"
+            onClick={() => {
+              const ytd = applyPreset('ytd', todayStr);
+              setFilters({ start: ytd.start, end: ytd.end, entities: null, categories: null, customers: null });
+              setCompareMode('prior_year');
+            }}
+          >
+            Reset
+          </button>
+        </div>
+
+        <div className="toolbar-row">
+          <MultiPicker
+            label="Category"
+            values={filters.categories ?? []}
+            options={dimOpts.category ?? null}
+            loading={dimOptsLoading.category === true}
+            onChange={(next) => setFilters((cur) => ({ ...cur, categories: next.length ? next : null }))}
+          />
+          <MultiPicker
+            label="Customer"
+            values={filters.customers ?? []}
+            options={dimOpts.customer ?? null}
+            loading={dimOptsLoading.customer === true}
+            onChange={(next) => setFilters((cur) => ({ ...cur, customers: next.length ? next : null }))}
+          />
+          <div className="toolbar-section">
+            <span className="toolbar-label">Entity</span>
+            <select
+              value={filters.entities?.[0] ?? ''}
+              onChange={(e) => setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })}
+              className="tb-select"
+            >
+              <option value="">All</option>
+              {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
+            </select>
+          </div>
+          <div className="toolbar-spacer" />
+          <a href="#margin" className="tb-btn">Open Margin →</a>
+        </div>
       </div>
+
+      {chips.length > 0 && (
+        <div className="chip-row">
+          <span className="toolbar-label" style={{ marginRight: 6 }}>Filtered to</span>
+          {chips.map((c) =>
+            c.values.map((v) => (
+              <span
+                key={c.key + ':' + v}
+                onClick={() => clearFilter(c.key, v)}
+                title="click to remove"
+                className="chip"
+              >
+                {c.label}: {v} ×
+              </span>
+            )),
+          )}
+        </div>
+      )}
+
+      {/* KPI row */}
+      {totals == null ? (
+        <KpiRowSkeleton count={4} />
+      ) : (
+        <div className="gr g4" style={{ marginBottom: 18 }}>
+          <KPICard
+            title="Revenue"
+            value={fm(totals.revenue)}
+            deltaPct={kpiDeltas.revenue}
+            sparkline={revenueSpark ?? undefined}
+            sub={
+              fmtNum(totals.invoice_count) + ' invoices' +
+              (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')
+            }
+          />
+          <KPICard
+            title="Margin %"
+            value={fp(totals.margin_pct)}
+            deltaPct={kpiDeltas.margin}
+            sub={'on ' + fm(totals.est_margin) + ' margin'}
+          />
+          <KPICard
+            title="Customers"
+            value={fmtNum(totals.customer_count)}
+            deltaPct={kpiDeltas.customers}
+            sub={fmtNum(totals.item_count) + ' items sold'}
+          />
+          <KPICard
+            title="Avg Order Value"
+            value={fm(aov)}
+            deltaPct={kpiDeltas.aov}
+            sub={totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined}
+          />
+        </div>
+      )}
 
       {/* Action panel */}
       <ActionPanel actions={actions} />
@@ -228,30 +486,30 @@ export function OverviewPage() {
             <div>
               <div className="ct" style={{ margin: 0 }}>Monthly revenue</div>
               <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
-                this year vs same months last year
+                {compareLabel || 'current period only'}
               </div>
             </div>
           </div>
           <div style={{ padding: '14px' }}>
             {monthlyCurrent && monthlyPrior ? (
               <AreaChart
-                ariaLabel="Monthly revenue, current vs prior year"
-                labels={monthLabels(monthlyCurrent, monthlyPrior)}
+                ariaLabel="Monthly revenue, current vs prior"
+                labels={monthLabels()}
                 series={[
                   {
-                    name: String(today.getFullYear()),
-                    color: '#2DCAD6',
-                    values: alignToMonths(monthlyCurrent, monthlyPrior),
+                    name: 'Current',
+                    color: '#5BB5F0',
+                    values: alignToMonths(monthlyCurrent),
                   },
-                  {
-                    name: String(today.getFullYear() - 1),
+                  ...(compareMode !== 'off' ? [{
+                    name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period',
                     color: '#6B8190',
-                    values: alignToPriorMonths(monthlyCurrent, monthlyPrior),
-                  },
+                    values: alignToMonths(monthlyPrior),
+                  }] : []),
                 ]}
               />
             ) : (
-              <div className="ld">Loading trend</div>
+              <ChartSkeleton height={220} />
             )}
           </div>
         </div>
@@ -260,7 +518,7 @@ export function OverviewPage() {
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
               <div className="ct" style={{ margin: 0 }}>Revenue by category</div>
-              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>YTD top 8 categories</div>
+              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>top 8 categories</div>
             </div>
             <a href="#margin" style={{ fontSize: 10, color: 'var(--mt)' }}>drill →</a>
           </div>
@@ -277,7 +535,7 @@ export function OverviewPage() {
                 ariaLabel="Revenue by category"
               />
             ) : (
-              <div className="ld">Loading</div>
+              <ChartSkeleton height={220} />
             )}
           </div>
         </div>
@@ -295,7 +553,7 @@ export function OverviewPage() {
           }}
         >
           <div>
-            <div className="ct" style={{ margin: 0 }}>Top customers YTD</div>
+            <div className="ct" style={{ margin: 0 }}>Top customers</div>
             <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>by revenue, with 12-mo trend</div>
           </div>
           <a href="#customers" style={{ fontSize: 10, color: 'var(--mt)' }}>all customers →</a>
@@ -400,13 +658,7 @@ function RowSpark({ values }: { values: number[] }) {
   const lastIdx = values.length - 1;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-      <polyline
-        points={points}
-        fill="none"
-        stroke="var(--ac)"
-        strokeWidth={1.4}
-        opacity={0.85}
-      />
+      <polyline points={points} fill="none" stroke="var(--ac)" strokeWidth={1.4} opacity={0.85} />
       <circle
         cx={lastIdx * stepX}
         cy={h - (Math.max(0, values[lastIdx]) / max) * (h - 2)}
@@ -420,23 +672,13 @@ function RowSpark({ values }: { values: number[] }) {
 function toYm(label: string): string {
   return label.length >= 7 ? label.slice(0, 7) : label;
 }
-
-function monthLabels(_cur: MonthRow[], _prev: MonthRow[]): string[] {
-  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function monthLabels(): string[] {
+  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 }
-
-function alignToMonths(cur: MonthRow[], _prev: MonthRow[]): number[] {
+function alignToMonths(rows: MonthRow[] | null | undefined): number[] {
+  if (!rows) return Array(12).fill(0);
   const map = new Map<number, number>();
-  for (const r of cur) {
-    const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
-    if (m >= 1 && m <= 12) map.set(m, Number(r.revenue || 0));
-  }
-  return Array.from({ length: 12 }, (_, i) => map.get(i + 1) ?? 0);
-}
-
-function alignToPriorMonths(_cur: MonthRow[], prev: MonthRow[]): number[] {
-  const map = new Map<number, number>();
-  for (const r of prev) {
+  for (const r of rows) {
     const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
     if (m >= 1 && m <= 12) map.set(m, Number(r.revenue || 0));
   }
