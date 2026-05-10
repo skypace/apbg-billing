@@ -20,6 +20,17 @@ const OperationsPage = lazy(() => import('./pages/OperationsPage').then((m) => (
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
 
+function Splash() {
+  return (
+    <div className="splash" role="status" aria-label="Loading BRIX Margin Control">
+      <div>
+        <div className="splash-brand">BRIX</div>
+        <div className="splash-sub">Margin Control</div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [route, navTo] = useRoute();
@@ -33,7 +44,7 @@ export function App() {
   }, []);
 
   if (session === undefined) {
-    return <div className="ld">Initializing…</div>;
+    return <Splash />;
   }
   if (!session) {
     return <LoginPage />;
