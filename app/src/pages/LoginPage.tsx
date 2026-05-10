@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 import { sbAuth } from '../lib/supabase';
-import { BrixMark } from '../components/BrixMark';
+import { AlamedaMark, BrixMark } from '../components/BrixMark';
 import './LoginPage.css';
 
 export function LoginPage() {
@@ -35,7 +35,14 @@ export function LoginPage() {
           <div className="login-tagline">
             Real-time margin, cost coverage, and customer health.
           </div>
-          <div className="login-meta">Brix Beverage · Alameda Soda Co</div>
+
+          {/* Parent-group brand lockup — Brix × Alameda Soda Co. */}
+          <div className="login-brand-lockup" aria-label="Alameda Beverage Group">
+            <BrixMark size={28} />
+            <span className="login-brand-lockup-x">×</span>
+            <AlamedaMark size={32} variant="seal" />
+            <span className="login-brand-lockup-caption">Alameda Beverage Group LLC</span>
+          </div>
         </div>
 
         <form onSubmit={submit} className="login-form">
