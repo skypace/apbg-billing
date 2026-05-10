@@ -79,7 +79,6 @@ export function OverviewPage() {
     fetchSparkline('customer' as Dim, ['__total__'], todayStr, filters)
       .then(() => {/* no-op: sparkline RPC needs labels */})
       .catch(() => {/* ignore */});
-    // We use month pivot already loaded for the sparkline microchart instead.
   }, [filters, todayStr]);
 
   // Top categories (donut).
@@ -174,33 +173,45 @@ export function OverviewPage() {
 
   return (
     <div>
-      <div className="pt">
-        Overview <span className="bg bg-l">YTD {today.getFullYear()}</span>
+      {/* Hero header */}
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Year to date · {today.getFullYear()}</div>
+          <h1 className="hero-title">
+            Overview
+            <span className="hero-accent">{today.getFullYear()}</span>
+          </h1>
+          <div className="hero-meta">Brix Beverage · Alameda Soda Co · combined entities</div>
+        </div>
+        <div className="hero-stamp" title="Connected to live data">
+          <span className="status-dot" aria-hidden="true" />
+          Live · {today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+        </div>
       </div>
 
       {/* KPI row */}
-      <div className="gr g4" style={{ marginBottom: 16 }}>
+      <div className="gr g4" style={{ marginBottom: 18 }}>
         <KPICard
-          title="REVENUE YTD"
+          title="Revenue YTD"
           value={totals ? fm(totals.revenue) : '…'}
           deltaPct={kpiDeltas.revenue}
           sparkline={revenueSpark ?? undefined}
           sub={totals ? fmtNum(totals.invoice_count) + ' invoices · vs ' + fm(priorTotals?.revenue ?? 0) + ' prior YTD' : undefined}
         />
         <KPICard
-          title="MARGIN %"
+          title="Margin %"
           value={totals ? fp(totals.margin_pct) : '…'}
           deltaPct={kpiDeltas.margin}
           sub={totals ? 'on ' + fm(totals.est_margin) + ' margin' : undefined}
         />
         <KPICard
-          title="CUSTOMERS"
+          title="Customers"
           value={totals ? fmtNum(totals.customer_count) : '…'}
           deltaPct={kpiDeltas.customers}
           sub={totals ? fmtNum(totals.item_count) + ' items sold' : undefined}
         />
         <KPICard
-          title="AVG ORDER VALUE"
+          title="Avg Order Value"
           value={totals ? fm(aov) : '…'}
           deltaPct={kpiDeltas.aov}
           sub={totals && totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined}
@@ -211,11 +222,11 @@ export function OverviewPage() {
       <ActionPanel actions={actions} />
 
       {/* Trend + Donut */}
-      <div className="gr g2" style={{ marginBottom: 16, gap: 14 }}>
+      <div className="gr g2" style={{ marginBottom: 18, gap: 14 }}>
         <div className="cd" style={{ padding: 0 }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
-              <div className="ct" style={{ margin: 0 }}>MONTHLY REVENUE</div>
+              <div className="ct" style={{ margin: 0 }}>Monthly revenue</div>
               <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
                 this year vs same months last year
               </div>
@@ -229,26 +240,26 @@ export function OverviewPage() {
                 series={[
                   {
                     name: String(today.getFullYear()),
-                    color: '#22d3ee',
+                    color: '#2DCAD6',
                     values: alignToMonths(monthlyCurrent, monthlyPrior),
                   },
                   {
                     name: String(today.getFullYear() - 1),
-                    color: '#94a3b8',
+                    color: '#6B8190',
                     values: alignToPriorMonths(monthlyCurrent, monthlyPrior),
                   },
                 ]}
               />
             ) : (
-              <div className="ld">Loading trend…</div>
+              <div className="ld">Loading trend</div>
             )}
           </div>
         </div>
 
         <div className="cd" style={{ padding: 0 }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
-              <div className="ct" style={{ margin: 0 }}>REVENUE BY CATEGORY</div>
+              <div className="ct" style={{ margin: 0 }}>Revenue by category</div>
               <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>YTD top 8 categories</div>
             </div>
             <a href="#margin" style={{ fontSize: 10, color: 'var(--mt)' }}>drill →</a>
@@ -266,7 +277,7 @@ export function OverviewPage() {
                 ariaLabel="Revenue by category"
               />
             ) : (
-              <div className="ld">Loading…</div>
+              <div className="ld">Loading</div>
             )}
           </div>
         </div>
@@ -276,7 +287,7 @@ export function OverviewPage() {
       <div className="cd" style={{ padding: 0 }}>
         <div
           style={{
-            padding: '12px 14px',
+            padding: '14px 16px',
             borderBottom: '1px solid var(--bd)',
             display: 'flex',
             justifyContent: 'space-between',
@@ -284,13 +295,13 @@ export function OverviewPage() {
           }}
         >
           <div>
-            <div className="ct" style={{ margin: 0 }}>TOP CUSTOMERS YTD</div>
+            <div className="ct" style={{ margin: 0 }}>Top customers YTD</div>
             <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>by revenue, with 12-mo trend</div>
           </div>
           <a href="#customers" style={{ fontSize: 10, color: 'var(--mt)' }}>all customers →</a>
         </div>
         {!topCustomers ? (
-          <div className="ld">Loading…</div>
+          <div className="ld">Loading</div>
         ) : (
           <table>
             <thead>
@@ -340,40 +351,38 @@ function ActionPanel({ actions }: { actions: { reorderNow: number; inactive: num
     { id: 'movers',    label: 'Health Movers',   count: actions?.healthMovers, tone: 'var(--ac)',      href: '#reports' },
   ];
   return (
-    <div className="gr g4" style={{ marginBottom: 16, gap: 12 }}>
+    <div className="gr g4" style={{ marginBottom: 18, gap: 12 }}>
       {items.map((it) => (
         <a
           key={it.id}
           href={it.href}
+          className="cd"
           style={{
             display: 'block',
-            padding: '12px 14px',
-            border: '1px solid var(--bd)',
+            padding: '14px 16px',
             borderLeft: '3px solid ' + it.tone,
-            borderRadius: 'var(--r-md)',
-            background: 'var(--sf)',
             textDecoration: 'none',
             color: 'var(--tx)',
-            transition: 'background 100ms, border-color 100ms',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--sf2)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--sf)'; }}
         >
-          <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 600 }}>
             {it.label}
           </div>
           <div
             style={{
-              fontSize: 22,
+              fontSize: 28,
               fontWeight: 700,
               color: it.count != null ? it.tone : 'var(--mt)',
-              marginTop: 2,
+              marginTop: 4,
+              fontFamily: 'var(--ff-display)',
               fontVariantNumeric: 'tabular-nums',
+              lineHeight: 1,
+              letterSpacing: '-0.5px',
             }}
           >
             {it.count ?? '…'}
           </div>
-          <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>action needed →</div>
+          <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 4 }}>action needed →</div>
         </a>
       ))}
     </div>
@@ -409,7 +418,6 @@ function RowSpark({ values }: { values: number[] }) {
 }
 
 function toYm(label: string): string {
-  // The pivot RPC returns "YYYY-MM-01" for month dim. Trim to YYYY-MM.
   return label.length >= 7 ? label.slice(0, 7) : label;
 }
 
