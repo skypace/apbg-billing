@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
-import { PivotTable } from '../components/PivotTable';
+import { MarginGrid } from '../components/MarginGrid';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
@@ -667,8 +667,8 @@ export function MarginPage() {
       ) : rows == null ? (
         <div className="ld">Loading</div>
       ) : (
-        <div className="cd" style={{ padding: 0 }}>
-          <PivotTable
+        <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
+          <MarginGrid
             dim={dim}
             rows={tableRows}
             showCompare={compareMode !== 'off' && !!comparison}
