@@ -2,88 +2,48 @@ import type { CSSProperties } from 'react';
 
 interface Props {
   size?: number;
-  /** Show the three bubble dots above the mark (logo-lockup style). */
+  /** Reserved — bubble dots are part of the vector lockup, not the round badge. */
   bubbles?: boolean;
   className?: string;
   style?: CSSProperties;
   title?: string;
+  /** 'round' = circular °bx badge PNG (default).
+   *  'vector' = the BrixVectorLogo gif lockup. */
+  variant?: 'round' | 'vector';
 }
 
-// Inline SVG recreation of the Brix °bx badge.
-// Approximates the custom letterform; perfect for sidebar / splash / favicon
-// where the mark renders at 24–96px and small letterform differences vanish.
-export function BrixMark({ size = 36, bubbles = false, className, style, title }: Props) {
-  const W = bubbles ? 200 : 200;
-  const H = bubbles ? 240 : 200;
-  const cy = bubbles ? 140 : 100;
+// Real brand asset committed to app/public/.
+// Vite serves /public files at import.meta.env.BASE_URL (e.g. /sales-next/).
+function assetUrl(filename: string): string {
+  return import.meta.env.BASE_URL + filename;
+}
+
+export function BrixMark({
+  size = 36,
+  className,
+  style,
+  title,
+  variant = 'round',
+}: Props) {
+  const src =
+    variant === 'vector'
+      ? assetUrl('BrixVectorLogo.gif')
+      : assetUrl('Brix-Round-Logo.png');
 
   return (
-    <svg
-      className={className}
-      style={style}
+    <img
+      src={src}
+      alt={title ?? 'Brix Beverage'}
       width={size}
-      height={(size * H) / W}
-      viewBox={`0 0 ${W} ${H}`}
-      xmlns="http://www.w3.org/2000/svg"
-      role={title ? 'img' : 'presentation'}
-      aria-label={title ?? undefined}
-    >
-      <defs>
-        {/* Navy radial: lighter at upper-left, deepest at lower-right */}
-        <radialGradient id="brixCircle" cx="40%" cy="35%" r="75%">
-          <stop offset="0%"   stopColor="#28548A" />
-          <stop offset="55%"  stopColor="#163966" />
-          <stop offset="100%" stopColor="#0B2148" />
-        </radialGradient>
-        {/* Glossy upper-right highlight */}
-        <radialGradient id="brixHighlight" cx="68%" cy="22%" r="32%">
-          <stop offset="0%"   stopColor="rgba(255,255,255,0.32)" />
-          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-        </radialGradient>
-        {/* Bubble gradient */}
-        <radialGradient id="brixBubble" cx="35%" cy="35%" r="65%">
-          <stop offset="0%"   stopColor="#9EDDFB" />
-          <stop offset="100%" stopColor="#3A8FCC" />
-        </radialGradient>
-      </defs>
-
-      {bubbles && (
-        <g>
-          <circle cx="124" cy="22"  r="11" fill="url(#brixBubble)" opacity="0.92" />
-          <circle cx="156" cy="40"  r="9"  fill="url(#brixBubble)" opacity="0.85" />
-          <circle cx="178" cy="68"  r="7"  fill="url(#brixBubble)" opacity="0.78" />
-        </g>
-      )}
-
-      {/* Main circle — navy with glossy highlight */}
-      <circle cx="100" cy={cy} r="98" fill="url(#brixCircle)" />
-      <circle cx="100" cy={cy} r="98" fill="url(#brixHighlight)" />
-
-      {/* "°" — small open ring at upper-left of the badge */}
-      <circle
-        cx="50"
-        cy={cy - 32}
-        r="6.5"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth="3"
-      />
-
-      {/* "bx" letterform — heavyweight, condensed, white */}
-      <text
-        x="100"
-        y={cy + 36}
-        fontFamily="'Bricolage Grotesque', 'Inter Tight', system-ui, sans-serif"
-        fontSize="108"
-        fontWeight="800"
-        fill="#FFFFFF"
-        textAnchor="middle"
-        letterSpacing="-6"
-        style={{ fontVariationSettings: '"wght" 900' }}
-      >
-        bx
-      </text>
-    </svg>
+      height={size}
+      className={className}
+      style={{
+        objectFit: 'contain',
+        flex: 'none',
+        ...style,
+      }}
+      draggable={false}
+    />
   );
 }
 
@@ -95,3 +55,13 @@ export function BrixWordmark({ style }: { style?: CSSProperties }) {
     </span>
   );
 }
+
+// Helpers exposed for any caller that wants a direct asset URL
+export const BRAND_ASSETS = {
+  brixRound:    () => assetUrl('Brix-Round-Logo.png'),
+  brixVector:   () => assetUrl('BrixVectorLogo.gif'),
+  alamedaScript:() => assetUrl('ASC-Logo---Red.png'),
+  alamedaSeal:  () => assetUrl('Alameda-Soda-Seal-Logo-Red-2024.png'),
+  alamedaCans:  () => assetUrl('Alameda-Soda-Cans-Die-Cut.png'),
+  jetIcon:      () => assetUrl('Jet-Red-New-Icon-4x.png'),
+} as const;
