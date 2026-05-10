@@ -14,6 +14,10 @@ import {
 import { fetchCustomerOptions, QboCustomerOption } from '../../lib/inventory';
 import { useToast } from '../../lib/toast';
 
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function SalesRepsEditor() {
   const toast = useToast();
   const [reps, setReps] = useState<SalesRep[] | null>(null);
@@ -85,20 +89,20 @@ export function SalesRepsEditor() {
         toast.success('Added ' + name + ' (' + code + ')');
         load();
       })
-      .catch((e) => toast.error('Failed: ' + (e as Error).message));
+      .catch((e: unknown) => toast.error('Failed: ' + errMsg(e)));
   }
 
   function patchRep(rep_code: string, patch: Partial<SalesRep>) {
     updateSalesRep(rep_code, patch)
       .then(load)
-      .catch((e) => toast.error('Failed: ' + (e as Error).message));
+      .catch((e: unknown) => toast.error('Failed: ' + errMsg(e)));
   }
 
   function removeRep(rep: SalesRep) {
     if (!confirm(`Delete rep "${rep.name}" (${rep.rep_code})? Customer assignments will be cleared.`)) return;
     deleteSalesRep(rep.rep_code)
       .then(() => { toast.success('Removed ' + rep.name); load(); })
-      .catch((e) => toast.error('Failed: ' + (e as Error).message));
+      .catch((e: unknown) => toast.error('Failed: ' + errMsg(e)));
   }
 
   function assign(qbo_customer_id: string, rep_code: string) {
@@ -108,7 +112,7 @@ export function SalesRepsEditor() {
     }
     assignCustomerToRep(qbo_customer_id, rep_code)
       .then(() => { toast.success('Assigned'); load(); })
-      .catch((e) => toast.error('Failed: ' + (e as Error).message));
+      .catch((e: unknown) => toast.error('Failed: ' + errMsg(e)));
   }
 
   if (!reps) return <div className="ld">Loading sales reps…</div>;
@@ -147,7 +151,7 @@ export function SalesRepsEditor() {
                 placeholder="code (e.g. SP)"
                 autoFocus
                 value={draft.rep_code}
-                onChange={(e) => setDraft({ ...draft, rep_code: e.target.value.toUpperCase() })}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, rep_code: e.target.value.toUpperCase() })}
                 className="login-input"
                 style={{ width: 110, padding: '6px 10px', fontSize: 12, textTransform: 'uppercase' }}
                 maxLength={8}
@@ -156,7 +160,7 @@ export function SalesRepsEditor() {
                 type="text"
                 placeholder="full name"
                 value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, name: e.target.value })}
                 className="login-input"
                 style={{ width: 220, padding: '6px 10px', fontSize: 12 }}
               />
@@ -164,7 +168,7 @@ export function SalesRepsEditor() {
                 type="number"
                 placeholder="sort"
                 value={draft.sort_order}
-                onChange={(e) => setDraft({ ...draft, sort_order: Number(e.target.value) || 100 })}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, sort_order: Number(e.target.value) || 100 })}
                 className="login-input"
                 style={{ width: 70, padding: '6px 10px', fontSize: 12 }}
               />
@@ -200,7 +204,7 @@ export function SalesRepsEditor() {
                       <input
                         type="text"
                         defaultValue={r.name}
-                        onBlur={(e) => {
+                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
                           if (e.target.value.trim() !== r.name) {
                             patchRep(r.rep_code, { name: e.target.value.trim() });
                           }
@@ -220,7 +224,7 @@ export function SalesRepsEditor() {
                       <input
                         type="number"
                         defaultValue={r.sort_order}
-                        onBlur={(e) => {
+                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
                           const v = Number(e.target.value) || 100;
                           if (v !== r.sort_order) patchRep(r.rep_code, { sort_order: v });
                         }}
@@ -239,7 +243,7 @@ export function SalesRepsEditor() {
                       <input
                         type="checkbox"
                         checked={r.is_active}
-                        onChange={(e) => patchRep(r.rep_code, { is_active: e.target.checked })}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => patchRep(r.rep_code, { is_active: e.target.checked })}
                         style={{ accentColor: 'var(--ac)' }}
                       />
                     </td>
@@ -285,7 +289,7 @@ export function SalesRepsEditor() {
             type="text"
             placeholder="Search customer…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
             className="login-input"
             style={{ width: 240, padding: '6px 10px', fontSize: 12 }}
           />
@@ -314,7 +318,7 @@ export function SalesRepsEditor() {
                       <td>
                         <select
                           value={code}
-                          onChange={(e) => assign(c.qbo_customer_id, e.target.value)}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => assign(c.qbo_customer_id, e.target.value)}
                           className="tb-select"
                           style={{
                             width: '100%',
