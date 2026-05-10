@@ -1,19 +1,33 @@
 import type { ReactNode } from 'react';
 import type { View } from '../lib/router';
+import {
+  LayoutDashboard,
+  TrendingUp,
+  Activity,
+  Truck,
+  Users,
+  FileText,
+  CalendarRange,
+  GitCompareArrows,
+  Package,
+  Settings as SettingsIcon,
+  LogOut,
+  type LucideIcon,
+} from 'lucide-react';
 
-interface NavItem { id: View; label: string }
+interface NavItem { id: View; label: string; icon: LucideIcon }
 
 const NAV: NavItem[] = [
-  { id: 'overview',   label: 'OVERVIEW'   },
-  { id: 'margin',     label: 'MARGIN'     },
-  { id: 'operations', label: 'OPERATIONS' },
-  { id: 'fleet',      label: 'FLEET'      },
-  { id: 'customers',  label: 'CUSTOMERS'  },
-  { id: 'reports',    label: 'REPORTS'    },
-  { id: 'plans',      label: 'PLANS'      },
-  { id: 'compare',    label: 'COMPARE'    },
-  { id: 'inventory',  label: 'INVENTORY'  },
-  { id: 'settings',   label: 'SETTINGS'   },
+  { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
+  { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
+  { id: 'operations', label: 'Operations', icon: Activity          },
+  { id: 'fleet',      label: 'Fleet',      icon: Truck             },
+  { id: 'customers',  label: 'Customers',  icon: Users             },
+  { id: 'reports',    label: 'Reports',    icon: FileText          },
+  { id: 'plans',      label: 'Plans',      icon: CalendarRange     },
+  { id: 'compare',    label: 'Compare',    icon: GitCompareArrows  },
+  { id: 'inventory',  label: 'Inventory',  icon: Package           },
+  { id: 'settings',   label: 'Settings',   icon: SettingsIcon      },
 ];
 
 interface LayoutProps {
@@ -26,60 +40,40 @@ interface LayoutProps {
 
 export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
   return (
-    <>
-      <div className="tb">
-        <div className="lg">
-          PACER · MARGIN ANALYTICS
-          <small>Sales · Customers · Items · Margin</small>
+    <div className="app-shell">
+      <aside className="sidebar" aria-label="Primary navigation">
+        <div className="brand">
+          <div className="brand-mark">APBG</div>
+          <div className="brand-sub">Margin Minder</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <nav className="nav">
           {NAV.map((n) => {
+            const Icon = n.icon;
             const on = current === n.id;
             return (
               <a
                 key={n.id}
                 href={'#' + n.id}
                 onClick={(e) => { e.preventDefault(); onNav(n.id); }}
-                style={{
-                  textDecoration: 'none',
-                  background: on ? 'var(--ac)' : 'transparent',
-                  color: on ? 'var(--bg)' : 'var(--tx)',
-                  border: '1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
-                  padding: '5px 12px',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  fontWeight: on ? 700 : 500,
-                  letterSpacing: 0.5,
-                  marginRight: 6,
-                }}
+                className={'nav-item' + (on ? ' nav-item--active' : '')}
+                aria-current={on ? 'page' : undefined}
+                style={{ cursor: 'pointer' }}
               >
-                {n.label}
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{n.label}</span>
               </a>
             );
           })}
-          {userEmail && (
-            <span style={{ fontSize: 10, color: 'var(--mt)', marginLeft: 6 }}>
-              {userEmail}
-            </span>
-          )}
-          <button
-            onClick={onLogout}
-            style={{
-              background: 'transparent',
-              color: 'var(--mt)',
-              border: '1px solid var(--bd)',
-              padding: '4px 9px',
-              borderRadius: 4,
-              fontSize: 10,
-              cursor: 'pointer',
-              letterSpacing: 0.5,
-            }}
-          >
-            SIGN OUT
+        </nav>
+        <div className="sidebar-footer">
+          {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <button onClick={onLogout} className="sign-out" type="button">
+            <LogOut size={13} strokeWidth={2} aria-hidden="true" />
+            <span>Sign out</span>
           </button>
         </div>
-      </div>
-      <div className="ma">{children}</div>
-    </>
+      </aside>
+      <main className="main">{children}</main>
+    </div>
   );
 }
