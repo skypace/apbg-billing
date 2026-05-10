@@ -89,7 +89,6 @@ export function OverviewPage() {
   const ytdStart = today.getFullYear() + '-01-01';
   const toast = useToast();
 
-  // Manual filter state (what the user picks via dropdowns/MultiPicker)
   const [filters, setFilters] = useState<SalesFilters>({
     start: ytdStart, end: todayStr,
     entities: null, categories: null, customers: null, items: null, channels: null, segments: null,
@@ -99,7 +98,6 @@ export function OverviewPage() {
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
 
-  // Effective filters = manual filters ∪ active modifier filters.
   const effectiveFilters = useMemo(
     () => applyModifiers(filters, activeModifiers),
     [filters, activeModifiers],
@@ -273,9 +271,6 @@ export function OverviewPage() {
     if (s && e) setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
   }
   function onEntityChange(entity: string | null) {
-    // Apply entity smart-defaults — auto-fills categories/customers based on
-    // ENTITY_AUTO_FILTERS so the dashboard scopes correctly. User can still
-    // override via the MultiPicker filters after.
     setFilters((cur) => applyEntityDefaults({ ...cur, entities: entity ? [entity] : null }, entity));
   }
   function printDashboard() {
@@ -333,9 +328,6 @@ export function OverviewPage() {
           </button>
         </div>
       </div>
-
-      {/* Large chain rollup modifier bar */}
-      <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
 
       <div className="toolbar">
         <div className="toolbar-row">
@@ -404,6 +396,7 @@ export function OverviewPage() {
                 onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
             );
           })}
+          <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
         </div>
       </div>
 
@@ -418,8 +411,7 @@ export function OverviewPage() {
 
       {totals == null ? (<KpiRowSkeleton count={4} />) : (
         <div className="gr g4" style={{ marginBottom: 18 }}>
-          <KPICard title="Revenue" value={fm(totals.revenue)} deltaPct={kpiDeltas.revenue}
-            sparkline={revenueSpark ?? undefined}
+          <KPICard title="Revenue" value={fm(totals.revenue)} deltaPct={kpiDeltas.revenue} sparkline={revenueSpark ?? undefined}
             sub={fmtNum(totals.invoice_count) + ' invoices' + (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')} />
           <KPICard title="Margin %" value={fp(totals.margin_pct)} deltaPct={kpiDeltas.margin} sub={'on ' + fm(totals.est_margin) + ' margin'} />
           <KPICard title="Customers" value={fmtNum(totals.customer_count)} deltaPct={kpiDeltas.customers} sub={fmtNum(totals.item_count) + ' items sold'} />
