@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import dayjs, { Dayjs } from 'dayjs';
+import { ArrowLeft, Printer } from 'lucide-react';
+import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { SegmentChip } from '../components/SegmentChip';
 import { fm, fp, fmtNum } from '../lib/formatters';
-import { btnPrimary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
+import { useToast } from '../lib/toast';
+import { KpiRowSkeleton, TableSkeleton, HeroSkeleton } from '../components/Skeletons';
 import {
   CustomerDetail,
   CustomerHealth,
@@ -28,6 +32,7 @@ interface Props { customerId: string }
 export function CustomerDetailPage({ customerId }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
+  const toast = useToast();
 
   const [start, setStart] = useState(ytdStart);
   const [end, setEnd] = useState(today);
@@ -38,14 +43,12 @@ export function CustomerDetailPage({ customerId }: Props) {
   const [invoices, setInvoices] = useState<DrillRow[] | null>(null);
   const [err, setErr] = useState('');
 
-  // Load RFM once.
   useEffect(() => {
     fetchCustomerHealth(365)
       .then((rs) => setHealth(rs.find((h) => h.qbo_customer_id === customerId) ?? null))
       .catch(() => setHealth(null));
   }, [customerId]);
 
-  // Detail + items + monthly + invoices reload whenever window changes.
   useEffect(() => {
     let cancelled = false;
     setDetail(undefined);
@@ -91,7 +94,6 @@ export function CustomerDetailPage({ customerId }: Props) {
     return () => { cancelled = true; };
   }, [customerId, start, end]);
 
-  // Build the trailing-12-month bar chart values.
   const monthVals = useMemo(() => {
     const keys = trailing12MonthKeys(end);
     const map = new Map<string, number>();
@@ -116,14 +118,29 @@ export function CustomerDetailPage({ customerId }: Props) {
       `${detail.display_name.replace(/\s+/g, '_')}_invoices_${start}_${end}.csv`,
       toCsv([head, ...data]),
     );
+    toast.success('Exported ' + data.length + ' invoice lines');
+  }
+
+  function onRangeChange(value: [Dayjs | null, Dayjs | null]) {
+    const [s, e] = value;
+    if (s && e) {
+      setStart(s.format('YYYY-MM-DD'));
+      setEnd(e.format('YYYY-MM-DD'));
+    }
   }
 
   async function printScorecard() {
     if (!detail) return;
     const sc: CustomerScorecard | null = await fetchCustomerScorecard(customerId, 365);
-    if (!sc) return alert('No scorecard data available');
+    if (!sc) {
+      toast.warn('No scorecard data available');
+      return;
+    }
     const w = window.open('', '_blank');
-    if (!w) return;
+    if (!w) {
+      toast.error('Popup blocked. Allow popups for this site.');
+      return;
+    }
 
     const itemRows = (items ?? []).slice(0, 10).map((r) => {
       const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
@@ -184,19 +201,31 @@ td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
 ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No items in window</td></tr>'}
 </tbody></table>
 <div style="margin-top:24px;font-size:9px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px">
-  Generated ${new Date().toISOString().slice(0, 10)} · PACER Margin Dashboard · Customer first seen ${escapeHtml(sc.first_invoice_date ?? '-')}
+  Generated ${new Date().toISOString().slice(0, 10)} · BRIX Margin Control · Customer first seen ${escapeHtml(sc.first_invoice_date ?? '-')}
 </div>
 <script>setTimeout(function(){window.print()}, 350);</script>
 </body></html>`);
     w.document.close();
   }
 
-  if (detail === undefined) return <div className="ld">Loading…</div>;
+  if (detail === undefined) return (
+    <div>
+      <HeroSkeleton />
+      <KpiRowSkeleton count={5} />
+    </div>
+  );
   if (detail === null) {
     return (
-      <div className="cd" style={{ padding: 20 }}>
-        <div className="pt">Customer not found</div>
-        <a href="#customers" style={{ fontSize: 12 }}>← back to Customers</a>
+      <div>
+        <div className="hero">
+          <div>
+            <div className="hero-eyebrow">Customer not found</div>
+            <h1 className="hero-title">Unknown</h1>
+            <div className="hero-meta">
+              <a href="#customers">← back to Customers</a>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -204,26 +233,66 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
   const addr = [detail.bill_addr_line1, detail.bill_addr_city, detail.bill_addr_state, detail.bill_addr_postal]
     .filter(Boolean).join(', ');
   const max = Math.max(...monthVals.map((m) => m.value), 1);
+  const segLabel = health?.rfm_segment ?? '—';
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <a href="#customers" style={{ color: 'var(--mt)', textDecoration: 'none', fontSize: 11 }}>← Customers</a>
-        <div className="pt" style={{ margin: 0 }}>
-          {detail.display_name}
-          {detail.is_sub_customer && <span className="bg bg-p" style={{ marginLeft: 6 }}>SUB</span>}
-          {!detail.active && <span className="bg bg-p" style={{ marginLeft: 6 }}>INACTIVE</span>}
+      <div className="hero">
+        <div style={{ flex: 1 }}>
+          <div
+            className="hero-eyebrow"
+            style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+          >
+            <a
+              href="#customers"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                color: 'var(--mt)',
+                textTransform: 'none',
+                letterSpacing: 0,
+                fontSize: 11,
+              }}
+            >
+              <ArrowLeft size={12} strokeWidth={2.4} aria-hidden="true" /> Customers
+            </a>
+            <span style={{ color: 'var(--mt)' }}>·</span>
+            <span>Customer · {segLabel.toUpperCase()}</span>
+          </div>
+          <h1
+            className="hero-title"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>{detail.display_name}</span>
+            {detail.is_sub_customer && <span className="bg bg-p">SUB</span>}
+            {!detail.active && <span className="bg bg-p">INACTIVE</span>}
+          </h1>
+          <div className="hero-meta">
+            {addr || '— no address —'}
+            {detail.primary_channel ? ` · ${detail.primary_channel}` : ''}
+          </div>
         </div>
-        <button onClick={printScorecard} style={{ ...btnPrimary(), marginLeft: 'auto' }}>
-          PRINT SCORECARD
+        <button
+          onClick={printScorecard}
+          className="tb-btn tb-btn--primary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
+          <span>Print scorecard</span>
         </button>
       </div>
 
       <div
         className="cd"
         style={{
-          padding: '12px 14px',
-          marginBottom: 12,
+          padding: '12px 16px',
+          marginBottom: 14,
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: 14,
@@ -255,7 +324,7 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         </div>
       </div>
 
-      <div className="gr" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 12, gap: 14 }}>
+      <div className="gr" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 14, gap: 14 }}>
         <KPICard
           title="YTD REVENUE"
           value={fm(detail.current_revenue)}
@@ -286,13 +355,15 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
               : 'no overdue'
           }
         />
-        <div className="cd">
-          <div className="ct">HEALTH (RFM 365D)</div>
-          <div style={{ marginTop: 6, marginLeft: 14 }}>
+        <div className="cd kpi-card">
+          <div className="kpi-head">
+            <div className="kpi-title">HEALTH (RFM 365D)</div>
+          </div>
+          <div style={{ marginTop: 6 }}>
             {health ? (
               <>
                 <SegmentChip segment={health.rfm_segment} size="md" />
-                <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 4, fontFamily: 'monospace' }}>
+                <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
                   R{health.r_score} F{health.f_score} M{health.m_score} · {health.recency_days}d ago
                 </div>
               </>
@@ -301,7 +372,7 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
             )}
           </div>
           {health && (
-            <div className="cs" style={{ marginTop: 4 }}>
+            <div className="kpi-sub" style={{ marginTop: 6 }}>
               Score {health.rfm_total}/15 · {health.frequency} invoices · {fm(health.monetary)}
             </div>
           )}
@@ -312,7 +383,7 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 12,
+          marginBottom: 14,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
@@ -320,18 +391,39 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           fontSize: 11,
         }}
       >
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>Period</span>
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} style={inp()} />
-        <span style={{ color: 'var(--mt)' }}>to</span>
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} style={inp()} />
+        <span className="toolbar-label">Period</span>
+        <DateRangePicker
+          value={[dayjs(start), dayjs(end)]}
+          onChange={onRangeChange}
+          format="YYYY-MM-DD"
+          localeText={{ start: 'From', end: 'To' }}
+          slotProps={{
+            textField: {
+              size: 'small',
+              sx: {
+                width: 130,
+                '& .MuiInputBase-root': {
+                  height: 30,
+                  fontFamily: 'var(--ff-mono)',
+                  fontSize: 12,
+                  background: 'var(--bg)',
+                  color: 'var(--tx)',
+                },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
+              },
+            },
+            fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
+          }}
+        />
       </div>
 
-      <div className="gr g2" style={{ marginBottom: 12 }}>
+      <div className="gr g2" style={{ marginBottom: 14 }}>
         <div className="cd" style={{ padding: 0 }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
             <div className="ct" style={{ margin: 0 }}>TRAILING-12-MONTH REVENUE</div>
           </div>
-          <div style={{ padding: '12px 14px' }}>
+          <div style={{ padding: '14px' }}>
             <svg width="100%" height={200} viewBox="0 0 600 200" preserveAspectRatio="none">
               {monthVals.map((m, i) => {
                 const x = (i / Math.max(monthVals.length - 1, 1)) * 580 + 10;
@@ -339,7 +431,7 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
                 const bh = (m.value / max) * 170;
                 return (
                   <g key={m.ym}>
-                    <rect x={x - bw / 2} y={200 - bh - 16} width={bw} height={Math.max(bh, 1)} fill="var(--ac)" opacity={0.85} />
+                    <rect x={x - bw / 2} y={200 - bh - 16} width={bw} height={Math.max(bh, 1)} fill="var(--ac)" opacity={0.85} rx={2} />
                     <text x={x} y={195} fontSize={8} fill="var(--mt)" textAnchor="middle">
                       {m.ym.slice(2)}
                     </text>
@@ -351,14 +443,14 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         </div>
 
         <div className="cd" style={{ padding: 0 }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
             <div className="ct" style={{ margin: 0 }}>
               TOP ITEMS — {items ? items.length : 0}
             </div>
           </div>
           <div style={{ maxHeight: 240, overflow: 'auto' }}>
             {!items ? (
-              <div className="ld">Loading…</div>
+              <TableSkeleton rows={6} cols={4} />
             ) : items.length === 0 ? (
               <div className="ld">No purchases in this window.</div>
             ) : (
@@ -417,7 +509,7 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
       <div className="cd" style={{ padding: 0 }}>
         <div
           style={{
-            padding: '10px 14px',
+            padding: '12px 16px',
             borderBottom: '1px solid var(--bd)',
             display: 'flex',
             justifyContent: 'space-between',
@@ -427,13 +519,17 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           <div className="ct" style={{ margin: 0 }}>
             RECENT INVOICE LINES — {invoices ? invoices.length : 0}
           </div>
-          <button onClick={exportInvoicesCsv} disabled={!invoices?.length} style={btnPrimary()}>
-            EXPORT CSV
+          <button
+            onClick={exportInvoicesCsv}
+            disabled={!invoices?.length}
+            className="tb-btn tb-btn--primary"
+          >
+            Export CSV
           </button>
         </div>
         {err && <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>}
         {!invoices ? (
-          <div className="ld">Loading…</div>
+          <TableSkeleton rows={8} cols={7} />
         ) : invoices.length === 0 ? (
           <div className="ld">No invoice lines.</div>
         ) : (
