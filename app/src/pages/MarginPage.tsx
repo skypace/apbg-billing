@@ -5,6 +5,7 @@ import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
 import { MarginGrid } from '../components/MarginGrid';
+import { ModifierPicker } from '../components/ModifierPicker';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
@@ -12,6 +13,7 @@ import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { BrixMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
+import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -19,32 +21,17 @@ import { downloadCsv, toCsv } from '../lib/csv';
 import { sbq } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
-  ComparisonRow,
-  Dim,
-  DimValue,
-  SalesFilters,
-  SalesPivotRow,
-  SalesTotals,
-  computePriorBounds,
-  fetchDimValues,
-  fetchPivot,
-  fetchSparkline,
-  fetchTotals,
-  mergeWithPrior,
-  trailing12MonthKeys,
+  ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
+  computePriorBounds, fetchDimValues, fetchPivot, fetchSparkline, fetchTotals,
+  mergeWithPrior, trailing12MonthKeys,
 } from '../lib/sales';
 
 const DIMS: { id: Dim; label: string }[] = [
-  { id: 'category', label: 'Category' },
-  { id: 'item',     label: 'Item' },
-  { id: 'customer', label: 'Customer' },
-  { id: 'month',    label: 'Month' },
-  { id: 'entity',   label: 'Entity' },
-  { id: 'account',  label: 'Account' },
-  { id: 'segment',  label: 'Segment' },
-  { id: 'channel',  label: 'Channel' },
+  { id: 'category', label: 'Category' }, { id: 'item', label: 'Item' },
+  { id: 'customer', label: 'Customer' }, { id: 'month', label: 'Month' },
+  { id: 'entity', label: 'Entity' }, { id: 'account', label: 'Account' },
+  { id: 'segment', label: 'Segment' }, { id: 'channel', label: 'Channel' },
 ];
-
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
@@ -59,14 +46,12 @@ const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
   category: 'categories', customer: 'customers', item: 'items',
   channel: 'channels', segment: 'segments', entity: 'entities',
 };
-
 const DRILL_NEXT: Partial<Record<Dim, Dim>> = {
   category: 'item', segment: 'item', channel: 'customer',
   customer: 'item', entity: 'category',
 };
 
 type CompareMode = 'off' | 'prior_period' | 'prior_year';
-
 type Preset = 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90' | 'last365' | 'custom';
 
 const PRESETS: { id: Preset; label: string }[] = [
@@ -75,7 +60,6 @@ const PRESETS: { id: Preset; label: string }[] = [
 ];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
-
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
   const d = new Date(today + 'T00:00:00');
   const Y = d.getFullYear(); const M = d.getMonth();
@@ -88,7 +72,6 @@ function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start:
     case 'last365': { const dd = new Date(d); dd.setDate(dd.getDate() - 365); return { start: dd.toISOString().slice(0, 10), end: today }; }
   }
 }
-
 function detectActivePreset(start: string, end: string, today: string): Preset {
   if (end !== today) return 'custom';
   for (const p of PRESETS) {
@@ -105,9 +88,15 @@ export function MarginPage() {
 
   const [dim, setDim] = useState<Dim>('category');
   const [filters, setFilters] = useState<SalesFilters>({ start: ytdStart, end: today, entities: null });
+  const [activeModifiers, setActiveModifiers] = useState<string[]>([]);
   const [showSparklines, setShowSparklines] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
   const [chartKind, setChartKind] = useState<ChartKind>('none');
+
+  const effectiveFilters = useMemo(
+    () => applyModifiers(filters, activeModifiers),
+    [filters, activeModifiers],
+  );
 
   const [rows, setRows] = useState<SalesPivotRow[] | null>(null);
   const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
@@ -127,7 +116,6 @@ export function MarginPage() {
       .then((rs) => setSyncedAt(rs?.[0]?.synced_at ?? null))
       .catch(() => setSyncedAt(null));
   }
-
   useEffect(() => { loadSyncedAt(); }, []);
 
   async function syncItemCosts() {
@@ -183,39 +171,35 @@ export function MarginPage() {
     let cancelled = false;
     setRows(null);
     setErr('');
-    Promise.all([fetchPivot(dim, filters), fetchTotals(filters)])
-      .then(([p, t]) => {
-        if (cancelled) return;
-        setRows(p ?? []);
-        setTotals(t);
-      })
+    Promise.all([fetchPivot(dim, effectiveFilters), fetchTotals(effectiveFilters)])
+      .then(([p, t]) => { if (cancelled) return; setRows(p ?? []); setTotals(t); })
       .catch((e) => { if (!cancelled) setErr(e.message); });
     return () => { cancelled = true; };
-  }, [dim, JSON.stringify(filters)]);
+  }, [dim, JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
     if (compareMode === 'off') { setPriorTotals(null); return; }
     let cancelled = false;
-    const { prior_start, prior_end } = computePriorBounds(filters.start, filters.end, compareMode);
-    fetchTotals({ ...filters, start: prior_start, end: prior_end })
+    const { prior_start, prior_end } = computePriorBounds(effectiveFilters.start, effectiveFilters.end, compareMode);
+    fetchTotals({ ...effectiveFilters, start: prior_start, end: prior_end })
       .then((t) => { if (!cancelled) setPriorTotals(t); })
       .catch(() => { if (!cancelled) setPriorTotals(null); });
     return () => { cancelled = true; };
-  }, [compareMode, filters.start, filters.end, JSON.stringify(filters)]);
+  }, [compareMode, JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
     if (compareMode === 'off' || !rows) { setComparison(null); return; }
-    const { prior_start, prior_end } = computePriorBounds(filters.start, filters.end, compareMode);
-    fetchPivot(dim, { ...filters, start: prior_start, end: prior_end })
+    const { prior_start, prior_end } = computePriorBounds(effectiveFilters.start, effectiveFilters.end, compareMode);
+    fetchPivot(dim, { ...effectiveFilters, start: prior_start, end: prior_end })
       .then((prior) => setComparison(mergeWithPrior(rows, prior ?? [])))
       .catch(() => setComparison(null));
-  }, [compareMode, rows, dim, filters.start, filters.end, JSON.stringify(filters)]);
+  }, [compareMode, rows, dim, JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
     if (!showSparklines || !rows || rows.length === 0 || dim === 'month') { setSparklines({}); return; }
-    const keys = trailing12MonthKeys(filters.end);
+    const keys = trailing12MonthKeys(effectiveFilters.end);
     const labels = rows.slice(0, 100).map((r) => r.dim_label);
-    fetchSparkline(dim, labels, filters.end, filters)
+    fetchSparkline(dim, labels, effectiveFilters.end, effectiveFilters)
       .then((spark) => {
         const byLabel: Record<string, number[]> = {};
         for (const lbl of labels) byLabel[lbl] = Array(12).fill(0);
@@ -226,7 +210,7 @@ export function MarginPage() {
         setSparklines(byLabel);
       })
       .catch(() => setSparklines({}));
-  }, [showSparklines, dim, rows, filters.end, JSON.stringify(filters)]);
+  }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters)]);
 
   function exportCsv() {
     if (!rows || rows.length === 0) return;
@@ -251,8 +235,9 @@ export function MarginPage() {
           : []),
       ];
     });
+    const modSuffix = activeModifiers.length > 0 ? '_' + activeModifiers.join('-') : '';
     downloadCsv(
-      `margin_${dim}_${filters.start}_${filters.end}${comparison ? '_vs_' + compareMode : ''}.csv`,
+      `margin_${dim}_${effectiveFilters.start}_${effectiveFilters.end}${comparison ? '_vs_' + compareMode : ''}${modSuffix}.csv`,
       toCsv([header, ...data]),
     );
     toast.success(`Exported ${data.length} rows to CSV`);
@@ -291,9 +276,11 @@ export function MarginPage() {
 
   function onRangeChange(value: [Dayjs | null, Dayjs | null]) {
     const [s, e] = value;
-    if (s && e) {
-      setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
-    }
+    if (s && e) setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
+  }
+
+  function onEntityChange(entity: string | null) {
+    setFilters((cur) => applyEntityDefaults({ ...cur, entities: entity ? [entity] : null }, entity));
   }
 
   const kpiDeltas = useMemo(() => {
@@ -328,20 +315,18 @@ export function MarginPage() {
   const activePreset = detectActivePreset(filters.start, filters.end, today);
   const compareLabel =
     compareMode === 'prior_period' ? 'vs prior period' :
-    compareMode === 'prior_year'   ? 'vs same period last year' :
-                                     '';
+    compareMode === 'prior_year'   ? 'vs same period last year' : '';
 
   return (
     <div>
-      {/* Hero header with large °bx mark */}
       <div className="hero">
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1, minWidth: 0 }}>
           <BrixMark size={88} className="hero-mark" title="Brix Beverage" />
           <div style={{ minWidth: 0 }}>
-            <div className="hero-eyebrow">Margin · Sales · Cost · Customer pivots</div>
+            <div className="hero-eyebrow">Margin · Sales · Cost · Customer pivots{activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}</div>
             <h1 className="hero-title">Margin Control</h1>
             <div className="hero-meta">
-              {filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}
+              {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
             </div>
           </div>
         </div>
@@ -350,22 +335,17 @@ export function MarginPage() {
             <span className="status-dot" aria-hidden="true" />
             Costs · {syncFresh || '—'}
           </div>
-          <button
-            type="button"
-            onClick={printDashboard}
-            className="tb-btn tb-btn--primary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            title="Print or save the dashboard as PDF"
-          >
+          <button type="button" onClick={printDashboard} className="tb-btn tb-btn--primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Print or save the dashboard as PDF">
             <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
             <span>Print</span>
           </button>
         </div>
       </div>
 
-      {totals == null && rows == null ? (
-        <KpiRowSkeleton count={4} />
-      ) : (
+      {/* Large chain rollup modifier bar */}
+      <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
+
+      {totals == null && rows == null ? (<KpiRowSkeleton count={4} />) : (
         <div className="gr g4" style={{ marginBottom: 18 }}>
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
             sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined} />
@@ -384,15 +364,9 @@ export function MarginPage() {
             <span className="toolbar-label">Range</span>
             <div className="preset-bar" role="group" aria-label="Quick date range">
               {PRESETS.map((p) => (
-                <button key={p.id} type="button"
-                  className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')}
-                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}>
-                  {p.label}
-                </button>
+                <button key={p.id} type="button" className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')} onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}>{p.label}</button>
               ))}
-              {activePreset === 'custom' && (
-                <button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>
-              )}
+              {activePreset === 'custom' && (<button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>)}
             </div>
           </div>
 
@@ -403,15 +377,7 @@ export function MarginPage() {
               format="YYYY-MM-DD"
               localeText={{ start: 'From', end: 'To' }}
               slotProps={{
-                textField: {
-                  size: 'small',
-                  sx: {
-                    width: 130,
-                    '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' },
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
-                  },
-                },
+                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' } } },
                 fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
               }}
             />
@@ -430,13 +396,13 @@ export function MarginPage() {
 
           <div className="toolbar-spacer" />
 
-          <button type="button" className="tb-btn"
-            onClick={() => {
-              const ytd = applyPreset('ytd', today);
-              setFilters({ start: ytd.start, end: ytd.end, entities: null });
-              setCompareMode('prior_year');
-              setChartKind('none');
-            }}>Reset</button>
+          <button type="button" className="tb-btn" onClick={() => {
+            const ytd = applyPreset('ytd', today);
+            setFilters({ start: ytd.start, end: ytd.end, entities: null });
+            setCompareMode('prior_year');
+            setChartKind('none');
+            setActiveModifiers([]);
+          }}>Reset</button>
         </div>
 
         <div className="toolbar-row">
@@ -449,9 +415,7 @@ export function MarginPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''}
-              onChange={(e) => setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })}
-              className="tb-select">
+            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers">
               <option value="">All</option>
               {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
@@ -471,9 +435,7 @@ export function MarginPage() {
 
           <div className="toolbar-spacer" />
 
-          <button onClick={syncItemCosts} disabled={syncing} className="tb-btn">
-            {syncing ? 'Syncing…' : 'Sync item costs'}
-          </button>
+          <button onClick={syncItemCosts} disabled={syncing} className="tb-btn">{syncing ? 'Syncing…' : 'Sync item costs'}</button>
           <button onClick={exportCsv} disabled={!rows?.length} className="tb-btn tb-btn--primary">Export CSV</button>
         </div>
       </div>
@@ -483,8 +445,7 @@ export function MarginPage() {
           const values = (filters[fd.key] as string[] | null | undefined) ?? [];
           return (
             <MultiPicker key={fd.dim} label={fd.label} values={values}
-              options={dimOpts[fd.dim] ?? null}
-              loading={dimOptsLoading[fd.dim] === true}
+              options={dimOpts[fd.dim] ?? null} loading={dimOptsLoading[fd.dim] === true}
               onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
           );
         })}
@@ -494,12 +455,9 @@ export function MarginPage() {
         <div className="chip-row">
           <span className="toolbar-label" style={{ marginRight: 6 }}>Filtered to</span>
           {chips.map((c) => c.values.map((v) => (
-            <span key={c.key + ':' + v} onClick={() => clearFilter(c.key, v)} title="click to remove" className="chip">
-              {c.label}: {v} ×
-            </span>
+            <span key={c.key + ':' + v} onClick={() => clearFilter(c.key, v)} title="click to remove" className="chip">{c.label}: {v} ×</span>
           )))}
-          <button onClick={() => setFilters({ start: filters.start, end: filters.end, entities: null })}
-            className="tb-btn" style={{ marginLeft: 'auto', color: 'var(--rd)', borderColor: 'var(--rd)' }}>Clear all</button>
+          <button onClick={() => setFilters({ start: filters.start, end: filters.end, entities: null })} className="tb-btn" style={{ marginLeft: 'auto', color: 'var(--rd)', borderColor: 'var(--rd)' }}>Clear all</button>
         </div>
       )}
 
@@ -526,10 +484,8 @@ export function MarginPage() {
             <AreaChart ariaLabel="Revenue by selected dimension"
               labels={rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => r.dim_label.length > 12 ? r.dim_label.slice(0, 10) + '…' : r.dim_label)}
               series={[
-                { name: 'Current', color: '#5BB5F0',
-                  values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)) },
-                ...(comparison ? [{
-                  name: 'Prior', color: '#6B8190',
+                { name: 'Current', color: '#5BB5F0', values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)) },
+                ...(comparison ? [{ name: 'Prior', color: '#6B8190',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => {
                     const c = comparison.find((cc) => cc.dim_label === r.dim_label);
                     return c?.prior_revenue ?? 0;
