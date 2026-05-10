@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 import { sbAuth } from '../lib/supabase';
+import { BrixMark } from '../components/BrixMark';
 import './LoginPage.css';
 
 export function LoginPage() {
@@ -23,7 +24,10 @@ export function LoginPage() {
       <div className="login-bg" aria-hidden="true" />
       <div className="login-card-wrap">
         <div className="login-brand">
-          <div className="brand-mark login-brand-mark">BRIX</div>
+          <BrixMark size={108} bubbles title="Brix Beverage" />
+          <div className="brand-mark login-brand-mark">
+            BRI<span className="brand-bx">X</span>
+          </div>
           <div className="login-brand-sub">
             <span className="status-dot" aria-hidden="true" />
             Margin Control
