@@ -3,6 +3,7 @@ import { KPICard } from '../components/KPICard';
 import { fm, fmtNum } from '../lib/formatters';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
+import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
   InventoryHealthRow,
   QboCustomerOption,
@@ -47,30 +48,35 @@ export function InventoryPage() {
   }
   useEffect(load, [lookback, managedOnly]);
 
+  const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory';
+
   return (
     <div>
-      <div className="pt">Inventory <span className="bg bg-l">HEALTH</span></div>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Reorder · Velocity · Health</div>
+          <h1 className="hero-title">Inventory</h1>
+          <div className="hero-meta">
+            {tabLabel} · {lookback}-day lookback{managedOnly ? ' · managed only' : ''}
+          </div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          {rows ? fmtNum(rows.length) + ' items' : 'loading…'}
+        </div>
+      </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {TABS.map((t) => {
           const on = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              style={{
-                background: on ? 'var(--ac)' : 'var(--sf2)',
-                color: on ? 'var(--bg)' : 'var(--tx)',
-                border: '1px solid var(--bd)',
-                padding: '6px 12px',
-                borderRadius: 4,
-                fontSize: 11,
-                cursor: 'pointer',
-                fontWeight: on ? 700 : 500,
-                letterSpacing: 0.5,
-              }}
+              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
+              style={on ? { fontWeight: 700 } : undefined}
             >
-              {t.label.toUpperCase()}
+              {t.label}
             </button>
           );
         })}
@@ -81,7 +87,7 @@ export function InventoryPage() {
           className="cd"
           style={{
             padding: '10px 12px',
-            marginBottom: 10,
+            marginBottom: 14,
             display: 'flex',
             gap: 10,
             alignItems: 'center',
@@ -120,7 +126,14 @@ export function InventoryPage() {
 }
 
 function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
-  if (!rows) return <div className="ld">Loading…</div>;
+  if (!rows) return (
+    <>
+      <KpiRowSkeleton count={4} />
+      <div className="cd" style={{ padding: 0 }}>
+        <TableSkeleton rows={8} cols={7} />
+      </div>
+    </>
+  );
   const reorderNow  = rows.filter((r) => r.status === 'reorder_now');
   const reorderSoon = rows.filter((r) => r.status === 'reorder_soon');
   const healthy     = rows.filter((r) => r.status === 'healthy');
@@ -155,7 +168,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
 
   return (
     <div>
-      <div className="gr g4" style={{ marginBottom: 12 }}>
+      <div className="gr g4" style={{ marginBottom: 14 }}>
         <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="below reorder point" />
         <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="approaching reorder point" />
         <KPICard title="HEALTHY" value={healthy.length} accent="var(--gn)" />
@@ -166,7 +179,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'flex',
           gap: 6,
           alignItems: 'center',
@@ -257,10 +270,14 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
 }
 
 function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
-  if (!rows) return <div className="ld">Loading…</div>;
   const sorted = useMemo(
-    () => [...rows].sort((a, b) => Number(b.sold_revenue ?? 0) - Number(a.sold_revenue ?? 0)),
+    () => rows ? [...rows].sort((a, b) => Number(b.sold_revenue ?? 0) - Number(a.sold_revenue ?? 0)) : null,
     [rows],
+  );
+  if (!sorted) return (
+    <div className="cd" style={{ padding: 0 }}>
+      <TableSkeleton rows={10} cols={9} />
+    </div>
   );
 
   return (
@@ -326,7 +343,11 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
 }
 
 function SettingsTable({ rows, onChange }: { rows: InventoryHealthRow[] | null; onChange: () => void }) {
-  if (!rows) return <div className="ld">Loading…</div>;
+  if (!rows) return (
+    <div className="cd" style={{ padding: 0 }}>
+      <TableSkeleton rows={8} cols={5} />
+    </div>
+  );
 
   function patch(p: Parameters<typeof setInventorySettings>[0]) {
     setInventorySettings(p).then(onChange);
@@ -430,14 +451,14 @@ function ExcludesTab() {
 
   return (
     <div className="cd" style={{ padding: 0 }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
         <div className="ct" style={{ margin: 0 }}>VELOCITY EXCLUDES — {excludes.length}</div>
         <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>
           Customers in this list don't count toward inventory velocity (used for one-off bulk buyers,
           internal transfers, samples, etc.)
         </div>
       </div>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
         <select
           style={{ ...inp(), width: '100%', maxWidth: 600 }}
           defaultValue=""
