@@ -13,6 +13,7 @@ import { KpiRowSkeleton, ChartSkeleton } from '../components/Skeletons';
 import { useToast } from '../lib/toast';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
+import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 import {
   Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
   computePriorBounds, fetchDimValues, fetchPivot, fetchSparkline, fetchTotals, trailing12MonthKeys,
@@ -39,6 +40,14 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'channel',  key: 'channels',   label: 'Channel' },
   { dim: 'segment',  key: 'segments',   label: 'Segment' },
 ];
+
+const GROUPING_BY_DIM: Partial<Record<Dim, {
+  groupBy: (l: string) => string;
+  groupOrder: Record<string, number>;
+}>> = {
+  item:     { groupBy: classifyItem,     groupOrder: ITEM_GROUP_ORDER     },
+  customer: { groupBy: classifyCustomer, groupOrder: CUSTOMER_GROUP_ORDER },
+};
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
@@ -390,9 +399,11 @@ export function OverviewPage() {
         <div className="toolbar-row" style={{ alignItems: 'center' }}>
           {FILTER_DIMS.map((fd) => {
             const values = (filters[fd.key] as string[] | null | undefined) ?? [];
+            const gx = GROUPING_BY_DIM[fd.dim];
             return (
               <MultiPicker key={fd.dim} label={fd.label} values={values}
                 options={dimOpts[fd.dim] ?? null} loading={dimOptsLoading[fd.dim] === true}
+                groupBy={gx?.groupBy} groupOrder={gx?.groupOrder}
                 onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
             );
           })}
