@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dayjs, { Dayjs } from 'dayjs';
+import { Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
@@ -142,8 +143,11 @@ export function MarginPage() {
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [err, setErr] = useState<string>('');
 
+  // dimOpts + dimOptsLoading are pre-loaded for ALL filter dims on mount /
+  // date change so the autocomplete dropdowns are populated and
+  // type-to-filter works the moment the user clicks the input.
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
-  const dimOptsLoading = useRef<Set<Dim>>(new Set());
+  const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
 
   const [syncedAt, setSyncedAt] = useState<string | null | undefined>(undefined);
   const [syncing, setSyncing] = useState(false);
@@ -192,21 +196,25 @@ export function MarginPage() {
     return Math.round(ageMin / 1440) + 'd ago';
   }, [syncedAt]);
 
-  function ensureDimOptions(d: Dim) {
-    if (dimOpts[d]) return;
-    if (dimOptsLoading.current.has(d)) return;
-    dimOptsLoading.current.add(d);
-    fetchDimValues(d, filters.start, filters.end)
-      .then((rows) => {
-        setDimOpts((cur) => ({ ...cur, [d]: rows }));
-        dimOptsLoading.current.delete(d);
-      })
-      .catch(() => dimOptsLoading.current.delete(d));
-  }
-
+  // Pre-load all 5 filter-dim option sets on mount + when the date range
+  // changes. With the dropdown options already loaded, MUI Autocomplete's
+  // native type-to-filter works instantly.
   useEffect(() => {
     setDimOpts({});
-    dimOptsLoading.current.clear();
+    const loading: Partial<Record<Dim, boolean>> = {};
+    for (const fd of FILTER_DIMS) loading[fd.dim] = true;
+    setDimOptsLoading(loading);
+
+    for (const fd of FILTER_DIMS) {
+      fetchDimValues(fd.dim, filters.start, filters.end)
+        .then((rs) => {
+          setDimOpts((cur) => ({ ...cur, [fd.dim]: rs }));
+          setDimOptsLoading((cur) => ({ ...cur, [fd.dim]: false }));
+        })
+        .catch(() => {
+          setDimOptsLoading((cur) => ({ ...cur, [fd.dim]: false }));
+        });
+    }
   }, [filters.start, filters.end]);
 
   // Pivot + totals (current period).
@@ -303,6 +311,11 @@ export function MarginPage() {
     toast.success(`Exported ${data.length} rows to CSV`);
   }
 
+  function printDashboard() {
+    toast.info('Opening print preview…');
+    setTimeout(() => window.print(), 250);
+  }
+
   function drillInto(row: SalesPivotRow) {
     const filterKey = DRILL_FILTER[dim];
     const next = DRILL_NEXT[dim];
@@ -340,7 +353,6 @@ export function MarginPage() {
     }
   }
 
-  // KPI deltas vs prior period (drives the ▲/▼ % pill on each card)
   const kpiDeltas = useMemo(() => {
     if (!totals || !priorTotals) return null;
     function pct(cur: number | null | undefined, prev: number | null | undefined): number | null {
@@ -390,9 +402,21 @@ export function MarginPage() {
             {filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}
           </div>
         </div>
-        <div className="hero-stamp" title={syncedAt ? 'Item costs last synced ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
-          <span className="status-dot" aria-hidden="true" />
-          Costs · {syncFresh || '—'}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div className="hero-stamp" title={syncedAt ? 'Item costs last synced ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
+            <span className="status-dot" aria-hidden="true" />
+            Costs · {syncFresh || '—'}
+          </div>
+          <button
+            type="button"
+            onClick={printDashboard}
+            className="tb-btn tb-btn--primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Print or save the dashboard as PDF"
+          >
+            <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
+            <span>Print</span>
+          </button>
         </div>
       </div>
 
@@ -580,7 +604,7 @@ export function MarginPage() {
         </div>
       </div>
 
-      {/* Filter pickers */}
+      {/* Filter pickers — pre-loaded on mount + date change so they're populated instantly */}
       <div
         className="cd"
         style={{
@@ -596,22 +620,16 @@ export function MarginPage() {
         {FILTER_DIMS.map((fd) => {
           const values = (filters[fd.key] as string[] | null | undefined) ?? [];
           return (
-            <div
+            <MultiPicker
               key={fd.dim}
-              onMouseDown={() => ensureDimOptions(fd.dim)}
-              onTouchStart={() => ensureDimOptions(fd.dim)}
-              onFocus={() => ensureDimOptions(fd.dim)}
-            >
-              <MultiPicker
-                label={fd.label}
-                values={values}
-                options={dimOpts[fd.dim] ?? null}
-                loading={dimOptsLoading.current.has(fd.dim)}
-                onChange={(next) =>
-                  setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))
-                }
-              />
-            </div>
+              label={fd.label}
+              values={values}
+              options={dimOpts[fd.dim] ?? null}
+              loading={dimOptsLoading[fd.dim] === true}
+              onChange={(next) =>
+                setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))
+              }
+            />
           );
         })}
       </div>
@@ -678,7 +696,7 @@ export function MarginPage() {
               series={[
                 {
                   name: 'Current',
-                  color: '#2DCAD6',
+                  color: '#5BB5F0',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)),
                 },
                 ...(comparison ? [{
