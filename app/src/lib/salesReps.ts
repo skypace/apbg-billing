@@ -1,4 +1,4 @@
-import { sbq, sbInsert, sbDelete, sbPatch } from './rpc';
+import { sbq, sbInsert, sbDelete, sbUpdate } from './rpc';
 
 // ops.sales_reps schema:
 //   rep_code     TEXT PK    (e.g. 'SP', 'JM' — short code, also used as label)
@@ -16,7 +16,7 @@ export interface SalesRep {
 
 // ops.customer_sales_reps schema:
 //   PK is composite (qbo_customer_id, rep_code)
-//   is_primary marks the lead rep — used for ordering in v_sales_lines
+//   is_primary marks the lead rep — used for ordering in v_sales_lines.
 //   sales_reps[] aggregation
 export interface CustomerSalesRep {
   qbo_customer_id: string;
@@ -43,7 +43,7 @@ export function insertSalesRep(rep: { rep_code: string; name: string; sort_order
 }
 
 export function updateSalesRep(rep_code: string, patch: Partial<SalesRep>) {
-  return sbPatch<Partial<SalesRep>>('sales_reps', 'rep_code=eq.' + encodeURIComponent(rep_code), patch);
+  return sbUpdate<SalesRep>('sales_reps', 'rep_code=eq.' + encodeURIComponent(rep_code), patch);
 }
 
 export function deleteSalesRep(rep_code: string) {
@@ -62,8 +62,7 @@ export function fetchCustomerAssignments() {
 }
 
 // One-rep-per-customer UX: replace any existing assignment with the new
-// rep flagged is_primary=true. (Schema supports multiple reps per customer
-// — when we want that, this can become an additive insert.)
+// rep flagged is_primary=true.
 export function assignCustomerToRep(qbo_customer_id: string, rep_code: string) {
   return sbDelete('customer_sales_reps', 'qbo_customer_id=eq.' + encodeURIComponent(qbo_customer_id))
     .then(() => sbInsert<Partial<CustomerSalesRep>>('customer_sales_reps', {
