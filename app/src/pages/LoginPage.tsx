@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 import { sbAuth } from '../lib/supabase';
+import './LoginPage.css';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
