@@ -8,7 +8,6 @@ export interface AreaSeries {
 }
 
 interface Props {
-  /** X-axis tick labels, one per index. */
   labels: string[];
   series: AreaSeries[];
   height?: number;
@@ -64,11 +63,23 @@ export function AreaChart({
           },
         }}
         sx={{
-          '& .MuiChartsAxis-line':       { stroke: 'var(--bd)' },
-          '& .MuiChartsAxis-tick':       { stroke: 'var(--bd)' },
+          '& .MuiChartsAxis-line':       { stroke: 'rgba(255,255,255,0.08)' },
+          '& .MuiChartsAxis-tick':       { stroke: 'rgba(255,255,255,0.08)' },
           '& .MuiChartsGrid-line':       { stroke: 'rgba(255,255,255,0.04)' },
-          '& .MuiAreaElement-root':      { fillOpacity: 0.18 },
-          '& .MuiLineElement-root':      { strokeWidth: 2 },
+          '& .MuiAreaElement-root':      {
+            fillOpacity: 0.32,
+            filter: 'drop-shadow(0 6px 14px rgba(91, 181, 240, 0.20))',
+          },
+          '& .MuiLineElement-root':      {
+            strokeWidth: 2.6,
+            filter: 'drop-shadow(0 0 6px rgba(91, 181, 240, 0.45))',
+          },
+          '& .MuiMarkElement-root':      {
+            stroke: 'var(--bg)',
+            strokeWidth: 1.5,
+            transition: 'r 120ms ease',
+          },
+          '& .MuiMarkElement-root:hover': { r: 6 },
           '& .MuiChartsTooltip-root':    { fontFamily: 'inherit' },
           '& .MuiChartsLegend-root':     { fontFamily: 'inherit' },
         }}
