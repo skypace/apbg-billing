@@ -6,6 +6,7 @@ import { CHART_COLORS } from '../components/charts/util';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
+import { KpiRowSkeleton, ChartSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
   Department,
   KpiDailyRow,
@@ -14,10 +15,6 @@ import {
   fetchKpiDaily,
   rollupByMember,
 } from '../lib/kpi';
-
-// One page for delivery / service / reman, parameterized by sub-tab.
-// Reads ops.kpi_daily directly; the rollup function (fn_compute_kpi_daily)
-// runs nightly at 11:00 UTC.
 
 const TABS: { id: Department; label: string }[] = [
   { id: 'delivery', label: 'Delivery' },
@@ -70,7 +67,6 @@ export function OperationsPage() {
     };
   }, [daily]);
 
-  // Service-only weighted aggregates across the window.
   const serviceAgg = useMemo(() => {
     if (tab !== 'service' || !rows) return null;
     let billable = 0, total = 0, ffWeight = 0, ffSum = 0, respDays = 0, respSum = 0;
@@ -114,33 +110,35 @@ export function OperationsPage() {
 
   const activityLabel = tab === 'delivery' ? 'STOPS' : tab === 'service' ? 'JOBS' : 'UNITS';
   const perActivityLabel = tab === 'delivery' ? 'rev/stop' : tab === 'service' ? 'rev/job' : 'rev/unit';
+  const tabLabel = TABS.find((t) => t.id === tab)?.label ?? '';
 
   return (
     <div>
-      <div className="pt">
-        Operations <span className="bg bg-l">{TABS.find((t) => t.id === tab)?.label.toUpperCase()}</span>
+      <div className="hero">
+        <div>
+          <div className="hero-eyebrow">Delivery · Service · Reman · Daily KPI</div>
+          <h1 className="hero-title">Operations</h1>
+          <div className="hero-meta">
+            {tabLabel} · {start} → {end}
+          </div>
+        </div>
+        <div className="hero-stamp">
+          <span className="status-dot" aria-hidden="true" />
+          {members.length} active member{members.length === 1 ? '' : 's'}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {TABS.map((t) => {
           const on = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              style={{
-                background: on ? 'var(--ac)' : 'var(--sf2)',
-                color: on ? 'var(--bg)' : 'var(--tx)',
-                border: '1px solid var(--bd)',
-                padding: '6px 12px',
-                borderRadius: 4,
-                fontSize: 11,
-                cursor: 'pointer',
-                fontWeight: on ? 700 : 500,
-                letterSpacing: 0.5,
-              }}
+              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
+              style={on ? { fontWeight: 700 } : undefined}
             >
-              {t.label.toUpperCase()}
+              {t.label}
             </button>
           );
         })}
@@ -150,7 +148,7 @@ export function OperationsPage() {
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'flex',
           gap: 10,
           alignItems: 'center',
@@ -159,9 +157,9 @@ export function OperationsPage() {
         }}
       >
         <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>From</span>
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} style={inp()} />
+        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="date-input" />
         <span style={{ color: 'var(--mt)' }}>to</span>
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} style={inp()} />
+        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="date-input" />
 
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button onClick={exportCsv} disabled={!members.length} style={btnSecondary()}>EXPORT CSV</button>
@@ -171,7 +169,15 @@ export function OperationsPage() {
       {err ? (
         <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>
       ) : !rows ? (
-        <div className="ld">Loading…</div>
+        <>
+          <KpiRowSkeleton count={4} />
+          <div className="cd" style={{ padding: 0, marginBottom: 14 }}>
+            <ChartSkeleton />
+          </div>
+          <div className="cd" style={{ padding: 0 }}>
+            <TableSkeleton rows={6} cols={6} />
+          </div>
+        </>
       ) : rows.length === 0 ? (
         <div className="cd" style={{ padding: 14, color: 'var(--mt)' }}>
           No kpi_daily rows in this window. Either nobody in this department has been active, or the
