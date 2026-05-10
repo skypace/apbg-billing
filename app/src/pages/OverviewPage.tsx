@@ -48,6 +48,15 @@ const PRESETS: { id: Preset; label: string }[] = [
 
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
+// Same 5-dim filter row Margin uses, so Overview behaves identically.
+const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
+  { dim: 'category', key: 'categories', label: 'Category' },
+  { dim: 'customer', key: 'customers',  label: 'Customer' },
+  { dim: 'item',     key: 'items',      label: 'Item' },
+  { dim: 'channel',  key: 'channels',   label: 'Channel' },
+  { dim: 'segment',  key: 'segments',   label: 'Segment' },
+];
+
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
@@ -81,13 +90,15 @@ export function OverviewPage() {
   const ytdStart = today.getFullYear() + '-01-01';
   const toast = useToast();
 
-  // Filters state — same shape as MarginPage so behavior carries.
   const [filters, setFilters] = useState<SalesFilters>({
     start:      ytdStart,
     end:        todayStr,
     entities:   null,
     categories: null,
     customers:  null,
+    items:      null,
+    channels:   null,
+    segments:   null,
   });
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
 
@@ -97,25 +108,26 @@ export function OverviewPage() {
     return { ...filters, start: prior_start, end: prior_end };
   }, [compareMode, filters]);
 
-  // Pre-load category and customer dim options so the MultiPickers are
-  // populated the moment the user clicks them.
+  // Pre-load all 5 dim option sets so dropdowns are populated instantly.
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
   const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
 
   useEffect(() => {
     setDimOpts({});
-    setDimOptsLoading({ category: true, customer: true });
-    for (const d of ['category', 'customer'] as Dim[]) {
-      fetchDimValues(d, filters.start, filters.end)
+    const loading: Partial<Record<Dim, boolean>> = {};
+    for (const fd of FILTER_DIMS) loading[fd.dim] = true;
+    setDimOptsLoading(loading);
+
+    for (const fd of FILTER_DIMS) {
+      fetchDimValues(fd.dim, filters.start, filters.end)
         .then((rs) => {
-          setDimOpts((cur) => ({ ...cur, [d]: rs }));
-          setDimOptsLoading((cur) => ({ ...cur, [d]: false }));
+          setDimOpts((cur) => ({ ...cur, [fd.dim]: rs }));
+          setDimOptsLoading((cur) => ({ ...cur, [fd.dim]: false }));
         })
-        .catch(() => setDimOptsLoading((cur) => ({ ...cur, [d]: false })));
+        .catch(() => setDimOptsLoading((cur) => ({ ...cur, [fd.dim]: false })));
     }
   }, [filters.start, filters.end]);
 
-  // Per-dataset state
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
   const [monthlyCurrent, setMonthlyCurrent] = useState<MonthRow[] | null>(null);
@@ -131,7 +143,6 @@ export function OverviewPage() {
     healthMovers: number;
   } | null>(null);
 
-  // KPI totals (current + optional prior)
   useEffect(() => {
     let cancelled = false;
     setTotals(null); setPriorTotals(null);
@@ -146,7 +157,6 @@ export function OverviewPage() {
     return () => { cancelled = true; };
   }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
 
-  // Monthly trend — current period + (optional) compare
   useEffect(() => {
     let cancelled = false;
     setMonthlyCurrent(null); setMonthlyPrior(null);
@@ -163,14 +173,12 @@ export function OverviewPage() {
     return () => { cancelled = true; };
   }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
 
-  // Top categories
   useEffect(() => {
     fetchPivot('category' as Dim, filters, 12)
       .then((rs) => setTopCategories((rs ?? []).slice(0, 8)))
       .catch(() => setTopCategories([]));
   }, [JSON.stringify(filters)]);
 
-  // Top customers + sparklines
   useEffect(() => {
     fetchPivot('customer' as Dim, filters, 10)
       .then(async (rs) => {
@@ -191,7 +199,6 @@ export function OverviewPage() {
       .catch(() => setTopCustomers([]));
   }, [JSON.stringify(filters)]);
 
-  // Action panel counts
   useEffect(() => {
     Promise.allSettled([
       fetchInventoryHealth({ lookback: 90, managed_only: true }),
@@ -218,7 +225,6 @@ export function OverviewPage() {
     });
   }, [filters.start, filters.end]);
 
-  // Build the trailing-12mo sparkline for the headline KPI
   useEffect(() => {
     if (!monthlyCurrent || !monthlyPrior) return;
     const keys = trailing12MonthKeys(filters.end);
@@ -285,6 +291,9 @@ export function OverviewPage() {
   if (filters.entities?.length)   chips.push({ key: 'entities',   label: 'entity',   values: filters.entities });
   if (filters.categories?.length) chips.push({ key: 'categories', label: 'category', values: filters.categories });
   if (filters.customers?.length)  chips.push({ key: 'customers',  label: 'customer', values: filters.customers });
+  if (filters.items?.length)      chips.push({ key: 'items',      label: 'item',     values: filters.items });
+  if (filters.channels?.length)   chips.push({ key: 'channels',   label: 'channel',  values: filters.channels });
+  if (filters.segments?.length)   chips.push({ key: 'segments',   label: 'segment',  values: filters.segments });
 
   return (
     <div>
@@ -316,7 +325,7 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* Toolbar — presets + date picker + compare on row 1, filters on row 2 */}
+      {/* Toolbar — presets + date picker + compare on row 1, full filter row on row 2 */}
       <div className="toolbar">
         <div className="toolbar-row">
           <div className="toolbar-section">
@@ -376,36 +385,8 @@ export function OverviewPage() {
             </div>
           </div>
 
-          <div className="toolbar-spacer" />
+          <div className="toolbar-divider" />
 
-          <button
-            type="button"
-            className="tb-btn"
-            onClick={() => {
-              const ytd = applyPreset('ytd', todayStr);
-              setFilters({ start: ytd.start, end: ytd.end, entities: null, categories: null, customers: null });
-              setCompareMode('prior_year');
-            }}
-          >
-            Reset
-          </button>
-        </div>
-
-        <div className="toolbar-row">
-          <MultiPicker
-            label="Category"
-            values={filters.categories ?? []}
-            options={dimOpts.category ?? null}
-            loading={dimOptsLoading.category === true}
-            onChange={(next) => setFilters((cur) => ({ ...cur, categories: next.length ? next : null }))}
-          />
-          <MultiPicker
-            label="Customer"
-            values={filters.customers ?? []}
-            options={dimOpts.customer ?? null}
-            loading={dimOptsLoading.customer === true}
-            onChange={(next) => setFilters((cur) => ({ ...cur, customers: next.length ? next : null }))}
-          />
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
             <select
@@ -417,8 +398,45 @@ export function OverviewPage() {
               {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
           </div>
+
           <div className="toolbar-spacer" />
+
+          <button
+            type="button"
+            className="tb-btn"
+            onClick={() => {
+              const ytd = applyPreset('ytd', todayStr);
+              setFilters({
+                start: ytd.start, end: ytd.end,
+                entities: null, categories: null, customers: null,
+                items: null, channels: null, segments: null,
+              });
+              setCompareMode('prior_year');
+            }}
+          >
+            Reset
+          </button>
+
           <a href="#margin" className="tb-btn">Open Margin →</a>
+        </div>
+
+        {/* Row 2: full 5-dim filter row */}
+        <div className="toolbar-row" style={{ alignItems: 'center' }}>
+          {FILTER_DIMS.map((fd) => {
+            const values = (filters[fd.key] as string[] | null | undefined) ?? [];
+            return (
+              <MultiPicker
+                key={fd.dim}
+                label={fd.label}
+                values={values}
+                options={dimOpts[fd.dim] ?? null}
+                loading={dimOptsLoading[fd.dim] === true}
+                onChange={(next) =>
+                  setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))
+                }
+              />
+            );
+          })}
         </div>
       </div>
 
