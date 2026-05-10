@@ -8,9 +8,11 @@ import { AreaChart } from '../components/charts/AreaChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CHART_COLORS } from '../components/charts/util';
 import { MultiPicker } from '../components/MultiPicker';
+import { ModifierPicker } from '../components/ModifierPicker';
 import { KpiRowSkeleton, ChartSkeleton } from '../components/Skeletons';
 import { useToast } from '../lib/toast';
 import { fm, fp, fmtNum } from '../lib/formatters';
+import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
 import {
   Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
   computePriorBounds, fetchDimValues, fetchPivot, fetchSparkline, fetchTotals, trailing12MonthKeys,
@@ -28,7 +30,6 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'mtd', label: 'MTD' }, { id: 'qtd', label: 'QTD' }, { id: 'ytd', label: 'YTD' },
   { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
-
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
@@ -40,7 +41,6 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
 ];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
-
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
   const d = new Date(today + 'T00:00:00');
   const Y = d.getFullYear(); const M = d.getMonth();
@@ -61,16 +61,12 @@ function detectActivePreset(start: string, end: string, today: string): Preset {
   }
   return 'custom';
 }
-
-// Scope bounds — derived/applied independently from PRESETS so the hero
-// label cleanly maps onto a "natural calendar window."
 function scopeBounds(s: Exclude<Scope, 'custom'>, today: Date): { start: string; end: string } {
   const todayStr = today.toISOString().slice(0, 10);
   const Y = today.getFullYear();
-  if (s === 'year')  return { start: `${Y}-01-01`,                                       end: todayStr };
-  if (s === 'month') return { start: `${Y}-${pad2(today.getMonth() + 1)}-01`,            end: todayStr };
+  if (s === 'year')  return { start: `${Y}-01-01`, end: todayStr };
+  if (s === 'month') return { start: `${Y}-${pad2(today.getMonth() + 1)}-01`, end: todayStr };
   if (s === 'week') {
-    // Week-to-date — start on Sunday of the current week
     const day = today.getDay();
     const ws = new Date(today.getTime() - day * 86400000);
     return { start: ws.toISOString().slice(0, 10), end: todayStr };
@@ -93,15 +89,22 @@ export function OverviewPage() {
   const ytdStart = today.getFullYear() + '-01-01';
   const toast = useToast();
 
+  // Manual filter state (what the user picks via dropdowns/MultiPicker)
   const [filters, setFilters] = useState<SalesFilters>({
     start: ytdStart, end: todayStr,
     entities: null, categories: null, customers: null, items: null, channels: null, segments: null,
   });
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
+  const [activeModifiers, setActiveModifiers] = useState<string[]>([]);
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
 
-  // Close scope menu on outside click
+  // Effective filters = manual filters ∪ active modifier filters.
+  const effectiveFilters = useMemo(
+    () => applyModifiers(filters, activeModifiers),
+    [filters, activeModifiers],
+  );
+
   useEffect(() => {
     if (!scopeOpen) return;
     function onDoc(e: MouseEvent) {
@@ -114,9 +117,9 @@ export function OverviewPage() {
 
   const priorFilters = useMemo<SalesFilters | null>(() => {
     if (compareMode === 'off') return null;
-    const { prior_start, prior_end } = computePriorBounds(filters.start, filters.end, compareMode);
-    return { ...filters, start: prior_start, end: prior_end };
-  }, [compareMode, filters]);
+    const { prior_start, prior_end } = computePriorBounds(effectiveFilters.start, effectiveFilters.end, compareMode);
+    return { ...effectiveFilters, start: prior_start, end: prior_end };
+  }, [compareMode, effectiveFilters]);
 
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
   const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
@@ -144,47 +147,43 @@ export function OverviewPage() {
   const [topCustomers, setTopCustomers] = useState<SalesPivotRow[] | null>(null);
   const [customerSparks, setCustomerSparks] = useState<Record<string, number[]>>({});
   const [revenueSpark, setRevenueSpark] = useState<number[] | null>(null);
-  const [actions, setActions] = useState<{
-    reorderNow: number; inactive: number; anomalies: number; healthMovers: number;
-  } | null>(null);
+  const [actions, setActions] = useState<{ reorderNow: number; inactive: number; anomalies: number; healthMovers: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setTotals(null); setPriorTotals(null);
-    fetchTotals(filters).then((cur) => { if (!cancelled) setTotals(cur); }).catch(() => {});
+    fetchTotals(effectiveFilters).then((cur) => { if (!cancelled) setTotals(cur); }).catch(() => {});
     if (priorFilters) {
       fetchTotals(priorFilters).then((p) => { if (!cancelled) setPriorTotals(p); }).catch(() => {});
     }
     return () => { cancelled = true; };
-  }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
+  }, [JSON.stringify(effectiveFilters), JSON.stringify(priorFilters)]);
 
   useEffect(() => {
     let cancelled = false;
     setMonthlyCurrent(null); setMonthlyPrior(null);
-    fetchPivot('month' as Dim, filters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyCurrent([]));
+    fetchPivot('month' as Dim, effectiveFilters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyCurrent([]));
     if (priorFilters) {
       fetchPivot('month' as Dim, priorFilters, 24).then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyPrior([]));
-    } else {
-      setMonthlyPrior([]);
-    }
+    } else { setMonthlyPrior([]); }
     return () => { cancelled = true; };
-  }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
+  }, [JSON.stringify(effectiveFilters), JSON.stringify(priorFilters)]);
 
   useEffect(() => {
-    fetchPivot('category' as Dim, filters, 12)
+    fetchPivot('category' as Dim, effectiveFilters, 12)
       .then((rs) => setTopCategories((rs ?? []).slice(0, 8)))
       .catch(() => setTopCategories([]));
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
-    fetchPivot('customer' as Dim, filters, 10)
+    fetchPivot('customer' as Dim, effectiveFilters, 10)
       .then(async (rs) => {
         const top = rs ?? [];
         setTopCustomers(top);
         if (top.length === 0) { setCustomerSparks({}); return; }
         const labels = top.map((r) => r.dim_label);
-        const sparkRows = await fetchSparkline('customer' as Dim, labels, filters.end, filters);
-        const keys = trailing12MonthKeys(filters.end);
+        const sparkRows = await fetchSparkline('customer' as Dim, labels, effectiveFilters.end, effectiveFilters);
+        const keys = trailing12MonthKeys(effectiveFilters.end);
         const byLabel: Record<string, number[]> = {};
         for (const lb of labels) byLabel[lb] = Array(12).fill(0);
         for (const s of sparkRows) {
@@ -194,13 +193,13 @@ export function OverviewPage() {
         setCustomerSparks(byLabel);
       })
       .catch(() => setTopCustomers([]));
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
     Promise.allSettled([
       fetchInventoryHealth({ lookback: 90, managed_only: true }),
       fetchInactiveCustomers({
-        current_start: filters.start, current_end: filters.end,
+        current_start: effectiveFilters.start, current_end: effectiveFilters.end,
         prior_start: (today.getFullYear() - 1) + '-01-01',
         prior_end: (today.getFullYear() - 1) + '-12-31',
         min_prior_rev: 1000, max_current_rev: 0, limit: 500,
@@ -214,11 +213,11 @@ export function OverviewPage() {
       const healthMovers = hm.status === 'fulfilled' ? hm.value.length : 0;
       setActions({ reorderNow, inactive, anomalies, healthMovers });
     });
-  }, [filters.start, filters.end]);
+  }, [effectiveFilters.start, effectiveFilters.end]);
 
   useEffect(() => {
     if (!monthlyCurrent || !monthlyPrior) return;
-    const keys = trailing12MonthKeys(filters.end);
+    const keys = trailing12MonthKeys(effectiveFilters.end);
     const byMonth = new Map<string, number>();
     for (const r of monthlyCurrent) byMonth.set(toYm(r.dim_label), Number(r.revenue || 0));
     for (const r of monthlyPrior) {
@@ -226,7 +225,7 @@ export function OverviewPage() {
       if (!byMonth.has(k)) byMonth.set(k, Number(r.revenue || 0));
     }
     setRevenueSpark(keys.map((k) => byMonth.get(k) ?? 0));
-  }, [monthlyCurrent, monthlyPrior, filters.end]);
+  }, [monthlyCurrent, monthlyPrior, effectiveFilters.end]);
 
   const kpiDeltas = useMemo(() => {
     function pct(cur: number | null | undefined, prev: number | null | undefined): number | null {
@@ -271,9 +270,13 @@ export function OverviewPage() {
   }
   function onRangeChange(value: [Dayjs | null, Dayjs | null]) {
     const [s, e] = value;
-    if (s && e) {
-      setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
-    }
+    if (s && e) setFilters((cur) => ({ ...cur, start: s.format('YYYY-MM-DD'), end: e.format('YYYY-MM-DD') }));
+  }
+  function onEntityChange(entity: string | null) {
+    // Apply entity smart-defaults — auto-fills categories/customers based on
+    // ENTITY_AUTO_FILTERS so the dashboard scopes correctly. User can still
+    // override via the MultiPicker filters after.
+    setFilters((cur) => applyEntityDefaults({ ...cur, entities: entity ? [entity] : null }, entity));
   }
   function printDashboard() {
     toast.info('Opening print preview…');
@@ -299,35 +302,20 @@ export function OverviewPage() {
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">{filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}</div>
+          <div className="hero-eyebrow">{effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}{activeModifiers.length > 0 ? ` · ${activeModifiers.join(' + ')}` : ''}</div>
           <h1 className="hero-title">
             Overview
             <span className="hero-scope-wrap" ref={scopeRef}>
-              <button
-                type="button"
-                className="hero-accent hero-accent-btn"
-                onClick={() => setScopeOpen(!scopeOpen)}
-                aria-expanded={scopeOpen}
-                aria-haspopup="menu"
-                title="Change time scope"
-              >
+              <button type="button" className="hero-accent hero-accent-btn" onClick={() => setScopeOpen(!scopeOpen)} aria-expanded={scopeOpen} aria-haspopup="menu" title="Change time scope">
                 {scopeDisplay}
                 <ChevronDown size={18} strokeWidth={2.4} aria-hidden="true" />
               </button>
               {scopeOpen && (
                 <div className="hero-scope-menu" role="menu">
-                  <button type="button" className={scope === 'year' ? 'active' : ''} onClick={() => applyScope('year')}>
-                    {today.getFullYear()} <span>year to date</span>
-                  </button>
-                  <button type="button" className={scope === 'month' ? 'active' : ''} onClick={() => applyScope('month')}>
-                    This Month <span>month to date</span>
-                  </button>
-                  <button type="button" className={scope === 'week' ? 'active' : ''} onClick={() => applyScope('week')}>
-                    This Week <span>week to date</span>
-                  </button>
-                  <button type="button" className={scope === 'day' ? 'active' : ''} onClick={() => applyScope('day')}>
-                    Today <span>{todayStr}</span>
-                  </button>
+                  <button type="button" className={scope === 'year' ? 'active' : ''} onClick={() => applyScope('year')}>{today.getFullYear()} <span>year to date</span></button>
+                  <button type="button" className={scope === 'month' ? 'active' : ''} onClick={() => applyScope('month')}>This Month <span>month to date</span></button>
+                  <button type="button" className={scope === 'week' ? 'active' : ''} onClick={() => applyScope('week')}>This Week <span>week to date</span></button>
+                  <button type="button" className={scope === 'day' ? 'active' : ''} onClick={() => applyScope('day')}>Today <span>{todayStr}</span></button>
                 </div>
               )}
             </span>
@@ -339,18 +327,15 @@ export function OverviewPage() {
             <span className="status-dot" aria-hidden="true" />
             Live · {today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
           </div>
-          <button
-            type="button"
-            onClick={printDashboard}
-            className="tb-btn tb-btn--primary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            title="Print or save the dashboard as PDF"
-          >
+          <button type="button" onClick={printDashboard} className="tb-btn tb-btn--primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Print or save the dashboard as PDF">
             <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
             <span>Print</span>
           </button>
         </div>
       </div>
+
+      {/* Large chain rollup modifier bar */}
+      <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
 
       <div className="toolbar">
         <div className="toolbar-row">
@@ -358,15 +343,9 @@ export function OverviewPage() {
             <span className="toolbar-label">Range</span>
             <div className="preset-bar" role="group" aria-label="Quick date range">
               {PRESETS.map((p) => (
-                <button key={p.id} type="button"
-                  className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')}
-                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}>
-                  {p.label}
-                </button>
+                <button key={p.id} type="button" className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')} onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}>{p.label}</button>
               ))}
-              {activePreset === 'custom' && (
-                <button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>
-              )}
+              {activePreset === 'custom' && (<button type="button" className="preset-btn preset-btn--active" disabled>Custom</button>)}
             </div>
           </div>
 
@@ -377,15 +356,7 @@ export function OverviewPage() {
               format="YYYY-MM-DD"
               localeText={{ start: 'From', end: 'To' }}
               slotProps={{
-                textField: {
-                  size: 'small',
-                  sx: {
-                    width: 130,
-                    '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' },
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
-                  },
-                },
+                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' } } },
                 fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
               }}
             />
@@ -406,9 +377,7 @@ export function OverviewPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''}
-              onChange={(e) => setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })}
-              className="tb-select">
+            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers">
               <option value="">All</option>
               {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
@@ -416,12 +385,12 @@ export function OverviewPage() {
 
           <div className="toolbar-spacer" />
 
-          <button type="button" className="tb-btn"
-            onClick={() => {
-              const ytd = applyPreset('ytd', todayStr);
-              setFilters({ start: ytd.start, end: ytd.end, entities: null, categories: null, customers: null, items: null, channels: null, segments: null });
-              setCompareMode('prior_year');
-            }}>Reset</button>
+          <button type="button" className="tb-btn" onClick={() => {
+            const ytd = applyPreset('ytd', todayStr);
+            setFilters({ start: ytd.start, end: ytd.end, entities: null, categories: null, customers: null, items: null, channels: null, segments: null });
+            setCompareMode('prior_year');
+            setActiveModifiers([]);
+          }}>Reset</button>
 
           <a href="#margin" className="tb-btn">Open Margin →</a>
         </div>
@@ -431,8 +400,7 @@ export function OverviewPage() {
             const values = (filters[fd.key] as string[] | null | undefined) ?? [];
             return (
               <MultiPicker key={fd.dim} label={fd.label} values={values}
-                options={dimOpts[fd.dim] ?? null}
-                loading={dimOptsLoading[fd.dim] === true}
+                options={dimOpts[fd.dim] ?? null} loading={dimOptsLoading[fd.dim] === true}
                 onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
             );
           })}
@@ -443,30 +411,19 @@ export function OverviewPage() {
         <div className="chip-row">
           <span className="toolbar-label" style={{ marginRight: 6 }}>Filtered to</span>
           {chips.map((c) => c.values.map((v) => (
-            <span key={c.key + ':' + v} onClick={() => clearFilter(c.key, v)} title="click to remove" className="chip">
-              {c.label}: {v} ×
-            </span>
+            <span key={c.key + ':' + v} onClick={() => clearFilter(c.key, v)} title="click to remove" className="chip">{c.label}: {v} ×</span>
           )))}
         </div>
       )}
 
-      {totals == null ? (
-        <KpiRowSkeleton count={4} />
-      ) : (
+      {totals == null ? (<KpiRowSkeleton count={4} />) : (
         <div className="gr g4" style={{ marginBottom: 18 }}>
-          <KPICard
-            title="Revenue"
-            value={fm(totals.revenue)}
-            deltaPct={kpiDeltas.revenue}
+          <KPICard title="Revenue" value={fm(totals.revenue)} deltaPct={kpiDeltas.revenue}
             sparkline={revenueSpark ?? undefined}
-            sub={fmtNum(totals.invoice_count) + ' invoices' + (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')}
-          />
-          <KPICard title="Margin %" value={fp(totals.margin_pct)} deltaPct={kpiDeltas.margin}
-            sub={'on ' + fm(totals.est_margin) + ' margin'} />
-          <KPICard title="Customers" value={fmtNum(totals.customer_count)} deltaPct={kpiDeltas.customers}
-            sub={fmtNum(totals.item_count) + ' items sold'} />
-          <KPICard title="Avg Order Value" value={fm(aov)} deltaPct={kpiDeltas.aov}
-            sub={totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined} />
+            sub={fmtNum(totals.invoice_count) + ' invoices' + (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')} />
+          <KPICard title="Margin %" value={fp(totals.margin_pct)} deltaPct={kpiDeltas.margin} sub={'on ' + fm(totals.est_margin) + ' margin'} />
+          <KPICard title="Customers" value={fmtNum(totals.customer_count)} deltaPct={kpiDeltas.customers} sub={fmtNum(totals.item_count) + ' items sold'} />
+          <KPICard title="Avg Order Value" value={fm(aov)} deltaPct={kpiDeltas.aov} sub={totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined} />
         </div>
       )}
 
@@ -477,26 +434,17 @@ export function OverviewPage() {
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
               <div className="ct" style={{ margin: 0 }}>Monthly revenue</div>
-              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
-                {compareLabel || 'current period only'}
-              </div>
+              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>{compareLabel || 'current period only'}</div>
             </div>
           </div>
           <div style={{ padding: '14px' }}>
             {monthlyCurrent && monthlyPrior ? (
-              <AreaChart ariaLabel="Monthly revenue, current vs prior"
-                labels={monthLabels()}
+              <AreaChart ariaLabel="Monthly revenue, current vs prior" labels={monthLabels()}
                 series={[
                   { name: 'Current', color: '#5BB5F0', values: alignToMonths(monthlyCurrent) },
-                  ...(compareMode !== 'off' ? [{
-                    name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period',
-                    color: '#6B8190',
-                    values: alignToMonths(monthlyPrior),
-                  }] : []),
+                  ...(compareMode !== 'off' ? [{ name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period', color: '#6B8190', values: alignToMonths(monthlyPrior) }] : []),
                 ]} />
-            ) : (
-              <ChartSkeleton height={220} />
-            )}
+            ) : (<ChartSkeleton height={220} />)}
           </div>
         </div>
 
@@ -510,16 +458,9 @@ export function OverviewPage() {
           </div>
           <div style={{ padding: '14px' }}>
             {topCategories ? (
-              <DonutChart
-                data={topCategories.map((r, i) => ({
-                  label: r.dim_label, value: Number(r.revenue || 0),
-                  color: CHART_COLORS[i % CHART_COLORS.length],
-                }))}
-                centerLabel="Total" centerValue={fm(totals?.revenue ?? 0)}
-                ariaLabel="Revenue by category" />
-            ) : (
-              <ChartSkeleton height={220} />
-            )}
+              <DonutChart data={topCategories.map((r, i) => ({ label: r.dim_label, value: Number(r.revenue || 0), color: CHART_COLORS[i % CHART_COLORS.length] }))}
+                centerLabel="Total" centerValue={fm(totals?.revenue ?? 0)} ariaLabel="Revenue by category" />
+            ) : (<ChartSkeleton height={220} />)}
           </div>
         </div>
       </div>
@@ -532,18 +473,9 @@ export function OverviewPage() {
           </div>
           <a href="#customers" style={{ fontSize: 10, color: 'var(--mt)' }}>all customers →</a>
         </div>
-        {!topCustomers ? (
-          <div className="ld">Loading</div>
-        ) : (
+        {!topCustomers ? (<div className="ld">Loading</div>) : (
           <table>
-            <thead>
-              <tr>
-                <th>Customer</th>
-                <th style={{ textAlign: 'right' }}>Revenue</th>
-                <th style={{ textAlign: 'right' }}>Margin %</th>
-                <th>Trend (12mo)</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Customer</th><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Margin %</th><th>Trend (12mo)</th></tr></thead>
             <tbody>
               {topCustomers.map((r) => {
                 const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
@@ -578,12 +510,9 @@ function ActionPanel({ actions }: { actions: { reorderNow: number; inactive: num
   return (
     <div className="gr g4" style={{ marginBottom: 18, gap: 12 }}>
       {items.map((it) => (
-        <a key={it.id} href={it.href} className="cd"
-          style={{ display: 'block', padding: '14px 16px', borderLeft: '3px solid ' + it.tone, textDecoration: 'none', color: 'var(--tx)' }}>
+        <a key={it.id} href={it.href} className="cd" style={{ display: 'block', padding: '14px 16px', borderLeft: '3px solid ' + it.tone, textDecoration: 'none', color: 'var(--tx)' }}>
           <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 600 }}>{it.label}</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: it.count != null ? it.tone : 'var(--mt)', marginTop: 4, fontFamily: 'var(--ff-display)', fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.5px' }}>
-            {it.count ?? '…'}
-          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: it.count != null ? it.tone : 'var(--mt)', marginTop: 4, fontFamily: 'var(--ff-display)', fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.5px' }}>{it.count ?? '…'}</div>
           <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 4 }}>action needed →</div>
         </a>
       ))}
