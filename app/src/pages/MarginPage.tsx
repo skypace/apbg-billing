@@ -14,6 +14,7 @@ import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
+import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -41,6 +42,15 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'channel',  key: 'channels',   label: 'Channel' },
   { dim: 'segment',  key: 'segments',   label: 'Segment' },
 ];
+
+// Per-dim taxonomy: which dropdowns get grouped, and how.
+const GROUPING_BY_DIM: Partial<Record<Dim, {
+  groupBy: (l: string) => string;
+  groupOrder: Record<string, number>;
+}>> = {
+  item:     { groupBy: classifyItem,     groupOrder: ITEM_GROUP_ORDER     },
+  customer: { groupBy: classifyCustomer, groupOrder: CUSTOMER_GROUP_ORDER },
+};
 
 const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
   category: 'categories', customer: 'customers', item: 'items',
@@ -447,13 +457,14 @@ export function MarginPage() {
         </div>
       </div>
 
-      {/* Inline filter row — Category / Customer / Item / Channel / Segment / Rollup */}
       <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
         {FILTER_DIMS.map((fd) => {
           const values = (filters[fd.key] as string[] | null | undefined) ?? [];
+          const gx = GROUPING_BY_DIM[fd.dim];
           return (
             <MultiPicker key={fd.dim} label={fd.label} values={values}
               options={dimOpts[fd.dim] ?? null} loading={dimOptsLoading[fd.dim] === true}
+              groupBy={gx?.groupBy} groupOrder={gx?.groupOrder}
               onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
           );
         })}
