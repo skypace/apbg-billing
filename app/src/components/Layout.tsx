@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   TrendingUp,
   Activity,
-  Truck,
   Users,
   FileText,
   CalendarRange,
@@ -17,11 +16,11 @@ import {
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
+// Fleet moved to apbg-ops.netlify.app — removed from Margin Minder nav.
 const NAV: NavItem[] = [
   { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
   { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
   { id: 'operations', label: 'Operations', icon: Activity          },
-  { id: 'fleet',      label: 'Fleet',      icon: Truck             },
   { id: 'customers',  label: 'Customers',  icon: Users             },
   { id: 'reports',    label: 'Reports',    icon: FileText          },
   { id: 'plans',      label: 'Plans',      icon: CalendarRange     },
@@ -44,7 +43,10 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="brand">
           <div className="brand-mark">APBG</div>
-          <div className="brand-sub">Margin Minder</div>
+          <div className="brand-sub">
+            <span className="status-dot" aria-hidden="true" />
+            Margin Minder
+          </div>
         </div>
         <nav className="nav">
           {NAV.map((n) => {
@@ -57,7 +59,6 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
                 onClick={(e) => { e.preventDefault(); onNav(n.id); }}
                 className={'nav-item' + (on ? ' nav-item--active' : '')}
                 aria-current={on ? 'page' : undefined}
-                style={{ cursor: 'pointer' }}
               >
                 <Icon size={16} strokeWidth={2} aria-hidden="true" />
                 <span>{n.label}</span>
