@@ -1,39 +1,33 @@
 import { createTheme } from '@mui/material/styles';
 
-// Brix Margin Control — MUI theme.
-// Mirrors the CSS variable tokens declared in src/styles/theme.css so that
-// MUI components (DataGrid Pro, DatePickers, Buttons) inherit the same
-// dark-glass aesthetic as the rest of the hand-rolled UI.
-//
-// Source-of-truth values (do NOT drift from theme.css):
-//   --bg   #0A1218   page background
-//   --sf   #0F1A22   surface (cards, headers)
-//   --bd   rgba(255,255,255,0.06)
-//   --ink  #E6EEF1   primary text
-//   --mt   #9DB1BC   muted text
-//   --ac   #2DCAD6   accent / cyan (primary)
-//   --am   #F4B400   amber (secondary)
-//   --gn   #2EB872   success / positive
-//   --rd   #FF5A5F   error / negative
-//   --brix #003A49   brand teal (status bar, chrome)
+// Brix Margin Control — MUI theme. Mirrors the CSS variable tokens in
+// theme.css against the actual Brix Beverage brand:
+//   --brix      #143966   navy (logo circle, primary chrome)
+//   --ac        #5BB5F0   bubble blue (accents, the "bubble" dots above brix wordmark)
+//   --amber     #F4B400   warm secondary
+//   --alameda   #C8102E   Alameda Soda Co cross-brand red
+//   --bg        #06121F   page background (navy-tinted dark)
+//   --sf        #0E2240   surface
+//   --tx        #E6EEF7   primary text
+//   --mt        #6B8499   muted text
 
 export const brixTheme = createTheme({
   palette: {
     mode: 'dark',
-    primary:   { main: '#2DCAD6', dark: '#26B5C0', contrastText: '#0A1218' },
-    secondary: { main: '#F4B400', contrastText: '#0A1218' },
+    primary:   { main: '#5BB5F0', dark: '#3A8FCC', light: '#7ACBF5', contrastText: '#06121F' },
+    secondary: { main: '#F4B400', contrastText: '#06121F' },
     success:   { main: '#2EB872' },
     error:     { main: '#FF5A5F' },
     warning:   { main: '#F4B400' },
-    info:      { main: '#2DCAD6' },
+    info:      { main: '#5BB5F0' },
     background: {
-      default: '#0A1218',
-      paper:   '#0F1A22',
+      default: '#06121F',
+      paper:   '#0E2240',
     },
     text: {
-      primary:   '#E6EEF1',
-      secondary: '#9DB1BC',
-      disabled:  '#6B7E89',
+      primary:   '#E6EEF7',
+      secondary: '#94A8BD',
+      disabled:  '#5A6F84',
     },
     divider: 'rgba(255,255,255,0.08)',
   },
@@ -53,7 +47,7 @@ export const brixTheme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
-          backgroundColor: '#0F1A22',
+          backgroundColor: '#0E2240',
           border: '1px solid rgba(255,255,255,0.06)',
         },
       },
@@ -62,36 +56,36 @@ export const brixTheme = createTheme({
       styleOverrides: {
         root: { borderRadius: 10, fontWeight: 600 },
         containedPrimary: {
-          background: 'linear-gradient(180deg, #2DCAD6 0%, #26B5C0 100%)',
-          color: '#0A1218',
+          background: 'linear-gradient(135deg, #5BB5F0 0%, #3A8FCC 100%)',
+          color: '#06121F',
         },
       },
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          backgroundColor: '#0F1A22',
+          backgroundColor: '#0E2240',
           '& fieldset': { borderColor: 'rgba(255,255,255,0.10)' },
-          '&:hover fieldset': { borderColor: 'rgba(45,202,214,0.40)' },
+          '&:hover fieldset': { borderColor: 'rgba(91,181,240,0.40)' },
         },
       },
     },
     MuiCheckbox: {
-      styleOverrides: { root: { color: '#9DB1BC', '&.Mui-checked': { color: '#2DCAD6' } } },
+      styleOverrides: { root: { color: '#94A8BD', '&.Mui-checked': { color: '#5BB5F0' } } },
     },
     MuiSwitch: {
       styleOverrides: {
         root: {
-          '& .MuiSwitch-track': { backgroundColor: '#1A2730' },
-          '& .Mui-checked + .MuiSwitch-track': { backgroundColor: '#2DCAD6 !important' },
+          '& .MuiSwitch-track': { backgroundColor: '#1B3A5E' },
+          '& .Mui-checked + .MuiSwitch-track': { backgroundColor: '#5BB5F0 !important' },
         },
       },
     },
     MuiTooltip: {
       styleOverrides: {
         tooltip: {
-          backgroundColor: '#1A2730',
-          color: '#E6EEF1',
+          backgroundColor: '#163052',
+          color: '#E6EEF7',
           border: '1px solid rgba(255,255,255,0.08)',
           fontSize: 11,
         },
