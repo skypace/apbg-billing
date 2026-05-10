@@ -352,9 +352,6 @@ export function MarginPage() {
         </div>
       </div>
 
-      {/* Large chain rollup modifier bar */}
-      <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
-
       {totals == null && rows == null ? (<KpiRowSkeleton count={4} />) : (
         <div className="gr g4" style={{ marginBottom: 18 }}>
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
@@ -450,6 +447,7 @@ export function MarginPage() {
         </div>
       </div>
 
+      {/* Inline filter row — Category / Customer / Item / Channel / Segment / Rollup */}
       <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
         {FILTER_DIMS.map((fd) => {
           const values = (filters[fd.key] as string[] | null | undefined) ?? [];
@@ -459,6 +457,7 @@ export function MarginPage() {
               onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
           );
         })}
+        <ModifierPicker active={activeModifiers} onChange={setActiveModifiers} />
       </div>
 
       {chips.length > 0 && (
