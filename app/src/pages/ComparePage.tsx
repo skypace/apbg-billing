@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KPICard } from '../components/KPICard';
-import { PivotTable } from '../components/PivotTable';
+import { MarginGrid } from '../components/MarginGrid';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { inp } from '../lib/styles';
 import {
@@ -12,6 +12,7 @@ import {
   fetchTotals,
 } from '../lib/sales';
 import { SavedView, SavedViewConfig, fetchSavedViews } from '../lib/savedViews';
+import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 
 interface SideState {
   totals: SalesTotals | null;
@@ -69,14 +70,35 @@ export function ComparePage() {
       .catch((e) => { setErr(e.message); setSide({ totals: null, rows: [] }); });
   }
 
-  if (!views) return <div className="ld">Loading saved views…</div>;
+  const HeroBlock = (
+    <div className="hero">
+      <div>
+        <div className="hero-eyebrow">Saved views · A / B</div>
+        <h1 className="hero-title">Compare</h1>
+        <div className="hero-meta">Two saved views, side by side</div>
+      </div>
+      <div className="hero-stamp">
+        <span className="status-dot" aria-hidden="true" />
+        {views?.length ?? '…'} saved views
+      </div>
+    </div>
+  );
+
+  if (!views) return (
+    <div>
+      {HeroBlock}
+      <KpiRowSkeleton count={4} />
+    </div>
+  );
   if (views.length === 0) {
     return (
-      <div className="cd" style={{ padding: 20 }}>
-        <div className="pt">Compare</div>
-        <div style={{ fontSize: 12, color: 'var(--mt)' }}>
-          No saved views yet. Build one in the legacy <a href="/sales/#margin">Margin</a> page first
-          (saving views in the new app comes later).
+      <div>
+        {HeroBlock}
+        <div className="cd" style={{ padding: 20 }}>
+          <div style={{ fontSize: 12, color: 'var(--mt)' }}>
+            No saved views yet. Build one in the legacy <a href="/sales/#margin">Margin</a> page first
+            (saving views in the new app comes later).
+          </div>
         </div>
       </div>
     );
@@ -100,13 +122,13 @@ export function ComparePage() {
             <KPICard title="COVERAGE" value={fp(side.totals.cost_coverage_pct)} sub="cost coverage" />
           </div>
         ) : (
-          <div className="ld">Loading totals…</div>
+          <KpiRowSkeleton count={4} />
         )}
-        <div className="cd" style={{ padding: 0 }}>
+        <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
           {!side.rows ? (
-            <div className="ld">Loading pivot…</div>
+            <TableSkeleton rows={6} cols={6} />
           ) : (
-            <PivotTable
+            <MarginGrid
               dim={(view.config.dim ?? 'category') as Dim}
               rows={side.rows}
             />
@@ -118,13 +140,13 @@ export function ComparePage() {
 
   return (
     <div>
-      <div className="pt">Compare <span className="bg bg-l">A / B</span></div>
+      {HeroBlock}
 
       <div
         className="cd"
         style={{
           padding: '10px 12px',
-          marginBottom: 10,
+          marginBottom: 14,
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: 10,
