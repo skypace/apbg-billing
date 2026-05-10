@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs, { Dayjs } from 'dayjs';
-import { Printer } from 'lucide-react';
+import { ChevronDown, Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { CustomerLink } from '../components/CustomerLink';
@@ -12,43 +12,25 @@ import { KpiRowSkeleton, ChartSkeleton } from '../components/Skeletons';
 import { useToast } from '../lib/toast';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import {
-  Dim,
-  DimValue,
-  SalesFilters,
-  SalesPivotRow,
-  SalesTotals,
-  computePriorBounds,
-  fetchDimValues,
-  fetchPivot,
-  fetchSparkline,
-  fetchTotals,
-  trailing12MonthKeys,
+  Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
+  computePriorBounds, fetchDimValues, fetchPivot, fetchSparkline, fetchTotals, trailing12MonthKeys,
 } from '../lib/sales';
-import {
-  fetchAnomalies,
-  fetchHealthMovers,
-  fetchInactiveCustomers,
-} from '../lib/reports';
+import { fetchAnomalies, fetchHealthMovers, fetchInactiveCustomers } from '../lib/reports';
 import { fetchInventoryHealth } from '../lib/inventory';
 
 interface MonthRow extends SalesPivotRow { dim_label: string }
 
 type CompareMode = 'off' | 'prior_period' | 'prior_year';
-
 type Preset = 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90' | 'last365' | 'custom';
+type Scope = 'year' | 'month' | 'week' | 'day' | 'custom';
 
 const PRESETS: { id: Preset; label: string }[] = [
-  { id: 'mtd',     label: 'MTD'  },
-  { id: 'qtd',     label: 'QTD'  },
-  { id: 'ytd',     label: 'YTD'  },
-  { id: 'last30',  label: '30d'  },
-  { id: 'last90',  label: '90d'  },
-  { id: 'last365', label: '12mo' },
+  { id: 'mtd', label: 'MTD' }, { id: 'qtd', label: 'QTD' }, { id: 'ytd', label: 'YTD' },
+  { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
 
 const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
-// Same 5-dim filter row Margin uses, so Overview behaves identically.
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'category', key: 'categories', label: 'Category' },
   { dim: 'customer', key: 'customers',  label: 'Customer' },
@@ -61,18 +43,14 @@ function pad2(n: number) { return String(n).padStart(2, '0'); }
 
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
   const d = new Date(today + 'T00:00:00');
-  const Y = d.getFullYear();
-  const M = d.getMonth();
+  const Y = d.getFullYear(); const M = d.getMonth();
   switch (preset) {
     case 'mtd': return { start: `${Y}-${pad2(M + 1)}-01`, end: today };
-    case 'qtd': {
-      const qm = Math.floor(M / 3) * 3;
-      return { start: `${Y}-${pad2(qm + 1)}-01`, end: today };
-    }
-    case 'ytd':    return { start: `${Y}-01-01`, end: today };
-    case 'last30': { const dd = new Date(d); dd.setDate(dd.getDate() - 30);  return { start: dd.toISOString().slice(0, 10), end: today }; }
-    case 'last90': { const dd = new Date(d); dd.setDate(dd.getDate() - 90);  return { start: dd.toISOString().slice(0, 10), end: today }; }
-    case 'last365':{ const dd = new Date(d); dd.setDate(dd.getDate() - 365); return { start: dd.toISOString().slice(0, 10), end: today }; }
+    case 'qtd': { const qm = Math.floor(M / 3) * 3; return { start: `${Y}-${pad2(qm + 1)}-01`, end: today }; }
+    case 'ytd': return { start: `${Y}-01-01`, end: today };
+    case 'last30':  { const dd = new Date(d); dd.setDate(dd.getDate() - 30);  return { start: dd.toISOString().slice(0, 10), end: today }; }
+    case 'last90':  { const dd = new Date(d); dd.setDate(dd.getDate() - 90);  return { start: dd.toISOString().slice(0, 10), end: today }; }
+    case 'last365': { const dd = new Date(d); dd.setDate(dd.getDate() - 365); return { start: dd.toISOString().slice(0, 10), end: today }; }
   }
 }
 function detectActivePreset(start: string, end: string, today: string): Preset {
@@ -84,6 +62,31 @@ function detectActivePreset(start: string, end: string, today: string): Preset {
   return 'custom';
 }
 
+// Scope bounds — derived/applied independently from PRESETS so the hero
+// label cleanly maps onto a "natural calendar window."
+function scopeBounds(s: Exclude<Scope, 'custom'>, today: Date): { start: string; end: string } {
+  const todayStr = today.toISOString().slice(0, 10);
+  const Y = today.getFullYear();
+  if (s === 'year')  return { start: `${Y}-01-01`,                                       end: todayStr };
+  if (s === 'month') return { start: `${Y}-${pad2(today.getMonth() + 1)}-01`,            end: todayStr };
+  if (s === 'week') {
+    // Week-to-date — start on Sunday of the current week
+    const day = today.getDay();
+    const ws = new Date(today.getTime() - day * 86400000);
+    return { start: ws.toISOString().slice(0, 10), end: todayStr };
+  }
+  return { start: todayStr, end: todayStr };
+}
+function detectScope(start: string, end: string, today: Date): Scope {
+  const todayStr = today.toISOString().slice(0, 10);
+  if (end !== todayStr) return 'custom';
+  for (const s of ['year', 'month', 'week', 'day'] as const) {
+    const b = scopeBounds(s, today);
+    if (b.start === start) return s;
+  }
+  return 'custom';
+}
+
 export function OverviewPage() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -91,16 +94,23 @@ export function OverviewPage() {
   const toast = useToast();
 
   const [filters, setFilters] = useState<SalesFilters>({
-    start:      ytdStart,
-    end:        todayStr,
-    entities:   null,
-    categories: null,
-    customers:  null,
-    items:      null,
-    channels:   null,
-    segments:   null,
+    start: ytdStart, end: todayStr,
+    entities: null, categories: null, customers: null, items: null, channels: null, segments: null,
   });
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const scopeRef = useRef<HTMLSpanElement>(null);
+
+  // Close scope menu on outside click
+  useEffect(() => {
+    if (!scopeOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (!scopeRef.current) return;
+      if (!scopeRef.current.contains(e.target as Node)) setScopeOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [scopeOpen]);
 
   const priorFilters = useMemo<SalesFilters | null>(() => {
     if (compareMode === 'off') return null;
@@ -108,7 +118,6 @@ export function OverviewPage() {
     return { ...filters, start: prior_start, end: prior_end };
   }, [compareMode, filters]);
 
-  // Pre-load all 5 dim option sets so dropdowns are populated instantly.
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
   const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
 
@@ -117,7 +126,6 @@ export function OverviewPage() {
     const loading: Partial<Record<Dim, boolean>> = {};
     for (const fd of FILTER_DIMS) loading[fd.dim] = true;
     setDimOptsLoading(loading);
-
     for (const fd of FILTER_DIMS) {
       fetchDimValues(fd.dim, filters.start, filters.end)
         .then((rs) => {
@@ -137,22 +145,15 @@ export function OverviewPage() {
   const [customerSparks, setCustomerSparks] = useState<Record<string, number[]>>({});
   const [revenueSpark, setRevenueSpark] = useState<number[] | null>(null);
   const [actions, setActions] = useState<{
-    reorderNow: number;
-    inactive: number;
-    anomalies: number;
-    healthMovers: number;
+    reorderNow: number; inactive: number; anomalies: number; healthMovers: number;
   } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setTotals(null); setPriorTotals(null);
-    fetchTotals(filters)
-      .then((cur) => { if (!cancelled) setTotals(cur); })
-      .catch(() => { if (!cancelled) setTotals(null); });
+    fetchTotals(filters).then((cur) => { if (!cancelled) setTotals(cur); }).catch(() => {});
     if (priorFilters) {
-      fetchTotals(priorFilters)
-        .then((p) => { if (!cancelled) setPriorTotals(p); })
-        .catch(() => { if (!cancelled) setPriorTotals(null); });
+      fetchTotals(priorFilters).then((p) => { if (!cancelled) setPriorTotals(p); }).catch(() => {});
     }
     return () => { cancelled = true; };
   }, [JSON.stringify(filters), JSON.stringify(priorFilters)]);
@@ -160,13 +161,9 @@ export function OverviewPage() {
   useEffect(() => {
     let cancelled = false;
     setMonthlyCurrent(null); setMonthlyPrior(null);
-    fetchPivot('month' as Dim, filters, 24)
-      .then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); })
-      .catch(() => { if (!cancelled) setMonthlyCurrent([]); });
+    fetchPivot('month' as Dim, filters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyCurrent([]));
     if (priorFilters) {
-      fetchPivot('month' as Dim, priorFilters, 24)
-        .then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); })
-        .catch(() => { if (!cancelled) setMonthlyPrior([]); });
+      fetchPivot('month' as Dim, priorFilters, 24).then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyPrior([]));
     } else {
       setMonthlyPrior([]);
     }
@@ -203,21 +200,15 @@ export function OverviewPage() {
     Promise.allSettled([
       fetchInventoryHealth({ lookback: 90, managed_only: true }),
       fetchInactiveCustomers({
-        current_start: filters.start,
-        current_end: filters.end,
+        current_start: filters.start, current_end: filters.end,
         prior_start: (today.getFullYear() - 1) + '-01-01',
         prior_end: (today.getFullYear() - 1) + '-12-31',
-        min_prior_rev: 1000,
-        max_current_rev: 0,
-        limit: 500,
+        min_prior_rev: 1000, max_current_rev: 0, limit: 500,
       }),
       fetchAnomalies({ baseline_months: 6, recent_months: 1, min_baseline: 500, sigma_threshold: 2 }),
       fetchHealthMovers(14),
     ]).then(([inv, inact, anom, hm]) => {
-      const reorderNow =
-        inv.status === 'fulfilled'
-          ? inv.value.filter((r) => r.status === 'reorder_now').length
-          : 0;
+      const reorderNow = inv.status === 'fulfilled' ? inv.value.filter((r) => r.status === 'reorder_now').length : 0;
       const inactive = inact.status === 'fulfilled' ? inact.value.length : 0;
       const anomalies = anom.status === 'fulfilled' ? anom.value.length : 0;
       const healthMovers = hm.status === 'fulfilled' ? hm.value.length : 0;
@@ -234,8 +225,7 @@ export function OverviewPage() {
       const k = toYm(r.dim_label);
       if (!byMonth.has(k)) byMonth.set(k, Number(r.revenue || 0));
     }
-    const vals = keys.map((k) => byMonth.get(k) ?? 0);
-    setRevenueSpark(vals);
+    setRevenueSpark(keys.map((k) => byMonth.get(k) ?? 0));
   }, [monthlyCurrent, monthlyPrior, filters.end]);
 
   const kpiDeltas = useMemo(() => {
@@ -258,13 +248,23 @@ export function OverviewPage() {
   }, [totals, priorTotals]);
 
   const aov = totals && totals.invoice_count > 0 ? Number(totals.revenue) / Number(totals.invoice_count) : 0;
-
   const compareLabel =
     compareMode === 'prior_period' ? 'vs prior period' :
-    compareMode === 'prior_year'   ? 'vs same period last year' :
-                                     '';
+    compareMode === 'prior_year'   ? 'vs same period last year' : '';
   const activePreset = detectActivePreset(filters.start, filters.end, todayStr);
+  const scope = detectScope(filters.start, filters.end, today);
+  const scopeDisplay =
+    scope === 'year'  ? String(today.getFullYear()) :
+    scope === 'month' ? 'This Month' :
+    scope === 'week'  ? 'This Week' :
+    scope === 'day'   ? 'Today' :
+                        String(today.getFullYear());
 
+  function applyScope(s: Exclude<Scope, 'custom'>) {
+    const b = scopeBounds(s, today);
+    setFilters((cur) => ({ ...cur, start: b.start, end: b.end }));
+    setScopeOpen(false);
+  }
   function applyPresetClick(p: Exclude<Preset, 'custom'>) {
     const r = applyPreset(p, todayStr);
     setFilters((cur) => ({ ...cur, start: r.start, end: r.end }));
@@ -297,13 +297,40 @@ export function OverviewPage() {
 
   return (
     <div>
-      {/* Hero header */}
       <div className="hero">
         <div>
           <div className="hero-eyebrow">{filters.start} → {filters.end}{compareLabel ? ` · ${compareLabel}` : ''}</div>
           <h1 className="hero-title">
             Overview
-            <span className="hero-accent">{today.getFullYear()}</span>
+            <span className="hero-scope-wrap" ref={scopeRef}>
+              <button
+                type="button"
+                className="hero-accent hero-accent-btn"
+                onClick={() => setScopeOpen(!scopeOpen)}
+                aria-expanded={scopeOpen}
+                aria-haspopup="menu"
+                title="Change time scope"
+              >
+                {scopeDisplay}
+                <ChevronDown size={18} strokeWidth={2.4} aria-hidden="true" />
+              </button>
+              {scopeOpen && (
+                <div className="hero-scope-menu" role="menu">
+                  <button type="button" className={scope === 'year' ? 'active' : ''} onClick={() => applyScope('year')}>
+                    {today.getFullYear()} <span>year to date</span>
+                  </button>
+                  <button type="button" className={scope === 'month' ? 'active' : ''} onClick={() => applyScope('month')}>
+                    This Month <span>month to date</span>
+                  </button>
+                  <button type="button" className={scope === 'week' ? 'active' : ''} onClick={() => applyScope('week')}>
+                    This Week <span>week to date</span>
+                  </button>
+                  <button type="button" className={scope === 'day' ? 'active' : ''} onClick={() => applyScope('day')}>
+                    Today <span>{todayStr}</span>
+                  </button>
+                </div>
+              )}
+            </span>
           </h1>
           <div className="hero-meta">Brix Beverage · Alameda Soda Co · combined entities</div>
         </div>
@@ -325,19 +352,15 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* Toolbar — presets + date picker + compare on row 1, full filter row on row 2 */}
       <div className="toolbar">
         <div className="toolbar-row">
           <div className="toolbar-section">
             <span className="toolbar-label">Range</span>
             <div className="preset-bar" role="group" aria-label="Quick date range">
               {PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
+                <button key={p.id} type="button"
                   className={'preset-btn' + (activePreset === p.id ? ' preset-btn--active' : '')}
-                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}
-                >
+                  onClick={() => applyPresetClick(p.id as Exclude<Preset, 'custom'>)}>
                   {p.label}
                 </button>
               ))}
@@ -358,13 +381,7 @@ export function OverviewPage() {
                   size: 'small',
                   sx: {
                     width: 130,
-                    '& .MuiInputBase-root': {
-                      height: 30,
-                      fontFamily: 'var(--ff-mono)',
-                      fontSize: 12,
-                      background: 'var(--bg)',
-                      color: 'var(--tx)',
-                    },
+                    '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' },
                     '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
                     '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
                   },
@@ -389,11 +406,9 @@ export function OverviewPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select
-              value={filters.entities?.[0] ?? ''}
+            <select value={filters.entities?.[0] ?? ''}
               onChange={(e) => setFilters({ ...filters, entities: e.target.value ? [e.target.value] : null })}
-              className="tb-select"
-            >
+              className="tb-select">
               <option value="">All</option>
               {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
@@ -401,40 +416,24 @@ export function OverviewPage() {
 
           <div className="toolbar-spacer" />
 
-          <button
-            type="button"
-            className="tb-btn"
+          <button type="button" className="tb-btn"
             onClick={() => {
               const ytd = applyPreset('ytd', todayStr);
-              setFilters({
-                start: ytd.start, end: ytd.end,
-                entities: null, categories: null, customers: null,
-                items: null, channels: null, segments: null,
-              });
+              setFilters({ start: ytd.start, end: ytd.end, entities: null, categories: null, customers: null, items: null, channels: null, segments: null });
               setCompareMode('prior_year');
-            }}
-          >
-            Reset
-          </button>
+            }}>Reset</button>
 
           <a href="#margin" className="tb-btn">Open Margin →</a>
         </div>
 
-        {/* Row 2: full 5-dim filter row */}
         <div className="toolbar-row" style={{ alignItems: 'center' }}>
           {FILTER_DIMS.map((fd) => {
             const values = (filters[fd.key] as string[] | null | undefined) ?? [];
             return (
-              <MultiPicker
-                key={fd.dim}
-                label={fd.label}
-                values={values}
+              <MultiPicker key={fd.dim} label={fd.label} values={values}
                 options={dimOpts[fd.dim] ?? null}
                 loading={dimOptsLoading[fd.dim] === true}
-                onChange={(next) =>
-                  setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))
-                }
-              />
+                onChange={(next) => setFilters((cur) => ({ ...cur, [fd.key]: next.length ? next : null }))} />
             );
           })}
         </div>
@@ -443,22 +442,14 @@ export function OverviewPage() {
       {chips.length > 0 && (
         <div className="chip-row">
           <span className="toolbar-label" style={{ marginRight: 6 }}>Filtered to</span>
-          {chips.map((c) =>
-            c.values.map((v) => (
-              <span
-                key={c.key + ':' + v}
-                onClick={() => clearFilter(c.key, v)}
-                title="click to remove"
-                className="chip"
-              >
-                {c.label}: {v} ×
-              </span>
-            )),
-          )}
+          {chips.map((c) => c.values.map((v) => (
+            <span key={c.key + ':' + v} onClick={() => clearFilter(c.key, v)} title="click to remove" className="chip">
+              {c.label}: {v} ×
+            </span>
+          )))}
         </div>
       )}
 
-      {/* KPI row */}
       {totals == null ? (
         <KpiRowSkeleton count={4} />
       ) : (
@@ -468,36 +459,19 @@ export function OverviewPage() {
             value={fm(totals.revenue)}
             deltaPct={kpiDeltas.revenue}
             sparkline={revenueSpark ?? undefined}
-            sub={
-              fmtNum(totals.invoice_count) + ' invoices' +
-              (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')
-            }
+            sub={fmtNum(totals.invoice_count) + ' invoices' + (priorTotals ? ' · vs ' + fm(priorTotals.revenue) : '')}
           />
-          <KPICard
-            title="Margin %"
-            value={fp(totals.margin_pct)}
-            deltaPct={kpiDeltas.margin}
-            sub={'on ' + fm(totals.est_margin) + ' margin'}
-          />
-          <KPICard
-            title="Customers"
-            value={fmtNum(totals.customer_count)}
-            deltaPct={kpiDeltas.customers}
-            sub={fmtNum(totals.item_count) + ' items sold'}
-          />
-          <KPICard
-            title="Avg Order Value"
-            value={fm(aov)}
-            deltaPct={kpiDeltas.aov}
-            sub={totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined}
-          />
+          <KPICard title="Margin %" value={fp(totals.margin_pct)} deltaPct={kpiDeltas.margin}
+            sub={'on ' + fm(totals.est_margin) + ' margin'} />
+          <KPICard title="Customers" value={fmtNum(totals.customer_count)} deltaPct={kpiDeltas.customers}
+            sub={fmtNum(totals.item_count) + ' items sold'} />
+          <KPICard title="Avg Order Value" value={fm(aov)} deltaPct={kpiDeltas.aov}
+            sub={totals.cost_coverage_pct != null ? fp(totals.cost_coverage_pct) + ' cost coverage' : undefined} />
         </div>
       )}
 
-      {/* Action panel */}
       <ActionPanel actions={actions} />
 
-      {/* Trend + Donut */}
       <div className="gr g2" style={{ marginBottom: 18, gap: 14 }}>
         <div className="cd" style={{ padding: 0 }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -510,22 +484,16 @@ export function OverviewPage() {
           </div>
           <div style={{ padding: '14px' }}>
             {monthlyCurrent && monthlyPrior ? (
-              <AreaChart
-                ariaLabel="Monthly revenue, current vs prior"
+              <AreaChart ariaLabel="Monthly revenue, current vs prior"
                 labels={monthLabels()}
                 series={[
-                  {
-                    name: 'Current',
-                    color: '#5BB5F0',
-                    values: alignToMonths(monthlyCurrent),
-                  },
+                  { name: 'Current', color: '#5BB5F0', values: alignToMonths(monthlyCurrent) },
                   ...(compareMode !== 'off' ? [{
                     name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period',
                     color: '#6B8190',
                     values: alignToMonths(monthlyPrior),
                   }] : []),
-                ]}
-              />
+                ]} />
             ) : (
               <ChartSkeleton height={220} />
             )}
@@ -544,14 +512,11 @@ export function OverviewPage() {
             {topCategories ? (
               <DonutChart
                 data={topCategories.map((r, i) => ({
-                  label: r.dim_label,
-                  value: Number(r.revenue || 0),
+                  label: r.dim_label, value: Number(r.revenue || 0),
                   color: CHART_COLORS[i % CHART_COLORS.length],
                 }))}
-                centerLabel="Total"
-                centerValue={fm(totals?.revenue ?? 0)}
-                ariaLabel="Revenue by category"
-              />
+                centerLabel="Total" centerValue={fm(totals?.revenue ?? 0)}
+                ariaLabel="Revenue by category" />
             ) : (
               <ChartSkeleton height={220} />
             )}
@@ -559,17 +524,8 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* Top customers */}
       <div className="cd" style={{ padding: 0 }}>
-        <div
-          style={{
-            padding: '14px 16px',
-            borderBottom: '1px solid var(--bd)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-          }}
-        >
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div>
             <div className="ct" style={{ margin: 0 }}>Top customers</div>
             <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>by revenue, with 12-mo trend</div>
@@ -591,14 +547,7 @@ export function OverviewPage() {
             <tbody>
               {topCustomers.map((r) => {
                 const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
-                const mpColor =
-                  mp == null
-                    ? 'var(--mt)'
-                    : mp >= 0.4
-                      ? 'var(--success)'
-                      : mp >= 0
-                        ? 'var(--warning)'
-                        : 'var(--danger)';
+                const mpColor = mp == null ? 'var(--mt)' : mp >= 0.4 ? 'var(--success)' : mp >= 0 ? 'var(--warning)' : 'var(--danger)';
                 const spark = customerSparks[r.dim_label];
                 return (
                   <tr key={r.dim_label}>
@@ -629,33 +578,10 @@ function ActionPanel({ actions }: { actions: { reorderNow: number; inactive: num
   return (
     <div className="gr g4" style={{ marginBottom: 18, gap: 12 }}>
       {items.map((it) => (
-        <a
-          key={it.id}
-          href={it.href}
-          className="cd"
-          style={{
-            display: 'block',
-            padding: '14px 16px',
-            borderLeft: '3px solid ' + it.tone,
-            textDecoration: 'none',
-            color: 'var(--tx)',
-          }}
-        >
-          <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 600 }}>
-            {it.label}
-          </div>
-          <div
-            style={{
-              fontSize: 28,
-              fontWeight: 700,
-              color: it.count != null ? it.tone : 'var(--mt)',
-              marginTop: 4,
-              fontFamily: 'var(--ff-display)',
-              fontVariantNumeric: 'tabular-nums',
-              lineHeight: 1,
-              letterSpacing: '-0.5px',
-            }}
-          >
+        <a key={it.id} href={it.href} className="cd"
+          style={{ display: 'block', padding: '14px 16px', borderLeft: '3px solid ' + it.tone, textDecoration: 'none', color: 'var(--tx)' }}>
+          <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 1.4, textTransform: 'uppercase', fontWeight: 600 }}>{it.label}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: it.count != null ? it.tone : 'var(--mt)', marginTop: 4, fontFamily: 'var(--ff-display)', fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.5px' }}>
             {it.count ?? '…'}
           </div>
           <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 4 }}>action needed →</div>
@@ -667,32 +593,20 @@ function ActionPanel({ actions }: { actions: { reorderNow: number; inactive: num
 
 function RowSpark({ values }: { values: number[] }) {
   const max = Math.max(1, ...values);
-  const w = 120;
-  const h = 24;
+  const w = 120; const h = 24;
   const stepX = w / Math.max(values.length - 1, 1);
-  const points = values
-    .map((v, i) => `${i * stepX},${h - (Math.max(0, v) / max) * (h - 2)}`)
-    .join(' ');
+  const points = values.map((v, i) => `${i * stepX},${h - (Math.max(0, v) / max) * (h - 2)}`).join(' ');
   const lastIdx = values.length - 1;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
       <polyline points={points} fill="none" stroke="var(--ac)" strokeWidth={1.4} opacity={0.85} />
-      <circle
-        cx={lastIdx * stepX}
-        cy={h - (Math.max(0, values[lastIdx]) / max) * (h - 2)}
-        r={1.8}
-        fill="var(--ac)"
-      />
+      <circle cx={lastIdx * stepX} cy={h - (Math.max(0, values[lastIdx]) / max) * (h - 2)} r={1.8} fill="var(--ac)" />
     </svg>
   );
 }
 
-function toYm(label: string): string {
-  return label.length >= 7 ? label.slice(0, 7) : label;
-}
-function monthLabels(): string[] {
-  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-}
+function toYm(label: string): string { return label.length >= 7 ? label.slice(0, 7) : label; }
+function monthLabels(): string[] { return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; }
 function alignToMonths(rows: MonthRow[] | null | undefined): number[] {
   if (!rows) return Array(12).fill(0);
   const map = new Map<number, number>();
