@@ -295,8 +295,6 @@ export function MarginPage() {
       .catch(() => setComparison(null));
   }, [compareMode, rows, dim, JSON.stringify(effectiveFilters)]);
 
-  // Sparklines — fetch when user toggles the Trend col OR selects a column
-  // that needs sparkline data (Forecast 30/60/90).
   useEffect(() => {
     const need = showSparklines || columnsNeedSparklines(extraColumns);
     if (!need || !rows || rows.length === 0 || dim === 'month') { setSparklines({}); return; }
@@ -357,7 +355,12 @@ export function MarginPage() {
       const oh = overheadPools.length > 0 && totals
         ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
       const spark = sparklines[r.dim_label];
-      const row = { ...(r as object), ...meta, ...oh, _spark12: spark } as SalesPivotRow & Record<string, unknown>;
+      // Spread the typed row first so SalesPivotRow fields are preserved; meta/oh layer
+      // in dynamic enrichment keys; double-cast through unknown to satisfy the strict
+      // SalesPivotRow & Record<string, unknown> intersection type below.
+      const row = {
+        ...r, ...meta, ...oh, _spark12: spark,
+      } as unknown as SalesPivotRow & Record<string, unknown>;
       const extraVals = extraColumns.map((c) => {
         const v = c.compute ? c.compute(row) : (c.enrichmentKey ? (row[c.enrichmentKey] as string | number | null) : null);
         if (v == null) return '';
@@ -486,7 +489,6 @@ export function MarginPage() {
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] = comparison ?? (rows ?? []);
 
-  // Enriched rows = base + API enrichment + overhead fields + sparkline trail (for forecast cols + modal).
   const enrichedRows = useMemo(() => {
     const hasEnrichment = Object.keys(enrichment).length > 0;
     const hasOverhead   = overheadPools.length > 0 && totals != null;
