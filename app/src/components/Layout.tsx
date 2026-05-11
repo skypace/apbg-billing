@@ -3,6 +3,7 @@ import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
   GitCompareArrows, Package, Settings as SettingsIcon, LogOut,
+  BookOpen,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
@@ -22,6 +23,12 @@ const NAV: NavItem[] = [
   { id: 'inventory',  label: 'Inventory',  icon: Package           },
   { id: 'settings',   label: 'Settings',   icon: SettingsIcon      },
 ];
+
+// Interactive user guide — markdown source at docs/margin-control/user-guide.md,
+// viewer at public/docs/margin-control/index.html, surfaced through the gateway
+// at /margin/docs/margin-control/. Absolute URL so the link is correct from
+// any deploy context (prod gateway / staging subdomain / local dev).
+const USER_GUIDE_URL = 'https://alamedapointbg.com/margin/docs/margin-control/';
 
 interface LayoutProps {
   current: View;
@@ -102,6 +109,16 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
             </div>
           )}
           {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <a
+            href={USER_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sign-out help-link"
+            title="Open the BRIX Margin Control user guide in a new tab"
+          >
+            <BookOpen size={13} strokeWidth={2} aria-hidden="true" />
+            <span>User Guide</span>
+          </a>
           <button onClick={onLogout} className="sign-out" type="button" title="Sign out">
             <LogOut size={13} strokeWidth={2} aria-hidden="true" />
             <span>Sign out</span>
