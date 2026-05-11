@@ -18,6 +18,7 @@ import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
+import { fetchEntityOptions, type EntityOption } from '../lib/settings';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 import {
   type MarginColumnDef,
@@ -54,7 +55,9 @@ const DIMS: { id: Dim; label: string }[] = [
   { id: 'segment', label: 'Segment' }, { id: 'channel', label: 'Channel' },
 ];
 
-const BASE_ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
+// Fallback list when the live RPC returns empty. Real entities now come from
+// fn_list_entities() — see useEffect below.
+const FALLBACK_ENTITIES = ['brix', 'AS', 'freeflow', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'category', key: 'categories', label: 'Category' },
@@ -154,10 +157,17 @@ export function MarginPage() {
   const ytdStart = new Date().getFullYear() + '-01-01';
   const toast = useToast();
 
+  const [entityList, setEntityList] = useState<EntityOption[]>([]);
+  useEffect(() => {
+    fetchEntityOptions().then(setEntityList).catch(() => setEntityList([]));
+  }, []);
   const entityOptions = useMemo(() => {
     const fromSettings = Object.keys(getEntityDefaults());
-    return Array.from(new Set([...BASE_ENTITIES, ...fromSettings]));
-  }, []);
+    const fromData = entityList.map((e) => e.entity);
+    const set = new Set<string>([...fromData, ...fromSettings]);
+    if (set.size === 0) for (const e of FALLBACK_ENTITIES) set.add(e);
+    return Array.from(set);
+  }, [entityList]);
 
   const [dim, setDim] = useState<Dim>('category');
   const [filters, setFilters] = useState<SalesFilters>({ start: ytdStart, end: today, entities: null });
