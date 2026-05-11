@@ -1,29 +1,24 @@
 // Margin → Columns registry.
 //
-// Phase 1 (v0.9.0): three derived per-unit columns (price / COGS / gross)
-//   that compute from pivot fields and work for every dim.
-// Phase 2A (v0.9.1): customer enrichment via fn_dim_meta('customer') —
-//   address, channel, type, contact.
-// Phase 2B (v0.9.2): item enrichment via fn_dim_meta('item') —
-//   SKU, type, category path, master list price + master item cost,
-//   on-hand qty, inventory value, income/expense/asset accounts.
-// Phase 2C (v0.9.3): customer AR balance + aging buckets.
-// Workstream B (v0.9.6): Overhead allocation columns — Overhead $,
-//   Overhead/unit, Net Margin $, Net Margin %, Unit Net. These read
-//   from underscore-prefixed fields that MarginPage pre-computes per
-//   row using fn_overhead_total + the active pool bases.
+// Phase 1 (v0.9.0): three derived per-unit columns.
+// Phase 2A (v0.9.1): customer enrichment.
+// Phase 2B (v0.9.2): item enrichment.
+// Phase 2C (v0.9.3): AR aging.
+// Workstream B (v0.9.6-7): Overhead allocation columns.
+// Workstream C (v0.9.11): Break-even units — minimum sales velocity to
+//   cover allocated overhead at current per-unit margin.
 
 import type { Dim, SalesPivotRow } from './sales';
 import { fm, fp, fmtNum } from './formatters';
 
 export type MarginColumnGroup =
-  | 'unit'        // Per-unit price / COGS / margin / overhead / net
-  | 'overhead'    // Overhead allocation results — $, %, net
-  | 'address'     // Customer city / state / zip / street
-  | 'attribute'   // SKU, UPC, brand, size, contact, type, etc.
-  | 'ar'          // AR balance, aging buckets, oldest-overdue
-  | 'inventory'   // On-hand qty, inventory value, days of supply
-  | 'derived';    // Account refs, lifetime gross, days-since, etc.
+  | 'unit'
+  | 'overhead'
+  | 'address'
+  | 'attribute'
+  | 'ar'
+  | 'inventory'
+  | 'derived';
 
 export interface MarginColumnDef {
   id: string;
@@ -37,10 +32,6 @@ export interface MarginColumnDef {
   enrichmentKey?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const fmtString = (v: unknown): string => (v == null || v === '' ? '—' : String(v));
 const fmtBool   = (v: unknown): string => (v == null ? '—' : v ? 'yes' : 'no');
 const fmtMoney  = (v: unknown): string => (v == null ? '—' : fm(Number(v)));
@@ -53,16 +44,8 @@ const fmtMoneyZeroDash = (v: unknown): string => {
   return fm(n);
 };
 
-// ---------------------------------------------------------------------------
-// Phase 1 — Unit-level derived columns (work for every dim with qty)
-// ---------------------------------------------------------------------------
-
 const UNIT_PRICE: MarginColumnDef = {
-  id: 'unit_price',
-  label: 'Unit Price (avg)',
-  dims: 'all',
-  group: 'unit',
-  width: 130,
+  id: 'unit_price', label: 'Unit Price (avg)', dims: 'all', group: 'unit', width: 130,
   compute: (r) => {
     const q = Number(r.qty ?? 0);
     const rev = Number(r.revenue ?? 0);
@@ -72,11 +55,7 @@ const UNIT_PRICE: MarginColumnDef = {
 };
 
 const UNIT_COST: MarginColumnDef = {
-  id: 'unit_cost',
-  label: 'Unit COGS (avg)',
-  dims: 'all',
-  group: 'unit',
-  width: 130,
+  id: 'unit_cost', label: 'Unit COGS (avg)', dims: 'all', group: 'unit', width: 130,
   compute: (r) => {
     const q = Number(r.qty ?? 0);
     const c = r.est_cost != null ? Number(r.est_cost) : null;
@@ -86,11 +65,7 @@ const UNIT_COST: MarginColumnDef = {
 };
 
 const UNIT_GROSS: MarginColumnDef = {
-  id: 'unit_gross',
-  label: 'Unit Gross (avg)',
-  dims: 'all',
-  group: 'unit',
-  width: 130,
+  id: 'unit_gross', label: 'Unit Gross (avg)', dims: 'all', group: 'unit', width: 130,
   compute: (r) => {
     const q = Number(r.qty ?? 0);
     const m = r.est_margin != null ? Number(r.est_margin) : null;
@@ -99,50 +74,47 @@ const UNIT_GROSS: MarginColumnDef = {
   format: fmtMoney,
 };
 
-// ---------------------------------------------------------------------------
-// Workstream B — Overhead allocation columns
-// ---------------------------------------------------------------------------
-// MarginPage pre-computes _overhead, _overhead_per_unit, _net_margin,
-// _net_margin_pct, _unit_net per row before passing to MarginGrid.
-// These columns just look them up via enrichmentKey.
-
 function overheadCol(
-  id: string,
-  label: string,
-  enrichmentKey: string,
-  width: number,
-  format: (v: unknown) => string,
+  id: string, label: string, enrichmentKey: string, width: number, format: (v: unknown) => string,
 ): MarginColumnDef {
-  return {
-    id, label, dims: 'all', group: 'overhead', width,
-    requiresFetch: false, enrichmentKey, format,
-  };
+  return { id, label, dims: 'all', group: 'overhead', width, requiresFetch: false, enrichmentKey, format };
 }
 
 const OVERHEAD_COLUMNS: MarginColumnDef[] = [
-  overheadCol('overhead_total',     'Overhead $',      '_overhead',          120, fmtMoneyZeroDash),
-  overheadCol('overhead_per_unit',  'OH / unit',       '_overhead_per_unit', 110, fmtMoney),
-  overheadCol('net_margin',         'Net Margin $',    '_net_margin',        130, fmtMoney),
-  overheadCol('net_margin_pct',     'Net Margin %',    '_net_margin_pct',    110, fmtPct),
-  overheadCol('unit_net',           'Unit Net',        '_unit_net',          110, fmtMoney),
+  overheadCol('overhead_total',    'Overhead $',    '_overhead',          120, fmtMoneyZeroDash),
+  overheadCol('overhead_per_unit', 'OH / unit',     '_overhead_per_unit', 110, fmtMoney),
+  overheadCol('net_margin',        'Net Margin $',  '_net_margin',        130, fmtMoney),
+  overheadCol('net_margin_pct',    'Net Margin %',  '_net_margin_pct',    110, fmtPct),
+  overheadCol('unit_net',          'Unit Net',      '_unit_net',          110, fmtMoney),
 ];
 
-// ---------------------------------------------------------------------------
-// Phase 2A / 2C — Customer enrichment columns
-// ---------------------------------------------------------------------------
+// Break-even units (Workstream C): how many units this row would need to
+// sell at the current gross-per-unit to cover its allocated overhead.
+// breakeven = _overhead / unit_gross_per_unit
+const BREAKEVEN_UNITS: MarginColumnDef = {
+  id: 'breakeven_units',
+  label: 'Break-even Units',
+  dims: 'all',
+  group: 'overhead',
+  width: 130,
+  compute: (r) => {
+    const oh = r._overhead != null ? Number(r._overhead) : 0;
+    if (oh <= 0) return null;
+    const q = Number(r.qty ?? 0);
+    const m = r.est_margin != null ? Number(r.est_margin) : null;
+    if (q <= 0 || m == null || m <= 0) return null;
+    const unitGross = m / q;
+    if (unitGross <= 0) return null;
+    return oh / unitGross;
+  },
+  format: (v) => (v == null ? '—' : fmtNum(Math.ceil(Number(v))) + ' u'),
+};
 
 function customerCol(
-  id: string,
-  label: string,
-  group: MarginColumnGroup,
-  enrichmentKey: string,
-  width = 140,
-  format: (v: unknown) => string = fmtString,
+  id: string, label: string, group: MarginColumnGroup, enrichmentKey: string,
+  width = 140, format: (v: unknown) => string = fmtString,
 ): MarginColumnDef {
-  return {
-    id, label, dims: ['customer'], group, width,
-    requiresFetch: true, enrichmentKey, format,
-  };
+  return { id, label, dims: ['customer'], group, width, requiresFetch: true, enrichmentKey, format };
 }
 
 const CUSTOMER_COLUMNS: MarginColumnDef[] = [
@@ -169,22 +141,11 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('days_oldest_overdue', 'Oldest Overdue',  'ar', 'days_oldest_overdue', 130, (v) => v == null ? '—' : `${fmtNum(Number(v))} d`),
 ];
 
-// ---------------------------------------------------------------------------
-// Phase 2B — Item enrichment columns
-// ---------------------------------------------------------------------------
-
 function itemCol(
-  id: string,
-  label: string,
-  group: MarginColumnGroup,
-  enrichmentKey: string,
-  width = 130,
-  format: (v: unknown) => string = fmtString,
+  id: string, label: string, group: MarginColumnGroup, enrichmentKey: string,
+  width = 130, format: (v: unknown) => string = fmtString,
 ): MarginColumnDef {
-  return {
-    id, label, dims: ['item'], group, width,
-    requiresFetch: true, enrichmentKey, format,
-  };
+  return { id, label, dims: ['item'], group, width, requiresFetch: true, enrichmentKey, format };
 }
 
 const ITEM_COLUMNS: MarginColumnDef[] = [
@@ -205,33 +166,22 @@ const ITEM_COLUMNS: MarginColumnDef[] = [
   itemCol('asset_account',   'Asset Account',   'derived', 'asset_account',   180),
 ];
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
 export const MARGIN_COLUMN_REGISTRY: MarginColumnDef[] = [
   UNIT_PRICE,
   UNIT_COST,
   UNIT_GROSS,
   ...OVERHEAD_COLUMNS,
+  BREAKEVEN_UNITS,
   ...CUSTOMER_COLUMNS,
   ...ITEM_COLUMNS,
 ];
 
 export function getColumnsForDim(dim: Dim): MarginColumnDef[] {
-  return MARGIN_COLUMN_REGISTRY.filter(
-    (c) => c.dims === 'all' || c.dims.includes(dim),
-  );
+  return MARGIN_COLUMN_REGISTRY.filter((c) => c.dims === 'all' || c.dims.includes(dim));
 }
 
-/** Returns true if any selected column needs an enrichment side-fetch. */
 export function columnsNeedFetch(cols: MarginColumnDef[]): boolean {
   return cols.some((c) => c.requiresFetch === true);
-}
-
-/** Returns true if any selected column reads from the overhead context. */
-export function columnsNeedOverhead(cols: MarginColumnDef[]): boolean {
-  return cols.some((c) => c.group === 'overhead');
 }
 
 export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
@@ -245,11 +195,5 @@ export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
 };
 
 export const GROUP_ORDER: Record<MarginColumnGroup, number> = {
-  unit:      1,
-  overhead:  2,
-  attribute: 3,
-  address:   4,
-  ar:        5,
-  inventory: 6,
-  derived:   7,
+  unit: 1, overhead: 2, attribute: 3, address: 4, ar: 5, inventory: 6, derived: 7,
 };
