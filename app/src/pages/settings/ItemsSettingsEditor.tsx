@@ -257,15 +257,23 @@ export function ItemsSettingsEditor() {
     },
   ], []);
 
+  // groupingColDef.renderCell — MUI's GridTreeNodeWithRender has
+  // `groupingKey: GridKeyValue | null`. Allow null in the local type
+  // and `as any` the column to satisfy MUI's deep overload chain.
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
-    renderCell: (params: { rowNode: { type: string; groupingKey?: string | number }; row: { item_name?: string } }) => {
+    renderCell: (params: {
+      rowNode: { type: string; groupingKey?: string | number | null };
+      row: { item_name?: string };
+    }) => {
       if (params.rowNode.type === 'group') {
-        return <strong style={{ color: 'var(--ac)' }}>{String(params.rowNode.groupingKey ?? '')}</strong>;
+        const key = params.rowNode.groupingKey;
+        return <strong style={{ color: 'var(--ac)' }}>{key == null ? '—' : String(key)}</strong>;
       }
       return <span style={{ fontWeight: 600 }}>{String(params.row.item_name ?? '')}</span>;
     },
-  }), []);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any, []);
 
   if (!rows) return <div className="ld">Loading items…</div>;
 
