@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
 import { Search, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
+import { fetchCategoryList, setItemActive, type CategoryOption } from '../../lib/inventory';
 
 interface ItemMasterRow {
   qbo_item_id: string;
@@ -77,6 +80,42 @@ const GRID_SX = {
   '& .MuiDataGrid-scrollbar::-webkit-scrollbar-thumb': { background: 'rgba(91, 181, 240, 0.20)', borderRadius: 6 },
 };
 
+const CAT_AC_SX = {
+  width: '100%',
+  '& .MuiOutlinedInput-root': {
+    height: 26, minHeight: 26, fontFamily: 'inherit', fontSize: 11,
+    background: 'var(--bg)', color: 'var(--tx)', padding: '0 6px',
+    '& fieldset': { borderColor: 'var(--bd)' },
+    '&:hover fieldset': { borderColor: 'var(--bd2)' },
+    '&.Mui-focused fieldset': { borderColor: 'var(--ac)' },
+  },
+  '& .MuiAutocomplete-input': { padding: '2px 0 !important', fontSize: 11, color: 'var(--tx)' },
+  '& .MuiSvgIcon-root': { color: 'var(--mt)' },
+};
+const CAT_AC_PAPER = {
+  paper: { sx: {
+    background: 'var(--sf)', color: 'var(--tx)', border: '1px solid var(--bd)',
+    fontSize: 11,
+    '& .MuiAutocomplete-option': { fontSize: 11, color: 'var(--tx)' },
+    '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
+  } },
+};
+
+// Toggle: pill-style checkbox styled as a switch via CSS in theme.css.
+function Toggle(props: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title?: string;
+}) {
+  return (
+    <label className="switch" title={props.title}>
+      <input type="checkbox" checked={props.checked}
+        onChange={(e) => props.onChange(e.target.checked)} />
+      <span className="switch-slider" />
+    </label>
+  );
+}
+
 function getTreeDataPath(row: Record<string, unknown>): string[] {
   return [
     String(row.active === false ? INACTIVE_GROUP : (row.category_resolved ?? 'Uncategorized')),
@@ -84,15 +123,32 @@ function getTreeDataPath(row: Record<string, unknown>): string[] {
   ];
 }
 
+// Within a category, sort by: managed first, then by status priority,
+// then by sold_revenue desc. Inactive items already live in INACTIVE
+// group so they appear at the bottom of the tree.
+function sortRows(a: ItemMasterRow, b: ItemMasterRow): number {
+  // Managed first
+  if (a.is_managed !== b.is_managed) return a.is_managed ? -1 : 1;
+  // Higher revenue first
+  return (Number(b.sold_revenue) || 0) - (Number(a.sold_revenue) || 0);
+}
+
 export function ItemsSettingsEditor() {
   const toast = useToast();
   const [rows, setRows] = useState<ItemMasterRow[] | null>(null);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [search, setSearch] = useState('');
 
   function load() {
     setRows(null);
-    sbrpc<ItemMasterRow[]>('fn_items_master', { p_lookback_days: 90, p_search: null })
-      .then(setRows)
+    Promise.all([
+      sbrpc<ItemMasterRow[]>('fn_items_master', { p_lookback_days: 90, p_search: null }),
+      fetchCategoryList(),
+    ])
+      .then(([rs, cs]) => {
+        setRows([...rs].sort(sortRows));
+        setCategories(cs);
+      })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
   useEffect(load, []);
@@ -114,7 +170,9 @@ export function ItemsSettingsEditor() {
     [filtered],
   );
 
-  async function patch(
+  const categoryLabels = useMemo(() => categories.map((c) => c.label), [categories]);
+
+  async function patchSettings(
     qbo_item_id: string,
     patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
   ) {
@@ -129,10 +187,30 @@ export function ItemsSettingsEditor() {
         p_notes:              patchData.notes ?? null,
         p_category_override:  patchData.category_override ?? null,
       });
+      setRows((cur) => cur?.map((r) => {
+        if (r.qbo_item_id !== qbo_item_id) return r;
+        const next = { ...r, ...patchData };
+        // Recompute category_resolved when override changes
+        if ('category_override' in patchData) {
+          next.category_resolved = patchData.category_override ?? r.category_path ?? 'Uncategorized';
+        }
+        return next;
+      }) ?? cur);
+      // Refresh category list if a new one was created
+      if (patchData.category_override && !categoryLabels.includes(patchData.category_override)) {
+        fetchCategoryList().then(setCategories).catch(() => undefined);
+      }
+    } catch (e) {
+      toast.error('Save failed: ' + (e as Error).message);
+      load();
+    }
+  }
+
+  async function patchActive(qbo_item_id: string, active: boolean) {
+    try {
+      await setItemActive(qbo_item_id, active);
       setRows((cur) => cur?.map((r) =>
-        r.qbo_item_id === qbo_item_id ? { ...r, ...patchData,
-          category_resolved: patchData.category_override ?? r.category_path ?? 'Uncategorized',
-        } : r,
+        r.qbo_item_id === qbo_item_id ? { ...r, active } : r,
       ) ?? cur);
     } catch (e) {
       toast.error('Save failed: ' + (e as Error).message);
@@ -142,38 +220,49 @@ export function ItemsSettingsEditor() {
 
   const columns: GridColDef[] = useMemo(() => [
     {
-      field: 'category_override', headerName: 'Category Override', width: 200,
+      field: 'active', headerName: 'Active', width: 70, sortable: true,
+      renderCell: (p) => (
+        <Toggle
+          checked={!!p.value}
+          onChange={(v) => patchActive(p.row.qbo_item_id, v)}
+          title="Active in catalog. Toggles locally now; QBO sync push-back wires in v0.9.23."
+        />
+      ),
+    },
+    {
+      field: 'is_managed', headerName: 'Managed', width: 90, sortable: true,
+      renderCell: (p) => (
+        <Toggle
+          checked={!!p.value}
+          onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
+          title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
+        />
+      ),
+    },
+    {
+      field: 'category_override', headerName: 'Category', width: 220,
       renderCell: (p) => {
         const cur = p.row.category_override as string | null;
         const inherited = p.row.category_path as string | null;
+        const value = cur ?? '';
         return (
-          <input
-            type="text" defaultValue={cur ?? ''}
-            placeholder={inherited ?? 'set category'}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v !== (cur ?? '')) patch(p.row.qbo_item_id, { category_override: v || null });
+          <Autocomplete
+            size="small" freeSolo
+            options={categoryLabels}
+            value={value}
+            onChange={(_, v) => {
+              const next = (v ?? '').toString().trim();
+              if (next !== (cur ?? '')) patchSettings(p.row.qbo_item_id, { category_override: next || null });
             }}
-            style={{ ...inp(), width: '100%', fontSize: 11 }}
+            onBlur={(e) => {
+              const next = (e.target as HTMLInputElement).value.trim();
+              if (next !== (cur ?? '')) patchSettings(p.row.qbo_item_id, { category_override: next || null });
+            }}
+            sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
+            renderInput={(params) => <TextField {...params} placeholder={inherited ?? 'set category'} />}
           />
         );
       },
-    },
-    {
-      field: 'active', headerName: 'Active', width: 80,
-      renderCell: (p) => (
-        <span style={{ fontSize: 10, color: p.value ? 'var(--gn)' : 'var(--mt)', fontWeight: 600 }}>
-          {p.value ? 'YES' : 'NO'}
-        </span>
-      ),
-    },
-    {
-      field: 'is_managed', headerName: 'Managed?', width: 90,
-      renderCell: (p) => (
-        <input type="checkbox" defaultChecked={!!p.value}
-          onChange={(e) => patch(p.row.qbo_item_id, { is_managed: e.target.checked })}
-          style={{ accentColor: 'var(--ac)' }} />
-      ),
     },
     { field: 'on_hand', headerName: 'On Hand', type: 'number', width: 90, cellClassName: 'mn',
       valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
@@ -202,7 +291,7 @@ export function ItemsSettingsEditor() {
         <input type="number" defaultValue={p.value ?? 30}
           onBlur={(e) => {
             const v = Number(e.target.value);
-            if (v !== p.value) patch(p.row.qbo_item_id, { target_days_supply: v });
+            if (v !== p.value) patchSettings(p.row.qbo_item_id, { target_days_supply: v });
           }}
           style={{ ...inp(), width: 60, textAlign: 'right' }} />
       ),
@@ -213,7 +302,7 @@ export function ItemsSettingsEditor() {
         <input type="number" defaultValue={p.value ?? 7}
           onBlur={(e) => {
             const v = Number(e.target.value);
-            if (v !== p.value) patch(p.row.qbo_item_id, { lead_time_days: v });
+            if (v !== p.value) patchSettings(p.row.qbo_item_id, { lead_time_days: v });
           }}
           style={{ ...inp(), width: 60, textAlign: 'right' }} />
       ),
@@ -225,7 +314,7 @@ export function ItemsSettingsEditor() {
           placeholder="auto"
           onBlur={(e) => {
             const v = e.target.value === '' ? null : Number(e.target.value);
-            if (v !== p.value) patch(p.row.qbo_item_id, { reorder_point: v });
+            if (v !== p.value) patchSettings(p.row.qbo_item_id, { reorder_point: v });
           }}
           style={{ ...inp(), width: 70, textAlign: 'right' }} />
       ),
@@ -236,7 +325,7 @@ export function ItemsSettingsEditor() {
         <input type="number" defaultValue={p.value ?? ''}
           onBlur={(e) => {
             const v = e.target.value === '' ? null : Number(e.target.value);
-            if (v !== p.value) patch(p.row.qbo_item_id, { min_order_qty: v });
+            if (v !== p.value) patchSettings(p.row.qbo_item_id, { min_order_qty: v });
           }}
           style={{ ...inp(), width: 70, textAlign: 'right' }} />
       ),
@@ -250,16 +339,13 @@ export function ItemsSettingsEditor() {
           placeholder="—"
           onBlur={(e) => {
             const v = e.target.value;
-            if (v !== (p.value ?? '')) patch(p.row.qbo_item_id, { notes: v || null });
+            if (v !== (p.value ?? '')) patchSettings(p.row.qbo_item_id, { notes: v || null });
           }}
           style={{ ...inp(), width: '100%', fontSize: 11 }} />
       ),
     },
-  ], []);
+  ], [categoryLabels]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // groupingColDef.renderCell — MUI's GridTreeNodeWithRender has
-  // `groupingKey: GridKeyValue | null`. Allow null in the local type
-  // and `as any` the column to satisfy MUI's deep overload chain.
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
     renderCell: (params: {
@@ -287,7 +373,7 @@ export function ItemsSettingsEditor() {
       <div className="gr g4" style={{ marginBottom: 12 }}>
         <KPICard title="ITEMS TOTAL"     value={rows.length} sub={`${activeCount} active · ${inactiveCount} inactive`} />
         <KPICard title="MANAGED"          value={managedCount} accent="var(--ac)" sub="velocity-driven reorder" />
-        <KPICard title="CATEGORY OVERRIDES" value={withOverrideCount} sub="custom-grouped" />
+        <KPICard title="CATEGORIES"      value={categories.length} sub={withOverrideCount + ' overrides'} />
         <KPICard title="UNCATEGORIZED"    value={rows.filter((r) => !r.category_path && !r.category_override).length}
           accent={rows.filter((r) => !r.category_path && !r.category_override).length > 0 ? 'var(--am)' : undefined}
           sub="needs a category" />
@@ -336,7 +422,7 @@ export function ItemsSettingsEditor() {
             defaultGroupingExpansionDepth={1}
             initialState={{
               pagination: { paginationModel: { pageSize: 60, page: 0 } },
-              sorting: { sortModel: [{ field: 'sold_revenue', sort: 'desc' }] },
+              sorting: { sortModel: [{ field: 'is_managed', sort: 'desc' }] },
             }}
             isGroupExpandedByDefault={(node: GridGroupNode) => node.groupingKey !== INACTIVE_GROUP}
             sx={GRID_SX}
@@ -345,7 +431,10 @@ export function ItemsSettingsEditor() {
       </div>
 
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
-        <strong style={{ color: 'var(--tx)' }}>One place for every item.</strong> Category override beats QBO's category_path everywhere — Margin Control, Inventory, Reports all use the resolved category. Managed/Target/Lead/Reorder/Min/Notes are the inventory-health inputs.
+        <strong style={{ color: 'var(--tx)' }}>One place for every item.</strong> Active flag mirrors QBO
+        (push-back to QBO ships v0.9.23). Managed flag drives reorder/velocity — turn on for physical
+        SKUs we stock, off for service/fee items. Category combo-box lets you pick an existing
+        category or type a new one — it becomes available for every item immediately.
       </div>
     </div>
   );
