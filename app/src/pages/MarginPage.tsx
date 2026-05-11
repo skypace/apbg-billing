@@ -17,6 +17,13 @@ import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
+import {
+  type MarginColumnDef,
+  getColumnsForDim,
+  GROUP_LABEL,
+  GROUP_ORDER,
+} from '../lib/marginColumns';
+import { KEYS, loadSetting, saveSetting } from '../lib/settingsStore';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 const CHART_KINDS: ChartKind[] = ['none', 'bar', 'pie', 'line'];
@@ -94,6 +101,15 @@ const ACX = {
     color: 'var(--tx)',
   },
   '& .MuiSvgIcon-root': { color: 'var(--mt)' },
+  '& .MuiChip-root': {
+    height: 22,
+    fontSize: 11,
+    background: 'rgba(91,181,240,0.14)',
+    color: 'var(--ac)',
+    border: '1px solid rgba(91,181,240,0.32)',
+    fontFamily: 'inherit',
+    '& .MuiChip-deleteIcon': { color: 'var(--ac)', '&:hover': { color: 'var(--rd)' } },
+  },
 };
 const ACX_PAPER = {
   paper: {
@@ -106,6 +122,14 @@ const ACX_PAPER = {
       '& .MuiAutocomplete-option': { fontSize: 12, color: 'var(--tx)' },
       '& .MuiAutocomplete-option[aria-selected="true"]': { background: 'rgba(91,181,240,0.10)' },
       '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
+      '& .MuiAutocomplete-groupLabel': {
+        background: 'var(--sf)',
+        color: 'var(--mt)',
+        fontSize: 10,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+        fontWeight: 600,
+      },
     },
   },
 };
@@ -149,6 +173,30 @@ export function MarginPage() {
   const [showSparklines, setShowSparklines] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
   const [chartKind, setChartKind] = useState<ChartKind>('none');
+
+  // Smart Columns — selected column IDs per dim. Persists in localStorage.
+  const [columnsByDim, setColumnsByDim] = useState<Record<string, string[]>>(
+    () => loadSetting<Record<string, string[]>>(KEYS.marginColumns, {}),
+  );
+  const selectedColumnIds = columnsByDim[dim] ?? [];
+  const availableColumns: MarginColumnDef[] = useMemo(() => {
+    const cols = getColumnsForDim(dim);
+    return [...cols].sort((a, b) => {
+      const ga = GROUP_ORDER[a.group] ?? 99;
+      const gb = GROUP_ORDER[b.group] ?? 99;
+      if (ga !== gb) return ga - gb;
+      return a.label.localeCompare(b.label);
+    });
+  }, [dim]);
+  const extraColumns: MarginColumnDef[] = useMemo(
+    () => availableColumns.filter((c) => selectedColumnIds.includes(c.id)),
+    [availableColumns, selectedColumnIds],
+  );
+  function updateColumns(nextIds: string[]) {
+    const next = { ...columnsByDim, [dim]: nextIds };
+    setColumnsByDim(next);
+    saveSetting(KEYS.marginColumns, next);
+  }
 
   const effectiveFilters = useMemo(
     () => applyModifiers(filters, activeModifiers),
@@ -274,9 +322,17 @@ export function MarginPage() {
     const display = comparison ?? rows;
     const baseHeader = ['Dimension', 'Line count', 'Qty', 'Revenue', 'Est cost', 'Est margin', 'Margin %'];
     const cmpHeader = comparison ? ['Prior revenue', 'Δ revenue', 'Δ %'] : [];
-    const header = [...baseHeader, ...cmpHeader];
+    const extraHeader = extraColumns.map((c) => c.label);
+    const header = [...baseHeader, ...cmpHeader, ...extraHeader];
     const data: (string | number | null)[][] = display.map((r) => {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
+      const row = r as SalesPivotRow & Record<string, unknown>;
+      const extraVals = extraColumns.map((c) => {
+        const v = c.compute ? c.compute(row) : (c.enrichmentKey ? (row[c.enrichmentKey] as string | number | null) : null);
+        if (v == null) return '';
+        if (typeof v === 'number') return v.toFixed(4);
+        return String(v);
+      });
       return [
         r.dim_label, r.line_count, r.qty,
         Number(r.revenue ?? 0).toFixed(2),
@@ -290,6 +346,7 @@ export function MarginPage() {
               cmp.delta_pct != null ? Number(cmp.delta_pct).toFixed(4) : '',
             ]
           : []),
+        ...extraVals,
       ];
     });
     const modSuffix = activeModifiers.length > 0 ? '_' + activeModifiers.join('-') : '';
@@ -517,6 +574,30 @@ export function MarginPage() {
             />
           </div>
 
+          <div className="toolbar-section">
+            <span className="toolbar-label">Columns</span>
+            <Autocomplete
+              size="small"
+              multiple
+              limitTags={1}
+              options={availableColumns}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              groupBy={(o) => GROUP_LABEL[o.group]}
+              value={extraColumns}
+              onChange={(_, vs) => updateColumns(vs.map((v) => v.id))}
+              disableCloseOnSelect
+              sx={{ ...ACX, width: 240 }}
+              slotProps={ACX_PAPER}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={extraColumns.length === 0 ? 'Add columns…' : ''}
+                />
+              )}
+            />
+          </div>
+
           <label className="toolbar-section" style={{ cursor: 'pointer' }}>
             <input type="checkbox" checked={showSparklines} onChange={(e) => setShowSparklines(e.target.checked)} style={{ accentColor: 'var(--ac)' }} />
             <span className="toolbar-label" style={{ cursor: 'pointer' }}>Trend col</span>
@@ -599,6 +680,7 @@ export function MarginPage() {
           <MarginGrid dim={dim} rows={tableRows}
             showCompare={compareMode !== 'off' && !!comparison}
             sparklines={showSparklines && dim !== 'month' ? sparklines : undefined}
+            extraColumns={extraColumns}
             onRowClick={DRILL_NEXT[dim] ? drillInto : undefined} />
         </div>
       )}
