@@ -6,7 +6,6 @@ import { CustomersSettingsEditor } from './settings/CustomersSettingsEditor';
 import { DigestEditor } from './settings/DigestEditor';
 import { ExpenseBucketsEditor } from './settings/ExpenseBucketsEditor';
 import { UsersEditor } from './settings/UsersEditor';
-import { CustomerClassificationEditor } from './settings/CustomerClassificationEditor';
 import { FleetDriversEditor } from './settings/FleetDriversEditor';
 import { SalesRepsEditor } from './settings/SalesRepsEditor';
 import { ChainModifiersEditor } from './settings/ChainModifiersEditor';
@@ -22,7 +21,7 @@ import {
 type Tab =
   | 'channels' | 'segments' | 'sales_reps'
   | 'rollups' | 'entity_defaults' | 'taxonomy'
-  | 'item_sets' | 'items' | 'customers' | 'digest' | 'classification'
+  | 'item_sets' | 'items' | 'customers' | 'digest'
   | 'expense_buckets' | 'users' | 'fleet_drivers';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
@@ -35,7 +34,6 @@ const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'segments',        label: 'Segments',                group: 'Customer & Item' },
   { id: 'sales_reps',      label: 'Sales Reps',              group: 'Customer & Item' },
   { id: 'item_sets',       label: 'Item Sets',               group: 'Customer & Item' },
-  { id: 'classification',  label: 'Customer Classification (legacy)', group: 'Customer & Item' },
   { id: 'expense_buckets', label: 'Expense Buckets / Overhead', group: 'Operations' },
   { id: 'digest',          label: 'Email Digest',            group: 'Operations' },
   { id: 'fleet_drivers',   label: 'Fleet Drivers',           group: 'Operations' },
@@ -116,7 +114,6 @@ export function SettingsPage() {
       {tab === 'sales_reps'      && <SalesRepsEditor />}
       {tab === 'item_sets'       && <ItemSetsEditor />}
       {tab === 'digest'          && <DigestEditor />}
-      {tab === 'classification'  && <CustomerClassificationEditor />}
       {tab === 'expense_buckets' && <ExpenseBucketsEditor />}
       {tab === 'fleet_drivers'   && <FleetDriversEditor />}
       {tab === 'users'           && <UsersEditor />}
