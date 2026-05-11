@@ -1,109 +1,108 @@
-// Smart classifiers that group items / customers into natural buckets
-// so the pickers and tables cluster related rows together.
-//
-// Pattern matching is keyword-based against UPPERCASED display names.
-// Order matters: more-specific patterns first, more-general patterns last.
-// Edit the patterns here as the actual taxonomy emerges.
+import { loadSetting, saveSetting, KEYS } from './settingsStore';
 
-// ─────────── Item classifier ───────────
+// A rule is a regex pattern → group label mapping with an order weight
+// (lower = higher priority). The classifier walks rules in order and
+// returns the first matching label, falling through to 'Other'.
+
+export interface TaxonomyRule {
+  pattern: string;   // regex source (case-insensitive flag is applied)
+  label:   string;   // group name shown in the picker
+  order:   number;   // sort weight (lower first)
+}
+
+// ─────────── Default rules — items ───────────
+
+export const DEFAULT_ITEM_RULES: TaxonomyRule[] = [
+  { pattern: '(THE\\s+)?MELT.*(EQUIPMENT|RENTAL|LEASE)',  label: 'Melt Equipment',      order: 11 },
+  { pattern: 'STARBIRD.*(EQUIPMENT|RENTAL|LEASE)',         label: 'Starbird Equipment',  order: 12 },
+  { pattern: '\\b5[\\s-]?GAL',                             label: '5-Gallon',            order: 20 },
+  { pattern: '\\b3[\\s-]?GAL',                             label: '3-Gallon',            order: 21 },
+  { pattern: '\\b2\\.5[\\s-]?GAL',                         label: '2.5-Gallon',          order: 22 },
+  { pattern: '\\b1[\\s-]?GAL',                             label: '1-Gallon',            order: 23 },
+  { pattern: '(DISPENSER|TOWER|TAP|VALVE|REGULATOR|COMPRESSOR|CHILLER|ICE\\s+MACHINE)', label: 'Equipment', order: 30 },
+  { pattern: '(EQUIPMENT|RENTAL|LEASE)',                   label: 'Equipment',           order: 31 },
+  { pattern: '(SERVICE|LABOR|REPAIR|INSTALL|MAINTENANCE|TRIP|CALL)', label: 'Service',  order: 60 },
+  { pattern: '(BIB|BAG[\\s-]?IN[\\s-]?BOX)',               label: 'BIB',                 order: 40 },
+  { pattern: '(CAN\\b|CANS)',                              label: 'Cans',                order: 41 },
+  { pattern: 'FOUNTAIN',                                   label: 'Fountain',            order: 42 },
+  { pattern: 'SYRUP',                                      label: 'Syrup',               order: 43 },
+  { pattern: '(CO2|CARBON\\s+DIOXIDE|NITROGEN|NITRO|N2|GAS\\b|HELIUM)', label: 'Gas / CO2', order: 50 },
+  { pattern: '(FILTER|CLEANER|SANITIZER|HOSE|FITTING|PART)', label: 'Parts & Consumables', order: 55 },
+];
+
+// ─────────── Default rules — customers ───────────
+
+export const DEFAULT_CUSTOMER_RULES: TaxonomyRule[] = [
+  { pattern: '(THE\\s+)?MELT',     label: 'Melt',              order: 10 },
+  { pattern: 'STARBIRD',           label: 'Starbird',          order: 11 },
+  { pattern: 'FREEFLOW|FRESHPET',  label: 'FreeFlow',          order: 12 },
+  { pattern: '(PIXAR|TWITTER|UBER|ADOBE|SFO|BON\\s+APP)', label: 'Marquee Accounts', order: 20 },
+  { pattern: '(CAFE|COFFEE)',      label: 'Cafes',             order: 31 },
+  { pattern: '(BAR|TAVERN|PUB)',   label: 'Bars',              order: 32 },
+  { pattern: '(RESTAURANT|GRILL|BISTRO|DINER|KITCHEN)', label: 'Restaurants', order: 30 },
+  { pattern: '(HOTEL|RESORT|INN)', label: 'Hotels',            order: 33 },
+  { pattern: '(MARKET|GROCER|DELI|STORE)', label: 'Retail',    order: 34 },
+  { pattern: '(SCHOOL|UNIVERSITY|COLLEGE|HIGH|COURT|CIVIC|HALL|MUNICIPAL)', label: 'Institutional', order: 35 },
+];
+
+// ─────────── Runtime getters/setters ───────────
+
+export function getItemRules(): TaxonomyRule[] {
+  return loadSetting<TaxonomyRule[]>(KEYS.itemRules, DEFAULT_ITEM_RULES);
+}
+export function setItemRules(rules: TaxonomyRule[]): void {
+  saveSetting(KEYS.itemRules, rules);
+}
+
+export function getCustomerRules(): TaxonomyRule[] {
+  return loadSetting<TaxonomyRule[]>(KEYS.customerRules, DEFAULT_CUSTOMER_RULES);
+}
+export function setCustomerRules(rules: TaxonomyRule[]): void {
+  saveSetting(KEYS.customerRules, rules);
+}
+
+// ─────────── Classifier ───────────
+
+function classify(name: string, rules: TaxonomyRule[]): string {
+  const n = (name ?? '').toUpperCase();
+  const sorted = [...rules].sort((a, b) => a.order - b.order);
+  for (const r of sorted) {
+    try {
+      if (new RegExp(r.pattern, 'i').test(n)) return r.label;
+    } catch {
+      /* malformed regex — skip */
+    }
+  }
+  return 'Other';
+}
 
 export function classifyItem(name: string): string {
-  const n = (name ?? '').toUpperCase();
-
-  // Most specific: customer-prefixed equipment
-  if (/(THE\s+)?MELT/.test(n) && (n.includes('EQUIPMENT') || n.includes('RENTAL') || n.includes('LEASE')))
-    return 'Melt Equipment';
-  if (n.includes('STARBIRD') && (n.includes('EQUIPMENT') || n.includes('RENTAL') || n.includes('LEASE')))
-    return 'Starbird Equipment';
-
-  // Size-based (BIB / tank capacity) — useful for soda product family
-  if (/\b3[\s-]?GAL/.test(n))  return '3-Gallon';
-  if (/\b5[\s-]?GAL/.test(n))  return '5-Gallon';
-  if (/\b2\.5[\s-]?GAL/.test(n)) return '2.5-Gallon';
-  if (/\b1[\s-]?GAL/.test(n))  return '1-Gallon';
-
-  // Equipment / hardware
-  if (/(DISPENSER|TOWER|TAP|VALVE|REGULATOR|COMPRESSOR|CHILLER|ICE\s+MACHINE)/.test(n)) return 'Equipment';
-  if (/(EQUIPMENT|RENTAL|LEASE)/.test(n)) return 'Equipment';
-
-  // Services & labor
-  if (/(SERVICE|LABOR|REPAIR|INSTALL|MAINTENANCE|TRIP|CALL)/.test(n)) return 'Service';
-
-  // Consumables — categories aligned with the AS soda product mix
-  if (/(BIB|BAG[\s-]?IN[\s-]?BOX)/.test(n))     return 'BIB';
-  if (/(CAN\b|CANS)/.test(n))                   return 'Cans';
-  if (/FOUNTAIN/.test(n))                       return 'Fountain';
-  if (/SYRUP/.test(n))                          return 'Syrup';
-
-  // Gas / CO2 / nitrogen
-  if (/(CO2|CARBON\s+DIOXIDE|NITROGEN|NITRO|N2|GAS\b|HELIUM)/.test(n)) return 'Gas / CO2';
-
-  // Misc consumables / parts
-  if (/(FILTER|CLEANER|SANITIZER|HOSE|FITTING|PART)/.test(n)) return 'Parts & Consumables';
-
-  return 'Other';
+  return classify(name, getItemRules());
 }
-
-// ─────────── Customer classifier ───────────
-
 export function classifyCustomer(name: string): string {
-  const n = (name ?? '').toUpperCase();
-
-  // Chain customers (rolled up via CHAIN_MODIFIERS) — keep them visually together
-  if (/(THE\s+)?MELT/.test(n))     return 'Melt';
-  if (/STARBIRD/.test(n))          return 'Starbird';
-  if (/FREEFLOW|FRESHPET/.test(n)) return 'FreeFlow';
-
-  // Big-name brand customers (legacy hero logos on brixbev.com)
-  if (/(PIXAR|TWITTER|UBER|ADOBE|SFO|BON\s+APP)/.test(n)) return 'Marquee Accounts';
-
-  // Channel hints from the name itself
-  if (/(CAFE|COFFEE)/.test(n))     return 'Cafes';
-  if (/(BAR|TAVERN|PUB)/.test(n))  return 'Bars';
-  if (/(RESTAURANT|GRILL|BISTRO|DINER|KITCHEN)/.test(n)) return 'Restaurants';
-  if (/(HOTEL|RESORT|INN)/.test(n)) return 'Hotels';
-  if (/(MARKET|GROCER|DELI|STORE)/.test(n)) return 'Retail';
-  if (/(SCHOOL|UNIVERSITY|COLLEGE|HIGH|COURT|CIVIC|HALL|MUNICIPAL)/.test(n)) return 'Institutional';
-
-  return 'Other';
+  return classify(name, getCustomerRules());
 }
 
-// ─────────── Group display order ───────────
+// ─────────── Group display order (derived from rules) ───────────
 //
-// MUI Autocomplete renders groups in the order their first option appears in the
-// option list. The MultiPicker pre-sorts options (selected → revenue desc → alpha),
-// so the group order ends up driven by which group's heaviest hitter is at the
-// top. That's usually fine, but for taxonomic readability we can re-order
-// explicitly by post-sorting options to put a preferred group order first.
+// The MultiPicker uses these maps to pre-sort options so that groups
+// appear in a deliberate sequence. We derive them at module load from
+// the current rule set; updates take effect on next page reload (or via
+// the editor's "apply" action).
 
-export const ITEM_GROUP_ORDER: Record<string, number> = {
-  'Equipment':              10,
-  'Melt Equipment':         11,
-  'Starbird Equipment':     12,
-  '5-Gallon':               20,
-  '3-Gallon':               21,
-  '2.5-Gallon':             22,
-  '1-Gallon':               23,
-  'BIB':                    30,
-  'Cans':                   31,
-  'Fountain':               32,
-  'Syrup':                  33,
-  'Gas / CO2':              40,
-  'Parts & Consumables':    50,
-  'Service':                60,
-  'Other':                  99,
-};
+function buildOrder(rules: TaxonomyRule[]): Record<string, number> {
+  const m: Record<string, number> = { Other: 99 };
+  for (const r of rules) {
+    if (!(r.label in m) || r.order < m[r.label]) m[r.label] = r.order;
+  }
+  return m;
+}
 
-export const CUSTOMER_GROUP_ORDER: Record<string, number> = {
-  'Melt':              10,
-  'Starbird':          11,
-  'FreeFlow':          12,
-  'Marquee Accounts':  20,
-  'Restaurants':       30,
-  'Cafes':             31,
-  'Bars':              32,
-  'Hotels':            33,
-  'Retail':            34,
-  'Institutional':     35,
-  'Other':             99,
-};
+export function getItemGroupOrder():     Record<string, number> { return buildOrder(getItemRules());     }
+export function getCustomerGroupOrder(): Record<string, number> { return buildOrder(getCustomerRules()); }
+
+// Backward-compatible static exports — these are snapshots from defaults
+// and don't reflect user edits made after page load. Prefer the get*()
+// variants in new code.
+export const ITEM_GROUP_ORDER     = buildOrder(DEFAULT_ITEM_RULES);
+export const CUSTOMER_GROUP_ORDER = buildOrder(DEFAULT_CUSTOMER_RULES);
