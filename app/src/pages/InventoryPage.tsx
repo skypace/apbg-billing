@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import {
-  DataGridPro, type GridColDef, type GridGroupNode, type GridRenderCellParams,
-} from '@mui/x-data-grid-pro';
+import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
 import { Search, X } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
 import { fm, fmtNum } from '../lib/formatters';
@@ -13,15 +11,14 @@ import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
   InventoryHealthRow, QboCustomerOption, VelocityExcludeRow,
   addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth,
-  fetchVelocityExcludes, removeVelocityExclude, setInventorySettings,
+  fetchVelocityExcludes, removeVelocityExclude,
 } from '../lib/inventory';
 
-type TabId = 'reorder' | 'velocity' | 'settings' | 'excludes';
+type TabId = 'reorder' | 'velocity' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'reorder',  label: 'Reorder' },
   { id: 'velocity', label: 'Velocity' },
-  { id: 'settings', label: 'Settings' },
   { id: 'excludes', label: 'Velocity Excludes' },
 ];
 
@@ -83,48 +80,30 @@ const INACTIVE_GROUP = 'INACTIVE';
 
 function groupLabelFor(r: InventoryHealthRow): string {
   if (!r.active) return INACTIVE_GROUP;
-  return r.category_path && r.category_path.trim() !== '' ? r.category_path : 'UNCATEGORIZED';
+  return r.category_resolved && r.category_resolved.trim() !== '' ? r.category_resolved : 'Uncategorized';
 }
 function getTreeDataPath(row: Record<string, unknown>): string[] {
   return [String(row.__group ?? INACTIVE_GROUP), String(row.qbo_item_id ?? '')];
 }
+const groupingColDef = {
+  headerName: 'Category / Item', width: 360, hideDescendantCount: false,
+  renderCell: (params: {
+    rowNode: { type: string; groupingKey?: string | number | null };
+    row: { item_name?: string };
+  }) => {
+    if (params.rowNode.type === 'group') {
+      const key = params.rowNode.groupingKey;
+      return <strong style={{ color: 'var(--ac)' }}>{key == null ? '—' : String(key)}</strong>;
+    }
+    return <span style={{ fontWeight: 600 }}>{String(params.row.item_name ?? '')}</span>;
+  },
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as any;
+
 function filterBySearch<T extends { item_name: string }>(rows: T[], q: string): T[] {
   if (!q.trim()) return rows;
   const needle = q.trim().toLowerCase();
   return rows.filter((r) => r.item_name.toLowerCase().includes(needle));
-}
-
-// Custom renderer for the auto-generated grouping column: shows the human-readable
-// category for group rows and the actual item_name for leaves, instead of the raw
-// qbo_item_id that DataGridPro would display by default from the tree path.
-function renderGroupOrItem(params: GridRenderCellParams) {
-  const node = params.rowNode;
-  if (node.type === 'group') {
-    const key = String(node.groupingKey ?? '');
-    const isInactive = key === INACTIVE_GROUP;
-    return (
-      <span style={{
-        fontWeight: 700,
-        color: isInactive ? 'var(--mt)' : 'var(--ac)',
-        textTransform: isInactive ? 'uppercase' : undefined,
-        letterSpacing: isInactive ? 0.6 : undefined,
-      }}>{key}</span>
-    );
-  }
-  // Leaf row — show the actual item name, not the qbo_item_id from the tree path.
-  const name = (params.row as Record<string, unknown>).item_name as string | undefined;
-  const inactive = (params.row as Record<string, unknown>).active === false;
-  return (
-    <span
-      title={name ?? ''}
-      style={{
-        fontWeight: 600,
-        color: inactive ? 'var(--mt)' : 'var(--tx)',
-        opacity: inactive ? 0.7 : 1,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}
-    >{name ?? '—'}</span>
-  );
 }
 
 function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
@@ -189,7 +168,7 @@ export function InventoryPage() {
         {TABS.map((t) => <Tab key={t.id} value={t.id} label={t.label} />)}
       </Tabs>
 
-      {(tab === 'reorder' || tab === 'velocity' || tab === 'settings') && (
+      {(tab === 'reorder' || tab === 'velocity') && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
             <div className="toolbar-section">
@@ -206,6 +185,9 @@ export function InventoryPage() {
               <span className="toolbar-label">Managed only</span>
             </label>
             <div className="toolbar-spacer" />
+            <span style={{ fontSize: 10, color: 'var(--mt)', marginRight: 8 }}>
+              Edit per-item settings in <strong style={{ color: 'var(--ac)' }}>Settings → Items</strong>
+            </span>
             <button onClick={load} className="tb-btn">Refresh</button>
           </div>
         </div>
@@ -213,7 +195,6 @@ export function InventoryPage() {
 
       {tab === 'reorder' && <ReorderTable rows={rows} />}
       {tab === 'velocity' && <VelocityTable rows={rows} />}
-      {tab === 'settings' && <SettingsTable rows={rows} onChange={load} />}
       {tab === 'excludes' && <ExcludesTab />}
     </div>
   );
@@ -265,17 +246,11 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     },
   ], []);
 
-  const groupingColDef = useMemo(() => ({
-    headerName: 'Category / Item',
-    width: 360, hideDescendantCount: false,
-    renderCell: renderGroupOrItem,
-  }), []);
-
   function exportCsv() {
     if (reorder.length === 0) return;
     const head = ['Item', 'Category', 'Active', 'On Hand', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
-      r.item_name, r.category_path ?? '', r.active ? 'yes' : 'no',
+      r.item_name, r.category_resolved ?? '', r.active ? 'yes' : 'no',
       r.on_hand ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
       r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '',
@@ -397,12 +372,6 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
   ], []);
 
-  const groupingColDef = useMemo(() => ({
-    headerName: 'Category / Item',
-    width: 360, hideDescendantCount: false,
-    renderCell: renderGroupOrItem,
-  }), []);
-
   if (!sorted) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={10} cols={9} /></div>;
 
   return (
@@ -440,111 +409,28 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   );
 }
 
-function SettingsTable({ rows, onChange }: { rows: InventoryHealthRow[] | null; onChange: () => void }) {
-  const [search, setSearch] = useState('');
-  if (!rows) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={8} cols={5} /></div>;
-  const filtered = filterBySearch(rows, search);
-  function patch(p: Parameters<typeof setInventorySettings>[0]) { setInventorySettings(p).then(onChange); }
-  return (
-    <div>
-      <div className="cd" style={{
-        padding: '10px 12px', marginBottom: 14, display: 'flex',
-        gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
-      }}>
-        <SearchInput value={search} onChange={setSearch} />
-        <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
-          {filtered.length} of {rows.length} items
-        </span>
-      </div>
-      <div className="cd" style={{ padding: 0 }}>
-        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-              <tr>
-                <th>Item</th><th>Active</th><th>Managed?</th>
-                <th style={{ textAlign: 'right' }}>Target Days</th>
-                <th style={{ textAlign: 'right' }}>Lead Time</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <tr key={r.qbo_item_id} style={!r.active ? { opacity: 0.55 } : undefined}>
-                  <td style={{ fontWeight: 600, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={r.item_name}>{r.item_name}</td>
-                  <td style={{ fontSize: 10, color: r.active ? 'var(--gn)' : 'var(--mt)' }}>
-                    {r.active ? 'YES' : 'NO'}
-                  </td>
-                  <td>
-                    <input type="checkbox" checked={r.is_managed}
-                      onChange={(e) => patch({ qbo_item_id: r.qbo_item_id, is_managed: e.target.checked })} />
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input type="number" defaultValue={r.target_days_supply}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (v !== r.target_days_supply) patch({ qbo_item_id: r.qbo_item_id, target_days_supply: v });
-                      }}
-                      style={{ ...inp(), width: 60, textAlign: 'right' }} />
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input type="number" defaultValue={r.lead_time_days}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (v !== r.lead_time_days) patch({ qbo_item_id: r.qbo_item_id, lead_time_days: v });
-                      }}
-                      style={{ ...inp(), width: 60, textAlign: 'right' }} />
-                  </td>
-                  <td>
-                    <input type="text" defaultValue={r.notes ?? ''}
-                      onBlur={(e) => {
-                        if ((e.target.value ?? '') !== (r.notes ?? '')) {
-                          patch({ qbo_item_id: r.qbo_item_id, notes: e.target.value || null });
-                        }
-                      }}
-                      placeholder="—" style={{ ...inp(), width: 260 }} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ExcludesTab() {
   const [excludes, setExcludes] = useState<VelocityExcludeRow[]>([]);
   const [customers, setCustomers] = useState<QboCustomerOption[]>([]);
   const [draftCustomerId, setDraftCustomerId] = useState('');
   const [draftReason, setDraftReason] = useState('');
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
 
   function load() {
     Promise.all([fetchVelocityExcludes(), fetchCustomerOptions()])
-      .then(([ex, cs]) => { setExcludes(ex); setCustomers(cs); setErr(''); })
-      .catch((e) => { setExcludes([]); setCustomers([]); setErr(String((e as Error).message ?? e)); });
+      .then(([ex, cs]) => { setExcludes(ex); setCustomers(cs); })
+      .catch(() => { setExcludes([]); setCustomers([]); });
   }
   useEffect(load, []);
 
   async function add() {
     if (!draftCustomerId) return;
-    setSaving(true); setErr('');
+    setSaving(true);
     try {
       await addVelocityExclude(draftCustomerId, draftReason.trim() || undefined);
       setDraftCustomerId(''); setDraftReason('');
       load();
-    } catch (e) {
-      setErr(String((e as Error).message ?? e));
     } finally { setSaving(false); }
-  }
-
-  async function remove(id: string) {
-    setErr('');
-    try { await removeVelocityExclude(id); load(); }
-    catch (e) { setErr(String((e as Error).message ?? e)); }
   }
 
   const available = customers.filter((c) => !excludes.some((ex) => ex.qbo_customer_id === c.qbo_customer_id));
@@ -577,11 +463,6 @@ function ExcludesTab() {
           {saving ? 'Adding…' : 'Add Exclude'}
         </button>
       </div>
-      {err && (
-        <div className="cd" style={{ padding: '8px 16px', color: 'var(--rd)', fontSize: 11, borderBottom: '1px solid var(--bd)' }}>
-          Error: {err}
-        </div>
-      )}
       {excludes.length === 0 ? (
         <div className="ld">No customers excluded.</div>
       ) : (
@@ -600,9 +481,8 @@ function ExcludesTab() {
                     {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => remove(ex.qbo_customer_id)} style={btnDanger()} title="Remove this exclude">
-                      Remove
-                    </button>
+                    <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
+                      style={btnDanger()} title="Remove this exclude">Remove</button>
                   </td>
                 </tr>
               );
