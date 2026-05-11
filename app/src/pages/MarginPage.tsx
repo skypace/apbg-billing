@@ -534,9 +534,17 @@ export function MarginPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 'none' }}>
-          <div className="hero-stamp" title={syncedAt ? 'Item costs last synced ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
+          <div className="hero-stamp" title={syncedAt ? 'Last QBO item-cost sync: ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
             <span className="status-dot" aria-hidden="true" />
-            Costs · {syncFresh || '—'}
+            <span className="hero-stamp-label">LIVE</span>
+            <span className="hero-stamp-divider">·</span>
+            <span>Costs {syncFresh || '—'}</span>
+            {syncedAt && (
+              <>
+                <span className="hero-stamp-divider">·</span>
+                <span className="hero-stamp-time">{dayjs(syncedAt).format('MMM D, h:mm A')}</span>
+              </>
+            )}
           </div>
           <button type="button" onClick={printDashboard} className="tb-btn tb-btn--primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
