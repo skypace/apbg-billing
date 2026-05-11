@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
-import { Search, X } from 'lucide-react';
+import { AlertTriangle, Search, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
@@ -21,6 +21,7 @@ import {
 } from '../../lib/salesReps';
 
 const UNASSIGNED = '— Unassigned —';
+const ANONYMOUS_LABEL = '(no customer name)';
 
 const GRID_SX = {
   height: '66vh', border: 'none', background: 'transparent', color: 'var(--ink)',
@@ -63,11 +64,20 @@ function ytdRange() {
   return { start, end: today };
 }
 
+function displayLabel(r: CustomersMasterRow): string {
+  return (r.display_name && r.display_name.trim()) || ANONYMOUS_LABEL;
+}
+
+// Three-level tree: Channel → Parent customer → Sub customer.
 function getTreeDataPath(row: Record<string, unknown>): string[] {
-  return [
-    String(row.primary_channel ?? UNASSIGNED),
-    String(row.qbo_customer_id ?? ''),
-  ];
+  const channel = String(row.primary_channel ?? UNASSIGNED);
+  const parentName = (row.parent_name as string | null) ?? null;
+  const ownName = (row.display_name as string | null) ?? ANONYMOUS_LABEL;
+  const id = String(row.qbo_customer_id ?? '');
+  if (row.is_sub_customer && parentName) {
+    return [channel, parentName, ownName + ' /// ' + id];
+  }
+  return [channel, ownName + ' /// ' + id];
 }
 
 export function CustomersSettingsEditor() {
@@ -96,8 +106,6 @@ export function CustomersSettingsEditor() {
         const map = new Map<string, SalesRep>();
         for (const r of sr) map.set(r.rep_code, r);
         setRepByCode(map);
-        // primary_sales_rep is the name, but assign* takes rep_code. Build
-        // a name→code map for matching.
         const byName = new Map<string, string>();
         for (const r of sr) byName.set(r.name, r.rep_code);
         const ac = new Map<string, string>();
@@ -117,10 +125,13 @@ export function CustomersSettingsEditor() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
-      r.display_name.toLowerCase().includes(q)
+      displayLabel(r).toLowerCase().includes(q)
+      || (r.parent_name?.toLowerCase().includes(q) ?? false)
       || (r.fully_qualified_name?.toLowerCase().includes(q) ?? false)
       || (r.customer_type_name?.toLowerCase().includes(q) ?? false)
       || (r.primary_channel?.toLowerCase().includes(q) ?? false)
+      || (r.city?.toLowerCase().includes(q) ?? false)
+      || (r.address?.toLowerCase().includes(q) ?? false)
       || (r.notes?.toLowerCase().includes(q) ?? false),
     );
   }, [rows, search]);
@@ -133,8 +144,10 @@ export function CustomersSettingsEditor() {
   async function patchChannel(qbo_customer_id: string, primary: string | null) {
     try {
       const existing = (rows ?? []).find((r) => r.qbo_customer_id === qbo_customer_id);
-      const labels = primary ? Array.from(new Set([...(existing?.channels ?? []), primary])) : (existing?.channels ?? []);
-      await setCustomerChannels(qbo_customer_id, primary ? labels : labels, primary);
+      const labels = primary
+        ? Array.from(new Set([...(existing?.channels ?? []), primary]))
+        : (existing?.channels ?? []);
+      await setCustomerChannels(qbo_customer_id, labels, primary);
       setRows((cur) => cur?.map((r) =>
         r.qbo_customer_id === qbo_customer_id
           ? { ...r, primary_channel: primary, channels: primary ? labels : r.channels }
@@ -192,18 +205,14 @@ export function CustomersSettingsEditor() {
 
   const columns: GridColDef[] = useMemo(() => [
     {
-      field: 'display_name', headerName: 'Customer', flex: 1.4, minWidth: 200,
+      field: 'is_sub_customer', headerName: 'Type', width: 70, sortable: true,
       renderCell: (p) => (
-        <div style={{ minWidth: 0, overflow: 'hidden' }}>
-          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {p.row.display_name}
-          </div>
-          {(p.row.state || p.row.is_sub_customer || p.row.customer_type_name) && (
-            <div style={{ fontSize: 10, color: 'var(--mt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {[p.row.state, p.row.is_sub_customer ? 'sub' : null, p.row.customer_type_name].filter(Boolean).join(' · ')}
-            </div>
-          )}
-        </div>
+        <span style={{
+          fontSize: 9, padding: '1px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0.4,
+          background: p.value ? 'rgba(91,181,240,0.12)' : 'rgba(255,255,255,0.05)',
+          color: p.value ? 'var(--ac)' : 'var(--mt)',
+          border: '1px solid ' + (p.value ? 'rgba(91,181,240,0.30)' : 'var(--bd)'),
+        }}>{p.value ? 'SUB' : 'PARENT'}</span>
       ),
     },
     {
@@ -252,6 +261,27 @@ export function CustomersSettingsEditor() {
       },
     },
     {
+      field: 'city', headerName: 'City', width: 120,
+      renderCell: (p) => (
+        <span style={{ color: p.value ? 'var(--tx)' : 'var(--mt)', fontSize: 11 }}>{p.value || '—'}</span>
+      ),
+    },
+    {
+      field: 'address', headerName: 'Address', width: 200,
+      renderCell: (p) => (
+        <span style={{
+          color: p.value ? 'var(--tx2)' : 'var(--mt)', fontSize: 10.5,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
+        }}>{p.value || '—'}</span>
+      ),
+    },
+    {
+      field: 'state', headerName: 'State', width: 65,
+      renderCell: (p) => (
+        <span style={{ color: 'var(--tx2)', fontSize: 11 }}>{p.value || '—'}</span>
+      ),
+    },
+    {
       field: 'ytd_revenue', headerName: 'YTD Rev', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => fm(Number(v ?? 0)),
     },
@@ -292,10 +322,6 @@ export function CustomersSettingsEditor() {
       },
     },
     {
-      field: 'open_invoice_count', headerName: 'Open Inv', type: 'number', width: 90, cellClassName: 'mn',
-      valueFormatter: (v) => v ? fmtNum(Number(v)) : '—',
-    },
-    {
       field: 'notes', headerName: 'Notes', flex: 1, minWidth: 180,
       renderCell: (p) => (
         <input type="text" defaultValue={p.value ?? ''}
@@ -310,16 +336,37 @@ export function CustomersSettingsEditor() {
   ], [channels, reps, assignByCustomer, repByCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
-    headerName: 'Channel / Customer', width: 280, hideDescendantCount: false,
+    headerName: 'Channel / Customer', width: 320, hideDescendantCount: false,
     renderCell: (params: {
-      rowNode: { type: string; groupingKey?: string | number | null };
-      row: { display_name?: string };
+      rowNode: { type: string; groupingKey?: string | number | null; depth?: number };
+      row: { display_name?: string; is_sub_customer?: boolean; ar_total?: number };
     }) => {
       if (params.rowNode.type === 'group') {
         const key = params.rowNode.groupingKey;
-        return <strong style={{ color: 'var(--ac)' }}>{key == null ? UNASSIGNED : String(key)}</strong>;
+        const depth = params.rowNode.depth ?? 0;
+        if (depth === 0) {
+          return <strong style={{ color: 'var(--ac)' }}>{key == null ? UNASSIGNED : String(key)}</strong>;
+        }
+        return <strong style={{ color: 'var(--tx)', fontWeight: 600 }}>{String(key ?? '')}</strong>;
       }
-      return <span style={{ fontWeight: 600 }}>{String(params.row.display_name ?? '')}</span>;
+      const name = params.row.display_name?.trim();
+      const isBlank = !name;
+      if (isBlank) {
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--am)', fontStyle: 'italic' }}>
+            <AlertTriangle size={11} strokeWidth={2.4} aria-hidden="true" />
+            {ANONYMOUS_LABEL}
+            {(params.row.ar_total ?? 0) > 0 && (
+              <span style={{ fontSize: 9, color: 'var(--rd)' }}>· has AR</span>
+            )}
+          </span>
+        );
+      }
+      return (
+        <span style={{ fontWeight: 600, paddingLeft: params.row.is_sub_customer ? 4 : 0 }}>
+          {params.row.is_sub_customer ? '↳ ' : ''}{name}
+        </span>
+      );
     },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any, []);
@@ -330,6 +377,7 @@ export function CustomersSettingsEditor() {
   const totalAr = rows.reduce((s, r) => s + Number(r.ar_total || 0), 0);
   const past90 = rows.reduce((s, r) => s + Number(r.ar_90_plus || 0), 0);
   const unassignedCount = rows.filter((r) => !r.primary_channel).length;
+  const blankNameWithAr = rows.filter((r) => (!r.display_name || !r.display_name.trim()) && r.ar_total > 0).length;
 
   return (
     <div>
@@ -345,6 +393,19 @@ export function CustomersSettingsEditor() {
         />
       </div>
 
+      {blankNameWithAr > 0 && (
+        <div className="cd" style={{
+          padding: '8px 12px', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center',
+          fontSize: 11, borderColor: 'var(--am)', background: 'rgba(244,180,0,0.06)',
+        }}>
+          <AlertTriangle size={14} strokeWidth={2.2} color="var(--am)" aria-hidden="true" />
+          <span style={{ color: 'var(--tx)' }}>
+            <strong>{blankNameWithAr}</strong> blank-name customer{blankNameWithAr === 1 ? '' : 's'} carry open AR.
+            These are invoices booked against deleted or merged QBO customers — investigate or void in QBO.
+          </span>
+        </div>
+      )}
+
       <div className="cd" style={{
         padding: '10px 12px', marginBottom: 14, display: 'flex',
         gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
@@ -352,10 +413,10 @@ export function CustomersSettingsEditor() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           padding: '4px 10px', height: 30, borderRadius: 4,
-          background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 260,
+          background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 280,
         }}>
           <Search size={13} strokeWidth={2.2} color="var(--mt)" aria-hidden="true" />
-          <input type="text" value={search} placeholder="Search name, channel, type, notes…"
+          <input type="text" value={search} placeholder="Search name, parent, channel, city, address, notes…"
             onChange={(e) => setSearch(e.target.value)}
             style={{
               background: 'transparent', border: 'none', outline: 'none',
@@ -403,9 +464,10 @@ export function CustomersSettingsEditor() {
       </div>
 
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
-        <strong style={{ color: 'var(--tx)' }}>One place for every customer.</strong> Primary channel,
-        sales rep, and notes save inline. YTD revenue + AR aging come straight from QBO. Channel
-        assignment flows into v_sales_lines for Margin Control filtering and reports.
+        <strong style={{ color: 'var(--tx)' }}>Channel → Parent → Sub.</strong> Customers group by primary
+        channel; sub-customers nest under their parent automatically. Click "Type" column header
+        to sort by parent/sub. City + Address come from QBO Bill-To. Blank-name customers usually mean the
+        invoice was booked against a deleted or merged QBO record — flagged in yellow above.
       </div>
     </div>
   );
