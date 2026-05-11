@@ -1,22 +1,24 @@
 import { useState } from 'react';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 import { InactiveCustomersReport } from './reports/InactiveCustomersReport';
 import { TopMoversReport } from './reports/TopMoversReport';
 import { HealthMoversReport } from './reports/HealthMoversReport';
 import { AnomaliesReport } from './reports/AnomaliesReport';
 import { VoidsReport } from './reports/VoidsReport';
 
-type Tab = 'inactive' | 'movers' | 'health_movers' | 'anomalies' | 'voids';
+type TabId = 'inactive' | 'movers' | 'health_movers' | 'anomalies' | 'voids';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'inactive',      label: 'Lost / Inactive Customers' },
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'inactive',      label: 'Lost / Inactive' },
   { id: 'movers',        label: 'Top Movers' },
   { id: 'health_movers', label: 'Health Movers (RFM)' },
   { id: 'anomalies',     label: 'Revenue Anomalies' },
-  { id: 'voids',         label: 'Product Voids / Cross-Sell' },
+  { id: 'voids',         label: 'Voids / Cross-Sell' },
 ];
 
 export function ReportsPage() {
-  const [tab, setTab] = useState<Tab>('inactive');
+  const [tab, setTab] = useState<TabId>('inactive');
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Reports';
 
   return (
@@ -33,21 +35,21 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {TABS.map((t) => {
-          const on = tab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
-              style={on ? { fontWeight: 700 } : undefined}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v as TabId)}
+        sx={{
+          minHeight: 36, mb: 1.5, borderBottom: '1px solid var(--bd)',
+          '& .MuiTabs-indicator': { background: 'var(--ac)', height: 2 },
+          '& .MuiTab-root': {
+            minHeight: 36, padding: '6px 18px', textTransform: 'uppercase',
+            color: 'var(--mt)', fontSize: 11, fontWeight: 600, letterSpacing: 0.6, fontFamily: 'inherit',
+          },
+          '& .Mui-selected': { color: 'var(--ac) !important' },
+        }}
+      >
+        {TABS.map((t) => <Tab key={t.id} value={t.id} label={t.label} />)}
+      </Tabs>
 
       {tab === 'inactive'      && <InactiveCustomersReport />}
       {tab === 'movers'        && <TopMoversReport />}
