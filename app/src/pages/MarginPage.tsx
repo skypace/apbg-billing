@@ -14,6 +14,7 @@ import { AreaChart } from '../components/charts/AreaChart';
 import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
+import { TopMoversStrip } from '../components/TopMoversStrip';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
@@ -309,9 +310,6 @@ export function MarginPage() {
       .catch(() => setSparklines({}));
   }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters)]);
 
-  // Overhead pools — fetch whenever the analysis window or entity changes.
-  // Cheap query (≤ a few rows), so we always pull it and let downstream
-  // computation decide whether to show overhead columns / KPI.
   useEffect(() => {
     let cancelled = false;
     const ent = effectiveFilters.entities?.[0] ?? null;
@@ -321,7 +319,6 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [effectiveFilters.start, effectiveFilters.end, JSON.stringify(effectiveFilters.entities)]);
 
-  // Smart Columns enrichment side-fetch.
   useEffect(() => {
     if (!rows || rows.length === 0 || !columnsNeedFetch(extraColumns)) {
       setEnrichment({});
@@ -412,6 +409,22 @@ export function MarginPage() {
     setDim(next);
   }
 
+  // Filter the current dim to a single label — used by the Top Movers strip cards.
+  // Unlike drillInto, this stays in the current dim instead of moving to the next.
+  function filterToLabel(label: string) {
+    const filterKey = DRILL_FILTER[dim];
+    if (!filterKey) {
+      toast.info(`Can't filter ${dim} dim directly`);
+      return;
+    }
+    setFilters((cur) => {
+      const existing = (cur[filterKey] as string[] | null | undefined) ?? [];
+      if (existing.includes(label)) return cur;
+      return { ...cur, [filterKey]: [...existing, label] };
+    });
+    toast.success(`Filtered to "${label}"`);
+  }
+
   function clearFilter(key: keyof SalesFilters, value?: string) {
     setFilters((cur) => {
       const list = (cur[key] as string[] | null | undefined) ?? [];
@@ -454,7 +467,6 @@ export function MarginPage() {
     return v >= 0.8 ? 'var(--gn)' : v >= 0.5 ? 'var(--am)' : 'var(--rd)';
   }, [totals]);
 
-  // Net Margin KPI — only rendered when at least one pool has prorated $.
   const totalOverhead = useMemo(() => totalPoolAmount(overheadPools), [overheadPools]);
   const showOverheadKpi = totalOverhead > 0 && totals != null;
   const netMargin = totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
@@ -476,8 +488,6 @@ export function MarginPage() {
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] = comparison ?? (rows ?? []);
 
-  // enrichedRows = base rows + API enrichment (customer/item meta) + overhead fields.
-  // Both are computed in one pass so MarginGrid receives ready-to-render rows.
   const enrichedRows = useMemo(() => {
     const hasEnrichment = Object.keys(enrichment).length > 0;
     const hasOverhead   = overheadPools.length > 0 && totals != null;
@@ -693,6 +703,12 @@ export function MarginPage() {
           )))}
           <button onClick={() => setFilters({ start: filters.start, end: filters.end, entities: null })} className="tb-btn" style={{ marginLeft: 'auto', color: 'var(--rd)', borderColor: 'var(--rd)' }}>Clear all</button>
         </div>
+      )}
+
+      {/* Top Movers strip — biggest revenue / margin gains and losses vs prior period.
+          Only renders when comparison data is loaded (compareMode != 'off'). */}
+      {comparison && comparison.length > 0 && (
+        <TopMoversStrip rows={comparison} dim={dim} onSelect={filterToLabel} />
       )}
 
       {chartKind !== 'none' && rows && rows.length > 0 && (
