@@ -24,7 +24,22 @@ export function LoginPage() {
       <div className="login-bg" aria-hidden="true" />
       <div className="login-card-wrap">
         <div className="login-brand">
-          <BrixMark size={168} title="Brix Beverage" />
+          {/* Dual-mark lockup: Alameda Soda Co. seal + Brix BX, sized to
+              sit visually over the BRIX wordmark below. */}
+          <div
+            className="login-brand-marks"
+            aria-label="Brix Beverage × Alameda Soda Co."
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 28,
+              marginBottom: 14,
+            }}
+          >
+            <AlamedaMark size={150} variant="seal" title="Alameda Soda Co." />
+            <BrixMark size={150} title="Brix Beverage" />
+          </div>
           <div className="brand-mark login-brand-mark">
             BRI<span className="brand-bx">X</span>
           </div>
@@ -36,11 +51,7 @@ export function LoginPage() {
             Real-time margin, cost coverage, and customer health.
           </div>
 
-          {/* Parent-group brand lockup — Brix × Alameda Soda Co. */}
           <div className="login-brand-lockup" aria-label="Alameda Beverage Group">
-            <BrixMark size={28} />
-            <span className="login-brand-lockup-x">×</span>
-            <AlamedaMark size={32} variant="seal" />
             <span className="login-brand-lockup-caption">Alameda Beverage Group LLC</span>
           </div>
         </div>
