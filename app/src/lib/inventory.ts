@@ -62,6 +62,12 @@ export interface QboCustomerOption {
   display_name: string;
 }
 
+export interface CategoryOption {
+  label: string;
+  source: 'qbo' | 'override' | 'both';
+  count: number;
+}
+
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {
   return sbrpc<InventoryHealthRow[]>('fn_items_master', {
     p_lookback_days: opts.lookback ?? 90,
@@ -90,6 +96,21 @@ export function setInventorySettings(opts: {
     p_notes:              opts.notes ?? null,
     p_category_override:  opts.category_override ?? null,
   });
+}
+
+// Toggle qbo_items.active locally. NOTE: QBO push-back is not yet wired —
+// the next QBO item sync may re-write this if QBO's source-of-truth differs.
+// Mostly safe because archived items don't usually flip back on their own.
+export function setItemActive(qbo_item_id: string, active: boolean) {
+  return sbrpc<void>('fn_set_qbo_item_active', {
+    p_qbo_item_id: qbo_item_id,
+    p_active:      active,
+  });
+}
+
+// All known categories from QBO item paths + manual overrides, deduped.
+export function fetchCategoryList() {
+  return sbrpc<CategoryOption[]>('fn_list_categories', {});
 }
 
 export function fetchVelocityExcludes() {
