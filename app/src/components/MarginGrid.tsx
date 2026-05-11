@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import type { ComparisonRow, Dim, SalesPivotRow } from '../lib/sales';
+import type { MarginColumnDef } from '../lib/marginColumns';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { Sparkline } from './Sparkline';
 
@@ -21,6 +22,8 @@ interface Props {
   showCompare?: boolean;
   sparklines?: Record<string, number[]>;
   onRowClick?: (row: SalesPivotRow) => void;
+  /** Optional extra columns from the registry — Smart Columns picker output. */
+  extraColumns?: MarginColumnDef[];
 }
 
 function isComparison(r: SalesPivotRow | ComparisonRow): r is ComparisonRow {
@@ -39,7 +42,7 @@ function marginColor(mp: number | null | undefined) {
   return 'var(--rd)';
 }
 
-export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: Props) {
+export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, extraColumns }: Props) {
   const totalsRow = useMemo(() => {
     let lineCount = 0;
     let qty = 0, qtyHas = false;
@@ -225,8 +228,29 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: P
       },
     );
 
+    // Smart Columns — user-selected extras from the picker. Each carries
+    // its own compute + format, so they slot in at the end without
+    // disturbing the standard column order.
+    for (const xc of extraColumns ?? []) {
+      cols.push({
+        field: 'xc_' + xc.id,
+        headerName: xc.label,
+        type: 'number',
+        width: xc.width,
+        cellClassName: 'mn',
+        sortable: true,
+        valueGetter: xc.compute
+          ? (_value, row) => {
+              const out = xc.compute!(row as SalesPivotRow & Record<string, unknown>);
+              return out as number | string | null;
+            }
+          : (_value, row) => (xc.enrichmentKey ? (row as Record<string, unknown>)[xc.enrichmentKey] ?? null : null),
+        valueFormatter: (v) => (xc.format ? xc.format(v) : v == null ? '—' : String(v)),
+      });
+    }
+
     return cols;
-  }, [dim, showCompare, sparklines]);
+  }, [dim, showCompare, sparklines, extraColumns]);
 
   return (
     <DataGridPro
