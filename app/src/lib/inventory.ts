@@ -97,6 +97,24 @@ export interface PlSuggestionApplyRow {
   applied: boolean;
 }
 
+export interface QboCategorySyncResult {
+  ok: boolean;
+  commit: boolean;
+  message?: string;
+  categories_total?: number;
+  categories_created?: string[];
+  summary?: {
+    total: number;
+    already_correct: number;
+    would_update: number;
+    updated: number;
+    skipped_unknown_category: number;
+    errors: Array<{ qboItemId: string; error: string }>;
+  };
+  error?: string;
+  duration_ms?: number;
+}
+
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {
   return sbrpc<InventoryHealthRow[]>('fn_items_master', {
     p_lookback_days: opts.lookback ?? 90,
@@ -127,16 +145,7 @@ export function setInventorySettings(opts: {
   });
 }
 
-// Toggle qbo_items.active in QBO (and mirror locally on success).
-// The push-qbo-item edge function handles QBO auth + the sparse PATCH;
-// returns ok:true on success.
-export async function setItemActive(qbo_item_id: string, active: boolean): Promise<{
-  ok: boolean;
-  no_change?: boolean;
-  was_active?: boolean;
-  now_active?: boolean;
-  error?: string;
-}> {
+async function callPushQboItem<T>(body: Record<string, unknown>): Promise<T> {
   const token = await _sbToken();
   const res = await fetch(SB_URL + '/functions/v1/push-qbo-item', {
     method: 'POST',
@@ -145,13 +154,32 @@ export async function setItemActive(qbo_item_id: string, active: boolean): Promi
       Authorization: 'Bearer ' + token,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ action: 'setActive', qbo_item_id, active }),
+    body: JSON.stringify(body),
   });
   const j = await res.json();
-  if (!res.ok || !j?.ok) {
+  if (!res.ok || (j && j.ok === false)) {
     throw new Error(j?.error || ('push-qbo-item failed: HTTP ' + res.status));
   }
-  return j;
+  return j as T;
+}
+
+// Toggle qbo_items.active in QBO (and mirror locally on success).
+export async function setItemActive(qbo_item_id: string, active: boolean): Promise<{
+  ok: boolean;
+  no_change?: boolean;
+  was_active?: boolean;
+  now_active?: boolean;
+}> {
+  return callPushQboItem({ action: 'setActive', qbo_item_id, active });
+}
+
+// Bulk-push category_override → QBO ParentRef. Creates missing Category Items.
+// commit=false returns the dry-run plan.
+export async function bulkSyncCategoriesToQbo(commit = false): Promise<QboCategorySyncResult> {
+  return callPushQboItem<QboCategorySyncResult>({
+    action: 'bulkSyncCategories',
+    commit,
+  });
 }
 
 export function fetchCategoryList() {
