@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { AlertTriangle, CircleDollarSign } from 'lucide-react';
+import { AlertTriangle, CircleDollarSign, Info } from 'lucide-react';
 import type { ComparisonRow, Dim, SalesPivotRow } from '../lib/sales';
 import type { MarginColumnDef } from '../lib/marginColumns';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -17,18 +17,17 @@ interface Props {
   showCompare?: boolean;
   sparklines?: Record<string, number[]>;
   onRowClick?: (row: SalesPivotRow) => void;
+  onDetailClick?: (row: SalesPivotRow & Record<string, unknown>) => void;
   extraColumns?: MarginColumnDef[];
 }
 
 function isComparison(r: SalesPivotRow | ComparisonRow): r is ComparisonRow {
   return 'prior_revenue' in r;
 }
-
 function deltaColor(v: number | null | undefined) {
   if (v == null || v === 0) return 'var(--mt)';
   return v > 0 ? 'var(--gn)' : 'var(--rd)';
 }
-
 function marginColor(mp: number | null | undefined) {
   if (mp == null) return 'var(--mt)';
   if (mp >= 0.4) return 'var(--gn)';
@@ -36,103 +35,58 @@ function marginColor(mp: number | null | undefined) {
   return 'var(--rd)';
 }
 
-/** At-risk glyph for current vs prior comparison: triggers on revenue drop
- *  OR margin-percentage-point drop. Returns severity + tooltip. */
 function evaluateAtRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
   const priorRev = row.prior_revenue != null ? Number(row.prior_revenue) : null;
   if (priorRev == null || priorRev < 250) return null;
-
   const revDeltaPct = row.delta_pct != null ? Number(row.delta_pct) : null;
   const curMargin = row.est_margin != null ? Number(row.est_margin) : null;
   const priMargin = row.prior_margin != null ? Number(row.prior_margin) : null;
   const curRev = Number(row.revenue ?? 0);
-
-  // Compute margin pp drop: cur_margin% - prior_margin%
   let marginPpDrop: number | null = null;
   if (curMargin != null && priMargin != null && curRev > 0 && priorRev > 0) {
-    const cmp = curMargin / curRev;
-    const pmp = priMargin / priorRev;
-    marginPpDrop = pmp - cmp;
+    marginPpDrop = priMargin / priorRev - curMargin / curRev;
   }
-
   const reasons: string[] = [];
   let sev: 'severe' | 'warn' = 'warn';
-
-  if (revDeltaPct != null && revDeltaPct <= -0.5) {
-    reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`);
-    sev = 'severe';
-  } else if (revDeltaPct != null && revDeltaPct <= -0.2) {
-    reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`);
-  }
-
-  if (marginPpDrop != null && marginPpDrop >= 0.10) {
-    reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`);
-    sev = 'severe';
-  } else if (marginPpDrop != null && marginPpDrop >= 0.05) {
-    reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`);
-  }
-
-  if (reasons.length === 0) return null;
-  return { sev, tip: reasons.join(' · ') };
+  if (revDeltaPct != null && revDeltaPct <= -0.5) { reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`); sev = 'severe'; }
+  else if (revDeltaPct != null && revDeltaPct <= -0.2) { reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`); }
+  if (marginPpDrop != null && marginPpDrop >= 0.10) { reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`); sev = 'severe'; }
+  else if (marginPpDrop != null && marginPpDrop >= 0.05) { reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`); }
+  return reasons.length ? { sev, tip: reasons.join(' · ') } : null;
 }
 
-/** AR risk glyph for customer dim. Triggered by aged AR balance or
- *  days-oldest-overdue threshold. Pulls from already-merged enrichment fields. */
 function evaluateArRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
   const ar90 = row.ar_90_plus != null ? Number(row.ar_90_plus) : 0;
   const arTotal = row.ar_total != null ? Number(row.ar_total) : 0;
   const oldest = row.days_oldest_overdue != null ? Number(row.days_oldest_overdue) : 0;
-
-  if (ar90 > 0) {
-    return {
-      sev: 'severe',
-      tip: `${fm(ar90)} aged 90+ days · ${oldest}d oldest`,
-    };
-  }
-  if (oldest >= 60 && arTotal > 0) {
-    return {
-      sev: 'warn',
-      tip: `${oldest}d oldest overdue · ${fm(arTotal)} open AR`,
-    };
-  }
+  if (ar90 > 0) return { sev: 'severe', tip: `${fm(ar90)} aged 90+ days · ${oldest}d oldest` };
+  if (oldest >= 60 && arTotal > 0) return { sev: 'warn', tip: `${oldest}d oldest overdue · ${fm(arTotal)} open AR` };
   return null;
 }
 
-export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, extraColumns }: Props) {
+export function MarginGrid({
+  dim, rows, showCompare, sparklines, onRowClick, onDetailClick, extraColumns,
+}: Props) {
   const totalsRow = useMemo(() => {
-    let lineCount = 0;
-    let qty = 0, qtyHas = false;
-    let revenue = 0;
-    let estCost = 0, estCostHas = false;
-    let estMargin = 0, estMarginHas = false;
-    let priorRevenue = 0, priorHas = false;
+    let lineCount = 0, qty = 0, qtyHas = false, revenue = 0, estCost = 0, estCostHas = false;
+    let estMargin = 0, estMarginHas = false, priorRevenue = 0, priorHas = false;
     for (const r of rows) {
       lineCount += Number(r.line_count || 0);
-      if (r.qty != null)        { qty       += Number(r.qty);        qtyHas       = true; }
-      revenue   += Number(r.revenue || 0);
-      if (r.est_cost   != null) { estCost   += Number(r.est_cost);   estCostHas   = true; }
+      if (r.qty != null) { qty += Number(r.qty); qtyHas = true; }
+      revenue += Number(r.revenue || 0);
+      if (r.est_cost != null) { estCost += Number(r.est_cost); estCostHas = true; }
       if (r.est_margin != null) { estMargin += Number(r.est_margin); estMarginHas = true; }
-      if (isComparison(r) && r.prior_revenue != null) {
-        priorRevenue += Number(r.prior_revenue);
-        priorHas = true;
-      }
+      if (isComparison(r) && r.prior_revenue != null) { priorRevenue += Number(r.prior_revenue); priorHas = true; }
     }
     const marginPct = estCostHas && revenue > 0 ? (revenue - estCost) / revenue : null;
     const deltaRev  = priorHas ? revenue - priorRevenue : null;
     const deltaPct  = priorHas && priorRevenue > 0 ? (revenue - priorRevenue) / priorRevenue : null;
     return {
-      id: '__total__',
-      __isTotal: true,
-      dim_label: `TOTAL (${rows.length})`,
-      line_count:   lineCount,
-      qty:          qtyHas        ? qty       : null,
-      revenue,
-      est_cost:     estCostHas    ? estCost   : null,
-      est_margin:   estMarginHas  ? estMargin : null,
-      margin_pct:   marginPct,
-      prior_revenue: priorHas ? priorRevenue : null,
-      delta_revenue: deltaRev,
-      delta_pct:     deltaPct,
+      id: '__total__', __isTotal: true, dim_label: `TOTAL (${rows.length})`,
+      line_count: lineCount, qty: qtyHas ? qty : null, revenue,
+      est_cost: estCostHas ? estCost : null, est_margin: estMarginHas ? estMargin : null,
+      margin_pct: marginPct, prior_revenue: priorHas ? priorRevenue : null,
+      delta_revenue: deltaRev, delta_pct: deltaPct,
     };
   }, [rows]);
 
@@ -144,48 +98,41 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
   const columns: GridColDef[] = useMemo(() => {
     const cols: GridColDef[] = [
       {
-        field: 'dim_label',
-        headerName: DIM_HEADER[dim],
-        flex: 2,
-        minWidth: 200,
+        field: 'dim_label', headerName: DIM_HEADER[dim], flex: 2, minWidth: 200,
         renderCell: (p) => {
           if (p.row.__isTotal) {
-            return (
-              <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {p.value as string}
-              </span>
-            );
+            return <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.value as string}</span>;
           }
           const risk = showCompare ? evaluateAtRisk(p.row as Record<string, unknown>) : null;
           const arRisk = dim === 'customer' ? evaluateArRisk(p.row as Record<string, unknown>) : null;
-          const riskColor = risk
-            ? (risk.sev === 'severe' ? 'var(--rd)' : 'var(--am)')
-            : null;
-          const arColor = arRisk
-            ? (arRisk.sev === 'severe' ? 'var(--rd)' : 'var(--am)')
-            : null;
-          const fullTip = [
-            risk ? `RISK: ${risk.tip}` : '',
-            arRisk ? `AR: ${arRisk.tip}` : '',
-          ].filter(Boolean).join(' · ');
+          const riskColor = risk ? (risk.sev === 'severe' ? 'var(--rd)' : 'var(--am)') : null;
+          const arColor = arRisk ? (arRisk.sev === 'severe' ? 'var(--rd)' : 'var(--am)') : null;
+          const fullTip = [risk ? `RISK: ${risk.tip}` : '', arRisk ? `AR: ${arRisk.tip}` : ''].filter(Boolean).join(' · ');
 
           return (
-            <span
-              style={{
-                fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-              title={fullTip || (p.value as string)}
-            >
-              {riskColor && (
-                <AlertTriangle size={12} strokeWidth={2.4} color={riskColor}
-                  aria-label={risk?.tip} style={{ flexShrink: 0 }} />
+            <span style={{
+              fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%',
+            }} title={fullTip || (p.value as string)}>
+              {riskColor && <AlertTriangle size={12} strokeWidth={2.4} color={riskColor} aria-label={risk?.tip} style={{ flexShrink: 0 }} />}
+              {arColor && <CircleDollarSign size={12} strokeWidth={2.4} color={arColor} aria-label={arRisk?.tip} style={{ flexShrink: 0 }} />}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{p.value as string}</span>
+              {onDetailClick && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDetailClick(p.row as SalesPivotRow & Record<string, unknown>);
+                  }}
+                  title="Row detail: Waterfall · Price Ladder · What-if"
+                  style={{
+                    flexShrink: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+                    padding: 2, display: 'inline-flex', alignItems: 'center',
+                  }}
+                  aria-label="Open row detail"
+                >
+                  <Info size={12} strokeWidth={2.4} color="var(--mt)" />
+                </button>
               )}
-              {arColor && (
-                <CircleDollarSign size={12} strokeWidth={2.4} color={arColor}
-                  aria-label={arRisk?.tip} style={{ flexShrink: 0 }} />
-              )}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.value as string}</span>
             </span>
           );
         },
@@ -194,12 +141,9 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
 
     if (sparklines) {
       cols.push({
-        field: 'spark', headerName: 'Trend (12mo)',
-        width: 110, sortable: false, filterable: false,
+        field: 'spark', headerName: 'Trend (12mo)', width: 110, sortable: false, filterable: false,
         valueGetter: () => null,
-        renderCell: (p) =>
-          p.row.__isTotal ? null
-            : <Sparkline values={sparklines[p.row.dim_label] ?? Array(12).fill(0)} />,
+        renderCell: (p) => p.row.__isTotal ? null : <Sparkline values={sparklines[p.row.dim_label] ?? Array(12).fill(0)} />,
       });
     }
 
@@ -208,20 +152,14 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
         valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—') },
       { field: 'qty', headerName: 'Qty', type: 'number', width: 96, cellClassName: 'mn',
         valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—') },
-      {
-        field: 'revenue', headerName: 'Revenue', type: 'number', width: 130, cellClassName: 'mn',
-        renderCell: (p) => (
-          <span style={{ fontWeight: p.row.__isTotal ? 700 : 600 }}>{fm(p.value)}</span>
-        ),
-      },
+      { field: 'revenue', headerName: 'Revenue', type: 'number', width: 130, cellClassName: 'mn',
+        renderCell: (p) => <span style={{ fontWeight: p.row.__isTotal ? 700 : 600 }}>{fm(p.value)}</span> },
     );
 
     if (showCompare) {
       cols.push(
         { field: 'prior_revenue', headerName: 'Prior Rev', type: 'number', width: 120, cellClassName: 'mn',
-          renderCell: (p) => (
-            <span style={{ color: 'var(--mt)' }}>{p.value != null ? fm(p.value) : '—'}</span>
-          ) },
+          renderCell: (p) => <span style={{ color: 'var(--mt)' }}>{p.value != null ? fm(p.value) : '—'}</span> },
         { field: 'delta_revenue', headerName: 'Δ $', type: 'number', width: 110, cellClassName: 'mn',
           renderCell: (p) => {
             if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
@@ -243,9 +181,7 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
       { field: 'est_margin', headerName: 'Est Margin', type: 'number', width: 116, cellClassName: 'mn',
         valueFormatter: (v) => (v != null ? fm(v) : '—') },
       { field: 'margin_pct', headerName: 'Margin %', type: 'number', width: 104, cellClassName: 'mn',
-        renderCell: (p) => (
-          <span style={{ color: marginColor(p.value), fontWeight: 600 }}>{fp(p.value)}</span>
-        ) },
+        renderCell: (p) => <span style={{ color: marginColor(p.value), fontWeight: 600 }}>{fp(p.value)}</span> },
     );
 
     for (const xc of extraColumns ?? []) {
@@ -253,17 +189,14 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
         field: 'xc_' + xc.id, headerName: xc.label, type: 'number',
         width: xc.width, cellClassName: 'mn', sortable: true,
         valueGetter: xc.compute
-          ? (_value, row) => {
-              const out = xc.compute!(row as SalesPivotRow & Record<string, unknown>);
-              return out as number | string | null;
-            }
-          : (_value, row) => (xc.enrichmentKey ? (row as Record<string, unknown>)[xc.enrichmentKey] ?? null : null),
+          ? (_v, row) => xc.compute!(row as SalesPivotRow & Record<string, unknown>) as number | string | null
+          : (_v, row) => (xc.enrichmentKey ? (row as Record<string, unknown>)[xc.enrichmentKey] ?? null : null),
         valueFormatter: (v) => (xc.format ? xc.format(v) : v == null ? '—' : String(v)),
       });
     }
 
     return cols;
-  }, [dim, showCompare, sparklines, extraColumns]);
+  }, [dim, showCompare, sparklines, extraColumns, onDetailClick]);
 
   return (
     <DataGridPro
@@ -274,9 +207,7 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
       disableRowSelectionOnClick
       pagination
       pageSizeOptions={[10, 20, 40, 60, 100, { value: -1, label: 'All' }]}
-      onRowClick={onRowClick
-        ? (params) => { if (!params.row.__isTotal) onRowClick(params.row); }
-        : undefined}
+      onRowClick={onRowClick ? (params) => { if (!params.row.__isTotal) onRowClick(params.row); } : undefined}
       initialState={{
         pagination: { paginationModel: { pageSize: 20, page: 0 } },
         pinnedColumns: { left: ['dim_label'] },
