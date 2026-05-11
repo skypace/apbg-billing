@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import dayjs, { Dayjs } from 'dayjs';
 import { Printer } from 'lucide-react';
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
@@ -17,6 +19,7 @@ import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/c
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
+const CHART_KINDS: ChartKind[] = ['none', 'bar', 'pie', 'line'];
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { sbq } from '../lib/rpc';
@@ -68,6 +71,44 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'mtd', label: 'MTD' }, { id: 'qtd', label: 'QTD' }, { id: 'ytd', label: 'YTD' },
   { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
+
+// Compact dark Autocomplete style — shared by the Group by / Entity / Chart pickers.
+const ACX = {
+  width: 160,
+  '& .MuiOutlinedInput-root': {
+    height: 30,
+    minHeight: 30,
+    fontFamily: 'var(--ff-mono)',
+    fontSize: 12,
+    background: 'var(--bg)',
+    color: 'var(--tx)',
+    padding: '0 6px',
+    '& fieldset': { borderColor: 'var(--bd)' },
+    '&:hover fieldset': { borderColor: 'var(--bd2)' },
+    '&.Mui-focused fieldset': { borderColor: 'var(--ac)' },
+  },
+  '& .MuiAutocomplete-input': {
+    padding: '4px 0 !important',
+    fontFamily: 'var(--ff-mono)',
+    fontSize: 12,
+    color: 'var(--tx)',
+  },
+  '& .MuiSvgIcon-root': { color: 'var(--mt)' },
+};
+const ACX_PAPER = {
+  paper: {
+    sx: {
+      background: 'var(--sf)',
+      color: 'var(--tx)',
+      border: '1px solid var(--bd)',
+      fontFamily: 'var(--ff-mono)',
+      fontSize: 12,
+      '& .MuiAutocomplete-option': { fontSize: 12, color: 'var(--tx)' },
+      '& .MuiAutocomplete-option[aria-selected="true"]': { background: 'rgba(91,181,240,0.10)' },
+      '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
+    },
+  },
+};
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
@@ -431,24 +472,49 @@ export function MarginPage() {
         <div className="toolbar-row">
           <div className="toolbar-section">
             <span className="toolbar-label">Group by</span>
-            <select value={dim} onChange={(e) => setDim(e.target.value as Dim)} className="tb-select">
-              {DIMS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-            </select>
+            <Autocomplete
+              size="small"
+              options={DIMS}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={DIMS.find((d) => d.id === dim) ?? DIMS[0]}
+              onChange={(_, v) => v && setDim(v.id)}
+              disableClearable
+              sx={ACX}
+              slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Group by" />}
+            />
           </div>
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers from Settings → Entity Defaults">
-              <option value="">All</option>
-              {entityOptions.map((en) => <option key={en} value={en}>{en}</option>)}
-            </select>
+            <Autocomplete
+              size="small"
+              options={[null, ...entityOptions] as (string | null)[]}
+              getOptionLabel={(o) => (o == null ? 'All entities' : o)}
+              value={filters.entities?.[0] ?? null}
+              onChange={(_, v) => onEntityChange(v)}
+              sx={ACX}
+              slotProps={ACX_PAPER}
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Entity" />
+              )}
+            />
           </div>
 
           <div className="toolbar-section">
             <span className="toolbar-label">Chart</span>
-            <select value={chartKind} onChange={(e) => setChartKind(e.target.value as ChartKind)} className="tb-select">
-              <option value="none">none</option><option value="bar">bar</option><option value="pie">pie</option><option value="line">line</option>
-            </select>
+            <Autocomplete
+              size="small"
+              options={CHART_KINDS}
+              getOptionLabel={(o) => (o === 'none' ? 'None' : o[0].toUpperCase() + o.slice(1))}
+              value={chartKind}
+              onChange={(_, v) => v && setChartKind(v)}
+              disableClearable
+              sx={{ ...ACX, width: 120 }}
+              slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Chart" />}
+            />
           </div>
 
           <label className="toolbar-section" style={{ cursor: 'pointer' }}>
