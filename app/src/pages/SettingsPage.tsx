@@ -10,6 +10,7 @@ import { SalesRepsEditor } from './settings/SalesRepsEditor';
 import { ChainModifiersEditor } from './settings/ChainModifiersEditor';
 import { EntityDefaultsEditor } from './settings/EntityDefaultsEditor';
 import { TaxonomyRulesEditor } from './settings/TaxonomyRulesEditor';
+import { OverheadPoolsEditor } from './settings/OverheadPoolsEditor';
 import {
   deleteChannel, deleteSegment,
   fetchChannels, fetchSegments,
@@ -21,22 +22,23 @@ type Tab =
   | 'channels' | 'segments' | 'sales_reps'
   | 'rollups' | 'entity_defaults' | 'taxonomy'
   | 'item_sets' | 'digest' | 'classification'
-  | 'expense_buckets' | 'users' | 'fleet_drivers';
+  | 'expense_buckets' | 'overhead' | 'users' | 'fleet_drivers';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
-  // Filter & taxonomy (new) — what the user just asked for
+  // Filter & taxonomy
   { id: 'rollups',         label: 'Chain Rollups',           group: 'Filters & Taxonomy' },
   { id: 'entity_defaults', label: 'Entity Defaults',         group: 'Filters & Taxonomy' },
   { id: 'taxonomy',        label: 'Item & Customer Groups',  group: 'Filters & Taxonomy' },
-  // Existing taxonomy
+  // Customer & item
   { id: 'channels',        label: 'Channels',                group: 'Customer & Item' },
   { id: 'segments',        label: 'Segments',                group: 'Customer & Item' },
   { id: 'sales_reps',      label: 'Sales Reps',              group: 'Customer & Item' },
   { id: 'item_sets',       label: 'Item Sets',               group: 'Customer & Item' },
   { id: 'classification',  label: 'Customer Classification', group: 'Customer & Item' },
   // Operations
-  { id: 'digest',          label: 'Email Digest',            group: 'Operations' },
+  { id: 'overhead',        label: 'Overhead',                group: 'Operations' },
   { id: 'expense_buckets', label: 'Expense Buckets',         group: 'Operations' },
+  { id: 'digest',          label: 'Email Digest',            group: 'Operations' },
   { id: 'fleet_drivers',   label: 'Fleet Drivers',           group: 'Operations' },
   { id: 'users',           label: 'Users',                   group: 'Operations' },
 ];
@@ -115,6 +117,7 @@ export function SettingsPage() {
       {tab === 'digest'          && <DigestEditor />}
       {tab === 'classification'  && <CustomerClassificationEditor />}
       {tab === 'expense_buckets' && <ExpenseBucketsEditor />}
+      {tab === 'overhead'        && <OverheadPoolsEditor />}
       {tab === 'fleet_drivers'   && <FleetDriversEditor />}
       {tab === 'users'           && <UsersEditor />}
     </div>
