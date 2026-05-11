@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
+import {
+  DataGridPro, type GridColDef, type GridGroupNode, type GridRenderCellParams,
+} from '@mui/x-data-grid-pro';
 import { Search, X } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
 import { fm, fmtNum } from '../lib/formatters';
@@ -90,6 +92,39 @@ function filterBySearch<T extends { item_name: string }>(rows: T[], q: string): 
   if (!q.trim()) return rows;
   const needle = q.trim().toLowerCase();
   return rows.filter((r) => r.item_name.toLowerCase().includes(needle));
+}
+
+// Custom renderer for the auto-generated grouping column: shows the human-readable
+// category for group rows and the actual item_name for leaves, instead of the raw
+// qbo_item_id that DataGridPro would display by default from the tree path.
+function renderGroupOrItem(params: GridRenderCellParams) {
+  const node = params.rowNode;
+  if (node.type === 'group') {
+    const key = String(node.groupingKey ?? '');
+    const isInactive = key === INACTIVE_GROUP;
+    return (
+      <span style={{
+        fontWeight: 700,
+        color: isInactive ? 'var(--mt)' : 'var(--ac)',
+        textTransform: isInactive ? 'uppercase' : undefined,
+        letterSpacing: isInactive ? 0.6 : undefined,
+      }}>{key}</span>
+    );
+  }
+  // Leaf row — show the actual item name, not the qbo_item_id from the tree path.
+  const name = (params.row as Record<string, unknown>).item_name as string | undefined;
+  const inactive = (params.row as Record<string, unknown>).active === false;
+  return (
+    <span
+      title={name ?? ''}
+      style={{
+        fontWeight: 600,
+        color: inactive ? 'var(--mt)' : 'var(--tx)',
+        opacity: inactive ? 0.7 : 1,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}
+    >{name ?? '—'}</span>
+  );
 }
 
 function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
@@ -233,6 +268,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item',
     width: 360, hideDescendantCount: false,
+    renderCell: renderGroupOrItem,
   }), []);
 
   function exportCsv() {
@@ -364,6 +400,7 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item',
     width: 360, hideDescendantCount: false,
+    renderCell: renderGroupOrItem,
   }), []);
 
   if (!sorted) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={10} cols={9} /></div>;
@@ -483,22 +520,31 @@ function ExcludesTab() {
   const [draftCustomerId, setDraftCustomerId] = useState('');
   const [draftReason, setDraftReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
 
   function load() {
     Promise.all([fetchVelocityExcludes(), fetchCustomerOptions()])
-      .then(([ex, cs]) => { setExcludes(ex); setCustomers(cs); })
-      .catch(() => { setExcludes([]); setCustomers([]); });
+      .then(([ex, cs]) => { setExcludes(ex); setCustomers(cs); setErr(''); })
+      .catch((e) => { setExcludes([]); setCustomers([]); setErr(String((e as Error).message ?? e)); });
   }
   useEffect(load, []);
 
   async function add() {
     if (!draftCustomerId) return;
-    setSaving(true);
+    setSaving(true); setErr('');
     try {
       await addVelocityExclude(draftCustomerId, draftReason.trim() || undefined);
       setDraftCustomerId(''); setDraftReason('');
       load();
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
     } finally { setSaving(false); }
+  }
+
+  async function remove(id: string) {
+    setErr('');
+    try { await removeVelocityExclude(id); load(); }
+    catch (e) { setErr(String((e as Error).message ?? e)); }
   }
 
   const available = customers.filter((c) => !excludes.some((ex) => ex.qbo_customer_id === c.qbo_customer_id));
@@ -531,6 +577,11 @@ function ExcludesTab() {
           {saving ? 'Adding…' : 'Add Exclude'}
         </button>
       </div>
+      {err && (
+        <div className="cd" style={{ padding: '8px 16px', color: 'var(--rd)', fontSize: 11, borderBottom: '1px solid var(--bd)' }}>
+          Error: {err}
+        </div>
+      )}
       {excludes.length === 0 ? (
         <div className="ld">No customers excluded.</div>
       ) : (
@@ -549,8 +600,9 @@ function ExcludesTab() {
                     {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
-                      style={btnDanger()} title="Remove this exclude">Remove</button>
+                    <button onClick={() => remove(ex.qbo_customer_id)} style={btnDanger()} title="Remove this exclude">
+                      Remove
+                    </button>
                   </td>
                 </tr>
               );
