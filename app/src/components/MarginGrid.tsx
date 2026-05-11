@@ -40,9 +40,6 @@ function marginColor(mp: number | null | undefined) {
 }
 
 export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: Props) {
-  // Synthesize the pinned bottom TOTAL row.
-  // Margin % is recomputed from summed revenue/cost so it isn't a misleading
-  // mean of per-row percentages.
   const totalsRow = useMemo(() => {
     let lineCount = 0;
     let qty = 0, qtyHas = false;
@@ -238,10 +235,13 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: P
       columns={columns}
       density="compact"
       disableRowSelectionOnClick
+      pagination
+      pageSizeOptions={[10, 20, 40, 60, 100, { value: -1, label: 'All' }]}
       onRowClick={onRowClick
         ? (params) => { if (!params.row.__isTotal) onRowClick(params.row); }
         : undefined}
       initialState={{
+        pagination: { paginationModel: { pageSize: 20, page: 0 } },
         pinnedColumns: { left: ['dim_label'] },
         sorting: { sortModel: [{ field: 'revenue', sort: 'desc' }] },
       }}
@@ -273,7 +273,7 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: P
           py: 0.5,
         },
         '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
-        '& .MuiDataGrid-row:hover': { background: 'rgba(45,202,214,0.05)' },
+        '& .MuiDataGrid-row:hover': { background: 'rgba(91, 181, 240, 0.05)' },
         '& .MuiDataGrid-row.MuiDataGrid-row--pinned, & .MuiDataGrid-pinnedRows': {
           background: 'var(--sf)',
           fontWeight: 700,
@@ -283,16 +283,34 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: P
           background: 'var(--sf)',
           boxShadow: '4px 0 12px rgba(0,0,0,0.35)',
         },
-        '& .MuiDataGrid-pinnedColumnHeaders': {
-          background: 'var(--sf)',
-        },
+        '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
         '& .MuiDataGrid-footerContainer': {
           borderTop: '1px solid var(--bd)',
           background: 'var(--sf)',
-          minHeight: 40,
+          minHeight: 44,
         },
-        '& .MuiTablePagination-root, & .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+        // Pagination footer theming — bubble-blue + on-brand
+        '& .MuiTablePagination-root': {
+          color: 'var(--tx)',
+          fontFamily: 'inherit',
+          fontSize: 12,
+        },
+        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
           color: 'var(--mt)',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          letterSpacing: 0.3,
+        },
+        '& .MuiTablePagination-select': {
+          color: 'var(--ac)',
+          fontWeight: 700,
+          fontFamily: 'var(--ff-mono)',
+          fontSize: 12,
+        },
+        '& .MuiTablePagination-actions .MuiIconButton-root': {
+          color: 'var(--tx2)',
+          '&:hover': { background: 'rgba(91, 181, 240, 0.08)', color: 'var(--ac)' },
+          '&.Mui-disabled': { color: 'var(--mt)', opacity: 0.4 },
         },
         '& .MuiDataGrid-overlay': { background: 'var(--sf)', color: 'var(--mt)' },
         '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
@@ -302,7 +320,7 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick }: P
         '& .MuiDataGrid-scrollbar': { background: 'transparent' },
         '& .MuiDataGrid-scrollbar::-webkit-scrollbar': { width: 10, height: 10 },
         '& .MuiDataGrid-scrollbar::-webkit-scrollbar-thumb': {
-          background: 'rgba(45,202,214,0.20)',
+          background: 'rgba(91, 181, 240, 0.20)',
           borderRadius: 6,
         },
       }}
