@@ -120,6 +120,17 @@ export interface PlAccount {
   bucket_assigned: boolean;
 }
 
+export interface ProposedAccountBucket {
+  account_name: string;
+  ytd: number;
+  items_total: number;
+  items_as_expense: number;
+  items_as_income: number;
+  account_role: 'operating' | 'balance_sheet' | 'financial';
+  current_bucket: string | null;
+  suggested_bucket: string | null;
+}
+
 export const fetchExpenseBucketTypes = () =>
   sbq<ExpenseBucketType>('expense_bucket_types', 'select=*&order=sort_order,label');
 
@@ -131,6 +142,12 @@ export const fetchPlAccounts = (start: string, end: string) =>
 
 export const setAccountBucket = (account_name: string, bucket_code: string) =>
   sbrpc('fn_set_account_bucket', { p_account_name: account_name, p_bucket_code: bucket_code || 'oh' });
+
+export const fetchProposedAccountBuckets = (start: string, end: string) =>
+  sbrpc<ProposedAccountBucket[]>('fn_propose_account_buckets', { p_start: start, p_end: end });
+
+export const bulkSetAccountBuckets = (assignments: Array<{ account_name: string; bucket_code: string }>) =>
+  sbrpc<number>('fn_bulk_set_account_buckets', { p_assignments: assignments });
 
 // ----- Users (admin-users edge function) -----
 
