@@ -100,29 +100,53 @@ export interface ComparisonRow extends SalesPivotRow {
   delta_pct: number | null;
 }
 
+// Parse a YYYY-MM-DD string into Y/M/D parts WITHOUT going through the
+// Date constructor — which interprets the string as UTC midnight and then
+// reports local year/month, producing off-by-one errors in non-UTC zones.
+function parseYmd(s: string): { y: number; m: number; d: number } {
+  return {
+    y: parseInt(s.slice(0, 4), 10),
+    m: parseInt(s.slice(5, 7), 10),
+    d: parseInt(s.slice(8, 10), 10),
+  };
+}
+
+// Reformat a Y/M/D triple back to YYYY-MM-DD.
+function formatYmd(y: number, m: number, d: number): string {
+  return (
+    String(y).padStart(4, '0') + '-' +
+    String(m).padStart(2, '0') + '-' +
+    String(d).padStart(2, '0')
+  );
+}
+
 export function computePriorBounds(start: string, end: string, mode: 'prior_period' | 'prior_year') {
   if (mode === 'prior_year') {
-    const prevYear = new Date(start).getFullYear() - 1;
+    const startY = parseYmd(start).y;
+    const prevYear = startY - 1;
     return {
       prior_start: prevYear + start.slice(4),
       prior_end:   prevYear + end.slice(4),
     };
   }
-  const s = new Date(start + 'T00:00:00');
-  const e = new Date(end + 'T00:00:00');
-  const len = (e.getTime() - s.getTime()) / 86400000;
-  const ps = new Date(s.getTime() - (len + 1) * 86400000);
-  const pe = new Date(e.getTime() - (len + 1) * 86400000);
+  // 'prior_period' — shift window back by (length + 1) days using UTC math
+  // so DST transitions don't bend the boundary.
+  const a = parseYmd(start);
+  const b = parseYmd(end);
+  const aUtc = Date.UTC(a.y, a.m - 1, a.d);
+  const bUtc = Date.UTC(b.y, b.m - 1, b.d);
+  const len = Math.round((bUtc - aUtc) / 86400000);
+  const psUtc = aUtc - (len + 1) * 86400000;
+  const peUtc = bUtc - (len + 1) * 86400000;
+  const ps = new Date(psUtc);
+  const pe = new Date(peUtc);
   return {
-    prior_start: ps.toISOString().slice(0, 10),
-    prior_end:   pe.toISOString().slice(0, 10),
+    prior_start: formatYmd(ps.getUTCFullYear(), ps.getUTCMonth() + 1, ps.getUTCDate()),
+    prior_end:   formatYmd(pe.getUTCFullYear(), pe.getUTCMonth() + 1, pe.getUTCDate()),
   };
 }
 
 // Month-aware key extraction for pairing current ↔ prior rows.
-// For YYYY-MM labels ('2026-01'), strip the year so '2026-01' and
-// '2025-01' both key to 'MM-01'. For every other dim, the label
-// itself is the key.
 function mergeKey(label: string): string {
   return /^\d{4}-\d{2}$/.test(label) ? 'MM-' + label.slice(5) : label;
 }
@@ -149,8 +173,6 @@ export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[])
 }
 
 export function fetchSparkline(dim: Dim, labels: string[], end: string, f: SalesFilters) {
-  // fn_sparkline has p_end + filter args but no p_start (it always
-  // looks back 12 months from p_end), so strip start/end before spread.
   const { p_start: _start, p_end: _end, ...filterArgs } = rpcArgs(f);
   return sbrpc<SparklineRow[]>('fn_sparkline', {
     p_dim: dim,
@@ -161,11 +183,16 @@ export function fetchSparkline(dim: Dim, labels: string[], end: string, f: Sales
 }
 
 export function trailing12MonthKeys(end: string): string[] {
-  const d = new Date(end + 'T00:00:00');
+  const { y, m } = parseYmd(end);
   const keys: string[] = [];
   for (let i = 11; i >= 0; i--) {
-    const m = new Date(d.getFullYear(), d.getMonth() - i, 1);
-    keys.push(m.getFullYear() + '-' + String(m.getMonth() + 1).padStart(2, '0'));
+    // Walk back i months from (y, m). Use UTC math to avoid local-zone drift.
+    const cursorUtc = Date.UTC(y, m - 1 - i, 1);
+    const cursor = new Date(cursorUtc);
+    keys.push(
+      cursor.getUTCFullYear() + '-' +
+      String(cursor.getUTCMonth() + 1).padStart(2, '0'),
+    );
   }
   return keys;
 }
