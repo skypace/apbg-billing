@@ -5,6 +5,10 @@ export interface AreaSeries {
   name: string;
   color: string;
   values: number[];
+  /** Render this series as a filled area (default) or line-only. */
+  area?: boolean;
+  /** Render this series with a dashed stroke (6-4 pattern). */
+  dashed?: boolean;
 }
 
 interface Props {
@@ -26,15 +30,26 @@ export function AreaChart({
     return <div className="ld">No data.</div>;
   }
 
-  const muiSeries = series.map((s) => ({
+  const muiSeries = series.map((s, i) => ({
+    id: 'series-' + i,
     data: s.values,
     label: s.name,
     color: s.color,
-    area: true,
+    area: s.area !== false,
     showMark: false,
     curve: 'monotoneX' as const,
     valueFormatter: (v: number | null) => (v == null ? '—' : formatValue(v)),
   }));
+
+  // Dynamic sx for dashed-line series.
+  const dashSx: Record<string, unknown> = {};
+  series.forEach((s, i) => {
+    if (s.dashed) {
+      dashSx['& .MuiLineElement-series-series-' + i] = {
+        strokeDasharray: '6 4',
+      };
+    }
+  });
 
   return (
     <div role="img" aria-label={ariaLabel} style={{ width: '100%' }}>
@@ -56,10 +71,10 @@ export function AreaChart({
             direction: 'row',
             position: { vertical: 'bottom', horizontal: 'middle' },
             labelStyle: { fill: '#9FB3BB', fontSize: 11 },
-            itemMarkWidth: 10,
-            itemMarkHeight: 10,
+            itemMarkWidth: 14,
+            itemMarkHeight: 4,
             markGap: 6,
-            itemGap: 14,
+            itemGap: 16,
           },
         }}
         sx={{
@@ -67,7 +82,7 @@ export function AreaChart({
           '& .MuiChartsAxis-tick':       { stroke: 'rgba(255,255,255,0.08)' },
           '& .MuiChartsGrid-line':       { stroke: 'rgba(255,255,255,0.04)' },
           '& .MuiAreaElement-root':      {
-            fillOpacity: 0.32,
+            fillOpacity: 0.30,
             filter: 'drop-shadow(0 6px 14px rgba(91, 181, 240, 0.20))',
           },
           '& .MuiLineElement-root':      {
@@ -82,6 +97,7 @@ export function AreaChart({
           '& .MuiMarkElement-root:hover': { r: 6 },
           '& .MuiChartsTooltip-root':    { fontFamily: 'inherit' },
           '& .MuiChartsLegend-root':     { fontFamily: 'inherit' },
+          ...dashSx,
         }}
       />
     </div>
