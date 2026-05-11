@@ -1,20 +1,14 @@
 import { useMemo } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CircleDollarSign } from 'lucide-react';
 import type { ComparisonRow, Dim, SalesPivotRow } from '../lib/sales';
 import type { MarginColumnDef } from '../lib/marginColumns';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { Sparkline } from './Sparkline';
 
 const DIM_HEADER: Record<Dim, string> = {
-  category: 'Category',
-  item:     'Item',
-  customer: 'Customer',
-  month:    'Month',
-  entity:   'Entity',
-  account:  'Account',
-  segment:  'Segment',
-  channel:  'Channel',
+  category: 'Category', item: 'Item', customer: 'Customer', month: 'Month',
+  entity: 'Entity', account: 'Account', segment: 'Segment', channel: 'Channel',
 };
 
 interface Props {
@@ -23,7 +17,6 @@ interface Props {
   showCompare?: boolean;
   sparklines?: Record<string, number[]>;
   onRowClick?: (row: SalesPivotRow) => void;
-  /** Optional extra columns from the registry — Smart Columns picker output. */
   extraColumns?: MarginColumnDef[];
 }
 
@@ -43,15 +36,65 @@ function marginColor(mp: number | null | undefined) {
   return 'var(--rd)';
 }
 
-// At-risk thresholds — applied to row.delta_pct vs prior period.
-// Severe drop: red flag; meaningful drop: amber flag.
-function atRiskLevel(deltaPct: number | null | undefined, priorRevenue: number | null | undefined): 'severe' | 'warn' | null {
-  if (deltaPct == null || priorRevenue == null) return null;
-  // Only flag when prior revenue was material — avoid noise from tiny accounts.
-  if (Number(priorRevenue) < 250) return null;
-  const d = Number(deltaPct);
-  if (d <= -0.5) return 'severe';
-  if (d <= -0.2) return 'warn';
+/** At-risk glyph for current vs prior comparison: triggers on revenue drop
+ *  OR margin-percentage-point drop. Returns severity + tooltip. */
+function evaluateAtRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
+  const priorRev = row.prior_revenue != null ? Number(row.prior_revenue) : null;
+  if (priorRev == null || priorRev < 250) return null;
+
+  const revDeltaPct = row.delta_pct != null ? Number(row.delta_pct) : null;
+  const curMargin = row.est_margin != null ? Number(row.est_margin) : null;
+  const priMargin = row.prior_margin != null ? Number(row.prior_margin) : null;
+  const curRev = Number(row.revenue ?? 0);
+
+  // Compute margin pp drop: cur_margin% - prior_margin%
+  let marginPpDrop: number | null = null;
+  if (curMargin != null && priMargin != null && curRev > 0 && priorRev > 0) {
+    const cmp = curMargin / curRev;
+    const pmp = priMargin / priorRev;
+    marginPpDrop = pmp - cmp;
+  }
+
+  const reasons: string[] = [];
+  let sev: 'severe' | 'warn' = 'warn';
+
+  if (revDeltaPct != null && revDeltaPct <= -0.5) {
+    reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`);
+    sev = 'severe';
+  } else if (revDeltaPct != null && revDeltaPct <= -0.2) {
+    reasons.push(`Revenue down ${(revDeltaPct * -100).toFixed(0)}% vs prior`);
+  }
+
+  if (marginPpDrop != null && marginPpDrop >= 0.10) {
+    reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`);
+    sev = 'severe';
+  } else if (marginPpDrop != null && marginPpDrop >= 0.05) {
+    reasons.push(`Margin down ${(marginPpDrop * 100).toFixed(1)} pts vs prior`);
+  }
+
+  if (reasons.length === 0) return null;
+  return { sev, tip: reasons.join(' · ') };
+}
+
+/** AR risk glyph for customer dim. Triggered by aged AR balance or
+ *  days-oldest-overdue threshold. Pulls from already-merged enrichment fields. */
+function evaluateArRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
+  const ar90 = row.ar_90_plus != null ? Number(row.ar_90_plus) : 0;
+  const arTotal = row.ar_total != null ? Number(row.ar_total) : 0;
+  const oldest = row.days_oldest_overdue != null ? Number(row.days_oldest_overdue) : 0;
+
+  if (ar90 > 0) {
+    return {
+      sev: 'severe',
+      tip: `${fm(ar90)} aged 90+ days · ${oldest}d oldest`,
+    };
+  }
+  if (oldest >= 60 && arTotal > 0) {
+    return {
+      sev: 'warn',
+      tip: `${oldest}d oldest overdue · ${fm(arTotal)} open AR`,
+    };
+  }
   return null;
 }
 
@@ -113,32 +156,34 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
               </span>
             );
           }
-          const risk = showCompare ? atRiskLevel(p.row.delta_pct, p.row.prior_revenue) : null;
-          const riskColor = risk === 'severe' ? 'var(--rd)' : risk === 'warn' ? 'var(--am)' : null;
-          const tip =
-            risk === 'severe' ? 'Severe drop vs prior period' :
-            risk === 'warn'   ? 'Down 20%+ vs prior period'   : '';
+          const risk = showCompare ? evaluateAtRisk(p.row as Record<string, unknown>) : null;
+          const arRisk = dim === 'customer' ? evaluateArRisk(p.row as Record<string, unknown>) : null;
+          const riskColor = risk
+            ? (risk.sev === 'severe' ? 'var(--rd)' : 'var(--am)')
+            : null;
+          const arColor = arRisk
+            ? (arRisk.sev === 'severe' ? 'var(--rd)' : 'var(--am)')
+            : null;
+          const fullTip = [
+            risk ? `RISK: ${risk.tip}` : '',
+            arRisk ? `AR: ${arRisk.tip}` : '',
+          ].filter(Boolean).join(' · ');
+
           return (
             <span
               style={{
-                fontWeight: 600,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
+                fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
-              title={tip || (p.value as string)}
+              title={fullTip || (p.value as string)}
             >
               {riskColor && (
-                <AlertTriangle
-                  size={12}
-                  strokeWidth={2.4}
-                  color={riskColor}
-                  aria-label={tip}
-                  style={{ flexShrink: 0 }}
-                />
+                <AlertTriangle size={12} strokeWidth={2.4} color={riskColor}
+                  aria-label={risk?.tip} style={{ flexShrink: 0 }} />
+              )}
+              {arColor && (
+                <CircleDollarSign size={12} strokeWidth={2.4} color={arColor}
+                  aria-label={arRisk?.tip} style={{ flexShrink: 0 }} />
               )}
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.value as string}</span>
             </span>
@@ -149,42 +194,22 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
 
     if (sparklines) {
       cols.push({
-        field: 'spark',
-        headerName: 'Trend (12mo)',
-        width: 110,
-        sortable: false,
-        filterable: false,
+        field: 'spark', headerName: 'Trend (12mo)',
+        width: 110, sortable: false, filterable: false,
         valueGetter: () => null,
         renderCell: (p) =>
-          p.row.__isTotal
-            ? null
+          p.row.__isTotal ? null
             : <Sparkline values={sparklines[p.row.dim_label] ?? Array(12).fill(0)} />,
       });
     }
 
     cols.push(
+      { field: 'line_count', headerName: 'Lines', type: 'number', width: 88, cellClassName: 'mn',
+        valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—') },
+      { field: 'qty', headerName: 'Qty', type: 'number', width: 96, cellClassName: 'mn',
+        valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—') },
       {
-        field: 'line_count',
-        headerName: 'Lines',
-        type: 'number',
-        width: 88,
-        cellClassName: 'mn',
-        valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—'),
-      },
-      {
-        field: 'qty',
-        headerName: 'Qty',
-        type: 'number',
-        width: 96,
-        cellClassName: 'mn',
-        valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—'),
-      },
-      {
-        field: 'revenue',
-        headerName: 'Revenue',
-        type: 'number',
-        width: 130,
-        cellClassName: 'mn',
+        field: 'revenue', headerName: 'Revenue', type: 'number', width: 130, cellClassName: 'mn',
         renderCell: (p) => (
           <span style={{ fontWeight: p.row.__isTotal ? 700 : 600 }}>{fm(p.value)}</span>
         ),
@@ -193,88 +218,40 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
 
     if (showCompare) {
       cols.push(
-        {
-          field: 'prior_revenue',
-          headerName: 'Prior Rev',
-          type: 'number',
-          width: 120,
-          cellClassName: 'mn',
+        { field: 'prior_revenue', headerName: 'Prior Rev', type: 'number', width: 120, cellClassName: 'mn',
           renderCell: (p) => (
             <span style={{ color: 'var(--mt)' }}>{p.value != null ? fm(p.value) : '—'}</span>
-          ),
-        },
-        {
-          field: 'delta_revenue',
-          headerName: 'Δ $',
-          type: 'number',
-          width: 110,
-          cellClassName: 'mn',
+          ) },
+        { field: 'delta_revenue', headerName: 'Δ $', type: 'number', width: 110, cellClassName: 'mn',
           renderCell: (p) => {
             if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
             const v = Number(p.value);
-            return (
-              <span style={{ color: deltaColor(v), fontWeight: 600 }}>
-                {(v >= 0 ? '+' : '') + fm(v)}
-              </span>
-            );
-          },
-        },
-        {
-          field: 'delta_pct',
-          headerName: 'Δ %',
-          type: 'number',
-          width: 100,
-          cellClassName: 'mn',
+            return <span style={{ color: deltaColor(v), fontWeight: 600 }}>{(v >= 0 ? '+' : '') + fm(v)}</span>;
+          } },
+        { field: 'delta_pct', headerName: 'Δ %', type: 'number', width: 100, cellClassName: 'mn',
           renderCell: (p) => {
             if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
             const v = Number(p.value);
-            return (
-              <span style={{ color: deltaColor(v), fontWeight: 600 }}>
-                {(v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'}
-              </span>
-            );
-          },
-        },
+            return <span style={{ color: deltaColor(v), fontWeight: 600 }}>{(v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'}</span>;
+          } },
       );
     }
 
     cols.push(
-      {
-        field: 'est_cost',
-        headerName: 'Est Cost',
-        type: 'number',
-        width: 116,
-        cellClassName: 'mn',
-        valueFormatter: (v) => (v != null ? fm(v) : '—'),
-      },
-      {
-        field: 'est_margin',
-        headerName: 'Est Margin',
-        type: 'number',
-        width: 116,
-        cellClassName: 'mn',
-        valueFormatter: (v) => (v != null ? fm(v) : '—'),
-      },
-      {
-        field: 'margin_pct',
-        headerName: 'Margin %',
-        type: 'number',
-        width: 104,
-        cellClassName: 'mn',
+      { field: 'est_cost', headerName: 'Est Cost', type: 'number', width: 116, cellClassName: 'mn',
+        valueFormatter: (v) => (v != null ? fm(v) : '—') },
+      { field: 'est_margin', headerName: 'Est Margin', type: 'number', width: 116, cellClassName: 'mn',
+        valueFormatter: (v) => (v != null ? fm(v) : '—') },
+      { field: 'margin_pct', headerName: 'Margin %', type: 'number', width: 104, cellClassName: 'mn',
         renderCell: (p) => (
           <span style={{ color: marginColor(p.value), fontWeight: 600 }}>{fp(p.value)}</span>
-        ),
-      },
+        ) },
     );
 
     for (const xc of extraColumns ?? []) {
       cols.push({
-        field: 'xc_' + xc.id,
-        headerName: xc.label,
-        type: 'number',
-        width: xc.width,
-        cellClassName: 'mn',
-        sortable: true,
+        field: 'xc_' + xc.id, headerName: xc.label, type: 'number',
+        width: xc.width, cellClassName: 'mn', sortable: true,
         valueGetter: xc.compute
           ? (_value, row) => {
               const out = xc.compute!(row as SalesPivotRow & Record<string, unknown>);
@@ -306,44 +283,24 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
         sorting: { sortModel: [{ field: 'revenue', sort: 'desc' }] },
       }}
       sx={{
-        height: '62vh',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--ink)',
-        fontFamily: 'inherit',
-        fontSize: 12,
+        height: '62vh', border: 'none', background: 'transparent', color: 'var(--ink)',
+        fontFamily: 'inherit', fontSize: 12,
         '--DataGrid-rowBorderColor': 'rgba(255,255,255,0.04)',
         '--DataGrid-containerBackground': 'var(--sf)',
-        '& .MuiDataGrid-columnHeaders': {
-          background: 'var(--sf)',
-          borderBottom: '1px solid var(--bd)',
-        },
-        '& .MuiDataGrid-columnHeader': {
-          fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
-          fontSize: 10.5, color: 'var(--mt)',
-        },
+        '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
+        '& .MuiDataGrid-columnHeader': { fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', fontSize: 10.5, color: 'var(--mt)' },
         '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
         '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
         '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
         '& .MuiDataGrid-row:hover': { background: 'rgba(91, 181, 240, 0.05)' },
-        '& .MuiDataGrid-row.MuiDataGrid-row--pinned, & .MuiDataGrid-pinnedRows': {
-          background: 'var(--sf)', fontWeight: 700, borderTop: '2px solid var(--bd)',
-        },
+        '& .MuiDataGrid-row.MuiDataGrid-row--pinned, & .MuiDataGrid-pinnedRows': { background: 'var(--sf)', fontWeight: 700, borderTop: '2px solid var(--bd)' },
         '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
         '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
         '& .MuiDataGrid-footerContainer': { borderTop: '1px solid var(--bd)', background: 'var(--sf)', minHeight: 44 },
         '& .MuiTablePagination-root': { color: 'var(--tx)', fontFamily: 'inherit', fontSize: 12 },
-        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
-          color: 'var(--mt)', fontSize: 11, fontFamily: 'inherit', letterSpacing: 0.3,
-        },
-        '& .MuiTablePagination-select': {
-          color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', fontSize: 12,
-        },
-        '& .MuiTablePagination-actions .MuiIconButton-root': {
-          color: 'var(--tx2)',
-          '&:hover': { background: 'rgba(91, 181, 240, 0.08)', color: 'var(--ac)' },
-          '&.Mui-disabled': { color: 'var(--mt)', opacity: 0.4 },
-        },
+        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: 'var(--mt)', fontSize: 11, fontFamily: 'inherit', letterSpacing: 0.3 },
+        '& .MuiTablePagination-select': { color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', fontSize: 12 },
+        '& .MuiTablePagination-actions .MuiIconButton-root': { color: 'var(--tx2)', '&:hover': { background: 'rgba(91, 181, 240, 0.08)', color: 'var(--ac)' }, '&.Mui-disabled': { color: 'var(--mt)', opacity: 0.4 } },
         '& .MuiDataGrid-overlay': { background: 'var(--sf)', color: 'var(--mt)' },
         '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
         '& .MuiDataGrid-iconSeparator': { color: 'rgba(255,255,255,0.10)' },
