@@ -2,10 +2,12 @@
 //
 // Phase 1 (v0.9.0): three derived per-unit columns (price / COGS / gross)
 //   that compute from pivot fields and work for every dim.
-// Phase 2A (v0.9.1): customer enrichment via fn_dim_meta('customer').
+// Phase 2A (v0.9.1): customer enrichment via fn_dim_meta('customer') —
+//   address, channel, type, contact.
 // Phase 2B (v0.9.2): item enrichment via fn_dim_meta('item') —
 //   SKU, type, category path, master list price + master item cost,
 //   on-hand qty, inventory value, income/expense/asset accounts.
+// Phase 2C (v0.9.3): customer AR balance + aging buckets.
 // Phase 3 (Workstream B): Unit Overhead + Unit Net once overhead engine
 //   ships.
 
@@ -16,7 +18,7 @@ export type MarginColumnGroup =
   | 'unit'        // Per-unit price / COGS / margin (current + master)
   | 'address'     // Customer city / state / zip / street
   | 'attribute'   // SKU, UPC, brand, size, contact, type, etc.
-  | 'ar'          // AR balance, aging buckets, credit limit
+  | 'ar'          // AR balance, aging buckets, oldest-overdue
   | 'inventory'   // On-hand qty, inventory value, days of supply
   | 'derived';    // Account refs, lifetime gross, days-since, etc.
 
@@ -45,6 +47,13 @@ const fmtString = (v: unknown): string => (v == null || v === '' ? '—' : Strin
 const fmtBool   = (v: unknown): string => (v == null ? '—' : v ? 'yes' : 'no');
 const fmtMoney  = (v: unknown): string => (v == null ? '—' : fm(Number(v)));
 const fmtCount  = (v: unknown): string => (v == null ? '—' : fmtNum(Number(v)));
+/** Money formatter that renders 0 as '—' to reduce noise in AR-aging columns. */
+const fmtMoneyZeroDash = (v: unknown): string => {
+  if (v == null) return '—';
+  const n = Number(v);
+  if (!isFinite(n) || n === 0) return '—';
+  return fm(n);
+};
 
 // ---------------------------------------------------------------------------
 // Phase 1 — Unit-level derived columns. Work for every dim with qty data.
@@ -93,7 +102,7 @@ const UNIT_GROSS: MarginColumnDef = {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 2A — Customer enrichment columns (qbo_customers via fn_dim_meta)
+// Phase 2A / 2C — Customer enrichment columns
 // ---------------------------------------------------------------------------
 
 function customerCol(
@@ -125,6 +134,16 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('is_sub_customer', 'Sub-customer?', 'attribute', 'is_sub_customer', 110, fmtBool),
   customerCol('phone',           'Phone',         'attribute', 'phone',           130),
   customerCol('email',           'Email',         'attribute', 'email',           200),
+
+  // AR / aging (Phase 2C) — zeros render as '—' to reduce visual noise.
+  customerCol('ar_total',            'AR Total',        'ar', 'ar_total',            120, fmtMoneyZeroDash),
+  customerCol('ar_0_30',             'AR 0-30 d',       'ar', 'ar_0_30',             110, fmtMoneyZeroDash),
+  customerCol('ar_31_60',            'AR 31-60 d',      'ar', 'ar_31_60',            110, fmtMoneyZeroDash),
+  customerCol('ar_61_90',            'AR 61-90 d',      'ar', 'ar_61_90',            110, fmtMoneyZeroDash),
+  customerCol('ar_90_plus',          'AR 90+ d',        'ar', 'ar_90_plus',          110, fmtMoneyZeroDash),
+  customerCol('ar_not_due',          'AR Not Due',      'ar', 'ar_not_due',          120, fmtMoneyZeroDash),
+  customerCol('open_invoice_count',  'Open Invoices',   'ar', 'open_invoice_count',  110, fmtCount),
+  customerCol('days_oldest_overdue', 'Oldest Overdue',  'ar', 'days_oldest_overdue', 130, (v) => v == null ? '—' : `${fmtNum(Number(v))} d`),
 ];
 
 // ---------------------------------------------------------------------------
@@ -146,24 +165,18 @@ function itemCol(
 }
 
 const ITEM_COLUMNS: MarginColumnDef[] = [
-  // Per-unit — MASTER values from qbo_items (vs the avg actuals from Phase 1).
-  // List Price = qbo_items.unit_price (the published price).
-  // Item Cost  = qbo_items.purchase_cost (the recorded master COGS).
   itemCol('list_price', 'List Price (master)', 'unit', 'list_price', 140, fmtMoney),
   itemCol('item_cost',  'Item Cost (master)',  'unit', 'item_cost',  140, fmtMoney),
 
-  // Attributes
   itemCol('sku',           'SKU',           'attribute', 'sku',           110),
   itemCol('item_type',     'Item Type',     'attribute', 'item_type',     120),
   itemCol('category_path', 'Category Path', 'attribute', 'category_path', 220),
   itemCol('active',        'Active?',       'attribute', 'active',         90, fmtBool),
   itemCol('taxable',       'Taxable?',      'attribute', 'taxable',        90, fmtBool),
 
-  // Inventory
   itemCol('on_hand',         'On-Hand Qty',     'inventory', 'on_hand',         110, fmtCount),
   itemCol('inventory_value', 'Inv $ at cost',   'inventory', 'inventory_value', 130, fmtMoney),
 
-  // Derived (account refs from QBO)
   itemCol('income_account',  'Income Account',  'derived', 'income_account',  180),
   itemCol('expense_account', 'Expense Account', 'derived', 'expense_account', 180),
   itemCol('asset_account',   'Asset Account',   'derived', 'asset_account',   180),
@@ -197,7 +210,7 @@ export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
   unit:      'Per-unit',
   attribute: 'Attributes',
   address:   'Address',
-  ar:        'AR / Credit',
+  ar:        'AR / Aging',
   inventory: 'Inventory',
   derived:   'Derived',
 };
