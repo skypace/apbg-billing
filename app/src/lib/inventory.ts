@@ -108,9 +108,11 @@ export function setItemActive(qbo_item_id: string, active: boolean) {
   });
 }
 
-// All known categories from QBO item paths + manual overrides, deduped.
+// All known category labels — QBO item paths + manual overrides, deduped.
+// Renamed from fn_list_categories to disambiguate from an older RPC
+// of the same name (which takes p_start/p_end and returns sales by category).
 export function fetchCategoryList() {
-  return sbrpc<CategoryOption[]>('fn_list_categories', {});
+  return sbrpc<CategoryOption[]>('fn_list_category_options', {});
 }
 
 export function fetchVelocityExcludes() {
