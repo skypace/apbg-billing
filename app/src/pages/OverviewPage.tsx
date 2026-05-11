@@ -12,7 +12,7 @@ import { ModifierPicker } from '../components/ModifierPicker';
 import { KpiRowSkeleton, ChartSkeleton } from '../components/Skeletons';
 import { useToast } from '../lib/toast';
 import { fm, fp, fmtNum } from '../lib/formatters';
-import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
+import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 import {
   Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
@@ -32,7 +32,10 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'mtd', label: 'MTD' }, { id: 'qtd', label: 'QTD' }, { id: 'ytd', label: 'YTD' },
   { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
-const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
+
+// Base entity codes always present. Any extras in Settings → Entity
+// Defaults get merged in.
+const BASE_ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'category', key: 'categories', label: 'Category' },
@@ -51,6 +54,8 @@ const GROUPING_BY_DIM: Partial<Record<Dim, {
 };
 
 const TOP_CUSTOMERS_SIZES = [5, 10, 25, 50, 100];
+
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
@@ -95,11 +100,32 @@ function detectScope(start: string, end: string, today: Date): Scope {
   return 'custom';
 }
 
+// Months [start, end] inclusive as YYYY-MM strings.
+function monthsBetween(start: string, end: string): string[] {
+  const s = new Date(start + 'T00:00:00');
+  const e = new Date(end + 'T00:00:00');
+  const out: string[] = [];
+  const cursor = new Date(s.getFullYear(), s.getMonth(), 1);
+  const last   = new Date(e.getFullYear(), e.getMonth(), 1);
+  while (cursor <= last) {
+    out.push(cursor.getFullYear() + '-' + pad2(cursor.getMonth() + 1));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return out;
+}
+
 export function OverviewPage() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const ytdStart = today.getFullYear() + '-01-01';
   const toast = useToast();
+
+  // Entity list is derived from settings (so adding entities in Settings
+  // surfaces them here too).
+  const entityOptions = useMemo(() => {
+    const fromSettings = Object.keys(getEntityDefaults());
+    return Array.from(new Set([...BASE_ENTITIES, ...fromSettings]));
+  }, []);
 
   const [filters, setFilters] = useState<SalesFilters>({
     start: ytdStart, end: todayStr,
@@ -110,7 +136,6 @@ export function OverviewPage() {
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
 
-  // Top customers controls
   const [topCount, setTopCount] = useState(10);
   const [topSort, setTopSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
 
@@ -186,7 +211,6 @@ export function OverviewPage() {
       .catch(() => setTopCategories([]));
   }, [JSON.stringify(effectiveFilters)]);
 
-  // Top customers — count is configurable
   useEffect(() => {
     fetchPivot('customer' as Dim, effectiveFilters, topCount)
       .then(async (rs) => {
@@ -227,6 +251,29 @@ export function OverviewPage() {
     });
   }, [effectiveFilters.start, effectiveFilters.end]);
 
+  // Build the monthly chart data — trimmed to actual months in the range.
+  const monthlyChart = useMemo(() => {
+    if (!monthlyCurrent || !monthlyPrior) return null;
+    const months = monthsBetween(effectiveFilters.start, effectiveFilters.end);
+    // Match by month number (1-12) so prior-year data aligns to the same
+    // month label even though the year differs.
+    const curByMonth = new Map<number, number>();
+    for (const r of monthlyCurrent) {
+      const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
+      if (m >= 1 && m <= 12) curByMonth.set(m, Number(r.revenue || 0));
+    }
+    const priorByMonth = new Map<number, number>();
+    for (const r of monthlyPrior) {
+      const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
+      if (m >= 1 && m <= 12) priorByMonth.set(m, Number(r.revenue || 0));
+    }
+    const labels    = months.map((ym) => MONTH_SHORT[parseInt(ym.slice(5, 7), 10) - 1]);
+    const current   = months.map((ym) => curByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
+    const prior     = months.map((ym) => priorByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
+    return { labels, current, prior };
+  }, [monthlyCurrent, monthlyPrior, effectiveFilters.start, effectiveFilters.end]);
+
+  // Trailing-12-month sparkline for the headline KPI (independent of monthlyChart trim)
   useEffect(() => {
     if (!monthlyCurrent || !monthlyPrior) return;
     const keys = trailing12MonthKeys(effectiveFilters.end);
@@ -258,7 +305,6 @@ export function OverviewPage() {
     };
   }, [totals, priorTotals]);
 
-  // Sort top customers based on user's chosen key/direction
   const sortedTopCustomers = useMemo(() => {
     if (!topCustomers) return null;
     const arr = [...topCustomers];
@@ -408,9 +454,9 @@ export function OverviewPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers">
+            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers from Settings → Entity Defaults">
               <option value="">All</option>
-              {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
+              {entityOptions.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
           </div>
 
@@ -467,15 +513,21 @@ export function OverviewPage() {
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
               <div className="ct" style={{ margin: 0 }}>Monthly revenue</div>
-              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>{compareLabel || 'current period only'}</div>
+              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
+                {monthlyChart ? `${monthlyChart.labels.length} month${monthlyChart.labels.length === 1 ? '' : 's'} · ${compareLabel || 'current period only'}` : '—'}
+              </div>
             </div>
           </div>
           <div style={{ padding: '14px' }}>
-            {monthlyCurrent && monthlyPrior ? (
-              <AreaChart ariaLabel="Monthly revenue, current vs prior" labels={monthLabels()}
+            {monthlyChart ? (
+              <AreaChart ariaLabel="Monthly revenue, current vs prior" labels={monthlyChart.labels}
                 series={[
-                  { name: 'Current', color: '#5BB5F0', values: alignToMonths(monthlyCurrent) },
-                  ...(compareMode !== 'off' ? [{ name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period', color: '#6B8190', values: alignToMonths(monthlyPrior) }] : []),
+                  { name: 'Current', color: '#5BB5F0', values: monthlyChart.current },
+                  ...(compareMode !== 'off' ? [{
+                    name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period',
+                    color: '#F4B400',
+                    values: monthlyChart.prior,
+                  }] : []),
                 ]} />
             ) : (<ChartSkeleton height={220} />)}
           </div>
@@ -500,7 +552,6 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* Top Sales Customers — with count selector + sortable headers */}
       <div className="cd" style={{ padding: 0 }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -591,13 +642,3 @@ function RowSpark({ values }: { values: number[] }) {
 }
 
 function toYm(label: string): string { return label.length >= 7 ? label.slice(0, 7) : label; }
-function monthLabels(): string[] { return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; }
-function alignToMonths(rows: MonthRow[] | null | undefined): number[] {
-  if (!rows) return Array(12).fill(0);
-  const map = new Map<number, number>();
-  for (const r of rows) {
-    const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
-    if (m >= 1 && m <= 12) map.set(m, Number(r.revenue || 0));
-  }
-  return Array.from({ length: 12 }, (_, i) => map.get(i + 1) ?? 0);
-}
