@@ -115,6 +115,29 @@ export interface QboCategorySyncResult {
   duration_ms?: number;
 }
 
+export type HygieneBucket =
+  | 'no_income_account' | 'no_category'
+  | 'isolated_in_account' | 'account_uncategorized';
+
+export interface ItemHygieneRow {
+  bucket: HygieneBucket;
+  label: string;
+  item_count: number;
+  detail: string[] | null;
+}
+
+export interface RollupMatchPreview {
+  match_mode: string;
+  matched_customers: number;
+  matched_categories: number;
+  matched_items: number;
+  matched_line_count: number;
+  matched_revenue: number;
+  sample_customer_names: string[] | null;
+  sample_category_names: string[] | null;
+  sample_item_names: string[] | null;
+}
+
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {
   return sbrpc<InventoryHealthRow[]>('fn_items_master', {
     p_lookback_days: opts.lookback ?? 90,
@@ -163,7 +186,6 @@ async function callPushQboItem<T>(body: Record<string, unknown>): Promise<T> {
   return j as T;
 }
 
-// Toggle qbo_items.active in QBO (and mirror locally on success).
 export async function setItemActive(qbo_item_id: string, active: boolean): Promise<{
   ok: boolean;
   no_change?: boolean;
@@ -173,8 +195,6 @@ export async function setItemActive(qbo_item_id: string, active: boolean): Promi
   return callPushQboItem({ action: 'setActive', qbo_item_id, active });
 }
 
-// Bulk-push category_override → QBO ParentRef. Creates missing Category Items.
-// commit=false returns the dry-run plan.
 export async function bulkSyncCategoriesToQbo(commit = false): Promise<QboCategorySyncResult> {
   return callPushQboItem<QboCategorySyncResult>({
     action: 'bulkSyncCategories',
@@ -185,8 +205,6 @@ export async function bulkSyncCategoriesToQbo(commit = false): Promise<QboCatego
 export function fetchCategoryList() {
   return sbrpc<CategoryOption[]>('fn_list_category_options', {});
 }
-
-// ----- P&L Alignment Audit (v0.9.23) -----
 
 export function fetchItemPlAudit(min_account_items = 3) {
   return sbrpc<ItemPlAuditRow[]>('fn_item_pl_audit', {
@@ -203,6 +221,28 @@ export function applyPlCategorySuggestions(opts: {
     p_min_account_items: opts.min_account_items ?? 3,
     p_min_consensus_pct: opts.min_consensus_pct ?? 60,
     p_dry_run:           opts.dry_run ?? true,
+  });
+}
+
+// ----- Track 1 — Data hygiene (v0.9.26) -----
+
+export function fetchItemHygieneSummary() {
+  return sbrpc<ItemHygieneRow[]>('fn_item_hygiene_summary', {});
+}
+
+export function previewRollupMatch(opts: {
+  customers?: string[] | null;
+  categories?: string[] | null;
+  items?: string[] | null;
+  channels?: string[] | null;
+  segments?: string[] | null;
+}) {
+  return sbrpc<RollupMatchPreview[]>('fn_preview_rollup_match', {
+    p_customers:  opts.customers  ?? null,
+    p_categories: opts.categories ?? null,
+    p_items:      opts.items      ?? null,
+    p_channels:   opts.channels   ?? null,
+    p_segments:   opts.segments   ?? null,
   });
 }
 
