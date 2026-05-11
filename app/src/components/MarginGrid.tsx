@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
+import { AlertTriangle } from 'lucide-react';
 import type { ComparisonRow, Dim, SalesPivotRow } from '../lib/sales';
 import type { MarginColumnDef } from '../lib/marginColumns';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -40,6 +41,18 @@ function marginColor(mp: number | null | undefined) {
   if (mp >= 0.4) return 'var(--gn)';
   if (mp >= 0)   return 'var(--am)';
   return 'var(--rd)';
+}
+
+// At-risk thresholds — applied to row.delta_pct vs prior period.
+// Severe drop: red flag; meaningful drop: amber flag.
+function atRiskLevel(deltaPct: number | null | undefined, priorRevenue: number | null | undefined): 'severe' | 'warn' | null {
+  if (deltaPct == null || priorRevenue == null) return null;
+  // Only flag when prior revenue was material — avoid noise from tiny accounts.
+  if (Number(priorRevenue) < 250) return null;
+  const d = Number(deltaPct);
+  if (d <= -0.5) return 'severe';
+  if (d <= -0.2) return 'warn';
+  return null;
 }
 
 export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, extraColumns }: Props) {
@@ -92,19 +105,45 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
         headerName: DIM_HEADER[dim],
         flex: 2,
         minWidth: 200,
-        renderCell: (p) => (
-          <span
-            style={{
-              fontWeight: p.row.__isTotal ? 700 : 600,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={p.value as string}
-          >
-            {p.value as string}
-          </span>
-        ),
+        renderCell: (p) => {
+          if (p.row.__isTotal) {
+            return (
+              <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.value as string}
+              </span>
+            );
+          }
+          const risk = showCompare ? atRiskLevel(p.row.delta_pct, p.row.prior_revenue) : null;
+          const riskColor = risk === 'severe' ? 'var(--rd)' : risk === 'warn' ? 'var(--am)' : null;
+          const tip =
+            risk === 'severe' ? 'Severe drop vs prior period' :
+            risk === 'warn'   ? 'Down 20%+ vs prior period'   : '';
+          return (
+            <span
+              style={{
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              title={tip || (p.value as string)}
+            >
+              {riskColor && (
+                <AlertTriangle
+                  size={12}
+                  strokeWidth={2.4}
+                  color={riskColor}
+                  aria-label={tip}
+                  style={{ flexShrink: 0 }}
+                />
+              )}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.value as string}</span>
+            </span>
+          );
+        },
       },
     ];
 
@@ -228,9 +267,6 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
       },
     );
 
-    // Smart Columns — user-selected extras from the picker. Each carries
-    // its own compute + format, so they slot in at the end without
-    // disturbing the standard column order.
     for (const xc of extraColumns ?? []) {
       cols.push({
         field: 'xc_' + xc.id,
@@ -283,53 +319,25 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
           borderBottom: '1px solid var(--bd)',
         },
         '& .MuiDataGrid-columnHeader': {
-          fontWeight: 600,
-          letterSpacing: 0.4,
-          textTransform: 'uppercase',
-          fontSize: 10.5,
-          color: 'var(--mt)',
+          fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
+          fontSize: 10.5, color: 'var(--mt)',
         },
-        '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': {
-          outline: 'none',
-        },
-        '& .MuiDataGrid-cell': {
-          borderBottom: '1px solid rgba(255,255,255,0.04)',
-          py: 0.5,
-        },
+        '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
+        '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
         '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
         '& .MuiDataGrid-row:hover': { background: 'rgba(91, 181, 240, 0.05)' },
         '& .MuiDataGrid-row.MuiDataGrid-row--pinned, & .MuiDataGrid-pinnedRows': {
-          background: 'var(--sf)',
-          fontWeight: 700,
-          borderTop: '2px solid var(--bd)',
+          background: 'var(--sf)', fontWeight: 700, borderTop: '2px solid var(--bd)',
         },
-        '& .MuiDataGrid-pinnedColumns': {
-          background: 'var(--sf)',
-          boxShadow: '4px 0 12px rgba(0,0,0,0.35)',
-        },
+        '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
         '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
-        '& .MuiDataGrid-footerContainer': {
-          borderTop: '1px solid var(--bd)',
-          background: 'var(--sf)',
-          minHeight: 44,
-        },
-        // Pagination footer theming — bubble-blue + on-brand
-        '& .MuiTablePagination-root': {
-          color: 'var(--tx)',
-          fontFamily: 'inherit',
-          fontSize: 12,
-        },
+        '& .MuiDataGrid-footerContainer': { borderTop: '1px solid var(--bd)', background: 'var(--sf)', minHeight: 44 },
+        '& .MuiTablePagination-root': { color: 'var(--tx)', fontFamily: 'inherit', fontSize: 12 },
         '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
-          color: 'var(--mt)',
-          fontSize: 11,
-          fontFamily: 'inherit',
-          letterSpacing: 0.3,
+          color: 'var(--mt)', fontSize: 11, fontFamily: 'inherit', letterSpacing: 0.3,
         },
         '& .MuiTablePagination-select': {
-          color: 'var(--ac)',
-          fontWeight: 700,
-          fontFamily: 'var(--ff-mono)',
-          fontSize: 12,
+          color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', fontSize: 12,
         },
         '& .MuiTablePagination-actions .MuiIconButton-root': {
           color: 'var(--tx2)',
@@ -343,10 +351,7 @@ export function MarginGrid({ dim, rows, showCompare, sparklines, onRowClick, ext
         '& .MuiDataGrid-columnSeparator': { color: 'rgba(255,255,255,0.06)' },
         '& .MuiDataGrid-scrollbar': { background: 'transparent' },
         '& .MuiDataGrid-scrollbar::-webkit-scrollbar': { width: 10, height: 10 },
-        '& .MuiDataGrid-scrollbar::-webkit-scrollbar-thumb': {
-          background: 'rgba(91, 181, 240, 0.20)',
-          borderRadius: 6,
-        },
+        '& .MuiDataGrid-scrollbar::-webkit-scrollbar-thumb': { background: 'rgba(91, 181, 240, 0.20)', borderRadius: 6 },
       }}
     />
   );
