@@ -285,33 +285,8 @@ export const fetchCustomersMaster = (opts: {
     p_offset: opts.offset ?? 0,
   });
 
-export const setCustomerSalesReps = (
-  qbo_customer_id: string,
-  rep_names: string[],
-  primary_name: string | null,
-) =>
-  sbrpc('fn_set_customer_sales_reps', {
-    p_qbo_customer_id: qbo_customer_id,
-    p_rep_names: rep_names,
-    p_primary_name: primary_name,
-  });
-
 export const setCustomerNotes = (qbo_customer_id: string, notes: string | null) =>
   sbrpc('fn_set_customer_notes', {
     p_qbo_customer_id: qbo_customer_id,
     p_notes: notes,
   });
-
-// ----- Sales Reps catalog -----
-
-export interface SalesRep {
-  rep_code: string;
-  name: string;
-  email: string | null;
-  notes: string | null;
-  sort_order: number | null;
-  is_active: boolean;
-}
-
-export const fetchSalesReps = () =>
-  sbq<SalesRep>('sales_reps', 'select=*&order=sort_order,name');
