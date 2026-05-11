@@ -1,4 +1,5 @@
 import { sbDelete, sbInsert, sbq, sbrpc } from './rpc';
+import { SB_KEY, SB_URL, _sbToken } from './supabase';
 
 // fetchInventoryHealth now calls fn_items_master under the hood so
 // Inventory + Settings → Items share one data source. category_override
@@ -126,13 +127,31 @@ export function setInventorySettings(opts: {
   });
 }
 
-// Toggle qbo_items.active locally. NOTE: QBO push-back is not yet wired —
-// the next QBO item sync may re-write this if QBO's source-of-truth differs.
-export function setItemActive(qbo_item_id: string, active: boolean) {
-  return sbrpc<void>('fn_set_qbo_item_active', {
-    p_qbo_item_id: qbo_item_id,
-    p_active:      active,
+// Toggle qbo_items.active in QBO (and mirror locally on success).
+// The push-qbo-item edge function handles QBO auth + the sparse PATCH;
+// returns ok:true on success.
+export async function setItemActive(qbo_item_id: string, active: boolean): Promise<{
+  ok: boolean;
+  no_change?: boolean;
+  was_active?: boolean;
+  now_active?: boolean;
+  error?: string;
+}> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/push-qbo-item', {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action: 'setActive', qbo_item_id, active }),
   });
+  const j = await res.json();
+  if (!res.ok || !j?.ok) {
+    throw new Error(j?.error || ('push-qbo-item failed: HTTP ' + res.status));
+  }
+  return j;
 }
 
 export function fetchCategoryList() {
@@ -147,8 +166,6 @@ export function fetchItemPlAudit(min_account_items = 3) {
   });
 }
 
-// Bulk-apply suggested categories. Defaults to dry_run=true so callers
-// can preview the impact. Pass dry_run=false to actually write.
 export function applyPlCategorySuggestions(opts: {
   min_account_items?: number;
   min_consensus_pct?: number;
