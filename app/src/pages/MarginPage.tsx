@@ -25,6 +25,12 @@ import {
   GROUP_ORDER,
 } from '../lib/marginColumns';
 import { KEYS, loadSetting, saveSetting } from '../lib/settingsStore';
+import {
+  fetchOverheadPools,
+  computeOverheadFields,
+  totalPoolAmount,
+  type OverheadPoolTotal,
+} from '../lib/overhead';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 const CHART_KINDS: ChartKind[] = ['none', 'bar', 'pie', 'line'];
@@ -193,6 +199,7 @@ export function MarginPage() {
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [enrichment, setEnrichment] = useState<Record<string, Record<string, unknown>>>({});
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+  const [overheadPools, setOverheadPools] = useState<OverheadPoolTotal[]>([]);
   const [err, setErr] = useState<string>('');
 
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
@@ -302,9 +309,19 @@ export function MarginPage() {
       .catch(() => setSparklines({}));
   }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters)]);
 
-  // Smart Columns enrichment side-fetch. When any selected extra column has
-  // requiresFetch=true, call fn_dim_meta(p_dim, labels[]) and merge the
-  // jsonb meta into grid rows by dim_label.
+  // Overhead pools — fetch whenever the analysis window or entity changes.
+  // Cheap query (≤ a few rows), so we always pull it and let downstream
+  // computation decide whether to show overhead columns / KPI.
+  useEffect(() => {
+    let cancelled = false;
+    const ent = effectiveFilters.entities?.[0] ?? null;
+    fetchOverheadPools(effectiveFilters.start, effectiveFilters.end, ent)
+      .then((p) => { if (!cancelled) setOverheadPools(p ?? []); })
+      .catch(() => { if (!cancelled) setOverheadPools([]); });
+    return () => { cancelled = true; };
+  }, [effectiveFilters.start, effectiveFilters.end, JSON.stringify(effectiveFilters.entities)]);
+
+  // Smart Columns enrichment side-fetch.
   useEffect(() => {
     if (!rows || rows.length === 0 || !columnsNeedFetch(extraColumns)) {
       setEnrichment({});
@@ -339,10 +356,14 @@ export function MarginPage() {
     const cmpHeader = comparison ? ['Prior revenue', 'Δ revenue', 'Δ %'] : [];
     const extraHeader = extraColumns.map((c) => c.label);
     const header = [...baseHeader, ...cmpHeader, ...extraHeader];
+    const rowCount = display.length;
     const data: (string | number | null)[][] = display.map((r) => {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
       const meta = enrichment[r.dim_label] ?? {};
-      const row = { ...(r as object), ...meta } as SalesPivotRow & Record<string, unknown>;
+      const oh = overheadPools.length > 0 && totals
+        ? computeOverheadFields(r, totals, rowCount, overheadPools)
+        : {};
+      const row = { ...(r as object), ...meta, ...oh } as SalesPivotRow & Record<string, unknown>;
       const extraVals = extraColumns.map((c) => {
         const v = c.compute ? c.compute(row) : (c.enrichmentKey ? (row[c.enrichmentKey] as string | number | null) : null);
         if (v == null) return '';
@@ -433,6 +454,18 @@ export function MarginPage() {
     return v >= 0.8 ? 'var(--gn)' : v >= 0.5 ? 'var(--am)' : 'var(--rd)';
   }, [totals]);
 
+  // Net Margin KPI — only rendered when at least one pool has prorated $.
+  const totalOverhead = useMemo(() => totalPoolAmount(overheadPools), [overheadPools]);
+  const showOverheadKpi = totalOverhead > 0 && totals != null;
+  const netMargin = totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
+  const netMarginPct = totals && Number(totals.revenue ?? 0) > 0 && netMargin != null
+    ? netMargin / Number(totals.revenue) : null;
+  const netMarginAccent = netMarginPct == null
+    ? undefined
+    : netMarginPct >= 0.2 ? 'var(--gn)'
+    : netMarginPct >= 0   ? 'var(--am)'
+    : 'var(--rd)';
+
   const chips: { key: keyof SalesFilters; label: string; values: string[] }[] = [];
   if (filters.entities?.length) chips.push({ key: 'entities', label: 'entity', values: filters.entities });
   if (filters.categories?.length) chips.push({ key: 'categories', label: 'category', values: filters.categories });
@@ -443,14 +476,19 @@ export function MarginPage() {
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] = comparison ?? (rows ?? []);
 
+  // enrichedRows = base rows + API enrichment (customer/item meta) + overhead fields.
+  // Both are computed in one pass so MarginGrid receives ready-to-render rows.
   const enrichedRows = useMemo(() => {
     const hasEnrichment = Object.keys(enrichment).length > 0;
-    if (!hasEnrichment) return tableRows;
-    return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => ({
-      ...r,
-      ...(enrichment[r.dim_label] ?? {}),
-    })) as typeof tableRows;
-  }, [tableRows, enrichment]);
+    const hasOverhead   = overheadPools.length > 0 && totals != null;
+    if (!hasEnrichment && !hasOverhead) return tableRows;
+    const rowCount = tableRows.length;
+    return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => {
+      const meta = hasEnrichment ? (enrichment[r.dim_label] ?? {}) : {};
+      const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
+      return { ...r, ...meta, ...oh };
+    }) as typeof tableRows;
+  }, [tableRows, enrichment, overheadPools, totals]);
 
   const activePreset = detectActivePreset(filters.start, filters.end, today);
   const compareLabel =
@@ -478,6 +516,7 @@ export function MarginPage() {
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
+              {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
             </div>
           </div>
         </div>
@@ -493,12 +532,26 @@ export function MarginPage() {
         </div>
       </div>
 
-      {totals == null && rows == null ? (<KpiRowSkeleton count={4} />) : (
-        <div className="gr g4" style={{ marginBottom: 18 }}>
+      {totals == null && rows == null ? (<KpiRowSkeleton count={showOverheadKpi ? 5 : 4} />) : (
+        <div
+          className="gr"
+          style={{
+            gridTemplateColumns: showOverheadKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+            marginBottom: 18,
+          }}
+        >
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
             sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined} />
           <KPICard title="Est Margin" value={totals ? fm(totals.est_margin) : '…'} deltaPct={kpiDeltas?.margin ?? null}
             sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined} />
+          {showOverheadKpi && (
+            <KPICard
+              title="Net Margin"
+              value={netMargin != null ? fm(netMargin) : '…'}
+              sub={netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined}
+              accent={netMarginAccent}
+            />
+          )}
           <KPICard title="Customers" value={totals ? fmtNum(totals.customer_count) : '…'} deltaPct={kpiDeltas?.customers ?? null}
             sub={totals ? fmtNum(totals.item_count) + ' items' : undefined} />
           <KPICard title="Cost Coverage" value={totals ? fp(totals.cost_coverage_pct) : '…'} deltaPct={kpiDeltas?.cost_coverage ?? null}
