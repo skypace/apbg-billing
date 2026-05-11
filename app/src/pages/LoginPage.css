@@ -46,7 +46,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 70% 60% at 50% 25%, rgba(91, 181, 240, 0.20) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 60% at 50% 25%, rgba(91, 181, 240, 0.18) 0%, transparent 60%),
     radial-gradient(circle at 8% 100%, rgba(20, 57, 102, 0.55) 0%, transparent 55%),
     radial-gradient(circle at 92% 92%, rgba(200, 16, 46, 0.06) 0%, transparent 50%);
   z-index: 0;
@@ -67,12 +67,41 @@
   align-items: center;
   gap: 14px;
 }
-.login-brand img {
-  filter:
-    drop-shadow(0 0 32px rgba(91, 181, 240, 0.45))
-    drop-shadow(0 0 64px rgba(91, 181, 240, 0.20))
-    drop-shadow(0 12px 32px rgba(0, 0, 0, 0.40));
+
+/* Dual-mark row */
+.login-brand-marks {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin-bottom: 8px;
 }
+.login-mark {
+  display: inline-flex;
+  line-height: 0;
+}
+
+/* Brix BX — softened halo (was double drop-shadow at 32 + 64px) */
+.login-mark--brix img {
+  filter:
+    drop-shadow(0 0 14px rgba(91, 181, 240, 0.30))
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.40));
+}
+
+/* Alameda Soda — minimal glow + thin contour ring so it doesn't look
+   flat next to the BX. Stacked drop-shadows:
+   - 1px white ring → simulated stroke / contour
+   - 0.5px dark inner edge for depth
+   - soft red wash for brand glow
+   - bottom-shadow for grounding */
+.login-mark--alameda img {
+  filter:
+    drop-shadow(0 0 1px rgba(255, 255, 255, 0.45))
+    drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 10px rgba(200, 16, 46, 0.20))
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.45));
+}
+
 .login-brand-mark {
   font-size: 64px;
   font-weight: 800;
@@ -110,38 +139,6 @@
   letter-spacing: -0.2px;
   line-height: 1.35;
   max-width: 360px;
-}
-
-/* Parent-group dual-mark lockup */
-.login-brand-lockup {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 8px 14px;
-  background: rgba(20, 57, 102, 0.20);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  backdrop-filter: blur(12px) saturate(160%);
-}
-.login-brand-lockup img {
-  filter: drop-shadow(0 0 8px rgba(91, 181, 240, 0.20));
-}
-.login-brand-lockup-x {
-  font-family: var(--ff-display);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--mt);
-  opacity: 0.7;
-}
-.login-brand-lockup-caption {
-  font-size: 10px;
-  color: var(--mt);
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  font-family: var(--ff-mono);
-  font-weight: 600;
-  margin-left: 4px;
 }
 
 .login-form {
@@ -257,7 +254,6 @@
   font-family: var(--ff-mono);
 }
 
-/* Sidebar footer brand line */
 .sidebar-group {
   display: flex;
   align-items: center;
@@ -285,5 +281,7 @@
   .login-form { padding: 22px 18px 18px }
   .login-tagline { font-size: 16px }
   .splash-brand { font-size: 52px; letter-spacing: 6px }
-  .login-brand-lockup-caption { display: none }
+  .login-brand-marks { gap: 18px }
+  .login-mark--alameda img { transform: scale(0.85) }
+  .login-mark--brix img    { transform: scale(0.85) }
 }
