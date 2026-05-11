@@ -128,7 +128,7 @@ export function AnomaliesReport() {
                       <td>
                         <span
                           style={{
-                            background: 'rgba(255,255,255,0.04)',
+                            background: 'var(--sf2)',
                             color: dirColor,
                             border: '1px solid ' + dirColor,
                             padding: '1px 7px',

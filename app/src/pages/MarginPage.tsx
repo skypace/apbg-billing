@@ -513,12 +513,12 @@ export function MarginPage() {
               series={[
                 {
                   name: 'Current',
-                  color: '#22d3ee',
+                  color: '#1E40AF',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)),
                 },
                 ...(comparison ? [{
                   name: 'Prior',
-                  color: '#94a3b8',
+                  color: '#64748B',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => {
                     const c = comparison.find((cc) => cc.dim_label === r.dim_label);
                     return c?.prior_revenue ?? 0;

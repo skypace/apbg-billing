@@ -37,7 +37,7 @@ export function fmtCount(v: number): string {
 }
 
 export const CHART_COLORS = [
-  '#22d3ee',
+  '#1E40AF',
   '#34d399',
   '#fbbf24',
   '#a78bfa',

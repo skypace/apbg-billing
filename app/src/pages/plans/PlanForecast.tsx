@@ -103,7 +103,7 @@ export function PlanForecast({ plan }: Props) {
                       <td>
                         <span
                           style={{
-                            background: 'rgba(255,255,255,0.04)',
+                            background: 'var(--sf2)',
                             color,
                             border: '1px solid ' + color,
                             padding: '1px 7px',

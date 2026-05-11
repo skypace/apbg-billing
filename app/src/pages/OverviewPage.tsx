@@ -229,12 +229,12 @@ export function OverviewPage() {
                 series={[
                   {
                     name: String(today.getFullYear()),
-                    color: '#22d3ee',
+                    color: '#1E40AF',
                     values: alignToMonths(monthlyCurrent, monthlyPrior),
                   },
                   {
                     name: String(today.getFullYear() - 1),
-                    color: '#94a3b8',
+                    color: '#64748B',
                     values: alignToPriorMonths(monthlyCurrent, monthlyPrior),
                   },
                 ]}
