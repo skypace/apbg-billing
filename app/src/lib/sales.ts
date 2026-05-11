@@ -100,9 +100,6 @@ export interface ComparisonRow extends SalesPivotRow {
   delta_pct: number | null;
 }
 
-// Compute prior-period bounds: same length as the current period,
-// shifted back by `mode` ('prior_period') or to the prior calendar year
-// boundaries ('prior_year').
 export function computePriorBounds(start: string, end: string, mode: 'prior_period' | 'prior_year') {
   if (mode === 'prior_year') {
     const prevYear = new Date(start).getFullYear() - 1;
@@ -122,20 +119,31 @@ export function computePriorBounds(start: string, end: string, mode: 'prior_peri
   };
 }
 
+// Month-aware key extraction for pairing current ↔ prior rows.
+// For YYYY-MM labels ('2026-01'), strip the year so '2026-01' and
+// '2025-01' both key to 'MM-01'. For every other dim, the label
+// itself is the key.
+function mergeKey(label: string): string {
+  return /^\d{4}-\d{2}$/.test(label) ? 'MM-' + label.slice(5) : label;
+}
+
 export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[]): ComparisonRow[] {
-  const priorByLabel = new Map<string, SalesPivotRow>();
-  for (const r of prior) priorByLabel.set(r.dim_label, r);
+  const priorByKey = new Map<string, SalesPivotRow>();
+  for (const r of prior) priorByKey.set(mergeKey(r.dim_label), r);
   return current.map((r) => {
-    const p = priorByLabel.get(r.dim_label);
+    const p = priorByKey.get(mergeKey(r.dim_label));
     const priorRev = p ? Number(p.revenue) : null;
+    const priorMargin = p?.est_margin != null ? Number(p.est_margin) : null;
     const deltaRev = priorRev != null ? Number(r.revenue) - priorRev : null;
-    const deltaPct = priorRev && priorRev > 0 ? (Number(r.revenue) - priorRev) / priorRev : null;
+    const deltaPct = priorRev != null && priorRev !== 0
+      ? (Number(r.revenue) - priorRev) / Math.abs(priorRev)
+      : null;
     return {
       ...r,
       prior_revenue: priorRev,
-      prior_margin: p?.est_margin ?? null,
+      prior_margin:  priorMargin,
       delta_revenue: deltaRev,
-      delta_pct: deltaPct,
+      delta_pct:     deltaPct,
     };
   });
 }
@@ -152,7 +160,6 @@ export function fetchSparkline(dim: Dim, labels: string[], end: string, f: Sales
   });
 }
 
-// Build the 12-month label array ending at the given month-end.
 export function trailing12MonthKeys(end: string): string[] {
   const d = new Date(end + 'T00:00:00');
   const keys: string[] = [];
