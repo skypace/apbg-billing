@@ -438,17 +438,41 @@ td.mn, th.mn {
 .hero-stamp {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  gap: 10px;
+  font-size: 11px;
   font-family: var(--ff-mono);
-  color: var(--mt);
-  letter-spacing: 0.3px;
-  padding: 8px 12px;
-  border: var(--glass-bord);
+  color: var(--tx);
+  letter-spacing: 0.4px;
+  font-weight: 500;
+  padding: 9px 14px;
+  border: 1px solid rgba(91, 181, 240, 0.18);
   border-radius: 999px;
-  background: var(--glass-bg-card);
+  background:
+    linear-gradient(180deg, rgba(20, 57, 102, 0.55) 0%, rgba(14, 36, 71, 0.50) 100%);
   backdrop-filter: var(--glass-blur-sm);
   -webkit-backdrop-filter: var(--glass-blur-sm);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.hero-stamp .hero-stamp-label {
+  color: var(--gn);
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-size: 9.5px;
+}
+.hero-stamp .hero-stamp-divider {
+  color: var(--mt);
+  opacity: 0.5;
+}
+.hero-stamp .hero-stamp-time {
+  color: var(--tx2);
+  font-feature-settings: "tnum" on, "lnum" on;
+}
+.hero-stamp .status-dot {
+  width: 7px;
+  height: 7px;
 }
 
 /* ─────────── Glass cards ─────────── */
@@ -923,4 +947,59 @@ td.mn, th.mn {
   .main { padding: 14px 12px 28px }
   .hero-title { font-size: 22px }
   .kpi-value { font-size: 22px }
+}
+
+
+/* ─────────── Toggle switch (used in DataGridPro cells) ─────────── */
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 16px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bd);
+  border-radius: 999px;
+  transition: background 150ms ease;
+  border: 1px solid var(--bd2);
+}
+.switch-slider::before {
+  content: '';
+  position: absolute;
+  height: 12px;
+  width: 12px;
+  left: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--tx2);
+  border-radius: 50%;
+  transition: all 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.switch input:checked + .switch-slider {
+  background: linear-gradient(135deg, #5BB5F0 0%, #2566A8 100%);
+  border-color: #5BB5F0;
+}
+.switch input:checked + .switch-slider::before {
+  left: 15px;
+  background: var(--tx);
+  box-shadow: 0 1px 3px rgba(91, 181, 240, 0.5);
+}
+.switch:hover .switch-slider {
+  filter: brightness(1.15);
+}
+.switch input:focus-visible + .switch-slider {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
 }
