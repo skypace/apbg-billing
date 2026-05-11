@@ -13,7 +13,7 @@ import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
-import { applyEntityDefaults, applyModifiers } from '../lib/chainModifiers';
+import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 
 type ChartKind = 'none' | 'bar' | 'pie' | 'line';
@@ -33,7 +33,8 @@ const DIMS: { id: Dim; label: string }[] = [
   { id: 'entity', label: 'Entity' }, { id: 'account', label: 'Account' },
   { id: 'segment', label: 'Segment' }, { id: 'channel', label: 'Channel' },
 ];
-const ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
+
+const BASE_ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'category', key: 'categories', label: 'Category' },
@@ -43,7 +44,6 @@ const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
   { dim: 'segment',  key: 'segments',   label: 'Segment' },
 ];
 
-// Per-dim taxonomy: which dropdowns get grouped, and how.
 const GROUPING_BY_DIM: Partial<Record<Dim, {
   groupBy: (l: string) => string;
   groupOrder: Record<string, number>;
@@ -95,6 +95,12 @@ export function MarginPage() {
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
   const toast = useToast();
+
+  // Entity list = base codes ∪ user-added entities from Settings → Entity Defaults.
+  const entityOptions = useMemo(() => {
+    const fromSettings = Object.keys(getEntityDefaults());
+    return Array.from(new Set([...BASE_ENTITIES, ...fromSettings]));
+  }, []);
 
   const [dim, setDim] = useState<Dim>('category');
   const [filters, setFilters] = useState<SalesFilters>({ start: ytdStart, end: today, entities: null });
@@ -432,9 +438,9 @@ export function MarginPage() {
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers and swaps the hero brand mark">
+            <select value={filters.entities?.[0] ?? ''} onChange={(e) => onEntityChange(e.target.value || null)} className="tb-select" title="Picking an entity auto-applies its default categories / customers from Settings → Entity Defaults">
               <option value="">All</option>
-              {ENTITIES.map((en) => <option key={en} value={en}>{en}</option>)}
+              {entityOptions.map((en) => <option key={en} value={en}>{en}</option>)}
             </select>
           </div>
 
@@ -505,7 +511,7 @@ export function MarginPage() {
               labels={rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => r.dim_label.length > 12 ? r.dim_label.slice(0, 10) + '…' : r.dim_label)}
               series={[
                 { name: 'Current', color: '#5BB5F0', values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => Number(r.revenue || 0)) },
-                ...(comparison ? [{ name: 'Prior', color: '#6B8190',
+                ...(comparison ? [{ name: 'Prior', color: '#F4B400',
                   values: rows.slice().sort((a, b) => Number(b.revenue) - Number(a.revenue)).slice(0, 12).map((r) => {
                     const c = comparison.find((cc) => cc.dim_label === r.dim_label);
                     return c?.prior_revenue ?? 0;
