@@ -133,6 +133,12 @@ export function OverviewPage() {
   const [topCount, setTopCount] = useState(10);
   const [topSort, setTopSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
 
+  // Diagnostic state — captures the raw fetch results so we can see what's
+  // actually coming back from the prior-year fetch.
+  const [priorFetchErr, setPriorFetchErr] = useState<string | null>(null);
+  const [priorRawSample, setPriorRawSample] = useState<MonthRow[] | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+
   const effectiveFilters = useMemo(() => applyModifiers(filters, activeModifiers), [filters, activeModifiers]);
 
   useEffect(() => {
@@ -192,9 +198,26 @@ export function OverviewPage() {
   useEffect(() => {
     let cancelled = false;
     setMonthlyCurrent(null); setMonthlyPrior(null);
-    fetchPivot('month' as Dim, effectiveFilters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => { if (!cancelled) setMonthlyCurrent([]); });
+    setPriorFetchErr(null); setPriorRawSample(null);
+    fetchPivot('month' as Dim, effectiveFilters, 24)
+      .then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); })
+      .catch((e: unknown) => { if (!cancelled) setMonthlyCurrent([]); console.error('[Overview] current fetch failed', e); });
     if (priorFilters) {
-      fetchPivot('month' as Dim, priorFilters, 24).then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); }).catch(() => { if (!cancelled) setMonthlyPrior([]); });
+      fetchPivot('month' as Dim, priorFilters, 24)
+        .then((rs) => {
+          if (cancelled) return;
+          const arr = (rs ?? []) as MonthRow[];
+          console.log('[Overview] prior fetch returned', arr.length, 'rows', arr);
+          setMonthlyPrior(arr);
+          setPriorRawSample(arr.slice(0, 12));
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error('[Overview] prior fetch failed', e);
+          setPriorFetchErr(msg);
+          setMonthlyPrior([]);
+        });
     } else { setMonthlyPrior([]); }
     return () => { cancelled = true; };
   }, [JSON.stringify(effectiveFilters), JSON.stringify(priorFilters)]);
@@ -245,7 +268,6 @@ export function OverviewPage() {
     });
   }, [effectiveFilters.start, effectiveFilters.end]);
 
-  // Build the monthly chart — trimmed to actual months in range, prior aligned by month-number.
   const monthlyChart = useMemo(() => {
     if (!monthlyCurrent || !monthlyPrior) return null;
     const months = monthsBetween(effectiveFilters.start, effectiveFilters.end);
@@ -265,7 +287,8 @@ export function OverviewPage() {
     const current = months.map((ym) => curByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
     const prior   = months.map((ym) => priorByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
     const priorRowCount = monthlyPrior.length;
-    return { labels, current, prior, priorRowCount };
+    const priorSum = prior.reduce((s, v) => s + v, 0);
+    return { labels, current, prior, priorRowCount, priorSum };
   }, [monthlyCurrent, monthlyPrior, effectiveFilters.start, effectiveFilters.end]);
 
   useEffect(() => {
@@ -371,6 +394,9 @@ export function OverviewPage() {
   if (filters.items?.length)      chips.push({ key: 'items',      label: 'item',     values: filters.items });
   if (filters.channels?.length)   chips.push({ key: 'channels',   label: 'channel',  values: filters.channels });
   if (filters.segments?.length)   chips.push({ key: 'segments',   label: 'segment',  values: filters.segments });
+
+  // Show debug panel when compareMode is on but the prior values come up zero
+  const priorIsZero = compareMode !== 'off' && monthlyChart != null && (monthlyChart.priorSum === 0 || monthlyChart.priorRowCount === 0);
 
   return (
     <div>
@@ -518,7 +544,14 @@ export function OverviewPage() {
                 ) : '—'}
               </div>
             </div>
+            {priorIsZero && (
+              <button type="button" onClick={() => setShowDebug((v) => !v)} className="tb-btn"
+                style={{ color: 'var(--am)', borderColor: 'var(--am)', fontSize: 10 }}>
+                {showDebug ? 'Hide diagnostics' : 'Debug prior=0'}
+              </button>
+            )}
           </div>
+
           <div style={{ padding: '14px' }}>
             {monthlyChart ? (
               <AreaChart ariaLabel="Monthly revenue, current vs prior" labels={monthlyChart.labels}
@@ -534,6 +567,34 @@ export function OverviewPage() {
                 ]} />
             ) : (<ChartSkeleton height={220} />)}
           </div>
+
+          {showDebug && priorIsZero && (
+            <div style={{
+              padding: '12px 16px',
+              fontSize: 10,
+              color: 'var(--tx2)',
+              borderTop: '1px solid var(--bd)',
+              fontFamily: 'var(--ff-mono)',
+              lineHeight: 1.6,
+              background: 'rgba(244,180,0,0.05)',
+            }}>
+              <div><strong style={{ color: 'var(--am)' }}>Diagnostic — prior series shows zero</strong></div>
+              <div>compareMode = {compareMode}</div>
+              <div>priorFilters = {priorFilters ? JSON.stringify({ start: priorFilters.start, end: priorFilters.end, entities: priorFilters.entities, categories: priorFilters.categories, customers: priorFilters.customers }) : 'null'}</div>
+              <div>monthlyPrior length = {monthlyPrior?.length ?? 'null'}</div>
+              <div>priorSum = {monthlyChart?.priorSum ?? '—'}</div>
+              <div>prior values = [{monthlyChart?.prior.join(', ')}]</div>
+              {priorFetchErr && <div style={{ color: 'var(--rd)' }}>fetch error: {priorFetchErr}</div>}
+              {priorRawSample && priorRawSample.length > 0 && (
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ cursor: 'pointer' }}>raw rows ({priorRawSample.length})</summary>
+                  <pre style={{ margin: '6px 0 0 12px', fontSize: 9, whiteSpace: 'pre-wrap' }}>
+                    {JSON.stringify(priorRawSample, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="cd" style={{ padding: 0 }}>
