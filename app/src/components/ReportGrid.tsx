@@ -3,10 +3,13 @@ import {
   type GridColDef,
   type GridPinnedColumnFields,
   type GridSortModel,
+  type GridValidRowModel,
 } from '@mui/x-data-grid-pro';
 
 interface Props {
-  rows: Array<Record<string, unknown>>;
+  // Use GridValidRowModel (= Record<string, any>) so concrete row interfaces
+  // can be passed in without requiring an explicit string index signature.
+  rows: readonly GridValidRowModel[];
   columns: GridColDef[];
   pinnedLeft?: string[];
   defaultSort?: GridSortModel;
