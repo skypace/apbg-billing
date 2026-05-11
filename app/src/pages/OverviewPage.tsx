@@ -133,8 +133,6 @@ export function OverviewPage() {
   const [topCount, setTopCount] = useState(10);
   const [topSort, setTopSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
 
-  // Diagnostic state — captures the raw fetch results so we can see what's
-  // actually coming back from the prior-year fetch.
   const [priorFetchErr, setPriorFetchErr] = useState<string | null>(null);
   const [priorRawSample, setPriorRawSample] = useState<MonthRow[] | null>(null);
   const [showDebug, setShowDebug] = useState(false);
@@ -207,7 +205,6 @@ export function OverviewPage() {
         .then((rs) => {
           if (cancelled) return;
           const arr = (rs ?? []) as MonthRow[];
-          console.log('[Overview] prior fetch returned', arr.length, 'rows', arr);
           setMonthlyPrior(arr);
           setPriorRawSample(arr.slice(0, 12));
         })
@@ -268,24 +265,37 @@ export function OverviewPage() {
     });
   }, [effectiveFilters.start, effectiveFilters.end]);
 
+  // Pair current ↔ prior by SORTED INDEX. Works for both prior_year and
+  // prior_period — for prior_year the months happen to be the same but
+  // shifted year; for prior_period they're entirely different months. Both
+  // resolve correctly once we sort each ascending and pair by position.
   const monthlyChart = useMemo(() => {
     if (!monthlyCurrent || !monthlyPrior) return null;
     const months = monthsBetween(effectiveFilters.start, effectiveFilters.end);
 
+    const sortedCurrent = [...monthlyCurrent].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+    const sortedPrior   = [...monthlyPrior].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+
+    // Current series: aligned to the months axis by month number so a missing
+    // month in the data shows as 0 instead of compressing the chart.
     const curByMonth = new Map<number, number>();
-    for (const r of monthlyCurrent) {
+    for (const r of sortedCurrent) {
       const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
       if (m >= 1 && m <= 12) curByMonth.set(m, Number(r.revenue ?? 0));
-    }
-    const priorByMonth = new Map<number, number>();
-    for (const r of monthlyPrior) {
-      const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
-      if (m >= 1 && m <= 12) priorByMonth.set(m, Number(r.revenue ?? 0));
     }
 
     const labels  = months.map((ym) => MONTH_SHORT[parseInt(ym.slice(5, 7), 10) - 1]);
     const current = months.map((ym) => curByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
-    const prior   = months.map((ym) => priorByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
+
+    // Prior series: pair by index in the sorted prior array. Works for both
+    // compare modes because in prior_year the months happen to land in the
+    // same month numbers, and in prior_period they're a fixed-length window
+    // shifted back — either way, position-N of current ↔ position-N of prior.
+    const prior = months.map((_, i) => {
+      const p = sortedPrior[i];
+      return p ? Number(p.revenue ?? 0) : 0;
+    });
+
     const priorRowCount = monthlyPrior.length;
     const priorSum = prior.reduce((s, v) => s + v, 0);
     return { labels, current, prior, priorRowCount, priorSum };
@@ -395,7 +405,6 @@ export function OverviewPage() {
   if (filters.channels?.length)   chips.push({ key: 'channels',   label: 'channel',  values: filters.channels });
   if (filters.segments?.length)   chips.push({ key: 'segments',   label: 'segment',  values: filters.segments });
 
-  // Show debug panel when compareMode is on but the prior values come up zero
   const priorIsZero = compareMode !== 'off' && monthlyChart != null && (monthlyChart.priorSum === 0 || monthlyChart.priorRowCount === 0);
 
   return (
