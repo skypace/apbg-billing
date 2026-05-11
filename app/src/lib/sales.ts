@@ -1,6 +1,4 @@
 // Typed wrappers around the ops sales RPCs.
-// Keep the shapes in sync with the SQL function signatures so the
-// migration stays type-safe end-to-end.
 
 import { sbrpc } from './rpc';
 
@@ -100,9 +98,6 @@ export interface ComparisonRow extends SalesPivotRow {
   delta_pct: number | null;
 }
 
-// Parse a YYYY-MM-DD string into Y/M/D parts WITHOUT going through the
-// Date constructor — which interprets the string as UTC midnight and then
-// reports local year/month, producing off-by-one errors in non-UTC zones.
 function parseYmd(s: string): { y: number; m: number; d: number } {
   return {
     y: parseInt(s.slice(0, 4), 10),
@@ -111,7 +106,6 @@ function parseYmd(s: string): { y: number; m: number; d: number } {
   };
 }
 
-// Reformat a Y/M/D triple back to YYYY-MM-DD.
 function formatYmd(y: number, m: number, d: number): string {
   return (
     String(y).padStart(4, '0') + '-' +
@@ -129,8 +123,6 @@ export function computePriorBounds(start: string, end: string, mode: 'prior_peri
       prior_end:   prevYear + end.slice(4),
     };
   }
-  // 'prior_period' — shift window back by (length + 1) days using UTC math
-  // so DST transitions don't bend the boundary.
   const a = parseYmd(start);
   const b = parseYmd(end);
   const aUtc = Date.UTC(a.y, a.m - 1, a.d);
@@ -146,30 +138,33 @@ export function computePriorBounds(start: string, end: string, mode: 'prior_peri
   };
 }
 
-// Month-aware key extraction for pairing current ↔ prior rows.
-function mergeKey(label: string): string {
-  return /^\d{4}-\d{2}$/.test(label) ? 'MM-' + label.slice(5) : label;
-}
-
+// Pair current ↔ prior rows.
+// For month-shaped labels ('YYYY-MM') we ALWAYS pair by sorted index —
+// that handles both prior_year (same months, prior year) and
+// prior_period (shifted window, different months) correctly.
+// For all other dims, exact-label matching is the right move.
 export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[]): ComparisonRow[] {
-  const priorByKey = new Map<string, SalesPivotRow>();
-  for (const r of prior) priorByKey.set(mergeKey(r.dim_label), r);
-  return current.map((r) => {
-    const p = priorByKey.get(mergeKey(r.dim_label));
-    const priorRev = p ? Number(p.revenue) : null;
+  const isMonth = current.length > 0 && /^\d{4}-\d{2}$/.test(current[0].dim_label);
+
+  function buildRow(r: SalesPivotRow, p: SalesPivotRow | undefined): ComparisonRow {
+    const priorRev    = p?.revenue    != null ? Number(p.revenue)    : null;
     const priorMargin = p?.est_margin != null ? Number(p.est_margin) : null;
-    const deltaRev = priorRev != null ? Number(r.revenue) - priorRev : null;
-    const deltaPct = priorRev != null && priorRev !== 0
+    const deltaRev    = priorRev != null ? Number(r.revenue) - priorRev : null;
+    const deltaPct    = priorRev != null && priorRev !== 0
       ? (Number(r.revenue) - priorRev) / Math.abs(priorRev)
       : null;
-    return {
-      ...r,
-      prior_revenue: priorRev,
-      prior_margin:  priorMargin,
-      delta_revenue: deltaRev,
-      delta_pct:     deltaPct,
-    };
-  });
+    return { ...r, prior_revenue: priorRev, prior_margin: priorMargin, delta_revenue: deltaRev, delta_pct: deltaPct };
+  }
+
+  if (isMonth) {
+    const cur = [...current].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+    const pri = [...prior].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+    return cur.map((r, i) => buildRow(r, pri[i]));
+  }
+
+  const priorByKey = new Map<string, SalesPivotRow>();
+  for (const r of prior) priorByKey.set(r.dim_label, r);
+  return current.map((r) => buildRow(r, priorByKey.get(r.dim_label)));
 }
 
 export function fetchSparkline(dim: Dim, labels: string[], end: string, f: SalesFilters) {
@@ -186,7 +181,6 @@ export function trailing12MonthKeys(end: string): string[] {
   const { y, m } = parseYmd(end);
   const keys: string[] = [];
   for (let i = 11; i >= 0; i--) {
-    // Walk back i months from (y, m). Use UTC math to avoid local-zone drift.
     const cursorUtc = Date.UTC(y, m - 1 - i, 1);
     const cursor = new Date(cursorUtc);
     keys.push(
