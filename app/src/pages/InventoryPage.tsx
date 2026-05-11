@@ -1,24 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
+import type { GridColDef } from '@mui/x-data-grid-pro';
 import { KPICard } from '../components/KPICard';
+import { ReportGrid } from '../components/ReportGrid';
 import { fm, fmtNum } from '../lib/formatters';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
-  InventoryHealthRow,
-  QboCustomerOption,
-  VelocityExcludeRow,
-  addVelocityExclude,
-  fetchCustomerOptions,
-  fetchInventoryHealth,
-  fetchVelocityExcludes,
-  removeVelocityExclude,
-  setInventorySettings,
+  InventoryHealthRow, QboCustomerOption, VelocityExcludeRow,
+  addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth,
+  fetchVelocityExcludes, removeVelocityExclude, setInventorySettings,
 } from '../lib/inventory';
 
-type Tab = 'reorder' | 'velocity' | 'settings' | 'excludes';
+type TabId = 'reorder' | 'velocity' | 'settings' | 'excludes';
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: TabId; label: string }[] = [
   { id: 'reorder',  label: 'Reorder' },
   { id: 'velocity', label: 'Velocity' },
   { id: 'settings', label: 'Settings' },
@@ -34,8 +32,18 @@ const STATUS_COLOR: Record<string, string> = {
   unmanaged:    'var(--mt)',
 };
 
+const TABS_SX = {
+  minHeight: 36, mb: 1.5, borderBottom: '1px solid var(--bd)',
+  '& .MuiTabs-indicator': { background: 'var(--ac)', height: 2 },
+  '& .MuiTab-root': {
+    minHeight: 36, padding: '6px 18px', textTransform: 'uppercase',
+    color: 'var(--mt)', fontSize: 11, fontWeight: 600, letterSpacing: 0.6, fontFamily: 'inherit',
+  },
+  '& .Mui-selected': { color: 'var(--ac) !important' },
+};
+
 export function InventoryPage() {
-  const [tab, setTab] = useState<Tab>('reorder');
+  const [tab, setTab] = useState<TabId>('reorder');
   const [lookback, setLookback] = useState(90);
   const [managedOnly, setManagedOnly] = useState(false);
   const [rows, setRows] = useState<InventoryHealthRow[] | null>(null);
@@ -43,8 +51,7 @@ export function InventoryPage() {
   function load() {
     setRows(null);
     fetchInventoryHealth({ lookback: Number(lookback) || 90, managed_only: managedOnly })
-      .then(setRows)
-      .catch(() => setRows([]));
+      .then(setRows).catch(() => setRows([]));
   }
   useEffect(load, [lookback, managedOnly]);
 
@@ -66,54 +73,29 @@ export function InventoryPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {TABS.map((t) => {
-          const on = tab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={'tb-btn' + (on ? ' tb-btn--primary' : '')}
-              style={on ? { fontWeight: 700 } : undefined}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs value={tab} onChange={(_, v) => setTab(v as TabId)} sx={TABS_SX}>
+        {TABS.map((t) => <Tab key={t.id} value={t.id} label={t.label} />)}
+      </Tabs>
 
       {(tab === 'reorder' || tab === 'velocity' || tab === 'settings') && (
-        <div
-          className="cd"
-          style={{
-            padding: '10px 12px',
-            marginBottom: 14,
-            display: 'flex',
-            gap: 10,
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            fontSize: 11,
-          }}
-        >
-          <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Velocity lookback
-          </span>
-          <input
-            type="number"
-            min={7}
-            max={365}
-            value={lookback}
-            onChange={(e) => setLookback(Number(e.target.value) || 90)}
-            style={{ ...inp(), width: 70 }}
-          />
-          <span style={{ color: 'var(--mt)' }}>days</span>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
-            <input type="checkbox" checked={managedOnly} onChange={(e) => setManagedOnly(e.target.checked)} />
-            <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-              managed only
-            </span>
-          </label>
-          <button onClick={load} style={btnSecondary()}>REFRESH</button>
+        <div className="toolbar" style={{ marginBottom: 14 }}>
+          <div className="toolbar-row">
+            <div className="toolbar-section">
+              <span className="toolbar-label">Velocity lookback</span>
+              <input type="number" min={7} max={365} value={lookback}
+                onChange={(e) => setLookback(Number(e.target.value) || 90)}
+                className="date-input" style={{ width: 70 }} />
+              <span style={{ color: 'var(--mt)', fontSize: 11 }}>days</span>
+            </div>
+            <label className="toolbar-section" style={{ cursor: 'pointer' }}>
+              <input type="checkbox" checked={managedOnly}
+                onChange={(e) => setManagedOnly(e.target.checked)}
+                style={{ accentColor: 'var(--ac)' }} />
+              <span className="toolbar-label">Managed only</span>
+            </label>
+            <div className="toolbar-spacer" />
+            <button onClick={load} className="tb-btn">Refresh</button>
+          </div>
         </div>
       )}
 
@@ -126,33 +108,62 @@ export function InventoryPage() {
 }
 
 function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
-  if (!rows) return (
-    <>
-      <KpiRowSkeleton count={4} />
-      <div className="cd" style={{ padding: 0 }}>
-        <TableSkeleton rows={8} cols={7} />
-      </div>
-    </>
+  const reorder = useMemo(() => {
+    if (!rows) return [];
+    const re = rows.filter((r) => r.status === 'reorder_now' || r.status === 'reorder_soon');
+    return re.sort((a, b) => Number(a.days_of_supply ?? 999) - Number(b.days_of_supply ?? 999));
+  }, [rows]);
+
+  const gridRows = useMemo(
+    () => reorder.map((r, i) => ({ ...r, id: r.qbo_item_id ?? ('r___' + i) })),
+    [reorder],
   );
-  const reorderNow  = rows.filter((r) => r.status === 'reorder_now');
-  const reorderSoon = rows.filter((r) => r.status === 'reorder_soon');
-  const healthy     = rows.filter((r) => r.status === 'healthy');
-  const overstock   = rows.filter((r) => r.status === 'overstock');
-  const reorder     = [...reorderNow, ...reorderSoon].sort((a, b) =>
-    Number(a.days_of_supply ?? 999) - Number(b.days_of_supply ?? 999),
-  );
+
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'item_name', headerName: 'Item', flex: 2, minWidth: 240,
+      renderCell: (p) => (
+        <span title={p.value as string} style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {p.value as string}
+        </span>
+      ),
+    },
+    {
+      field: 'status', headerName: 'Status', width: 130,
+      renderCell: (p) => {
+        const c = STATUS_COLOR[p.value as string] ?? 'var(--mt)';
+        return (
+          <span style={{
+            background: 'rgba(255,255,255,0.04)', color: c, border: '1px solid ' + c,
+            padding: '1px 7px', borderRadius: 12, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+          }}>{String(p.value).toUpperCase().replace('_', ' ')}</span>
+        );
+      },
+    },
+    { field: 'on_hand', headerName: 'On Hand', type: 'number', width: 90, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
+    { field: 'reorder_point', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    {
+      field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 130, cellClassName: 'mn',
+      renderCell: (p) => (
+        <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? String(p.value) : '—'}</span>
+      ),
+    },
+  ], []);
 
   function exportCsv() {
     if (reorder.length === 0) return;
     const head = ['Item', 'On Hand', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
-      r.item_name,
-      r.on_hand ?? '',
+      r.item_name, r.on_hand ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
       r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '',
-      r.reorder_point ?? '',
-      r.suggested_order_qty ?? '',
-      r.status,
+      r.reorder_point ?? '', r.suggested_order_qty ?? '', r.status,
     ]);
     downloadCsv(`reorder_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
   }
@@ -166,6 +177,18 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     w.document.close();
   }
 
+  if (!rows) return (
+    <>
+      <KpiRowSkeleton count={4} />
+      <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={8} cols={7} /></div>
+    </>
+  );
+
+  const reorderNow  = rows.filter((r) => r.status === 'reorder_now');
+  const reorderSoon = rows.filter((r) => r.status === 'reorder_soon');
+  const healthy     = rows.filter((r) => r.status === 'healthy');
+  const overstock   = rows.filter((r) => r.status === 'overstock');
+
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 14 }}>
@@ -175,18 +198,10 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
         <KPICard title="OVERSTOCK" value={overstock.length} accent="#a78bfa" sub=">2× target days" />
       </div>
 
-      <div
-        className="cd"
-        style={{
-          padding: '10px 12px',
-          marginBottom: 14,
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          fontSize: 11,
-        }}
-      >
+      <div className="cd" style={{
+        padding: '10px 12px', marginBottom: 14, display: 'flex',
+        gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
+      }}>
         <span style={{ color: 'var(--mt)' }}>{reorder.length} items below threshold</span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button onClick={printOrderSheet} disabled={reorder.length === 0} style={btnPrimary()}>PRINT ORDER SHEET</button>
@@ -194,75 +209,16 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
         </span>
       </div>
 
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {reorder.length === 0 ? (
           <div className="ld">All managed inventory is healthy.</div>
         ) : (
-          <div style={{ maxHeight: '58vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Item</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>On Hand</th>
-                  <th style={{ textAlign: 'right' }}>Velocity/day</th>
-                  <th style={{ textAlign: 'right' }}>Days Supply</th>
-                  <th style={{ textAlign: 'right' }}>Reorder Pt</th>
-                  <th style={{ textAlign: 'right' }}>Suggested Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reorder.map((r) => {
-                  const c = STATUS_COLOR[r.status] ?? 'var(--mt)';
-                  return (
-                    <tr key={r.qbo_item_id}>
-                      <td
-                        style={{
-                          fontWeight: 600,
-                          maxWidth: 320,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                        title={r.item_name}
-                      >
-                        {r.item_name}
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            background: 'rgba(255,255,255,0.04)',
-                            color: c,
-                            border: '1px solid ' + c,
-                            padding: '1px 7px',
-                            borderRadius: 12,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            letterSpacing: 0.5,
-                          }}
-                        >
-                          {r.status.toUpperCase().replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right' }}>{fmtNum(r.on_hand)}</td>
-                      <td className="mn" style={{ textAlign: 'right' }}>
-                        {r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '—'}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '—'}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>
-                        {r.reorder_point ?? '—'}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: 600 }}>
-                        {r.suggested_order_qty ?? '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ReportGrid
+            rows={gridRows} columns={columns}
+            pinnedLeft={['item_name']}
+            defaultSort={[{ field: 'days_of_supply', sort: 'asc' }]}
+            height="58vh"
+          />
         )}
       </div>
     </div>
@@ -274,93 +230,77 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     () => rows ? [...rows].sort((a, b) => Number(b.sold_revenue ?? 0) - Number(a.sold_revenue ?? 0)) : null,
     [rows],
   );
+
+  const gridRows = useMemo(
+    () => (sorted ?? []).map((r, i) => ({ ...r, id: r.qbo_item_id ?? ('v___' + i) })),
+    [sorted],
+  );
+
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'item_name', headerName: 'Item', flex: 2, minWidth: 240,
+      renderCell: (p) => (
+        <span title={p.value as string} style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {p.value as string}
+        </span>
+      ),
+    },
+    { field: 'category_path', headerName: 'Category', width: 180,
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    { field: 'sold_qty', headerName: 'Sold Qty', type: 'number', width: 100, cellClassName: 'mn',
+      valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
+    {
+      field: 'sold_revenue', headerName: 'Sold Rev', type: 'number', width: 130, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 600 }}>{fm(Number(p.value ?? 0))}</span>,
+    },
+    { field: 'customers_count', headerName: 'Customers', type: 'number', width: 100, cellClassName: 'mn' },
+    { field: 'purchased_qty', headerName: 'Purchased', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
+    {
+      field: 'adjustment_qty', headerName: 'Adj Qty', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => {
+        const v = Number(p.value ?? 0);
+        return <span style={{ color: v < 0 ? 'var(--rd)' : 'var(--mt)' }}>{fmtNum(v)}</span>;
+      },
+    },
+    {
+      field: 'shrinkage_qty', headerName: 'Shrink', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => (
+        <span style={{ color: 'var(--rd)' }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
+      ),
+    },
+    { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 120, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
+  ], []);
+
   if (!sorted) return (
-    <div className="cd" style={{ padding: 0 }}>
-      <TableSkeleton rows={10} cols={9} />
-    </div>
+    <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={10} cols={9} /></div>
   );
 
   return (
-    <div className="cd" style={{ padding: 0 }}>
-      <div style={{ maxHeight: '64vh', overflow: 'auto' }}>
-        <table>
-          <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-            <tr>
-              <th>Item</th>
-              <th>Category</th>
-              <th style={{ textAlign: 'right' }}>Sold Qty</th>
-              <th style={{ textAlign: 'right' }}>Sold Rev</th>
-              <th style={{ textAlign: 'right' }}>Customers</th>
-              <th style={{ textAlign: 'right' }}>Purchased Qty</th>
-              <th style={{ textAlign: 'right' }}>Adj Qty</th>
-              <th style={{ textAlign: 'right' }}>Shrink Qty</th>
-              <th style={{ textAlign: 'right' }}>Velocity/day</th>
-              <th style={{ textAlign: 'right' }}>Days Supply</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => (
-              <tr key={r.qbo_item_id}>
-                <td
-                  style={{
-                    fontWeight: 600,
-                    maxWidth: 280,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={r.item_name}
-                >
-                  {r.item_name}
-                </td>
-                <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.category_path ?? '—'}</td>
-                <td className="mn" style={{ textAlign: 'right' }}>{fmtNum(r.sold_qty)}</td>
-                <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(r.sold_revenue)}</td>
-                <td className="mn" style={{ textAlign: 'right' }}>{r.customers_count}</td>
-                <td className="mn" style={{ textAlign: 'right' }}>{fmtNum(r.purchased_qty)}</td>
-                <td
-                  className="mn"
-                  style={{ textAlign: 'right', color: r.adjustment_qty < 0 ? 'var(--rd)' : 'var(--mt)' }}
-                >
-                  {fmtNum(r.adjustment_qty)}
-                </td>
-                <td className="mn" style={{ textAlign: 'right', color: 'var(--rd)' }}>
-                  {r.shrinkage_qty != null ? fmtNum(r.shrinkage_qty) : '—'}
-                </td>
-                <td className="mn" style={{ textAlign: 'right' }}>
-                  {r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '—'}
-                </td>
-                <td className="mn" style={{ textAlign: 'right' }}>
-                  {r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
+      <ReportGrid
+        rows={gridRows} columns={columns}
+        pinnedLeft={['item_name']}
+        defaultSort={[{ field: 'sold_revenue', sort: 'desc' }]}
+        height="64vh"
+      />
     </div>
   );
 }
 
 function SettingsTable({ rows, onChange }: { rows: InventoryHealthRow[] | null; onChange: () => void }) {
-  if (!rows) return (
-    <div className="cd" style={{ padding: 0 }}>
-      <TableSkeleton rows={8} cols={5} />
-    </div>
-  );
-
-  function patch(p: Parameters<typeof setInventorySettings>[0]) {
-    setInventorySettings(p).then(onChange);
-  }
-
+  if (!rows) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={8} cols={5} /></div>;
+  function patch(p: Parameters<typeof setInventorySettings>[0]) { setInventorySettings(p).then(onChange); }
   return (
     <div className="cd" style={{ padding: 0 }}>
       <div style={{ maxHeight: '64vh', overflow: 'auto' }}>
         <table>
           <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
             <tr>
-              <th>Item</th>
-              <th>Managed?</th>
+              <th>Item</th><th>Managed?</th>
               <th style={{ textAlign: 'right' }}>Target Days</th>
               <th style={{ textAlign: 'right' }}>Lead Time</th>
               <th>Notes</th>
@@ -369,59 +309,36 @@ function SettingsTable({ rows, onChange }: { rows: InventoryHealthRow[] | null; 
           <tbody>
             {rows.map((r) => (
               <tr key={r.qbo_item_id}>
-                <td
-                  style={{
-                    fontWeight: 600,
-                    maxWidth: 280,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={r.item_name}
-                >
-                  {r.item_name}
-                </td>
+                <td style={{ fontWeight: 600, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={r.item_name}>{r.item_name}</td>
                 <td>
-                  <input
-                    type="checkbox"
-                    checked={r.is_managed}
-                    onChange={(e) => patch({ qbo_item_id: r.qbo_item_id, is_managed: e.target.checked })}
-                  />
+                  <input type="checkbox" checked={r.is_managed}
+                    onChange={(e) => patch({ qbo_item_id: r.qbo_item_id, is_managed: e.target.checked })} />
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <input
-                    type="number"
-                    defaultValue={r.target_days_supply}
+                  <input type="number" defaultValue={r.target_days_supply}
                     onBlur={(e) => {
                       const v = Number(e.target.value);
                       if (v !== r.target_days_supply) patch({ qbo_item_id: r.qbo_item_id, target_days_supply: v });
                     }}
-                    style={{ ...inp(), width: 60, textAlign: 'right' }}
-                  />
+                    style={{ ...inp(), width: 60, textAlign: 'right' }} />
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <input
-                    type="number"
-                    defaultValue={r.lead_time_days}
+                  <input type="number" defaultValue={r.lead_time_days}
                     onBlur={(e) => {
                       const v = Number(e.target.value);
                       if (v !== r.lead_time_days) patch({ qbo_item_id: r.qbo_item_id, lead_time_days: v });
                     }}
-                    style={{ ...inp(), width: 60, textAlign: 'right' }}
-                  />
+                    style={{ ...inp(), width: 60, textAlign: 'right' }} />
                 </td>
                 <td>
-                  <input
-                    type="text"
-                    defaultValue={r.notes ?? ''}
+                  <input type="text" defaultValue={r.notes ?? ''}
                     onBlur={(e) => {
                       if ((e.target.value ?? '') !== (r.notes ?? '')) {
                         patch({ qbo_item_id: r.qbo_item_id, notes: e.target.value || null });
                       }
                     }}
-                    placeholder="—"
-                    style={{ ...inp(), width: 260 }}
-                  />
+                    placeholder="—" style={{ ...inp(), width: 260 }} />
                 </td>
               </tr>
             ))}
@@ -454,22 +371,15 @@ function ExcludesTab() {
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
         <div className="ct" style={{ margin: 0 }}>VELOCITY EXCLUDES — {excludes.length}</div>
         <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>
-          Customers in this list don't count toward inventory velocity (used for one-off bulk buyers,
-          internal transfers, samples, etc.)
+          Customers in this list don't count toward inventory velocity (one-off bulk buyers, internal transfers, samples).
         </div>
       </div>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)' }}>
-        <select
-          style={{ ...inp(), width: '100%', maxWidth: 600 }}
-          defaultValue=""
-          onChange={(e) => { add(e.target.value); e.target.value = ''; }}
-        >
+        <select style={{ ...inp(), width: '100%', maxWidth: 600 }} defaultValue=""
+          onChange={(e) => { add(e.target.value); e.target.value = ''; }}>
           <option value="">+ exclude a customer from velocity</option>
-          {customers
-            .filter((c) => !excludes.some((ex) => ex.qbo_customer_id === c.qbo_customer_id))
-            .map((c) => (
-              <option key={c.qbo_customer_id} value={c.qbo_customer_id}>{c.display_name}</option>
-            ))}
+          {customers.filter((c) => !excludes.some((ex) => ex.qbo_customer_id === c.qbo_customer_id))
+            .map((c) => <option key={c.qbo_customer_id} value={c.qbo_customer_id}>{c.display_name}</option>)}
         </select>
       </div>
       {excludes.length === 0 ? (
@@ -477,12 +387,7 @@ function ExcludesTab() {
       ) : (
         <table>
           <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Reason</th>
-              <th>Added</th>
-              <th></th>
-            </tr>
+            <tr><th>Customer</th><th>Reason</th><th>Added</th><th></th></tr>
           </thead>
           <tbody>
             {excludes.map((ex) => {
@@ -495,12 +400,7 @@ function ExcludesTab() {
                     {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button
-                      onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
-                      style={btnDanger()}
-                    >
-                      ×
-                    </button>
+                    <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)} style={btnDanger()}>×</button>
                   </td>
                 </tr>
               );
@@ -514,9 +414,5 @@ function ExcludesTab() {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
-    c === '&' ? '&amp;'
-      : c === '<' ? '&lt;'
-        : c === '>' ? '&gt;'
-          : c === '"' ? '&quot;'
-            : '&#39;');
+    c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;');
 }
