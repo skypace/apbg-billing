@@ -218,7 +218,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
                       <td>
                         <span
                           style={{
-                            background: 'var(--sf2)',
+                            background: 'rgba(255,255,255,0.04)',
                             color: c,
                             border: '1px solid ' + c,
                             padding: '1px 7px',

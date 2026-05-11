@@ -120,7 +120,7 @@ export function FleetDriversEditor() {
       {loading ? (
         <div style={{ color: 'var(--mt)' }}>loading…</div>
       ) : err ? (
-        <div style={{ color: 'var(--rd)' }}>{err}</div>
+        <div style={{ color: '#c44' }}>{err}</div>
       ) : (
         <>
           <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>

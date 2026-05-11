@@ -100,7 +100,7 @@ export function AreaChart({
                 x2={W - padR}
                 y1={y}
                 y2={y}
-                style={{ stroke: 'var(--bd)' }}
+                stroke="rgba(255,255,255,0.04)"
                 strokeWidth={1}
               />
               <text

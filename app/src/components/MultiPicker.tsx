@@ -75,7 +75,7 @@ export function MultiPicker({ label, values, options, loading, onChange, placeho
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            boxShadow: 'var(--shadow-lg)',
+            boxShadow: '0 8px 24px rgba(0,0,0,.4)',
           }}
         >
           <div style={{ padding: 6, display: 'flex', gap: 4, borderBottom: '1px solid var(--bd)' }}>

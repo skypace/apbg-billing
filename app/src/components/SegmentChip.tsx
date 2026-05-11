@@ -22,7 +22,7 @@ export function SegmentChip({ segment, size = 'sm' }: Props) {
     <span
       style={{
         display: 'inline-block',
-        background: 'var(--sf2)',
+        background: 'rgba(255,255,255,0.04)',
         color,
         border: '1px solid ' + color,
         padding: size === 'sm' ? '1px 7px' : '2px 10px',
