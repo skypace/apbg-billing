@@ -312,7 +312,7 @@ export function ItemsSettingsEditor() {
           <Toggle
             checked={!!p.value}
             onChange={(v) => patchActive(p.row.qbo_item_id, v)}
-            title="Active in catalog. Toggles locally now; QBO sync push-back wires in v0.9.24."
+            title="Active in QBO. Toggling here pushes to QuickBooks via push-qbo-item edge function."
           />
         ),
       },
