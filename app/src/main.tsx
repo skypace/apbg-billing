@@ -11,7 +11,15 @@ import { App } from './App';
 import { brixTheme } from './lib/muiTheme';
 import { ToastProvider } from './lib/toast';
 
-LicenseInfo.setLicenseKey(import.meta.env.VITE_MUI_LICENSE_KEY ?? '');
+// MUI X Pro license — read VITE_MUI_LICENSE_KEY at build time.
+// Diagnostic: logs once at boot so we can verify the key reached the build.
+const _muiKey = import.meta.env.VITE_MUI_LICENSE_KEY ?? '';
+LicenseInfo.setLicenseKey(_muiKey);
+console.log(
+  '[mui-x] license loaded:', !!_muiKey,
+  '· length:', _muiKey.length,
+  '· build:', import.meta.env.MODE,
+);
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('root element missing from index.html');
