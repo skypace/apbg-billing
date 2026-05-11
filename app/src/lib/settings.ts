@@ -246,6 +246,8 @@ export interface CustomersMasterRow {
   parent_name: string | null;
   is_sub_customer: boolean;
   active: boolean;
+  entity: string | null;            // manual override
+  entity_resolved: string;          // override or derived
   state: string | null;
   city: string | null;
   address: string | null;
@@ -293,3 +295,21 @@ export const setCustomerNotes = (qbo_customer_id: string, notes: string | null) 
     p_qbo_customer_id: qbo_customer_id,
     p_notes: notes,
   });
+
+export const setCustomerEntity = (qbo_customer_id: string, entity: string | null) =>
+  sbrpc('fn_set_customer_entity', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_entity: entity,
+  });
+
+// ----- Entities (live-from-data list for dropdowns) -----
+
+export interface EntityOption {
+  entity: string;
+  customer_count: number;
+  sales_count: number;
+  revenue: number;
+}
+
+export const fetchEntityOptions = () =>
+  sbrpc<EntityOption[]>('fn_list_entities', {});
