@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
@@ -11,6 +11,7 @@ import { useToast } from '../../lib/toast';
 import {
   fetchCategoryList, setItemActive,
   fetchItemPlAudit, applyPlCategorySuggestions,
+  bulkSyncCategoriesToQbo,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
 } from '../../lib/inventory';
 
@@ -156,6 +157,7 @@ export function ItemsSettingsEditor() {
   const [showAlignment, setShowAlignment] = useState(false);
   const [misalignedOnly, setMisalignedOnly] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [pushing, setPushing] = useState(false);
 
   function load() {
     setRows(null);
@@ -289,6 +291,40 @@ export function ItemsSettingsEditor() {
       toast.error('Auto-categorize failed: ' + (e as Error).message);
     } finally {
       setApplying(false);
+    }
+  }
+
+  async function pushCategoriesToQbo() {
+    setPushing(true);
+    try {
+      const dryRun = await bulkSyncCategoriesToQbo(false);
+      const s = dryRun.summary;
+      if (!s || (s.would_update === 0 && (dryRun.categories_created?.length ?? 0) === 0)) {
+        toast.info('Everything in QBO already matches.');
+        setPushing(false);
+        return;
+      }
+      const creating = dryRun.categories_created ?? [];
+      const ok = confirm(
+        'Sync category overrides to QuickBooks?\n\n'
+        + (creating.length > 0
+            ? `New Category items in QBO: ${creating.length}\n${creating.slice(0, 6).join(', ')}${creating.length > 6 ? '…' : ''}\n\n`
+            : '')
+        + `Items to re-parent: ${s.would_update}\n`
+        + `Already correct: ${s.already_correct}\n\n`
+        + 'This creates any missing QBO Category items and points each item to its category. '
+        + 'No item names or accounts are modified.',
+      );
+      if (!ok) { setPushing(false); return; }
+      const result = await bulkSyncCategoriesToQbo(true);
+      const u = result.summary?.updated ?? 0;
+      const c = result.categories_created?.length ?? 0;
+      toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
+      load();
+    } catch (e) {
+      toast.error('QBO sync failed: ' + (e as Error).message);
+    } finally {
+      setPushing(false);
     }
   }
 
@@ -584,6 +620,16 @@ export function ItemsSettingsEditor() {
         >
           <Sparkles size={12} strokeWidth={2.4} aria-hidden="true" />
           {applying ? 'Applying…' : `Auto-categorize from P&L (${alignmentSummary.suggestions})`}
+        </button>
+        <button
+          onClick={pushCategoriesToQbo}
+          disabled={pushing || withOverrideCount === 0}
+          className="tb-btn"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title={withOverrideCount === 0 ? 'No category overrides to push' : 'Sync all category overrides back to QuickBooks (creates missing Category Items + sets each item ParentRef)'}
+        >
+          <UploadCloud size={12} strokeWidth={2.4} aria-hidden="true" />
+          {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
         <button onClick={load} className="tb-btn">Refresh</button>
       </div>
