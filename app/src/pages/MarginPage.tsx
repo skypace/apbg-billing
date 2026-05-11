@@ -20,6 +20,7 @@ import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER 
 import {
   type MarginColumnDef,
   getColumnsForDim,
+  columnsNeedFetch,
   GROUP_LABEL,
   GROUP_ORDER,
 } from '../lib/marginColumns';
@@ -29,7 +30,7 @@ type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 const CHART_KINDS: ChartKind[] = ['none', 'bar', 'pie', 'line'];
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
-import { sbq } from '../lib/rpc';
+import { sbq, sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
@@ -79,56 +80,35 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
 
-// Compact dark Autocomplete style — shared by the Group by / Entity / Chart pickers.
 const ACX = {
   width: 160,
   '& .MuiOutlinedInput-root': {
-    height: 30,
-    minHeight: 30,
-    fontFamily: 'var(--ff-mono)',
-    fontSize: 12,
-    background: 'var(--bg)',
-    color: 'var(--tx)',
-    padding: '0 6px',
+    height: 30, minHeight: 30, fontFamily: 'var(--ff-mono)', fontSize: 12,
+    background: 'var(--bg)', color: 'var(--tx)', padding: '0 6px',
     '& fieldset': { borderColor: 'var(--bd)' },
     '&:hover fieldset': { borderColor: 'var(--bd2)' },
     '&.Mui-focused fieldset': { borderColor: 'var(--ac)' },
   },
-  '& .MuiAutocomplete-input': {
-    padding: '4px 0 !important',
-    fontFamily: 'var(--ff-mono)',
-    fontSize: 12,
-    color: 'var(--tx)',
-  },
+  '& .MuiAutocomplete-input': { padding: '4px 0 !important', fontFamily: 'var(--ff-mono)', fontSize: 12, color: 'var(--tx)' },
   '& .MuiSvgIcon-root': { color: 'var(--mt)' },
   '& .MuiChip-root': {
-    height: 22,
-    fontSize: 11,
-    background: 'rgba(91,181,240,0.14)',
-    color: 'var(--ac)',
-    border: '1px solid rgba(91,181,240,0.32)',
-    fontFamily: 'inherit',
+    height: 22, fontSize: 11,
+    background: 'rgba(91,181,240,0.14)', color: 'var(--ac)',
+    border: '1px solid rgba(91,181,240,0.32)', fontFamily: 'inherit',
     '& .MuiChip-deleteIcon': { color: 'var(--ac)', '&:hover': { color: 'var(--rd)' } },
   },
 };
 const ACX_PAPER = {
   paper: {
     sx: {
-      background: 'var(--sf)',
-      color: 'var(--tx)',
-      border: '1px solid var(--bd)',
-      fontFamily: 'var(--ff-mono)',
-      fontSize: 12,
+      background: 'var(--sf)', color: 'var(--tx)',
+      border: '1px solid var(--bd)', fontFamily: 'var(--ff-mono)', fontSize: 12,
       '& .MuiAutocomplete-option': { fontSize: 12, color: 'var(--tx)' },
       '& .MuiAutocomplete-option[aria-selected="true"]': { background: 'rgba(91,181,240,0.10)' },
       '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
       '& .MuiAutocomplete-groupLabel': {
-        background: 'var(--sf)',
-        color: 'var(--mt)',
-        fontSize: 10,
-        textTransform: 'uppercase',
-        letterSpacing: 0.6,
-        fontWeight: 600,
+        background: 'var(--sf)', color: 'var(--mt)', fontSize: 10,
+        textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
       },
     },
   },
@@ -156,12 +136,16 @@ function detectActivePreset(start: string, end: string, today: string): Preset {
   return 'custom';
 }
 
+interface DimMetaRow {
+  dim_label: string;
+  meta: Record<string, unknown> | null;
+}
+
 export function MarginPage() {
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
   const toast = useToast();
 
-  // Entity list = base codes ∪ user-added entities from Settings → Entity Defaults.
   const entityOptions = useMemo(() => {
     const fromSettings = Object.keys(getEntityDefaults());
     return Array.from(new Set([...BASE_ENTITIES, ...fromSettings]));
@@ -174,7 +158,6 @@ export function MarginPage() {
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
   const [chartKind, setChartKind] = useState<ChartKind>('none');
 
-  // Smart Columns — selected column IDs per dim. Persists in localStorage.
   const [columnsByDim, setColumnsByDim] = useState<Record<string, string[]>>(
     () => loadSetting<Record<string, string[]>>(KEYS.marginColumns, {}),
   );
@@ -208,6 +191,8 @@ export function MarginPage() {
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
+  const [enrichment, setEnrichment] = useState<Record<string, Record<string, unknown>>>({});
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [err, setErr] = useState<string>('');
 
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
@@ -317,6 +302,36 @@ export function MarginPage() {
       .catch(() => setSparklines({}));
   }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters)]);
 
+  // Smart Columns enrichment side-fetch. When any selected extra column has
+  // requiresFetch=true, call fn_dim_meta(p_dim, labels[]) and merge the
+  // jsonb meta into grid rows by dim_label.
+  useEffect(() => {
+    if (!rows || rows.length === 0 || !columnsNeedFetch(extraColumns)) {
+      setEnrichment({});
+      setEnrichmentLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setEnrichmentLoading(true);
+    const labels = rows.slice(0, 500).map((r) => r.dim_label);
+    sbrpc<DimMetaRow[]>('fn_dim_meta', { p_dim: dim, p_labels: labels })
+      .then((rs) => {
+        if (cancelled) return;
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const r of rs) {
+          if (r.dim_label) out[r.dim_label] = r.meta ?? {};
+        }
+        setEnrichment(out);
+        setEnrichmentLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEnrichment({});
+        setEnrichmentLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [dim, rows, extraColumns]);
+
   function exportCsv() {
     if (!rows || rows.length === 0) return;
     const display = comparison ?? rows;
@@ -326,7 +341,8 @@ export function MarginPage() {
     const header = [...baseHeader, ...cmpHeader, ...extraHeader];
     const data: (string | number | null)[][] = display.map((r) => {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
-      const row = r as SalesPivotRow & Record<string, unknown>;
+      const meta = enrichment[r.dim_label] ?? {};
+      const row = { ...(r as object), ...meta } as SalesPivotRow & Record<string, unknown>;
       const extraVals = extraColumns.map((c) => {
         const v = c.compute ? c.compute(row) : (c.enrichmentKey ? (row[c.enrichmentKey] as string | number | null) : null);
         if (v == null) return '';
@@ -426,6 +442,16 @@ export function MarginPage() {
   if (filters.segments?.length) chips.push({ key: 'segments', label: 'segment', values: filters.segments });
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] = comparison ?? (rows ?? []);
+
+  const enrichedRows = useMemo(() => {
+    const hasEnrichment = Object.keys(enrichment).length > 0;
+    if (!hasEnrichment) return tableRows;
+    return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => ({
+      ...r,
+      ...(enrichment[r.dim_label] ?? {}),
+    })) as typeof tableRows;
+  }, [tableRows, enrichment]);
+
   const activePreset = detectActivePreset(filters.start, filters.end, today);
   const compareLabel =
     compareMode === 'prior_period' ? 'vs prior period' :
@@ -451,6 +477,7 @@ export function MarginPage() {
             <h1 className="hero-title">Margin Control</h1>
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
+              {enrichmentLoading ? ' · loading column data…' : ''}
             </div>
           </div>
         </div>
@@ -529,57 +556,42 @@ export function MarginPage() {
         <div className="toolbar-row">
           <div className="toolbar-section">
             <span className="toolbar-label">Group by</span>
-            <Autocomplete
-              size="small"
-              options={DIMS}
+            <Autocomplete size="small" options={DIMS}
               getOptionLabel={(o) => o.label}
               isOptionEqualToValue={(o, v) => o.id === v.id}
               value={DIMS.find((d) => d.id === dim) ?? DIMS[0]}
               onChange={(_, v) => v && setDim(v.id)}
-              disableClearable
-              sx={ACX}
-              slotProps={ACX_PAPER}
+              disableClearable sx={ACX} slotProps={ACX_PAPER}
               renderInput={(params) => <TextField {...params} placeholder="Group by" />}
             />
           </div>
 
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <Autocomplete
-              size="small"
+            <Autocomplete size="small"
               options={[null, ...entityOptions] as (string | null)[]}
               getOptionLabel={(o) => (o == null ? 'All entities' : o)}
               value={filters.entities?.[0] ?? null}
               onChange={(_, v) => onEntityChange(v)}
-              sx={ACX}
-              slotProps={ACX_PAPER}
-              renderInput={(params) => (
-                <TextField {...params} placeholder="Entity" />
-              )}
+              sx={ACX} slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Entity" />}
             />
           </div>
 
           <div className="toolbar-section">
             <span className="toolbar-label">Chart</span>
-            <Autocomplete
-              size="small"
-              options={CHART_KINDS}
+            <Autocomplete size="small" options={CHART_KINDS}
               getOptionLabel={(o) => (o === 'none' ? 'None' : o[0].toUpperCase() + o.slice(1))}
               value={chartKind}
               onChange={(_, v) => v && setChartKind(v)}
-              disableClearable
-              sx={{ ...ACX, width: 120 }}
-              slotProps={ACX_PAPER}
+              disableClearable sx={{ ...ACX, width: 120 }} slotProps={ACX_PAPER}
               renderInput={(params) => <TextField {...params} placeholder="Chart" />}
             />
           </div>
 
           <div className="toolbar-section">
             <span className="toolbar-label">Columns</span>
-            <Autocomplete
-              size="small"
-              multiple
-              limitTags={1}
+            <Autocomplete size="small" multiple limitTags={1}
               options={availableColumns}
               getOptionLabel={(o) => o.label}
               isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -587,13 +599,9 @@ export function MarginPage() {
               value={extraColumns}
               onChange={(_, vs) => updateColumns(vs.map((v) => v.id))}
               disableCloseOnSelect
-              sx={{ ...ACX, width: 240 }}
-              slotProps={ACX_PAPER}
+              sx={{ ...ACX, width: 240 }} slotProps={ACX_PAPER}
               renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder={extraColumns.length === 0 ? 'Add columns…' : ''}
-                />
+                <TextField {...params} placeholder={extraColumns.length === 0 ? 'Add columns…' : ''} />
               )}
             />
           </div>
@@ -677,7 +685,7 @@ export function MarginPage() {
         </div>
       ) : (
         <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
-          <MarginGrid dim={dim} rows={tableRows}
+          <MarginGrid dim={dim} rows={enrichedRows}
             showCompare={compareMode !== 'off' && !!comparison}
             sparklines={showSparklines && dim !== 'month' ? sparklines : undefined}
             extraColumns={extraColumns}
