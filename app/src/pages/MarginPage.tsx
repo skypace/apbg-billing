@@ -8,13 +8,13 @@ import { KPICard } from '../components/KPICard';
 import { MultiPicker } from '../components/MultiPicker';
 import { MarginGrid } from '../components/MarginGrid';
 import { ModifierPicker } from '../components/ModifierPicker';
+import { TopMoversStrip } from '../components/TopMoversStrip';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
 import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
-import { TopMoversStrip } from '../components/TopMoversStrip';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
@@ -319,8 +319,12 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [effectiveFilters.start, effectiveFilters.end, JSON.stringify(effectiveFilters.entities)]);
 
+  // Smart Columns enrichment side-fetch — always pulls for customer/item dim
+  // (so AR / address / SKU glyphs work without requiring the user to manually
+  // enable a column first).
   useEffect(() => {
-    if (!rows || rows.length === 0 || !columnsNeedFetch(extraColumns)) {
+    const autoFetchDim = dim === 'customer' || dim === 'item';
+    if (!rows || rows.length === 0 || (!autoFetchDim && !columnsNeedFetch(extraColumns))) {
       setEnrichment({});
       setEnrichmentLoading(false);
       return;
@@ -409,20 +413,15 @@ export function MarginPage() {
     setDim(next);
   }
 
-  // Filter the current dim to a single label — used by the Top Movers strip cards.
-  // Unlike drillInto, this stays in the current dim instead of moving to the next.
   function filterToLabel(label: string) {
-    const filterKey = DRILL_FILTER[dim];
-    if (!filterKey) {
-      toast.info(`Can't filter ${dim} dim directly`);
-      return;
-    }
+    const key = DRILL_FILTER[dim];
+    if (!key) return;
     setFilters((cur) => {
-      const existing = (cur[filterKey] as string[] | null | undefined) ?? [];
+      const existing = (cur[key] as string[] | null | undefined) ?? [];
       if (existing.includes(label)) return cur;
-      return { ...cur, [filterKey]: [...existing, label] };
+      return { ...cur, [key]: [...existing, label] };
     });
-    toast.success(`Filtered to "${label}"`);
+    toast.info(`Filtered ${dim} to "${label}"`);
   }
 
   function clearFilter(key: keyof SalesFilters, value?: string) {
@@ -478,6 +477,26 @@ export function MarginPage() {
     : netMarginPct >= 0   ? 'var(--am)'
     : 'var(--rd)';
 
+  // 80/20 concentration — how concentrated revenue is in the top-N rows.
+  // Only meaningful when there are enough rows to make the answer non-trivial.
+  const pareto = useMemo(() => {
+    if (!rows || rows.length < 5) return null;
+    const sorted = [...rows].sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0));
+    const total = sorted.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
+    if (total <= 0) return null;
+    let cum = 0;
+    let count80 = sorted.length;
+    for (let i = 0; i < sorted.length; i++) {
+      cum += Number(sorted[i].revenue ?? 0);
+      if (cum / total >= 0.8) { count80 = i + 1; break; }
+    }
+    return {
+      countAt80: count80,
+      totalRows: sorted.length,
+      pctOfRows: count80 / sorted.length,
+    };
+  }, [rows]);
+
   const chips: { key: keyof SalesFilters; label: string; values: string[] }[] = [];
   if (filters.entities?.length) chips.push({ key: 'entities', label: 'entity', values: filters.entities });
   if (filters.categories?.length) chips.push({ key: 'categories', label: 'category', values: filters.categories });
@@ -527,6 +546,7 @@ export function MarginPage() {
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
               {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
+              {pareto && ` · top ${pareto.countAt80} of ${pareto.totalRows} (${(pareto.pctOfRows * 100).toFixed(0)}%) drive 80% of revenue`}
             </div>
           </div>
         </div>
@@ -705,8 +725,6 @@ export function MarginPage() {
         </div>
       )}
 
-      {/* Top Movers strip — biggest revenue / margin gains and losses vs prior period.
-          Only renders when comparison data is loaded (compareMode != 'off'). */}
       {comparison && comparison.length > 0 && (
         <TopMoversStrip rows={comparison} dim={dim} onSelect={filterToLabel} />
       )}
