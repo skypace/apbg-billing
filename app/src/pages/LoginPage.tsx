@@ -24,22 +24,20 @@ export function LoginPage() {
       <div className="login-bg" aria-hidden="true" />
       <div className="login-card-wrap">
         <div className="login-brand">
-          {/* Dual-mark lockup: Alameda Soda Co. seal + Brix BX, sized to
-              sit visually over the BRIX wordmark below. */}
+          {/* Dual-mark lockup: Alameda Soda Co. seal (slightly smaller, with
+              soft contour) + Brix BX. Sized to sit over the BRIX wordmark. */}
           <div
             className="login-brand-marks"
-            aria-label="Brix Beverage × Alameda Soda Co."
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 28,
-              marginBottom: 14,
-            }}
+            aria-label="Brix Beverage and Alameda Soda Co."
           >
-            <AlamedaMark size={150} variant="seal" title="Alameda Soda Co." />
-            <BrixMark size={150} title="Brix Beverage" />
+            <span className="login-mark login-mark--alameda">
+              <AlamedaMark size={130} variant="seal" title="Alameda Soda Co." />
+            </span>
+            <span className="login-mark login-mark--brix">
+              <BrixMark size={150} title="Brix Beverage" />
+            </span>
           </div>
+
           <div className="brand-mark login-brand-mark">
             BRI<span className="brand-bx">X</span>
           </div>
@@ -49,10 +47,6 @@ export function LoginPage() {
           </div>
           <div className="login-tagline">
             Real-time margin, cost coverage, and customer health.
-          </div>
-
-          <div className="login-brand-lockup" aria-label="Alameda Beverage Group">
-            <span className="login-brand-lockup-caption">Alameda Beverage Group LLC</span>
           </div>
         </div>
 
@@ -111,7 +105,7 @@ export function LoginPage() {
         </form>
 
         <div className="login-credit">
-          © {new Date().getFullYear()} Alameda Beverage Group LLC
+          © {new Date().getFullYear()} Alameda Point Beverage Group (ABPG) Inc.
         </div>
       </div>
     </div>
