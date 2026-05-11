@@ -33,8 +33,6 @@ const PRESETS: { id: Preset; label: string }[] = [
   { id: 'last30', label: '30d' }, { id: 'last90', label: '90d' }, { id: 'last365', label: '12mo' },
 ];
 
-// Base entity codes always present. Any extras in Settings → Entity
-// Defaults get merged in.
 const BASE_ENTITIES = ['brix', 'AS', 'freeflow', 'FF', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
@@ -54,7 +52,6 @@ const GROUPING_BY_DIM: Partial<Record<Dim, {
 };
 
 const TOP_CUSTOMERS_SIZES = [5, 10, 25, 50, 100];
-
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
@@ -100,7 +97,6 @@ function detectScope(start: string, end: string, today: Date): Scope {
   return 'custom';
 }
 
-// Months [start, end] inclusive as YYYY-MM strings.
 function monthsBetween(start: string, end: string): string[] {
   const s = new Date(start + 'T00:00:00');
   const e = new Date(end + 'T00:00:00');
@@ -120,8 +116,6 @@ export function OverviewPage() {
   const ytdStart = today.getFullYear() + '-01-01';
   const toast = useToast();
 
-  // Entity list is derived from settings (so adding entities in Settings
-  // surfaces them here too).
   const entityOptions = useMemo(() => {
     const fromSettings = Object.keys(getEntityDefaults());
     return Array.from(new Set([...BASE_ENTITIES, ...fromSettings]));
@@ -198,9 +192,9 @@ export function OverviewPage() {
   useEffect(() => {
     let cancelled = false;
     setMonthlyCurrent(null); setMonthlyPrior(null);
-    fetchPivot('month' as Dim, effectiveFilters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyCurrent([]));
+    fetchPivot('month' as Dim, effectiveFilters, 24).then((rs) => { if (!cancelled) setMonthlyCurrent((rs ?? []) as MonthRow[]); }).catch(() => { if (!cancelled) setMonthlyCurrent([]); });
     if (priorFilters) {
-      fetchPivot('month' as Dim, priorFilters, 24).then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); }).catch(() => setMonthlyPrior([]));
+      fetchPivot('month' as Dim, priorFilters, 24).then((rs) => { if (!cancelled) setMonthlyPrior((rs ?? []) as MonthRow[]); }).catch(() => { if (!cancelled) setMonthlyPrior([]); });
     } else { setMonthlyPrior([]); }
     return () => { cancelled = true; };
   }, [JSON.stringify(effectiveFilters), JSON.stringify(priorFilters)]);
@@ -224,7 +218,7 @@ export function OverviewPage() {
         for (const lb of labels) byLabel[lb] = Array(12).fill(0);
         for (const s of sparkRows) {
           const idx = keys.indexOf(s.ym);
-          if (idx >= 0 && byLabel[s.dim_label]) byLabel[s.dim_label][idx] = Number(s.revenue || 0);
+          if (idx >= 0 && byLabel[s.dim_label]) byLabel[s.dim_label][idx] = Number(s.revenue ?? 0);
         }
         setCustomerSparks(byLabel);
       })
@@ -251,37 +245,37 @@ export function OverviewPage() {
     });
   }, [effectiveFilters.start, effectiveFilters.end]);
 
-  // Build the monthly chart data — trimmed to actual months in the range.
+  // Build the monthly chart — trimmed to actual months in range, prior aligned by month-number.
   const monthlyChart = useMemo(() => {
     if (!monthlyCurrent || !monthlyPrior) return null;
     const months = monthsBetween(effectiveFilters.start, effectiveFilters.end);
-    // Match by month number (1-12) so prior-year data aligns to the same
-    // month label even though the year differs.
+
     const curByMonth = new Map<number, number>();
     for (const r of monthlyCurrent) {
       const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
-      if (m >= 1 && m <= 12) curByMonth.set(m, Number(r.revenue || 0));
+      if (m >= 1 && m <= 12) curByMonth.set(m, Number(r.revenue ?? 0));
     }
     const priorByMonth = new Map<number, number>();
     for (const r of monthlyPrior) {
       const m = parseInt(toYm(r.dim_label).slice(5, 7), 10);
-      if (m >= 1 && m <= 12) priorByMonth.set(m, Number(r.revenue || 0));
+      if (m >= 1 && m <= 12) priorByMonth.set(m, Number(r.revenue ?? 0));
     }
-    const labels    = months.map((ym) => MONTH_SHORT[parseInt(ym.slice(5, 7), 10) - 1]);
-    const current   = months.map((ym) => curByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
-    const prior     = months.map((ym) => priorByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
-    return { labels, current, prior };
+
+    const labels  = months.map((ym) => MONTH_SHORT[parseInt(ym.slice(5, 7), 10) - 1]);
+    const current = months.map((ym) => curByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
+    const prior   = months.map((ym) => priorByMonth.get(parseInt(ym.slice(5, 7), 10)) ?? 0);
+    const priorRowCount = monthlyPrior.length;
+    return { labels, current, prior, priorRowCount };
   }, [monthlyCurrent, monthlyPrior, effectiveFilters.start, effectiveFilters.end]);
 
-  // Trailing-12-month sparkline for the headline KPI (independent of monthlyChart trim)
   useEffect(() => {
     if (!monthlyCurrent || !monthlyPrior) return;
     const keys = trailing12MonthKeys(effectiveFilters.end);
     const byMonth = new Map<string, number>();
-    for (const r of monthlyCurrent) byMonth.set(toYm(r.dim_label), Number(r.revenue || 0));
+    for (const r of monthlyCurrent) byMonth.set(toYm(r.dim_label), Number(r.revenue ?? 0));
     for (const r of monthlyPrior) {
       const k = toYm(r.dim_label);
-      if (!byMonth.has(k)) byMonth.set(k, Number(r.revenue || 0));
+      if (!byMonth.has(k)) byMonth.set(k, Number(r.revenue ?? 0));
     }
     setRevenueSpark(keys.map((k) => byMonth.get(k) ?? 0));
   }, [monthlyCurrent, monthlyPrior, effectiveFilters.end]);
@@ -514,7 +508,14 @@ export function OverviewPage() {
             <div>
               <div className="ct" style={{ margin: 0 }}>Monthly revenue</div>
               <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
-                {monthlyChart ? `${monthlyChart.labels.length} month${monthlyChart.labels.length === 1 ? '' : 's'} · ${compareLabel || 'current period only'}` : '—'}
+                {monthlyChart ? (
+                  <>
+                    {monthlyChart.labels.length} month{monthlyChart.labels.length === 1 ? '' : 's'} · {compareLabel || 'current period only'}
+                    {compareMode !== 'off' && monthlyChart.priorRowCount === 0 && (
+                      <span style={{ color: 'var(--am)', marginLeft: 8 }}>· no prior-period data found</span>
+                    )}
+                  </>
+                ) : '—'}
               </div>
             </div>
           </div>
@@ -522,11 +523,13 @@ export function OverviewPage() {
             {monthlyChart ? (
               <AreaChart ariaLabel="Monthly revenue, current vs prior" labels={monthlyChart.labels}
                 series={[
-                  { name: 'Current', color: '#5BB5F0', values: monthlyChart.current },
+                  { name: 'Current', color: '#5BB5F0', values: monthlyChart.current, area: true },
                   ...(compareMode !== 'off' ? [{
                     name: compareMode === 'prior_year' ? 'Prior year' : 'Prior period',
                     color: '#F4B400',
                     values: monthlyChart.prior,
+                    area: false,
+                    dashed: true,
                   }] : []),
                 ]} />
             ) : (<ChartSkeleton height={220} />)}
@@ -545,7 +548,7 @@ export function OverviewPage() {
             {topCategories ? (
               <DonutChart
                 height={250}
-                data={topCategories.map((r, i) => ({ label: r.dim_label, value: Number(r.revenue || 0), color: CHART_COLORS[i % CHART_COLORS.length] }))}
+                data={topCategories.map((r, i) => ({ label: r.dim_label, value: Number(r.revenue ?? 0), color: CHART_COLORS[i % CHART_COLORS.length] }))}
                 centerLabel="Total" centerValue={fm(totals?.revenue ?? 0)} ariaLabel="Revenue by category" />
             ) : (<ChartSkeleton height={250} />)}
           </div>
