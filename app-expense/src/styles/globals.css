@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Mobile-first: ensure full-height layout */
+html, body, #root {
+  min-height: 100dvh;
+}
+
+/* Signature pad styling */
+.sig-canvas {
+  border: 2px dashed #cbd5e1;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  touch-action: none;
+}
+.sig-canvas.active {
+  border-color: #1F4E79;
+}
