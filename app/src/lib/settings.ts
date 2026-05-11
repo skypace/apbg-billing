@@ -235,3 +235,83 @@ export const setCustomerChannels = (
     p_channel_labels: channel_labels,
     p_primary_label: primary_label,
   });
+
+// ----- Customers Master (unified Settings → Customers grid) -----
+
+export interface CustomersMasterRow {
+  qbo_customer_id: string;
+  display_name: string;
+  fully_qualified_name: string | null;
+  parent_ref_id: string | null;
+  is_sub_customer: boolean;
+  active: boolean;
+  state: string | null;
+  city: string | null;
+  customer_type_name: string | null;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  ytd_revenue: number;
+  invoice_count: number;
+  last_invoice_date: string | null;
+  ar_total: number;
+  ar_current: number;
+  ar_31_60: number;
+  ar_61_90: number;
+  ar_90_plus: number;
+  open_invoice_count: number;
+  channels: string[];
+  primary_channel: string | null;
+  sales_reps: string[];
+  primary_sales_rep: string | null;
+}
+
+export const fetchCustomersMaster = (opts: {
+  start: string;
+  end: string;
+  search?: string;
+  channel?: string;
+  only_active?: boolean;
+  limit?: number;
+  offset?: number;
+}) =>
+  sbrpc<CustomersMasterRow[]>('fn_customers_master', {
+    p_start: opts.start,
+    p_end: opts.end,
+    p_search: opts.search ?? null,
+    p_channel: opts.channel ?? null,
+    p_only_active: opts.only_active ?? true,
+    p_limit: opts.limit ?? 500,
+    p_offset: opts.offset ?? 0,
+  });
+
+export const setCustomerSalesReps = (
+  qbo_customer_id: string,
+  rep_names: string[],
+  primary_name: string | null,
+) =>
+  sbrpc('fn_set_customer_sales_reps', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_rep_names: rep_names,
+    p_primary_name: primary_name,
+  });
+
+export const setCustomerNotes = (qbo_customer_id: string, notes: string | null) =>
+  sbrpc('fn_set_customer_notes', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_notes: notes,
+  });
+
+// ----- Sales Reps catalog -----
+
+export interface SalesRep {
+  rep_code: string;
+  name: string;
+  email: string | null;
+  notes: string | null;
+  sort_order: number | null;
+  is_active: boolean;
+}
+
+export const fetchSalesReps = () =>
+  sbq<SalesRep>('sales_reps', 'select=*&order=sort_order,name');
