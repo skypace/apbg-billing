@@ -26,6 +26,7 @@ interface MonthRow extends SalesPivotRow { dim_label: string }
 type CompareMode = 'off' | 'prior_period' | 'prior_year';
 type Preset = 'mtd' | 'qtd' | 'ytd' | 'last30' | 'last90' | 'last365' | 'custom';
 type Scope = 'year' | 'month' | 'week' | 'day' | 'custom';
+type SortKey = 'revenue' | 'margin_pct' | 'dim_label';
 
 const PRESETS: { id: Preset; label: string }[] = [
   { id: 'mtd', label: 'MTD' }, { id: 'qtd', label: 'QTD' }, { id: 'ytd', label: 'YTD' },
@@ -48,6 +49,8 @@ const GROUPING_BY_DIM: Partial<Record<Dim, {
   item:     { groupBy: classifyItem,     groupOrder: ITEM_GROUP_ORDER     },
   customer: { groupBy: classifyCustomer, groupOrder: CUSTOMER_GROUP_ORDER },
 };
+
+const TOP_CUSTOMERS_SIZES = [5, 10, 25, 50, 100];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 function applyPreset(preset: Exclude<Preset, 'custom'>, today: string): { start: string; end: string } {
@@ -107,10 +110,11 @@ export function OverviewPage() {
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeRef = useRef<HTMLSpanElement>(null);
 
-  const effectiveFilters = useMemo(
-    () => applyModifiers(filters, activeModifiers),
-    [filters, activeModifiers],
-  );
+  // Top customers controls
+  const [topCount, setTopCount] = useState(10);
+  const [topSort, setTopSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
+
+  const effectiveFilters = useMemo(() => applyModifiers(filters, activeModifiers), [filters, activeModifiers]);
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -182,8 +186,9 @@ export function OverviewPage() {
       .catch(() => setTopCategories([]));
   }, [JSON.stringify(effectiveFilters)]);
 
+  // Top customers — count is configurable
   useEffect(() => {
-    fetchPivot('customer' as Dim, effectiveFilters, 10)
+    fetchPivot('customer' as Dim, effectiveFilters, topCount)
       .then(async (rs) => {
         const top = rs ?? [];
         setTopCustomers(top);
@@ -200,7 +205,7 @@ export function OverviewPage() {
         setCustomerSparks(byLabel);
       })
       .catch(() => setTopCustomers([]));
-  }, [JSON.stringify(effectiveFilters)]);
+  }, [JSON.stringify(effectiveFilters), topCount]);
 
   useEffect(() => {
     Promise.allSettled([
@@ -253,18 +258,43 @@ export function OverviewPage() {
     };
   }, [totals, priorTotals]);
 
+  // Sort top customers based on user's chosen key/direction
+  const sortedTopCustomers = useMemo(() => {
+    if (!topCustomers) return null;
+    const arr = [...topCustomers];
+    arr.sort((a, b) => {
+      let av: string | number | null;
+      let bv: string | number | null;
+      if (topSort.key === 'dim_label') { av = a.dim_label; bv = b.dim_label; }
+      else if (topSort.key === 'revenue') { av = Number(a.revenue ?? 0); bv = Number(b.revenue ?? 0); }
+      else { av = a.margin_pct != null ? Number(a.margin_pct) : null; bv = b.margin_pct != null ? Number(b.margin_pct) : null; }
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return topSort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return topSort.dir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
+    });
+    return arr;
+  }, [topCustomers, topSort]);
+
+  function sortHeader(key: SortKey, label: string, align: 'left' | 'right' = 'left') {
+    const on = topSort.key === key;
+    const arrow = on ? (topSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return (
+      <th onClick={() => setTopSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })}
+        style={{ textAlign: align, cursor: 'pointer', userSelect: 'none', color: on ? 'var(--ac)' : undefined }}>
+        {label}{arrow}
+      </th>
+    );
+  }
+
   const aov = totals && totals.invoice_count > 0 ? Number(totals.revenue) / Number(totals.invoice_count) : 0;
-  const compareLabel =
-    compareMode === 'prior_period' ? 'vs prior period' :
-    compareMode === 'prior_year'   ? 'vs same period last year' : '';
+  const compareLabel = compareMode === 'prior_period' ? 'vs prior period' : compareMode === 'prior_year' ? 'vs same period last year' : '';
   const activePreset = detectActivePreset(filters.start, filters.end, todayStr);
   const scope = detectScope(filters.start, filters.end, today);
-  const scopeDisplay =
-    scope === 'year'  ? String(today.getFullYear()) :
-    scope === 'month' ? 'This Month' :
-    scope === 'week'  ? 'This Week' :
-    scope === 'day'   ? 'Today' :
-                        String(today.getFullYear());
+  const scopeDisplay = scope === 'year' ? String(today.getFullYear()) : scope === 'month' ? 'This Month' : scope === 'week' ? 'This Week' : scope === 'day' ? 'Today' : String(today.getFullYear());
 
   function applyScope(s: Exclude<Scope, 'custom'>) {
     const b = scopeBounds(s, today);
@@ -455,32 +485,55 @@ export function OverviewPage() {
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <div>
               <div className="ct" style={{ margin: 0 }}>Revenue by category</div>
-              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>top 8 categories</div>
+              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>top 8 categories · hover for share</div>
             </div>
             <a href="#margin" style={{ fontSize: 10, color: 'var(--mt)' }}>drill →</a>
           </div>
-          <div style={{ padding: '14px' }}>
+          <div style={{ padding: '14px', height: 280 }}>
             {topCategories ? (
-              <DonutChart data={topCategories.map((r, i) => ({ label: r.dim_label, value: Number(r.revenue || 0), color: CHART_COLORS[i % CHART_COLORS.length] }))}
+              <DonutChart
+                height={250}
+                data={topCategories.map((r, i) => ({ label: r.dim_label, value: Number(r.revenue || 0), color: CHART_COLORS[i % CHART_COLORS.length] }))}
                 centerLabel="Total" centerValue={fm(totals?.revenue ?? 0)} ariaLabel="Revenue by category" />
-            ) : (<ChartSkeleton height={220} />)}
+            ) : (<ChartSkeleton height={250} />)}
           </div>
         </div>
       </div>
 
+      {/* Top Sales Customers — with count selector + sortable headers */}
       <div className="cd" style={{ padding: 0 }}>
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <div className="ct" style={{ margin: 0 }}>Top customers</div>
-            <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>by revenue, with 12-mo trend</div>
+            <div className="ct" style={{ margin: 0 }}>Top Sales Customers</div>
+            <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
+              by {topSort.key === 'revenue' ? 'revenue' : topSort.key === 'margin_pct' ? 'margin %' : 'name'} ·
+              {' '}{topSort.dir === 'desc' ? 'descending' : 'ascending'} · click any header to re-sort
+            </div>
           </div>
-          <a href="#customers" style={{ fontSize: 10, color: 'var(--mt)' }}>all customers →</a>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="toolbar-label">Show</span>
+            <select value={topCount} onChange={(e) => setTopCount(Number(e.target.value))} className="tb-select">
+              {TOP_CUSTOMERS_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <a href="#customers" className="tb-btn">All customers →</a>
+          </div>
         </div>
-        {!topCustomers ? (<div className="ld">Loading</div>) : (
+        {!sortedTopCustomers ? (
+          <div className="ld">Loading</div>
+        ) : sortedTopCustomers.length === 0 ? (
+          <div className="ld">No customers in this period.</div>
+        ) : (
           <table>
-            <thead><tr><th>Customer</th><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Margin %</th><th>Trend (12mo)</th></tr></thead>
+            <thead>
+              <tr>
+                {sortHeader('dim_label', 'Customer')}
+                {sortHeader('revenue', 'Revenue', 'right')}
+                {sortHeader('margin_pct', 'Margin %', 'right')}
+                <th>Trend (12mo)</th>
+              </tr>
+            </thead>
             <tbody>
-              {topCustomers.map((r) => {
+              {sortedTopCustomers.map((r) => {
                 const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
                 const mpColor = mp == null ? 'var(--mt)' : mp >= 0.4 ? 'var(--success)' : mp >= 0 ? 'var(--warning)' : 'var(--danger)';
                 const spark = customerSparks[r.dim_label];
