@@ -16,7 +16,8 @@ interface Props {
   ariaLabel?: string;
 }
 
-const LEGEND_HEIGHT = 60;
+// Legend column width reserved on the right of the chart container.
+const LEGEND_WIDTH = 150;
 
 export function DonutChart({
   data,
@@ -36,10 +37,8 @@ export function DonutChart({
     color: d.color ?? CHART_COLORS[i % CHART_COLORS.length],
   }));
 
-  // Pie geometry — outer ring sized to available area minus legend.
-  const pieRoom = height - LEGEND_HEIGHT;
-  const outerR  = Math.max(60, pieRoom / 2 - 10);
-  const innerR  = Math.max(40, outerR - 36);
+  const outerR = Math.max(60, height / 2 - 14);
+  const innerR = Math.max(40, outerR - 36);
 
   return (
     <div
@@ -49,16 +48,18 @@ export function DonutChart({
     >
       <PieChart
         height={height}
-        margin={{ top: 8, right: 8, bottom: LEGEND_HEIGHT, left: 8 }}
+        margin={{ top: 8, right: LEGEND_WIDTH, bottom: 8, left: 8 }}
         series={[{
           data: seriesData,
           innerRadius: innerR,
           outerRadius: outerR,
-          paddingAngle: 2.4,
-          cornerRadius: 4,
+          paddingAngle: 2,
+          cornerRadius: 3,
           highlightScope: { faded: 'global', highlighted: 'item' },
-          faded:       { innerRadius: innerR, additionalRadius: -10, color: 'gray' },
-          highlighted: { additionalRadius: 6 },
+          // Use a near-zero additionalRadius so hover doesn't shift
+          // geometry — we lift via drop-shadow instead.
+          faded:       { innerRadius: innerR, additionalRadius: -4, color: 'gray' },
+          highlighted: { additionalRadius: 0 },
           valueFormatter: (item: { value: number }) => {
             const pct = ((item.value / total) * 100).toFixed(1);
             return `${formatValue(item.value)} · ${pct}%`;
@@ -66,38 +67,40 @@ export function DonutChart({
         }]}
         slotProps={{
           legend: {
-            direction: 'row',
-            position: { vertical: 'bottom', horizontal: 'middle' },
-            labelStyle: { fill: '#9FB3BB', fontSize: 10.5 },
-            itemMarkWidth: 9,
-            itemMarkHeight: 9,
-            markGap: 5,
-            itemGap: 14,
+            direction: 'column',
+            position: { vertical: 'middle', horizontal: 'right' },
+            labelStyle: { fill: '#E6EEF7', fontSize: 11 },
+            itemMarkWidth: 10,
+            itemMarkHeight: 10,
+            markGap: 8,
+            itemGap: 6,
           },
         }}
         sx={{
           '& .MuiChartsLegend-root':  { fontFamily: 'inherit' },
+          '& .MuiChartsLegend-label': { color: 'var(--tx)' },
           '& .MuiChartsTooltip-root': { fontFamily: 'inherit' },
           '& .MuiPieArc-root': {
             stroke: 'var(--bg)',
             strokeWidth: 2,
-            filter: 'drop-shadow(0 0 12px rgba(91, 181, 240, 0.18))',
+            filter: 'drop-shadow(0 0 10px rgba(91, 181, 240, 0.18))',
             transition: 'filter 200ms ease',
           },
           '& .MuiPieArc-root:hover': {
-            filter: 'drop-shadow(0 0 24px rgba(91, 181, 240, 0.50))',
+            filter: 'drop-shadow(0 0 20px rgba(91, 181, 240, 0.55))',
           },
         }}
       />
 
-      {/* Center label overlay — positioned over the pie center,
-          which sits in the top half of the container (legend takes the bottom). */}
+      {/* Center label overlay — anchored in the PIE region (excludes the
+          legend column on the right) so hover-induced slice growth never
+          shifts the label. */}
       {(centerLabel || centerValue) && (
         <div
           style={{
             position: 'absolute',
-            top: 0, right: 0, left: 0,
-            bottom: LEGEND_HEIGHT,
+            top: 0, bottom: 0, left: 0,
+            right: LEGEND_WIDTH,
             display: 'grid',
             placeItems: 'center',
             pointerEvents: 'none',
@@ -122,12 +125,13 @@ export function DonutChart({
               <div
                 style={{
                   fontFamily: 'var(--ff-display)',
-                  fontSize: 24,
+                  fontSize: 22,
                   fontWeight: 700,
                   color: 'var(--tx)',
                   fontVariantNumeric: 'tabular-nums',
                   marginTop: 4,
                   textShadow: '0 0 18px rgba(91, 181, 240, 0.35)',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {centerValue}
