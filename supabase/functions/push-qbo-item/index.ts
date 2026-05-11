@@ -1,9 +1,11 @@
-// push-qbo-item — pushes single-item changes back to QBO.
+// push-qbo-item — single-item + bulk pushes back to QBO.
 //
-// Currently supported actions:
-//   action: 'setActive'   → flips Item.Active in QBO + mirrors locally
-//
-// Mirrors the lease-based OAuth pattern from push-qbo-customer-types.
+// Actions:
+//   action: 'setActive'             → flips Item.Active in QBO + mirrors locally
+//   action: 'bulkSyncCategories'    → for every item with inventory_settings.category_override,
+//                                     ensure a QBO Category Item exists with that name and point
+//                                     the item's ParentRef at it. Supports {commit: true} for actual
+//                                     writes; defaults to dry-run.
 //
 // deno-lint-ignore-file no-explicit-any
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -71,7 +73,7 @@ async function persistTokens(sb: SupabaseClient, accessToken: string, refreshTok
   const { error } = await sb.rpc("qbo_token_persist", {
     p_realm_id: getRealm(), p_access_token: accessToken, p_access_expires: accessExpiry,
     p_refresh_token: refreshToken, p_refresh_expires: refreshExpiry,
-    p_refreshed_by: "push-qbo-item@v1",
+    p_refreshed_by: "push-qbo-item@v2",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
@@ -155,6 +157,54 @@ async function qboPost(sb: SupabaseClient, path: string, body: any): Promise<any
   return res.json();
 }
 
+// Pull every QBO Item with Type='Category' so we can map name → Id.
+async function fetchAllQboCategories(sb: SupabaseClient): Promise<Map<string, { id: string; syncToken: string }>> {
+  const map = new Map<string, { id: string; syncToken: string }>();
+  let start = 1;
+  const page = 1000;
+  while (true) {
+    const q = encodeURIComponent(
+      `select Id, Name, SyncToken from Item where Type = 'Category' startposition ${start} maxresults ${page}`,
+    );
+    const j = await qboGet(sb, "/query?query=" + q);
+    const list = j?.QueryResponse?.Item ?? [];
+    for (const it of list) {
+      if (it?.Name) {
+        map.set(String(it.Name).trim(), { id: String(it.Id), syncToken: String(it.SyncToken ?? "0") });
+      }
+    }
+    if (list.length < page) break;
+    start += page;
+  }
+  return map;
+}
+
+async function ensureCategoryId(
+  sb: SupabaseClient,
+  categoryMap: Map<string, { id: string; syncToken: string }>,
+  name: string,
+  commit: boolean,
+  created: string[],
+): Promise<string | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const found = categoryMap.get(trimmed);
+  if (found) return found.id;
+  if (!commit) {
+    if (!created.includes(trimmed)) created.push(trimmed + " (would create)");
+    return null;
+  }
+  // QBO requires Type=Category, no SubItem, no income/expense accts.
+  const j = await qboPost(sb, "/item", { Name: trimmed, Type: "Category" });
+  const created_item = j?.Item;
+  if (!created_item?.Id) throw new Error("category create failed for " + trimmed);
+  const id = String(created_item.Id);
+  const syncToken = String(created_item.SyncToken ?? "0");
+  categoryMap.set(trimmed, { id, syncToken });
+  if (!created.includes(trimmed)) created.push(trimmed);
+  return id;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return jsonRes({ ok: false, error: "POST required" }, 405);
@@ -168,19 +218,17 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "").trim();
-    const qboItemId = String(body?.qbo_item_id || "").trim();
-    if (!qboItemId) throw new Error("qbo_item_id required");
 
     if (action === "setActive") {
+      const qboItemId = String(body?.qbo_item_id || "").trim();
+      if (!qboItemId) throw new Error("qbo_item_id required");
       const nextActive = body?.active === true;
 
-      // 1. Pull the current item from QBO so we have its SyncToken.
       const j = await qboGet(sb, "/item/" + encodeURIComponent(qboItemId));
       const item = j?.Item;
       if (!item) throw new Error("item not found in QBO: " + qboItemId);
       const currentActive = item.Active !== false;
       if (currentActive === nextActive) {
-        // Already correct in QBO. Make sure local DB matches.
         await sb.schema("ops").from("qbo_items").update({ active: nextActive }).eq("qbo_item_id", qboItemId);
         return jsonRes({
           ok: true, no_change: true, qbo_item_id: qboItemId,
@@ -188,24 +236,94 @@ Deno.serve(async (req: Request) => {
           duration_ms: Date.now() - startedAt,
         });
       }
-
-      // 2. POST the sparse update.
       const updated = await qboPost(sb, "/item", {
-        Id: item.Id,
-        SyncToken: item.SyncToken,
-        sparse: true,
-        Active: nextActive,
+        Id: item.Id, SyncToken: item.SyncToken, sparse: true, Active: nextActive,
       });
       const newActive = updated?.Item?.Active !== false;
-      const newSyncToken = updated?.Item?.SyncToken;
-
-      // 3. Mirror locally on success.
       await sb.schema("ops").from("qbo_items").update({ active: newActive }).eq("qbo_item_id", qboItemId);
-
       return jsonRes({
         ok: true, qbo_item_id: qboItemId,
         was_active: currentActive, now_active: newActive,
-        sync_token: newSyncToken,
+        sync_token: updated?.Item?.SyncToken,
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
+    if (action === "bulkSyncCategories") {
+      const commit = body?.commit === true; // defaults to dry-run
+
+      // 1. Pull all items that have a local category_override.
+      const { data: targets, error: tErr } = await sb
+        .schema("ops")
+        .from("inventory_settings")
+        .select("qbo_item_id, category_override")
+        .not("category_override", "is", null)
+        .neq("category_override", "");
+      if (tErr) throw new Error("read inventory_settings: " + tErr.message);
+      const overrides = new Map<string, string>();
+      for (const t of targets ?? []) {
+        if (t.qbo_item_id && t.category_override) {
+          overrides.set(t.qbo_item_id, String(t.category_override).trim());
+        }
+      }
+
+      if (overrides.size === 0) {
+        return jsonRes({
+          ok: true, commit, message: "no overrides to sync",
+          duration_ms: Date.now() - startedAt,
+        });
+      }
+
+      // 2. Fetch all current QBO categories so we know what to create.
+      const categoryMap = await fetchAllQboCategories(sb);
+      const desiredNames = Array.from(new Set(Array.from(overrides.values())));
+      const createdLog: string[] = [];
+      for (const n of desiredNames) {
+        await ensureCategoryId(sb, categoryMap, n, commit, createdLog);
+      }
+
+      // 3. Walk each item and set its ParentRef if needed.
+      const summary = {
+        total: overrides.size,
+        already_correct: 0, would_update: 0, updated: 0,
+        skipped_unknown_category: 0,
+        errors: [] as any[],
+      };
+      let i = 0;
+      for (const [qboItemId, desiredName] of overrides) {
+        i++;
+        try {
+          const cat = categoryMap.get(desiredName);
+          if (!cat) {
+            if (!commit) { summary.would_update++; continue; }
+            summary.skipped_unknown_category++;
+            continue;
+          }
+          const j = await qboGet(sb, "/item/" + encodeURIComponent(qboItemId));
+          const item = j?.Item;
+          if (!item) { summary.errors.push({ qboItemId, error: "item not found in QBO" }); continue; }
+          const currentParentId = item?.ParentRef?.value;
+          if (currentParentId === cat.id && item?.SubItem === true) {
+            summary.already_correct++; continue;
+          }
+          if (!commit) { summary.would_update++; continue; }
+          await qboPost(sb, "/item", {
+            Id: item.Id, SyncToken: item.SyncToken, sparse: true,
+            SubItem: true,
+            ParentRef: { value: cat.id, name: desiredName },
+          });
+          summary.updated++;
+        } catch (e) {
+          summary.errors.push({ qboItemId, error: (e as Error).message });
+        }
+        if (i % 50 === 0) await sleep(200);
+      }
+
+      return jsonRes({
+        ok: true, commit,
+        categories_total: desiredNames.length,
+        categories_created: createdLog,
+        summary,
         duration_ms: Date.now() - startedAt,
       });
     }
