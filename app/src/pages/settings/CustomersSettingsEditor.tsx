@@ -8,9 +8,12 @@ import { useToast } from '../../lib/toast';
 import {
   Channel,
   CustomersMasterRow,
+  EntityOption,
   fetchChannels,
   fetchCustomersMaster,
+  fetchEntityOptions,
   setCustomerChannels,
+  setCustomerEntity,
   setCustomerNotes,
 } from '../../lib/settings';
 import {
@@ -22,6 +25,14 @@ import {
 
 const UNASSIGNED = '— Unassigned —';
 const ANONYMOUS_LABEL = '(no customer name)';
+
+const ENTITY_COLOR: Record<string, string> = {
+  brix:     '#5BB5F0',  // accent blue
+  AS:       '#E04F5F',  // red (Alameda Soda)
+  freeflow: '#2EB872',  // green
+  FF:       '#2EB872',
+  shared:   '#94A8BD',
+};
 
 const GRID_SX = {
   height: '66vh', border: 'none', background: 'transparent', color: 'var(--ink)',
@@ -68,7 +79,6 @@ function displayLabel(r: CustomersMasterRow): string {
   return (r.display_name && r.display_name.trim()) || ANONYMOUS_LABEL;
 }
 
-// Three-level tree: Channel → Parent customer → Sub customer.
 function getTreeDataPath(row: Record<string, unknown>): string[] {
   const channel = String(row.primary_channel ?? UNASSIGNED);
   const parentName = (row.parent_name as string | null) ?? null;
@@ -87,6 +97,7 @@ export function CustomersSettingsEditor() {
   const [rows, setRows] = useState<CustomersMasterRow[] | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [reps, setReps] = useState<SalesRep[]>([]);
+  const [entityOpts, setEntityOpts] = useState<EntityOption[]>([]);
   const [repByCode, setRepByCode] = useState<Map<string, SalesRep>>(new Map());
   const [assignByCustomer, setAssignByCustomer] = useState<Map<string, string>>(new Map());
   const [search, setSearch] = useState('');
@@ -98,11 +109,13 @@ export function CustomersSettingsEditor() {
       fetchCustomersMaster({ start, end, only_active: !showInactive, limit: 1500 }),
       fetchChannels(),
       fetchSalesReps(),
+      fetchEntityOptions(),
     ])
-      .then(([rs, cs, sr]) => {
+      .then(([rs, cs, sr, ents]) => {
         setRows(rs);
         setChannels(cs.filter((c) => c.is_active));
         setReps(sr);
+        setEntityOpts(ents);
         const map = new Map<string, SalesRep>();
         for (const r of sr) map.set(r.rep_code, r);
         setRepByCode(map);
@@ -130,6 +143,7 @@ export function CustomersSettingsEditor() {
       || (r.fully_qualified_name?.toLowerCase().includes(q) ?? false)
       || (r.customer_type_name?.toLowerCase().includes(q) ?? false)
       || (r.primary_channel?.toLowerCase().includes(q) ?? false)
+      || (r.entity_resolved?.toLowerCase().includes(q) ?? false)
       || (r.city?.toLowerCase().includes(q) ?? false)
       || (r.address?.toLowerCase().includes(q) ?? false)
       || (r.notes?.toLowerCase().includes(q) ?? false),
@@ -140,6 +154,14 @@ export function CustomersSettingsEditor() {
     () => filtered.map((r) => ({ ...r, id: r.qbo_customer_id })),
     [filtered],
   );
+
+  const entityChoices = useMemo(() => {
+    // Always offer the standard 4 plus any extras seen in data.
+    const set = new Set<string>(['brix', 'AS', 'freeflow', 'shared']);
+    for (const e of entityOpts) set.add(e.entity);
+    for (const r of rows ?? []) if (r.entity) set.add(r.entity);
+    return Array.from(set);
+  }, [entityOpts, rows]);
 
   async function patchChannel(qbo_customer_id: string, primary: string | null) {
     try {
@@ -153,6 +175,21 @@ export function CustomersSettingsEditor() {
           ? { ...r, primary_channel: primary, channels: primary ? labels : r.channels }
           : r,
       ) ?? cur);
+    } catch (e) {
+      toast.error('Save failed: ' + (e as Error).message);
+      load();
+    }
+  }
+
+  async function patchEntity(qbo_customer_id: string, entity: string | null) {
+    try {
+      await setCustomerEntity(qbo_customer_id, entity);
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_customer_id === qbo_customer_id
+          ? { ...r, entity, entity_resolved: entity ?? r.entity_resolved }
+          : r,
+      ) ?? cur);
+      fetchEntityOptions().then(setEntityOpts).catch(() => undefined);
     } catch (e) {
       toast.error('Save failed: ' + (e as Error).message);
       load();
@@ -222,6 +259,31 @@ export function CustomersSettingsEditor() {
           {p.value ? 'YES' : 'NO'}
         </span>
       ),
+    },
+    {
+      field: 'entity_resolved', headerName: 'Entity', width: 110, sortable: true,
+      renderCell: (p) => {
+        const override = p.row.entity as string | null;
+        const value = override ?? p.row.entity_resolved ?? '';
+        const color = ENTITY_COLOR[value] ?? 'var(--mt)';
+        const derived = !override;
+        return (
+          <select
+            value={value}
+            onChange={(e) => patchEntity(p.row.qbo_customer_id, e.target.value || null)}
+            style={{
+              ...inp(), width: '100%', fontSize: 11,
+              color, fontWeight: 700, letterSpacing: 0.5,
+              borderStyle: derived ? 'dashed' : 'solid',
+              borderColor: derived ? 'var(--bd)' : color,
+            }}
+            title={derived ? 'Derived from name; pick a value to lock the override' : 'Manual override; clear to revert to derivation'}
+          >
+            <option value="">— derive —</option>
+            {entityChoices.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select>
+        );
+      },
     },
     {
       field: 'primary_channel', headerName: 'Primary Channel', width: 200,
@@ -333,7 +395,7 @@ export function CustomersSettingsEditor() {
           style={{ ...inp(), width: '100%', fontSize: 11 }} />
       ),
     },
-  ], [channels, reps, assignByCustomer, repByCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [channels, reps, assignByCustomer, repByCode, entityChoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
     headerName: 'Channel / Customer', width: 320, hideDescendantCount: false,
@@ -378,11 +440,20 @@ export function CustomersSettingsEditor() {
   const past90 = rows.reduce((s, r) => s + Number(r.ar_90_plus || 0), 0);
   const unassignedCount = rows.filter((r) => !r.primary_channel).length;
   const blankNameWithAr = rows.filter((r) => (!r.display_name || !r.display_name.trim()) && r.ar_total > 0).length;
+  const entityCounts = rows.reduce<Record<string, number>>((acc, r) => {
+    const e = r.entity_resolved || 'unknown';
+    acc[e] = (acc[e] ?? 0) + 1;
+    return acc;
+  }, {});
+  const entitySummary = Object.entries(entityCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([e, n]) => `${n} ${e}`)
+    .join(' · ');
 
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 12 }}>
-        <KPICard title="CUSTOMERS" value={rows.length} sub={`${rows.filter((r) => r.active).length} active`} />
+        <KPICard title="CUSTOMERS" value={rows.length} sub={entitySummary || 'all customers shown'} />
         <KPICard title="YTD REVENUE" value={fm(totalRev)} accent="var(--ac)" sub="all customers shown" />
         <KPICard title="AR OUTSTANDING" value={fm(totalAr)} sub="open invoices" />
         <KPICard
@@ -416,7 +487,7 @@ export function CustomersSettingsEditor() {
           background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 280,
         }}>
           <Search size={13} strokeWidth={2.2} color="var(--mt)" aria-hidden="true" />
-          <input type="text" value={search} placeholder="Search name, parent, channel, city, address, notes…"
+          <input type="text" value={search} placeholder="Search name, parent, entity, channel, city, address, notes…"
             onChange={(e) => setSearch(e.target.value)}
             style={{
               background: 'transparent', border: 'none', outline: 'none',
@@ -464,10 +535,10 @@ export function CustomersSettingsEditor() {
       </div>
 
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
-        <strong style={{ color: 'var(--tx)' }}>Channel → Parent → Sub.</strong> Customers group by primary
-        channel; sub-customers nest under their parent automatically. Click "Type" column header
-        to sort by parent/sub. City + Address come from QBO Bill-To. Blank-name customers usually mean the
-        invoice was booked against a deleted or merged QBO record — flagged in yellow above.
+        <strong style={{ color: 'var(--tx)' }}>Entity</strong> is the brand/business the customer
+        belongs to (brix · AS · freeflow · shared). Dashed border = auto-derived from name; solid
+        border = manual override. Pick a value to lock it. The Margin Control entity filter now sources
+        from these values, not the old hardcoded list.
       </div>
     </div>
   );
