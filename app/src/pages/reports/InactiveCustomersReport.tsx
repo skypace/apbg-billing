@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { GridColDef } from '@mui/x-data-grid-pro';
 import { KPICard } from '../../components/KPICard';
 import { CustomerLink } from '../../components/CustomerLink';
+import { ReportGrid } from '../../components/ReportGrid';
 import { fm } from '../../lib/formatters';
-import { inp } from '../../lib/styles';
 import { InactiveCustomerRow, fetchInactiveCustomers } from '../../lib/reports';
+
+interface InactiveGridRow extends InactiveCustomerRow {
+  id: string;
+}
 
 export function InactiveCustomersReport() {
   const today = new Date();
@@ -42,6 +47,34 @@ export function InactiveCustomersReport() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [f.current_start, f.current_end, f.prior_start, f.prior_end, f.min_prior, f.max_current]);
 
+  const gridRows: InactiveGridRow[] = useMemo(
+    () => (rows ?? []).map((r) => ({ ...r, id: r.qbo_customer_id })),
+    [rows],
+  );
+
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'customer_name', headerName: 'Customer', flex: 2, minWidth: 220,
+      renderCell: (p) => (
+        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <CustomerLink qboCustomerId={p.row.qbo_customer_id} name={p.row.customer_name} />
+        </span>
+      ),
+    },
+    { field: 'primary_channel', headerName: 'Channel', width: 160,
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    { field: 'bill_state', headerName: 'State', width: 80, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    {
+      field: 'prior_revenue', headerName: 'Prior Rev', type: 'number', width: 130, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 600, color: 'var(--am)' }}>{fm(p.value)}</span>,
+    },
+    { field: 'current_revenue', headerName: 'Current Rev', type: 'number', width: 130, cellClassName: 'mn',
+      valueFormatter: (v) => fm(v) },
+    { field: 'last_invoice_date', headerName: 'Last Invoice', width: 130, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+  ], []);
+
   if (!rows) return <div className="ld">Loading…</div>;
 
   const totalLost = rows.reduce((s, r) => s + Number(r.prior_revenue || 0), 0);
@@ -51,113 +84,60 @@ export function InactiveCustomersReport() {
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 12 }}>
-        <KPICard
-          title="INACTIVE CUSTOMERS"
-          value={rows.length}
-          accent={rows.length > 0 ? 'var(--am)' : 'var(--gn)'}
-        />
-        <KPICard
-          title="PRIOR REV AT RISK"
-          value={fm(totalLost)}
-          accent="var(--am)"
-          sub="prior period revenue not repeating"
-        />
-        <KPICard
-          title="BIGGEST LOSS"
-          value={biggest ? fm(biggest.prior_revenue) : '—'}
-          sub={biggest?.customer_name ?? ''}
-        />
-        <KPICard
-          title="WITH CHANNEL"
-          value={withChannel}
-          sub="have a classified channel"
-        />
+        <KPICard title="INACTIVE CUSTOMERS" value={rows.length}
+          accent={rows.length > 0 ? 'var(--am)' : 'var(--gn)'} />
+        <KPICard title="PRIOR REV AT RISK" value={fm(totalLost)} accent="var(--am)"
+          sub="prior period revenue not repeating" />
+        <KPICard title="BIGGEST LOSS" value={biggest ? fm(biggest.prior_revenue) : '—'}
+          sub={biggest?.customer_name ?? ''} />
+        <KPICard title="WITH CHANNEL" value={withChannel} sub="have a classified channel" />
       </div>
 
-      <div
-        className="cd"
-        style={{
-          padding: '10px 12px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 10,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          fontSize: 11,
-        }}
-      >
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>Prior</span>
-        <input type="date" value={f.prior_start} onChange={(e) => setF({ ...f, prior_start: e.target.value })} style={inp()} />
-        <span style={{ color: 'var(--mt)' }}>to</span>
-        <input type="date" value={f.prior_end} onChange={(e) => setF({ ...f, prior_end: e.target.value })} style={inp()} />
-
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>Current</span>
-        <input type="date" value={f.current_start} onChange={(e) => setF({ ...f, current_start: e.target.value })} style={inp()} />
-        <span style={{ color: 'var(--mt)' }}>to</span>
-        <input type="date" value={f.current_end} onChange={(e) => setF({ ...f, current_end: e.target.value })} style={inp()} />
-
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>Min prior $</span>
-        <input
-          type="number"
-          value={f.min_prior}
-          onChange={(e) => setF({ ...f, min_prior: Number(e.target.value) })}
-          style={{ ...inp(), width: 80 }}
-        />
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}>Max current $</span>
-        <input
-          type="number"
-          value={f.max_current}
-          onChange={(e) => setF({ ...f, max_current: Number(e.target.value) })}
-          style={{ ...inp(), width: 80 }}
-        />
+      <div className="toolbar" style={{ marginBottom: 10 }}>
+        <div className="toolbar-row">
+          <div className="toolbar-section">
+            <span className="toolbar-label">Prior</span>
+            <input type="date" value={f.prior_start}
+              onChange={(e) => setF({ ...f, prior_start: e.target.value })} className="date-input" />
+            <span style={{ color: 'var(--mt)', fontSize: 11 }}>to</span>
+            <input type="date" value={f.prior_end}
+              onChange={(e) => setF({ ...f, prior_end: e.target.value })} className="date-input" />
+          </div>
+          <div className="toolbar-section">
+            <span className="toolbar-label">Current</span>
+            <input type="date" value={f.current_start}
+              onChange={(e) => setF({ ...f, current_start: e.target.value })} className="date-input" />
+            <span style={{ color: 'var(--mt)', fontSize: 11 }}>to</span>
+            <input type="date" value={f.current_end}
+              onChange={(e) => setF({ ...f, current_end: e.target.value })} className="date-input" />
+          </div>
+          <div className="toolbar-section">
+            <span className="toolbar-label">Min prior $</span>
+            <input type="number" value={f.min_prior}
+              onChange={(e) => setF({ ...f, min_prior: Number(e.target.value) })}
+              className="date-input" style={{ width: 80 }} />
+          </div>
+          <div className="toolbar-section">
+            <span className="toolbar-label">Max current $</span>
+            <input type="number" value={f.max_current}
+              onChange={(e) => setF({ ...f, max_current: Number(e.target.value) })}
+              className="date-input" style={{ width: 80 }} />
+          </div>
+        </div>
       </div>
 
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div className="ld">Loading…</div>
         ) : rows.length === 0 ? (
           <div className="ld">No inactive customers in this window — everyone is buying.</div>
         ) : (
-          <div style={{ maxHeight: '58vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Customer</th>
-                  <th>Channel</th>
-                  <th>State</th>
-                  <th style={{ textAlign: 'right' }}>Prior Rev</th>
-                  <th style={{ textAlign: 'right' }}>Current Rev</th>
-                  <th>Last Invoice</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.qbo_customer_id}>
-                    <td
-                      style={{
-                        fontWeight: 600,
-                        maxWidth: 280,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <CustomerLink qboCustomerId={r.qbo_customer_id} name={r.customer_name} />
-                    </td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                    <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>{r.bill_state ?? '—'}</td>
-                    <td className="mn" style={{ textAlign: 'right', fontWeight: 600, color: 'var(--am)' }}>
-                      {fm(r.prior_revenue)}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{fm(r.current_revenue)}</td>
-                    <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>
-                      {r.last_invoice_date ?? '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ReportGrid
+            rows={gridRows}
+            columns={columns}
+            pinnedLeft={['customer_name']}
+            defaultSort={[{ field: 'prior_revenue', sort: 'desc' }]}
+          />
         )}
       </div>
     </div>
