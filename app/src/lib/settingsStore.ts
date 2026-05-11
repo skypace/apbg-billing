@@ -9,6 +9,9 @@ export const KEYS = {
   entityDefaults:   'entityDefaults',
   itemRules:        'itemTaxonomyRules',
   customerRules:    'customerTaxonomyRules',
+  // Margin → Columns picker. Stored as Record<Dim, ColumnId[]> so
+  // each Group-by dim remembers which extra columns the user wants.
+  marginColumns:    'marginColumns',
 } as const;
 
 export function loadSetting<T>(key: string, fallback: T): T {
