@@ -1,24 +1,15 @@
 // Margin → Columns registry.
 //
-// Phase 1 (v0.9.0): three derived per-unit columns.
-// Phase 2A (v0.9.1): customer enrichment.
-// Phase 2B (v0.9.2): item enrichment.
-// Phase 2C (v0.9.3): AR aging.
-// Workstream B (v0.9.6-7): Overhead allocation columns.
-// Workstream C (v0.9.11): Break-even units — minimum sales velocity to
-//   cover allocated overhead at current per-unit margin.
+// Phase 1 (v0.9.0): unit-level columns.
+// Phase 2 (v0.9.1-3): customer/item enrichment + AR aging.
+// Workstream B (v0.9.6-7): overhead allocation.
+// Workstream C (v0.9.11-12): break-even + Forecast 30/60/90 (sparkline-based).
 
 import type { Dim, SalesPivotRow } from './sales';
 import { fm, fp, fmtNum } from './formatters';
 
 export type MarginColumnGroup =
-  | 'unit'
-  | 'overhead'
-  | 'address'
-  | 'attribute'
-  | 'ar'
-  | 'inventory'
-  | 'derived';
+  | 'unit' | 'overhead' | 'address' | 'attribute' | 'ar' | 'inventory' | 'derived' | 'forecast';
 
 export interface MarginColumnDef {
   id: string;
@@ -29,6 +20,7 @@ export interface MarginColumnDef {
   compute?: (row: SalesPivotRow & Record<string, unknown>) => number | string | null;
   format?: (value: unknown) => string;
   requiresFetch?: boolean;
+  requiresSparklines?: boolean;
   enrichmentKey?: string;
 }
 
@@ -46,14 +38,9 @@ const fmtMoneyZeroDash = (v: unknown): string => {
 
 const UNIT_PRICE: MarginColumnDef = {
   id: 'unit_price', label: 'Unit Price (avg)', dims: 'all', group: 'unit', width: 130,
-  compute: (r) => {
-    const q = Number(r.qty ?? 0);
-    const rev = Number(r.revenue ?? 0);
-    return q > 0 ? rev / q : null;
-  },
+  compute: (r) => { const q = Number(r.qty ?? 0); return q > 0 ? Number(r.revenue ?? 0) / q : null; },
   format: fmtMoney,
 };
-
 const UNIT_COST: MarginColumnDef = {
   id: 'unit_cost', label: 'Unit COGS (avg)', dims: 'all', group: 'unit', width: 130,
   compute: (r) => {
@@ -63,7 +50,6 @@ const UNIT_COST: MarginColumnDef = {
   },
   format: fmtMoney,
 };
-
 const UNIT_GROSS: MarginColumnDef = {
   id: 'unit_gross', label: 'Unit Gross (avg)', dims: 'all', group: 'unit', width: 130,
   compute: (r) => {
@@ -74,12 +60,9 @@ const UNIT_GROSS: MarginColumnDef = {
   format: fmtMoney,
 };
 
-function overheadCol(
-  id: string, label: string, enrichmentKey: string, width: number, format: (v: unknown) => string,
-): MarginColumnDef {
-  return { id, label, dims: 'all', group: 'overhead', width, requiresFetch: false, enrichmentKey, format };
+function overheadCol(id: string, label: string, key: string, w: number, fmt: (v: unknown) => string): MarginColumnDef {
+  return { id, label, dims: 'all', group: 'overhead', width: w, requiresFetch: false, enrichmentKey: key, format: fmt };
 }
-
 const OVERHEAD_COLUMNS: MarginColumnDef[] = [
   overheadCol('overhead_total',    'Overhead $',    '_overhead',          120, fmtMoneyZeroDash),
   overheadCol('overhead_per_unit', 'OH / unit',     '_overhead_per_unit', 110, fmtMoney),
@@ -88,15 +71,8 @@ const OVERHEAD_COLUMNS: MarginColumnDef[] = [
   overheadCol('unit_net',          'Unit Net',      '_unit_net',          110, fmtMoney),
 ];
 
-// Break-even units (Workstream C): how many units this row would need to
-// sell at the current gross-per-unit to cover its allocated overhead.
-// breakeven = _overhead / unit_gross_per_unit
 const BREAKEVEN_UNITS: MarginColumnDef = {
-  id: 'breakeven_units',
-  label: 'Break-even Units',
-  dims: 'all',
-  group: 'overhead',
-  width: 130,
+  id: 'breakeven_units', label: 'Break-even Units', dims: 'all', group: 'overhead', width: 130,
   compute: (r) => {
     const oh = r._overhead != null ? Number(r._overhead) : 0;
     if (oh <= 0) return null;
@@ -110,13 +86,47 @@ const BREAKEVEN_UNITS: MarginColumnDef = {
   format: (v) => (v == null ? '—' : fmtNum(Math.ceil(Number(v))) + ' u'),
 };
 
-function customerCol(
-  id: string, label: string, group: MarginColumnGroup, enrichmentKey: string,
-  width = 140, format: (v: unknown) => string = fmtString,
-): MarginColumnDef {
-  return { id, label, dims: ['customer'], group, width, requiresFetch: true, enrichmentKey, format };
+// ---------------------------------------------------------------------------
+// Forecast 30/60/90 — sparkline-based linear projection
+// ---------------------------------------------------------------------------
+// Uses the row's _spark12 field (set by MarginPage when sparklines are loaded)
+// — a 12-element array of trailing monthly revenue. Forecast = trailing-3
+// average × N months.
+function forecastCompute(months: number) {
+  return (r: SalesPivotRow & Record<string, unknown>): number | null => {
+    const spark = r._spark12 as number[] | undefined;
+    if (!Array.isArray(spark) || spark.length < 3) return null;
+    const last3 = spark.slice(-3).map((v) => Number(v) || 0);
+    const nonZero = last3.filter((v) => v > 0);
+    if (nonZero.length === 0) return null;
+    const avg = last3.reduce((s, v) => s + v, 0) / last3.length;
+    return avg * months;
+  };
 }
 
+const FORECAST_30: MarginColumnDef = {
+  id: 'forecast_30', label: 'Forecast 30d', dims: 'all', group: 'forecast', width: 120,
+  compute: forecastCompute(1),
+  format: fmtMoney,
+  requiresSparklines: true,
+};
+const FORECAST_60: MarginColumnDef = {
+  id: 'forecast_60', label: 'Forecast 60d', dims: 'all', group: 'forecast', width: 120,
+  compute: forecastCompute(2),
+  format: fmtMoney,
+  requiresSparklines: true,
+};
+const FORECAST_90: MarginColumnDef = {
+  id: 'forecast_90', label: 'Forecast 90d', dims: 'all', group: 'forecast', width: 120,
+  compute: forecastCompute(3),
+  format: fmtMoney,
+  requiresSparklines: true,
+};
+
+function customerCol(id: string, label: string, group: MarginColumnGroup, key: string,
+  w = 140, fmt: (v: unknown) => string = fmtString): MarginColumnDef {
+  return { id, label, dims: ['customer'], group, width: w, requiresFetch: true, enrichmentKey: key, format: fmt };
+}
 const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('bill_addr_line1', 'Bill Street', 'address', 'bill_addr_line1', 220),
   customerCol('bill_addr_city',  'Bill City',   'address', 'bill_addr_city',  140),
@@ -124,13 +134,11 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('bill_addr_postal','Bill ZIP',    'address', 'bill_addr_postal', 90),
   customerCol('ship_addr_city',  'Ship City',   'address', 'ship_addr_city',  140),
   customerCol('ship_addr_state', 'Ship State',  'address', 'ship_addr_state',  80),
-
   customerCol('primary_channel', 'Channel',       'attribute', 'primary_channel', 150),
   customerCol('customer_type',   'Customer Type', 'attribute', 'customer_type',   140),
   customerCol('is_sub_customer', 'Sub-customer?', 'attribute', 'is_sub_customer', 110, fmtBool),
   customerCol('phone',           'Phone',         'attribute', 'phone',           130),
   customerCol('email',           'Email',         'attribute', 'email',           200),
-
   customerCol('ar_total',            'AR Total',        'ar', 'ar_total',            120, fmtMoneyZeroDash),
   customerCol('ar_0_30',             'AR 0-30 d',       'ar', 'ar_0_30',             110, fmtMoneyZeroDash),
   customerCol('ar_31_60',            'AR 31-60 d',      'ar', 'ar_31_60',            110, fmtMoneyZeroDash),
@@ -141,39 +149,30 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('days_oldest_overdue', 'Oldest Overdue',  'ar', 'days_oldest_overdue', 130, (v) => v == null ? '—' : `${fmtNum(Number(v))} d`),
 ];
 
-function itemCol(
-  id: string, label: string, group: MarginColumnGroup, enrichmentKey: string,
-  width = 130, format: (v: unknown) => string = fmtString,
-): MarginColumnDef {
-  return { id, label, dims: ['item'], group, width, requiresFetch: true, enrichmentKey, format };
+function itemCol(id: string, label: string, group: MarginColumnGroup, key: string,
+  w = 130, fmt: (v: unknown) => string = fmtString): MarginColumnDef {
+  return { id, label, dims: ['item'], group, width: w, requiresFetch: true, enrichmentKey: key, format: fmt };
 }
-
 const ITEM_COLUMNS: MarginColumnDef[] = [
   itemCol('list_price', 'List Price (master)', 'unit', 'list_price', 140, fmtMoney),
   itemCol('item_cost',  'Item Cost (master)',  'unit', 'item_cost',  140, fmtMoney),
-
   itemCol('sku',           'SKU',           'attribute', 'sku',           110),
   itemCol('item_type',     'Item Type',     'attribute', 'item_type',     120),
   itemCol('category_path', 'Category Path', 'attribute', 'category_path', 220),
   itemCol('active',        'Active?',       'attribute', 'active',         90, fmtBool),
   itemCol('taxable',       'Taxable?',      'attribute', 'taxable',        90, fmtBool),
-
   itemCol('on_hand',         'On-Hand Qty',     'inventory', 'on_hand',         110, fmtCount),
   itemCol('inventory_value', 'Inv $ at cost',   'inventory', 'inventory_value', 130, fmtMoney),
-
   itemCol('income_account',  'Income Account',  'derived', 'income_account',  180),
   itemCol('expense_account', 'Expense Account', 'derived', 'expense_account', 180),
   itemCol('asset_account',   'Asset Account',   'derived', 'asset_account',   180),
 ];
 
 export const MARGIN_COLUMN_REGISTRY: MarginColumnDef[] = [
-  UNIT_PRICE,
-  UNIT_COST,
-  UNIT_GROSS,
-  ...OVERHEAD_COLUMNS,
-  BREAKEVEN_UNITS,
-  ...CUSTOMER_COLUMNS,
-  ...ITEM_COLUMNS,
+  UNIT_PRICE, UNIT_COST, UNIT_GROSS,
+  ...OVERHEAD_COLUMNS, BREAKEVEN_UNITS,
+  FORECAST_30, FORECAST_60, FORECAST_90,
+  ...CUSTOMER_COLUMNS, ...ITEM_COLUMNS,
 ];
 
 export function getColumnsForDim(dim: Dim): MarginColumnDef[] {
@@ -184,16 +183,15 @@ export function columnsNeedFetch(cols: MarginColumnDef[]): boolean {
   return cols.some((c) => c.requiresFetch === true);
 }
 
-export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
-  unit:      'Per-unit',
-  overhead:  'Overhead',
-  attribute: 'Attributes',
-  address:   'Address',
-  ar:        'AR / Aging',
-  inventory: 'Inventory',
-  derived:   'Derived',
-};
+export function columnsNeedSparklines(cols: MarginColumnDef[]): boolean {
+  return cols.some((c) => c.requiresSparklines === true);
+}
 
+export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
+  unit: 'Per-unit', overhead: 'Overhead', forecast: 'Forecast',
+  attribute: 'Attributes', address: 'Address', ar: 'AR / Aging',
+  inventory: 'Inventory', derived: 'Derived',
+};
 export const GROUP_ORDER: Record<MarginColumnGroup, number> = {
-  unit: 1, overhead: 2, attribute: 3, address: 4, ar: 5, inventory: 6, derived: 7,
+  unit: 1, overhead: 2, forecast: 3, attribute: 4, address: 5, ar: 6, inventory: 7, derived: 8,
 };
