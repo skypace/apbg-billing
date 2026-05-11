@@ -9,6 +9,7 @@ import { MultiPicker } from '../components/MultiPicker';
 import { MarginGrid } from '../components/MarginGrid';
 import { ModifierPicker } from '../components/ModifierPicker';
 import { TopMoversStrip } from '../components/TopMoversStrip';
+import { RowDetailModal } from '../components/RowDetailModal';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { AreaChart } from '../components/charts/AreaChart';
@@ -22,6 +23,7 @@ import {
   type MarginColumnDef,
   getColumnsForDim,
   columnsNeedFetch,
+  columnsNeedSparklines,
   GROUP_LABEL,
   GROUP_ORDER,
 } from '../lib/marginColumns';
@@ -99,8 +101,7 @@ const ACX = {
   '& .MuiAutocomplete-input': { padding: '4px 0 !important', fontFamily: 'var(--ff-mono)', fontSize: 12, color: 'var(--tx)' },
   '& .MuiSvgIcon-root': { color: 'var(--mt)' },
   '& .MuiChip-root': {
-    height: 22, fontSize: 11,
-    background: 'rgba(91,181,240,0.14)', color: 'var(--ac)',
+    height: 22, fontSize: 11, background: 'rgba(91,181,240,0.14)', color: 'var(--ac)',
     border: '1px solid rgba(91,181,240,0.32)', fontFamily: 'inherit',
     '& .MuiChip-deleteIcon': { color: 'var(--ac)', '&:hover': { color: 'var(--rd)' } },
   },
@@ -108,8 +109,8 @@ const ACX = {
 const ACX_PAPER = {
   paper: {
     sx: {
-      background: 'var(--sf)', color: 'var(--tx)',
-      border: '1px solid var(--bd)', fontFamily: 'var(--ff-mono)', fontSize: 12,
+      background: 'var(--sf)', color: 'var(--tx)', border: '1px solid var(--bd)',
+      fontFamily: 'var(--ff-mono)', fontSize: 12,
       '& .MuiAutocomplete-option': { fontSize: 12, color: 'var(--tx)' },
       '& .MuiAutocomplete-option[aria-selected="true"]': { background: 'rgba(91,181,240,0.10)' },
       '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
@@ -164,6 +165,7 @@ export function MarginPage() {
   const [showSparklines, setShowSparklines] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode>('prior_year');
   const [chartKind, setChartKind] = useState<ChartKind>('none');
+  const [detailRow, setDetailRow] = useState<(SalesPivotRow & Record<string, unknown>) | null>(null);
 
   const [columnsByDim, setColumnsByDim] = useState<Record<string, string[]>>(
     () => loadSetting<Record<string, string[]>>(KEYS.marginColumns, {}),
@@ -293,10 +295,13 @@ export function MarginPage() {
       .catch(() => setComparison(null));
   }, [compareMode, rows, dim, JSON.stringify(effectiveFilters)]);
 
+  // Sparklines — fetch when user toggles the Trend col OR selects a column
+  // that needs sparkline data (Forecast 30/60/90).
   useEffect(() => {
-    if (!showSparklines || !rows || rows.length === 0 || dim === 'month') { setSparklines({}); return; }
+    const need = showSparklines || columnsNeedSparklines(extraColumns);
+    if (!need || !rows || rows.length === 0 || dim === 'month') { setSparklines({}); return; }
     const keys = trailing12MonthKeys(effectiveFilters.end);
-    const labels = rows.slice(0, 100).map((r) => r.dim_label);
+    const labels = rows.slice(0, 200).map((r) => r.dim_label);
     fetchSparkline(dim, labels, effectiveFilters.end, effectiveFilters)
       .then((spark) => {
         const byLabel: Record<string, number[]> = {};
@@ -308,7 +313,7 @@ export function MarginPage() {
         setSparklines(byLabel);
       })
       .catch(() => setSparklines({}));
-  }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters)]);
+  }, [showSparklines, dim, rows, JSON.stringify(effectiveFilters), extraColumns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -319,15 +324,10 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [effectiveFilters.start, effectiveFilters.end, JSON.stringify(effectiveFilters.entities)]);
 
-  // Smart Columns enrichment side-fetch — always pulls for customer/item dim
-  // (so AR / address / SKU glyphs work without requiring the user to manually
-  // enable a column first).
   useEffect(() => {
     const autoFetchDim = dim === 'customer' || dim === 'item';
     if (!rows || rows.length === 0 || (!autoFetchDim && !columnsNeedFetch(extraColumns))) {
-      setEnrichment({});
-      setEnrichmentLoading(false);
-      return;
+      setEnrichment({}); setEnrichmentLoading(false); return;
     }
     let cancelled = false;
     setEnrichmentLoading(true);
@@ -336,17 +336,10 @@ export function MarginPage() {
       .then((rs) => {
         if (cancelled) return;
         const out: Record<string, Record<string, unknown>> = {};
-        for (const r of rs) {
-          if (r.dim_label) out[r.dim_label] = r.meta ?? {};
-        }
-        setEnrichment(out);
-        setEnrichmentLoading(false);
+        for (const r of rs) { if (r.dim_label) out[r.dim_label] = r.meta ?? {}; }
+        setEnrichment(out); setEnrichmentLoading(false);
       })
-      .catch(() => {
-        if (cancelled) return;
-        setEnrichment({});
-        setEnrichmentLoading(false);
-      });
+      .catch(() => { if (cancelled) return; setEnrichment({}); setEnrichmentLoading(false); });
     return () => { cancelled = true; };
   }, [dim, rows, extraColumns]);
 
@@ -362,9 +355,9 @@ export function MarginPage() {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
       const meta = enrichment[r.dim_label] ?? {};
       const oh = overheadPools.length > 0 && totals
-        ? computeOverheadFields(r, totals, rowCount, overheadPools)
-        : {};
-      const row = { ...(r as object), ...meta, ...oh } as SalesPivotRow & Record<string, unknown>;
+        ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
+      const spark = sparklines[r.dim_label];
+      const row = { ...(r as object), ...meta, ...oh, _spark12: spark } as SalesPivotRow & Record<string, unknown>;
       const extraVals = extraColumns.map((c) => {
         const v = c.compute ? c.compute(row) : (c.enrichmentKey ? (row[c.enrichmentKey] as string | number | null) : null);
         if (v == null) return '';
@@ -377,13 +370,11 @@ export function MarginPage() {
         r.est_cost != null ? Number(r.est_cost).toFixed(2) : '',
         r.est_margin != null ? Number(r.est_margin).toFixed(2) : '',
         r.margin_pct != null ? Number(r.margin_pct).toFixed(4) : '',
-        ...(comparison && cmp
-          ? [
-              cmp.prior_revenue != null ? Number(cmp.prior_revenue).toFixed(2) : '',
-              cmp.delta_revenue != null ? Number(cmp.delta_revenue).toFixed(2) : '',
-              cmp.delta_pct != null ? Number(cmp.delta_pct).toFixed(4) : '',
-            ]
-          : []),
+        ...(comparison && cmp ? [
+          cmp.prior_revenue != null ? Number(cmp.prior_revenue).toFixed(2) : '',
+          cmp.delta_revenue != null ? Number(cmp.delta_revenue).toFixed(2) : '',
+          cmp.delta_pct != null ? Number(cmp.delta_pct).toFixed(4) : '',
+        ] : []),
         ...extraVals,
       ];
     });
@@ -395,10 +386,7 @@ export function MarginPage() {
     toast.success(`Exported ${data.length} rows to CSV`);
   }
 
-  function printDashboard() {
-    toast.info('Opening print preview…');
-    setTimeout(() => window.print(), 250);
-  }
+  function printDashboard() { toast.info('Opening print preview…'); setTimeout(() => window.print(), 250); }
 
   function drillInto(row: SalesPivotRow) {
     const filterKey = DRILL_FILTER[dim];
@@ -453,9 +441,9 @@ export function MarginPage() {
       return (Number(cur) - Number(prev)) / Number(prev);
     }
     return {
-      revenue:       pct(totals.revenue,         priorTotals.revenue),
-      margin:        pct(totals.est_margin,      priorTotals.est_margin),
-      customers:     pct(totals.customer_count,  priorTotals.customer_count),
+      revenue: pct(totals.revenue, priorTotals.revenue),
+      margin: pct(totals.est_margin, priorTotals.est_margin),
+      customers: pct(totals.customer_count, priorTotals.customer_count),
       cost_coverage: pct(totals.cost_coverage_pct, priorTotals.cost_coverage_pct),
     };
   }, [totals, priorTotals]);
@@ -471,30 +459,21 @@ export function MarginPage() {
   const netMargin = totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
   const netMarginPct = totals && Number(totals.revenue ?? 0) > 0 && netMargin != null
     ? netMargin / Number(totals.revenue) : null;
-  const netMarginAccent = netMarginPct == null
-    ? undefined
+  const netMarginAccent = netMarginPct == null ? undefined
     : netMarginPct >= 0.2 ? 'var(--gn)'
-    : netMarginPct >= 0   ? 'var(--am)'
-    : 'var(--rd)';
+    : netMarginPct >= 0   ? 'var(--am)' : 'var(--rd)';
 
-  // 80/20 concentration — how concentrated revenue is in the top-N rows.
-  // Only meaningful when there are enough rows to make the answer non-trivial.
   const pareto = useMemo(() => {
     if (!rows || rows.length < 5) return null;
     const sorted = [...rows].sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0));
     const total = sorted.reduce((s, r) => s + Number(r.revenue ?? 0), 0);
     if (total <= 0) return null;
-    let cum = 0;
-    let count80 = sorted.length;
+    let cum = 0; let count80 = sorted.length;
     for (let i = 0; i < sorted.length; i++) {
       cum += Number(sorted[i].revenue ?? 0);
       if (cum / total >= 0.8) { count80 = i + 1; break; }
     }
-    return {
-      countAt80: count80,
-      totalRows: sorted.length,
-      pctOfRows: count80 / sorted.length,
-    };
+    return { countAt80: count80, totalRows: sorted.length, pctOfRows: count80 / sorted.length };
   }, [rows]);
 
   const chips: { key: keyof SalesFilters; label: string; values: string[] }[] = [];
@@ -507,17 +486,20 @@ export function MarginPage() {
 
   const tableRows: SalesPivotRow[] | ComparisonRow[] = comparison ?? (rows ?? []);
 
+  // Enriched rows = base + API enrichment + overhead fields + sparkline trail (for forecast cols + modal).
   const enrichedRows = useMemo(() => {
     const hasEnrichment = Object.keys(enrichment).length > 0;
     const hasOverhead   = overheadPools.length > 0 && totals != null;
-    if (!hasEnrichment && !hasOverhead) return tableRows;
+    const hasSparks     = Object.keys(sparklines).length > 0;
+    if (!hasEnrichment && !hasOverhead && !hasSparks) return tableRows;
     const rowCount = tableRows.length;
     return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => {
       const meta = hasEnrichment ? (enrichment[r.dim_label] ?? {}) : {};
       const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
-      return { ...r, ...meta, ...oh };
+      const spark = hasSparks ? sparklines[r.dim_label] : undefined;
+      return { ...r, ...meta, ...oh, _spark12: spark };
     }) as typeof tableRows;
-  }, [tableRows, enrichment, overheadPools, totals]);
+  }, [tableRows, enrichment, overheadPools, totals, sparklines]);
 
   const activePreset = detectActivePreset(filters.start, filters.end, today);
   const compareLabel =
@@ -526,10 +508,10 @@ export function MarginPage() {
 
   const heroEntity = filters.entities?.[0] ?? null;
   const heroBrandLabel =
-    heroEntity === 'AS'       ? 'Alameda Soda Co.' :
+    heroEntity === 'AS' ? 'Alameda Soda Co.' :
     heroEntity === 'freeflow' || heroEntity === 'FF' ? 'FreeFlow' :
-    heroEntity === 'brix'     ? 'Brix Beverage' :
-                                'Brix Beverage · Alameda Soda Co.';
+    heroEntity === 'brix' ? 'Brix Beverage' :
+    'Brix Beverage · Alameda Soda Co.';
 
   return (
     <div>
@@ -538,8 +520,7 @@ export function MarginPage() {
           <EntityMark entity={heroEntity} size={88} className="hero-mark" />
           <div style={{ minWidth: 0 }}>
             <div className="hero-eyebrow">
-              {heroBrandLabel}
-              {activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}
+              {heroBrandLabel}{activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}
             </div>
             <h1 className="hero-title">Margin Control</h1>
             <div className="hero-meta">
@@ -555,7 +536,7 @@ export function MarginPage() {
             <span className="status-dot" aria-hidden="true" />
             Costs · {syncFresh || '—'}
           </div>
-          <button type="button" onClick={printDashboard} className="tb-btn tb-btn--primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Print or save the dashboard as PDF">
+          <button type="button" onClick={printDashboard} className="tb-btn tb-btn--primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Printer size={13} strokeWidth={2.4} aria-hidden="true" />
             <span>Print</span>
           </button>
@@ -563,24 +544,17 @@ export function MarginPage() {
       </div>
 
       {totals == null && rows == null ? (<KpiRowSkeleton count={showOverheadKpi ? 5 : 4} />) : (
-        <div
-          className="gr"
-          style={{
-            gridTemplateColumns: showOverheadKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
-            marginBottom: 18,
-          }}
-        >
+        <div className="gr" style={{
+          gridTemplateColumns: showOverheadKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+          marginBottom: 18,
+        }}>
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
             sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined} />
           <KPICard title="Est Margin" value={totals ? fm(totals.est_margin) : '…'} deltaPct={kpiDeltas?.margin ?? null}
             sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined} />
           {showOverheadKpi && (
-            <KPICard
-              title="Net Margin"
-              value={netMargin != null ? fm(netMargin) : '…'}
-              sub={netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined}
-              accent={netMarginAccent}
-            />
+            <KPICard title="Net Margin" value={netMargin != null ? fm(netMargin) : '…'}
+              sub={netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined} accent={netMarginAccent} />
           )}
           <KPICard title="Customers" value={totals ? fmtNum(totals.customer_count) : '…'} deltaPct={kpiDeltas?.customers ?? null}
             sub={totals ? fmtNum(totals.item_count) + ' items' : undefined} />
@@ -604,8 +578,7 @@ export function MarginPage() {
           <div className="toolbar-section">
             <DateRangePicker
               value={[dayjs(filters.start), dayjs(filters.end)]}
-              onChange={onRangeChange}
-              format="YYYY-MM-DD"
+              onChange={onRangeChange} format="YYYY-MM-DD"
               localeText={{ start: 'From', end: 'To' }}
               slotProps={{
                 textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' } } },
@@ -630,72 +603,52 @@ export function MarginPage() {
           <button type="button" className="tb-btn" onClick={() => {
             const ytd = applyPreset('ytd', today);
             setFilters({ start: ytd.start, end: ytd.end, entities: null });
-            setCompareMode('prior_year');
-            setChartKind('none');
-            setActiveModifiers([]);
+            setCompareMode('prior_year'); setChartKind('none'); setActiveModifiers([]);
           }}>Reset</button>
         </div>
 
         <div className="toolbar-row">
           <div className="toolbar-section">
             <span className="toolbar-label">Group by</span>
-            <Autocomplete size="small" options={DIMS}
-              getOptionLabel={(o) => o.label}
+            <Autocomplete size="small" options={DIMS} getOptionLabel={(o) => o.label}
               isOptionEqualToValue={(o, v) => o.id === v.id}
               value={DIMS.find((d) => d.id === dim) ?? DIMS[0]}
-              onChange={(_, v) => v && setDim(v.id)}
-              disableClearable sx={ACX} slotProps={ACX_PAPER}
-              renderInput={(params) => <TextField {...params} placeholder="Group by" />}
-            />
+              onChange={(_, v) => v && setDim(v.id)} disableClearable sx={ACX} slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Group by" />} />
           </div>
-
           <div className="toolbar-section">
             <span className="toolbar-label">Entity</span>
-            <Autocomplete size="small"
-              options={[null, ...entityOptions] as (string | null)[]}
+            <Autocomplete size="small" options={[null, ...entityOptions] as (string | null)[]}
               getOptionLabel={(o) => (o == null ? 'All entities' : o)}
               value={filters.entities?.[0] ?? null}
-              onChange={(_, v) => onEntityChange(v)}
-              sx={ACX} slotProps={ACX_PAPER}
-              renderInput={(params) => <TextField {...params} placeholder="Entity" />}
-            />
+              onChange={(_, v) => onEntityChange(v)} sx={ACX} slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Entity" />} />
           </div>
-
           <div className="toolbar-section">
             <span className="toolbar-label">Chart</span>
             <Autocomplete size="small" options={CHART_KINDS}
               getOptionLabel={(o) => (o === 'none' ? 'None' : o[0].toUpperCase() + o.slice(1))}
               value={chartKind}
-              onChange={(_, v) => v && setChartKind(v)}
-              disableClearable sx={{ ...ACX, width: 120 }} slotProps={ACX_PAPER}
-              renderInput={(params) => <TextField {...params} placeholder="Chart" />}
-            />
+              onChange={(_, v) => v && setChartKind(v)} disableClearable
+              sx={{ ...ACX, width: 120 }} slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder="Chart" />} />
           </div>
-
           <div className="toolbar-section">
             <span className="toolbar-label">Columns</span>
-            <Autocomplete size="small" multiple limitTags={1}
-              options={availableColumns}
+            <Autocomplete size="small" multiple limitTags={1} options={availableColumns}
               getOptionLabel={(o) => o.label}
               isOptionEqualToValue={(o, v) => o.id === v.id}
               groupBy={(o) => GROUP_LABEL[o.group]}
               value={extraColumns}
               onChange={(_, vs) => updateColumns(vs.map((v) => v.id))}
-              disableCloseOnSelect
-              sx={{ ...ACX, width: 240 }} slotProps={ACX_PAPER}
-              renderInput={(params) => (
-                <TextField {...params} placeholder={extraColumns.length === 0 ? 'Add columns…' : ''} />
-              )}
-            />
+              disableCloseOnSelect sx={{ ...ACX, width: 240 }} slotProps={ACX_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder={extraColumns.length === 0 ? 'Add columns…' : ''} />} />
           </div>
-
           <label className="toolbar-section" style={{ cursor: 'pointer' }}>
             <input type="checkbox" checked={showSparklines} onChange={(e) => setShowSparklines(e.target.checked)} style={{ accentColor: 'var(--ac)' }} />
             <span className="toolbar-label" style={{ cursor: 'pointer' }}>Trend col</span>
           </label>
-
           <div className="toolbar-spacer" />
-
           <button onClick={syncItemCosts} disabled={syncing} className="tb-btn">{syncing ? 'Syncing…' : 'Sync item costs'}</button>
           <button onClick={exportCsv} disabled={!rows?.length} className="tb-btn tb-btn--primary">Export CSV</button>
         </div>
@@ -776,9 +729,19 @@ export function MarginPage() {
             showCompare={compareMode !== 'off' && !!comparison}
             sparklines={showSparklines && dim !== 'month' ? sparklines : undefined}
             extraColumns={extraColumns}
-            onRowClick={DRILL_NEXT[dim] ? drillInto : undefined} />
+            onRowClick={DRILL_NEXT[dim] ? drillInto : undefined}
+            onDetailClick={(r) => setDetailRow(r)} />
         </div>
       )}
+
+      <RowDetailModal
+        open={detailRow !== null}
+        onClose={() => setDetailRow(null)}
+        row={detailRow}
+        dim={dim}
+        start={effectiveFilters.start}
+        end={effectiveFilters.end}
+      />
     </div>
   );
 }
