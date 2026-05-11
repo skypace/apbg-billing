@@ -102,10 +102,14 @@ export const fetchDigestLog = (limit = 30) =>
 
 // ----- Expense Buckets -----
 
+export type AllocationBasis = 'revenue' | 'unit_volume' | 'sku_equal_share' | 'margin_contribution';
+
 export interface ExpenseBucketType {
   bucket_code: string;
   label: string;
   sort_order: number | null;
+  is_allocable: boolean;
+  allocation_basis: AllocationBasis;
 }
 
 export interface PlAccount {
@@ -118,6 +122,9 @@ export interface PlAccount {
 
 export const fetchExpenseBucketTypes = () =>
   sbq<ExpenseBucketType>('expense_bucket_types', 'select=*&order=sort_order,label');
+
+export const updateBucketType = (code: string, patch: Partial<ExpenseBucketType>) =>
+  sbUpdate<ExpenseBucketType>('expense_bucket_types', 'bucket_code=eq.' + encodeURIComponent(code), patch);
 
 export const fetchPlAccounts = (start: string, end: string) =>
   sbrpc<PlAccount[]>('fn_list_pl_accounts', { p_start: start, p_end: end });
