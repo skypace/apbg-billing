@@ -5,6 +5,7 @@ export interface InventoryHealthRow {
   item_name: string;
   category_path: string | null;
   income_account_name: string | null;
+  active: boolean;
   on_hand: number | null;
   unit_price: number | null;
   static_purchase_cost: number | null;
@@ -24,7 +25,7 @@ export interface InventoryHealthRow {
   reorder_point: number | null;
   suggested_order_qty: number | null;
   suggested_order_cycle_days: number | null;
-  status: 'reorder_now' | 'reorder_soon' | 'healthy' | 'overstock' | 'no_velocity' | 'unmanaged' | string;
+  status: 'reorder_now' | 'reorder_soon' | 'healthy' | 'overstock' | 'no_velocity' | 'unmanaged' | 'inactive' | 'idle' | 'critical' | 'reorder' | 'ok' | string;
 }
 
 export interface InventorySettingsRow {
