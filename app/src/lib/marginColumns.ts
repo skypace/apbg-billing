@@ -8,14 +8,17 @@
 //   SKU, type, category path, master list price + master item cost,
 //   on-hand qty, inventory value, income/expense/asset accounts.
 // Phase 2C (v0.9.3): customer AR balance + aging buckets.
-// Phase 3 (Workstream B): Unit Overhead + Unit Net once overhead engine
-//   ships.
+// Workstream B (v0.9.6): Overhead allocation columns — Overhead $,
+//   Overhead/unit, Net Margin $, Net Margin %, Unit Net. These read
+//   from underscore-prefixed fields that MarginPage pre-computes per
+//   row using fn_overhead_total + the active pool bases.
 
 import type { Dim, SalesPivotRow } from './sales';
-import { fm, fmtNum } from './formatters';
+import { fm, fp, fmtNum } from './formatters';
 
 export type MarginColumnGroup =
-  | 'unit'        // Per-unit price / COGS / margin (current + master)
+  | 'unit'        // Per-unit price / COGS / margin / overhead / net
+  | 'overhead'    // Overhead allocation results — $, %, net
   | 'address'     // Customer city / state / zip / street
   | 'attribute'   // SKU, UPC, brand, size, contact, type, etc.
   | 'ar'          // AR balance, aging buckets, oldest-overdue
@@ -25,17 +28,12 @@ export type MarginColumnGroup =
 export interface MarginColumnDef {
   id: string;
   label: string;
-  /** Which Group-by dims this column applies to. `'all'` = always available. */
   dims: Dim[] | 'all';
   group: MarginColumnGroup;
   width: number;
-  /** Pure function over a row — used for derived (Phase-1) columns. */
   compute?: (row: SalesPivotRow & Record<string, unknown>) => number | string | null;
-  /** Formatter — defaults to identity for strings, '—' for null. */
   format?: (value: unknown) => string;
-  /** Whether the value must be side-fetched from QBO / Supabase. */
   requiresFetch?: boolean;
-  /** Property name on the enrichment payload for this dim. */
   enrichmentKey?: string;
 }
 
@@ -47,7 +45,7 @@ const fmtString = (v: unknown): string => (v == null || v === '' ? '—' : Strin
 const fmtBool   = (v: unknown): string => (v == null ? '—' : v ? 'yes' : 'no');
 const fmtMoney  = (v: unknown): string => (v == null ? '—' : fm(Number(v)));
 const fmtCount  = (v: unknown): string => (v == null ? '—' : fmtNum(Number(v)));
-/** Money formatter that renders 0 as '—' to reduce noise in AR-aging columns. */
+const fmtPct    = (v: unknown): string => (v == null ? '—' : fp(Number(v)));
 const fmtMoneyZeroDash = (v: unknown): string => {
   if (v == null) return '—';
   const n = Number(v);
@@ -56,7 +54,7 @@ const fmtMoneyZeroDash = (v: unknown): string => {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 1 — Unit-level derived columns. Work for every dim with qty data.
+// Phase 1 — Unit-level derived columns (work for every dim with qty)
 // ---------------------------------------------------------------------------
 
 const UNIT_PRICE: MarginColumnDef = {
@@ -102,6 +100,34 @@ const UNIT_GROSS: MarginColumnDef = {
 };
 
 // ---------------------------------------------------------------------------
+// Workstream B — Overhead allocation columns
+// ---------------------------------------------------------------------------
+// MarginPage pre-computes _overhead, _overhead_per_unit, _net_margin,
+// _net_margin_pct, _unit_net per row before passing to MarginGrid.
+// These columns just look them up via enrichmentKey.
+
+function overheadCol(
+  id: string,
+  label: string,
+  enrichmentKey: string,
+  width: number,
+  format: (v: unknown) => string,
+): MarginColumnDef {
+  return {
+    id, label, dims: 'all', group: 'overhead', width,
+    requiresFetch: false, enrichmentKey, format,
+  };
+}
+
+const OVERHEAD_COLUMNS: MarginColumnDef[] = [
+  overheadCol('overhead_total',     'Overhead $',      '_overhead',          120, fmtMoneyZeroDash),
+  overheadCol('overhead_per_unit',  'OH / unit',       '_overhead_per_unit', 110, fmtMoney),
+  overheadCol('net_margin',         'Net Margin $',    '_net_margin',        130, fmtMoney),
+  overheadCol('net_margin_pct',     'Net Margin %',    '_net_margin_pct',    110, fmtPct),
+  overheadCol('unit_net',           'Unit Net',        '_unit_net',          110, fmtMoney),
+];
+
+// ---------------------------------------------------------------------------
 // Phase 2A / 2C — Customer enrichment columns
 // ---------------------------------------------------------------------------
 
@@ -120,7 +146,6 @@ function customerCol(
 }
 
 const CUSTOMER_COLUMNS: MarginColumnDef[] = [
-  // Address
   customerCol('bill_addr_line1', 'Bill Street', 'address', 'bill_addr_line1', 220),
   customerCol('bill_addr_city',  'Bill City',   'address', 'bill_addr_city',  140),
   customerCol('bill_addr_state', 'Bill State',  'address', 'bill_addr_state',  80),
@@ -128,14 +153,12 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
   customerCol('ship_addr_city',  'Ship City',   'address', 'ship_addr_city',  140),
   customerCol('ship_addr_state', 'Ship State',  'address', 'ship_addr_state',  80),
 
-  // Attribute
   customerCol('primary_channel', 'Channel',       'attribute', 'primary_channel', 150),
   customerCol('customer_type',   'Customer Type', 'attribute', 'customer_type',   140),
   customerCol('is_sub_customer', 'Sub-customer?', 'attribute', 'is_sub_customer', 110, fmtBool),
   customerCol('phone',           'Phone',         'attribute', 'phone',           130),
   customerCol('email',           'Email',         'attribute', 'email',           200),
 
-  // AR / aging (Phase 2C) — zeros render as '—' to reduce visual noise.
   customerCol('ar_total',            'AR Total',        'ar', 'ar_total',            120, fmtMoneyZeroDash),
   customerCol('ar_0_30',             'AR 0-30 d',       'ar', 'ar_0_30',             110, fmtMoneyZeroDash),
   customerCol('ar_31_60',            'AR 31-60 d',      'ar', 'ar_31_60',            110, fmtMoneyZeroDash),
@@ -147,7 +170,7 @@ const CUSTOMER_COLUMNS: MarginColumnDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Phase 2B — Item enrichment columns (qbo_items via fn_dim_meta)
+// Phase 2B — Item enrichment columns
 // ---------------------------------------------------------------------------
 
 function itemCol(
@@ -190,9 +213,9 @@ export const MARGIN_COLUMN_REGISTRY: MarginColumnDef[] = [
   UNIT_PRICE,
   UNIT_COST,
   UNIT_GROSS,
+  ...OVERHEAD_COLUMNS,
   ...CUSTOMER_COLUMNS,
   ...ITEM_COLUMNS,
-  // Phase 3 will add Unit Overhead / Unit Net once overhead allocation ships.
 ];
 
 export function getColumnsForDim(dim: Dim): MarginColumnDef[] {
@@ -206,8 +229,14 @@ export function columnsNeedFetch(cols: MarginColumnDef[]): boolean {
   return cols.some((c) => c.requiresFetch === true);
 }
 
+/** Returns true if any selected column reads from the overhead context. */
+export function columnsNeedOverhead(cols: MarginColumnDef[]): boolean {
+  return cols.some((c) => c.group === 'overhead');
+}
+
 export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
   unit:      'Per-unit',
+  overhead:  'Overhead',
   attribute: 'Attributes',
   address:   'Address',
   ar:        'AR / Aging',
@@ -217,9 +246,10 @@ export const GROUP_LABEL: Record<MarginColumnGroup, string> = {
 
 export const GROUP_ORDER: Record<MarginColumnGroup, number> = {
   unit:      1,
-  attribute: 2,
-  address:   3,
-  ar:        4,
-  inventory: 5,
-  derived:   6,
+  overhead:  2,
+  attribute: 3,
+  address:   4,
+  ar:        5,
+  inventory: 6,
+  derived:   7,
 };
