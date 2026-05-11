@@ -243,10 +243,13 @@ export interface CustomersMasterRow {
   display_name: string;
   fully_qualified_name: string | null;
   parent_ref_id: string | null;
+  parent_name: string | null;
   is_sub_customer: boolean;
   active: boolean;
   state: string | null;
   city: string | null;
+  address: string | null;
+  postal: string | null;
   customer_type_name: string | null;
   email: string | null;
   phone: string | null;
