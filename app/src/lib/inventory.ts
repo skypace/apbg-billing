@@ -68,6 +68,34 @@ export interface CategoryOption {
   count: number;
 }
 
+export type AlignmentStatus =
+  | 'aligned' | 'misaligned' | 'isolated'
+  | 'no_account' | 'unclassified_account';
+
+export interface ItemPlAuditRow {
+  qbo_item_id: string;
+  item_name: string;
+  active: boolean;
+  income_account_name: string | null;
+  expense_account_name: string | null;
+  current_category: string;
+  category_override: string | null;
+  dominant_category_for_account: string | null;
+  account_item_count: number | null;
+  account_category_consensus_pct: number | null;
+  alignment_status: AlignmentStatus;
+  suggested_category: string | null;
+}
+
+export interface PlSuggestionApplyRow {
+  qbo_item_id: string;
+  item_name: string;
+  from_category: string;
+  to_category: string;
+  income_account: string;
+  applied: boolean;
+}
+
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {
   return sbrpc<InventoryHealthRow[]>('fn_items_master', {
     p_lookback_days: opts.lookback ?? 90,
@@ -100,7 +128,6 @@ export function setInventorySettings(opts: {
 
 // Toggle qbo_items.active locally. NOTE: QBO push-back is not yet wired —
 // the next QBO item sync may re-write this if QBO's source-of-truth differs.
-// Mostly safe because archived items don't usually flip back on their own.
 export function setItemActive(qbo_item_id: string, active: boolean) {
   return sbrpc<void>('fn_set_qbo_item_active', {
     p_qbo_item_id: qbo_item_id,
@@ -108,11 +135,30 @@ export function setItemActive(qbo_item_id: string, active: boolean) {
   });
 }
 
-// All known category labels — QBO item paths + manual overrides, deduped.
-// Renamed from fn_list_categories to disambiguate from an older RPC
-// of the same name (which takes p_start/p_end and returns sales by category).
 export function fetchCategoryList() {
   return sbrpc<CategoryOption[]>('fn_list_category_options', {});
+}
+
+// ----- P&L Alignment Audit (v0.9.23) -----
+
+export function fetchItemPlAudit(min_account_items = 3) {
+  return sbrpc<ItemPlAuditRow[]>('fn_item_pl_audit', {
+    p_min_account_items: min_account_items,
+  });
+}
+
+// Bulk-apply suggested categories. Defaults to dry_run=true so callers
+// can preview the impact. Pass dry_run=false to actually write.
+export function applyPlCategorySuggestions(opts: {
+  min_account_items?: number;
+  min_consensus_pct?: number;
+  dry_run?: boolean;
+} = {}) {
+  return sbrpc<PlSuggestionApplyRow[]>('fn_apply_pl_category_suggestions', {
+    p_min_account_items: opts.min_account_items ?? 3,
+    p_min_consensus_pct: opts.min_consensus_pct ?? 60,
+    p_dry_run:           opts.dry_run ?? true,
+  });
 }
 
 export function fetchVelocityExcludes() {
