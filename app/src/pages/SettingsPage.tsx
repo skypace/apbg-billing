@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { TaxonomyEditor } from './settings/TaxonomyEditor';
 import { ItemSetsEditor } from './settings/ItemSetsEditor';
 import { ItemsSettingsEditor } from './settings/ItemsSettingsEditor';
+import { CustomersSettingsEditor } from './settings/CustomersSettingsEditor';
 import { DigestEditor } from './settings/DigestEditor';
 import { ExpenseBucketsEditor } from './settings/ExpenseBucketsEditor';
 import { UsersEditor } from './settings/UsersEditor';
@@ -21,19 +22,20 @@ import {
 type Tab =
   | 'channels' | 'segments' | 'sales_reps'
   | 'rollups' | 'entity_defaults' | 'taxonomy'
-  | 'item_sets' | 'items' | 'digest' | 'classification'
+  | 'item_sets' | 'items' | 'customers' | 'digest' | 'classification'
   | 'expense_buckets' | 'users' | 'fleet_drivers';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'rollups',         label: 'Chain Rollups',           group: 'Filters & Taxonomy' },
   { id: 'entity_defaults', label: 'Entity Defaults',         group: 'Filters & Taxonomy' },
   { id: 'taxonomy',        label: 'Item & Customer Groups',  group: 'Filters & Taxonomy' },
+  { id: 'customers',       label: 'Customers (master)',      group: 'Customer & Item' },
   { id: 'items',           label: 'Items (master)',          group: 'Customer & Item' },
   { id: 'channels',        label: 'Channels',                group: 'Customer & Item' },
   { id: 'segments',        label: 'Segments',                group: 'Customer & Item' },
   { id: 'sales_reps',      label: 'Sales Reps',              group: 'Customer & Item' },
   { id: 'item_sets',       label: 'Item Sets',               group: 'Customer & Item' },
-  { id: 'classification',  label: 'Customer Classification', group: 'Customer & Item' },
+  { id: 'classification',  label: 'Customer Classification (legacy)', group: 'Customer & Item' },
   { id: 'expense_buckets', label: 'Expense Buckets / Overhead', group: 'Operations' },
   { id: 'digest',          label: 'Email Digest',            group: 'Operations' },
   { id: 'fleet_drivers',   label: 'Fleet Drivers',           group: 'Operations' },
@@ -41,7 +43,7 @@ const TABS: { id: Tab; label: string; group: string }[] = [
 ];
 
 export function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('items');
+  const [tab, setTab] = useState<Tab>('customers');
   const active = TABS.find((t) => t.id === tab);
   const groups = Array.from(new Set(TABS.map((t) => t.group)));
 
@@ -83,6 +85,7 @@ export function SettingsPage() {
       {tab === 'rollups'         && <ChainModifiersEditor />}
       {tab === 'entity_defaults' && <EntityDefaultsEditor />}
       {tab === 'taxonomy'        && <TaxonomyRulesEditor />}
+      {tab === 'customers'       && <CustomersSettingsEditor />}
       {tab === 'items'           && <ItemsSettingsEditor />}
 
       {tab === 'channels' && (
