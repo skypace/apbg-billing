@@ -20,6 +20,7 @@ export interface InventoryHealthRow {
   purchase_cost: number | null;
   static_purchase_cost?: number | null;
   is_managed: boolean;
+  is_planner: boolean;
   target_days_supply: number;
   lead_time_days: number;
   reorder_point: number | null;
@@ -42,6 +43,7 @@ export interface InventoryHealthRow {
 export interface InventorySettingsRow {
   qbo_item_id: string;
   is_managed: boolean;
+  is_planner: boolean;
   target_days_supply: number;
   lead_time_days: number;
   min_order_qty: number | null;
@@ -149,6 +151,7 @@ export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: b
 export function setInventorySettings(opts: {
   qbo_item_id: string;
   is_managed?: boolean | null;
+  is_planner?: boolean | null;
   target_days_supply?: number | null;
   lead_time_days?: number | null;
   reorder_point?: number | null;
@@ -159,6 +162,7 @@ export function setInventorySettings(opts: {
   return sbrpc<void>('fn_set_inventory_settings', {
     p_qbo_item_id:        opts.qbo_item_id,
     p_is_managed:         opts.is_managed ?? null,
+    p_is_planner:         opts.is_planner ?? null,
     p_target_days_supply: opts.target_days_supply ?? null,
     p_lead_time_days:     opts.lead_time_days ?? null,
     p_reorder_point:      opts.reorder_point ?? null,
