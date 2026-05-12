@@ -228,6 +228,24 @@ export function applyPlCategorySuggestions(opts: {
   });
 }
 
+export interface PlAlignRow {
+  qbo_item_id: string;
+  item_name: string;
+  income_account_name: string | null;
+  from_category: string;
+  to_category: string | null;
+  status: 'updated' | 'already_aligned' | 'skipped_no_account';
+  applied: boolean;
+}
+
+// Forces every active item's category_override = income_account_name.
+// commit=false → dry-run preview. commit=true → applies.
+export function alignCategoriesToPl(commit = false) {
+  return sbrpc<PlAlignRow[]>('fn_align_categories_to_pl', {
+    p_commit: commit,
+  });
+}
+
 // ----- Track 1 — Data hygiene (v0.9.26) -----
 
 export function fetchItemHygieneSummary() {
