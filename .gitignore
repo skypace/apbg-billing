@@ -7,9 +7,12 @@
 # Vite app build artifacts
 app/node_modules
 app/dist
+app-expense/node_modules
+app-expense/dist
+app-expense/*.tsbuildinfo
 
-# NOTE: public/sales-next/ is intentionally checked in for now because
-# Netlify's deploy doesn't appear to be running our build command from
-# netlify.toml. Until that's reconfigured, run `npm run build --prefix app`
-# locally before committing changes to the new app, and commit the
-# updated public/sales-next/ alongside.
+# NOTE: public/sales-next/ and public/expense/ are intentionally checked
+# in for now because Netlify's deploy doesn't appear to be running our
+# build command from netlify.toml. Until that's reconfigured, run the
+# matching `npm run build --prefix <app>` locally before committing
+# changes, and commit the updated public/ output alongside.
