@@ -16,15 +16,25 @@ function corsHeaders() {
   };
 }
 
-function notifyEmailHtml(request, approveUrl) {
-  const isExpense = request.request_type === 'expense';
+/** Look up a user's email from Supabase auth by UUID */
+async function getUserEmail(userId) {
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error || !data?.user) return null;
+    return { email: data.user.email, name: data.user.user_metadata?.full_name || data.user.email };
+  } catch {
+    return null;
+  }
+}
+
+function notifyEmailHtml(request, submitterLabel, approveUrl) {
+  const isExpense = request.type === 'expense';
   const typeLabel = isExpense ? 'Expense' : 'Purchase Request';
   const total = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(request.total_amount);
 
   const lineRows = (request.line_items || []).map(li =>
     `<tr>
       <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;">${li.description}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;">${li.cogs_account_name || li.cogs_account_id}</td>
       <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">$${Number(li.amount).toFixed(2)}</td>
     </tr>`
   ).join('');
@@ -36,7 +46,7 @@ function notifyEmailHtml(request, approveUrl) {
       </div>
       <div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-top:none;">
         <p style="margin:0 0 16px;color:#374151;">
-          <strong>${request.submitter_name || request.submitter_email}</strong> submitted a ${typeLabel.toLowerCase()} for your approval.
+          <strong>${submitterLabel}</strong> submitted a ${typeLabel.toLowerCase()} for your approval.
         </p>
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
@@ -46,14 +56,13 @@ function notifyEmailHtml(request, approveUrl) {
           <tr><td style="padding:4px 0;color:#6b7280;">Total</td><td style="padding:4px 0;font-weight:700;font-size:18px;color:#1F4E79;">${total}</td></tr>
         </table>
 
-        ${request.notes ? `<p style="margin:0 0 16px;padding:12px;background:#f9fafb;border-radius:6px;color:#374151;">${request.notes}</p>` : ''}
+        ${request.memo ? `<p style="margin:0 0 16px;padding:12px;background:#f9fafb;border-radius:6px;color:#374151;">${request.memo}</p>` : ''}
 
         ${lineRows ? `
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px;">
           <thead>
             <tr style="background:#f3f4f6;">
               <th style="padding:8px 12px;text-align:left;">Description</th>
-              <th style="padding:8px 12px;text-align:left;">Account</th>
               <th style="padding:8px 12px;text-align:right;">Amount</th>
             </tr>
           </thead>
@@ -111,6 +120,11 @@ export const handler = async (event) => {
       return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'No manager email set on request' }) };
     }
 
+    // Look up submitter info
+    const submitter = await getUserEmail(request.submitted_by);
+    const submitterLabel = submitter?.name || submitter?.email || 'A team member';
+    const submitterEmail = submitter?.email || null;
+
     // Create magic-link token (7 day expiry)
     const token = createToken({
       request_id: request.id,
@@ -119,21 +133,21 @@ export const handler = async (event) => {
     });
 
     const approveUrl = `${SITE_URL}/expense/approve/${token}`;
-    const isExpense = request.request_type === 'expense';
+    const isExpense = request.type === 'expense';
     const typeLabel = isExpense ? 'Expense' : 'Purchase Request';
     const total = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(request.total_amount);
 
     await sendEmail({
       to: request.manager_email,
-      subject: `[Action Required] ${typeLabel} — ${total} from ${request.submitter_name || request.submitter_email}`,
-      html: notifyEmailHtml(request, approveUrl),
-      replyTo: request.submitter_email,
+      subject: `[Action Required] ${typeLabel} — ${total} from ${submitterLabel}`,
+      html: notifyEmailHtml(request, submitterLabel, approveUrl),
+      replyTo: submitterEmail,
     });
 
     // Update request status to pending_approval
     await supabase
       .from('expense_requests')
-      .update({ status: 'pending_approval', notified_at: new Date().toISOString() })
+      .update({ status: 'pending' })
       .eq('id', request_id);
 
     return {
