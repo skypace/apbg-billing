@@ -41,7 +41,18 @@ export async function sbrpc<T = unknown>(
     const text = await res.text();
     throw new Error('sbrpc ' + fn + ' failed: ' + res.status + ' ' + text);
   }
-  return res.json() as Promise<T>;
+  // VOID-returning RPCs (e.g. fn_set_inventory_settings) reply with 204 or an
+  // empty 200 body. Tolerate both by reading as text first and only parsing
+  // when there's content.
+  const text = await res.text();
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Body wasn't JSON — return as raw text. Edge cases only; most RPCs
+    // return either valid JSON or empty.
+    return text as unknown as T;
+  }
 }
 
 export async function sbInsert<T = unknown>(tbl: string, row: T): Promise<T> {
