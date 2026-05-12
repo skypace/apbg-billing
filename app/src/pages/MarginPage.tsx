@@ -19,6 +19,8 @@ import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
 import { applyEntityDefaults, expandModifierFilters, getEntityDefaults, type ExpandedRollupFilters } from '../lib/chainModifiers';
 import { fetchEntityOptions, type EntityOption } from '../lib/settings';
+import { fetchSavedViews, insertSavedView, deleteSavedView, type SavedView, type SavedViewConfig } from '../lib/savedViews';
+import { Bookmark, BookmarkPlus } from 'lucide-react';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 import {
   type MarginColumnDef,
@@ -153,6 +155,7 @@ interface DimMetaRow {
 }
 
 export function MarginPage() {
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const today = new Date().toISOString().slice(0, 10);
   const ytdStart = new Date().getFullYear() + '-01-01';
   const toast = useToast();
@@ -247,7 +250,73 @@ export function MarginPage() {
       .then((rs) => setSyncedAt(rs?.[0]?.synced_at ?? null))
       .catch(() => setSyncedAt(null));
   }
-  useEffect(() => { loadSyncedAt(); }, []);
+  function loadSavedViews() {
+    fetchSavedViews().then(setSavedViews).catch(() => setSavedViews([]));
+  }
+  useEffect(() => { loadSyncedAt(); loadSavedViews(); }, []);
+
+  async function saveCurrentView() {
+    const name = prompt('Save current Margin view as:', '');
+    if (!name || !name.trim()) return;
+    const config: SavedViewConfig = {
+      dim,
+      start: filters.start,
+      end:   filters.end,
+      entities:   filters.entities,
+      categories: filters.categories,
+      customers:  filters.customers,
+      items:      filters.items,
+      channels:   filters.channels,
+      segments:   filters.segments,
+      columnsByDim,
+      showSparklines,
+      chartKind,
+      compareMode,
+    };
+    try {
+      await insertSavedView({ name: name.trim(), config, is_shared: false });
+      toast.success('Saved view: ' + name.trim());
+      loadSavedViews();
+    } catch (e) {
+      toast.error('Save failed: ' + (e as Error).message);
+    }
+  }
+
+  function applySavedView(id: string) {
+    const v = savedViews.find((x) => x.id === id);
+    if (!v) return;
+    const c = v.config;
+    setFilters({
+      start: c.start ?? filters.start,
+      end:   c.end ?? filters.end,
+      entities:   c.entities ?? null,
+      categories: c.categories ?? null,
+      customers:  c.customers ?? null,
+      items:      c.items ?? null,
+      channels:   c.channels ?? null,
+      segments:   c.segments ?? null,
+    });
+    if (c.dim) setDim(c.dim);
+    if (c.compareMode) setCompareMode(c.compareMode);
+    if (c.chartKind) setChartKind(c.chartKind);
+    if (typeof c.showSparklines === 'boolean') setShowSparklines(c.showSparklines);
+    if (c.columnsByDim) {
+      setColumnsByDim(c.columnsByDim);
+      saveSetting(KEYS.marginColumns, c.columnsByDim);
+    }
+    toast.info('Loaded view: ' + v.name);
+  }
+
+  async function removeSavedView(id: string, name: string) {
+    if (!confirm('Delete saved view "' + name + '"?')) return;
+    try {
+      await deleteSavedView(id);
+      toast.success('Deleted ' + name);
+      loadSavedViews();
+    } catch (e) {
+      toast.error('Delete failed: ' + (e as Error).message);
+    }
+  }
 
   async function syncItemCosts() {
     if (!confirm('Pull Item master + PurchaseCost from QuickBooks now? This may take ~30s.')) return;
@@ -646,6 +715,40 @@ export function MarginPage() {
 
           <div className="toolbar-spacer" />
 
+          {savedViews.length > 0 && (
+            <select
+              onChange={(e) => { if (e.target.value) { applySavedView(e.target.value); e.target.value = ''; } }}
+              className="tb-select"
+              style={{ minWidth: 140, color: 'var(--ac)', fontWeight: 600 }}
+              defaultValue=""
+              title="Load a saved view"
+            >
+              <option value="" disabled>↓ Load saved view</option>
+              {savedViews.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}{v.is_shared ? ' ★' : ''}</option>
+              ))}
+            </select>
+          )}
+          <button type="button" onClick={saveCurrentView} className="tb-btn"
+            title="Save the current filters + dim + columns + compare mode as a named view"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <BookmarkPlus size={13} strokeWidth={2.4} aria-hidden="true" />
+            <span>Save view</span>
+          </button>
+          {savedViews.length > 0 && (
+            <button type="button" onClick={() => {
+              if (savedViews.length === 0) return;
+              const name = prompt('Delete which saved view? (paste the exact name)\n\nCurrent views:\n' + savedViews.map((v) => '• ' + v.name).join('\n'));
+              if (!name) return;
+              const match = savedViews.find((v) => v.name.toLowerCase() === name.toLowerCase().trim());
+              if (!match) { toast.warn('No view named "' + name + '"'); return; }
+              removeSavedView(match.id, match.name);
+            }} className="tb-btn"
+              title="Delete a saved view"
+              style={{ color: 'var(--mt)' }}>
+              <Bookmark size={13} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+          )}
           <button type="button" className="tb-btn" onClick={() => {
             const ytd = applyPreset('ytd', today);
             setFilters({ start: ytd.start, end: ytd.end, entities: null });
