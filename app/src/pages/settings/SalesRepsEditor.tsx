@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { UploadCloud } from 'lucide-react';
 import { Plus, Trash2, UserPlus } from 'lucide-react';
 import {
   CustomerSalesRep,
@@ -13,6 +14,7 @@ import {
 } from '../../lib/salesReps';
 import { fetchCustomerOptions, QboCustomerOption } from '../../lib/inventory';
 import { useToast } from '../../lib/toast';
+import { pushQboSalesRepDryRun, pushQboSalesRepCommit } from '../../lib/settings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -30,6 +32,7 @@ export function SalesRepsEditor() {
     name: '',
     sort_order: 100,
   });
+  const [pushingReps, setPushingReps] = useState(false);
 
   function load() {
     Promise.all([fetchSalesReps(), fetchCustomerOptions(), fetchCustomerAssignments()])
@@ -65,6 +68,37 @@ export function SalesRepsEditor() {
       : customers;
     return list.slice(0, 200);
   }, [customers, search]);
+
+  async function pushToQbo() {
+    setPushingReps(true);
+    try {
+      const dry: any = await pushQboSalesRepDryRun();
+      const s = dry?.summary;
+      const wouldUpdate = s?.would_update ?? 0;
+      const noField = s?.skipped_no_field?.length ?? 0;
+      if (wouldUpdate === 0 && noField === 0) {
+        toast.info('QBO already in sync — every customer has the correct rep.');
+        setPushingReps(false);
+        return;
+      }
+      const lines = [];
+      if (wouldUpdate > 0) lines.push(wouldUpdate + ' customer(s) need the rep updated in QBO');
+      if (noField > 0) lines.push(noField + " customer(s) skipped: 'Sales Rep' custom field not attached");
+      const ok = confirm(
+        "Push sales-rep assignments to QuickBooks?\n\n"
+        + lines.join('\n')
+        + "\n\nQBO custom field name must be 'Sales Rep' (Settings → Custom fields → All Customers).",
+      );
+      if (!ok) { setPushingReps(false); return; }
+      const result: any = await pushQboSalesRepCommit();
+      const updated = result?.summary?.updated ?? 0;
+      toast.success(`Updated ${updated} customer rep assignment(s) in QBO.`);
+    } catch (e: unknown) {
+      toast.error('QBO push failed: ' + errMsg(e));
+    } finally {
+      setPushingReps(false);
+    }
+  }
 
   function addRep() {
     const code = draft.rep_code.trim();
@@ -136,14 +170,26 @@ export function SalesRepsEditor() {
             </div>
           </div>
           {!creating ? (
-            <button
-              onClick={() => setCreating(true)}
-              className="tb-btn tb-btn--primary"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              <Plus size={13} strokeWidth={2.4} aria-hidden="true" />
-              <span>New rep</span>
-            </button>
+            <div style={{ display: 'inline-flex', gap: 6 }}>
+              <button
+                onClick={pushToQbo}
+                disabled={pushingReps}
+                className="tb-btn"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                title="Push every customer's primary sales rep to their QBO 'Sales Rep' custom field (dry-run first, then confirm)."
+              >
+                <UploadCloud size={13} strokeWidth={2.4} aria-hidden="true" />
+                <span>{pushingReps ? 'Pushing…' : 'Push to QBO'}</span>
+              </button>
+              <button
+                onClick={() => setCreating(true)}
+                className="tb-btn tb-btn--primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <Plus size={13} strokeWidth={2.4} aria-hidden="true" />
+                <span>New rep</span>
+              </button>
+            </div>
           ) : (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
