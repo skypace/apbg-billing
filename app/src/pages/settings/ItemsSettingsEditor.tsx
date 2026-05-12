@@ -19,8 +19,12 @@ import {
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
   alignCategoriesToPl,
+  fetchProductFamilies, fetchProductTypes,
+  setItemProductFamily, setItemProductType,
+  bulkSetItemProductFamily, bulkSetItemProductType,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
   type ItemHygieneRow, type HygieneBucket,
+  type ProductFamily, type ProductType,
 } from '../../lib/inventory';
 
 interface ItemMasterRow {
@@ -49,6 +53,10 @@ interface ItemMasterRow {
   daily_velocity: number | null;
   days_of_supply: number | null;
   status: string;
+  product_family_code: string | null;
+  product_family_label: string | null;
+  product_type_code: string | null;
+  product_type_label: string | null;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -172,6 +180,11 @@ export function ItemsSettingsEditor() {
   const [aligning, setAligning] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
+  const [families, setFamilies] = useState<ProductFamily[]>([]);
+  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkFamily, setBulkFamily] = useState<string>('');
+  const [bulkType, setBulkType] = useState<string>('');
 
   function load() {
     setRows(null);
@@ -180,14 +193,18 @@ export function ItemsSettingsEditor() {
       fetchCategoryList(),
       fetchItemPlAudit(3),
       fetchItemHygieneSummary(),
+      fetchProductFamilies(),
+      fetchProductTypes(),
     ])
-      .then(([rs, cs, audit, hy]) => {
+      .then(([rs, cs, audit, hy, fams, types]) => {
         setRows([...rs].sort(sortRows));
         setCategories(cs);
         const m = new Map<string, ItemPlAuditRow>();
         for (const a of audit) m.set(a.qbo_item_id, a);
         setAuditByItem(m);
         setHygiene(hy ?? []);
+        setFamilies(fams);
+        setProductTypes(types);
       })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
@@ -290,6 +307,52 @@ export function ItemsSettingsEditor() {
       setAuditByItem(m);
     }).catch(() => undefined);
     toast.success('Applied: ' + suggested);
+  }
+
+  async function patchFamily(qbo_item_id: string, family_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemProductFamily(qbo_item_id, family_code);
+      const label = family_code ? (families.find((f) => f.family_code === family_code)?.label ?? null) : null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, product_family_code: family_code, product_family_label: label }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
+  async function patchType(qbo_item_id: string, type_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemProductType(qbo_item_id, type_code);
+      const label = type_code ? (productTypes.find((t) => t.type_code === type_code)?.label ?? null) : null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, product_type_code: type_code, product_type_label: label }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
+  async function applyBulkFamily() {
+    if (!selectedIds.length || !bulkFamily) return;
+    try {
+      const n = await bulkSetItemProductFamily(selectedIds, bulkFamily);
+      toast.success(`Set family on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkFamily('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
+  }
+
+  async function applyBulkType() {
+    if (!selectedIds.length || !bulkType) return;
+    try {
+      const n = await bulkSetItemProductType(selectedIds, bulkType);
+      toast.success(`Set type on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkType('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
   }
 
   async function runBulkAutoCategorize() {
@@ -473,6 +536,54 @@ export function ItemsSettingsEditor() {
           );
         },
       },
+      {
+        field: 'product_family_label', headerName: 'Family', width: 170, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.product_family_code as string | null;
+          const curLabel = p.row.product_family_label as string | null;
+          const selected = curCode ? (families.find((f) => f.family_code === curCode) ?? null) : null;
+          return (
+            <Autocomplete<ProductFamily, false, false, false>
+              size="small"
+              options={families}
+              value={selected}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(a, b) => a.family_code === b.family_code}
+              onChange={(_, v) => {
+                const next = v?.family_code ?? null;
+                if (next !== (curCode ?? null)) patchFamily(p.row.qbo_item_id, next);
+              }}
+              sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set family'} />}
+            />
+          );
+        },
+      },
+      {
+        field: 'product_type_label', headerName: 'Type', width: 160, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.product_type_code as string | null;
+          const curLabel = p.row.product_type_label as string | null;
+          const selected = curCode ? (productTypes.find((t) => t.type_code === curCode) ?? null) : null;
+          return (
+            <Autocomplete<ProductType, false, false, false>
+              size="small"
+              options={productTypes}
+              value={selected}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(a, b) => a.type_code === b.type_code}
+              onChange={(_, v) => {
+                const next = v?.type_code ?? null;
+                if (next !== (curCode ?? null)) patchType(p.row.qbo_item_id, next);
+              }}
+              sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set type'} />}
+            />
+          );
+        },
+      },
     ];
 
     if (showAlignment) {
@@ -632,7 +743,7 @@ export function ItemsSettingsEditor() {
     );
 
     return cols;
-  }, [categoryLabels, showAlignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryLabels, showAlignment, families, productTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
@@ -794,6 +905,10 @@ export function ItemsSettingsEditor() {
             treeData getTreeDataPath={getTreeDataPath}
             groupingColDef={groupingColDef}
             density="compact" pagination disableRowSelectionOnClick
+            checkboxSelection
+            onRowSelectionModelChange={(model) => {
+              setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
+            }}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
             initialState={{
@@ -805,6 +920,37 @@ export function ItemsSettingsEditor() {
           />
         )}
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="cd" style={{
+          padding: '10px 12px', marginTop: 10, display: 'flex',
+          gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
+        }}>
+          <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>
+            Bulk assign · {selectedIds.length} selected
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>family:</span>
+            <select value={bulkFamily} onChange={(e) => setBulkFamily(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 160 }}>
+              <option value="">— pick —</option>
+              {families.map((f) => <option key={f.family_code} value={f.family_code}>{f.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkFamily}
+              disabled={!bulkFamily}>Apply</button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>type:</span>
+            <select value={bulkType} onChange={(e) => setBulkType(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 160 }}>
+              <option value="">— pick —</option>
+              {productTypes.map((t) => <option key={t.type_code} value={t.type_code}>{t.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkType}
+              disabled={!bulkType}>Apply</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
         <strong style={{ color: 'var(--tx)' }}>P&amp;L alignment.</strong> Each item flows revenue into a
