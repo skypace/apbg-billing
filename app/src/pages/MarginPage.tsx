@@ -17,7 +17,7 @@ import { CHART_COLORS } from '../components/charts/util';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { EntityMark } from '../components/BrixMark';
 import { useToast } from '../lib/toast';
-import { applyEntityDefaults, applyModifiers, getEntityDefaults } from '../lib/chainModifiers';
+import { applyEntityDefaults, expandModifierFilters, getEntityDefaults, type ExpandedRollupFilters } from '../lib/chainModifiers';
 import { fetchEntityOptions, type EntityOption } from '../lib/settings';
 import { classifyItem, classifyCustomer, ITEM_GROUP_ORDER, CUSTOMER_GROUP_ORDER } from '../lib/taxonomy';
 import {
@@ -200,10 +200,31 @@ export function MarginPage() {
     saveSetting(KEYS.marginColumns, next);
   }
 
-  const effectiveFilters = useMemo(
-    () => applyModifiers(filters, activeModifiers),
-    [filters, activeModifiers],
-  );
+  // Resolve rollup pattern strings to real customer/category/item names via
+  // fn_preview_rollup_match (ILIKE). Re-run whenever activeModifiers changes.
+  const [expandedRollup, setExpandedRollup] = useState<ExpandedRollupFilters>({ filters: {}, perRollup: [] });
+  useEffect(() => {
+    if (activeModifiers.length === 0) {
+      setExpandedRollup({ filters: {}, perRollup: [] });
+      return;
+    }
+    let cancelled = false;
+    expandModifierFilters(activeModifiers)
+      .then((res) => { if (!cancelled) setExpandedRollup(res); })
+      .catch(() => { if (!cancelled) setExpandedRollup({ filters: {}, perRollup: [] }); });
+    return () => { cancelled = true; };
+  }, [activeModifiers]);
+
+  const effectiveFilters = useMemo(() => {
+    const next: SalesFilters = { ...filters };
+    for (const k of ['customers', 'categories', 'items', 'channels', 'segments'] as const) {
+      const exp = expandedRollup.filters[k];
+      if (!exp || exp.length === 0) continue;
+      const cur = (next[k] as string[] | null | undefined) ?? [];
+      next[k] = Array.from(new Set([...cur, ...exp]));
+    }
+    return next;
+  }, [filters, expandedRollup]);
 
   const [rows, setRows] = useState<SalesPivotRow[] | null>(null);
   const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
@@ -539,6 +560,11 @@ export function MarginPage() {
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
               {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
+              {expandedRollup.perRollup.length > 0 && (
+                ' · rollup: ' + expandedRollup.perRollup.map((r) =>
+                  r.code + ' (' + r.matched_customers + 'c · ' + r.matched_items + 'i)'
+                ).join(' + ')
+              )}
               {pareto && ` · top ${pareto.countAt80} of ${pareto.totalRows} (${(pareto.pctOfRows * 100).toFixed(0)}%) drive 80% of revenue`}
             </div>
           </div>
