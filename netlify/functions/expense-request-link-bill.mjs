@@ -7,6 +7,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/** Look up a user's email from Supabase auth by UUID */
+async function getUserEmail(userId) {
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error || !data?.user) return null;
+    return data.user.email;
+  } catch {
+    return null;
+  }
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders(), body: '' };
@@ -37,8 +48,8 @@ export const handler = async (event) => {
       return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ error: 'Request not found' }) };
     }
 
-    // Must be approved
-    if (request.status !== 'approved') {
+    // Must be approved (or draft for auto-approved sub-threshold expenses)
+    if (request.status !== 'approved' && request.status !== 'draft') {
       return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Request must be approved before creating a bill' }) };
     }
 
@@ -53,33 +64,38 @@ export const handler = async (event) => {
 
     // Build QBO bill lines from line_items
     const lineItems = request.line_items || [];
-    const billLines = lineItems.map((li, idx) => ({
-      DetailType: 'AccountBasedExpenseLineDetail',
-      Amount: Number(li.amount),
-      Description: li.description || `Line ${idx + 1}`,
-      AccountBasedExpenseLineDetail: {
-        AccountRef: { value: String(li.cogs_account_id) },
-      },
-    }));
+    const billLines = lineItems
+      .filter(li => li.description?.trim())
+      .map((li, idx) => ({
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Amount: Number(li.amount),
+        Description: li.description || `Line ${idx + 1}`,
+        AccountBasedExpenseLineDetail: {
+          AccountRef: { value: String(request.cogs_account_id || '101') },
+        },
+      }));
 
     if (billLines.length === 0) {
       // Fallback: single line from total
       billLines.push({
         DetailType: 'AccountBasedExpenseLineDetail',
         Amount: Number(request.total_amount),
-        Description: request.notes || 'Expense',
+        Description: request.memo || 'Expense',
         AccountBasedExpenseLineDetail: {
-          AccountRef: { value: '101' }, // Default: Service COGS
+          AccountRef: { value: String(request.cogs_account_id || '101') },
         },
       });
     }
+
+    // Look up submitter for the private note
+    const submitterEmail = await getUserEmail(request.submitted_by);
 
     // Build private note
     const noteParts = [];
     if (request.job_number) noteParts.push(`Job: ${request.job_number}`);
     if (request.department) noteParts.push(`Dept: ${request.department}`);
-    if (request.tag_type) noteParts.push(`Tag: ${request.tag_type}${request.tag_value ? ` — ${request.tag_value}` : ''}`);
-    noteParts.push(`Submitted by: ${request.submitter_name || request.submitter_email}`);
+    if (request.tag) noteParts.push(`Tag: ${request.tag}`);
+    if (submitterEmail) noteParts.push(`Submitted by: ${submitterEmail}`);
     noteParts.push(`Expense ID: ${request.id}`);
 
     // Build bill payload
@@ -103,8 +119,8 @@ export const handler = async (event) => {
     }
 
     // Set transaction date
-    if (request.expense_date) {
-      billPayload.TxnDate = request.expense_date;
+    if (request.receipt_date) {
+      billPayload.TxnDate = request.receipt_date;
     }
 
     // Create the bill in QBO
@@ -118,9 +134,9 @@ export const handler = async (event) => {
 
     // Try to match invoice by job number
     let invoiceMatch = null;
+    let marginResult = null;
     if (request.job_number) {
       try {
-        // Search invoices by job number in PrivateNote or DocNumber
         const invoiceQuery = `SELECT Id, DocNumber, TotalAmt, CustomerRef, PrivateNote FROM Invoice WHERE PrivateNote LIKE '%${request.job_number}%' ORDERBY MetaData.CreateTime DESC MAXRESULTS 5`;
         const invoiceResult = await qboQuery(invoiceQuery);
         const invoices = invoiceResult?.QueryResponse?.Invoice;
@@ -132,7 +148,8 @@ export const handler = async (event) => {
             ? ((margin / Number(inv.TotalAmt)) * 100).toFixed(1)
             : '0.0';
 
-          invoiceMatch = {
+          invoiceMatch = `${inv.DocNumber || inv.Id}`;
+          marginResult = {
             invoice_id: inv.Id,
             invoice_number: inv.DocNumber,
             invoice_total: inv.TotalAmt,
@@ -151,9 +168,9 @@ export const handler = async (event) => {
       .from('expense_requests')
       .update({
         qbo_bill_id: qboBillId,
-        status: 'billed',
-        invoice_match: invoiceMatch,
-        billed_at: new Date().toISOString(),
+        status: 'posted',
+        qbo_invoice_match: invoiceMatch,
+        margin_result: marginResult,
       })
       .eq('id', request_id);
 
@@ -162,7 +179,7 @@ export const handler = async (event) => {
       headers: corsHeaders(),
       body: JSON.stringify({
         qbo_bill_id: qboBillId,
-        invoice_match: invoiceMatch,
+        invoice_match: marginResult,
       }),
     };
   } catch (err) {
