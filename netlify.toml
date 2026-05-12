@@ -14,7 +14,8 @@
   # 3. Build the Vite + React + TS app; output goes to public/sales-next/. The
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
-  command = "node architecture/lint-manifest.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app"
+  # 4. Build the Brix Expense app; output goes to public/expense/.
+  command = "node architecture/lint-manifest.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
   publish = "public"
   functions = "netlify/functions"
 
@@ -46,6 +47,13 @@
 
 [functions."master-health-cron"]
   timeout = 60
+
+# ── Expense app: SPA fallback ──
+# Any /expense/* path that doesn't match a static file → serve the expense SPA
+[[redirects]]
+  from = "/expense/*"
+  to = "/expense/index.html"
+  status = 200
 
 # Old /ops/ path → /sales/ (kept for any saved bookmarks)
 [[redirects]]
