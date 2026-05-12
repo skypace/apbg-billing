@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
+import {
+  DataGridPro,
+  type GridColDef,
+  type GridGroupNode,
+  type GridValidRowModel,
+} from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
@@ -46,13 +51,15 @@ interface ItemMasterRow {
   status: string;
 }
 
-interface GridRow extends ItemMasterRow {
+// GridRow combines the typed item shape with GridValidRowModel's loose
+// index signature, which DataGridPro's `rows` prop requires.
+type GridRow = ItemMasterRow & GridValidRowModel & {
   id: string;
   alignment_status?: AlignmentStatus;
   suggested_category?: string | null;
   account_category_consensus_pct?: number | null;
   dominant_category_for_account?: string | null;
-}
+};
 
 const STATUS_COLOR: Record<string, string> = {
   reorder:  'var(--rd)', critical: 'var(--rd)',
@@ -219,7 +226,7 @@ export function ItemsSettingsEditor() {
         suggested_category:             a?.suggested_category,
         account_category_consensus_pct: a?.account_category_consensus_pct,
         dominant_category_for_account:  a?.dominant_category_for_account,
-      };
+      } as GridRow;
     }),
     [filtered, auditByItem],
   );
@@ -273,7 +280,6 @@ export function ItemsSettingsEditor() {
 
   async function applySuggestion(qbo_item_id: string, suggested: string) {
     await patchSettings(qbo_item_id, { category_override: suggested });
-    // Refresh audit for that account's items
     fetchItemPlAudit(3).then((audit) => {
       const m = new Map<string, ItemPlAuditRow>();
       for (const a of audit) m.set(a.qbo_item_id, a);
@@ -773,9 +779,8 @@ export function ItemsSettingsEditor() {
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
         <strong style={{ color: 'var(--tx)' }}>P&amp;L alignment.</strong> Each item flows revenue into a
         QBO income account. The audit groups items by account and surfaces categories where ≥60% of items
-        already agree. Apply individual suggestions or click <em>Auto-categorize from P&amp;L</em> to
-        commit all high-confidence ones at once. "Isolated" means &lt;3 items share the account; "Account TBD"
-        means the account itself is mostly Uncategorized — manual review needed.
+        already agree. Apply individual suggestions or click <em>Smart suggest</em> to commit
+        high-confidence ones. <em>Align all to P&amp;L</em> force-sets every category to its income account name.
       </div>
     </div>
   );
