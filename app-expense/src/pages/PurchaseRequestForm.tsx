@@ -207,7 +207,7 @@ export default function PurchaseRequestForm() {
           <Label>COGS / Expense Account</Label>
           <SelectField
             value={cogsAccountLabel}
-            onChange={handleCogsChange}
+            onChange={(e) => handleCogsChange(e.target.value)}
             placeholder="Select account"
             options={(settings?.cogs_accounts ?? []).map((a) => ({
               value: a.label,
@@ -221,7 +221,7 @@ export default function PurchaseRequestForm() {
           <Label>Tag</Label>
           <SelectField
             value={tag}
-            onChange={setTag}
+            onChange={(e) => setTag(e.target.value)}
             placeholder="Optional"
             options={[
               { value: '', label: 'None' },
@@ -236,7 +236,7 @@ export default function PurchaseRequestForm() {
             <Label>Department</Label>
             <SelectField
               value={department}
-              onChange={setDepartment}
+              onChange={(e) => setDepartment(e.target.value)}
               placeholder="Select department"
               options={(settings?.departments ?? []).map((d) => ({
                 value: d,
@@ -282,11 +282,11 @@ export default function PurchaseRequestForm() {
           <Label>Manager for Approval</Label>
           <SelectField
             value={managerEmail}
-            onChange={setManagerEmail}
+            onChange={(e) => setManagerEmail(e.target.value)}
             placeholder="Select manager"
-            options={(settings?.manager_emails ?? []).map((e) => ({
-              value: e,
-              label: e,
+            options={(settings?.manager_emails ?? []).map((em) => ({
+              value: em,
+              label: em,
             }))}
           />
         </div>
