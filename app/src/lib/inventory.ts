@@ -42,6 +42,9 @@ export interface InventoryHealthRow {
   product_family_label: string | null;
   product_type_code: string | null;
   product_type_label: string | null;
+  segment_code: string | null;
+  segment_label: string | null;
+  segment_source: 'item' | 'category' | null;
 }
 
 export interface InventorySettingsRow {
@@ -216,12 +219,16 @@ export function fetchCategoryList() {
 
 export interface ProductFamily { family_code: string; label: string; sort_order: number }
 export interface ProductType   { type_code:   string; label: string; sort_order: number }
+export interface SegmentOption { segment_code: string; label: string; sort_order: number }
 
 export function fetchProductFamilies() {
   return sbrpc<ProductFamily[]>('fn_list_product_families', {});
 }
 export function fetchProductTypes() {
   return sbrpc<ProductType[]>('fn_list_product_types', {});
+}
+export function fetchSegmentOptions() {
+  return sbrpc<SegmentOption[]>('fn_list_segments_for_items', {});
 }
 
 export function setItemProductFamily(qbo_item_id: string, family_code: string | null) {
@@ -236,6 +243,12 @@ export function setItemProductType(qbo_item_id: string, type_code: string | null
     p_type_code:   type_code,
   });
 }
+export function setItemSegment(qbo_item_id: string, segment_code: string | null) {
+  return sbrpc<void>('fn_set_item_segment', {
+    p_qbo_item_id:  qbo_item_id,
+    p_segment_code: segment_code,
+  });
+}
 export function bulkSetItemProductFamily(qbo_item_ids: string[], family_code: string | null) {
   return sbrpc<number>('fn_bulk_set_item_product_family', {
     p_qbo_item_ids: qbo_item_ids,
@@ -246,6 +259,12 @@ export function bulkSetItemProductType(qbo_item_ids: string[], type_code: string
   return sbrpc<number>('fn_bulk_set_item_product_type', {
     p_qbo_item_ids: qbo_item_ids,
     p_type_code:    type_code,
+  });
+}
+export function bulkSetItemSegment(qbo_item_ids: string[], segment_code: string | null) {
+  return sbrpc<number>('fn_bulk_set_item_segment', {
+    p_qbo_item_ids: qbo_item_ids,
+    p_segment_code: segment_code,
   });
 }
 

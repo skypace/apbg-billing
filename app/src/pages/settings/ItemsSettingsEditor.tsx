@@ -19,12 +19,12 @@ import {
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
   alignCategoriesToPl,
-  fetchProductFamilies, fetchProductTypes,
-  setItemProductFamily, setItemProductType,
-  bulkSetItemProductFamily, bulkSetItemProductType,
+  fetchProductFamilies, fetchProductTypes, fetchSegmentOptions,
+  setItemProductFamily, setItemProductType, setItemSegment,
+  bulkSetItemProductFamily, bulkSetItemProductType, bulkSetItemSegment,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
   type ItemHygieneRow, type HygieneBucket,
-  type ProductFamily, type ProductType,
+  type ProductFamily, type ProductType, type SegmentOption,
 } from '../../lib/inventory';
 
 interface ItemMasterRow {
@@ -57,6 +57,9 @@ interface ItemMasterRow {
   product_family_label: string | null;
   product_type_code: string | null;
   product_type_label: string | null;
+  segment_code: string | null;
+  segment_label: string | null;
+  segment_source: 'item' | 'category' | null;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -182,9 +185,11 @@ export function ItemsSettingsEditor() {
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
   const [families, setFamilies] = useState<ProductFamily[]>([]);
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [segmentOpts, setSegmentOpts] = useState<SegmentOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkFamily, setBulkFamily] = useState<string>('');
   const [bulkType, setBulkType] = useState<string>('');
+  const [bulkSegment, setBulkSegment] = useState<string>('');
 
   function load() {
     setRows(null);
@@ -195,8 +200,9 @@ export function ItemsSettingsEditor() {
       fetchItemHygieneSummary(),
       fetchProductFamilies(),
       fetchProductTypes(),
+      fetchSegmentOptions(),
     ])
-      .then(([rs, cs, audit, hy, fams, types]) => {
+      .then(([rs, cs, audit, hy, fams, types, segs]) => {
         setRows([...rs].sort(sortRows));
         setCategories(cs);
         const m = new Map<string, ItemPlAuditRow>();
@@ -205,6 +211,7 @@ export function ItemsSettingsEditor() {
         setHygiene(hy ?? []);
         setFamilies(fams);
         setProductTypes(types);
+        setSegmentOpts(segs);
       })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
@@ -335,6 +342,22 @@ export function ItemsSettingsEditor() {
     } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
   }
 
+  async function patchSegment(qbo_item_id: string, segment_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemSegment(qbo_item_id, segment_code);
+      // Setting to null falls back to category default — easier to reload than
+      // try to derive the new effective label on the client.
+      if (!segment_code) { load(); return; }
+      const label = segmentOpts.find((s) => s.segment_code === segment_code)?.label ?? null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, segment_code, segment_label: label, segment_source: 'item' }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
   async function applyBulkFamily() {
     if (!selectedIds.length || !bulkFamily) return;
     try {
@@ -351,6 +374,16 @@ export function ItemsSettingsEditor() {
       const n = await bulkSetItemProductType(selectedIds, bulkType);
       toast.success(`Set type on ${n} item${n === 1 ? '' : 's'}.`);
       setBulkType('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
+  }
+
+  async function applyBulkSegment() {
+    if (!selectedIds.length || !bulkSegment) return;
+    try {
+      const n = await bulkSetItemSegment(selectedIds, bulkSegment);
+      toast.success(`Set segment on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkSegment('');
       load();
     } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
   }
@@ -533,6 +566,38 @@ export function ItemsSettingsEditor() {
               sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
               renderInput={(params) => <TextField {...params} placeholder={inherited ?? 'set category'} />}
             />
+          );
+        },
+      },
+      {
+        field: 'segment_label', headerName: 'Segment', width: 180, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.segment_code as string | null;
+          const curLabel = p.row.segment_label as string | null;
+          const source = p.row.segment_source as 'item' | 'category' | null;
+          const selected = curCode ? (segmentOpts.find((s) => s.segment_code === curCode) ?? null) : null;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 4 }}>
+              <Autocomplete<SegmentOption, false, false, false>
+                size="small"
+                options={segmentOpts}
+                value={selected}
+                getOptionLabel={(o) => o.label}
+                isOptionEqualToValue={(a, b) => a.segment_code === b.segment_code}
+                onChange={(_, v) => {
+                  const next = v?.segment_code ?? null;
+                  if (next !== (curCode ?? null)) patchSegment(p.row.qbo_item_id, next);
+                }}
+                sx={{ ...CAT_AC_SX, flex: 1 }} slotProps={CAT_AC_PAPER}
+                renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set segment'} />}
+              />
+              {source === 'category' && (
+                <span title="Inherited from category default (no per-item override)" style={{
+                  fontSize: 9, color: 'var(--mt)', letterSpacing: 0.4,
+                }}>cat</span>
+              )}
+            </div>
           );
         },
       },
@@ -743,7 +808,7 @@ export function ItemsSettingsEditor() {
     );
 
     return cols;
-  }, [categoryLabels, showAlignment, families, productTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
@@ -929,6 +994,16 @@ export function ItemsSettingsEditor() {
           <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>
             Bulk assign · {selectedIds.length} selected
           </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>segment:</span>
+            <select value={bulkSegment} onChange={(e) => setBulkSegment(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 180 }}>
+              <option value="">— pick —</option>
+              {segmentOpts.map((s) => <option key={s.segment_code} value={s.segment_code}>{s.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkSegment}
+              disabled={!bulkSegment}>Apply</button>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: 'var(--mt)' }}>family:</span>
             <select value={bulkFamily} onChange={(e) => setBulkFamily(e.target.value)}
