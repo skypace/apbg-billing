@@ -232,3 +232,37 @@ package.json
 - Expose the Supabase service_role key in client code (anon key only)
 - Hard-delete staff records (set status to 'inactive' instead)
 - Modify ops.qbo_token_cache or ops.sf_token_cache directly — the edge functions manage those
+
+---
+
+## Current state (as of 2026-05-12)
+
+**The Priority 1–5 build agenda above is mostly historical.** Most of it has shipped:
+
+- **P1 (real app):** Done. `app/` is the React 18 + Vite 5 + TypeScript Margin Control SPA, npm package `apbg-margin-app`, current version **v0.9.27**. Builds to `public/sales-next/` and is served at **`alamedapointbg.com/margin/`** via the gateway proxy.
+- **P2 (Roster CRUD):** Moved to `APBG-OPS` (mounted at `/operations/` on the gateway). Removed from the BRIX nav 2026-05-10.
+- **P3 (sync gaps):** Most landed — `sync-qbo` is now v35 with `ops.mv_sales_lines` refresh; Fleet + HR/Bambee work moved to `APBG-OPS`.
+- **P4 (Dashboard KPIs):** BRIX surfaces the sales/margin/customer KPIs. The operational delivery / service / reman KPIs moved to `APBG-OPS`.
+- **P5 (Auth):** Supabase Email/Password shipped via `LoginPage.tsx`.
+
+**For up-to-date architecture and the current four-surface structure of this repo, read:**
+
+- [`architecture/MARGIN-CONTROL.md`](architecture/MARGIN-CONTROL.md) — focused architecture doc for the BRIX app: pages, components, lib modules, RPC contract, build pipeline, known gaps.
+- [`README.md`](README.md) — repo map: AP tool + Margin Control + sync-manifest tooling + user-guide docs.
+- [`docs/margin-control/user-guide.md`](docs/margin-control/user-guide.md) — end-user guide for BRIX (rendered interactively at `alamedapointbg.com/margin/docs/margin-control/`).
+- [`activespacescience/Skilliosis_Mytosis_Architecture/ARCHITECTURE.md`](https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md) — master cross-repo handbook.
+
+The Priority 1–5 sections above are kept for historical context (payroll splits, store economics, COGS mapping are still accurate; the build-task framing is not).
+
+## Change log
+
+| Date | Version | Change |
+|---|---|---|
+| 2026-05-11 | v0.9.22 | Items active/managed toggles, customers gain parent/sub + address fields, Margin hero-stamp polish (LIVE + costs-ago + sync time). |
+| 2026-05-11 | v0.9.23 | **P&L alignment audit shipped.** New Postgres `fn_item_pl_audit` + `fn_apply_pl_category_suggestions`. Items master gets a P&L Alignment column (aligned / misaligned / isolated / no_account / unclassified_account) + "Auto-categorize from P&L" bulk action for high-confidence (≥60% consensus) suggestions. Legacy Customer Classification tab retired. `fn_list_categories()` renamed `fn_list_category_options` to dodge PG overload ambiguity. |
+| 2026-05-11 | v0.9.24 | **Per-customer entity + FIRST QBO WRITEBACK PATH.** New `entity` column on customers + `fn_list_entities` + `fn_customers_master` returning `entity_resolved`. Entity dropdowns app-wide now source from this RPC instead of a hardcoded Brix/Alameda/FreeFlow/shared list. **New `push-qbo-item` edge function** — `setActive` action lets the Items master Active toggle flip both BRIX and QBO in one click. First Supabase → QBO direction in this stack (sync-qbo was read-only before today). |
+| 2026-05-11 | v0.9.25 | **Category writeback.** `push-qbo-item v2` adds `bulkSyncCategories` — creates QBO Category items (Item.Type = Category) and sets each child item's ParentRef. Surfaced as the **Push to QBO** button on Items master, with dry-run preview. `bulkSyncCategoriesToQbo` lib helper wraps the edge call. |
+| 2026-05-11 | — | **Docs + arch shipped.** Focused architecture doc at [`architecture/MARGIN-CONTROL.md`](architecture/MARGIN-CONTROL.md). Repo `README.md` rewritten to cover the four surfaces (AP + Margin Control + sync-manifest + user-guide docs). Interactive user guide at `docs/margin-control/user-guide.md` (source) + `public/docs/margin-control/index.html` (viewer, fetches markdown at runtime via marked.js + DOMPurify). `netlify.toml` build step `mkdir -p public/docs && cp -r docs/. public/docs/` wired in. Sidebar User Guide link in `app/src/components/Layout.tsx`. |
+| 2026-05-11 | — | **TS build fix in `app/src/pages/settings/ItemsSettingsEditor.tsx`.** Added `[key: string]: unknown` index signature to the `GridRow` interface so MUI X DataGrid Pro v7's `rows: readonly Record<string, unknown>[]` constraint is satisfied. |
+| 2026-05-12 | v0.9.26 | **Data hygiene + chain rollups preview.** New Postgres `fn_item_hygiene_summary` + `fn_preview_rollup_match` (live ILIKE counts). Items page gets a data hygiene banner with click-to-filter. Rollups picker shows live preview of matching item / customer names. |
+| 2026-05-12 | v0.9.27 | **Runtime fuzzy match for Chain Rollups.** `expandModifierFilters` lib helper pre-resolves ILIKE patterns to exact name lists before query time. Rollup filters in Margin now expand to real underlying names at runtime via `fn_preview_rollup_match` — silent mismatches when naming drifts are now visible and auditable. |
