@@ -9,12 +9,13 @@ import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
+import { QboConfirmModal } from '../../components/QboConfirmModal';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
 import {
-  fetchCategoryList, setItemActive,
+  fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled,
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
@@ -190,6 +191,10 @@ export function ItemsSettingsEditor() {
   const [bulkFamily, setBulkFamily] = useState<string>('');
   const [bulkType, setBulkType] = useState<string>('');
   const [bulkSegment, setBulkSegment] = useState<string>('');
+  const [activePrompt, setActivePrompt] = useState<{
+    qbo_item_id: string; item_name: string; current: boolean; next: boolean;
+  } | null>(null);
+  const [activeBusy, setActiveBusy] = useState(false);
 
   function load() {
     setRows(null);
@@ -293,17 +298,54 @@ export function ItemsSettingsEditor() {
     }
   }
 
-  async function patchActive(qbo_item_id: string, active: boolean) {
+  // Active toggle pushes to QuickBooks. Don't fire the writeback until the
+  // user explicitly confirms via the diff modal — too easy to misclick and
+  // mass-deactivate (cf. the 31-item incident on 2026-05-12).
+  function patchActive(qbo_item_id: string, next: boolean) {
     if (!qbo_item_id) return;
+    const row = (rows ?? []).find((r) => r.qbo_item_id === qbo_item_id);
+    setActivePrompt({
+      qbo_item_id,
+      item_name: row?.item_name ?? '(unknown)',
+      current: row?.active ?? !next,
+      next,
+    });
+  }
+
+  async function confirmActiveToggle() {
+    if (!activePrompt) return;
+    setActiveBusy(true);
     try {
-      await setItemActive(qbo_item_id, active);
+      await setItemActiveAudited({
+        qbo_item_id:    activePrompt.qbo_item_id,
+        item_name:      activePrompt.item_name,
+        current_active: activePrompt.current,
+        next_active:    activePrompt.next,
+      });
       setRows((cur) => cur?.map((r) =>
-        r.qbo_item_id === qbo_item_id ? { ...r, active } : r,
+        r.qbo_item_id === activePrompt.qbo_item_id ? { ...r, active: activePrompt.next } : r,
       ) ?? cur);
+      toast.success(activePrompt.next ? 'Reactivated in QBO.' : 'Deactivated in QBO.');
+      setActivePrompt(null);
     } catch (e) {
-      toast.error('Save failed: ' + (e as Error).message);
-      load();
+      toast.error('Push to QBO failed: ' + (e as Error).message);
+    } finally {
+      setActiveBusy(false);
     }
+  }
+
+  async function cancelActiveToggle() {
+    if (activePrompt) {
+      // Log the cancellation so the audit trail captures "user almost
+      // pushed X but bailed" — useful when reconstructing intent later.
+      logQboWritebackCancelled({
+        qbo_item_id:     activePrompt.qbo_item_id,
+        item_name:       activePrompt.item_name,
+        current_active:  activePrompt.current,
+        intended_active: activePrompt.next,
+      }).catch(() => undefined);
+    }
+    setActivePrompt(null);
   }
 
   async function applySuggestion(qbo_item_id: string, suggested: string) {
@@ -834,6 +876,36 @@ export function ItemsSettingsEditor() {
 
   return (
     <div>
+      <QboConfirmModal
+        open={!!activePrompt}
+        title={activePrompt?.next ? 'Reactivate item in QuickBooks?' : 'Deactivate item in QuickBooks?'}
+        subtitle={activePrompt?.item_name ?? undefined}
+        fields={activePrompt ? [
+          {
+            label: 'Active',
+            before: activePrompt.current ? 'Active' : 'Inactive',
+            after:  activePrompt.next    ? 'Active' : 'Inactive',
+          },
+          {
+            label: 'Name',
+            before: activePrompt.item_name,
+            after:  activePrompt.next
+              ? activePrompt.item_name.replace(/\s*\(deleted\)\s*$/i, '')
+              : (activePrompt.item_name.endsWith(' (deleted)')
+                  ? activePrompt.item_name
+                  : activePrompt.item_name + ' (deleted)'),
+            warn: activePrompt.next
+              ? "Reactivating doesn't auto-strip the suffix on QBO's side; we'll rename it for you in the same push."
+              : 'QuickBooks automatically appends " (deleted)" to the item name on deactivation. Reactivating later does NOT strip it back unless we explicitly rename.',
+          },
+        ] : []}
+        confirmLabel={activePrompt?.next ? 'Reactivate in QBO' : 'Deactivate in QBO'}
+        confirmDanger={!activePrompt?.next}
+        onCancel={cancelActiveToggle}
+        onConfirm={confirmActiveToggle}
+        busy={activeBusy}
+      />
+
       <div className="gr g4" style={{ marginBottom: 12 }}>
         <KPICard title="ITEMS TOTAL"     value={rows.length} sub={`${activeCount} active · ${inactiveCount} inactive`} />
         <KPICard title="MANAGED"          value={managedCount} accent="var(--ac)" sub="velocity-driven reorder" />

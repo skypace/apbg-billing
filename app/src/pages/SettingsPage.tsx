@@ -12,6 +12,7 @@ import { ChainModifiersEditor } from './settings/ChainModifiersEditor';
 import { EntityDefaultsEditor } from './settings/EntityDefaultsEditor';
 import { TaxonomyRulesEditor } from './settings/TaxonomyRulesEditor';
 import { AccountsEditor } from './settings/AccountsEditor';
+import { QboWritebackLogEditor } from './settings/QboWritebackLogEditor';
 import {
   deleteChannel, deleteSegment,
   fetchChannels, fetchSegments,
@@ -26,7 +27,8 @@ type Tab =
   | 'rollups' | 'entity_defaults' | 'taxonomy'
   | 'item_sets' | 'items' | 'customers' | 'digest'
   | 'expense_buckets' | 'users' | 'fleet_drivers'
-  | 'product_families' | 'product_types' | 'accounts';
+  | 'product_families' | 'product_types' | 'accounts'
+  | 'qbo_writeback_log';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'rollups',         label: 'Chain Rollups',           group: 'Filters & Taxonomy' },
@@ -41,10 +43,11 @@ const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'product_types',   label: 'Product Types',           group: 'Customer & Item' },
   { id: 'sales_reps',      label: 'Sales Reps',              group: 'Customer & Item' },
   { id: 'item_sets',       label: 'Item Sets',               group: 'Customer & Item' },
-  { id: 'expense_buckets', label: 'Expense Buckets / Overhead', group: 'Operations' },
-  { id: 'digest',          label: 'Email Digest',            group: 'Operations' },
-  { id: 'fleet_drivers',   label: 'Fleet Drivers',           group: 'Operations' },
-  { id: 'users',           label: 'Users',                   group: 'Operations' },
+  { id: 'expense_buckets',    label: 'Expense Buckets / Overhead', group: 'Operations' },
+  { id: 'digest',             label: 'Email Digest',            group: 'Operations' },
+  { id: 'fleet_drivers',      label: 'Fleet Drivers',           group: 'Operations' },
+  { id: 'users',              label: 'Users',                   group: 'Operations' },
+  { id: 'qbo_writeback_log',  label: 'QBO Writeback Log',       group: 'Operations' },
 ];
 
 export function SettingsPage() {
@@ -148,7 +151,8 @@ export function SettingsPage() {
       {tab === 'digest'          && <DigestEditor />}
       {tab === 'expense_buckets' && <ExpenseBucketsEditor />}
       {tab === 'fleet_drivers'   && <FleetDriversEditor />}
-      {tab === 'users'           && <UsersEditor />}
+      {tab === 'users'             && <UsersEditor />}
+      {tab === 'qbo_writeback_log' && <QboWritebackLogEditor />}
     </div>
   );
 }
