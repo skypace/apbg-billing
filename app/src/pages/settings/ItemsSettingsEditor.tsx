@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
@@ -13,6 +13,7 @@ import {
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
+  alignCategoriesToPl,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
   type ItemHygieneRow, type HygieneBucket,
 } from '../../lib/inventory';
@@ -161,6 +162,7 @@ export function ItemsSettingsEditor() {
   const [misalignedOnly, setMisalignedOnly] = useState(false);
   const [applying, setApplying] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [aligning, setAligning] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
 
@@ -304,6 +306,47 @@ export function ItemsSettingsEditor() {
       toast.error('Auto-categorize failed: ' + (e as Error).message);
     } finally {
       setApplying(false);
+    }
+  }
+
+  async function alignCategoriesToPlAccounts() {
+    setAligning(true);
+    try {
+      const dry = await alignCategoriesToPl(false);
+      const updates = dry.filter((r) => r.status === 'updated');
+      const noAccount = dry.filter((r) => r.status === 'skipped_no_account');
+      if (updates.length === 0) {
+        toast.info('All active items already match their P&L account.');
+        setAligning(false);
+        return;
+      }
+      const accountCounts: Record<string, number> = {};
+      for (const u of updates) {
+        const acc = u.to_category ?? '—';
+        accountCounts[acc] = (accountCounts[acc] ?? 0) + 1;
+      }
+      const accountList = Object.entries(accountCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([acc, n]) => '• ' + acc + ' (' + n + ')')
+        .join('\n');
+      const ok = confirm(
+        'Align all categories to P&L income accounts?\n\n'
+        + updates.length + ' item(s) will be re-categorized to match their P&L flow.\n'
+        + (noAccount.length > 0 ? noAccount.length + ' item(s) skipped (no income account in QBO).\n' : '')
+        + '\nTop categories that will be set:\n' + accountList
+        + (Object.keys(accountCounts).length > 8 ? '\n• … and ' + (Object.keys(accountCounts).length - 8) + ' more' : '')
+        + '\n\nThis overwrites every existing category_override. After this you can push back to QBO so the catalog matches.',
+      );
+      if (!ok) { setAligning(false); return; }
+      const result = await alignCategoriesToPl(true);
+      const applied = result.filter((r) => r.applied).length;
+      toast.success('Aligned ' + applied + ' item(s) to P&L accounts. Run "Push to QBO" to sync the catalog.');
+      load();
+    } catch (e) {
+      toast.error('Align failed: ' + (e as Error).message);
+    } finally {
+      setAligning(false);
     }
   }
 
@@ -674,14 +717,24 @@ export function ItemsSettingsEditor() {
         )}
 
         <button
+          onClick={alignCategoriesToPlAccounts}
+          disabled={aligning}
+          className="tb-btn"
+          style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title="Force every active item's category to match its P&L income account name. Overwrites every override."
+        >
+          <Zap size={12} strokeWidth={2.4} aria-hidden="true" />
+          {aligning ? 'Aligning…' : 'Align all to P&L'}
+        </button>
+        <button
           onClick={runBulkAutoCategorize}
           disabled={applying || alignmentSummary.suggestions === 0}
           className="tb-btn tb-btn--primary"
-          style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          title={alignmentSummary.suggestions === 0 ? 'Nothing to auto-categorize' : 'Auto-apply all high-confidence P&L-aligned categories'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title={alignmentSummary.suggestions === 0 ? 'Nothing to auto-categorize' : 'Auto-apply only high-confidence P&L category suggestions (60%+ consensus)'}
         >
           <Sparkles size={12} strokeWidth={2.4} aria-hidden="true" />
-          {applying ? 'Applying…' : `Auto-categorize from P&L (${alignmentSummary.suggestions})`}
+          {applying ? 'Applying…' : `Smart suggest (${alignmentSummary.suggestions})`}
         </button>
         <button
           onClick={pushCategoriesToQbo}
