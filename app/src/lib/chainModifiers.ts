@@ -1,5 +1,6 @@
 import type { SalesFilters } from './sales';
 import { loadSetting, saveSetting, KEYS } from './settingsStore';
+import { previewRollupMatch, type RollupMatchPreview } from './inventory';
 
 // ─────────── Type definitions ───────────
 
@@ -64,8 +65,14 @@ export const CHAIN_MODIFIERS = DEFAULT_CHAIN_MODIFIERS;
 /** @deprecated kept for backward compat — use getEntityDefaults() instead. */
 export const ENTITY_AUTO_FILTERS = DEFAULT_ENTITY_AUTO_FILTERS;
 
-// ─────────── Apply helpers (route through runtime getters) ───────────
+// ─────────── Apply helpers ───────────
 
+/**
+ * Legacy synchronous apply — concatenates literal pattern strings into filters.
+ * fn_sales_pivot uses exact matching, so this rarely produces results when the
+ * rollup definition contains substring patterns (e.g. 'THE MELT' won't match
+ * 'The Melt :: Berkeley'). Use `expandModifierFilters` for live data instead.
+ */
 export function applyModifiers(base: SalesFilters, codes: string[]): SalesFilters {
   if (codes.length === 0) return base;
   const list = getChainModifiers();
@@ -95,4 +102,65 @@ export function applyEntityDefaults(base: SalesFilters, entity: string | null): 
     customers:  d.customers  ?? base.customers,
     items:      d.items      ?? base.items,
   };
+}
+
+/**
+ * Resolve a list of active rollup codes to actual customer/category/item name
+ * lists by calling fn_preview_rollup_match for each. Returns a merged
+ * Partial<SalesFilters> with exact names that fn_sales_pivot can filter on.
+ *
+ * Also returns total match counts for surfacing in the modifier bar.
+ */
+export interface ExpandedRollupFilters {
+  filters: Partial<SalesFilters>;
+  perRollup: Array<{
+    code: string;
+    label: string;
+    matched_customers: number;
+    matched_items: number;
+    matched_revenue: number;
+  }>;
+}
+
+export async function expandModifierFilters(codes: string[]): Promise<ExpandedRollupFilters> {
+  if (codes.length === 0) return { filters: {}, perRollup: [] };
+
+  const list = getChainModifiers();
+  const customers   = new Set<string>();
+  const categories  = new Set<string>();
+  const items       = new Set<string>();
+  const perRollup: ExpandedRollupFilters['perRollup'] = [];
+
+  for (const code of codes) {
+    const m = list.find((c) => c.code === code);
+    if (!m) continue;
+    let preview: RollupMatchPreview | undefined;
+    try {
+      const res = await previewRollupMatch({
+        customers:  m.filters.customers ?? null,
+        categories: m.filters.categories ?? null,
+        items:      m.filters.items ?? null,
+        channels:   m.filters.channels ?? null,
+        segments:   m.filters.segments ?? null,
+      });
+      preview = res?.[0];
+    } catch { /* swallow; surface as zero */ }
+
+    for (const n of preview?.sample_customer_names ?? []) customers.add(n);
+    for (const n of preview?.sample_category_names ?? []) categories.add(n);
+    for (const n of preview?.sample_item_names      ?? []) items.add(n);
+
+    perRollup.push({
+      code: m.code, label: m.label,
+      matched_customers: preview?.matched_customers ?? 0,
+      matched_items:     preview?.matched_items     ?? 0,
+      matched_revenue:   Number(preview?.matched_revenue ?? 0),
+    });
+  }
+
+  const filters: Partial<SalesFilters> = {};
+  if (customers.size  > 0) filters.customers  = Array.from(customers);
+  if (categories.size > 0) filters.categories = Array.from(categories);
+  if (items.size      > 0) filters.items      = Array.from(items);
+  return { filters, perRollup };
 }
