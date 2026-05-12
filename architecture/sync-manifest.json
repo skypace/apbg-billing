@@ -256,6 +256,20 @@
       "writes": ["ops.sync_log"],
       "multi_writer": true,
       "notes": "Every sync function appends a row to ops.sync_log on completion. No single owner; this is a logging convention."
+    },
+    {
+      "name": "brix-expense:app-and-functions",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (user submits expense / manager approves / link-bill)",
+      "writes": [
+        "ops.expense_requests",
+        "ops.expense_request_attachments",
+        "ops.expense_request_approvals",
+        "ops.expense_settings"
+      ],
+      "multi_writer": true,
+      "notes": "Brix Expense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill). Frontend uses anon key under RLS (submitters can INSERT/UPDATE own drafts; managers can SELECT their queue). Netlify functions use service-role and bypass RLS for status transitions, approval logging, and QBO bill creation. expense_settings is read-only from the client and seeded by migration 20260512o_brix_expense_requests."
     }
   ],
 
