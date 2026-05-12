@@ -6,51 +6,56 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Brix Beverage brand palette
-        brand: {
-          navy: '#1F4E79',
-          'navy-dark': '#163A5C',
-          'navy-light': '#2A6599',
-          cyan: '#22d3ee',
-        },
-        // Semantic aliases
-        primary: {
-          DEFAULT: '#1F4E79',
-          foreground: '#ffffff',
-        },
-        secondary: {
-          DEFAULT: '#f4f6f8',
-          foreground: '#1F4E79',
-        },
-        destructive: {
-          DEFAULT: '#ef4444',
-          foreground: '#ffffff',
-        },
-        muted: {
-          DEFAULT: '#f1f5f9',
-          foreground: '#64748b',
-        },
-        accent: {
-          DEFAULT: '#f59e0b',
-          foreground: '#ffffff',
-        },
-        card: {
-          DEFAULT: '#ffffff',
-          foreground: '#0f172a',
-        },
-        border: '#e2e8f0',
-        input: '#e2e8f0',
-        ring: '#1F4E79',
-        background: '#f8fafc',
-        foreground: '#0f172a',
+        /* Backgrounds — navy-tinted dark, matching main app theme.css */
+        background: '#06121F',
+        foreground: '#E6EEF7',
+        surface: { DEFAULT: '#0E2240', '2': '#163052', '3': '#1E4068' },
+
+        /* Borders */
+        border: '#1B3A5E',
+        'border-2': '#2A5285',
+        input: '#1B3A5E',
+        ring: '#5BB5F0',
+
+        /* Brand */
+        primary: { DEFAULT: '#5BB5F0', foreground: '#06121F' },
+        accent: { DEFAULT: '#5BB5F0', foreground: '#06121F' },
+        secondary: { DEFAULT: '#0E2240', foreground: '#E6EEF7' },
+        muted: { DEFAULT: '#0E2240', foreground: '#6B8499' },
+        card: { DEFAULT: 'rgba(20, 57, 102, 0.32)', foreground: '#E6EEF7' },
+        destructive: { DEFAULT: '#FF5A5F', foreground: '#ffffff' },
+
+        /* Semantic */
+        success: '#2EB872',
+        warning: '#F4B400',
+        danger: '#FF5A5F',
+        info: '#5BB5F0',
+
+        /* Text tiers */
+        'tx': '#E6EEF7',
+        'tx2': '#94A8BD',
+        'mt': '#6B8499',
       },
       borderRadius: {
-        lg: '0.75rem',
-        md: '0.5rem',
-        sm: '0.375rem',
+        lg: '12px',
+        md: '8px',
+        sm: '4px',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ["'Bricolage Grotesque'", "'Söhne'", 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ["'Inter Tight'", 'system-ui', '-apple-system', 'BlinkMacSystemFont', "'Segoe UI'", 'sans-serif'],
+        mono: ["'JetBrains Mono'", "'SF Mono'", 'Consolas', 'monospace'],
+      },
+      backdropBlur: {
+        glass: '20px',
+        'glass-sm': '12px',
+        'glass-lg': '28px',
+      },
+      boxShadow: {
+        glass: '0 4px 14px rgba(0, 0, 0, 0.40)',
+        'glass-lg': '0 12px 40px rgba(0, 0, 0, 0.55)',
+        glow: '0 0 0 1px rgba(91, 181, 240, 0.20), 0 8px 24px rgba(91, 181, 240, 0.10)',
+        bar: '0 4px 12px rgba(91, 181, 240, 0.22)',
       },
     },
   },
