@@ -85,3 +85,31 @@ export function fetchItemOptions() {
     'select=qbo_item_id,name,fully_qualified_name,income_account_ref_id,income_account_name&active=eq.true&order=name&limit=2000',
   );
 }
+
+// ----- Plan Builder auto-fill (v0.9.31) -----
+
+export interface AutofillResultRow {
+  qbo_item_id: string;
+  item_name: string;
+  qbo_customer_id: string;
+  customer_name: string;
+  annual_qty: number;
+  annual_revenue: number;
+  created: boolean;
+}
+
+export function autofillPlanFromHistory(opts: {
+  plan_id: string;
+  item_ids?: string[] | null;
+  customer_ids?: string[] | null;
+  adjustment_pct?: number;
+  source_year?: number | null;
+}) {
+  return sbrpc<AutofillResultRow[]>('fn_autofill_plan_from_history', {
+    p_plan_id:        opts.plan_id,
+    p_item_ids:       opts.item_ids ?? null,
+    p_customer_ids:   opts.customer_ids ?? null,
+    p_adjustment_pct: opts.adjustment_pct ?? 0,
+    p_source_year:    opts.source_year ?? null,
+  });
+}
