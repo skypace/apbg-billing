@@ -1,0 +1,51 @@
+/* Tailwind layer for the Brix Expense module only.
+ *
+ * Loaded lazily by the /expense route entry. With `preflight: false` in
+ * tailwind.config.js, none of these utilities affect the rest of the app
+ * unless an element opts in via a `brix-expense` wrapper (see below).
+ *
+ * Fira fonts + a localized CSS reset live inside the .brix-expense scope
+ * so the navy/light-bg pages don't bleed into Margin/Fleet/etc.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.brix-expense {
+  font-family: 'Fira Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #0F172A;
+  background: #F8FAFC;
+  min-height: 100vh;
+}
+
+.brix-expense * {
+  box-sizing: border-box;
+}
+
+.brix-expense input,
+.brix-expense select,
+.brix-expense textarea,
+.brix-expense button {
+  font-family: inherit;
+  color: inherit;
+}
+
+.brix-expense h1,
+.brix-expense h2,
+.brix-expense h3 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brix-expense .brix-mono {
+  font-family: 'Fira Code', 'SF Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hide the global SPA top-bar when the Brix Expense pages are mounted —
+ * the module brings its own header. */
+.brix-expense-host .tb { display: none }
+.brix-expense-host .ma { padding: 0 }
