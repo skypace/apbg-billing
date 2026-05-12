@@ -15,9 +15,20 @@ function corsHeaders() {
   };
 }
 
-function outcomeEmailHtml(request, decision, reasonNote) {
+/** Look up a user's email from Supabase auth by UUID */
+async function getUserEmail(userId) {
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error || !data?.user) return null;
+    return data.user.email;
+  } catch {
+    return null;
+  }
+}
+
+function outcomeEmailHtml(request, decision, reasonNote, submitterLabel) {
   const isApproved = decision === 'approved';
-  const typeLabel = request.request_type === 'expense' ? 'Expense' : 'Purchase Request';
+  const typeLabel = request.type === 'expense' ? 'Expense' : 'Purchase Request';
   const total = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(request.total_amount);
   const statusColor = isApproved ? '#059669' : '#dc2626';
   const statusLabel = isApproved ? 'Approved' : 'Denied';
@@ -46,7 +57,7 @@ function outcomeEmailHtml(request, decision, reasonNote) {
           <p style="margin:0;color:#374151;"><strong>Manager Note:</strong> ${reasonNote}</p>
         </div>` : ''}
 
-        ${isApproved && request.request_type === 'expense' ? `
+        ${isApproved && request.type === 'expense' ? `
         <p style="margin:16px 0 0;padding:12px;background:#ecfdf5;border-radius:6px;color:#065f46;font-size:14px;">
           A QuickBooks bill will be created automatically for this expense.
         </p>` : ''}
@@ -177,7 +188,9 @@ export const handler = async (event) => {
         || event.headers['client-ip']
         || 'unknown';
 
-      // Record approval
+      const userAgent = event.headers['user-agent'] || null;
+
+      // Record approval in ops.expense_request_approvals
       const { error: approvalErr } = await supabase
         .from('expense_request_approvals')
         .insert({
@@ -185,9 +198,11 @@ export const handler = async (event) => {
           decision,
           decided_by: request.manager_email,
           reason_note: reason_note || null,
-          signature_data: signature_data || null,
+          signature_url: signature_data || null,  // stores base64 data URL
           ip_address: clientIp,
+          user_agent: userAgent,
           decided_at: new Date().toISOString(),
+          magic_token: token,
         });
 
       if (approvalErr) {
@@ -198,22 +213,22 @@ export const handler = async (event) => {
       // Update request status
       await supabase
         .from('expense_requests')
-        .update({
-          status: decision,
-          decided_at: new Date().toISOString(),
-        })
+        .update({ status: decision })
         .eq('id', request.id);
 
-      // Notify submitter
-      try {
-        await sendEmail({
-          to: request.submitter_email,
-          subject: `Your ${request.request_type === 'expense' ? 'Expense' : 'Purchase Request'} was ${decision}`,
-          html: outcomeEmailHtml(request, decision, reason_note),
-        });
-      } catch (emailErr) {
-        console.error('Failed to send outcome email:', emailErr);
-        // Non-fatal — decision was recorded
+      // Notify submitter via email
+      const submitterEmail = await getUserEmail(request.submitted_by);
+      if (submitterEmail) {
+        try {
+          await sendEmail({
+            to: submitterEmail,
+            subject: `Your ${request.type === 'expense' ? 'Expense' : 'Purchase Request'} was ${decision}`,
+            html: outcomeEmailHtml(request, decision, reason_note),
+          });
+        } catch (emailErr) {
+          console.error('Failed to send outcome email:', emailErr);
+          // Non-fatal — decision was recorded
+        }
       }
 
       return {
