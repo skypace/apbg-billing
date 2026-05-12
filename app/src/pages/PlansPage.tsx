@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { sbDelete, sbInsert } from '../lib/rpc';
+import { Copy } from 'lucide-react';
+import { sbDelete, sbInsert, sbrpc } from '../lib/rpc';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { fm } from '../lib/formatters';
 import { SalesPlan, fetchPlans } from '../lib/plans';
@@ -53,6 +54,28 @@ export function PlansPage() {
         load();
       }),
     );
+  }
+
+  function duplicatePlan(source: SalesPlan) {
+    const newName = prompt('New plan name:', source.name + ' (copy)');
+    if (!newName || !newName.trim()) return;
+    const fyDefault = String((source.fiscal_year ?? new Date().getFullYear()) + 1);
+    const fyStr = prompt('Fiscal year for the copy:', fyDefault);
+    if (!fyStr) return;
+    const fy = parseInt(fyStr, 10);
+    if (!Number.isFinite(fy)) { toast.warn('Invalid fiscal year'); return; }
+
+    sbrpc<string>('fn_duplicate_sales_plan', {
+      p_source_plan_id:  source.id,
+      p_new_name:        newName.trim(),
+      p_new_fiscal_year: fy,
+      p_new_scenario:    source.scenario,
+    })
+      .then(() => {
+        toast.success('Duplicated ' + source.name + ' → ' + newName.trim());
+        load();
+      })
+      .catch((e: unknown) => toast.error('Duplicate failed: ' + (e as Error).message));
   }
 
   if (!plans) return (
@@ -168,7 +191,16 @@ export function PlansPage() {
                   <td style={{ fontSize: 11, color: 'var(--mt)' }}>
                     {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); duplicatePlan(p); }}
+                      className="tb-btn"
+                      style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      title="Duplicate this plan into a new fiscal year (header + all lines)"
+                    >
+                      <Copy size={11} strokeWidth={2.2} aria-hidden="true" />
+                      <span style={{ fontSize: 10 }}>Duplicate</span>
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); deletePlan(p.id, p.name); }}
                       style={btnDanger()}
