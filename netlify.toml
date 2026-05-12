@@ -3,11 +3,19 @@
   #    against the schema snapshot. Fails the build if the manifest claims tables
   #    that don't exist, if a real table has no writer/orphan entry, or if a
   #    multi-writer hotspot isn't explicitly opted in. See architecture/README.md.
-  # 2. Build the Vite + React + TS app; output goes to public/sales-next/. The
+  # 2. Copy docs/ → public/docs/ so the interactive user-guide viewer at
+  #    public/docs/margin-control/index.html can fetch the canonical markdown
+  #    source (docs/margin-control/user-guide.md). The viewer reads it at
+  #    runtime via `fetch('./user-guide.md')`, so the markdown must live next
+  #    to the HTML in the served tree. The `cp -r docs/. public/docs/` (note
+  #    the trailing dot) merges the *contents* of docs/ into public/docs/
+  #    without creating a nested public/docs/docs/. Vite's emptyOutDir only
+  #    clears public/sales-next/, so public/docs/ survives the React build.
+  # 3. Build the Vite + React + TS app; output goes to public/sales-next/. The
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
-  # 3. Build the Brix Expense app; output goes to public/expense/.
-  command = "node architecture/lint-manifest.mjs && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
+  # 4. Build the Brix Expense app; output goes to public/expense/.
+  command = "node architecture/lint-manifest.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
   publish = "public"
   functions = "netlify/functions"
 
