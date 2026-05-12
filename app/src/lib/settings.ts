@@ -313,3 +313,30 @@ export interface EntityOption {
 
 export const fetchEntityOptions = () =>
   sbrpc<EntityOption[]>('fn_list_entities', {});
+
+// ----- Manual QBO push-back triggers (v0.9.28) -----
+
+interface QboPushResult { ok: boolean; commit?: boolean; error?: string; [k: string]: unknown }
+
+async function callQboPushFn(slug: string, body: Record<string, unknown> = {}): Promise<QboPushResult> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/' + slug, {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const j = (await res.json()) as QboPushResult;
+  if (!res.ok || j.ok === false) {
+    throw new Error(j.error || ('push failed: HTTP ' + res.status));
+  }
+  return j;
+}
+
+export const pushQboSalesRepDryRun = () => callQboPushFn('push-qbo-sales-rep', { commit: false });
+export const pushQboSalesRepCommit = () => callQboPushFn('push-qbo-sales-rep', { commit: true  });
+export const pushQboCustomerTypesDryRun = () => callQboPushFn('push-qbo-customer-types', { commit: false });
+export const pushQboCustomerTypesCommit = () => callQboPushFn('push-qbo-customer-types', { commit: true  });
