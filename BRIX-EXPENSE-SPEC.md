@@ -33,13 +33,24 @@ The "APBG 3rd Party Billing Loader" is a vanilla-HTML tool at:
 
 Auth is gated on `requireSuperadmin()`. Visual style: navy `#1F4E79` + amber accents, DM Sans.
 
-**What's wrong with it for our needs today:**
-- Only 2 COGS accounts hardcoded.
-- No tag / department allocation.
-- No approval workflow.
-- No purchase-request mode.
+**What's working today and MUST carry forward to Brix Expense:**
+- Drop-a-PDF receipt → OCR → pre-filled review form (`process-inbound` Netlify function).
+- Live QBO vendor list, with search-as-you-type and **fuzzy auto-match** of the OCR-extracted vendor name against the QBO list (`get-vendors` function).
+- Live QBO customer list with search-as-you-type (`get-customers` function).
+- **Inline "+ Create new vendor"** when no match exists (`create-vendor` function).
+- **SF / ResQ job # → matching invoice → margin and margin % display** (`approve-bill` function returns `invoiceMatch.margin` + `invoiceMatch.marginPct`). This is the single most valuable feature of the existing tool — it turns an expense into a P&L data point on submission.
+- Line-item editor with live total recalc.
+- QBO bill creation on submit, with success vs "no matching invoice" warning states.
+
+**What's missing today and needs to be added:**
+- Only 2 COGS accounts hardcoded — needs the 9-option whitelist (§4).
+- No tag / department allocation (§5).
+- No approval workflow (§6).
+- No purchase-request mode (§2 Mode B).
+- No signature pad on approvals.
 - Mobile layout works but isn't truly mobile-first; touch targets are tight.
 - Superadmin-only — drivers, techs, office staff can't submit their own receipts.
+- Visual quality: weak. The new build uses the data-dense shadcn/ui look (§8) with Brix brand colors.
 
 ---
 
@@ -50,10 +61,25 @@ Two top-level modes, picked from a landing screen:
 ### Mode A — Expense (you already paid; load the receipt)
 
 1. Drop a receipt (PDF/photo) **or** enter manually.
-2. OCR pre-fills vendor, date, total, line items (existing `process-inbound` flow).
-3. User confirms: **vendor**, **COGS account** (9 choices), **tag**, **department** (shown only when tag is set), **customer/location** (optional), **job number** (optional), **memo**, **line items**.
-4. If total **≤ $500** → create QBO bill immediately, return success + invoice match status (today's flow).
-5. If total **> $500** → save as pending; route to manager for approval (Mode C below).
+2. OCR pre-fills vendor, date, total, line items (existing `process-inbound` flow). OCR also fuzzy-matches the vendor name against the live QBO vendor list and auto-selects when confidence is high.
+3. User confirms / fills these fields. **Live QBO data drives every dropdown — vendors, customers, and accounts are fetched on page load via existing Netlify functions; no hardcoded lists except for the COGS account whitelist in §4 below.**
+
+   | Field | Required | Notes |
+   |---|---|---|
+   | **Vendor** | yes | Search-as-you-type against live QBO vendor list. "+ Create new vendor" inline if no match (existing `create-vendor` function). |
+   | **COGS account** | yes | 9-option whitelist (§4). |
+   | **Customer / location** | yes | Search-as-you-type against live QBO customer list. |
+   | **SF / ResQ job #** | **yes for service expenses** | This is the key — it's how we match the bill to the invoice that recovered the expense. Existing `approve-bill` function returns the matching invoice + computed margin and margin %. The new form must keep this behavior. For non-service expenses (fuel, office supplies, travel, etc.) the job # field is optional. |
+   | **Bill #** (vendor invoice #) | optional | Free text. |
+   | **Due date** | optional | Defaults to OCR-extracted due date. |
+   | **Tag** | yes | §5. |
+   | **Department** | yes when tag is set | §5. |
+   | **Memo / Note** | optional | Free text. |
+   | **Line items** | ≥ 1 | Description / qty / unit cost; total recomputes live. |
+
+4. **Submit:**
+   - If total **≤ $500** → create QBO bill immediately via existing `approve-bill` function. Return the QBO bill # **and** the matched invoice + margin display (existing UX — keep it). If no invoice matches the job #, show the existing warning card.
+   - If total **> $500** → save as `pending`; route to manager for approval (Mode C). Bill creation happens **after** the manager signs and approves.
 
 ### Mode B — Purchase Request (pre-spend approval before you buy)
 
@@ -147,6 +173,25 @@ Matching uses vendor + amount + date proximity (±14 days, ±5% on amount).
 
 ---
 
+## 7b. QBO data wiring (must work end-to-end on day one)
+
+All QBO data is **live, not cached client-side**. The page loads the same Netlify functions the existing tool uses:
+
+| Need | Source | Notes |
+|---|---|---|
+| Vendor list | `GET /.netlify/functions/get-vendors` | ~1.5 K rows. Search-as-you-type is client-side over the loaded list. |
+| Customer list | `GET /.netlify/functions/get-customers` | ~11.8 K rows. Same client-side search. |
+| Create vendor | `POST /.netlify/functions/create-vendor` | Inline-create when no match. |
+| Submit bill (≤$500 or post-approval) | `POST /.netlify/functions/approve-bill` | Creates the QBO bill, returns `{ bill, invoiceMatch: { number, margin, marginPct, customerName, total } }`. |
+| OCR a receipt | `POST /.netlify/functions/process-inbound` | Returns `{ approveUrl, billData }` with `vendorName / billNumber / billDate / total / lineItems[] / dueDate / notes / category`. |
+| Decode the OCR token | `GET /.netlify/functions/decode-token?token=…` | Returns `{ billData }` for the URL-token handoff. |
+
+**QBO connection health surface:** the page shows a live status pill in the header — `QBO connected — 1,512 vendors, 11,843 customers` or `QBO error: <message>`. If QBO is disconnected (token expired, pacerfinance offline, network), submit is disabled and the user sees an actionable error, not a silent fail. This is also how the existing tool behaves; it must continue to work that way.
+
+**Auth:** `requireAuthenticated()` (not `requireSuperadmin()` like today). The existing `authedFetch` wrapper in `public/auth.js` is what wires the JWT — the React app will use the equivalent already in `app/src/lib/auth.ts`.
+
+---
+
 ## 8. UI/UX direction
 
 From the `ui-ux-pro-max` skill, **data-dense dashboard** style with **shadcn/ui** components:
@@ -210,9 +255,30 @@ supabase/migrations/
 
 ## 12. Acceptance criteria for v1
 
-- A driver on a phone can drop a fuel receipt, pick "Fuel" account, pick "vehicle" tag → "delivery" department, add a note, and submit in under 30 seconds.
-- A submission ≤ $500 creates a QBO bill within 10 seconds and shows the invoice match (or "no match" warning).
-- A submission > $500 emails the chosen manager within 30 seconds; the email contains a deep link to the approval page; the manager can sign and approve from their phone.
-- A Purchase Request stores the quote, routes to manager, and shows up in "Approved — awaiting invoice" once signed.
-- The new `/expense` route is touch-friendly at 375 px width with no horizontal scroll.
-- None of the existing Margin / Fleet / Ops / Settings pages change visually.
+**Parity with the existing 3rd Party Billing Loader (must all still work):**
+- [ ] Drop a vendor-bill PDF or image → OCR pre-fills vendor / bill # / date / total / line items / due date / notes.
+- [ ] QBO vendor + customer dropdowns load live (with the existing status pill: `QBO connected — N vendors, M customers`); search-as-you-type works.
+- [ ] OCR-extracted vendor name fuzzy-matches against the live QBO vendor list and auto-selects when confident.
+- [ ] "+ Create new vendor" inline action works (calls `create-vendor`, appends to local list, auto-selects).
+- [ ] SF / ResQ job # field is present; on submit (service expenses), the matched-invoice card displays vendor, bill #, total, matched invoice #, customer, and **margin + margin %**.
+- [ ] If no invoice matches the job #, the warning card is shown ("Bill created — no matching invoice"), telling the user to submit the job for invoicing manually.
+
+**New features:**
+- [ ] 9-option COGS account whitelist (§4).
+- [ ] Tag selector + conditional Department selector (§5).
+- [ ] Free-text Note field on every submission.
+- [ ] Submissions ≤ $500 post a QBO bill immediately; > $500 route to the chosen manager.
+- [ ] Manager receives a Resend email from `alamedapointbg.com` within 30 seconds of submission; the email links to a signed approval page.
+- [ ] Approval page renders on a phone, captures a signature on a 200 px-tall canvas, and on Approve → posts the QBO bill and notifies the submitter; on Deny → notifies the submitter with the deny reason.
+- [ ] Purchase Request mode: quote upload, amount, manager picker, signature on approval, lives in `awaiting_invoice` until linked to a real bill.
+
+**UX bar:**
+- [ ] Driver on a phone (375 px) can drop a fuel receipt, pick **Fuel** / **vehicle** / **delivery** / note, and submit in under 30 seconds.
+- [ ] No horizontal scroll at 375 / 768 / 1024 / 1440 px.
+- [ ] 44 × 44 px minimum touch targets, 8 px minimum gap between them.
+- [ ] Status pill, line-item table, and totals use Fira Code so numbers align cleanly.
+- [ ] Visual feels like a real product — not a form on a white page. Cards with subtle elevation, clear section headers, the Brix logo in the top-left, and the margin display rendered in a prominent currency-formatted band on success.
+
+**Non-regression:**
+- [ ] None of the existing Margin / Fleet / Operations / Reports / Plans / Customers / Inventory / Settings pages change visually.
+- [ ] The legacy `public/index.html` + `public/approve.html` stay in place during v1 rollout as a fallback. Once Brix Expense is signed off, we 301-redirect `/billing/` to the new route in a follow-up PR.
