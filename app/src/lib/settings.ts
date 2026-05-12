@@ -102,10 +102,14 @@ export const fetchDigestLog = (limit = 30) =>
 
 // ----- Expense Buckets -----
 
+export type AllocationBasis = 'revenue' | 'unit_volume' | 'sku_equal_share' | 'margin_contribution';
+
 export interface ExpenseBucketType {
   bucket_code: string;
   label: string;
   sort_order: number | null;
+  is_allocable: boolean;
+  allocation_basis: AllocationBasis;
 }
 
 export interface PlAccount {
@@ -116,14 +120,34 @@ export interface PlAccount {
   bucket_assigned: boolean;
 }
 
+export interface ProposedAccountBucket {
+  account_name: string;
+  ytd: number;
+  items_total: number;
+  items_as_expense: number;
+  items_as_income: number;
+  account_role: 'operating' | 'balance_sheet' | 'financial';
+  current_bucket: string | null;
+  suggested_bucket: string | null;
+}
+
 export const fetchExpenseBucketTypes = () =>
   sbq<ExpenseBucketType>('expense_bucket_types', 'select=*&order=sort_order,label');
+
+export const updateBucketType = (code: string, patch: Partial<ExpenseBucketType>) =>
+  sbUpdate<ExpenseBucketType>('expense_bucket_types', 'bucket_code=eq.' + encodeURIComponent(code), patch);
 
 export const fetchPlAccounts = (start: string, end: string) =>
   sbrpc<PlAccount[]>('fn_list_pl_accounts', { p_start: start, p_end: end });
 
 export const setAccountBucket = (account_name: string, bucket_code: string) =>
   sbrpc('fn_set_account_bucket', { p_account_name: account_name, p_bucket_code: bucket_code || 'oh' });
+
+export const fetchProposedAccountBuckets = (start: string, end: string) =>
+  sbrpc<ProposedAccountBucket[]>('fn_propose_account_buckets', { p_start: start, p_end: end });
+
+export const bulkSetAccountBuckets = (assignments: Array<{ account_name: string; bucket_code: string }>) =>
+  sbrpc<number>('fn_bulk_set_account_buckets', { p_assignments: assignments });
 
 // ----- Users (admin-users edge function) -----
 
@@ -211,3 +235,108 @@ export const setCustomerChannels = (
     p_channel_labels: channel_labels,
     p_primary_label: primary_label,
   });
+
+// ----- Customers Master (unified Settings → Customers grid) -----
+
+export interface CustomersMasterRow {
+  qbo_customer_id: string;
+  display_name: string;
+  fully_qualified_name: string | null;
+  parent_ref_id: string | null;
+  parent_name: string | null;
+  is_sub_customer: boolean;
+  active: boolean;
+  entity: string | null;            // manual override
+  entity_resolved: string;          // override or derived
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  postal: string | null;
+  customer_type_name: string | null;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  ytd_revenue: number;
+  invoice_count: number;
+  last_invoice_date: string | null;
+  ar_total: number;
+  ar_current: number;
+  ar_31_60: number;
+  ar_61_90: number;
+  ar_90_plus: number;
+  open_invoice_count: number;
+  channels: string[];
+  primary_channel: string | null;
+  sales_reps: string[];
+  primary_sales_rep: string | null;
+}
+
+export const fetchCustomersMaster = (opts: {
+  start: string;
+  end: string;
+  search?: string;
+  channel?: string;
+  only_active?: boolean;
+  limit?: number;
+  offset?: number;
+}) =>
+  sbrpc<CustomersMasterRow[]>('fn_customers_master', {
+    p_start: opts.start,
+    p_end: opts.end,
+    p_search: opts.search ?? null,
+    p_channel: opts.channel ?? null,
+    p_only_active: opts.only_active ?? true,
+    p_limit: opts.limit ?? 500,
+    p_offset: opts.offset ?? 0,
+  });
+
+export const setCustomerNotes = (qbo_customer_id: string, notes: string | null) =>
+  sbrpc('fn_set_customer_notes', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_notes: notes,
+  });
+
+export const setCustomerEntity = (qbo_customer_id: string, entity: string | null) =>
+  sbrpc('fn_set_customer_entity', {
+    p_qbo_customer_id: qbo_customer_id,
+    p_entity: entity,
+  });
+
+// ----- Entities (live-from-data list for dropdowns) -----
+
+export interface EntityOption {
+  entity: string;
+  customer_count: number;
+  sales_count: number;
+  revenue: number;
+}
+
+export const fetchEntityOptions = () =>
+  sbrpc<EntityOption[]>('fn_list_entities', {});
+
+// ----- Manual QBO push-back triggers (v0.9.28) -----
+
+interface QboPushResult { ok: boolean; commit?: boolean; error?: string; [k: string]: unknown }
+
+async function callQboPushFn(slug: string, body: Record<string, unknown> = {}): Promise<QboPushResult> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/' + slug, {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const j = (await res.json()) as QboPushResult;
+  if (!res.ok || j.ok === false) {
+    throw new Error(j.error || ('push failed: HTTP ' + res.status));
+  }
+  return j;
+}
+
+export const pushQboSalesRepDryRun = () => callQboPushFn('push-qbo-sales-rep', { commit: false });
+export const pushQboSalesRepCommit = () => callQboPushFn('push-qbo-sales-rep', { commit: true  });
+export const pushQboCustomerTypesDryRun = () => callQboPushFn('push-qbo-customer-types', { commit: false });
+export const pushQboCustomerTypesCommit = () => callQboPushFn('push-qbo-customer-types', { commit: true  });

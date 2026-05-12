@@ -1,8 +1,10 @@
 import { SB_URL, SB_KEY, _sbToken } from './supabase';
 
 // Thin wrappers around PostgREST that target the `ops` schema.
-// They mirror the helpers from the legacy single-file SPA so page
-// migrations stay tight.
+// Each write helper sends BOTH Accept-Profile (response) and
+// Content-Profile (request). Without Content-Profile, PostgREST
+// falls back to `public` — which silently 404s DELETEs because
+// these tables only exist in `ops`.
 
 export async function sbq<T = unknown>(tbl: string, query = ''): Promise<T[]> {
   const url = SB_URL + '/rest/v1/' + tbl + (query ? '?' + query : '');
@@ -90,7 +92,11 @@ export async function sbDelete(tbl: string, filter: string): Promise<void> {
       apikey: SB_KEY,
       Authorization: 'Bearer ' + token,
       'Accept-Profile': 'ops',
+      'Content-Profile': 'ops',
     },
   });
-  if (!res.ok) throw new Error('sbDelete ' + tbl + ' failed: ' + res.status);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error('sbDelete ' + tbl + ' failed: ' + res.status + ' ' + text);
+  }
 }

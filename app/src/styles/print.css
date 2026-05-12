@@ -1,0 +1,102 @@
+/* Print stylesheet — applied when the user prints the dashboard or
+   exports to PDF via the browser print dialog.
+
+   Strategy: keep the dark theme intact (matches what the user sees on
+   screen, looks gorgeous in modern PDFs), but hide all interactive chrome
+   and let the data cards breathe across the page. */
+
+@media print {
+  /* Force backgrounds and colors to print as displayed (Chromium / Safari) */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust:         exact !important;
+  }
+
+  /* Hide interactive chrome */
+  .sidebar,
+  .tb-btn,
+  .toolbar,
+  .preset-bar,
+  .seg,
+  .chip-row,
+  .hero-stamp,
+  .login-shell,
+  .splash,
+  .login-form,
+  .MuiAutocomplete-clearIndicator,
+  .MuiAutocomplete-popupIndicator,
+  .MuiDataGrid-toolbarContainer,
+  .MuiDataGrid-footerContainer button,
+  .MuiTablePagination-actions {
+    display: none !important;
+  }
+
+  /* Reset page padding / sidebar offset */
+  .app-shell { display: block !important }
+  .main {
+    padding: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  body {
+    background: #06121F !important;
+    color: #E6EEF7 !important;
+    font-size: 10px !important;
+  }
+  body::before { display: none !important }
+
+  /* Cards: keep dark gradient but ensure they don't break across pages */
+  .cd {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  .cd:hover { transform: none !important }
+
+  /* Tables: tighter spacing on paper */
+  th, td { padding: 5px 8px !important; font-size: 9.5px !important }
+
+  /* Hero block: keep the title but compact spacing */
+  .hero {
+    margin-bottom: 14px !important;
+    padding-bottom: 12px !important;
+    page-break-after: avoid;
+  }
+  .hero-title { font-size: 24px !important }
+  .hero-title .hero-accent { font-size: 18px !important }
+
+  /* KPI grid: keep 4-up but tighter */
+  .gr.g4 { grid-template-columns: repeat(4, 1fr) !important; gap: 8px !important }
+  .gr.g2 { grid-template-columns: 1fr 1fr !important;        gap: 8px !important }
+  .kpi-value { font-size: 22px !important }
+  .kpi-card  { padding: 10px 12px !important }
+
+  /* Charts: cap height to fit page */
+  .cd svg.recharts-surface, .cd .MuiChartsSurface-root, .cd svg {
+    max-height: 220px !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: letter landscape;
+    margin: 0.4in 0.4in 0.5in 0.4in;
+  }
+
+  /* Header chip on first page only — repeats hero info */
+  .print-header {
+    display: block !important;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #1B3A5E;
+    padding-bottom: 6px;
+    font-size: 9px;
+    color: #94A8BD;
+    letter-spacing: 0.4px;
+  }
+  /* Hidden on screen, visible on print */
+  .print-only { display: block !important }
+}
+
+/* Hidden by default; print-only flips this on */
+.print-only { display: none }

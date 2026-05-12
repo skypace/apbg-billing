@@ -1,20 +1,34 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { View } from '../lib/router';
+import {
+  LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
+  GitCompareArrows, Package, Settings as SettingsIcon, LogOut,
+  BookOpen,
+  PanelLeftClose, PanelLeftOpen,
+  type LucideIcon,
+} from 'lucide-react';
+import { AlamedaMark, BrixMark } from './BrixMark';
 
-interface NavItem { id: View; label: string }
+interface NavItem { id: View; label: string; icon: LucideIcon }
 
+// Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
 const NAV: NavItem[] = [
-  { id: 'overview',   label: 'OVERVIEW'   },
-  { id: 'margin',     label: 'MARGIN'     },
-  { id: 'operations', label: 'OPERATIONS' },
-  { id: 'fleet',      label: 'FLEET'      },
-  { id: 'customers',  label: 'CUSTOMERS'  },
-  { id: 'reports',    label: 'REPORTS'    },
-  { id: 'plans',      label: 'PLANS'      },
-  { id: 'compare',    label: 'COMPARE'    },
-  { id: 'inventory',  label: 'INVENTORY'  },
-  { id: 'settings',   label: 'SETTINGS'   },
+  { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
+  { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
+  { id: 'operations', label: 'Operations', icon: Activity          },
+  { id: 'customers',  label: 'Customers',  icon: Users             },
+  { id: 'reports',    label: 'Reports',    icon: FileText          },
+  { id: 'plans',      label: 'Plans',      icon: CalendarRange     },
+  { id: 'compare',    label: 'Compare',    icon: GitCompareArrows  },
+  { id: 'inventory',  label: 'Inventory',  icon: Package           },
+  { id: 'settings',   label: 'Settings',   icon: SettingsIcon      },
 ];
+
+// Interactive user guide — markdown source at docs/margin-control/user-guide.md,
+// viewer at public/docs/margin-control/index.html, surfaced through the gateway
+// at /margin/docs/margin-control/. Absolute URL so the link is correct from
+// any deploy context (prod gateway / staging subdomain / local dev).
+const USER_GUIDE_URL = 'https://alamedapointbg.com/margin/docs/margin-control/';
 
 interface LayoutProps {
   current: View;
@@ -24,62 +38,94 @@ interface LayoutProps {
   children: ReactNode;
 }
 
+const COLLAPSE_KEY = 'brix.sidebar.collapsed';
+
 export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try { setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1'); } catch { /* no-op */ }
+  }, []);
+
+  function toggleCollapse() {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* no-op */ }
+  }
+
   return (
-    <>
-      <div className="tb">
-        <div className="lg">
-          PACER · MARGIN ANALYTICS
-          <small>Sales · Customers · Items · Margin</small>
+    <div className="app-shell">
+      <aside
+        className={'sidebar' + (collapsed ? ' sidebar--collapsed' : '')}
+        aria-label="Primary navigation"
+      >
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={toggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed
+            ? <PanelLeftOpen size={13} strokeWidth={2.2} aria-hidden="true" />
+            : <PanelLeftClose size={13} strokeWidth={2.2} aria-hidden="true" />}
+        </button>
+
+        <div className="brand">
+          <BrixMark size={collapsed ? 32 : 38} className="brand-mark-svg" title="Brix Beverage" />
+          <div>
+            <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
+            <div className="brand-sub">
+              <span className="status-dot" aria-hidden="true" />
+              Margin Control
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <nav className="nav">
           {NAV.map((n) => {
+            const Icon = n.icon;
             const on = current === n.id;
             return (
               <a
                 key={n.id}
                 href={'#' + n.id}
                 onClick={(e) => { e.preventDefault(); onNav(n.id); }}
-                style={{
-                  textDecoration: 'none',
-                  background: on ? 'var(--ac)' : 'transparent',
-                  color: on ? 'var(--bg)' : 'var(--tx)',
-                  border: '1px solid ' + (on ? 'var(--ac)' : 'var(--bd)'),
-                  padding: '5px 12px',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  fontWeight: on ? 700 : 500,
-                  letterSpacing: 0.5,
-                  marginRight: 6,
-                }}
+                className={'nav-item' + (on ? ' nav-item--active' : '')}
+                aria-current={on ? 'page' : undefined}
+                title={collapsed ? n.label : undefined}
               >
-                {n.label}
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{n.label}</span>
               </a>
             );
           })}
-          {userEmail && (
-            <span style={{ fontSize: 10, color: 'var(--mt)', marginLeft: 6 }}>
-              {userEmail}
-            </span>
+        </nav>
+        <div className="sidebar-footer">
+          {!collapsed && (
+            <div className="sidebar-group" title="Alameda Beverage Group LLC">
+              <BrixMark size={14} />
+              <AlamedaMark size={16} variant="seal" />
+              <span>by Alameda Beverage Group</span>
+            </div>
           )}
-          <button
-            onClick={onLogout}
-            style={{
-              background: 'transparent',
-              color: 'var(--mt)',
-              border: '1px solid var(--bd)',
-              padding: '4px 9px',
-              borderRadius: 4,
-              fontSize: 10,
-              cursor: 'pointer',
-              letterSpacing: 0.5,
-            }}
+          {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <a
+            href={USER_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sign-out help-link"
+            title="Open the BRIX Margin Control user guide in a new tab"
           >
-            SIGN OUT
+            <BookOpen size={13} strokeWidth={2} aria-hidden="true" />
+            <span>User Guide</span>
+          </a>
+          <button onClick={onLogout} className="sign-out" type="button" title="Sign out">
+            <LogOut size={13} strokeWidth={2} aria-hidden="true" />
+            <span>Sign out</span>
           </button>
         </div>
-      </div>
-      <div className="ma">{children}</div>
-    </>
+      </aside>
+      <main className="main">{children}</main>
+    </div>
   );
 }

@@ -1,6 +1,4 @@
 // Typed wrappers around the ops sales RPCs.
-// Keep the shapes in sync with the SQL function signatures so the
-// migration stays type-safe end-to-end.
 
 import { sbrpc } from './rpc';
 
@@ -100,49 +98,76 @@ export interface ComparisonRow extends SalesPivotRow {
   delta_pct: number | null;
 }
 
-// Compute prior-period bounds: same length as the current period,
-// shifted back by `mode` ('prior_period') or to the prior calendar year
-// boundaries ('prior_year').
+function parseYmd(s: string): { y: number; m: number; d: number } {
+  return {
+    y: parseInt(s.slice(0, 4), 10),
+    m: parseInt(s.slice(5, 7), 10),
+    d: parseInt(s.slice(8, 10), 10),
+  };
+}
+
+function formatYmd(y: number, m: number, d: number): string {
+  return (
+    String(y).padStart(4, '0') + '-' +
+    String(m).padStart(2, '0') + '-' +
+    String(d).padStart(2, '0')
+  );
+}
+
 export function computePriorBounds(start: string, end: string, mode: 'prior_period' | 'prior_year') {
   if (mode === 'prior_year') {
-    const prevYear = new Date(start).getFullYear() - 1;
+    const startY = parseYmd(start).y;
+    const prevYear = startY - 1;
     return {
       prior_start: prevYear + start.slice(4),
       prior_end:   prevYear + end.slice(4),
     };
   }
-  const s = new Date(start + 'T00:00:00');
-  const e = new Date(end + 'T00:00:00');
-  const len = (e.getTime() - s.getTime()) / 86400000;
-  const ps = new Date(s.getTime() - (len + 1) * 86400000);
-  const pe = new Date(e.getTime() - (len + 1) * 86400000);
+  const a = parseYmd(start);
+  const b = parseYmd(end);
+  const aUtc = Date.UTC(a.y, a.m - 1, a.d);
+  const bUtc = Date.UTC(b.y, b.m - 1, b.d);
+  const len = Math.round((bUtc - aUtc) / 86400000);
+  const psUtc = aUtc - (len + 1) * 86400000;
+  const peUtc = bUtc - (len + 1) * 86400000;
+  const ps = new Date(psUtc);
+  const pe = new Date(peUtc);
   return {
-    prior_start: ps.toISOString().slice(0, 10),
-    prior_end:   pe.toISOString().slice(0, 10),
+    prior_start: formatYmd(ps.getUTCFullYear(), ps.getUTCMonth() + 1, ps.getUTCDate()),
+    prior_end:   formatYmd(pe.getUTCFullYear(), pe.getUTCMonth() + 1, pe.getUTCDate()),
   };
 }
 
+// Pair current ↔ prior rows.
+// For month-shaped labels ('YYYY-MM') we ALWAYS pair by sorted index —
+// that handles both prior_year (same months, prior year) and
+// prior_period (shifted window, different months) correctly.
+// For all other dims, exact-label matching is the right move.
 export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[]): ComparisonRow[] {
-  const priorByLabel = new Map<string, SalesPivotRow>();
-  for (const r of prior) priorByLabel.set(r.dim_label, r);
-  return current.map((r) => {
-    const p = priorByLabel.get(r.dim_label);
-    const priorRev = p ? Number(p.revenue) : null;
-    const deltaRev = priorRev != null ? Number(r.revenue) - priorRev : null;
-    const deltaPct = priorRev && priorRev > 0 ? (Number(r.revenue) - priorRev) / priorRev : null;
-    return {
-      ...r,
-      prior_revenue: priorRev,
-      prior_margin: p?.est_margin ?? null,
-      delta_revenue: deltaRev,
-      delta_pct: deltaPct,
-    };
-  });
+  const isMonth = current.length > 0 && /^\d{4}-\d{2}$/.test(current[0].dim_label);
+
+  function buildRow(r: SalesPivotRow, p: SalesPivotRow | undefined): ComparisonRow {
+    const priorRev    = p?.revenue    != null ? Number(p.revenue)    : null;
+    const priorMargin = p?.est_margin != null ? Number(p.est_margin) : null;
+    const deltaRev    = priorRev != null ? Number(r.revenue) - priorRev : null;
+    const deltaPct    = priorRev != null && priorRev !== 0
+      ? (Number(r.revenue) - priorRev) / Math.abs(priorRev)
+      : null;
+    return { ...r, prior_revenue: priorRev, prior_margin: priorMargin, delta_revenue: deltaRev, delta_pct: deltaPct };
+  }
+
+  if (isMonth) {
+    const cur = [...current].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+    const pri = [...prior].sort((a, b) => a.dim_label.localeCompare(b.dim_label));
+    return cur.map((r, i) => buildRow(r, pri[i]));
+  }
+
+  const priorByKey = new Map<string, SalesPivotRow>();
+  for (const r of prior) priorByKey.set(r.dim_label, r);
+  return current.map((r) => buildRow(r, priorByKey.get(r.dim_label)));
 }
 
 export function fetchSparkline(dim: Dim, labels: string[], end: string, f: SalesFilters) {
-  // fn_sparkline has p_end + filter args but no p_start (it always
-  // looks back 12 months from p_end), so strip start/end before spread.
   const { p_start: _start, p_end: _end, ...filterArgs } = rpcArgs(f);
   return sbrpc<SparklineRow[]>('fn_sparkline', {
     p_dim: dim,
@@ -152,13 +177,16 @@ export function fetchSparkline(dim: Dim, labels: string[], end: string, f: Sales
   });
 }
 
-// Build the 12-month label array ending at the given month-end.
 export function trailing12MonthKeys(end: string): string[] {
-  const d = new Date(end + 'T00:00:00');
+  const { y, m } = parseYmd(end);
   const keys: string[] = [];
   for (let i = 11; i >= 0; i--) {
-    const m = new Date(d.getFullYear(), d.getMonth() - i, 1);
-    keys.push(m.getFullYear() + '-' + String(m.getMonth() + 1).padStart(2, '0'));
+    const cursorUtc = Date.UTC(y, m - 1 - i, 1);
+    const cursor = new Date(cursorUtc);
+    keys.push(
+      cursor.getUTCFullYear() + '-' +
+      String(cursor.getUTCMonth() + 1).padStart(2, '0'),
+    );
   }
   return keys;
 }

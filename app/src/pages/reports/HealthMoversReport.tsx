@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { GridColDef } from '@mui/x-data-grid-pro';
 import { KPICard } from '../../components/KPICard';
 import { CustomerLink } from '../../components/CustomerLink';
 import { SegmentChip } from '../../components/SegmentChip';
+import { ReportGrid } from '../../components/ReportGrid';
 import { fm } from '../../lib/formatters';
-import { btnSecondary, inp } from '../../lib/styles';
+import { btnSecondary } from '../../lib/styles';
 import { HealthMoverRow, fetchHealthMovers, takeHealthSnapshot } from '../../lib/reports';
+
+interface HealthGridRow extends HealthMoverRow {
+  id: string;
+}
 
 export function HealthMoversReport() {
   const [maxAge, setMaxAge] = useState(14);
@@ -13,21 +19,56 @@ export function HealthMoversReport() {
 
   function load() {
     setRows(null);
-    fetchHealthMovers(Number(maxAge) || 14)
-      .then(setRows)
-      .catch(() => setRows([]));
+    fetchHealthMovers(Number(maxAge) || 14).then(setRows).catch(() => setRows([]));
   }
   useEffect(load, [maxAge]);
 
   function takeSnapshot() {
     setSnapMsg('snapshotting…');
     takeHealthSnapshot()
-      .then((n) => {
-        setSnapMsg('snapshot taken: ' + (n ?? 0) + ' customers');
-        load();
-      })
+      .then((n) => { setSnapMsg('snapshot taken: ' + (n ?? 0) + ' customers'); load(); })
       .catch((e) => setSnapMsg('error: ' + e.message));
   }
+
+  const gridRows: HealthGridRow[] = useMemo(
+    () => (rows ?? []).map((r) => ({ ...r, id: r.qbo_customer_id })),
+    [rows],
+  );
+
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'customer_name', headerName: 'Customer', flex: 2, minWidth: 220,
+      renderCell: (p) => (
+        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <CustomerLink qboCustomerId={p.row.qbo_customer_id} name={p.row.customer_name} />
+        </span>
+      ),
+    },
+    { field: 'primary_channel', headerName: 'Channel', width: 150,
+      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    { field: 'prev_segment', headerName: 'Was', width: 110,
+      renderCell: (p) => <SegmentChip segment={p.value as string | null} /> },
+    { field: 'curr_segment', headerName: 'Now', width: 110,
+      renderCell: (p) => <SegmentChip segment={p.value as string | null} /> },
+    {
+      field: 'rfm_total_delta', headerName: 'RFM Δ', type: 'number', width: 90, cellClassName: 'mn',
+      renderCell: (p) => {
+        const d = Number(p.value);
+        const color = d > 0 ? 'var(--gn)' : d < 0 ? 'var(--rd)' : 'var(--mt)';
+        return <span style={{ color, fontWeight: 600 }}>{(d > 0 ? '+' : '') + d}</span>;
+      },
+    },
+    {
+      field: 'monetary_delta', headerName: 'Monetary Δ', type: 'number', width: 130, cellClassName: 'mn',
+      renderCell: (p) => {
+        const md = Number(p.value);
+        const color = md > 0 ? 'var(--gn)' : md < 0 ? 'var(--rd)' : 'var(--mt)';
+        return <span style={{ color, fontWeight: 600 }}>{(md > 0 ? '+' : '') + fm(md)}</span>;
+      },
+    },
+    { field: 'movement', headerName: 'Movement', width: 140,
+      valueFormatter: (v) => (v == null || v === '' ? '—' : String(v)) },
+  ], []);
 
   if (!rows) return <div className="ld">Loading…</div>;
 
@@ -45,94 +86,40 @@ export function HealthMoversReport() {
         <KPICard title="BIG MOVES (≥3)" value={bigJump.length} accent="var(--am)" sub="segment-changing magnitudes" />
       </div>
 
-      <div
-        className="cd"
-        style={{
-          padding: '10px 12px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 10,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          fontSize: 11,
-        }}
-      >
-        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Compare vs snapshot within last
-        </span>
-        <input
-          type="number"
-          min={1}
-          max={90}
-          value={maxAge}
-          onChange={(e) => setMaxAge(Number(e.target.value) || 14)}
-          style={{ ...inp(), width: 60 }}
-        />
-        <span style={{ color: 'var(--mt)' }}>days</span>
-        <button onClick={takeSnapshot} style={btnSecondary()}>TAKE SNAPSHOT NOW</button>
-        {snapMsg && <span style={{ color: 'var(--mt)', fontSize: 10, marginLeft: 8 }}>{snapMsg}</span>}
-        {newCust.length > 0 && (
-          <span style={{ color: 'var(--mt)', fontSize: 10, marginLeft: 'auto' }}>
-            {newCust.length} first-seen this period
-          </span>
-        )}
+      <div className="toolbar" style={{ marginBottom: 10 }}>
+        <div className="toolbar-row">
+          <div className="toolbar-section">
+            <span className="toolbar-label">Compare within last</span>
+            <input type="number" min={1} max={90} value={maxAge}
+              onChange={(e) => setMaxAge(Number(e.target.value) || 14)}
+              className="date-input" style={{ width: 60 }} />
+            <span style={{ color: 'var(--mt)', fontSize: 11 }}>days</span>
+          </div>
+          <div className="toolbar-section">
+            <button onClick={takeSnapshot} style={btnSecondary()}>Take snapshot now</button>
+            {snapMsg && <span style={{ color: 'var(--mt)', fontSize: 10, marginLeft: 8 }}>{snapMsg}</span>}
+          </div>
+          <div className="toolbar-spacer" />
+          {newCust.length > 0 && (
+            <span style={{ color: 'var(--mt)', fontSize: 10 }}>
+              {newCust.length} first-seen this period
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {rows.length === 0 ? (
           <div className="ld">
-            No customer health movement detected. Either no prior snapshot exists in this window, or every
-            customer is stable.
+            No customer health movement detected. Either no prior snapshot exists in this window, or every customer is stable.
           </div>
         ) : (
-          <div style={{ maxHeight: '62vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Customer</th>
-                  <th>Channel</th>
-                  <th>Was</th>
-                  <th>Now</th>
-                  <th style={{ textAlign: 'right' }}>RFM Δ</th>
-                  <th style={{ textAlign: 'right' }}>Monetary Δ</th>
-                  <th>Movement</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const d = Number(r.rfm_total_delta);
-                  const md = Number(r.monetary_delta);
-                  const dColor = d > 0 ? 'var(--gn)' : d < 0 ? 'var(--rd)' : 'var(--mt)';
-                  const mdColor = md > 0 ? 'var(--gn)' : md < 0 ? 'var(--rd)' : 'var(--mt)';
-                  return (
-                    <tr key={r.qbo_customer_id}>
-                      <td
-                        style={{
-                          fontWeight: 600,
-                          maxWidth: 240,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <CustomerLink qboCustomerId={r.qbo_customer_id} name={r.customer_name} />
-                      </td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.primary_channel ?? '—'}</td>
-                      <td><SegmentChip segment={r.prev_segment} /></td>
-                      <td><SegmentChip segment={r.curr_segment} /></td>
-                      <td className="mn" style={{ textAlign: 'right', color: dColor, fontWeight: 600 }}>
-                        {d > 0 ? '+' : ''}{d}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: mdColor, fontWeight: 600 }}>
-                        {md > 0 ? '+' : ''}{fm(md)}
-                      </td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.movement || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ReportGrid
+            rows={gridRows} columns={columns}
+            pinnedLeft={['customer_name']}
+            defaultSort={[{ field: 'rfm_total_delta', sort: 'desc' }]}
+            height="62vh"
+          />
         )}
       </div>
     </div>

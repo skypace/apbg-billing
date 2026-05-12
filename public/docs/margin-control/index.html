@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BRIX Margin Control — User Guide</title>
+<meta name="description" content="User guide for BRIX Margin Control — the APBG margin / sales / customer analytics tool.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<style>
+:root{
+  --bg:#0F172A;            /* slate-900 */
+  --bg-elev:#172033;
+  --surface:#1E293B;       /* slate-800 */
+  --surface-hover:#243349;
+  --border:#334155;        /* slate-700 */
+  --border-strong:#475569;
+  --navy:#1F4E79;          /* brand navy */
+  --navy-bright:#3B82F6;   /* blue-500 accent */
+  --navy-soft:#1E3A5F;
+  --text:#F8FAFC;          /* slate-50 */
+  --text-2:#94A3B8;
+  --text-3:#64748B;
+  --success:#10B981;
+  --warning:#F59E0B;
+  --error:#EF4444;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important}
+}
+html,body{
+  font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.6;
+}
+
+/* Layout */
+.app{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
+.sidebar{
+  background:rgba(15,23,42,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:20px 18px;
+}
+.content{padding:48px 56px 96px;max-width:880px}
+
+/* Sidebar header */
+.brand{display:flex;align-items:center;gap:12px;padding:6px 8px 18px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.brand-mark{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--navy),var(--navy-bright));display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:0.78rem;letter-spacing:0.04em;flex-shrink:0}
+.brand-text{display:flex;flex-direction:column;min-width:0}
+.brand-title{font-size:0.86rem;font-weight:700;color:var(--text);letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-sub{font-size:0.66rem;color:var(--text-3);letter-spacing:0.08em;text-transform:uppercase;font-weight:600;font-family:'JetBrains Mono',monospace}
+.back-link{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;margin:8px 0 14px;font-size:0.74rem;color:var(--text-2);text-decoration:none;border-radius:6px;font-weight:600;transition:all 0.15s}
+.back-link:hover{background:var(--surface);color:var(--text)}
+
+/* Search */
+.search-wrap{position:relative;margin-bottom:18px}
+.search-input{
+  width:100%;padding:9px 12px 9px 34px;border:1px solid var(--border);border-radius:8px;
+  background:var(--surface);color:var(--text);font-size:0.82rem;outline:none;
+  transition:all 0.15s;font-family:inherit;
+}
+.search-input::placeholder{color:var(--text-3)}
+.search-input:focus{border-color:var(--navy-bright);background:var(--surface-hover);box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+.search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none}
+.search-meta{font-size:0.66rem;color:var(--text-3);margin-top:6px;padding-left:4px;font-family:'JetBrains Mono',monospace}
+
+/* TOC */
+.toc{list-style:none;display:flex;flex-direction:column;gap:1px}
+.toc li{display:flex}
+.toc a{
+  flex:1;padding:7px 10px;font-size:0.81rem;font-weight:500;color:var(--text-2);
+  text-decoration:none;border-radius:6px;transition:all 0.12s;letter-spacing:0.005em;
+  line-height:1.35;display:flex;align-items:center;gap:8px;
+}
+.toc a:hover{background:var(--surface);color:var(--text)}
+.toc a.active{background:var(--navy-soft);color:#93C5FD;font-weight:600}
+.toc .level-3 a{padding-left:24px;font-size:0.76rem;color:var(--text-3)}
+.toc .level-3 a:hover{color:var(--text-2)}
+.toc .level-3 a.active{color:#93C5FD;background:transparent;font-weight:600}
+.toc-hidden{display:none!important}
+.toc-empty{padding:14px 10px;font-size:0.78rem;color:var(--text-3);font-style:italic}
+
+/* Sidebar footer */
+.sidebar-foot{margin-top:24px;padding-top:14px;border-top:1px solid var(--border);font-size:0.7rem;color:var(--text-3);line-height:1.5}
+.sidebar-foot a{color:var(--text-2);text-decoration:none}
+.sidebar-foot a:hover{color:var(--navy-bright)}
+.sidebar-foot code{font-family:'JetBrains Mono',monospace;font-size:0.66rem;padding:1px 5px;background:var(--bg);border:1px solid var(--border);border-radius:3px}
+
+/* Content typography */
+.content h1{font-size:2.1rem;font-weight:800;letter-spacing:-0.03em;color:var(--text);margin-bottom:8px;line-height:1.1}
+.content h2{font-size:1.45rem;font-weight:700;letter-spacing:-0.02em;color:var(--text);margin-top:48px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);scroll-margin-top:20px;position:relative}
+.content h3{font-size:1.08rem;font-weight:700;letter-spacing:-0.01em;color:var(--text);margin-top:30px;margin-bottom:10px;scroll-margin-top:20px;position:relative}
+.content h4{font-size:0.92rem;font-weight:700;color:var(--text);margin-top:22px;margin-bottom:8px}
+.content h2 .anchor,.content h3 .anchor{
+  position:absolute;left:-26px;top:50%;transform:translateY(-50%);
+  color:var(--text-3);text-decoration:none;font-weight:400;opacity:0;transition:opacity 0.15s;
+  font-size:0.85em;
+}
+.content h2:hover .anchor,.content h3:hover .anchor{opacity:1}
+.content h2 .anchor:hover,.content h3 .anchor:hover{color:var(--navy-bright)}
+
+.content p{margin:0 0 14px;color:var(--text-2);line-height:1.65;font-size:0.93rem}
+.content strong{color:var(--text);font-weight:700}
+.content em{font-style:italic;color:var(--text)}
+.content a{color:#60A5FA;text-decoration:none;border-bottom:1px solid transparent;transition:border-color 0.15s}
+.content a:hover{border-bottom-color:#60A5FA}
+
+.content ul,.content ol{margin:0 0 16px 0;padding-left:24px;color:var(--text-2);font-size:0.93rem;line-height:1.65}
+.content li{margin-bottom:6px}
+.content li::marker{color:var(--text-3)}
+
+.content blockquote{
+  border-left:3px solid var(--navy-bright);background:var(--surface);
+  padding:14px 18px;margin:18px 0;border-radius:0 8px 8px 0;color:var(--text-2);
+}
+.content blockquote p{margin-bottom:8px}
+.content blockquote p:last-child{margin-bottom:0}
+.content blockquote strong{color:var(--text)}
+
+.content code{
+  font-family:'JetBrains Mono',monospace;font-size:0.84em;
+  background:var(--bg-elev);border:1px solid var(--border);
+  padding:1px 6px;border-radius:4px;color:#93C5FD;
+}
+.content pre{
+  background:var(--bg-elev);border:1px solid var(--border);border-radius:8px;
+  padding:16px 18px;margin:16px 0;overflow-x:auto;
+}
+.content pre code{background:transparent;border:none;padding:0;color:var(--text-2);font-size:0.82rem;line-height:1.5}
+
+.content hr{border:none;border-top:1px solid var(--border);margin:36px 0}
+
+/* Tables */
+.content table{width:100%;border-collapse:collapse;margin:16px 0;font-size:0.85rem}
+.content thead{background:var(--surface)}
+.content th,.content td{
+  padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top;
+}
+.content th{font-weight:700;color:var(--text);font-size:0.78rem;letter-spacing:0.02em;text-transform:uppercase;color:var(--text-2)}
+.content td{color:var(--text-2);line-height:1.5}
+.content td strong{color:var(--text)}
+.content tr:last-child td{border-bottom:none}
+
+/* Content header strip */
+.content-header{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  padding-bottom:18px;margin-bottom:24px;border-bottom:1px solid var(--border);
+}
+.content-meta{display:flex;flex-direction:column;gap:4px}
+.crumb{font-size:0.68rem;color:var(--text-3);letter-spacing:0.08em;text-transform:uppercase;font-weight:700;font-family:'JetBrains Mono',monospace}
+.last-updated{font-size:0.72rem;color:var(--text-3);font-family:'JetBrains Mono',monospace}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.action-btn{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:7px;
+  color:var(--text-2);font-size:0.76rem;font-weight:600;cursor:pointer;
+  text-decoration:none;transition:all 0.15s;font-family:inherit;
+}
+.action-btn:hover{border-color:var(--navy-bright);color:var(--text);background:var(--surface-hover)}
+
+/* Loading / error states */
+.state{padding:40px 20px;text-align:center;color:var(--text-3);font-size:0.88rem}
+.state.error{color:#FCA5A5}
+.spinner{
+  width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--navy-bright);
+  border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Mobile */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  .sidebar{position:fixed;top:0;left:0;width:280px;z-index:50;transform:translateX(-100%);transition:transform 0.2s;box-shadow:0 0 40px rgba(0,0,0,0.5)}
+  .sidebar.open{transform:translateX(0)}
+  .content{padding:24px 20px 64px}
+  .menu-btn{display:flex!important}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:40}
+  .scrim.open{display:block}
+}
+.menu-btn{
+  display:none;position:fixed;top:14px;left:14px;z-index:60;
+  width:38px;height:38px;border-radius:8px;background:var(--surface);border:1px solid var(--border);
+  color:var(--text);align-items:center;justify-content:center;cursor:pointer;
+}
+
+/* Print */
+@media print{
+  .app{display:block}
+  .sidebar,.scrim,.menu-btn,.actions{display:none!important}
+  .content{padding:0;max-width:100%;color:#000}
+  .content h1,.content h2,.content h3,.content h4,.content strong{color:#000}
+  .content p,.content li,.content td,.content blockquote{color:#222}
+  .content blockquote{background:#f5f5f5;border-left-color:#666}
+  .content code{background:#f0f0f0;color:#000;border:1px solid #ccc}
+  .content pre{background:#f5f5f5;border:1px solid #ddd}
+  .content a{color:#1F4E79;text-decoration:underline}
+  body{background:#fff}
+  html,body{font-size:11pt;line-height:1.45}
+}
+</style>
+</head>
+<body>
+
+<button class="menu-btn" id="menuBtn" aria-label="Open menu">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div class="scrim" id="scrim"></div>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">BX</div>
+      <div class="brand-text">
+        <div class="brand-title">Margin Control</div>
+        <div class="brand-sub">User Guide</div>
+      </div>
+    </div>
+
+    <a href="/margin/" class="back-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to Margin Control
+    </a>
+
+    <div class="search-wrap">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="search" class="search-input" placeholder="Search the guide…" autocomplete="off">
+      <div class="search-meta" id="searchMeta">Press / to focus</div>
+    </div>
+
+    <ul class="toc" id="toc">
+      <li class="toc-empty">Loading…</li>
+    </ul>
+
+    <div class="sidebar-foot">
+      <div>Source: <code>docs/margin-control/<br>user-guide.md</code></div>
+      <div style="margin-top:6px">
+        <a id="editLink" href="https://github.com/skypace/apbg-billing/blob/main/docs/margin-control/user-guide.md" target="_blank" rel="noopener">Edit on GitHub →</a>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="content-header">
+      <div class="content-meta">
+        <div class="crumb">BRIX Margin Control · Documentation</div>
+        <div class="last-updated" id="lastUpdated">—</div>
+      </div>
+      <div class="actions">
+        <a class="action-btn" href="/margin/" title="Open the app">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open app
+        </a>
+        <button class="action-btn" id="printBtn" title="Print this guide">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print
+        </button>
+      </div>
+    </div>
+
+    <article id="doc">
+      <div class="state">
+        <div class="spinner"></div>
+        <div>Loading user guide…</div>
+      </div>
+    </article>
+  </main>
+</div>
+
+<script>
+// ─── Configure marked ───
+marked.setOptions({
+  gfm: true,
+  breaks: false,
+  headerIds: true,
+  mangle: false,
+});
+
+// ─── Load + render the markdown ───
+async function loadGuide(){
+  const docEl = document.getElementById('doc');
+  try {
+    // Cache-bust on every load so edits show up fresh in dev.
+    const res = await fetch('./user-guide.md?_=' + Date.now(), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`Failed to fetch user-guide.md (HTTP ${res.status})`);
+    const md = await res.text();
+
+    // Render markdown → sanitize → inject
+    const rawHtml = marked.parse(md);
+    const safeHtml = DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target','rel'] });
+    docEl.innerHTML = safeHtml;
+
+    // Post-process: slugify h2/h3 ids, add anchor links, build TOC
+    buildTOC();
+    addAnchors();
+    parseLastUpdated(md);
+    setupNavObserver();
+  } catch (err) {
+    console.error(err);
+    docEl.innerHTML = `<div class="state error">
+      <div style="font-size:1.2rem;margin-bottom:8px">⚠️ Couldn't load the user guide</div>
+      <div style="font-size:0.82rem">${err.message}</div>
+      <div style="font-size:0.78rem;margin-top:14px;color:var(--text-3)">
+        The viewer expects <code>./user-guide.md</code> next to this file.
+        Check the netlify.toml build step copies <code>docs/</code> → <code>public/docs/</code>.
+      </div>
+    </div>`;
+  }
+}
+
+function slugify(text){
+  return text.toLowerCase().trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function buildTOC(){
+  const toc = document.getElementById('toc');
+  toc.innerHTML = '';
+  const headings = document.querySelectorAll('#doc h2, #doc h3');
+  if (!headings.length) { toc.innerHTML = '<li class="toc-empty">No sections yet</li>'; return; }
+  const used = new Set();
+  headings.forEach(h => {
+    const text = h.textContent.trim();
+    let id = h.id || slugify(text);
+    let unique = id;
+    let i = 2;
+    while (used.has(unique)) { unique = id + '-' + i; i++; }
+    h.id = unique;
+    used.add(unique);
+
+    const li = document.createElement('li');
+    li.className = 'level-' + h.tagName[1];
+    const a = document.createElement('a');
+    a.href = '#' + unique;
+    a.textContent = text;
+    a.dataset.target = unique;
+    li.appendChild(a);
+    toc.appendChild(li);
+  });
+}
+
+function addAnchors(){
+  document.querySelectorAll('#doc h2, #doc h3').forEach(h => {
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.className = 'anchor';
+    a.innerHTML = '#';
+    a.setAttribute('aria-label', 'Link to ' + h.textContent.trim());
+    h.appendChild(a);
+  });
+}
+
+function parseLastUpdated(md){
+  // Pull the most recent change-log date from the markdown.
+  const re = /\|\s*(\d{4}-\d{2}-\d{2})\s*\|/g;
+  const dates = [];
+  let m;
+  while ((m = re.exec(md)) !== null) dates.push(m[1]);
+  if (dates.length) {
+    dates.sort();
+    document.getElementById('lastUpdated').textContent = 'Last updated ' + dates[dates.length - 1];
+  }
+}
+
+// ─── Scroll-spy ───
+function setupNavObserver(){
+  const links = Array.from(document.querySelectorAll('.toc a'));
+  const headings = document.querySelectorAll('#doc h2, #doc h3');
+  if (!headings.length) return;
+
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        const id = en.target.id;
+        links.forEach(l => l.classList.toggle('active', l.dataset.target === id));
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px' });
+
+  headings.forEach(h => obs.observe(h));
+}
+
+// ─── Search ───
+function setupSearch(){
+  const input = document.getElementById('search');
+  const meta = document.getElementById('searchMeta');
+  const macLike = /(Mac|iPhone|iPad)/i.test(navigator.platform);
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    const items = document.querySelectorAll('#toc li');
+    let visible = 0;
+    items.forEach(li => {
+      const text = li.textContent.toLowerCase();
+      const show = !q || text.includes(q);
+      li.classList.toggle('toc-hidden', !show);
+      if (show) visible++;
+    });
+    meta.textContent = q
+      ? `${visible} section${visible === 1 ? '' : 's'} match`
+      : (macLike ? 'Press / to focus' : 'Press / to focus');
+  });
+
+  // / focuses search, Esc clears
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (e.key === 'Escape') { input.value=''; input.dispatchEvent(new Event('input')); input.blur(); }
+      return;
+    }
+    if (e.key === '/') { e.preventDefault(); input.focus(); }
+  });
+}
+
+// ─── Mobile menu ───
+function setupMobileMenu(){
+  const btn = document.getElementById('menuBtn');
+  const sidebar = document.getElementById('sidebar');
+  const scrim = document.getElementById('scrim');
+  btn.addEventListener('click', () => {
+    sidebar.classList.add('open');
+    scrim.classList.add('open');
+  });
+  scrim.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    scrim.classList.remove('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('.toc a')) {
+      sidebar.classList.remove('open');
+      scrim.classList.remove('open');
+    }
+  });
+}
+
+// ─── Print ───
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+// ─── Init ───
+setupSearch();
+setupMobileMenu();
+loadGuide();
+</script>
+</body>
+</html>

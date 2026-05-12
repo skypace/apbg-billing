@@ -5,6 +5,7 @@ import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { OverviewPage } from './pages/OverviewPage';
+import { BrixMark } from './components/BrixMark';
 
 // Eager: Login (gate before session) + Overview (default landing).
 // Everything else is fetched on first navigation. Vite splits each lazy
@@ -17,9 +18,22 @@ const PlansPage = lazy(() => import('./pages/PlansPage').then((m) => ({ default:
 const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })));
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const OperationsPage = lazy(() => import('./pages/OperationsPage').then((m) => ({ default: m.OperationsPage })));
-const FleetPage = lazy(() => import('./pages/FleetPage').then((m) => ({ default: m.FleetPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
+
+function Splash() {
+  return (
+    <div className="splash" role="status" aria-label="Loading BRIX Margin Control">
+      <div>
+        <BrixMark size={88} title="Brix Beverage" />
+        <div className="splash-brand" style={{ marginTop: 18 }}>
+          BRI<span style={{ color: 'var(--ac)' }}>X</span>
+        </div>
+        <div className="splash-sub">Margin Control</div>
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -34,7 +48,7 @@ export function App() {
   }, []);
 
   if (session === undefined) {
-    return <div className="ld">Initializing…</div>;
+    return <Splash />;
   }
   if (!session) {
     return <LoginPage />;
@@ -67,7 +81,8 @@ export function App() {
       body = <OperationsPage />;
       break;
     case 'fleet':
-      body = <FleetPage />;
+      // Fleet moved to apbg-ops.netlify.app. Redirect to operations.
+      body = <PlaceholderPage title="Fleet" legacyHash="operations" />;
       break;
     case 'settings':
       body = <SettingsPage />;

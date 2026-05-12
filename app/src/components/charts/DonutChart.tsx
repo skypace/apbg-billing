@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { PieChart } from '@mui/x-charts/PieChart';
 import { CHART_COLORS, fmtCompact } from './util';
-import { Tooltip } from './Tooltip';
 
 export interface DonutDatum {
   label: string;
@@ -17,7 +16,9 @@ interface Props {
   ariaLabel?: string;
 }
 
-// Donut with center value + side legend, hover highlights segment.
+// Legend column width reserved on the right of the chart container.
+const LEGEND_WIDTH = 150;
+
 export function DonutChart({
   data,
   height = 240,
@@ -26,145 +27,118 @@ export function DonutChart({
   formatValue = fmtCompact,
   ariaLabel,
 }: Props) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState<number | null>(null);
+  const total = data.reduce((s, d) => s + Math.max(0, Number(d.value || 0)), 0);
+  if (total === 0 || data.length === 0) return <div className="ld">No data.</div>;
 
-  const W = 800;
-  const cx = 160;
-  const cy = height / 2;
-  const Router = Math.min(cy - 10, 110);
-  const Rinner = Router - 38;
+  const seriesData = data.map((d, i) => ({
+    id: d.label + '-' + i,
+    value: Math.max(0, Number(d.value || 0)),
+    label: d.label,
+    color: d.color ?? CHART_COLORS[i % CHART_COLORS.length],
+  }));
 
-  const total = useMemo(() => data.reduce((s, d) => s + Math.max(0, Number(d.value || 0)), 0), [data]);
-
-  if (total === 0 || data.length === 0) {
-    return <div className="ld">No data.</div>;
-  }
-
-  let acc = 0;
-  const segments = data.map((d, i) => {
-    const v = Math.max(0, Number(d.value || 0));
-    const a0 = (acc / total) * Math.PI * 2 - Math.PI / 2;
-    acc += v;
-    const a1 = (acc / total) * Math.PI * 2 - Math.PI / 2;
-    const large = a1 - a0 > Math.PI ? 1 : 0;
-    const x0 = cx + Router * Math.cos(a0);
-    const y0 = cy + Router * Math.sin(a0);
-    const x1 = cx + Router * Math.cos(a1);
-    const y1 = cy + Router * Math.sin(a1);
-    const ix0 = cx + Rinner * Math.cos(a0);
-    const iy0 = cy + Rinner * Math.sin(a0);
-    const ix1 = cx + Rinner * Math.cos(a1);
-    const iy1 = cy + Rinner * Math.sin(a1);
-    const path = `M ${x0} ${y0} A ${Router} ${Router} 0 ${large} 1 ${x1} ${y1} L ${ix1} ${iy1} A ${Rinner} ${Rinner} 0 ${large} 0 ${ix0} ${iy0} Z`;
-    return {
-      datum: d,
-      path,
-      color: d.color ?? CHART_COLORS[i % CHART_COLORS.length],
-      pct: v / total,
-    };
-  });
+  const outerR = Math.max(60, height / 2 - 14);
+  const innerR = Math.max(40, outerR - 36);
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
-      <svg
-        width="100%"
-        viewBox={`0 0 ${W} ${height}`}
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        aria-label={ariaLabel}
-      >
-        {segments.map((s, i) => (
-          <path
-            key={s.datum.label + i}
-            d={s.path}
-            fill={s.color}
-            opacity={hover === null || hover === i ? 0.92 : 0.35}
-            stroke="var(--bg)"
-            strokeWidth={1.5}
-            style={{ transition: 'opacity 120ms ease', cursor: 'pointer' }}
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
-          />
-        ))}
-        {(centerLabel || centerValue) && (
-          <>
+    <div
+      role="img"
+      aria-label={ariaLabel}
+      style={{ position: 'relative', width: '100%', height }}
+    >
+      <PieChart
+        height={height}
+        margin={{ top: 8, right: LEGEND_WIDTH, bottom: 8, left: 8 }}
+        series={[{
+          data: seriesData,
+          innerRadius: innerR,
+          outerRadius: outerR,
+          paddingAngle: 2,
+          cornerRadius: 3,
+          highlightScope: { faded: 'global', highlighted: 'item' },
+          // Use a near-zero additionalRadius so hover doesn't shift
+          // geometry — we lift via drop-shadow instead.
+          faded:       { innerRadius: innerR, additionalRadius: -4, color: 'gray' },
+          highlighted: { additionalRadius: 0 },
+          valueFormatter: (item: { value: number }) => {
+            const pct = ((item.value / total) * 100).toFixed(1);
+            return `${formatValue(item.value)} · ${pct}%`;
+          },
+        }]}
+        slotProps={{
+          legend: {
+            direction: 'column',
+            position: { vertical: 'middle', horizontal: 'right' },
+            labelStyle: { fill: '#E6EEF7', fontSize: 11 },
+            itemMarkWidth: 10,
+            itemMarkHeight: 10,
+            markGap: 8,
+            itemGap: 6,
+          },
+        }}
+        sx={{
+          '& .MuiChartsLegend-root':  { fontFamily: 'inherit' },
+          '& .MuiChartsLegend-label': { color: 'var(--tx)' },
+          '& .MuiChartsTooltip-root': { fontFamily: 'inherit' },
+          '& .MuiPieArc-root': {
+            stroke: 'var(--bg)',
+            strokeWidth: 2,
+            filter: 'drop-shadow(0 0 10px rgba(91, 181, 240, 0.18))',
+            transition: 'filter 200ms ease',
+          },
+          '& .MuiPieArc-root:hover': {
+            filter: 'drop-shadow(0 0 20px rgba(91, 181, 240, 0.55))',
+          },
+        }}
+      />
+
+      {/* Center label overlay — anchored in the PIE region (excludes the
+          legend column on the right) so hover-induced slice growth never
+          shifts the label. */}
+      {(centerLabel || centerValue) && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0, bottom: 0, left: 0,
+            right: LEGEND_WIDTH,
+            display: 'grid',
+            placeItems: 'center',
+            pointerEvents: 'none',
+            textAlign: 'center',
+          }}
+        >
+          <div>
             {centerLabel && (
-              <text
-                x={cx}
-                y={cy - 8}
-                fontSize="10"
-                fill="var(--mt)"
-                textAnchor="middle"
-                style={{ font: '10px system-ui', textTransform: 'uppercase', letterSpacing: '1px' }}
+              <div
+                style={{
+                  fontSize: 9,
+                  color: 'var(--mt)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1.5,
+                  fontWeight: 700,
+                }}
               >
                 {centerLabel}
-              </text>
+              </div>
             )}
             {centerValue && (
-              <text
-                x={cx}
-                y={cy + 12}
-                fontSize="18"
-                fill="var(--tx)"
-                textAnchor="middle"
-                fontWeight={700}
-                style={{ font: '700 18px system-ui' }}
+              <div
+                style={{
+                  fontFamily: 'var(--ff-display)',
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: 'var(--tx)',
+                  fontVariantNumeric: 'tabular-nums',
+                  marginTop: 4,
+                  textShadow: '0 0 18px rgba(91, 181, 240, 0.35)',
+                  whiteSpace: 'nowrap',
+                }}
               >
                 {centerValue}
-              </text>
+              </div>
             )}
-          </>
-        )}
-
-        {/* Legend on the right side of the chart area */}
-        {segments.map((s, i) => {
-          const ly = 18 + i * 20;
-          if (ly > height - 12) return null;
-          return (
-            <g
-              key={'lg' + i}
-              onMouseEnter={() => setHover(i)}
-              onMouseLeave={() => setHover(null)}
-              style={{ cursor: 'pointer' }}
-            >
-              <rect x={310} y={ly - 8} width={11} height={11} fill={s.color} rx={2} />
-              <text
-                x={326}
-                y={ly}
-                fontSize="11"
-                fill="var(--tx)"
-                style={{ font: '11px system-ui' }}
-              >
-                {s.datum.label.length > 36 ? s.datum.label.slice(0, 34) + '…' : s.datum.label}
-              </text>
-              <text
-                x={W - 14}
-                y={ly}
-                fontSize="11"
-                fill="var(--mt)"
-                textAnchor="end"
-                style={{ font: '11px monospace' }}
-              >
-                {formatValue(s.datum.value)} · {(s.pct * 100).toFixed(1)}%
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      {hover != null && (
-        <Tooltip
-          x={cx * ((wrapRef.current?.getBoundingClientRect().width ?? W) / W)}
-          y={cy * (height / height)}
-          visible
-          width={wrapRef.current?.getBoundingClientRect().width ?? W}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 2 }}>{segments[hover].datum.label}</div>
-          <div style={{ color: segments[hover].color, fontFamily: 'monospace' }}>
-            {formatValue(segments[hover].datum.value)} · {(segments[hover].pct * 100).toFixed(1)}%
           </div>
-        </Tooltip>
+        </div>
       )}
     </div>
   );
