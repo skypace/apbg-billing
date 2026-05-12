@@ -47,6 +47,55 @@ export const updateSegment = (code: string, patch: Partial<Segment>) =>
 export const deleteSegment = (code: string) =>
   sbDelete('segments', 'segment_code=eq.' + encodeURIComponent(code));
 
+// ----- Product Families taxonomy (CRUD via direct table) -----------------
+export interface ProductFamilyRow {
+  family_code: string;
+  label: string;
+  sort_order: number | null;
+  is_active: boolean;
+}
+export const fetchProductFamilies = () =>
+  sbq<ProductFamilyRow>('product_families', 'select=*&order=sort_order,label');
+export const insertProductFamily = (row: ProductFamilyRow) =>
+  sbInsert<ProductFamilyRow>('product_families', row);
+export const updateProductFamily = (code: string, patch: Partial<ProductFamilyRow>) =>
+  sbUpdate<ProductFamilyRow>('product_families', 'family_code=eq.' + encodeURIComponent(code), patch);
+export const deleteProductFamily = (code: string) =>
+  sbDelete('product_families', 'family_code=eq.' + encodeURIComponent(code));
+
+// ----- Product Types taxonomy (CRUD via direct table) --------------------
+export interface ProductTypeRow {
+  type_code: string;
+  label: string;
+  sort_order: number | null;
+  is_active: boolean;
+}
+export const fetchProductTypes = () =>
+  sbq<ProductTypeRow>('product_types', 'select=*&order=sort_order,label');
+export const insertProductType = (row: ProductTypeRow) =>
+  sbInsert<ProductTypeRow>('product_types', row);
+export const updateProductType = (code: string, patch: Partial<ProductTypeRow>) =>
+  sbUpdate<ProductTypeRow>('product_types', 'type_code=eq.' + encodeURIComponent(code), patch);
+export const deleteProductType = (code: string) =>
+  sbDelete('product_types', 'type_code=eq.' + encodeURIComponent(code));
+
+// ----- Account active/inactive -------------------------------------------
+export interface AccountSettingRow {
+  account_name: string;
+  item_count: number;
+  active_item_count: number;
+  is_active: boolean;
+  notes: string | null;
+  set_at: string | null;
+}
+export const fetchAccountSettings = () =>
+  sbrpc<AccountSettingRow[]>('fn_list_accounts_for_settings', {});
+export const setAccountActive = (account_name: string, is_active: boolean) =>
+  sbrpc<void>('fn_set_account_active', {
+    p_account_name: account_name,
+    p_is_active:    is_active,
+  });
+
 export const fetchItemSets = () =>
   sbq<ItemSet>('item_sets', 'select=*&order=sort_order,label');
 export const insertItemSet = (row: Partial<ItemSet>) => sbInsert<ItemSet>('item_sets', row as ItemSet);

@@ -11,18 +11,22 @@ import { SalesRepsEditor } from './settings/SalesRepsEditor';
 import { ChainModifiersEditor } from './settings/ChainModifiersEditor';
 import { EntityDefaultsEditor } from './settings/EntityDefaultsEditor';
 import { TaxonomyRulesEditor } from './settings/TaxonomyRulesEditor';
+import { AccountsEditor } from './settings/AccountsEditor';
 import {
   deleteChannel, deleteSegment,
   fetchChannels, fetchSegments,
   insertChannel, insertSegment,
   updateChannel, updateSegment,
+  fetchProductFamilies, insertProductFamily, updateProductFamily, deleteProductFamily,
+  fetchProductTypes,    insertProductType,   updateProductType,   deleteProductType,
 } from '../lib/settings';
 
 type Tab =
   | 'channels' | 'segments' | 'sales_reps'
   | 'rollups' | 'entity_defaults' | 'taxonomy'
   | 'item_sets' | 'items' | 'customers' | 'digest'
-  | 'expense_buckets' | 'users' | 'fleet_drivers';
+  | 'expense_buckets' | 'users' | 'fleet_drivers'
+  | 'product_families' | 'product_types' | 'accounts';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'rollups',         label: 'Chain Rollups',           group: 'Filters & Taxonomy' },
@@ -30,8 +34,11 @@ const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'taxonomy',        label: 'Item & Customer Groups',  group: 'Filters & Taxonomy' },
   { id: 'customers',       label: 'Customers (master)',      group: 'Customer & Item' },
   { id: 'items',           label: 'Items (master)',          group: 'Customer & Item' },
+  { id: 'accounts',        label: 'P&L Accounts',            group: 'Customer & Item' },
   { id: 'channels',        label: 'Channels',                group: 'Customer & Item' },
   { id: 'segments',        label: 'Segments',                group: 'Customer & Item' },
+  { id: 'product_families',label: 'Product Families',        group: 'Customer & Item' },
+  { id: 'product_types',   label: 'Product Types',           group: 'Customer & Item' },
   { id: 'sales_reps',      label: 'Sales Reps',              group: 'Customer & Item' },
   { id: 'item_sets',       label: 'Item Sets',               group: 'Customer & Item' },
   { id: 'expense_buckets', label: 'Expense Buckets / Overhead', group: 'Operations' },
@@ -110,6 +117,31 @@ export function SettingsPage() {
           codeLabel="Segment Code"
         />
       )}
+      {tab === 'product_families' && (
+        <TaxonomyEditor
+          title="PRODUCT FAMILIES"
+          description="Form factor — Bag in Box, Can, Bottle, Melt Equipment, Service, etc. Each item picks one family on the Items master."
+          fetchAll={fetchProductFamilies}
+          insert={(row) => insertProductFamily({ family_code: row.code, label: row.label, sort_order: row.sort_order, is_active: row.is_active })}
+          update={(code, patch) => updateProductFamily(code, patch as Parameters<typeof updateProductFamily>[1])}
+          remove={deleteProductFamily}
+          codeKey="family_code"
+          codeLabel="Family Code"
+        />
+      )}
+      {tab === 'product_types' && (
+        <TaxonomyEditor
+          title="PRODUCT TYPES"
+          description="Product nature — Carbonated Soft Drink, Juice, Tea, Hardware, Labor, etc. Cross-cuts segment + family for margin reports."
+          fetchAll={fetchProductTypes}
+          insert={(row) => insertProductType({ type_code: row.code, label: row.label, sort_order: row.sort_order, is_active: row.is_active })}
+          update={(code, patch) => updateProductType(code, patch as Parameters<typeof updateProductType>[1])}
+          remove={deleteProductType}
+          codeKey="type_code"
+          codeLabel="Type Code"
+        />
+      )}
+      {tab === 'accounts' && <AccountsEditor />}
 
       {tab === 'sales_reps'      && <SalesRepsEditor />}
       {tab === 'item_sets'       && <ItemSetsEditor />}
