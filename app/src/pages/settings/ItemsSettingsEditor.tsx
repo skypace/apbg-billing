@@ -12,7 +12,9 @@ import {
   fetchCategoryList, setItemActive,
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
+  fetchItemHygieneSummary,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
+  type ItemHygieneRow, type HygieneBucket,
 } from '../../lib/inventory';
 
 interface ItemMasterRow {
@@ -48,10 +50,6 @@ interface GridRow extends ItemMasterRow {
   suggested_category?: string | null;
   account_category_consensus_pct?: number | null;
   dominant_category_for_account?: string | null;
-  // Index signature required by DataGridPro v7's `rows: readonly Record<string, unknown>[]`.
-  // Every typed field above is assignable to `unknown`, so this is non-narrowing
-  // and existing strict-typed access patterns are preserved.
-  [key: string]: unknown;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -162,6 +160,8 @@ export function ItemsSettingsEditor() {
   const [misalignedOnly, setMisalignedOnly] = useState(false);
   const [applying, setApplying] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
+  const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
 
   function load() {
     setRows(null);
@@ -169,13 +169,15 @@ export function ItemsSettingsEditor() {
       sbrpc<ItemMasterRow[]>('fn_items_master', { p_lookback_days: 90, p_search: null }),
       fetchCategoryList(),
       fetchItemPlAudit(3),
+      fetchItemHygieneSummary(),
     ])
-      .then(([rs, cs, audit]) => {
+      .then(([rs, cs, audit, hy]) => {
         setRows([...rs].sort(sortRows));
         setCategories(cs);
         const m = new Map<string, ItemPlAuditRow>();
         for (const a of audit) m.set(a.qbo_item_id, a);
         setAuditByItem(m);
+        setHygiene(hy ?? []);
       })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
@@ -197,8 +199,13 @@ export function ItemsSettingsEditor() {
     if (misalignedOnly) {
       list = list.filter((r) => auditByItem.get(r.qbo_item_id)?.alignment_status === 'misaligned');
     }
+    if (hygieneFilter) {
+      const bucket = hygiene.find((h) => h.bucket === hygieneFilter);
+      const names = new Set<string>((bucket?.detail ?? []) as unknown as string[]);
+      list = list.filter((r) => names.has(r.item_name));
+    }
     return list;
-  }, [rows, search, misalignedOnly, auditByItem]);
+  }, [rows, search, misalignedOnly, auditByItem, hygieneFilter, hygiene]);
 
   const gridRows: GridRow[] = useMemo(
     () => filtered.map((r) => {
@@ -573,6 +580,45 @@ export function ItemsSettingsEditor() {
             : `${alignmentSummary.aligned} aligned · ${alignmentSummary.isolated} isolated`}
         />
       </div>
+
+      {hygiene.some((h) => h.item_count > 0) && (
+        <div className="cd" style={{
+          padding: '10px 12px', marginBottom: 12, display: 'flex',
+          gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
+          borderColor: 'var(--bd)',
+        }}>
+          <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>
+            Data hygiene
+          </span>
+          {hygiene.filter((h) => h.item_count > 0).map((h) => {
+            const active = hygieneFilter === h.bucket;
+            const color = h.bucket === 'no_income_account' ? 'var(--rd)'
+              : h.bucket === 'no_category' ? 'var(--am)'
+              : 'var(--mt)';
+            return (
+              <button
+                key={h.bucket}
+                onClick={() => setHygieneFilter(active ? null : h.bucket)}
+                className={'tb-btn' + (active ? ' tb-btn--primary' : '')}
+                style={{
+                  fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 6,
+                  color: active ? undefined : color,
+                  borderColor: active ? undefined : color,
+                }}
+                title={h.label}
+              >
+                <strong style={{ fontFamily: 'var(--ff-mono)' }}>{h.item_count}</strong>
+                <span>{h.label}</span>
+              </button>
+            );
+          })}
+          {hygieneFilter && (
+            <button onClick={() => setHygieneFilter(null)} className="tb-btn" style={{ marginLeft: 6, color: 'var(--mt)' }}>
+              clear filter
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="cd" style={{
         padding: '10px 12px', marginBottom: 14, display: 'flex',
