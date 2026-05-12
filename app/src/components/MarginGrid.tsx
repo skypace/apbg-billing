@@ -9,6 +9,7 @@ import { Sparkline } from './Sparkline';
 const DIM_HEADER: Record<Dim, string> = {
   category: 'Category', item: 'Item', customer: 'Customer', month: 'Month',
   entity: 'Entity', account: 'Account', segment: 'Segment', channel: 'Channel',
+  product_family: 'Family', product_type: 'Type',
 };
 
 interface Props {

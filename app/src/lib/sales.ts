@@ -10,7 +10,9 @@ export type Dim =
   | 'entity'
   | 'account'
   | 'segment'
-  | 'channel';
+  | 'channel'
+  | 'product_family'
+  | 'product_type';
 
 export interface SalesPivotRow {
   dim_label: string;
@@ -51,18 +53,22 @@ export interface SalesFilters {
   items?: string[] | null;
   channels?: string[] | null;
   segments?: string[] | null;
+  product_families?: string[] | null;
+  product_types?: string[] | null;
 }
 
 export function rpcArgs(f: SalesFilters) {
   return {
     p_start: f.start,
     p_end: f.end,
-    p_entities:   f.entities   && f.entities.length   ? f.entities   : null,
-    p_categories: f.categories && f.categories.length ? f.categories : null,
-    p_customers:  f.customers  && f.customers.length  ? f.customers  : null,
-    p_items:      f.items      && f.items.length      ? f.items      : null,
-    p_channels:   f.channels   && f.channels.length   ? f.channels   : null,
-    p_segments:   f.segments   && f.segments.length   ? f.segments   : null,
+    p_entities:         f.entities         && f.entities.length         ? f.entities         : null,
+    p_categories:       f.categories       && f.categories.length       ? f.categories       : null,
+    p_customers:        f.customers        && f.customers.length        ? f.customers        : null,
+    p_items:            f.items            && f.items.length            ? f.items            : null,
+    p_channels:         f.channels         && f.channels.length         ? f.channels         : null,
+    p_segments:         f.segments         && f.segments.length         ? f.segments         : null,
+    p_product_families: f.product_families && f.product_families.length ? f.product_families : null,
+    p_product_types:    f.product_types    && f.product_types.length    ? f.product_types    : null,
   };
 }
 

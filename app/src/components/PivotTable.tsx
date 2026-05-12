@@ -32,6 +32,8 @@ const DIM_HEADER: Record<Dim, string> = {
   account: 'Account',
   segment: 'Segment',
   channel: 'Channel',
+  product_family: 'Family',
+  product_type: 'Type',
 };
 
 function isComparison(r: SalesPivotRow | ComparisonRow): r is ComparisonRow {

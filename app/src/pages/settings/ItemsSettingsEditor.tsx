@@ -19,8 +19,12 @@ import {
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
   alignCategoriesToPl,
+  fetchProductFamilies, fetchProductTypes, fetchSegmentOptions,
+  setItemProductFamily, setItemProductType, setItemSegment,
+  bulkSetItemProductFamily, bulkSetItemProductType, bulkSetItemSegment,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
   type ItemHygieneRow, type HygieneBucket,
+  type ProductFamily, type ProductType, type SegmentOption,
 } from '../../lib/inventory';
 
 interface ItemMasterRow {
@@ -49,6 +53,13 @@ interface ItemMasterRow {
   daily_velocity: number | null;
   days_of_supply: number | null;
   status: string;
+  product_family_code: string | null;
+  product_family_label: string | null;
+  product_type_code: string | null;
+  product_type_label: string | null;
+  segment_code: string | null;
+  segment_label: string | null;
+  segment_source: 'item' | 'category' | null;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -172,6 +183,13 @@ export function ItemsSettingsEditor() {
   const [aligning, setAligning] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
+  const [families, setFamilies] = useState<ProductFamily[]>([]);
+  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
+  const [segmentOpts, setSegmentOpts] = useState<SegmentOption[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkFamily, setBulkFamily] = useState<string>('');
+  const [bulkType, setBulkType] = useState<string>('');
+  const [bulkSegment, setBulkSegment] = useState<string>('');
 
   function load() {
     setRows(null);
@@ -180,14 +198,20 @@ export function ItemsSettingsEditor() {
       fetchCategoryList(),
       fetchItemPlAudit(3),
       fetchItemHygieneSummary(),
+      fetchProductFamilies(),
+      fetchProductTypes(),
+      fetchSegmentOptions(),
     ])
-      .then(([rs, cs, audit, hy]) => {
+      .then(([rs, cs, audit, hy, fams, types, segs]) => {
         setRows([...rs].sort(sortRows));
         setCategories(cs);
         const m = new Map<string, ItemPlAuditRow>();
         for (const a of audit) m.set(a.qbo_item_id, a);
         setAuditByItem(m);
         setHygiene(hy ?? []);
+        setFamilies(fams);
+        setProductTypes(types);
+        setSegmentOpts(segs);
       })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
@@ -237,6 +261,9 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string,
     patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
   ) {
+    // The grid is tree-grouped by category; group rows have no qbo_item_id.
+    // If a control on a group row fires this, silently ignore.
+    if (!qbo_item_id) return;
     try {
       await sbrpc<void>('fn_set_inventory_settings', {
         p_qbo_item_id:        qbo_item_id,
@@ -267,6 +294,7 @@ export function ItemsSettingsEditor() {
   }
 
   async function patchActive(qbo_item_id: string, active: boolean) {
+    if (!qbo_item_id) return;
     try {
       await setItemActive(qbo_item_id, active);
       setRows((cur) => cur?.map((r) =>
@@ -286,6 +314,78 @@ export function ItemsSettingsEditor() {
       setAuditByItem(m);
     }).catch(() => undefined);
     toast.success('Applied: ' + suggested);
+  }
+
+  async function patchFamily(qbo_item_id: string, family_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemProductFamily(qbo_item_id, family_code);
+      const label = family_code ? (families.find((f) => f.family_code === family_code)?.label ?? null) : null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, product_family_code: family_code, product_family_label: label }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
+  async function patchType(qbo_item_id: string, type_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemProductType(qbo_item_id, type_code);
+      const label = type_code ? (productTypes.find((t) => t.type_code === type_code)?.label ?? null) : null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, product_type_code: type_code, product_type_label: label }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
+  async function patchSegment(qbo_item_id: string, segment_code: string | null) {
+    if (!qbo_item_id) return;
+    try {
+      await setItemSegment(qbo_item_id, segment_code);
+      // Setting to null falls back to category default — easier to reload than
+      // try to derive the new effective label on the client.
+      if (!segment_code) { load(); return; }
+      const label = segmentOpts.find((s) => s.segment_code === segment_code)?.label ?? null;
+      setRows((cur) => cur?.map((r) =>
+        r.qbo_item_id === qbo_item_id
+          ? { ...r, segment_code, segment_label: label, segment_source: 'item' }
+          : r,
+      ) ?? cur);
+    } catch (e) { toast.error('Save failed: ' + (e as Error).message); load(); }
+  }
+
+  async function applyBulkFamily() {
+    if (!selectedIds.length || !bulkFamily) return;
+    try {
+      const n = await bulkSetItemProductFamily(selectedIds, bulkFamily);
+      toast.success(`Set family on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkFamily('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
+  }
+
+  async function applyBulkType() {
+    if (!selectedIds.length || !bulkType) return;
+    try {
+      const n = await bulkSetItemProductType(selectedIds, bulkType);
+      toast.success(`Set type on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkType('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
+  }
+
+  async function applyBulkSegment() {
+    if (!selectedIds.length || !bulkSegment) return;
+    try {
+      const n = await bulkSetItemSegment(selectedIds, bulkSegment);
+      toast.success(`Set segment on ${n} item${n === 1 ? '' : 's'}.`);
+      setBulkSegment('');
+      load();
+    } catch (e) { toast.error('Bulk save failed: ' + (e as Error).message); }
   }
 
   async function runBulkAutoCategorize() {
@@ -406,37 +506,47 @@ export function ItemsSettingsEditor() {
     const cols: GridColDef[] = [
       {
         field: 'active', headerName: 'Active', width: 70, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchActive(p.row.qbo_item_id, v)}
-            title="Active in QBO. Toggling here pushes to QuickBooks via push-qbo-item edge function."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchActive(p.row.qbo_item_id, v)}
+              title="Active in QBO. Toggling here pushes to QuickBooks via push-qbo-item edge function."
+            />
+          );
+        },
       },
       {
         field: 'is_managed', headerName: 'Managed', width: 90, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
-            title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
+              title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
+            />
+          );
+        },
       },
       {
         field: 'is_planner', headerName: 'In planner', width: 90, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
-            title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
+              title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
+            />
+          );
+        },
       },
       {
         field: 'category_override', headerName: 'Category', width: 220,
         renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
           const cur = p.row.category_override as string | null;
           const inherited = p.row.category_path as string | null;
           const value = cur ?? '';
@@ -455,6 +565,86 @@ export function ItemsSettingsEditor() {
               }}
               sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
               renderInput={(params) => <TextField {...params} placeholder={inherited ?? 'set category'} />}
+            />
+          );
+        },
+      },
+      {
+        field: 'segment_label', headerName: 'Segment', width: 180, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.segment_code as string | null;
+          const curLabel = p.row.segment_label as string | null;
+          const source = p.row.segment_source as 'item' | 'category' | null;
+          const selected = curCode ? (segmentOpts.find((s) => s.segment_code === curCode) ?? null) : null;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 4 }}>
+              <Autocomplete<SegmentOption, false, false, false>
+                size="small"
+                options={segmentOpts}
+                value={selected}
+                getOptionLabel={(o) => o.label}
+                isOptionEqualToValue={(a, b) => a.segment_code === b.segment_code}
+                onChange={(_, v) => {
+                  const next = v?.segment_code ?? null;
+                  if (next !== (curCode ?? null)) patchSegment(p.row.qbo_item_id, next);
+                }}
+                sx={{ ...CAT_AC_SX, flex: 1 }} slotProps={CAT_AC_PAPER}
+                renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set segment'} />}
+              />
+              {source === 'category' && (
+                <span title="Inherited from category default (no per-item override)" style={{
+                  fontSize: 9, color: 'var(--mt)', letterSpacing: 0.4,
+                }}>cat</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        field: 'product_family_label', headerName: 'Family', width: 170, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.product_family_code as string | null;
+          const curLabel = p.row.product_family_label as string | null;
+          const selected = curCode ? (families.find((f) => f.family_code === curCode) ?? null) : null;
+          return (
+            <Autocomplete<ProductFamily, false, false, false>
+              size="small"
+              options={families}
+              value={selected}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(a, b) => a.family_code === b.family_code}
+              onChange={(_, v) => {
+                const next = v?.family_code ?? null;
+                if (next !== (curCode ?? null)) patchFamily(p.row.qbo_item_id, next);
+              }}
+              sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set family'} />}
+            />
+          );
+        },
+      },
+      {
+        field: 'product_type_label', headerName: 'Type', width: 160, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const curCode = p.row.product_type_code as string | null;
+          const curLabel = p.row.product_type_label as string | null;
+          const selected = curCode ? (productTypes.find((t) => t.type_code === curCode) ?? null) : null;
+          return (
+            <Autocomplete<ProductType, false, false, false>
+              size="small"
+              options={productTypes}
+              value={selected}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(a, b) => a.type_code === b.type_code}
+              onChange={(_, v) => {
+                const next = v?.type_code ?? null;
+                if (next !== (curCode ?? null)) patchType(p.row.qbo_item_id, next);
+              }}
+              sx={CAT_AC_SX} slotProps={CAT_AC_PAPER}
+              renderInput={(params) => <TextField {...params} placeholder={curLabel ?? 'set type'} />}
             />
           );
         },
@@ -481,6 +671,7 @@ export function ItemsSettingsEditor() {
         {
           field: 'suggested_category', headerName: 'Suggested', flex: 1, minWidth: 220,
           renderCell: (p) => {
+            if (p.rowNode.type === 'group') return null;
             const s = p.value as string | null | undefined;
             if (!s) {
               const dom = p.row.dominant_category_for_account as string | null | undefined;
@@ -542,67 +733,82 @@ export function ItemsSettingsEditor() {
       },
       {
         field: 'target_days_supply', headerName: 'Target Days', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? 30}
-            onBlur={(e) => {
-              const v = Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { target_days_supply: v });
-            }}
-            style={{ ...inp(), width: 60, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? 30}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { target_days_supply: v });
+              }}
+              style={{ ...inp(), width: 60, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'lead_time_days', headerName: 'Lead Time', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? 7}
-            onBlur={(e) => {
-              const v = Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { lead_time_days: v });
-            }}
-            style={{ ...inp(), width: 60, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? 7}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { lead_time_days: v });
+              }}
+              style={{ ...inp(), width: 60, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'reorder_point', headerName: 'Reorder Pt', type: 'number', width: 110, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? ''}
-            placeholder="auto"
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { reorder_point: v });
-            }}
-            style={{ ...inp(), width: 70, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? ''}
+              placeholder="auto"
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { reorder_point: v });
+              }}
+              style={{ ...inp(), width: 70, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'min_order_qty', headerName: 'Min Order', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? ''}
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { min_order_qty: v });
-            }}
-            style={{ ...inp(), width: 70, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { min_order_qty: v });
+              }}
+              style={{ ...inp(), width: 70, textAlign: 'right' }} />
+          );
+        },
       },
       { field: 'sold_revenue', headerName: 'Rev 90d', type: 'number', width: 110, cellClassName: 'mn',
         valueFormatter: (v) => fm(Number(v ?? 0)) },
       {
         field: 'notes', headerName: 'Notes', flex: 1, minWidth: 200,
-        renderCell: (p) => (
-          <input type="text" defaultValue={p.value ?? ''}
-            placeholder="—"
-            onBlur={(e) => {
-              const v = e.target.value;
-              if (v !== (p.value ?? '')) patchSettings(p.row.qbo_item_id, { notes: v || null });
-            }}
-            style={{ ...inp(), width: '100%', fontSize: 11 }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="text" defaultValue={p.value ?? ''}
+              placeholder="—"
+              onBlur={(e) => {
+                const v = e.target.value;
+                if (v !== (p.value ?? '')) patchSettings(p.row.qbo_item_id, { notes: v || null });
+              }}
+              style={{ ...inp(), width: '100%', fontSize: 11 }} />
+          );
+        },
       },
     );
 
     return cols;
-  }, [categoryLabels, showAlignment]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
@@ -764,6 +970,10 @@ export function ItemsSettingsEditor() {
             treeData getTreeDataPath={getTreeDataPath}
             groupingColDef={groupingColDef}
             density="compact" pagination disableRowSelectionOnClick
+            checkboxSelection
+            onRowSelectionModelChange={(model) => {
+              setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
+            }}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
             initialState={{
@@ -775,6 +985,47 @@ export function ItemsSettingsEditor() {
           />
         )}
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="cd" style={{
+          padding: '10px 12px', marginTop: 10, display: 'flex',
+          gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11,
+        }}>
+          <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>
+            Bulk assign · {selectedIds.length} selected
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>segment:</span>
+            <select value={bulkSegment} onChange={(e) => setBulkSegment(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 180 }}>
+              <option value="">— pick —</option>
+              {segmentOpts.map((s) => <option key={s.segment_code} value={s.segment_code}>{s.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkSegment}
+              disabled={!bulkSegment}>Apply</button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>family:</span>
+            <select value={bulkFamily} onChange={(e) => setBulkFamily(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 160 }}>
+              <option value="">— pick —</option>
+              {families.map((f) => <option key={f.family_code} value={f.family_code}>{f.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkFamily}
+              disabled={!bulkFamily}>Apply</button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--mt)' }}>type:</span>
+            <select value={bulkType} onChange={(e) => setBulkType(e.target.value)}
+              style={{ ...inp(), padding: '4px 6px', minWidth: 160 }}>
+              <option value="">— pick —</option>
+              {productTypes.map((t) => <option key={t.type_code} value={t.type_code}>{t.label}</option>)}
+            </select>
+            <button className="tb-btn tb-btn--primary" onClick={applyBulkType}
+              disabled={!bulkType}>Apply</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
         <strong style={{ color: 'var(--tx)' }}>P&amp;L alignment.</strong> Each item flows revenue into a

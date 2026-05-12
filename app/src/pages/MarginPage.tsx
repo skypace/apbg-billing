@@ -55,6 +55,7 @@ const DIMS: { id: Dim; label: string }[] = [
   { id: 'customer', label: 'Customer' }, { id: 'month', label: 'Month' },
   { id: 'entity', label: 'Entity' }, { id: 'account', label: 'Account' },
   { id: 'segment', label: 'Segment' }, { id: 'channel', label: 'Channel' },
+  { id: 'product_family', label: 'Family' }, { id: 'product_type', label: 'Type' },
 ];
 
 // Fallback list when the live RPC returns empty. Real entities now come from
@@ -62,11 +63,13 @@ const DIMS: { id: Dim; label: string }[] = [
 const FALLBACK_ENTITIES = ['brix', 'AS', 'freeflow', 'shared'];
 
 const FILTER_DIMS: { dim: Dim; key: keyof SalesFilters; label: string }[] = [
-  { dim: 'category', key: 'categories', label: 'Category' },
-  { dim: 'customer', key: 'customers',  label: 'Customer' },
-  { dim: 'item',     key: 'items',      label: 'Item' },
-  { dim: 'channel',  key: 'channels',   label: 'Channel' },
-  { dim: 'segment',  key: 'segments',   label: 'Segment' },
+  { dim: 'category',       key: 'categories',       label: 'Category' },
+  { dim: 'customer',       key: 'customers',        label: 'Customer' },
+  { dim: 'item',           key: 'items',            label: 'Item' },
+  { dim: 'channel',        key: 'channels',         label: 'Channel' },
+  { dim: 'segment',        key: 'segments',         label: 'Segment' },
+  { dim: 'product_family', key: 'product_families', label: 'Family' },
+  { dim: 'product_type',   key: 'product_types',    label: 'Type' },
 ];
 
 const GROUPING_BY_DIM: Partial<Record<Dim, {
@@ -80,10 +83,12 @@ const GROUPING_BY_DIM: Partial<Record<Dim, {
 const DRILL_FILTER: Partial<Record<Dim, keyof SalesFilters>> = {
   category: 'categories', customer: 'customers', item: 'items',
   channel: 'channels', segment: 'segments', entity: 'entities',
+  product_family: 'product_families', product_type: 'product_types',
 };
 const DRILL_NEXT: Partial<Record<Dim, Dim>> = {
   category: 'item', segment: 'item', channel: 'customer',
   customer: 'item', entity: 'category',
+  product_family: 'product_type', product_type: 'item',
 };
 
 type CompareMode = 'off' | 'prior_period' | 'prior_year';
