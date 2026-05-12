@@ -206,6 +206,78 @@ export async function setItemActive(qbo_item_id: string, active: boolean): Promi
   return callPushQboItem({ action: 'setActive', qbo_item_id, active });
 }
 
+// Logs every QBO writeback attempt to ops.qbo_writeback_log so we have
+// our own audit trail (not just edge-function HTTP logs). Best-effort:
+// logging failures never throw — we don't want to mask the real result.
+export async function logQboWriteback(opts: {
+  action: string;
+  qbo_item_id: string | null;
+  before: Record<string, unknown>;
+  after:  Record<string, unknown>;
+  result: 'success' | 'failure' | 'cancelled';
+  error?: string | null;
+}) {
+  try {
+    await sbrpc<number>('fn_log_qbo_writeback', {
+      p_action:      opts.action,
+      p_qbo_item_id: opts.qbo_item_id,
+      p_before:      opts.before,
+      p_after:       opts.after,
+      p_result:      opts.result,
+      p_error:       opts.error ?? null,
+    });
+  } catch {
+    // intentionally swallow — audit log shouldn't break the real call
+  }
+}
+
+// Wraps setItemActive with audit logging. Use this from the UI instead
+// of calling setItemActive directly so every Active flip lands in
+// ops.qbo_writeback_log.
+export async function setItemActiveAudited(opts: {
+  qbo_item_id: string;
+  item_name: string;
+  current_active: boolean;
+  next_active: boolean;
+}) {
+  const beforeName = opts.item_name;
+  const afterName  = opts.next_active
+    ? beforeName.replace(/\s*\(deleted\)\s*$/i, '')
+    : (beforeName.endsWith(' (deleted)') ? beforeName : beforeName + ' (deleted)');
+  const before = { active: opts.current_active, name: beforeName };
+  const after  = { active: opts.next_active,    name: afterName };
+
+  try {
+    const res = await setItemActive(opts.qbo_item_id, opts.next_active);
+    await logQboWriteback({
+      action: 'setActive', qbo_item_id: opts.qbo_item_id,
+      before, after, result: 'success',
+    });
+    return res;
+  } catch (e) {
+    await logQboWriteback({
+      action: 'setActive', qbo_item_id: opts.qbo_item_id,
+      before, after, result: 'failure',
+      error: (e as Error).message,
+    });
+    throw e;
+  }
+}
+
+export async function logQboWritebackCancelled(opts: {
+  qbo_item_id: string;
+  item_name: string;
+  current_active: boolean;
+  intended_active: boolean;
+}) {
+  return logQboWriteback({
+    action: 'setActive', qbo_item_id: opts.qbo_item_id,
+    before: { active: opts.current_active, name: opts.item_name },
+    after:  { active: opts.intended_active, name: opts.item_name },
+    result: 'cancelled',
+  });
+}
+
 export async function bulkSyncCategoriesToQbo(commit = false): Promise<QboCategorySyncResult> {
   return callPushQboItem<QboCategorySyncResult>({
     action: 'bulkSyncCategories',
