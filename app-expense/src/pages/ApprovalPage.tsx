@@ -1,1 +1,325 @@
-aW1wb3J0IHsgdXNlRWZmZWN0LCB1c2VTdGF0ZSwgdXNlUmVmLCB1c2VDYWxsYmFjayB9IGZyb20gJ3JlYWN0JzsKaW1wb3J0IHsgdXNlUGFyYW1zIH0gZnJvbSAncmVhY3Qtcm91dGVyLWRvbSc7CmltcG9ydCB7IENhcmQsIENhcmRDb250ZW50LCBDYXJkRGVzY3JpcHRpb24sIENhcmRIZWFkZXIsIENhcmRUaXRsZSB9IGZyb20gJ0AvY29tcG9uZW50cy91aS9jYXJkJzsKaW1wb3J0IHsgQnV0dG9uIH0gZnJvbSAnQC9jb21wb25lbnRzL3VpL2J1dHRvbic7CmltcG9ydCB7IEJhZGdlIH0gZnJvbSAnQC9jb21wb25lbnRzL3VpL2JhZGdlJzsKaW1wb3J0IHsgVGV4dGFyZWEgfSBmcm9tICdAL2NvbXBvbmVudHMvdWkvdGV4dGFyZWEnOwppbXBvcnQgeyBMYWJlbCB9IGZyb20gJ0AvY29tcG9uZW50cy91aS9sYWJlbCc7CmltcG9ydCB7CiAgQ2xpcGJvYXJkTGlzdCwKICBDaGVja0NpcmNsZSwKICBYQ2lyY2xlLAogIExvYWRlcjIsCiAgQWxlcnRUcmlhbmdsZSwKICBFcmFzZXIsCn0gZnJvbSAnbHVjaWRlLXJlYWN0JzsKaW1wb3J0IHsgZm9ybWF0Q3VycmVuY3ksIGZvcm1hdERhdGUgfSBmcm9tICdAL2xpYi91dGlscyc7CmltcG9ydCB0eXBlIHsgRXhwZW5zZVJlcXVlc3QgfSBmcm9tICdAL3R5cGVzL2V4cGVuc2UnOwppbXBvcnQgU2lnbmF0dXJlQ2FudmFzIGZyb20gJ3JlYWN0LXNpZ25hdHVyZS1jYW52YXMnOwoKdHlwZSBQYWdlU3RhdGUgPSAnbG9hZGluZycgfCAncmVhZHknIHwgJ2RlY2lkZWQnIHwgJ2V4cGlyZWQnIHwgJ2Vycm9yJzsKCmV4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIEFwcHJvdmFsUGFnZSgpIHsKICBjb25zdCB7IHRva2VuIH0gPSB1c2VQYXJhbXM8eyB0b2tlbjogc3RyaW5nIH0+KCk7CiAgY29uc3QgW3N0YXRlLCBzZXRTdGF0ZV0gPSB1c2VTdGF0ZTxQYWdlU3RhdGU+KCdsb2FkaW5nJyk7CiAgY29uc3QgW3JlcXVlc3QsIHNldFJlcXVlc3RdID0gdXNlU3RhdGU8RXhwZW5zZVJlcXVlc3QgfCBudWxsPihudWxsKTsKICBjb25zdCBbZGVjaXNpb24sIHNldERlY2lzaW9uXSA9IHVzZVN0YXRlPCdhcHByb3ZlZCcgfCAnZGVuaWVkJyB8IG51bGw+KG51bGwpOwogIGNvbnN0IFtyZWFzb25Ob3RlLCBzZXRSZWFzb25Ob3RlXSA9IHVzZVN0YXRlKCcnKTsKICBjb25zdCBbc3VibWl0dGluZywgc2V0U3VibWl0dGluZ10gPSB1c2VTdGF0ZShmYWxzZSk7CiAgY29uc3QgW3Jlc3VsdE1lc3NhZ2UsIHNldFJlc3VsdE1lc3NhZ2VdID0gdXNlU3RhdGUoJycpOwogIGNvbnN0IHNpZ1JlZiA9IHVzZVJlZjxTaWduYXR1cmVDYW52YXMgfCBudWxsPihudWxsKTsKCiAgLy8gTG9hZCB0aGUgcmVxdWVzdCBieSBtYWdpYyB0b2tlbgogIHVzZUVmZmVjdCgoKSA9PiB7CiAgICBhc3luYyBmdW5jdGlvbiBsb2FkKCkgewogICAgICBpZiAoIXRva2VuKSB7CiAgICAgICAgc2V0U3RhdGUoJ2Vycm9yJyk7CiAgICAgICAgcmV0dXJuOwogICAgICB9CgogICAgICB0cnkgewogICAgICAgIC8vIENhbGwgdGhlIE5ldGxpZnkgZnVuY3Rpb24gdG8gdmFsaWRhdGUgYW5kIHJldHVybiB0aGUgcmVxdWVzdAogICAgICAgIGNvbnN0IHJlcyA9IGF3YWl0IGZldGNoKAogICAgICAgICAgYC8ubmV0bGlmeS9mdW5jdGlvbnMvZXhwZW5zZS1yZXF1ZXN0LWRlY2lkZT90b2tlbj0ke2VuY29kZVVSSUNvbXBvbmVudCh0b2tlbil9YAogICAgICAgICk7CiAgICAgICAgaWYgKHJlcy5zdGF0dXMgPT09IDQxMCkgewogICAgICAgICAgc2V0U3RhdGUoJ2V4cGlyZWQnKTsKICAgICAgICAgIHJldHVybjsKICAgICAgICB9CiAgICAgICAgaWYgKCFyZXMub2spIHsKICAgICAgICAgIHNldFN0YXRlKCdlcnJvcicpOwogICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KICAgICAgICBjb25zdCBkYXRhID0gYXdhaXQgcmVzLmpzb24oKTsKICAgICAgICBpZiAoZGF0YS5hbHJlYWR5X2RlY2lkZWQpIHsKICAgICAgICAgIHNldFJlc3VsdE1lc3NhZ2UoCiAgICAgICAgICAgIGBUaGlzIHJlcXVlc3Qgd2FzIGFscmVhZHkgJHtkYXRhLmRlY2lzaW9ufSBvbiAke2Zvcm1hdERhdGUoZGF0YS5kZWNpZGVkX2F0KX0uYAogICAgICAgICAgKTsKICAgICAgICAgIHNldFN0YXRlKCdkZWNpZGVkJyk7CiAgICAgICAgICByZXR1cm47CiAgICAgICAgfQogICAgICAgIHNldFJlcXVlc3QoZGF0YS5yZXF1ZXN0IGFzIEV4cGVuc2VSZXF1ZXN0KTsKICAgICAgICBzZXRTdGF0ZSgncmVhZHknKTsKICAgICAgfSBjYXRjaCB7CiAgICAgICAgc2V0U3RhdGUoJ2Vycm9yJyk7CiAgICAgIH0KICAgIH0KICAgIGxvYWQoKTsKICB9LCBbdG9rZW5dKTsKCiAgY29uc3QgY2xlYXJTaWduYXR1cmUgPSB1c2VDYWxsYmFjaygoKSA9PiB7CiAgICBzaWdSZWYuY3VycmVudD8uY2xlYXIoKTsKICB9LCBbXSk7CgogIGFzeW5jIGZ1bmN0aW9uIGhhbmRsZURlY2lzaW9uKGQ6ICdhcHByb3ZlZCcgfCAnZGVuaWVkJykgewogICAgaWYgKCF0b2tlbiB8fCAhcmVxdWVzdCkgcmV0dXJuOwogICAgc2V0U3VibWl0dGluZyh0cnVlKTsKICAgIHNldERlY2lzaW9uKGQpOwoKICAgIGxldCBzaWduYXR1cmVEYXRhVXJsOiBzdHJpbmcgfCBudWxsID0gbnVsbDsKICAgIGlmIChkID09PSAnYXBwcm92ZWQnICYmIHNpZ1JlZi5jdXJyZW50ICYmICFzaWdSZWYuY3VycmVudC5pc0VtcHR5KCkpIHsKICAgICAgc2lnbmF0dXJlRGF0YVVybCA9IHNpZ1JlZi5jdXJyZW50LmdldFRyaW1tZWRDYW52YXMoKS50b0RhdGFVUkwoJ2ltYWdlL3BuZycpOwogICAgfQoKICAgIHRyeSB7CiAgICAgIGNvbnN0IHJlcyA9IGF3YWl0IGZldGNoKCcvLm5ldGxpZnkvZnVuY3Rpb25zL2V4cGVuc2UtcmVxdWVzdC1kZWNpZGUnLCB7CiAgICAgICAgbWV0aG9kOiAnUE9TVCcsCiAgICAgICAgaGVhZGVyczogeyAnQ29udGVudC1UeXBlJzogJ2FwcGxpY2F0aW9uL2pzb24nIH0sCiAgICAgICAgYm9keTogSlNPTi5zdHJpbmdpZnkoewogICAgICAgICAgdG9rZW4sCiAgICAgICAgICBkZWNpc2lvbjogZCwKICAgICAgICAgIHJlYXNvbl9ub3RlOiByZWFzb25Ob3RlIHx8IG51bGwsCiAgICAgICAgICBzaWduYXR1cmVfZGF0YTogc2lnbmF0dXJlRGF0YVVybCwKICAgICAgICB9KSwKICAgICAgfSk7CgogICAgICBpZiAoIXJlcy5vaykgewogICAgICAgIGNvbnN0IGVyciA9IGF3YWl0IHJlcy5qc29uKCkuY2F0Y2goKCkgPT4gKHt9KSk7CiAgICAgICAgdGhyb3cgbmV3IEVycm9yKGVyci5lcnJvciB8fCAnRmFpbGVkIHRvIHN1Ym1pdCBkZWNpc2lvbicpOwogICAgICB9CgogICAgICBzZXRSZXN1bHRNZXNzYWdlKAogICAgICAgIGQgPT09ICdhcHByb3ZlZCcKICAgICAgICAgID8gJ1JlcXVlc3QgYXBwcm92ZWQuIFRoZSBzdWJtaXR0ZXIgaGFzIGJlZW4gbm90aWZpZWQuJwogICAgICAgICAgOiAnUmVxdWVzdCBkZW5pZWQuIFRoZSBzdWJtaXR0ZXIgaGFzIGJlZW4gbm90aWZpZWQuJwogICAgICApOwogICAgICBzZXRTdGF0ZSgnZGVjaWRlZCcpOwogICAgfSBjYXRjaCAoZXJyKSB7CiAgICAgIHNldFJlc3VsdE1lc3NhZ2UoCiAgICAgICAgZXJyIGluc3RhbmNlb2YgRXJyb3IgPyBlcnIubWVzc2FnZSA6ICdTb21ldGhpbmcgd2VudCB3cm9uZy4nCiAgICAgICk7CiAgICAgIHNldFN0YXRlKCdlcnJvcicpOwogICAgfSBmaW5hbGx5IHsKICAgICAgc2V0U3VibWl0dGluZyhmYWxzZSk7CiAgICB9CiAgfQoKICAvLyBMT0FESU5HCiAgaWYgKHN0YXRlID09PSAnbG9hZGluZycpIHsKICAgIHJldHVybiAoCiAgICAgIDxkaXYgY2xhc3NOYW1lPSJtaW4taC1bMTAwZHZoXSBmbGV4IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWNlbnRlciBiZy1ncmFkaWVudC10by1iIGZyb20tcHJpbWFyeS81IHRvLWJhY2tncm91bmQiPgogICAgICAgIDxMb2FkZXIyIGNsYXNzTmFtZT0iaC04IHctOCBhbmltYXRlLXNwaW4gdGV4dC1wcmltYXJ5IiAvPgogICAgICA8L2Rpdj4KICAgICk7CiAgfQoKICAvLyBFWFBJUkVECiAgaWYgKHN0YXRlID09PSAnZXhwaXJlZCcpIHsKICAgIHJldHVybiAoCiAgICAgIDxDZW50ZXJlZENhcmQKICAgICAgICBpY29uPXs8QWxlcnRUcmlhbmdsZSBjbGFzc05hbWU9ImgtOCB3LTggdGV4dC1hbWJlci01MDAiIC8+fQogICAgICAgIHRpdGxlPSJMaW5rIEV4cGlyZWQiCiAgICAgICAgZGVzY3JpcHRpb249IlRoaXMgYXBwcm92YWwgbGluayBpcyBubyBsb25nZXIgdmFsaWQuIFBsZWFzZSBhc2sgdGhlIHN1Ym1pdHRlciB0byByZS1zZW5kIHRoZSByZXF1ZXN0LiIKICAgICAgLz4KICAgICk7CiAgfQoKICAvLyBFUlJPUgogIGlmIChzdGF0ZSA9PT0gJ2Vycm9yJykgewogICAgcmV0dXJuICgKICAgICAgPENlbnRlcmVkQ2FyZAogICAgICAgIGljb249ezxYQ2lyY2xlIGNsYXNzTmFtZT0iaC04IHctOCB0ZXh0LWRlc3RydWN0aXZlIiAvPn0KICAgICAgICB0aXRsZT0iU29tZXRoaW5nIHdlbnQgd3JvbmciCiAgICAgICAgZGVzY3JpcHRpb249e3Jlc3VsdE1lc3NhZ2UgfHwgJ1VuYWJsZSB0byBsb2FkIHRoaXMgYXBwcm92YWwgcmVxdWVzdC4nfQogICAgICAvPgogICAgKTsKICB9CgogIC8vIERFQ0lERUQKICBpZiAoc3RhdGUgPT09ICdkZWNpZGVkJykgewogICAgcmV0dXJuICgKICAgICAgPENlbnRlcmVkQ2FyZAogICAgICAgIGljb249ewogICAgICAgICAgZGVjaXNpb24gPT09ICdkZW5pZWQnID8gKAogICAgICAgICAgICA8WENpcmNsZSBjbGFzc05hbWU9ImgtOCB3LTggdGV4dC1kZXN0cnVjdGl2ZSIgLz4KICAgICAgICAgICkgOiAoCiAgICAgICAgICAgIDxDaGVja0NpcmNsZSBjbGFzc05hbWU9ImgtOCB3LTggdGV4dC1lbWVyYWxkLTUwMCIgLz4KICAgICAgICAgICkKICAgICAgICB9CiAgICAgICAgdGl0bGU9e2RlY2lzaW9uID09PSAnZGVuaWVkJyA/ICdSZXF1ZXN0IERlbmllZCcgOiAnUmVxdWVzdCBBcHByb3ZlZCd9CiAgICAgICAgZGVzY3JpcHRpb249e3Jlc3VsdE1lc3NhZ2V9CiAgICAgIC8+CiAgICApOwogIH0KCiAgLy8gUkVBRFkg4oCUIHNob3cgdGhlIHJlcXVlc3QgKyBhcHByb3ZhbCBmb3JtCiAgaWYgKCFyZXF1ZXN0KSByZXR1cm4gbnVsbDsKCiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJtaW4taC1bMTAwZHZoXSBiZy1ncmFkaWVudC10by1iIGZyb20tcHJpbWFyeS81IHRvLWJhY2tncm91bmQgcC00Ij4KICAgICAgPGRpdiBjbGFzc05hbWU9Im1heC13LW1kIG14LWF1dG8gc3BhY2UteS00Ij4KICAgICAgICB7LyogSGVhZGVyICovfQogICAgICAgIDxkaXYgY2xhc3NOYW1lPSJ0ZXh0LWNlbnRlciBwdC00IHBiLTIiPgogICAgICAgICAgPENsaXBib2FyZExpc3QgY2xhc3NOYW1lPSJoLTggdy04IHRleHQtcHJpbWFyeSBteC1hdXRvIG1iLTIiIC8+CiAgICAgICAgICA8aDEgY2xhc3NOYW1lPSJ0ZXh0LWxnIGZvbnQtc2VtaWJvbGQiPkFwcHJvdmFsIFJlcXVpcmVkPC9oMT4KICAgICAgICAgIDxwIGNsYXNzTmFtZT0idGV4dC1zbSB0ZXh0LW11dGVkLWZvcmVncm91bmQgbXQtMSI+CiAgICAgICAgICAgIFJldmlldyBhbmQgc2lnbiB0byBhcHByb3ZlIG9yIGRlbnkgdGhpc3snICd9CiAgICAgICAgICAgIHtyZXF1ZXN0LnR5cGUgPT09ICdwdXJjaGFzZV9yZXF1ZXN0JyA/ICdwdXJjaGFzZSByZXF1ZXN0JyA6ICdleHBlbnNlJ30uCiAgICAgICAgICA8L3A+CiAgICAgICAgPC9kaXY+CgogICAgICAgIHsvKiBSZXF1ZXN0IHN1bW1hcnkgKi99CiAgICAgICAgPENhcmQ+CiAgICAgICAgICA8Q2FyZEhlYWRlciBjbGFzc05hbWU9InBiLTIiPgogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIganVzdGlmeS1iZXR3ZWVuIj4KICAgICAgICAgICAgICA8Q2FyZFRpdGxlIGNsYXNzTmFtZT0idGV4dC1iYXNlIj57cmVxdWVzdC52ZW5kb3JfbmFtZSB8fCAnTm8gdmVuZG9yJ308L0NhcmRUaXRsZT4KICAgICAgICAgICAgICA8QmFkZ2UgdmFyaWFudD0id2FybmluZyI+CiAgICAgICAgICAgICAgICB7cmVxdWVzdC50eXBlID09PSAncHVyY2hhc2VfcmVxdWVzdCcgPyAnUHVyY2hhc2UgUmVxdWVzdCcgOiAnRXhwZW5zZSd9CiAgICAgICAgICAgICAgPC9CYWRnZT4KICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICA8L0NhcmRIZWFkZXI+CiAgICAgICAgICA8Q2FyZENvbnRlbnQgY2xhc3NOYW1lPSJzcGFjZS15LTIgdGV4dC1zbSI+CiAgICAgICAgICAgIDxSb3cgbGFiZWw9IkFtb3VudCIgdmFsdWU9e3JlcXVlc3QudG90YWxfYW1vdW50ID8gZm9ybWF0Q3VycmVuY3kocmVxdWVzdC50b3RhbF9hbW91bnQpIDogJ+KAlCd9IGJvbGQgLz4KICAgICAgICAgICAgPFJvdyBsYWJlbD0iQ2F0ZWdvcnkiIHZhbHVlPXtyZXF1ZXN0LmNvZ3NfYWNjb3VudF9sYWJlbCB8fCAn4oCUJ30gLz4KICAgICAgICAgICAgPFJvdyBsYWJlbD0iRGVwYXJ0bWVudCIgdmFsdWU9e3JlcXVlc3QuZGVwYXJ0bWVudCB8fCAn4oCUJ30gLz4KICAgICAgICAgICAgPFJvdyBsYWJlbD0iVGFnIiB2YWx1ZT17cmVxdWVzdC50YWcgfHwgJ+KAlCd9IC8+CiAgICAgICAgICAgIHtyZXF1ZXN0LmN1c3RvbWVyX25hbWUgJiYgPFJvdyBsYWJlbD0iQ3VzdG9tZXIiIHZhbHVlPXtyZXF1ZXN0LmN1c3RvbWVyX25hbWV9IC8+fQogICAgICAgICAgICB7cmVxdWVzdC5qb2JfbnVtYmVyICYmIDxSb3cgbGFiZWw9IkpvYiAjIiB2YWx1ZT17cmVxdWVzdC5qb2JfbnVtYmVyfSAvPn0KICAgICAgICAgICAge3JlcXVlc3QubWVtbyAmJiA8Um93IGxhYmVsPSJNZW1vIiB2YWx1ZT17cmVxdWVzdC5tZW1vfSAvPn0KICAgICAgICAgICAge3JlcXVlc3QucmVjZWlwdF9kYXRlICYmIDxSb3cgbGFiZWw9IkRhdGUiIHZhbHVlPXtmb3JtYXREYXRlKHJlcXVlc3QucmVjZWlwdF9kYXRlKX0gLz59CgogICAgICAgICAgICB7LyogTGluZSBpdGVtcyAqL30KICAgICAgICAgICAge3JlcXVlc3QubGluZV9pdGVtcyAmJiByZXF1ZXN0LmxpbmVfaXRlbXMubGVuZ3RoID4gMCAmJiAoCiAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9InB0LTIgYm9yZGVyLXQiPgogICAgICAgICAgICAgICAgPHAgY2xhc3NOYW1lPSJmb250LW1lZGl1bSBtYi0xIj5MaW5lIEl0ZW1zPC9wPgogICAgICAgICAgICAgICAge3JlcXVlc3QubGluZV9pdGVtcy5tYXAoKGxpLCBpKSA9PiAoCiAgICAgICAgICAgICAgICAgIDxkaXYga2V5PXtpfSBjbGFzc05hbWU9ImZsZXgganVzdGlmeS1iZXR3ZWVuIHRleHQteHMgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kIj4KICAgICAgICAgICAgICAgICAgICA8c3BhbiBjbGFzc05hbWU9InRydW5jYXRlIGZsZXgtMSI+e2xpLmRlc2NyaXB0aW9ufTwvc3Bhbj4KICAgICAgICAgICAgICAgICAgICA8c3BhbiBjbGFzc05hbWU9InRhYnVsYXItbnVtcyBtbC0yIj4KICAgICAgICAgICAgICAgICAgICAgIHtsaS5xdHl9IMOXIHtmb3JtYXRDdXJyZW5jeShsaS51bml0X3ByaWNlKX0gPSB7Zm9ybWF0Q3VycmVuY3kobGkuYW1vdW50KX0KICAgICAgICAgICAgICAgICAgICA8L3NwYW4+CiAgICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICAgKSl9CiAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICl9CiAgICAgICAgICA8L0NhcmRDb250ZW50PgogICAgICAgIDwvQ2FyZD4KCiAgICAgICAgey8qIFNpZ25hdHVyZSBwYWQgKi99CiAgICAgICAgPENhcmQ+CiAgICAgICAgICA8Q2FyZEhlYWRlciBjbGFzc05hbWU9InBiLTIiPgogICAgICAgICAgICA8Q2FyZFRpdGxlIGNsYXNzTmFtZT0idGV4dC1iYXNlIj5Zb3VyIFNpZ25hdHVyZTwvQ2FyZFRpdGxlPgogICAgICAgICAgICA8Q2FyZERlc2NyaXB0aW9uPlNpZ24gYmVsb3cgdG8gYXBwcm92ZSB0aGlzIHJlcXVlc3QuPC9DYXJkRGVzY3JpcHRpb24+CiAgICAgICAgICA8L0NhcmRIZWFkZXI+CiAgICAgICAgICA8Q2FyZENvbnRlbnQgY2xhc3NOYW1lPSJzcGFjZS15LTMiPgogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0icmVsYXRpdmUiPgogICAgICAgICAgICAgIDxTaWduYXR1cmVDYW52YXMKICAgICAgICAgICAgICAgIHJlZj17c2lnUmVmfQogICAgICAgICAgICAgICAgcGVuQ29sb3I9IiMxRjRFNzkiCiAgICAgICAgICAgICAgICBjYW52YXNQcm9wcz17ewogICAgICAgICAgICAgICAgICBjbGFzc05hbWU6ICdzaWctY2FudmFzIHctZnVsbCcsCiAgICAgICAgICAgICAgICAgIGhlaWdodDogMTUwLAogICAgICAgICAgICAgICAgICBzdHlsZTogeyB3aWR0aDogJzEwMCUnLCBoZWlnaHQ6ICcxNTBweCcgfSwKICAgICAgICAgICAgICAgIH19CiAgICAgICAgICAgICAgLz4KICAgICAgICAgICAgICA8YnV0dG9uCiAgICAgICAgICAgICAgICB0eXBlPSJidXR0b24iCiAgICAgICAgICAgICAgICBvbkNsaWNrPXtjbGVhclNpZ25hdHVyZX0KICAgICAgICAgICAgICAgIGNsYXNzTmFtZT0iYWJzb2x1dGUgdG9wLTIgcmlnaHQtMiBwLTEgcm91bmRlZCBiZy13aGl0ZS84MCBob3ZlcjpiZy13aGl0ZSB0ZXh0LW11dGVkLWZvcmVncm91bmQiCiAgICAgICAgICAgICAgPgogICAgICAgICAgICAgICAgPEVyYXNlciBjbGFzc05hbWU9ImgtNCB3LTQiIC8+CiAgICAgICAgICAgICAgPC9idXR0b24+CiAgICAgICAgICAgIDwvZGl2PgoKICAgICAgICAgICAgey8qIE9wdGlvbmFsIGRlbmlhbCByZWFzb24gKi99CiAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPSJzcGFjZS15LTEuNSI+CiAgICAgICAgICAgICAgPExhYmVsIGh0bWxGb3I9InJlYXNvbiI+Tm90ZSAob3B0aW9uYWwsIHJlcXVpcmVkIGZvciBkZW5pYWwpPC9MYWJlbD4KICAgICAgICAgICAgICA8VGV4dGFyZWEKICAgICAgICAgICAgICAgIGlkPSJyZWFzb24iCiAgICAgICAgICAgICAgICBwbGFjZWhvbGRlcj0iUmVhc29uIGZvciBhcHByb3ZhbCBvciBkZW5pYWwuLi4iCiAgICAgICAgICAgICAgICB2YWx1ZT17cmVhc29uTm90ZX0KICAgICAgICAgICAgICAgIG9uQ2hhbmdlPXsoZSkgPT4gc2V0UmVhc29uTm90ZShlLnRhcmdldC52YWx1ZSl9CiAgICAgICAgICAgICAgICByb3dzPXsyfQogICAgICAgICAgICAgIC8+CiAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgPC9DYXJkQ29udGVudD4KICAgICAgICA8L0NhcmQ+CgogICAgICAgIHsvKiBBY3Rpb24gYnV0dG9ucyAqL30KICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZ3JpZCBncmlkLWNvbHMtMiBnYXAtMyI+CiAgICAgICAgICA8QnV0dG9uCiAgICAgICAgICAgIHZhcmlhbnQ9ImRlc3RydWN0aXZlIgogICAgICAgICAgICBzaXplPSJsZyIKICAgICAgICAgICAgb25DbGljaz17KCkgPT4gaGFuZGxlRGVjaXNpb24oJ2RlbmllZCcpfQogICAgICAgICAgICBkaXNhYmxlZD17c3VibWl0dGluZ30KICAgICAgICAgID4KICAgICAgICAgICAge3N1Ym1pdHRpbmcgJiYgZGVjaXNpb24gPT09ICdkZW5pZWQnICYmICgKICAgICAgICAgICAgICA8TG9hZGVyMiBjbGFzc05hbWU9ImgtNCB3LTQgYW5pbWF0ZS1zcGluIiAvPgogICAgICAgICAgICApfQogICAgICAgICAgICA8WENpcmNsZSBjbGFzc05hbWU9ImgtNCB3LTQiIC8+CiAgICAgICAgICAgIERlbnkKICAgICAgICAgIDwvQnV0dG9uPgogICAgICAgICAgPEJ1dHRvbgogICAgICAgICAgICB2YXJpYW50PSJzdWNjZXNzIgogICAgICAgICAgICBzaXplPSJsZyIKICAgICAgICAgICAgb25DbGljaz17KCkgPT4gaGFuZGxlRGVjaXNpb24oJ2FwcHJvdmVkJyl9CiAgICAgICAgICAgIGRpc2FibGVkPXtzdWJtaXR0aW5nfQogICAgICAgICAgPgogICAgICAgICAgICB7c3VibWl0dGluZyAmJiBkZWNpc2lvbiA9PT0gJ2FwcHJvdmVkJyAmJiAoCiAgICAgICAgICAgICAgPExvYWRlcjIgY2xhc3NOYW1lPSJoLTQgdy00IGFuaW1hdGUtc3BpbiIgLz4KICAgICAgICAgICAgKX0KICAgICAgICAgICAgPENoZWNrQ2lyY2xlIGNsYXNzTmFtZT0iaC00IHctNCIgLz4KICAgICAgICAgICAgQXBwcm92ZQogICAgICAgICAgPC9CdXR0b24+CiAgICAgICAgPC9kaXY+CgogICAgICAgIDxwIGNsYXNzTmFtZT0idGV4dC14cyB0ZXh0LWNlbnRlciB0ZXh0LW11dGVkLWZvcmVncm91bmQgcGItNCI+CiAgICAgICAgICBZb3VyIGRlY2lzaW9uLCBJUCBhZGRyZXNzLCBhbmQgc2lnbmF0dXJlIGFyZSBsb2dnZWQgZm9yIGF1ZGl0LgogICAgICAgIDwvcD4KICAgICAgPC9kaXY+CiAgICA8L2Rpdj4KICApOwp9CgovKiogUmV1c2FibGUgZGV0YWlsIHJvdyAqLwpmdW5jdGlvbiBSb3coeyBsYWJlbCwgdmFsdWUsIGJvbGQgfTogeyBsYWJlbDogc3RyaW5nOyB2YWx1ZTogc3RyaW5nOyBib2xkPzogYm9vbGVhbiB9KSB7CiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJmbGV4IGp1c3RpZnktYmV0d2VlbiI+CiAgICAgIDxzcGFuIGNsYXNzTmFtZT0idGV4dC1tdXRlZC1mb3JlZ3JvdW5kIj57bGFiZWx9PC9zcGFuPgogICAgICA8c3BhbiBjbGFzc05hbWU9e2JvbGQgPyAnZm9udC1zZW1pYm9sZCcgOiAnJ30+e3ZhbHVlfTwvc3Bhbj4KICAgIDwvZGl2PgogICk7Cn0KCi8qKiBDZW50ZXJlZCBzdGF0dXMgY2FyZCBmb3IgdGVybWluYWwgc3RhdGVzICovCmZ1bmN0aW9uIENlbnRlcmVkQ2FyZCh7CiAgaWNvbiwKICB0aXRsZSwKICBkZXNjcmlwdGlvbiwKfTogewogIGljb246IFJlYWN0LlJlYWN0Tm9kZTsKICB0aXRsZTogc3RyaW5nOwogIGRlc2NyaXB0aW9uOiBzdHJpbmc7Cn0pIHsKICByZXR1cm4gKAogICAgPGRpdiBjbGFzc05hbWU9Im1pbi1oLVsxMDBkdmhdIGZsZXggaXRlbXMtY2VudGVyIGp1c3RpZnktY2VudGVyIGJnLWdyYWRpZW50LXRvLWIgZnJvbS1wcmltYXJ5LzUgdG8tYmFja2dyb3VuZCBwLTQiPgogICAgICA8Q2FyZCBjbGFzc05hbWU9InctZnVsbCBtYXgtdy1zbSB0ZXh0LWNlbnRlciI+CiAgICAgICAgPENhcmRDb250ZW50IGNsYXNzTmFtZT0icHQtOCBwYi02IHNwYWNlLXktMyI+CiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0ibXgtYXV0byI+e2ljb259PC9kaXY+CiAgICAgICAgICA8aDIgY2xhc3NOYW1lPSJ0ZXh0LWxnIGZvbnQtc2VtaWJvbGQiPnt0aXRsZX08L2gyPgogICAgICAgICAgPHAgY2xhc3NOYW1lPSJ0ZXh0LXNtIHRleHQtbXV0ZWQtZm9yZWdyb3VuZCI+e2Rlc2NyaXB0aW9ufTwvcD4KICAgICAgICA8L0NhcmRDb250ZW50PgogICAgICA8L0NhcmQ+CiAgICA8L2Rpdj4KICApOwp9Cg==
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  ClipboardList,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  AlertTriangle,
+  Eraser,
+} from 'lucide-react';
+import { formatCurrency, formatDate } from '@/lib/utils';
+import type { ExpenseRequest } from '@/types/expense';
+import SignatureCanvas from 'react-signature-canvas';
+
+type PageState = 'loading' | 'ready' | 'decided' | 'expired' | 'error';
+
+export default function ApprovalPage() {
+  const { token } = useParams<{ token: string }>();
+  const [state, setState] = useState<PageState>('loading');
+  const [request, setRequest] = useState<ExpenseRequest | null>(null);
+  const [decision, setDecision] = useState<'approved' | 'denied' | null>(null);
+  const [reasonNote, setReasonNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [resultMessage, setResultMessage] = useState('');
+  const sigRef = useRef<SignatureCanvas | null>(null);
+
+  // Load the request by magic token
+  useEffect(() => {
+    async function load() {
+      if (!token) {
+        setState('error');
+        return;
+      }
+
+      try {
+        // Call the Netlify function to validate and return the request
+        const res = await fetch(
+          `/.netlify/functions/expense-request-decide?token=${encodeURIComponent(token)}`
+        );
+        if (res.status === 410) {
+          setState('expired');
+          return;
+        }
+        if (!res.ok) {
+          setState('error');
+          return;
+        }
+        const data = await res.json();
+        if (data.already_decided) {
+          setResultMessage(
+            `This request was already ${data.decision} on ${formatDate(data.decided_at)}.`
+          );
+          setState('decided');
+          return;
+        }
+        setRequest(data.request as ExpenseRequest);
+        setState('ready');
+      } catch {
+        setState('error');
+      }
+    }
+    load();
+  }, [token]);
+
+  const clearSignature = useCallback(() => {
+    sigRef.current?.clear();
+  }, []);
+
+  async function handleDecision(d: 'approved' | 'denied') {
+    if (!token || !request) return;
+    setSubmitting(true);
+    setDecision(d);
+
+    let signatureDataUrl: string | null = null;
+    if (d === 'approved' && sigRef.current && !sigRef.current.isEmpty()) {
+      signatureDataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png');
+    }
+
+    try {
+      const res = await fetch('/.netlify/functions/expense-request-decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          decision: d,
+          reason_note: reasonNote || null,
+          signature_data: signatureDataUrl,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to submit decision');
+      }
+
+      setResultMessage(
+        d === 'approved'
+          ? 'Request approved. The submitter has been notified.'
+          : 'Request denied. The submitter has been notified.'
+      );
+      setState('decided');
+    } catch (err) {
+      setResultMessage(
+        err instanceof Error ? err.message : 'Something went wrong.'
+      );
+      setState('error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // LOADING
+  if (state === 'loading') {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // EXPIRED
+  if (state === 'expired') {
+    return (
+      <CenteredCard
+        icon={<AlertTriangle className="h-8 w-8 text-amber-500" />}
+        title="Link Expired"
+        description="This approval link is no longer valid. Please ask the submitter to re-send the request."
+      />
+    );
+  }
+
+  // ERROR
+  if (state === 'error') {
+    return (
+      <CenteredCard
+        icon={<XCircle className="h-8 w-8 text-destructive" />}
+        title="Something went wrong"
+        description={resultMessage || 'Unable to load this approval request.'}
+      />
+    );
+  }
+
+  // DECIDED
+  if (state === 'decided') {
+    return (
+      <CenteredCard
+        icon={
+          decision === 'denied' ? (
+            <XCircle className="h-8 w-8 text-destructive" />
+          ) : (
+            <CheckCircle className="h-8 w-8 text-emerald-500" />
+          )
+        }
+        title={decision === 'denied' ? 'Request Denied' : 'Request Approved'}
+        description={resultMessage}
+      />
+    );
+  }
+
+  // READY — show the request + approval form
+  if (!request) return null;
+
+  return (
+    <div className="min-h-[100dvh] bg-gradient-to-b from-primary/5 to-background p-4">
+      <div className="max-w-md mx-auto space-y-4">
+        {/* Header */}
+        <div className="text-center pt-4 pb-2">
+          <ClipboardList className="h-8 w-8 text-primary mx-auto mb-2" />
+          <h1 className="text-lg font-semibold">Approval Required</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Review and sign to approve or deny this{' '}
+            {request.type === 'purchase_request' ? 'purchase request' : 'expense'}.
+          </p>
+        </div>
+
+        {/* Request summary */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">{request.vendor_name || 'No vendor'}</CardTitle>
+              <Badge variant="warning">
+                {request.type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Row label="Amount" value={request.total_amount ? formatCurrency(request.total_amount) : '—'} bold />
+            <Row label="Category" value={request.cogs_account_label || '—'} />
+            <Row label="Department" value={request.department || '—'} />
+            <Row label="Tag" value={request.tag || '—'} />
+            {request.customer_name && <Row label="Customer" value={request.customer_name} />}
+            {request.job_number && <Row label="Job #" value={request.job_number} />}
+            {request.memo && <Row label="Memo" value={request.memo} />}
+            {request.receipt_date && <Row label="Date" value={formatDate(request.receipt_date)} />}
+
+            {/* Line items */}
+            {request.line_items && request.line_items.length > 0 && (
+              <div className="pt-2 border-t">
+                <p className="font-medium mb-1">Line Items</p>
+                {request.line_items.map((li, i) => (
+                  <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                    <span className="truncate flex-1">{li.description}</span>
+                    <span className="tabular-nums ml-2">
+                      {li.qty} × {formatCurrency(li.unit_price)} = {formatCurrency(li.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Signature pad */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Your Signature</CardTitle>
+            <CardDescription>Sign below to approve this request.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="relative">
+              <SignatureCanvas
+                ref={sigRef}
+                penColor="#1F4E79"
+                canvasProps={{
+                  className: 'sig-canvas w-full',
+                  height: 150,
+                  style: { width: '100%', height: '150px' },
+                }}
+              />
+              <button
+                type="button"
+                onClick={clearSignature}
+                className="absolute top-2 right-2 p-1 rounded bg-white/80 hover:bg-white text-muted-foreground"
+              >
+                <Eraser className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Optional denial reason */}
+            <div className="space-y-1.5">
+              <Label htmlFor="reason">Note (optional, required for denial)</Label>
+              <Textarea
+                id="reason"
+                placeholder="Reason for approval or denial..."
+                value={reasonNote}
+                onChange={(e) => setReasonNote(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Action buttons */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            variant="destructive"
+            size="lg"
+            onClick={() => handleDecision('denied')}
+            disabled={submitting}
+          >
+            {submitting && decision === 'denied' && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            <XCircle className="h-4 w-4" />
+            Deny
+          </Button>
+          <Button
+            variant="success"
+            size="lg"
+            onClick={() => handleDecision('approved')}
+            disabled={submitting}
+          >
+            {submitting && decision === 'approved' && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            <CheckCircle className="h-4 w-4" />
+            Approve
+          </Button>
+        </div>
+
+        <p className="text-xs text-center text-muted-foreground pb-4">
+          Your decision, IP address, and signature are logged for audit.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Reusable detail row */
+function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={bold ? 'font-semibold' : ''}>{value}</span>
+    </div>
+  );
+}
+
+/** Centered status card for terminal states */
+function CenteredCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background p-4">
+      <Card className="w-full max-w-sm text-center">
+        <CardContent className="pt-8 pb-6 space-y-3">
+          <div className="mx-auto">{icon}</div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
