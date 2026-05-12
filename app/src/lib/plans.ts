@@ -19,10 +19,15 @@ export interface SalesPlanLine {
   line_type: string;
   qbo_item_id: string | null;
   item_name: string | null;
+  qbo_customer_id: string | null;
+  customer_name: string | null;
   qbo_account_id: string | null;
   account_name: string | null;
   notes: string | null;
   amounts: number[];
+  qty: number[] | null;
+  unit_price: number[] | null;
+  unit_cost: number[] | null;
   sort_order: number;
   updated_at: string;
 }

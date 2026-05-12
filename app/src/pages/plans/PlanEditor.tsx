@@ -19,6 +19,17 @@ import { PlanVsActuals } from './PlanVsActuals';
 import { PlanForecast } from './PlanForecast';
 
 type Mode = 'lines' | 'rollup' | 'vs_actuals' | 'forecast';
+type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
+
+const VIEW_MODES: { id: ViewMode; label: string }[] = [
+  { id: 'revenue', label: 'Revenue ($)' },
+  { id: 'qty',     label: 'Qty' },
+  { id: 'price',   label: 'Price ($/unit)' },
+  { id: 'cost',    label: 'Cost ($/unit)' },
+];
+
+const ZEROS = (): number[] => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 interface Props {
   plan: SalesPlan;
@@ -32,6 +43,7 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
   const [actualsByItem, setActualsByItem] = useState<Record<string, { amounts: number[]; total: number }> | null>(null);
   const [mode, setMode] = useState<Mode>('lines');
+  const [viewMode, setViewMode] = useState<ViewMode>('revenue');
 
   function load() {
     Promise.all([fetchPlanLines(plan.id), fetchPlanAccountRollup(plan.id)])
@@ -78,20 +90,70 @@ export function PlanEditor({ plan, onBack }: Props) {
       item_name: it.fully_qualified_name || it.name,
       qbo_account_id: it.income_account_ref_id,
       account_name: it.income_account_name,
-      amounts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      amounts: ZEROS(),
+      qty: ZEROS(),
+      unit_price: ZEROS(),
+      unit_cost: ZEROS(),
     } as Partial<SalesPlanLine>).then(() => {
       setPickerOpen(false);
       load();
     });
   }
 
-  function setAmount(line: SalesPlanLine, monthIdx: number, value: string) {
-    const next = (line.amounts ?? Array(12).fill(0)).slice();
-    next[monthIdx] = Number(value) || 0;
-    sbUpdate<SalesPlanLine>('sales_plan_lines', 'id=eq.' + line.id, {
-      amounts: next,
-      updated_at: new Date().toISOString(),
-    } as Partial<SalesPlanLine>).then(load);
+  function arrayFor(line: SalesPlanLine, mode: ViewMode): number[] {
+    switch (mode) {
+      case 'revenue': return line.amounts    ?? ZEROS();
+      case 'qty':     return line.qty        ?? ZEROS();
+      case 'price':   return line.unit_price ?? ZEROS();
+      case 'cost':    return line.unit_cost  ?? ZEROS();
+    }
+  }
+
+  function setCell(line: SalesPlanLine, monthIdx: number, value: string) {
+    const v = Number(value) || 0;
+    const patch: Partial<SalesPlanLine> = { updated_at: new Date().toISOString() };
+    if (viewMode === 'revenue') {
+      const amounts = (line.amounts ?? ZEROS()).slice();
+      amounts[monthIdx] = round2(v);
+      patch.amounts = amounts;
+    } else if (viewMode === 'qty') {
+      const qty = (line.qty ?? ZEROS()).slice();
+      qty[monthIdx] = round2(v);
+      const price = line.unit_price ?? ZEROS();
+      const amounts = (line.amounts ?? ZEROS()).slice();
+      amounts[monthIdx] = round2(v * Number(price[monthIdx] || 0));
+      patch.qty = qty;
+      patch.amounts = amounts;
+    } else if (viewMode === 'price') {
+      const price = (line.unit_price ?? ZEROS()).slice();
+      price[monthIdx] = round2(v);
+      const qty = line.qty ?? ZEROS();
+      const amounts = (line.amounts ?? ZEROS()).slice();
+      amounts[monthIdx] = round2(Number(qty[monthIdx] || 0) * v);
+      patch.unit_price = price;
+      patch.amounts = amounts;
+    } else {
+      const cost = (line.unit_cost ?? ZEROS()).slice();
+      cost[monthIdx] = round2(v);
+      patch.unit_cost = cost;
+    }
+    sbUpdate<SalesPlanLine>('sales_plan_lines', 'id=eq.' + line.id, patch).then(load);
+  }
+
+  function totalFor(line: SalesPlanLine, mode: ViewMode): number {
+    if (mode === 'revenue') return (line.amounts ?? []).reduce((s, v) => s + Number(v || 0), 0);
+    if (mode === 'qty')     return (line.qty     ?? []).reduce((s, v) => s + Number(v || 0), 0);
+    if (mode === 'price') {
+      const qSum = (line.qty     ?? []).reduce((s, v) => s + Number(v || 0), 0);
+      const aSum = (line.amounts ?? []).reduce((s, v) => s + Number(v || 0), 0);
+      return qSum > 0 ? aSum / qSum : 0;
+    }
+    // cost: extended annual cost = sum(qty[i] * unit_cost[i])
+    const q = line.qty       ?? ZEROS();
+    const c = line.unit_cost ?? ZEROS();
+    let t = 0;
+    for (let i = 0; i < 12; i++) t += Number(q[i] || 0) * Number(c[i] || 0);
+    return t;
   }
 
   function deleteLine(id: string) {
@@ -238,7 +300,24 @@ export function PlanEditor({ plan, onBack }: Props) {
             }}
           >
             <div className="ct" style={{ margin: 0 }}>PLAN LINES — {lines.length}</div>
-            <button onClick={() => setPickerOpen(!pickerOpen)} style={btnSecondary()}>+ ADD ITEM</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>View</span>
+              <div style={{ display: 'flex', border: '1px solid var(--bd)', borderRadius: 4, overflow: 'hidden' }}>
+                {VIEW_MODES.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setViewMode(v.id)}
+                    style={{
+                      padding: '4px 10px', fontSize: 10, fontWeight: 600,
+                      background: viewMode === v.id ? 'rgba(91,181,240,0.18)' : 'transparent',
+                      color:      viewMode === v.id ? 'var(--ac)' : 'var(--tx2)',
+                      border: 'none', borderRight: '1px solid var(--bd)', cursor: 'pointer',
+                    }}
+                  >{v.label}</button>
+                ))}
+              </div>
+              <button onClick={() => setPickerOpen(!pickerOpen)} style={btnSecondary()}>+ ADD ITEM</button>
+            </div>
           </div>
           {pickerOpen && (
             <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
@@ -274,14 +353,25 @@ export function PlanEditor({ plan, onBack }: Props) {
                     {MONTHS_SHORT.map((m) => (
                       <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
                     ))}
-                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'right' }} title={
+                      viewMode === 'revenue' ? 'Annual revenue (sum of months)'
+                      : viewMode === 'qty'     ? 'Annual units (sum of months)'
+                      : viewMode === 'price'   ? 'Blended avg price = annual revenue ÷ annual units'
+                      :                          'Extended annual cost = Σ qty[i] × cost[i]'
+                    }>
+                      {viewMode === 'revenue' ? 'Annual Rev'
+                       : viewMode === 'qty'    ? 'Annual Qty'
+                       : viewMode === 'price'  ? 'Avg Price'
+                       :                          'Annual Cost'}
+                    </th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {lines.map((l) => {
-                    const amounts = l.amounts ?? Array(12).fill(0);
-                    const total = amounts.reduce((s, v) => s + Number(v || 0), 0);
+                    const arr = arrayFor(l, viewMode);
+                    const total = totalFor(l, viewMode);
+                    const isMoney = viewMode !== 'qty';
                     return (
                       <tr key={l.id}>
                         <td
@@ -297,26 +387,31 @@ export function PlanEditor({ plan, onBack }: Props) {
                           {l.item_name ?? '—'}
                         </td>
                         <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
-                        {amounts.map((v, idx) => (
+                        {arr.map((v, idx) => (
                           <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
                             <input
                               type="number"
+                              step={viewMode === 'qty' ? 1 : 0.01}
                               defaultValue={v ?? 0}
                               onBlur={(e) => {
-                                if (Number(e.target.value) !== Number(v)) setAmount(l, idx, e.target.value);
+                                if (Number(e.target.value) !== Number(v)) setCell(l, idx, e.target.value);
                               }}
                               style={{ ...inp(), width: 72, textAlign: 'right', fontSize: 10, padding: '3px 4px' }}
                             />
                           </td>
                         ))}
-                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(total)}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {isMoney ? fm(total) : Math.round(total).toLocaleString()}
+                        </td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button
                             onClick={() => {
-                              const v = prompt('Annual total to spread across 12 months:', String(Math.round(total)));
+                              const annualRev = (l.amounts ?? []).reduce((s, v) => s + Number(v || 0), 0);
+                              const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
                               if (v != null) fillFlat(l, v);
                             }}
                             style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                            title="Spread an annual revenue total flat across 12 months"
                           >
                             ÷12
                           </button>
