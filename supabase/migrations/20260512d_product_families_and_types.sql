@@ -33,6 +33,7 @@ INSERT INTO ops.product_families (family_code, label, sort_order) VALUES
   ('melt_equip',  'Melt Equipment',      40),
   ('bev_equip',   'Beverage Equipment',  50),
   ('service',     'Service',             60),
+  ('pm',          'Preventative Maintenance', 65),
   ('gas',         'Gas',                 70),
   ('rental',      'Rental',              80),
   ('parts',       'Parts',               85),
@@ -140,6 +141,9 @@ ON CONFLICT (item_name) DO UPDATE
   WHERE ops.item_segments.set_by LIKE 'auto-match%' OR ops.item_segments.set_by IS NULL;
 
 -- ── 6. Auto-match: PRODUCT FAMILY ─────────────────────────────────────────
+-- PM family is name-driven (explicit "PM" in item name); the income account
+-- 'PM and Contract Service Income' mixes PM with general contract service,
+-- so we don't classify by income_account alone.
 INSERT INTO ops.item_product_families (qbo_item_id, family_code, set_by)
 SELECT it.qbo_item_id,
        CASE
@@ -150,6 +154,7 @@ SELECT it.qbo_item_id,
          WHEN it.income_account_name IN ('Packaged Beverage Income','Shopify Sales','Beverage Fee Income')
               OR it.name ~* '^(24P|12P|6P|12OZ|16OZ)'                              THEN 'can'
          WHEN it.income_account_name IN ('100% CO2','Mixed Gas and Nitro','Hazmat Del Fees','Gas COGS') THEN 'gas'
+         WHEN it.name ~* '\m(PM|PREVENTATIVE *MAINTENANCE)\M'                      THEN 'pm'
          WHEN it.income_account_name IN ('Service Income','PM and Contract Service Income','Freshpet Service Income') THEN 'service'
          WHEN it.income_account_name IN ('Equipment Rental Income','Tank Rental Income','Sublet Rental Income') THEN 'rental'
          WHEN it.income_account_name = 'Equipment Remanufacturing'                 THEN 'reman'
