@@ -31,6 +31,7 @@ interface ItemMasterRow {
   unit_price: number | null;
   purchase_cost: number | null;
   is_managed: boolean;
+  is_planner: boolean;
   target_days_supply: number;
   lead_time_days: number;
   reorder_point: number | null;
@@ -225,12 +226,13 @@ export function ItemsSettingsEditor() {
 
   async function patchSettings(
     qbo_item_id: string,
-    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
+    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
   ) {
     try {
       await sbrpc<void>('fn_set_inventory_settings', {
         p_qbo_item_id:        qbo_item_id,
         p_is_managed:         patchData.is_managed ?? null,
+        p_is_planner:         patchData.is_planner ?? null,
         p_target_days_supply: patchData.target_days_supply ?? null,
         p_lead_time_days:     patchData.lead_time_days ?? null,
         p_reorder_point:      patchData.reorder_point ?? null,
@@ -370,6 +372,16 @@ export function ItemsSettingsEditor() {
             checked={!!p.value}
             onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
             title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
+          />
+        ),
+      },
+      {
+        field: 'is_planner', headerName: 'In planner', width: 90, sortable: true,
+        renderCell: (p) => (
+          <Toggle
+            checked={!!p.value}
+            onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
+            title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
           />
         ),
       },
