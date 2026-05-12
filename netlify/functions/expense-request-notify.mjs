@@ -5,7 +5,8 @@ import { requireAuth } from './lib/auth.mjs';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { db: { schema: 'ops' } }
 );
 
 function corsHeaders() {
