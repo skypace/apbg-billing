@@ -48,6 +48,10 @@ interface GridRow extends ItemMasterRow {
   suggested_category?: string | null;
   account_category_consensus_pct?: number | null;
   dominant_category_for_account?: string | null;
+  // Index signature required by DataGridPro v7's `rows: readonly Record<string, unknown>[]`.
+  // Every typed field above is assignable to `unknown`, so this is non-narrowing
+  // and existing strict-typed access patterns are preserved.
+  [key: string]: unknown;
 }
 
 const STATUS_COLOR: Record<string, string> = {
