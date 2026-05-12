@@ -10,6 +10,7 @@ app/dist
 app-expense/node_modules
 app-expense/dist
 app-expense/*.tsbuildinfo
+app-expense/package-lock.json
 
 # NOTE: public/sales-next/ and public/expense/ are intentionally checked
 # in for now because Netlify's deploy doesn't appear to be running our
