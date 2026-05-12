@@ -3,10 +3,14 @@
   #    against the schema snapshot. Fails the build if the manifest claims tables
   #    that don't exist, if a real table has no writer/orphan entry, or if a
   #    multi-writer hotspot isn't explicitly opted in. See architecture/README.md.
-  # 2. Build the Vite + React + TS app; output goes to public/sales-next/. The
+  # 2. Build the Margin Minder Vite app; output goes to public/sales-next/. The
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
-  command = "node architecture/lint-manifest.mjs && npm install --prefix app && npm run build --prefix app"
+  # 3. Build the Brix Expense Vite sub-app; output goes to public/expense/ and
+  #    is served at /expense/* on this same Netlify deploy. Lives parallel to
+  #    app/ with its own package.json and node_modules so the two cannot affect
+  #    each other.
+  command = "node architecture/lint-manifest.mjs && npm install --prefix app && npm run build --prefix app && npm install --prefix brix-expense-app && npm run build --prefix brix-expense-app"
   publish = "public"
   functions = "netlify/functions"
 
@@ -51,6 +55,15 @@
   to = "/sales/:splat"
   status = 301
   force = true
+
+# Brix Expense SPA fallback — deep links like /expense/approve/<token>
+# rewrite to /expense/index.html so the React app can route them.
+# status = 200 is a rewrite (not a redirect); Netlify still serves the
+# real files in /expense/assets/* directly because they match on disk.
+[[redirects]]
+  from = "/expense/*"
+  to = "/expense/index.html"
+  status = 200
 
 [[headers]]
   for = "/*"
