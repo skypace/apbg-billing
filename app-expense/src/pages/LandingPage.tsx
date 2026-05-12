@@ -1,1 +1,180 @@
-aW1wb3J0IHsgdXNlTmF2aWdhdGUgfSBmcm9tICdyZWFjdC1yb3V0ZXItZG9tJzsKaW1wb3J0IHsgdXNlU2Vzc2lvbiwgdXNlRXhwZW5zZVNldHRpbmdzIH0gZnJvbSAnQC9saWIvaG9va3MnOwppbXBvcnQgeyBzdXBhYmFzZSB9IGZyb20gJ0AvbGliL3N1cGFiYXNlJzsKaW1wb3J0IHsgQ2FyZCwgQ2FyZENvbnRlbnQgfSBmcm9tICdAL2NvbXBvbmVudHMvdWkvY2FyZCc7CmltcG9ydCB7IEJhZGdlIH0gZnJvbSAnQC9jb21wb25lbnRzL3VpL2JhZGdlJzsKaW1wb3J0IHsgQnV0dG9uIH0gZnJvbSAnQC9jb21wb25lbnRzL3VpL2J1dHRvbic7CmltcG9ydCB7IFJlY2VpcHQsIFNob3BwaW5nQ2FydCwgQ2xvY2ssIEFycm93UmlnaHQsIExvYWRlcjIgfSBmcm9tICdsdWNpZGUtcmVhY3QnOwppbXBvcnQgeyB1c2VFZmZlY3QsIHVzZVN0YXRlIH0gZnJvbSAncmVhY3QnOwppbXBvcnQgeyBmb3JtYXRDdXJyZW5jeSwgZm9ybWF0RGF0ZSB9IGZyb20gJ0AvbGliL3V0aWxzJzsKaW1wb3J0IHR5cGUgeyBFeHBlbnNlUmVxdWVzdCB9IGZyb20gJ0AvdHlwZXMvZXhwZW5zZSc7CgpleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBMYW5kaW5nUGFnZSgpIHsKICBjb25zdCBuYXZpZ2F0ZSA9IHVzZU5hdmlnYXRlKCk7CiAgY29uc3QgeyBzZXNzaW9uIH0gPSB1c2VTZXNzaW9uKCk7CiAgY29uc3QgeyBzZXR0aW5ncyB9ID0gdXNlRXhwZW5zZVNldHRpbmdzKCk7CiAgY29uc3QgW3JlY2VudFJlcXVlc3RzLCBzZXRSZWNlbnRSZXF1ZXN0c10gPSB1c2VTdGF0ZTxFeHBlbnNlUmVxdWVzdFtdPihbXSk7CiAgY29uc3QgW2xvYWRpbmcsIHNldExvYWRpbmddID0gdXNlU3RhdGUodHJ1ZSk7CgogIHVzZUVmZmVjdCgoKSA9PiB7CiAgICBhc3luYyBmdW5jdGlvbiBsb2FkUmVjZW50KCkgewogICAgICBpZiAoIXNlc3Npb24pIHJldHVybjsKICAgICAgY29uc3QgeyBkYXRhIH0gPSBhd2FpdCBzdXBhYmFzZQogICAgICAgIC5mcm9tKCdleHBlbnNlX3JlcXVlc3RzJykKICAgICAgICAuc2VsZWN0KCcqJykKICAgICAgICAuZXEoJ3N1Ym1pdHRlZF9ieScsIHNlc3Npb24udXNlci5pZCkKICAgICAgICAub3JkZXIoJ2NyZWF0ZWRfYXQnLCB7IGFzY2VuZGluZzogZmFsc2UgfSkKICAgICAgICAubGltaXQoNSk7CiAgICAgIHNldFJlY2VudFJlcXVlc3RzKChkYXRhIGFzIEV4cGVuc2VSZXF1ZXN0W10pID8/IFtdKTsKICAgICAgc2V0TG9hZGluZyhmYWxzZSk7CiAgICB9CiAgICBsb2FkUmVjZW50KCk7CiAgfSwgW3Nlc3Npb25dKTsKCiAgY29uc3QgdXNlckZpcnN0TmFtZSA9IHNlc3Npb24/LnVzZXI/LnVzZXJfbWV0YWRhdGE/LmZ1bGxfbmFtZT8uc3BsaXQoJyAnKVswXQogICAgPz8gc2Vzc2lvbj8udXNlcj8uZW1haWw/LnNwbGl0KCdAJylbMF0KICAgID8/ICd0aGVyZSc7CgogIHJldHVybiAoCiAgICA8ZGl2IGNsYXNzTmFtZT0ic3BhY2UteS02IHBiLTQiPgogICAgICB7LyogR3JlZXRpbmcgKi99CiAgICAgIDxkaXY+CiAgICAgICAgPGgxIGNsYXNzTmFtZT0idGV4dC14bCBmb250LXNlbWlib2xkIHRleHQtZm9yZWdyb3VuZCI+CiAgICAgICAgICBIZXkge3VzZXJGaXJzdE5hbWV9CiAgICAgICAgPC9oMT4KICAgICAgICA8cCBjbGFzc05hbWU9InRleHQtc20gdGV4dC1tdXRlZC1mb3JlZ3JvdW5kIG10LTEiPgogICAgICAgICAgV2hhdCBkbyB5b3UgbmVlZCB0byBzdWJtaXQ/CiAgICAgICAgPC9wPgogICAgICA8L2Rpdj4KCiAgICAgIHsvKiBNb2RlIHNlbGVjdGlvbiBjYXJkcyAqL30KICAgICAgPGRpdiBjbGFzc05hbWU9ImdyaWQgZ2FwLTMiPgogICAgICAgIDxidXR0b24KICAgICAgICAgIG9uQ2xpY2s9eygpID0+IG5hdmlnYXRlKCduZXcnKX0KICAgICAgICAgIGNsYXNzTmFtZT0idGV4dC1sZWZ0IgogICAgICAgID4KICAgICAgICAgIDxDYXJkIGNsYXNzTmFtZT0iaG92ZXI6Ym9yZGVyLXByaW1hcnkvNTAgaG92ZXI6c2hhZG93LW1kIHRyYW5zaXRpb24tYWxsIGN1cnNvci1wb2ludGVyIj4KICAgICAgICAgICAgPENhcmRDb250ZW50IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIgZ2FwLTQgcC00Ij4KICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleC1zaHJpbmstMCBoLTEyIHctMTIgcm91bmRlZC1sZyBiZy1wcmltYXJ5LzEwIGZsZXggaXRlbXMtY2VudGVyIGp1c3RpZnktY2VudGVyIj4KICAgICAgICAgICAgICAgIDxSZWNlaXB0IGNsYXNzTmFtZT0iaC02IHctNiB0ZXh0LXByaW1hcnkiIC8+CiAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9ImZsZXgtMSBtaW4tdy0wIj4KICAgICAgICAgICAgICAgIDxoMiBjbGFzc05hbWU9ImZvbnQtc2VtaWJvbGQgdGV4dC1iYXNlIj5FeHBlbnNlPC9oMj4KICAgICAgICAgICAgICAgIDxwIGNsYXNzTmFtZT0idGV4dC1zbSB0ZXh0LW11dGVkLWZvcmVncm91bmQiPgogICAgICAgICAgICAgICAgICBJIGFscmVhZHkgYm91Z2h0IHNvbWV0aGluZyDigJQgc25hcCByZWNlaXB0IGFuZCBsb2cgaXQKICAgICAgICAgICAgICAgIDwvcD4KICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICA8QXJyb3dSaWdodCBjbGFzc05hbWU9ImgtNSB3LTUgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kIGZsZXgtc2hyaW5rLTAiIC8+CiAgICAgICAgICAgIDwvQ2FyZENvbnRlbnQ+CiAgICAgICAgICA8L0NhcmQ+CiAgICAgICAgPC9idXR0b24+CgogICAgICAgIDxidXR0b24KICAgICAgICAgIG9uQ2xpY2s9eygpID0+IG5hdmlnYXRlKCduZXctcHInKX0KICAgICAgICAgIGNsYXNzTmFtZT0idGV4dC1sZWZ0IgogICAgICAgID4KICAgICAgICAgIDxDYXJkIGNsYXNzTmFtZT0iaG92ZXI6Ym9yZGVyLXByaW1hcnkvNTAgaG92ZXI6c2hhZG93LW1kIHRyYW5zaXRpb24tYWxsIGN1cnNvci1wb2ludGVyIj4KICAgICAgICAgICAgPENhcmRDb250ZW50IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIgZ2FwLTQgcC00Ij4KICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleC1zaHJpbmstMCBoLTEyIHctMTIgcm91bmRlZC1sZyBiZy1hbWJlci01MCBmbGV4IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWNlbnRlciI+CiAgICAgICAgICAgICAgICA8U2hvcHBpbmdDYXJ0IGNsYXNzTmFtZT0iaC02IHctNiB0ZXh0LWFtYmVyLTYwMCIgLz4KICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleC0xIG1pbi13LTAiPgogICAgICAgICAgICAgICAgPGgyIGNsYXNzTmFtZT0iZm9udC1zZW1pYm9sZCB0ZXh0LWJhc2UiPlB1cmNoYXNlIFJlcXVlc3Q8L2gyPgogICAgICAgICAgICAgICAgPHAgY2xhc3NOYW1lPSJ0ZXh0LXNtIHRleHQtbXV0ZWQtZm9yZWdyb3VuZCI+CiAgICAgICAgICAgICAgICAgIEkgbmVlZCB0byBidXkgc29tZXRoaW5nIOKAlCBnZXQgYXBwcm92YWwgZmlyc3QKICAgICAgICAgICAgICAgIDwvcD4KICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICA8QXJyb3dSaWdodCBjbGFzc05hbWU9ImgtNSB3LTUgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kIGZsZXgtc2hyaW5rLTAiIC8+CiAgICAgICAgICAgIDwvQ2FyZENvbnRlbnQ+CiAgICAgICAgICA8L0NhcmQ+CiAgICAgICAgPC9idXR0b24+CiAgICAgIDwvZGl2PgoKICAgICAgey8qIFRocmVzaG9sZCBub3RlICovfQogICAgICB7c2V0dGluZ3MgJiYgKAogICAgICAgIDxwIGNsYXNzTmFtZT0idGV4dC14cyB0ZXh0LW11dGVkLWZvcmVncm91bmQgdGV4dC1jZW50ZXIiPgogICAgICAgICAgRXhwZW5zZXMgdW5kZXIge2Zvcm1hdEN1cnJlbmN5KHNldHRpbmdzLmFwcHJvdmFsX3RocmVzaG9sZCl9IGFyZSBhdXRvLWFwcHJvdmVkLgogICAgICAgICAgQWxsIHB1cmNoYXNlIHJlcXVlc3RzIHJlcXVpcmUgbWFuYWdlciBzaWduLW9mZi4KICAgICAgICA8L3A+CiAgICAgICl9CgogICAgICB7LyogUmVjZW50IHN1Ym1pc3Npb25zICovfQogICAgICA8ZGl2PgogICAgICAgIDxkaXYgY2xhc3NOYW1lPSJmbGV4IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWJldHdlZW4gbWItMyI+CiAgICAgICAgICA8aDIgY2xhc3NOYW1lPSJ0ZXh0LXNtIGZvbnQtc2VtaWJvbGQgdGV4dC1mb3JlZ3JvdW5kIj5SZWNlbnQgU3VibWlzc2lvbnM8L2gyPgogICAgICAgICAgPEJ1dHRvbiB2YXJpYW50PSJnaG9zdCIgc2l6ZT0ic20iIG9uQ2xpY2s9eygpID0+IG5hdmlnYXRlKCdwZW5kaW5nJyl9PgogICAgICAgICAgICBWaWV3IGFsbAogICAgICAgICAgPC9CdXR0b24+CiAgICAgICAgPC9kaXY+CiAgICAgICAge2xvYWRpbmcgPyAoCiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBqdXN0aWZ5LWNlbnRlciBweS04Ij4KICAgICAgICAgICAgPExvYWRlcjIgY2xhc3NOYW1lPSJoLTUgdy01IGFuaW1hdGUtc3BpbiB0ZXh0LW11dGVkLWZvcmVncm91bmQiIC8+CiAgICAgICAgICA8L2Rpdj4KICAgICAgICApIDogcmVjZW50UmVxdWVzdHMubGVuZ3RoID09PSAwID8gKAogICAgICAgICAgPENhcmQ+CiAgICAgICAgICAgIDxDYXJkQ29udGVudCBjbGFzc05hbWU9InB5LTggdGV4dC1jZW50ZXIiPgogICAgICAgICAgICAgIDxDbG9jayBjbGFzc05hbWU9ImgtOCB3LTggdGV4dC1tdXRlZC1mb3JlZ3JvdW5kLzQwIG14LWF1dG8gbWItMiIgLz4KICAgICAgICAgICAgICA8cCBjbGFzc05hbWU9InRleHQtc20gdGV4dC1tdXRlZC1mb3JlZ3JvdW5kIj4KICAgICAgICAgICAgICAgIE5vIHN1Ym1pc3Npb25zIHlldC4gVGFwIGFib3ZlIHRvIGdldCBzdGFydGVkLgogICAgICAgICAgICAgIDwvcD4KICAgICAgICAgICAgPC9DYXJkQ29udGVudD4KICAgICAgICAgIDwvQ2FyZD4KICAgICAgICApIDogKAogICAgICAgICAgPGRpdiBjbGFzc05hbWU9InNwYWNlLXktMiI+CiAgICAgICAgICAgIHtyZWNlbnRSZXF1ZXN0cy5tYXAoKHJlcSkgPT4gKAogICAgICAgICAgICAgIDxDYXJkCiAgICAgICAgICAgICAgICBrZXk9e3JlcS5pZH0KICAgICAgICAgICAgICAgIGNsYXNzTmFtZT0iY3Vyc29yLXBvaW50ZXIgaG92ZXI6c2hhZG93LXNtIHRyYW5zaXRpb24tc2hhZG93IgogICAgICAgICAgICAgICAgb25DbGljaz17KCkgPT4gbmF2aWdhdGUoYGVkaXQvJHtyZXEuaWR9YCl9CiAgICAgICAgICAgICAgPgogICAgICAgICAgICAgICAgPENhcmRDb250ZW50IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIgZ2FwLTMgcC0zIj4KICAgICAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9ImZsZXgtMSBtaW4tdy0wIj4KICAgICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIgZ2FwLTIiPgogICAgICAgICAgICAgICAgICAgICAgPHAgY2xhc3NOYW1lPSJ0ZXh0LXNtIGZvbnQtbWVkaXVtIHRydW5jYXRlIj4KICAgICAgICAgICAgICAgICAgICAgICAge3JlcS52ZW5kb3JfbmFtZSB8fCAnTm8gdmVuZG9yJ30KICAgICAgICAgICAgICAgICAgICAgIDwvcD4KICAgICAgICAgICAgICAgICAgICAgIDxTdGF0dXNCYWRnZSBzdGF0dXM9e3JlcS5zdGF0dXN9IC8+CiAgICAgICAgICAgICAgICAgICAgPC9kaXY+CiAgICAgICAgICAgICAgICAgICAgPHAgY2xhc3NOYW1lPSJ0ZXh0LXhzIHRleHQtbXV0ZWQtZm9yZWdyb3VuZCBtdC0wLjUiPgogICAgICAgICAgICAgICAgICAgICAge3JlcS50eXBlID09PSAncHVyY2hhc2VfcmVxdWVzdCcgPyAnUFInIDogJ0V4cGVuc2UnfQogICAgICAgICAgICAgICAgICAgICAge3JlcS5yZWNlaXB0X2RhdGUgPyBgIMK3ICR7Zm9ybWF0RGF0ZShyZXEucmVjZWlwdF9kYXRlKX1gIDogJyd9CiAgICAgICAgICAgICAgICAgICAgPC9wPgogICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPSJ0ZXh0LXNtIGZvbnQtc2VtaWJvbGQgdGFidWxhci1udW1zIj4KICAgICAgICAgICAgICAgICAgICB7cmVxLnRvdGFsX2Ftb3VudCA/IGZvcm1hdEN1cnJlbmN5KHJlcS50b3RhbF9hbW91bnQpIDogJ+KAlCd9CiAgICAgICAgICAgICAgICAgIDwvc3Bhbj4KICAgICAgICAgICAgICAgIDwvQ2FyZENvbnRlbnQ+CiAgICAgICAgICAgICAgPC9DYXJkPgogICAgICAgICAgICApKX0KICAgICAgICAgIDwvZGl2PgogICAgICAgICl9CiAgICAgIDwvZGl2PgogICAgPC9kaXY+CiAgKTsKfQoKZnVuY3Rpb24gU3RhdHVzQmFkZ2UoeyBzdGF0dXMgfTogeyBzdGF0dXM6IHN0cmluZyB9KSB7CiAgY29uc3QgdmFyaWFudE1hcDogUmVjb3JkPHN0cmluZywgJ2RlZmF1bHQnIHwgJ3N1Y2Nlc3MnIHwgJ3dhcm5pbmcnIHwgJ2Rlc3RydWN0aXZlJyB8ICdpbmZvJyB8ICdzZWNvbmRhcnknPiA9IHsKICAgIGRyYWZ0OiAnc2Vjb25kYXJ5JywKICAgIHBlbmRpbmc6ICd3YXJuaW5nJywKICAgIGFwcHJvdmVkOiAnc3VjY2VzcycsCiAgICBkZW5pZWQ6ICdkZXN0cnVjdGl2ZScsCiAgICBhd2FpdGluZ19pbnZvaWNlOiAnaW5mbycsCiAgICBmdWxmaWxsZWQ6ICdpbmZvJywKICAgIHBvc3RlZDogJ3N1Y2Nlc3MnLAogIH07CiAgY29uc3QgbGFiZWxNYXA6IFJlY29yZDxzdHJpbmcsIHN0cmluZz4gPSB7CiAgICBkcmFmdDogJ0RyYWZ0JywKICAgIHBlbmRpbmc6ICdQZW5kaW5nJywKICAgIGFwcHJvdmVkOiAnQXBwcm92ZWQnLAogICAgZGVuaWVkOiAnRGVuaWVkJywKICAgIGF3YWl0aW5nX2ludm9pY2U6ICdBd2FpdGluZyBJbnZvaWNlJywKICAgIGZ1bGZpbGxlZDogJ0Z1bGZpbGxlZCcsCiAgICBwb3N0ZWQ6ICdQb3N0ZWQnLAogIH07CiAgcmV0dXJuICgKICAgIDxCYWRnZSB2YXJpYW50PXt2YXJpYW50TWFwW3N0YXR1c10gPz8gJ3NlY29uZGFyeSd9PgogICAgICB7bGFiZWxNYXBbc3RhdHVzXSA/PyBzdGF0dXN9CiAgICA8L0JhZGdlPgogICk7Cn0K
+import { useNavigate } from 'react-router-dom';
+import { useSession, useExpenseSettings } from '@/lib/hooks';
+import { supabase } from '@/lib/supabase';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Receipt, ShoppingCart, Clock, ArrowRight, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { formatCurrency, formatDate } from '@/lib/utils';
+import type { ExpenseRequest } from '@/types/expense';
+
+export default function LandingPage() {
+  const navigate = useNavigate();
+  const { session } = useSession();
+  const { settings } = useExpenseSettings();
+  const [recentRequests, setRecentRequests] = useState<ExpenseRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadRecent() {
+      if (!session) return;
+      const { data } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('submitted_by', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setRecentRequests((data as ExpenseRequest[]) ?? []);
+      setLoading(false);
+    }
+    loadRecent();
+  }, [session]);
+
+  const userFirstName = session?.user?.user_metadata?.full_name?.split(' ')[0]
+    ?? session?.user?.email?.split('@')[0]
+    ?? 'there';
+
+  return (
+    <div className="space-y-6 pb-4">
+      {/* Greeting */}
+      <div>
+        <h1 className="text-xl font-semibold text-foreground">
+          Hey {userFirstName}
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          What do you need to submit?
+        </p>
+      </div>
+
+      {/* Mode selection cards */}
+      <div className="grid gap-3">
+        <button
+          onClick={() => navigate('new')}
+          className="text-left"
+        >
+          <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Receipt className="h-6 w-6 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-semibold text-base">Expense</h2>
+                <p className="text-sm text-muted-foreground">
+                  I already bought something — snap receipt and log it
+                </p>
+              </div>
+              <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+            </CardContent>
+          </Card>
+        </button>
+
+        <button
+          onClick={() => navigate('new-pr')}
+          className="text-left"
+        >
+          <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-amber-50 flex items-center justify-center">
+                <ShoppingCart className="h-6 w-6 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-semibold text-base">Purchase Request</h2>
+                <p className="text-sm text-muted-foreground">
+                  I need to buy something — get approval first
+                </p>
+              </div>
+              <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+            </CardContent>
+          </Card>
+        </button>
+      </div>
+
+      {/* Threshold note */}
+      {settings && (
+        <p className="text-xs text-muted-foreground text-center">
+          Expenses under {formatCurrency(settings.approval_threshold)} are auto-approved.
+          All purchase requests require manager sign-off.
+        </p>
+      )}
+
+      {/* Recent submissions */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Recent Submissions</h2>
+          <Button variant="ghost" size="sm" onClick={() => navigate('pending')}>
+            View all
+          </Button>
+        </div>
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : recentRequests.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <Clock className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                No submissions yet. Tap above to get started.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {recentRequests.map((req) => (
+              <Card
+                key={req.id}
+                className="cursor-pointer hover:shadow-sm transition-shadow"
+                onClick={() => navigate(`edit/${req.id}`)}
+              >
+                <CardContent className="flex items-center gap-3 p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">
+                        {req.vendor_name || 'No vendor'}
+                      </p>
+                      <StatusBadge status={req.status} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {req.type === 'purchase_request' ? 'PR' : 'Expense'}
+                      {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {req.total_amount ? formatCurrency(req.total_amount) : '—'}
+                  </span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const variantMap: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'secondary'> = {
+    draft: 'secondary',
+    pending: 'warning',
+    approved: 'success',
+    denied: 'destructive',
+    awaiting_invoice: 'info',
+    fulfilled: 'info',
+    posted: 'success',
+  };
+  const labelMap: Record<string, string> = {
+    draft: 'Draft',
+    pending: 'Pending',
+    approved: 'Approved',
+    denied: 'Denied',
+    awaiting_invoice: 'Awaiting Invoice',
+    fulfilled: 'Fulfilled',
+    posted: 'Posted',
+  };
+  return (
+    <Badge variant={variantMap[status] ?? 'secondary'}>
+      {labelMap[status] ?? status}
+    </Badge>
+  );
+}
