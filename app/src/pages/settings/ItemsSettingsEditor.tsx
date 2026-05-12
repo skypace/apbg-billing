@@ -237,6 +237,9 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string,
     patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
   ) {
+    // The grid is tree-grouped by category; group rows have no qbo_item_id.
+    // If a control on a group row fires this, silently ignore.
+    if (!qbo_item_id) return;
     try {
       await sbrpc<void>('fn_set_inventory_settings', {
         p_qbo_item_id:        qbo_item_id,
@@ -267,6 +270,7 @@ export function ItemsSettingsEditor() {
   }
 
   async function patchActive(qbo_item_id: string, active: boolean) {
+    if (!qbo_item_id) return;
     try {
       await setItemActive(qbo_item_id, active);
       setRows((cur) => cur?.map((r) =>
@@ -406,37 +410,47 @@ export function ItemsSettingsEditor() {
     const cols: GridColDef[] = [
       {
         field: 'active', headerName: 'Active', width: 70, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchActive(p.row.qbo_item_id, v)}
-            title="Active in QBO. Toggling here pushes to QuickBooks via push-qbo-item edge function."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchActive(p.row.qbo_item_id, v)}
+              title="Active in QBO. Toggling here pushes to QuickBooks via push-qbo-item edge function."
+            />
+          );
+        },
       },
       {
         field: 'is_managed', headerName: 'Managed', width: 90, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
-            title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { is_managed: v })}
+              title="If on, this item appears in the Inventory health view with velocity, reorder, days-of-supply."
+            />
+          );
+        },
       },
       {
         field: 'is_planner', headerName: 'In planner', width: 90, sortable: true,
-        renderCell: (p) => (
-          <Toggle
-            checked={!!p.value}
-            onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
-            title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
-          />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
+              title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
+            />
+          );
+        },
       },
       {
         field: 'category_override', headerName: 'Category', width: 220,
         renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
           const cur = p.row.category_override as string | null;
           const inherited = p.row.category_path as string | null;
           const value = cur ?? '';
@@ -481,6 +495,7 @@ export function ItemsSettingsEditor() {
         {
           field: 'suggested_category', headerName: 'Suggested', flex: 1, minWidth: 220,
           renderCell: (p) => {
+            if (p.rowNode.type === 'group') return null;
             const s = p.value as string | null | undefined;
             if (!s) {
               const dom = p.row.dominant_category_for_account as string | null | undefined;
@@ -542,62 +557,77 @@ export function ItemsSettingsEditor() {
       },
       {
         field: 'target_days_supply', headerName: 'Target Days', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? 30}
-            onBlur={(e) => {
-              const v = Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { target_days_supply: v });
-            }}
-            style={{ ...inp(), width: 60, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? 30}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { target_days_supply: v });
+              }}
+              style={{ ...inp(), width: 60, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'lead_time_days', headerName: 'Lead Time', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? 7}
-            onBlur={(e) => {
-              const v = Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { lead_time_days: v });
-            }}
-            style={{ ...inp(), width: 60, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? 7}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { lead_time_days: v });
+              }}
+              style={{ ...inp(), width: 60, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'reorder_point', headerName: 'Reorder Pt', type: 'number', width: 110, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? ''}
-            placeholder="auto"
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { reorder_point: v });
-            }}
-            style={{ ...inp(), width: 70, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? ''}
+              placeholder="auto"
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { reorder_point: v });
+              }}
+              style={{ ...inp(), width: 70, textAlign: 'right' }} />
+          );
+        },
       },
       {
         field: 'min_order_qty', headerName: 'Min Order', type: 'number', width: 100, cellClassName: 'mn',
-        renderCell: (p) => (
-          <input type="number" defaultValue={p.value ?? ''}
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== p.value) patchSettings(p.row.qbo_item_id, { min_order_qty: v });
-            }}
-            style={{ ...inp(), width: 70, textAlign: 'right' }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { min_order_qty: v });
+              }}
+              style={{ ...inp(), width: 70, textAlign: 'right' }} />
+          );
+        },
       },
       { field: 'sold_revenue', headerName: 'Rev 90d', type: 'number', width: 110, cellClassName: 'mn',
         valueFormatter: (v) => fm(Number(v ?? 0)) },
       {
         field: 'notes', headerName: 'Notes', flex: 1, minWidth: 200,
-        renderCell: (p) => (
-          <input type="text" defaultValue={p.value ?? ''}
-            placeholder="—"
-            onBlur={(e) => {
-              const v = e.target.value;
-              if (v !== (p.value ?? '')) patchSettings(p.row.qbo_item_id, { notes: v || null });
-            }}
-            style={{ ...inp(), width: '100%', fontSize: 11 }} />
-        ),
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="text" defaultValue={p.value ?? ''}
+              placeholder="—"
+              onBlur={(e) => {
+                const v = e.target.value;
+                if (v !== (p.value ?? '')) patchSettings(p.row.qbo_item_id, { notes: v || null });
+              }}
+              style={{ ...inp(), width: '100%', fontSize: 11 }} />
+          );
+        },
       },
     );
 
