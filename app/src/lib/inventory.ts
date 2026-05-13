@@ -45,6 +45,8 @@ export interface InventoryHealthRow {
   segment_code: string | null;
   segment_label: string | null;
   segment_source: 'item' | 'category' | null;
+  track_locations: boolean;
+  has_bom: boolean;
 }
 
 export interface InventorySettingsRow {
@@ -165,6 +167,8 @@ export function setInventorySettings(opts: {
   min_order_qty?: number | null;
   notes?: string | null;
   category_override?: string | null;
+  track_locations?: boolean | null;
+  has_bom?: boolean | null;
 }) {
   return sbrpc<void>('fn_set_inventory_settings', {
     p_qbo_item_id:        opts.qbo_item_id,
@@ -176,6 +180,8 @@ export function setInventorySettings(opts: {
     p_min_order_qty:      opts.min_order_qty ?? null,
     p_notes:              opts.notes ?? null,
     p_category_override:  opts.category_override ?? null,
+    p_track_locations:    opts.track_locations ?? null,
+    p_has_bom:            opts.has_bom ?? null,
   });
 }
 

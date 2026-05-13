@@ -61,6 +61,8 @@ interface ItemMasterRow {
   segment_code: string | null;
   segment_label: string | null;
   segment_source: 'item' | 'category' | null;
+  track_locations: boolean;
+  has_bom: boolean;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -264,7 +266,7 @@ export function ItemsSettingsEditor() {
 
   async function patchSettings(
     qbo_item_id: string,
-    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
+    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override' | 'track_locations' | 'has_bom'>>,
   ) {
     // The grid is tree-grouped by category; group rows have no qbo_item_id.
     // If a control on a group row fires this, silently ignore.
@@ -280,6 +282,8 @@ export function ItemsSettingsEditor() {
         p_min_order_qty:      patchData.min_order_qty ?? null,
         p_notes:              patchData.notes ?? null,
         p_category_override:  patchData.category_override ?? null,
+        p_track_locations:    patchData.track_locations ?? null,
+        p_has_bom:            patchData.has_bom ?? null,
       });
       setRows((cur) => cur?.map((r) => {
         if (r.qbo_item_id !== qbo_item_id) return r;
@@ -581,6 +585,32 @@ export function ItemsSettingsEditor() {
               checked={!!p.value}
               onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
               title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
+            />
+          );
+        },
+      },
+      {
+        field: 'track_locations', headerName: 'Stock', width: 80, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { track_locations: v })}
+              title="If on, this item participates in the Stock multi-location ledger (#/stock). On-hand by warehouse, transfers, movement audit. Default off — opt in per SKU."
+            />
+          );
+        },
+      },
+      {
+        field: 'has_bom', headerName: 'BOM', width: 80, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { has_bom: v })}
+              title="If on, this item is treated as a manufactured/assembled SKU built from components. Drives the Phase 2 BOM editor + work-order cost rollup."
             />
           );
         },

@@ -19,6 +19,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
   const [hideVirtual, setHideVirtual] = useState(true);
+  const [trackedOnly, setTrackedOnly] = useState(true);
 
   const enriched = useMemo(() => {
     if (!rows) return [];
@@ -30,6 +31,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         qbo_item_id: r.qbo_item_id,
         item_name: item?.item_name ?? r.qbo_item_id,
         item_active: item?.active ?? false,
+        item_tracked: item?.track_locations ?? false,
         location_id: r.location_id,
         location_code: loc?.code ?? '?',
         location_name: loc?.name ?? '?',
@@ -44,6 +46,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
     return enriched.filter((r) => {
       if (hideZero && r.on_hand === 0) return false;
       if (hideVirtual && (r.location_kind === 'in_transit' || r.location_kind === 'adjustment')) return false;
+      if (trackedOnly && !r.item_tracked) return false;
       if (!needle) return true;
       return (
         r.item_name.toLowerCase().includes(needle) ||
@@ -51,7 +54,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         r.location_code.toLowerCase().includes(needle)
       );
     });
-  }, [enriched, search, hideZero, hideVirtual]);
+  }, [enriched, search, hideZero, hideVirtual, trackedOnly]);
 
   const columns: GridColDef[] = useMemo(() => [
     {
@@ -127,6 +130,12 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
             <input type="checkbox" checked={hideVirtual} onChange={(e) => setHideVirtual(e.target.checked)}
               style={{ accentColor: 'var(--ac)' }} />
             <span className="toolbar-label">Hide virtual locations</span>
+          </label>
+          <label className="toolbar-section" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Show only items flagged Track Locations in Settings → Items.">
+            <input type="checkbox" checked={trackedOnly} onChange={(e) => setTrackedOnly(e.target.checked)}
+              style={{ accentColor: 'var(--ac)' }} />
+            <span className="toolbar-label">Tracked items only</span>
           </label>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
           <button onClick={exportCsv} style={btnSecondary()}>Export CSV</button>

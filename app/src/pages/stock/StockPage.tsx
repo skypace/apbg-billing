@@ -52,11 +52,17 @@ export function StockPage() {
   useEffect(reloadAll, []);
 
   const itemLookup: ItemLookup = useMemo(() => {
+    // byId maps every item so the On-Hand / Movements / Transfers tabs can
+    // resolve names for legacy rows even after an item is opted out. The
+    // `options` list (used by the New Transfer picker) only contains items
+    // the operator has flagged track_locations = true.
     const byId = new Map<string, InventoryHealthRow>();
     const options: { id: string; label: string }[] = [];
     for (const it of items ?? []) {
       byId.set(it.qbo_item_id, it);
-      options.push({ id: it.qbo_item_id, label: it.item_name });
+      if (it.track_locations) {
+        options.push({ id: it.qbo_item_id, label: it.item_name });
+      }
     }
     options.sort((a, b) => a.label.localeCompare(b.label));
     return { byId, options };

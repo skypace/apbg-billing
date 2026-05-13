@@ -372,6 +372,40 @@ icon `Warehouse` from lucide-react.
 
 ---
 
+## Per-item Stock toggles
+
+Multi-location tracking is **opt-in per SKU**, controlled by two flags on
+`ops.inventory_settings` (the existing per-item settings table that also
+holds `is_managed`, `is_planner`, etc.):
+
+| Flag | What it does | Default |
+|---|---|---|
+| `track_locations` | If true, this item participates in the Stock multi-location ledger. Appears in `v_inventory_on_hand`, the Transfer line picker, and the "Tracked items only" filter on the On-Hand grid. Items with this off still show in the Movements audit log (so legacy data isn't hidden) but are otherwise invisible to Stock. | `false` |
+| `has_bom` | Flags this item as a manufactured/assembled SKU. Drives the Phase 2 BOM editor + work-order cost rollup. Exposed in the Items grid now (one-shot setup) even though Phase 2 isn't built. | `false` |
+
+Both flags surface as columns in **Settings → Items (master)**: `Stock`
+and `BOM`. Toggling either calls `ops.fn_set_inventory_settings` (the
+canonical 11-arg setter). Stock UI reads them from `fn_items_master`,
+which now returns both columns.
+
+Why opt-in: services, one-off jobs, P&L hierarchy items, and the
+hundreds of legacy SKUs that nobody moves between warehouses should not
+clutter the Stock On-Hand grid or the transfer line picker. The operator
+explicitly turns on the SKUs that move (cans, parts, machines).
+
+### Related fix shipped in the same migration
+
+`fn_items_master` and `fn_item_pl_audit` now filter out
+`qbo_items.type = 'Category'` rows. QBO models its item-category
+hierarchy as Item records with `Type='Category'` — those are folders
+holding sellable children, not products. Before the filter they
+appeared in the items grid and were flagged `alignment_status =
+no_account` by the P&L audit because they have no `income_account_name`
+on themselves. The category row IS the QBO entity; the audit was asking
+it the wrong question.
+
+---
+
 ## Open conflicts checked (2026-05-13)
 
 - **Existing `ops.inventory_settings`** — Margin Minder dashboard config (target days supply, planner flag). No overlap.
@@ -389,3 +423,4 @@ No name, route, or sync-manifest conflicts exist.
 | Date | Phase | Change |
 |---|---|---|
 | 2026-05-13 | 1 | Initial design doc. Phase 1 scope = locations, transfers (BOL), movement ledger, on-hand view + Stock surface in app/. Phase 2-5 sketched at data-model granularity. |
+| 2026-05-13 | 1 | Per-item toggles `track_locations` + `has_bom` added to `ops.inventory_settings`. Surfaced in Settings → Items master + filter chip on Stock On-Hand grid. Stock UI is now opt-in per SKU. Same migration filters QBO `Type='Category'` rows out of `fn_items_master` and `fn_item_pl_audit` (those rows were false-positive misalignments). |
