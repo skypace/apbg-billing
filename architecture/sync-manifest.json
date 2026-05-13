@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-05-05",
+  "last_updated": "2026-05-12",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
@@ -265,11 +265,12 @@
       "writes": [
         "ops.expense_requests",
         "ops.expense_request_attachments",
-        "ops.expense_request_approvals",
+        "ops.expense_approvals",
         "ops.expense_settings"
       ],
       "multi_writer": true,
-      "notes": "Brix Expense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill). Frontend uses anon key under RLS (submitters can INSERT/UPDATE own drafts; managers can SELECT their queue). Netlify functions use service-role and bypass RLS for status transitions, approval logging, and QBO bill creation. expense_settings is read-only from the client and seeded by migration 20260512o_brix_expense_requests."
+      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments).",
+      "last_verified": "2026-05-12"
     }
   ],
 
