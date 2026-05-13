@@ -1,6 +1,11 @@
 name: Build Expense App
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'app-expense/**'
+      - '.github/workflows/build-expense.yml'
   workflow_dispatch:
 
 jobs:
