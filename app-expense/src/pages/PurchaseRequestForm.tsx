@@ -36,7 +36,8 @@ export default function PurchaseRequestForm() {
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
-  const [entity, setEntity] = useState<'brix' | 'freeflow' | 'shared'>('brix');
+  // Entity defaults to 'brix' silently — picker removed per user request.
+  const entity: 'brix' | 'freeflow' | 'shared' = 'brix';
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -148,19 +149,6 @@ export default function PurchaseRequestForm() {
         <div className="flex items-center gap-2 text-xs bg-amber-50/10 text-amber-300 rounded-lg p-3 border border-amber-300/20">
           <ShoppingCart className="h-4 w-4 flex-shrink-0" />
           All purchase requests require manager approval before buying.
-        </div>
-
-        <div>
-          <Label>Entity</Label>
-          <SelectField
-            value={entity}
-            onChange={(e) => setEntity(e.target.value as 'brix' | 'freeflow' | 'shared')}
-            options={[
-              { value: 'brix', label: 'Brix (CA S-corp)' },
-              { value: 'freeflow', label: 'Freeflow (MA S-corp)' },
-              { value: 'shared', label: 'Shared' },
-            ]}
-          />
         </div>
 
         <div>
