@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
+import crypto from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -86,45 +87,75 @@ function buildBillPayload(request, vendor, fallbackAccountId) {
   return payload;
 }
 
-function buildNotificationEmailHtml(request, portalUrl) {
-  const lineItemsHtml = (request.line_items || []).map((li, i) => `
-    <tr>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${i + 1}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${li.description || '—'}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right;">${formatUsd(li.amount || 0)}</td>
-    </tr>`).join('');
+function buildApprovalEmailHtml(request, approveUrl) {
+  const lineItemsHtml = (request.line_items || []).map((li, i) => {
+    const amount = (li.qty || li.quantity || 1) * (li.unit_price || li.unitCost || 0) || (li.amount || 0);
+    return `
+      <tr>
+        <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;">
+          <div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div>
+          <div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${formatUsd(li.unit_price || li.unitCost || 0)}</div>
+        </td>
+        <td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${formatUsd(amount)}</td>
+      </tr>
+    `;
+  }).join('');
 
-  return `
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc;margin:0;padding:20px;">
-  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-    <div style="background:#06121F;padding:24px 32px;">
-      <h1 style="color:#fff;margin:0;font-size:20px;">BRI<span style="color:#2EB872;">X</span>PENSE — PR Awaiting Your Approval</h1>
-    </div>
-    <div style="padding:24px 32px;">
-      <p style="color:#334155;font-size:15px;line-height:1.6;">
-        <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval.
-      </p>
-      <table style="width:100%;margin:16px 0;font-size:14px;">
-        <tr><td style="color:#64748b;padding:4px 0;width:120px;">Department</td><td style="color:#0f172a;">${request.department || '—'}</td></tr>
-        <tr><td style="color:#64748b;padding:4px 0;">Vendor</td><td style="color:#0f172a;">${request.vendor_name || '—'}</td></tr>
-        <tr><td style="color:#64748b;padding:4px 0;">Total</td><td style="color:#0f172a;font-weight:600;font-size:16px;">${formatUsd(request.total_amount)}</td></tr>
-      </table>
-      ${request.memo ? `<p style="color:#475569;font-size:14px;background:#f1f5f9;padding:12px;border-radius:6px;">${request.memo}</p>` : ''}
-      ${lineItemsHtml ? `
-      <table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">
-        <thead><tr style="background:#f1f5f9;">
-          <th style="padding:8px 12px;text-align:left;">#</th>
-          <th style="padding:8px 12px;text-align:left;">Description</th>
-          <th style="padding:8px 12px;text-align:right;">Amount</th>
-        </tr></thead><tbody>${lineItemsHtml}</tbody>
-      </table>` : ''}
-      <div style="text-align:center;margin:32px 0 16px;">
-        <a href="${portalUrl}" style="display:inline-block;background:#5BB5F0;color:#06121F;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">Open Approval Queue</a>
+  return `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;padding:32px 28px;">
+    <div style="border-bottom:3px solid #5BB5F0;padding-bottom:14px;margin-bottom:22px;">
+      <div style="font-size:22px;font-weight:800;color:#06121F;">
+        BRI<span style="color:#2EB872;">X</span>PENSE — Purchase Request Approval
       </div>
-      <p style="text-align:center;color:#94a3b8;font-size:12px;">You'll be asked to log into BRIXPENSE before you can approve.</p>
+      <div style="font-size:13px;color:#6b7280;margin-top:4px;">
+        ${request.submitter_name || 'A team member'} · ${formatUsd(request.total_amount)}
+      </div>
     </div>
+
+    <p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;">
+      <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval. Please review and click <strong>Approve</strong> or <strong>Decline</strong> below.
+    </p>
+
+    ${request.memo ? `
+      <div style="background:#fff7ed;border-left:4px solid #5BB5F0;padding:12px 14px;border-radius:4px;margin:0 0 18px 0;">
+        <div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note from submitter</div>
+        <div style="font-size:14px;color:#111827;white-space:pre-wrap;">${request.memo}</div>
+      </div>
+    ` : ''}
+
+    <table style="width:100%;margin:0 0 18px 0;font-size:13px;border-collapse:collapse;">
+      <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Vendor</td><td style="padding:6px 0;color:#0f172a;font-weight:600;">${request.vendor_name || '—'}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Account</td><td style="padding:6px 0;color:#0f172a;">${request.cogs_account_label || '—'}</td></tr>
+      ${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}
+      <tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${formatUsd(request.total_amount)}</td></tr>
+    </table>
+
+    ${lineItemsHtml ? `
+      <table style="width:100%;border-collapse:collapse;margin:0 0 18px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+        <thead><tr style="background:#f9fafb;">
+          <th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Item</th>
+          <th style="padding:9px 10px;text-align:right;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Amount</th>
+        </tr></thead>
+        <tbody>${lineItemsHtml}</tbody>
+      </table>
+    ` : ''}
+
+    <div style="text-align:center;margin:30px 0 14px 0;">
+      <a href="${approveUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
+        Review &amp; Sign →
+      </a>
+    </div>
+
+    <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">
+      You'll be able to sign with your mouse, finger, or typed initials on the approval page.
+    </p>
+
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" />
+    <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">
+      This request was sent by Alameda Point Beverage Group · BRIXPENSE. If you were not expecting this email, please reply to let us know.
+    </p>
   </div>
 </body></html>`;
 }
@@ -152,7 +183,7 @@ export default async function handler(req) {
   if (fetchErr || !request) return err('Expense request not found', 404);
   if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
 
-  // EXPENSE — try QBO post; fall back to approved-only
+  // ── EXPENSE: try QBO post → posted; fall back to approved-only ──
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
     let vendor = null, qboBill = null, qboError = null;
@@ -176,13 +207,9 @@ export default async function handler(req) {
       const { error: updateErr } = await supabase
         .from('expense_requests')
         .update({
-          status: 'posted',
-          auto_approved: true,
-          approved_by: 'auto',
-          approved_at: now,
-          posted_at: now,
-          manager_email: null,
-          approval_token: null,
+          status: 'posted', auto_approved: true,
+          approved_by: 'auto', approved_at: now, posted_at: now,
+          manager_email: null, approval_token: null,
           qbo_bill_id: qboBill.Id,
         })
         .eq('id', requestId);
@@ -193,13 +220,12 @@ export default async function handler(req) {
           success: true, auto_approved: true, partial: true,
           new_status: 'draft', request_id: requestId,
           qbo_bill_id: qboBill.Id,
-          message: 'Bill created in QBO but the local status update failed. Fix manually.',
+          message: 'Bill created in QBO but local status update failed.',
         }, 207);
       }
 
       await supabase.from('expense_approvals').insert({
-        request_id: requestId,
-        action: 'approved',
+        request_id: requestId, action: 'approved',
         decided_by: 'system (auto-approve + auto-post)',
         notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id} for ${formatUsd(qboBill.TotalAmt || request.total_amount)}.`,
         token_used: null,
@@ -212,29 +238,22 @@ export default async function handler(req) {
       });
     }
 
-    // Fallback — auto-approve without QBO
+    // Fallback
     const { error: updateErr } = await supabase
       .from('expense_requests')
       .update({
-        status: 'approved',
-        auto_approved: true,
-        approved_by: 'auto',
-        approved_at: now,
-        manager_email: null,
-        approval_token: null,
+        status: 'approved', auto_approved: true,
+        approved_by: 'auto', approved_at: now,
+        manager_email: null, approval_token: null,
       })
       .eq('id', requestId);
 
-    if (updateErr) {
-      console.error('Auto-approve update failed:', updateErr);
-      return err('Failed to auto-approve', 500);
-    }
+    if (updateErr) return err('Failed to auto-approve', 500);
 
     await supabase.from('expense_approvals').insert({
-      request_id: requestId,
-      action: 'approved',
+      request_id: requestId, action: 'approved',
       decided_by: 'system (auto-approve)',
-      notes: `Auto-approved. QBO post deferred: ${qboError}. AP can post manually.`,
+      notes: `Auto-approved. QBO post deferred: ${qboError}.`,
       token_used: null,
     });
 
@@ -245,7 +264,7 @@ export default async function handler(req) {
     });
   }
 
-  // PURCHASE REQUEST — notification email
+  // ── PURCHASE REQUEST: magic-link email ──
   if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
   if (!request.manager_email) return err('Purchase requests require an approver.', 422);
 
@@ -258,25 +277,45 @@ export default async function handler(req) {
     return err(`Approver "${request.manager_email}" is not in the manager_emails allowlist.`, 422);
   }
 
+  // Generate magic-link token + store on the row + flip to pending in one update
+  const token = crypto.randomBytes(32).toString('hex');
   const { error: updateErr } = await supabase
-    .from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
-  if (updateErr) return err('Failed to submit for approval', 500);
+    .from('expense_requests')
+    .update({ status: 'pending', approval_token: token })
+    .eq('id', requestId);
 
-  const portalUrl = `${SITE_URL.replace(/\/$/, '')}/expense/queue`;
+  if (updateErr) {
+    console.error('Failed to set pending + token:', updateErr);
+    return err('Failed to submit for approval', 500);
+  }
+
+  // Build approval URL + send email
+  const approveUrl = `${SITE_URL.replace(/\/$/, '')}/expense/approve?token=${encodeURIComponent(token)}`;
   const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${formatUsd(request.total_amount)} awaiting your approval`;
-  const html = buildNotificationEmailHtml(request, portalUrl);
+  const html = buildApprovalEmailHtml(request, approveUrl);
 
-  const emailSent = await sendEmail({
-    to: request.manager_email,
-    subject, html,
-    replyTo: request.submitter_email || EMAIL_FROM,
-  });
+  let emailSent = false;
+  let emailError = null;
+  try {
+    emailSent = await sendEmail({
+      to: request.manager_email,
+      subject, html,
+      replyTo: request.submitter_email || EMAIL_FROM,
+    });
+  } catch (e) {
+    console.error('Resend send failed:', e);
+    emailError = e?.message || 'Unknown email error';
+  }
 
   return json({
-    success: true, auto_approved: false,
-    email_sent: emailSent, new_status: 'pending',
-    request_id: requestId, approver: request.manager_email,
-    portal_url: portalUrl,
+    success: true,
+    auto_approved: false,
+    email_sent: !!emailSent,
+    email_error: emailError,
+    new_status: 'pending',
+    request_id: requestId,
+    approver: request.manager_email,
+    approve_url: approveUrl,
   });
 }
 
