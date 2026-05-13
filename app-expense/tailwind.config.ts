@@ -6,57 +6,57 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        /* Backgrounds — light, operator-friendly. Per brix-design-rules. */
-        background: '#FFFFFF',
-        foreground: '#1A2730',
+        /* Dark surfaces — derived from brand teal, deeper for contrast */
+        background: '#0B1A24',
+        foreground: '#E6EEF1',
         surface: {
-          DEFAULT: '#FFFFFF',
-          '2': '#F5F7F8',
-          '3': '#EBEFF2',
+          DEFAULT: '#0F2330',
+          '2': '#16303F',
+          '3': '#1F3A4A',
         },
 
         /* Borders & focus */
-        border: '#E1E6EA',
-        'border-2': '#CFD6DC',
-        input: '#E1E6EA',
-        ring: '#003A49',
+        border: '#1F3A4A',
+        'border-2': '#2F526A',
+        input: '#1F3A4A',
+        ring: '#4FAEC8',
 
-        /* Brand — deep teal primary, amber accent */
+        /* Brand — teal anchored, lighter on dark; amber accent */
         primary: {
-          DEFAULT: '#003A49',
-          foreground: '#FFFFFF',
-          hover: '#00536A',
-          tint: '#E6EEF1',
+          DEFAULT: '#4FAEC8',       /* teal that reads on dark */
+          foreground: '#0B1A24',
+          deep:  '#003A49',         /* brand-truth teal — used as section base */
+          hover: '#6BC5DE',
         },
         accent: {
           DEFAULT: '#F4B400',
-          foreground: '#1A2730',
-          hover: '#FFC829',
+          foreground: '#0B1A24',
+          hover:   '#FFC829',
         },
         secondary: {
-          DEFAULT: '#F5F7F8',
-          foreground: '#1A2730',
+          DEFAULT: '#16303F',
+          foreground: '#E6EEF1',
         },
         muted: {
-          DEFAULT: '#F5F7F8',
-          foreground: '#6A7780',
+          DEFAULT: '#16303F',
+          foreground: '#7E94A4',
         },
         card: {
-          DEFAULT: '#FFFFFF',
-          foreground: '#1A2730',
+          DEFAULT: '#0F2330',
+          foreground: '#E6EEF1',
         },
 
         /* Semantic */
-        success: '#2E8B57',
-        warning: '#D97706',
-        danger: '#DC2626',
-        destructive: { DEFAULT: '#DC2626', foreground: '#FFFFFF' },
-        info: '#003A49',
+        success: '#3CC684',
+        warning: '#F4B400',
+        danger:  '#EF4F5B',
+        destructive: { DEFAULT: '#EF4F5B', foreground: '#FFFFFF' },
+        info:    '#4FAEC8',
 
-        /* Text tiers — for direct CSS use */
-        tx: '#1A2730',
-        tx2: '#465662',
-        mt: '#6A7780',
+        /* Text tiers */
+        tx: '#E6EEF1',
+        tx2: '#A8BAC4',
+        mt: '#7E94A4',
       },
 
       borderRadius: {
@@ -66,41 +66,23 @@ const config: Config = {
       },
 
       fontFamily: {
-        display: [
-          "'Bricolage Grotesque'",
-          "'Söhne'",
-          'system-ui',
-          '-apple-system',
-          'sans-serif',
-        ],
-        sans: [
-          "'Inter Tight'",
-          'system-ui',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          "'Segoe UI'",
-          'sans-serif',
-        ],
-        mono: [
-          "'JetBrains Mono'",
-          "'SF Mono'",
-          'Consolas',
-          'monospace',
-        ],
+        display: ["'Bricolage Grotesque'", "'Söhne'", 'system-ui', '-apple-system', 'sans-serif'],
+        sans:    ["'Inter Tight'", 'system-ui', '-apple-system', 'BlinkMacSystemFont', "'Segoe UI'", 'sans-serif'],
+        mono:    ["'JetBrains Mono'", "'SF Mono'", 'Consolas', 'monospace'],
       },
 
-      /* Light-mode shadows — subtle layering, no glass effects */
       boxShadow: {
-        sm:  '0 1px 2px rgba(15, 23, 31, 0.04)',
-        DEFAULT: '0 1px 3px rgba(15, 23, 31, 0.06), 0 1px 2px rgba(15, 23, 31, 0.04)',
-        md:  '0 4px 12px rgba(15, 23, 31, 0.08), 0 2px 4px rgba(15, 23, 31, 0.04)',
-        lg:  '0 12px 28px rgba(15, 23, 31, 0.10), 0 4px 8px rgba(15, 23, 31, 0.04)',
-        focus: '0 0 0 3px rgba(0, 58, 73, 0.18)',
+        sm:  '0 1px 2px rgba(0, 0, 0, 0.35)',
+        DEFAULT: '0 1px 3px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.30)',
+        md:  '0 6px 18px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30)',
+        lg:  '0 18px 40px rgba(0, 0, 0, 0.55), 0 6px 14px rgba(0, 0, 0, 0.35)',
+        focus: '0 0 0 3px rgba(79, 174, 200, 0.30)',
+        glow:  '0 0 0 1px rgba(79, 174, 200, 0.22), 0 6px 18px rgba(79, 174, 200, 0.10)',
       },
 
       spacing: {
-        'shell-pad': '24px',
-        'sidebar': '232px',
+        'shell-pad': '28px',
+        'sidebar':           '236px',
         'sidebar-collapsed': '68px',
       },
 
