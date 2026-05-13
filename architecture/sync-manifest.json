@@ -288,6 +288,10 @@
       "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
     },
     {
+      "table": "ops.expense_request_approvals",
+      "reason": "Pending drop. Plural-named table created as a no-op side effect of 20260512o_brix_expense_requests.sql. No code reads or writes it — the live audit table is ops.expense_approvals (singular). Scheduled for removal by 20260512p_expense_cleanup.sql; this entry + the schema-snapshot row come out in a follow-up commit after that migration is applied to live."
+    },
+    {
       "table": "ops.fleet_daily",
       "reason": "FleetComplete daily rollup. Will be written by a daily aggregator that joins fleet_trips + fleet_fuel_transactions. Not yet built; sync-fleetcomplete handles per-resource pulls but doesn't compute the daily rollup."
     },
