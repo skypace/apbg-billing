@@ -3,7 +3,10 @@ import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+// Hardcoded fallback — the anon key is public (already in the Vite bundle).
+const SUPABASE_ANON_KEY =
+  process.env.SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = {
@@ -101,18 +104,15 @@ function buildNotificationEmailHtml(request, portalUrl) {
         ${request.submitter_name || 'A team member'} · ${fmt(request.total_amount)}
       </div>
     </div>
-
     <p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;">
       <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval. Open BRIXPENSE and sign in to review and sign.
     </p>
-
     ${request.memo ? `
       <div style="background:#fff7ed;border-left:4px solid #5BB5F0;padding:12px 14px;border-radius:4px;margin:0 0 18px 0;">
         <div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note from submitter</div>
         <div style="font-size:14px;color:#111827;white-space:pre-wrap;">${request.memo}</div>
       </div>
     ` : ''}
-
     <table style="width:100%;margin:0 0 18px 0;font-size:13px;border-collapse:collapse;">
       <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Vendor</td><td style="padding:6px 0;color:#0f172a;font-weight:600;">${request.vendor_name || '—'}</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr>
@@ -120,7 +120,6 @@ function buildNotificationEmailHtml(request, portalUrl) {
       ${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}
       <tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${fmt(request.total_amount)}</td></tr>
     </table>
-
     ${lineItemsHtml ? `
       <table style="width:100%;border-collapse:collapse;margin:0 0 18px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
         <thead><tr style="background:#f9fafb;">
@@ -130,21 +129,14 @@ function buildNotificationEmailHtml(request, portalUrl) {
         <tbody>${lineItemsHtml}</tbody>
       </table>
     ` : ''}
-
     <div style="text-align:center;margin:30px 0 14px 0;">
-      <a href="${portalUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
-        Open BRIXPENSE →
-      </a>
+      <a href="${portalUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Open BRIXPENSE →</a>
     </div>
-
     <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">
-      You'll be asked to sign in with your @brixbev.com Supabase account before approving.
+      You'll be asked to sign in with your @brixbev.com account before approving.
     </p>
-
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" />
-    <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">
-      Alameda Point Beverage Group · BRIXPENSE
-    </p>
+    <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">Alameda Point Beverage Group · BRIXPENSE</p>
   </div>
 </body></html>`;
 }
@@ -152,7 +144,6 @@ function buildNotificationEmailHtml(request, portalUrl) {
 export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return err('Method not allowed', 405);
-  if (!SUPABASE_ANON_KEY) return err('Server misconfigured: missing SUPABASE_ANON_KEY', 500);
 
   const authHeader = req.headers.get('authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) return err('Unauthorized — Bearer token required', 401);
@@ -172,7 +163,7 @@ export default async function handler(req) {
   if (fetchErr || !request) return err('Expense request not found', 404);
   if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
 
-  // ── EXPENSE: try QBO post → posted; fall back to approved ──
+  // ── EXPENSE: auto-approve + try QBO post ──
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
     let vendor = null, qboBill = null, qboError = null;
@@ -201,7 +192,7 @@ export default async function handler(req) {
           qbo_bill_id: qboBill.Id,
         })
         .eq('id', requestId);
-      if (updateErr) return json({ success: true, partial: true, message: 'Bill in QBO, status update failed', qbo_bill_id: qboBill.Id }, 207);
+      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id, message: 'Bill in QBO, status update failed' }, 207);
 
       await supabase.from('expense_approvals').insert({
         request_id: requestId, action: 'approved',
@@ -212,7 +203,6 @@ export default async function handler(req) {
       return json({ success: true, auto_approved: true, new_status: 'posted', request_id: requestId, qbo_bill_id: qboBill.Id });
     }
 
-    // Fallback
     const { error: updateErr } = await supabase
       .from('expense_requests')
       .update({
@@ -232,7 +222,7 @@ export default async function handler(req) {
     return json({ success: true, auto_approved: true, new_status: 'approved', request_id: requestId, qbo_post_deferred: true, qbo_error: qboError });
   }
 
-  // ── PURCHASE REQUEST: notification email (no token) ──
+  // ── PURCHASE REQUEST: notification email ──
   if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
   if (!request.manager_email) return err('Purchase requests require an approver.', 422);
 
@@ -251,7 +241,6 @@ export default async function handler(req) {
     .eq('id', requestId);
   if (updateErr) return err('Failed to submit for approval', 500);
 
-  // Email link points at the auth-gated queue page (NOT a magic link)
   const portalUrl = `${SITE_URL.replace(/\/$/, '')}/expense/queue`;
   const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${fmt(request.total_amount)} awaiting your approval`;
   const html = buildNotificationEmailHtml(request, portalUrl);
