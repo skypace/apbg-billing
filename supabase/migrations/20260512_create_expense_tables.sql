@@ -12,43 +12,52 @@ CREATE SCHEMA IF NOT EXISTS ops;
 -- 1. expense_requests — one row per expense or purchase request
 -- -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ops.expense_requests (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   -- submitter
-  submitted_by    UUID REFERENCES auth.users(id),
-  submitter_name  TEXT NOT NULL,
-  submitter_email TEXT NOT NULL,
+  submitted_by        UUID REFERENCES auth.users(id),
+  submitter_name      TEXT NOT NULL,
+  submitter_email     TEXT NOT NULL,
 
   -- request metadata
-  request_type    TEXT NOT NULL CHECK (request_type IN ('expense', 'purchase_request')),
-  status          TEXT NOT NULL DEFAULT 'draft'
-                  CHECK (status IN (
-                    'draft','pending','approved','denied',
-                    'awaiting_invoice','fulfilled','posted'
-                  )),
-  entity          TEXT NOT NULL CHECK (entity IN ('brix', 'freeflow', 'shared')),
-  department      TEXT NOT NULL,
-  description     TEXT,
-  vendor_name     TEXT,
-  notes           TEXT,
+  request_type        TEXT NOT NULL CHECK (request_type IN ('expense', 'purchase_request')),
+  status              TEXT NOT NULL DEFAULT 'draft'
+                      CHECK (status IN (
+                        'draft','pending','approved','denied',
+                        'awaiting_invoice','fulfilled','posted'
+                      )),
+  entity              TEXT NOT NULL DEFAULT 'brix' CHECK (entity IN ('brix', 'freeflow', 'shared')),
+  department          TEXT,
+  description         TEXT,
+  vendor_name         TEXT,
+  notes               TEXT,
+
+  -- receipt / purchase details
+  receipt_date        DATE,
+  cogs_account_id     TEXT,
+  cogs_account_label  TEXT,
+  tag                 TEXT,
+  customer_name       TEXT,
+  job_number          TEXT,
+  manager_email       TEXT,
 
   -- financials
-  line_items      JSONB NOT NULL DEFAULT '[]'::jsonb,
-  total_amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
-  currency        TEXT NOT NULL DEFAULT 'USD',
+  line_items          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  currency            TEXT NOT NULL DEFAULT 'USD',
 
   -- approval
-  approval_token  TEXT UNIQUE,
-  approved_by     TEXT,
-  approved_at     TIMESTAMPTZ,
-  denial_reason   TEXT,
-  auto_approved   BOOLEAN NOT NULL DEFAULT false,
+  approval_token      TEXT UNIQUE,
+  approved_by         TEXT,
+  approved_at         TIMESTAMPTZ,
+  denial_reason       TEXT,
+  auto_approved       BOOLEAN NOT NULL DEFAULT false,
 
   -- QBO link
-  qbo_bill_id     TEXT,
-  posted_at       TIMESTAMPTZ
+  qbo_bill_id         TEXT,
+  posted_at           TIMESTAMPTZ
 );
 
 -- Indexes
@@ -85,7 +94,8 @@ CREATE TABLE IF NOT EXISTS ops.expense_request_attachments (
   request_id    UUID NOT NULL REFERENCES ops.expense_requests(id) ON DELETE CASCADE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   file_name     TEXT NOT NULL,
-  file_url      TEXT NOT NULL,
+  file_url      TEXT,
+  storage_path  TEXT,
   file_type     TEXT,
   file_size     INTEGER,
   ocr_result    JSONB
@@ -98,17 +108,17 @@ CREATE INDEX IF NOT EXISTS idx_attachments_request_id
 -- 3. expense_approvals — audit log for every approval action
 -- -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ops.expense_approvals (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  request_id      UUID NOT NULL REFERENCES ops.expense_requests(id) ON DELETE CASCADE,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  action          TEXT NOT NULL CHECK (action IN ('approved', 'denied')),
-  decided_by      TEXT NOT NULL,
-  decided_by_email TEXT,
-  signature_url   TEXT,
-  ip_address      TEXT,
-  user_agent      TEXT,
-  notes           TEXT,
-  token_used      TEXT
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id        UUID NOT NULL REFERENCES ops.expense_requests(id) ON DELETE CASCADE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  action            TEXT NOT NULL CHECK (action IN ('approved', 'denied')),
+  decided_by        TEXT NOT NULL,
+  decided_by_email  TEXT,
+  signature_url     TEXT,
+  ip_address        TEXT,
+  user_agent        TEXT,
+  notes             TEXT,
+  token_used        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_approvals_request_id
@@ -140,7 +150,7 @@ ALTER TABLE ops.expense_request_attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ops.expense_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ops.expense_settings ENABLE ROW LEVEL SECURITY;
 
--- expense_requests: authenticated users can read all, insert own, update own drafts
+-- expense_requests: authenticated users can read all, insert own, update own
 CREATE POLICY expense_requests_select ON ops.expense_requests
   FOR SELECT TO authenticated USING (true);
 
