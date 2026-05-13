@@ -68,7 +68,7 @@ export default function ManagerQueue() {
                       {req.vendor_name || 'No vendor'}
                     </p>
                     <Badge variant="warning">
-                      {req.type === 'purchase_request' ? 'PR' : 'Expense'}
+                      {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
