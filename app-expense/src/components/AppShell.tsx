@@ -92,18 +92,21 @@ export function AppShell() {
               <BrixWordmark />
             </div>
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDrawerOpen(false);
-            }}
-            className="topbar-icon-btn"
-            aria-label="Close menu"
-            style={{ marginLeft: 'auto' }}
-          >
-            <X size={20} />
-          </button>
+          {/* Mobile-only close button — only shown when drawer is open on small screens */}
+          {drawerOpen && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDrawerOpen(false);
+              }}
+              className="topbar-icon-btn drawer-close-btn"
+              aria-label="Close menu"
+              style={{ marginLeft: 'auto' }}
+            >
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         <nav className="nav">
