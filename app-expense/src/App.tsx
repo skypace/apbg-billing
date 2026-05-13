@@ -21,18 +21,12 @@ function LoadingFallback() {
 
 export default function App() {
   const { session, loading } = useSession();
-
-  if (loading) {
-    return <LoadingFallback />;
-  }
+  if (loading) return <LoadingFallback />;
 
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
-        {/* Public: magic-link approval. Approver hits this from the email — no login needed. */}
-        <Route path="approve" element={<ApprovalPage />} />
-
-        {/* Auth-gated routes */}
+        {/* All routes are auth-gated. Approver must log into Supabase. */}
         {!session ? (
           <Route path="*" element={<LoginPage />} />
         ) : (
@@ -43,6 +37,7 @@ export default function App() {
             <Route path="pending" element={<PendingList />} />
             <Route path="queue" element={<ManagerQueue />} />
             <Route path="edit/:id" element={<ExpenseForm />} />
+            <Route path="review/:id" element={<ApprovalPage />} />
             <Route path="*" element={<Navigate to="" replace />} />
           </Route>
         )}
