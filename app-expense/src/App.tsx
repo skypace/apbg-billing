@@ -29,10 +29,7 @@ export default function App() {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
-        {/* Public: magic-link approval page (no auth required) */}
-        <Route path="/approve/:token" element={<ApprovalPage />} />
-
-        {/* Auth-gated routes */}
+        {/* All routes are auth-gated — no public approval URL. */}
         {!session ? (
           <Route path="*" element={<LoginPage />} />
         ) : (
@@ -43,6 +40,7 @@ export default function App() {
             <Route path="pending" element={<PendingList />} />
             <Route path="queue" element={<ManagerQueue />} />
             <Route path="edit/:id" element={<ExpenseForm />} />
+            <Route path="review/:id" element={<ApprovalPage />} />
             <Route path="*" element={<Navigate to="" replace />} />
           </Route>
         )}
