@@ -60,11 +60,8 @@ export function AppShell() {
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={28} />
-          <div className="brand-text">
-            <BrixWordmark />
-            <span className="brand-sub">Expense</span>
-          </div>
+          <BrixMark size={56} />
+          <BrixWordmark />
         </div>
         <span style={{ width: 40 }} aria-hidden />
       </header>
@@ -89,11 +86,10 @@ export function AppShell() {
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={36} />
+          <BrixMark size={72} />
           {!collapsed && (
             <div className="brand-text">
               <BrixWordmark />
-              <span className="brand-sub">Expense</span>
             </div>
           )}
           <button
