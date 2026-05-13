@@ -1,15 +1,17 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { supabase, getAccessToken } from '@/lib/supabase';
+import { useSession } from '@/lib/hooks';
 import {
   ClipboardList, CheckCircle, XCircle, Loader2, AlertTriangle,
-  Eraser, ShoppingCart,
+  Eraser, ShoppingCart, ArrowLeft,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import SignatureCanvas from 'react-signature-canvas';
 
-type PageState = 'loading' | 'ready' | 'decided' | 'expired' | 'error';
+type PageState = 'loading' | 'ready' | 'decided' | 'notfound' | 'forbidden' | 'error';
 
-interface RequestData {
+interface RequestRow {
   id: string;
   request_type: 'expense' | 'purchase_request';
   status: string;
@@ -23,16 +25,18 @@ interface RequestData {
   memo?: string | null;
   submitter_name?: string | null;
   submitter_email?: string | null;
-  line_items?: Array<{ description?: string; qty?: number; unit_price?: number; amount?: number }>;
   manager_email?: string | null;
+  submitted_by?: string | null;
+  line_items?: Array<{ description?: string; qty?: number; unit_price?: number; amount?: number }>;
 }
 
 export default function ApprovalPage() {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { session } = useSession();
 
   const [state, setState] = useState<PageState>('loading');
-  const [request, setRequest] = useState<RequestData | null>(null);
+  const [request, setRequest] = useState<RequestRow | null>(null);
   const [decided, setDecided] = useState<{ action: string; signer_name?: string } | null>(null);
 
   const [signerName, setSignerName] = useState('');
@@ -40,79 +44,88 @@ export default function ApprovalPage() {
   const [declineReason, setDeclineReason] = useState('');
   const [declineMode, setDeclineMode] = useState(false);
   const [submitting, setSubmitting] = useState<'' | 'approve' | 'decline'>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const sigRef = useRef<SignatureCanvas | null>(null);
 
-  // Load request by token
+  const myEmail = (session?.user?.email || '').toLowerCase();
+  const myName = (session?.user?.user_metadata as { full_name?: string } | undefined)?.full_name
+    || session?.user?.email
+    || '';
+
+  // Pre-fill name from session
   useEffect(() => {
-    if (!token) {
-      setState('error');
-      setErrorMessage('Missing approval link. Please use the link from your email.');
-      return;
-    }
+    if (myName && !signerName) setSignerName(myName);
+  }, [myName]);
+
+  // Load request by id (RLS gates to submitter + matched manager_email)
+  useEffect(() => {
+    if (!id || !session) return;
+    let cancelled = false;
     (async () => {
-      try {
-        const r = await fetch(`/expense/api/expense-request-decide?token=${encodeURIComponent(token)}`);
-        const d = await r.json();
-        if (!r.ok) {
-          setState('error');
-          setErrorMessage(d.error || 'Invalid approval link');
-          return;
-        }
-        if (d.already_decided) {
-          setRequest(d.request);
-          setDecided({
-            action: d.request?.status === 'denied' ? 'denied' : 'approved',
-            signer_name: d.approval?.decided_by,
-          });
-          setState('decided');
-          return;
-        }
-        setRequest(d.request);
-        setState('ready');
-      } catch (e) {
-        setState('error');
-        setErrorMessage(e instanceof Error ? e.message : 'Connection error');
+      const { data, error } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (cancelled) return;
+      if (error || !data) {
+        setState('notfound');
+        return;
       }
+      const req = data as RequestRow;
+      setRequest(req);
+
+      if (req.status !== 'pending') {
+        setDecided({ action: req.status === 'denied' ? 'denied' : 'approved', signer_name: '' });
+        setState('decided');
+        return;
+      }
+
+      const routedTo = (req.manager_email || '').toLowerCase();
+      if (!routedTo || routedTo !== myEmail) {
+        setState('forbidden');
+        return;
+      }
+      if (req.submitted_by === session.user.id) {
+        setState('forbidden');
+        return;
+      }
+
+      setState('ready');
     })();
-  }, [token]);
+    return () => { cancelled = true; };
+  }, [id, session, myEmail]);
 
   const clearSig = useCallback(() => sigRef.current?.clear(), []);
 
   async function submit(decision: 'approve' | 'decline') {
-    if (!token || !request) return;
+    if (!id || !request) return;
     setErrorMessage('');
-    if (!signerName.trim() || signerName.trim().length < 2) {
-      setErrorMessage('Please type your full name.');
-      return;
-    }
-    if (!signerInitials.trim()) {
-      setErrorMessage('Please type your initials.');
-      return;
-    }
-    if (decision === 'decline' && !declineReason.trim()) {
-      setErrorMessage('Please explain why you are declining.');
-      return;
-    }
+    if (!signerName.trim() || signerName.trim().length < 2) { setErrorMessage('Please type your full name.'); return; }
+    if (!signerInitials.trim()) { setErrorMessage('Please type your initials.'); return; }
+    if (decision === 'decline' && !declineReason.trim()) { setErrorMessage('Please explain why you are declining.'); return; }
     setSubmitting(decision);
 
     let signatureDataUrl: string | null = null;
     if (sigRef.current && !sigRef.current.isEmpty()) {
-      try {
-        signatureDataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png');
-      } catch {
-        signatureDataUrl = sigRef.current.toDataURL('image/png');
-      }
+      try { signatureDataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png'); }
+      catch { signatureDataUrl = sigRef.current.toDataURL('image/png'); }
     }
 
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Your session expired. Please log in again.');
+
       const r = await fetch('/expense/api/expense-request-decide', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          token,
-          decision,
+          requestId: id,
+          action: decision,
           signer_name: signerName.trim(),
           signer_initials: signerInitials.trim(),
           signature_data_url: signatureDataUrl,
@@ -133,32 +146,40 @@ export default function ApprovalPage() {
     }
   }
 
-  // ── Loading
   if (state === 'loading') {
     return (
       <div className="ap-wrap">
-        <div className="ap-loading">
-          <Loader2 className="spin" size={36} />
-          <p>Loading request…</p>
-        </div>
+        <div className="ap-loading"><Loader2 className="spin" size={36} /><p>Loading request…</p></div>
       </div>
     );
   }
 
-  // ── Error
-  if (state === 'error') {
+  if (state === 'notfound') {
     return (
       <div className="ap-wrap">
         <div className="ap-card ap-banner ap-banner-denied">
           <AlertTriangle size={36} />
-          <h1>Link invalid</h1>
-          <p>{errorMessage || 'This approval link is no longer valid.'}</p>
+          <h1>Request not found</h1>
+          <p>This request doesn't exist or isn't visible to you.</p>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
       </div>
     );
   }
 
-  // ── Decided
+  if (state === 'forbidden') {
+    return (
+      <div className="ap-wrap">
+        <div className="ap-card ap-banner ap-banner-denied">
+          <XCircle size={36} />
+          <h1>Not your request</h1>
+          <p>This purchase request is routed to {request?.manager_email || 'someone else'}.</p>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+        </div>
+      </div>
+    );
+  }
+
   if (state === 'decided') {
     const approved = decided?.action === 'approved' || decided?.action === 'approve';
     return (
@@ -166,46 +187,55 @@ export default function ApprovalPage() {
         <div className={`ap-card ap-banner ${approved ? 'ap-banner-approved' : 'ap-banner-denied'}`}>
           {approved ? <CheckCircle size={36} /> : <XCircle size={36} />}
           <h1>{approved ? '✓ Request Approved' : '✗ Request Declined'}</h1>
-          <p>
-            {request?.vendor_name ? `${request.vendor_name} · ` : ''}
-            {request?.total_amount ? formatCurrency(request.total_amount) : ''}
-          </p>
-          {decided?.signer_name && (
-            <p className="ap-banner-sub">Signed by <strong>{decided.signer_name}</strong></p>
-          )}
-          <p className="ap-banner-note">You may close this window.</p>
+          <p>{request?.vendor_name ? `${request.vendor_name} · ` : ''}{request?.total_amount ? formatCurrency(request.total_amount) : ''}</p>
+          {decided?.signer_name && <p className="ap-banner-sub">Signed by <strong>{decided.signer_name}</strong></p>}
+          <button className="ap-btn ap-btn-approve" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
       </div>
     );
   }
 
-  // ── Ready
+  if (state === 'error') {
+    return (
+      <div className="ap-wrap">
+        <div className="ap-card ap-banner ap-banner-denied">
+          <XCircle size={36} />
+          <h1>Something went wrong</h1>
+          <p>{errorMessage}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!request) return null;
   const isPR = request.request_type === 'purchase_request';
 
   return (
     <div className="ap-wrap">
-      {/* Header */}
+      {/* Header card */}
       <div className="ap-card">
         <div className="ap-header">
+          <button type="button" onClick={() => navigate('/expense/queue')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
+            <ArrowLeft size={20} />
+          </button>
           <ClipboardList className="ap-header-icon" size={28} />
           <div>
             <h1>{isPR ? 'Purchase Request Approval' : 'Expense Approval'}</h1>
             <p className="ap-meta">
-              {request.submitter_name || 'A team member'} ·
-              {request.total_amount ? ` ${formatCurrency(request.total_amount)}` : ''}
+              {request.submitter_name || 'A team member'}
+              {request.total_amount ? ` · ${formatCurrency(request.total_amount)}` : ''}
             </p>
           </div>
         </div>
 
         <p className="ap-intro">
-          <strong>{request.submitter_name || 'A team member'}</strong> submitted this {isPR ? 'purchase request' : 'expense'} and routed it to you for approval. Please review and sign below.
+          <strong>{request.submitter_name || 'A team member'}</strong> submitted this {isPR ? 'purchase request' : 'expense'} and routed it to you for approval. Review the details below, then sign.
         </p>
 
         {isPR && (
           <div className="ap-warn">
             <ShoppingCart size={16} />
-            <span><strong>Time-sensitive:</strong> Approve promptly to avoid delays in procurement.</span>
+            <span><strong>Time-sensitive:</strong> Approve promptly to avoid procurement delays.</span>
           </div>
         )}
 
@@ -229,10 +259,7 @@ export default function ApprovalPage() {
         {request.line_items && request.line_items.length > 0 && (
           <table className="ap-items">
             <thead><tr>
-              <th>Item</th>
-              <th className="r">Qty</th>
-              <th className="r">Price</th>
-              <th className="r">Line</th>
+              <th>Item</th><th className="r">Qty</th><th className="r">Price</th><th className="r">Line</th>
             </tr></thead>
             <tbody>
               {request.line_items.map((li, i) => {
@@ -259,17 +286,14 @@ export default function ApprovalPage() {
       <div className="ap-card">
         <div className="ap-section-title">Your signature</div>
         <p className="ap-helptext">
-          Sign below with your mouse or finger. If your device makes drawing difficult, just type your name and initials — both are legally valid as an electronic signature.
+          Sign below with your mouse or finger. Your typed name and initials below are also legally valid as an electronic signature.
         </p>
 
         <div className="ap-sig-box">
           <SignatureCanvas
             ref={sigRef}
             penColor="#5BB5F0"
-            canvasProps={{
-              className: 'ap-sig-canvas',
-              style: { width: '100%', height: '180px' },
-            }}
+            canvasProps={{ className: 'ap-sig-canvas', style: { width: '100%', height: '180px' } }}
           />
           <button type="button" className="ap-sig-clear" onClick={clearSig}>
             <Eraser size={14} /> Clear
@@ -279,46 +303,21 @@ export default function ApprovalPage() {
         <div className="ap-name-grid">
           <div className="ap-field">
             <label htmlFor="signerName">Full name <span className="ap-required">*</span></label>
-            <input
-              id="signerName"
-              type="text"
-              placeholder="Jane Doe"
-              autoComplete="name"
-              maxLength={200}
-              value={signerName}
-              onChange={(e) => setSignerName(e.target.value)}
-            />
+            <input id="signerName" type="text" placeholder="Jane Doe" autoComplete="name" maxLength={200} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
           </div>
           <div className="ap-field">
             <label htmlFor="signerInitials">Initials <span className="ap-required">*</span></label>
-            <input
-              id="signerInitials"
-              type="text"
-              placeholder="JD"
-              maxLength={10}
-              value={signerInitials}
-              onChange={(e) => setSignerInitials(e.target.value)}
-            />
+            <input id="signerInitials" type="text" placeholder="JD" maxLength={10} value={signerInitials} onChange={(e) => setSignerInitials(e.target.value)} />
           </div>
         </div>
 
         <div className="ap-date">Date of signature: <strong>{new Date().toLocaleString()}</strong></div>
 
         <div className="ap-actions">
-          <button
-            type="button"
-            className="ap-btn ap-btn-decline"
-            onClick={() => setDeclineMode(true)}
-            disabled={!!submitting}
-          >
+          <button type="button" className="ap-btn ap-btn-decline" onClick={() => setDeclineMode(true)} disabled={!!submitting}>
             Decline
           </button>
-          <button
-            type="button"
-            className="ap-btn ap-btn-approve"
-            onClick={() => submit('approve')}
-            disabled={!!submitting}
-          >
+          <button type="button" className="ap-btn ap-btn-approve" onClick={() => submit('approve')} disabled={!!submitting}>
             {submitting === 'approve' && <Loader2 className="spin" size={16} />}
             ✓ Approve
           </button>
@@ -327,21 +326,8 @@ export default function ApprovalPage() {
         {declineMode && (
           <div className="ap-decline-wrap">
             <label htmlFor="declineReason">Reason for declining <span className="ap-required">*</span></label>
-            <textarea
-              id="declineReason"
-              placeholder="Please explain why you are declining…"
-              rows={3}
-              maxLength={2000}
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-            />
-            <button
-              type="button"
-              className="ap-btn ap-btn-decline"
-              onClick={() => submit('decline')}
-              disabled={!!submitting}
-              style={{ marginTop: 10 }}
-            >
+            <textarea id="declineReason" placeholder="Please explain why you are declining…" rows={3} maxLength={2000} value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
+            <button type="button" className="ap-btn ap-btn-decline" onClick={() => submit('decline')} disabled={!!submitting} style={{ marginTop: 10 }}>
               {submitting === 'decline' && <Loader2 className="spin" size={16} />}
               Submit decline
             </button>
@@ -351,9 +337,7 @@ export default function ApprovalPage() {
         {errorMessage && <div className="ap-error">{errorMessage}</div>}
       </div>
 
-      <p className="ap-footer">
-        Approval link for {request.manager_email || 'the chosen approver'}.
-      </p>
+      <p className="ap-footer">Reviewing as {myName}</p>
     </div>
   );
 }
