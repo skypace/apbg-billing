@@ -37,7 +37,8 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [entity, setEntity] = useState('brix');
+  // Entity defaults to 'brix' silently — picker removed per user request.
+  const [entity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -85,7 +86,6 @@ export default function ExpenseForm() {
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
-      setEntity(data.entity || 'brix');
       setCogsAccountLabel(data.cogs_account_label || '');
       setCogsAccountId(data.cogs_account_id || '');
       setTag(data.tag || '');
@@ -388,21 +388,6 @@ export default function ExpenseForm() {
             Reading receipt…
           </div>
         )}
-
-        <div>
-          <Label>Entity</Label>
-          <SelectField
-            disabled={readOnly}
-            value={entity}
-            onChange={(e) => setEntity(e.target.value)}
-            placeholder="Select entity"
-            options={[
-              { value: 'brix', label: 'Brix Beverage (CA)' },
-              { value: 'freeflow', label: 'Freeflow (MA)' },
-              { value: 'shared', label: 'Shared' },
-            ]}
-          />
-        </div>
 
         <div>
           <Label>Vendor / Payee</Label>
