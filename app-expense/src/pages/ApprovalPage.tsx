@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -25,6 +26,8 @@ export default function ApprovalPage() {
   const [request, setRequest] = useState<ExpenseRequest | null>(null);
   const [decision, setDecision] = useState<'approved' | 'denied' | null>(null);
   const [reasonNote, setReasonNote] = useState('');
+  const [approverName, setApproverName] = useState('');
+  const [approverEmail, setApproverEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
   const sigRef = useRef<SignatureCanvas | null>(null);
@@ -38,9 +41,8 @@ export default function ApprovalPage() {
       }
 
       try {
-        // Call the Netlify function to validate and return the request
         const res = await fetch(
-          `/.netlify/functions/expense-request-decide?token=${encodeURIComponent(token)}`
+          `/api/expense-request-decide?token=${encodeURIComponent(token)}`
         );
         if (res.status === 410) {
           setState('expired');
@@ -59,6 +61,10 @@ export default function ApprovalPage() {
           return;
         }
         setRequest(data.request as ExpenseRequest);
+        // Pre-fill approver email from the request's manager_email if available
+        if (data.request?.manager_email) {
+          setApproverEmail(data.request.manager_email);
+        }
         setState('ready');
       } catch {
         setState('error');
@@ -82,14 +88,16 @@ export default function ApprovalPage() {
     }
 
     try {
-      const res = await fetch('/.netlify/functions/expense-request-decide', {
+      const res = await fetch('/api/expense-request-decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token,
-          decision: d,
-          reason_note: reasonNote || null,
-          signature_data: signatureDataUrl,
+          action: d,
+          decidedBy: approverName || null,
+          decidedByEmail: approverEmail || null,
+          notes: reasonNote || null,
+          signatureUrl: signatureDataUrl,
         }),
       });
 
@@ -174,7 +182,7 @@ export default function ApprovalPage() {
           <h1 className="text-lg font-semibold">Approval Required</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Review and sign to approve or deny this{' '}
-            {request.type === 'purchase_request' ? 'purchase request' : 'expense'}.
+            {request.request_type === 'purchase_request' ? 'purchase request' : 'expense'}.
           </p>
         </div>
 
@@ -184,7 +192,7 @@ export default function ApprovalPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">{request.vendor_name || 'No vendor'}</CardTitle>
               <Badge variant="warning">
-                {request.type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
+                {request.request_type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
               </Badge>
             </div>
           </CardHeader>
@@ -212,6 +220,37 @@ export default function ApprovalPage() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Approver identity */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Your Info</CardTitle>
+            <CardDescription>Enter your name for the approval record.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="approverName">Your Name</Label>
+                <Input
+                  id="approverName"
+                  placeholder="Full name"
+                  value={approverName}
+                  onChange={(e) => setApproverName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="approverEmail">Your Email</Label>
+                <Input
+                  id="approverEmail"
+                  type="email"
+                  placeholder="Email"
+                  value={approverEmail}
+                  onChange={(e) => setApproverEmail(e.target.value)}
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -273,7 +312,7 @@ export default function ApprovalPage() {
             variant="success"
             size="lg"
             onClick={() => handleDecision('approved')}
-            disabled={submitting}
+            disabled={submitting || !approverName.trim()}
           >
             {submitting && decision === 'approved' && (
               <Loader2 className="h-4 w-4 animate-spin" />
