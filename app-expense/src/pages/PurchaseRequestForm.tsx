@@ -38,6 +38,7 @@ export default function PurchaseRequestForm() {
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
+  const [entity, setEntity] = useState<'brix' | 'freeflow' | 'shared'>('brix');
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -48,7 +49,6 @@ export default function PurchaseRequestForm() {
 
   /* ── derived ── */
   const totalNum = parseFloat(estimatedAmount) || 0;
-  const threshold = settings?.approval_threshold ?? 500;
 
   /* ── COGS ── */
   const handleCogsChange = (label: string) => {
@@ -85,10 +85,12 @@ export default function PurchaseRequestForm() {
       const { data: req, error: insertErr } = await supabase
         .from('expense_requests')
         .insert({
-          type: 'purchase_request',
-          status: 'pending', // PRs always require approval
+          request_type: 'purchase_request',
+          status: 'draft',
           submitted_by: session.user.id,
-          submitted_at: new Date().toISOString(),
+          submitter_name: session.user.user_metadata?.full_name || session.user.email,
+          submitter_email: session.user.email,
+          entity,
           vendor_name: vendorName || null,
           total_amount: totalNum || null,
           receipt_date: neededByDate || null,
@@ -101,26 +103,29 @@ export default function PurchaseRequestForm() {
           memo: memo || null,
           line_items: nonEmptyLines,
           manager_email: managerEmail || null,
-          approval_threshold: threshold,
         })
         .select()
         .single();
 
       if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
 
-      // Notify manager
+      // Notify manager — function handles status transition to 'pending'
       const token = await getAccessToken();
-      await fetch('/.netlify/functions/expense-request-notify', {
+      const notifyRes = await fetch('/api/expense-request-notify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ request_id: req.id }),
+        body: JSON.stringify({ requestId: req.id }),
       });
 
+      const notifyData = await notifyRes.json().catch(() => ({}));
+
       setResultMessage(
-        `Purchase request submitted — ${managerEmail} has been notified.`,
+        notifyData.email_sent
+          ? `Purchase request submitted — ${managerEmail} has been notified.`
+          : 'Purchase request submitted and is awaiting approval.',
       );
       setStep('success');
     } catch (err: any) {
@@ -154,6 +159,20 @@ export default function PurchaseRequestForm() {
         <div className="flex items-center gap-2 text-xs bg-amber-50 text-amber-700 rounded-lg p-3">
           <ShoppingCart className="h-4 w-4 flex-shrink-0" />
           All purchase requests require manager approval before buying.
+        </div>
+
+        {/* Entity selector */}
+        <div>
+          <Label>Entity</Label>
+          <SelectField
+            value={entity}
+            onChange={(e) => setEntity(e.target.value as 'brix' | 'freeflow' | 'shared')}
+            options={[
+              { value: 'brix', label: 'Brix (CA S-corp)' },
+              { value: 'freeflow', label: 'Freeflow (MA S-corp)' },
+              { value: 'shared', label: 'Shared' },
+            ]}
+          />
         </div>
 
         {/* What + Where */}
