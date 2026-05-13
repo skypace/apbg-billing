@@ -61,7 +61,6 @@ export default function ExpenseForm() {
   const needsApproval = totalNum > threshold;
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
-  /* ── Load existing request when /edit/:id ── */
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -106,7 +105,6 @@ export default function ExpenseForm() {
     };
   }, [id]);
 
-  /* ── receipt handling ── */
   const handleFileSelect = useCallback(
     async (file: File) => {
       setReceiptFile(file);
@@ -343,7 +341,7 @@ export default function ExpenseForm() {
 
   if (step === 'details') {
     return (
-      <div className="space-y-4 pb-24">
+      <div className="space-y-4 pb-36">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
@@ -619,7 +617,7 @@ export default function ExpenseForm() {
         </Card>
 
         {!readOnly && (
-          <div className="fixed bottom-16 left-0 right-0 bg-background border-t px-4 py-3">
+          <div className="form-submit-bar">
             <div className="max-w-lg mx-auto">
               <Button
                 className="w-full"
