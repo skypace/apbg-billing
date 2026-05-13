@@ -16,6 +16,7 @@
     "delivery_stops",
     "digest_log",
     "digest_subscriptions",
+    "expense_approvals",
     "expense_bucket_types",
     "expense_buckets",
     "expense_request_approvals",
