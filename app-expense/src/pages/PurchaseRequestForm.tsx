@@ -23,10 +23,8 @@ export default function PurchaseRequestForm() {
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
 
-  /* ── step ── */
   const [step, setStep] = useState<FormStep>('details');
 
-  /* ── form fields ── */
   const [vendorName, setVendorName] = useState('');
   const [estimatedAmount, setEstimatedAmount] = useState('');
   const [neededByDate, setNeededByDate] = useState('');
@@ -43,21 +41,17 @@ export default function PurchaseRequestForm() {
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
 
-  /* ── submission state ── */
   const [resultMessage, setResultMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  /* ── derived ── */
   const totalNum = parseFloat(estimatedAmount) || 0;
 
-  /* ── COGS ── */
   const handleCogsChange = (label: string) => {
     setCogsAccountLabel(label);
     const match = settings?.cogs_accounts.find((a) => a.label === label);
     setCogsAccountId(match?.id ?? '');
   };
 
-  /* ── line items ── */
   const updateLineItem = (idx: number, field: keyof LineItem, val: string) => {
     setLineItems((prev) => {
       const next = [...prev];
@@ -75,7 +69,6 @@ export default function PurchaseRequestForm() {
   const removeLineItem = (idx: number) =>
     setLineItems((p) => p.filter((_, i) => i !== idx));
 
-  /* ── submit ── */
   const handleSubmit = async () => {
     if (!session) return;
     setStep('submitting');
@@ -109,9 +102,8 @@ export default function PurchaseRequestForm() {
 
       if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
 
-      // Notify manager — function handles status transition to 'pending'
       const token = await getAccessToken();
-      const notifyRes = await fetch('/api/expense-request-notify', {
+      const notifyRes = await fetch('/expense/api/expense-request-notify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -135,8 +127,6 @@ export default function PurchaseRequestForm() {
     }
   };
 
-  /* ── RENDER ── */
-
   if (settingsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -145,10 +135,9 @@ export default function PurchaseRequestForm() {
     );
   }
 
-  /* Step: details */
   if (step === 'details') {
     return (
-      <div className="space-y-4 pb-24">
+      <div className="space-y-4 pb-36">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
@@ -156,12 +145,11 @@ export default function PurchaseRequestForm() {
           <h1 className="text-lg font-semibold">Purchase Request</h1>
         </div>
 
-        <div className="flex items-center gap-2 text-xs bg-amber-50 text-amber-700 rounded-lg p-3">
+        <div className="flex items-center gap-2 text-xs bg-amber-50/10 text-amber-300 rounded-lg p-3 border border-amber-300/20">
           <ShoppingCart className="h-4 w-4 flex-shrink-0" />
           All purchase requests require manager approval before buying.
         </div>
 
-        {/* Entity selector */}
         <div>
           <Label>Entity</Label>
           <SelectField
@@ -175,7 +163,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* What + Where */}
         <div>
           <Label>What do you need to buy?</Label>
           <Input
@@ -194,7 +181,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* Estimated amount + needed by */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Estimated Cost ($)</Label>
@@ -218,10 +204,8 @@ export default function PurchaseRequestForm() {
           </div>
         </div>
 
-        {/* Always needs approval */}
         <Badge variant="warning">Manager approval required</Badge>
 
-        {/* COGS account */}
         <div>
           <Label>COGS / Expense Account</Label>
           <SelectField
@@ -235,7 +219,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* Tag */}
         <div>
           <Label>Tag</Label>
           <SelectField
@@ -249,7 +232,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* Department */}
         {tag && (
           <div>
             <Label>Department</Label>
@@ -265,7 +247,6 @@ export default function PurchaseRequestForm() {
           </div>
         )}
 
-        {/* Customer + Job */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
@@ -285,7 +266,6 @@ export default function PurchaseRequestForm() {
           </div>
         </div>
 
-        {/* Memo */}
         <div>
           <Label>Why is this needed?</Label>
           <Textarea
@@ -296,7 +276,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* Manager */}
         <div>
           <Label>Manager for Approval</Label>
           <SelectField
@@ -310,7 +289,6 @@ export default function PurchaseRequestForm() {
           />
         </div>
 
-        {/* Line items (expanded) */}
         <Card>
           <CardHeader className="p-3 pb-0">
             <CardTitle className="text-sm font-medium">
@@ -377,8 +355,7 @@ export default function PurchaseRequestForm() {
           </CardContent>
         </Card>
 
-        {/* Submit */}
-        <div className="fixed bottom-16 left-0 right-0 bg-background border-t px-4 py-3">
+        <div className="form-submit-bar">
           <div className="max-w-lg mx-auto">
             <Button
               className="w-full"
@@ -398,7 +375,6 @@ export default function PurchaseRequestForm() {
     );
   }
 
-  /* Step: submitting */
   if (step === 'submitting') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -410,7 +386,6 @@ export default function PurchaseRequestForm() {
     );
   }
 
-  /* Step: success */
   if (step === 'success') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
@@ -431,7 +406,6 @@ export default function PurchaseRequestForm() {
     );
   }
 
-  /* Step: error */
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
       <AlertTriangle className="h-12 w-12 text-destructive" />
