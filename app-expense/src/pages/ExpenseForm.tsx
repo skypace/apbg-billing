@@ -25,6 +25,7 @@ export default function ExpenseForm() {
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<FormStep>(isEditing ? 'details' : 'upload');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -37,7 +38,6 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  // Entity defaults to 'brix' silently — picker removed per user request.
   const [entity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
@@ -54,8 +54,6 @@ export default function ExpenseForm() {
 
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
-  // resultBillId is reserved for the future "Post to QBO" success display.
-  // No setter today — drop it to satisfy tsc strict noUnusedLocals.
   const [resultBillId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -155,6 +153,8 @@ export default function ExpenseForm() {
   const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileSelect(file);
+    // Reset value so picking the same file again re-fires onChange
+    e.target.value = '';
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -312,19 +312,44 @@ export default function ExpenseForm() {
                 Photo, scan, or PDF — we'll pull the details
               </p>
               <div className="flex items-center justify-center gap-2 mt-4">
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cameraInputRef.current?.click();
+                  }}
+                >
                   <Camera className="h-4 w-4 mr-1" /> Camera
                 </Button>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                >
                   <Upload className="h-4 w-4 mr-1" /> Upload
                 </Button>
               </div>
             </div>
+            {/* Camera-only input (mobile capture) */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={onFileInput}
+            />
+            {/* General picker — phone shows action sheet (camera / library / files) */}
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*,.pdf"
-              capture="environment"
               className="hidden"
               onChange={onFileInput}
             />
