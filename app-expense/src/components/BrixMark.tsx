@@ -31,11 +31,23 @@ export function BrixMark({ size = 36, className, style, title }: Props) {
   );
 }
 
-/** Brix wordmark (BRIX text with X tinted bubble blue). */
+/** Legacy: Brix wordmark (BRI[X]) — kept for places that don't want the full
+ *  Brixpense identity. New work should prefer <BrixpenseWordmark />. */
 export function BrixWordmark({ style }: { style?: CSSProperties }) {
   return (
     <span className="brand-mark" style={style}>
       BRI<span className="brand-bx">X</span>
+    </span>
+  );
+}
+
+/** BrixXpense wordmark — the product identity. Renders as a single line in
+ *  the display font with an amber X bridging "Brix" and "pense". The amber
+ *  X picks up a soft glow from the brand palette. */
+export function BrixpenseWordmark({ style }: { style?: CSSProperties }) {
+  return (
+    <span className="brand-mark" style={style}>
+      Brix<span className="brand-bx">X</span>pense
     </span>
   );
 }
