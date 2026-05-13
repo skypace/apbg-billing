@@ -6,57 +6,57 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        /* Dark surfaces — derived from brand teal, deeper for contrast */
-        background: '#0B1A24',
-        foreground: '#E6EEF1',
+        /* Surfaces — classic dark navy */
+        background: '#06121F',
+        foreground: '#E6EEF7',
         surface: {
-          DEFAULT: '#0F2330',
-          '2': '#16303F',
-          '3': '#1F3A4A',
+          DEFAULT: '#0E2240',
+          '2': '#163052',
+          '3': '#1E4068',
         },
 
         /* Borders & focus */
-        border: '#1F3A4A',
-        'border-2': '#2F526A',
-        input: '#1F3A4A',
-        ring: '#4FAEC8',
+        border: '#1B3A5E',
+        'border-2': '#2A5285',
+        input: '#1B3A5E',
+        ring: '#5BB5F0',
 
-        /* Brand — teal anchored, lighter on dark; amber accent */
+        /* Brand — teal anchor + amber accent on navy */
         primary: {
-          DEFAULT: '#4FAEC8',       /* teal that reads on dark */
-          foreground: '#0B1A24',
-          deep:  '#003A49',         /* brand-truth teal — used as section base */
-          hover: '#6BC5DE',
+          DEFAULT: '#5BB5F0',
+          foreground: '#06121F',
+          deep:  '#003A49',
+          hover: '#7CC5F5',
         },
         accent: {
           DEFAULT: '#F4B400',
-          foreground: '#0B1A24',
+          foreground: '#06121F',
           hover:   '#FFC829',
         },
         secondary: {
-          DEFAULT: '#16303F',
-          foreground: '#E6EEF1',
+          DEFAULT: '#0E2240',
+          foreground: '#E6EEF7',
         },
         muted: {
-          DEFAULT: '#16303F',
-          foreground: '#7E94A4',
+          DEFAULT: '#0E2240',
+          foreground: '#6B8499',
         },
         card: {
-          DEFAULT: '#0F2330',
-          foreground: '#E6EEF1',
+          DEFAULT: 'rgba(20, 57, 102, 0.32)',
+          foreground: '#E6EEF7',
         },
 
         /* Semantic */
-        success: '#3CC684',
+        success: '#2EB872',
         warning: '#F4B400',
-        danger:  '#EF4F5B',
-        destructive: { DEFAULT: '#EF4F5B', foreground: '#FFFFFF' },
-        info:    '#4FAEC8',
+        danger:  '#FF5A5F',
+        destructive: { DEFAULT: '#FF5A5F', foreground: '#FFFFFF' },
+        info:    '#5BB5F0',
 
         /* Text tiers */
-        tx: '#E6EEF1',
-        tx2: '#A8BAC4',
-        mt: '#7E94A4',
+        tx:  '#E6EEF7',
+        tx2: '#94A8BD',
+        mt:  '#6B8499',
       },
 
       borderRadius: {
@@ -76,8 +76,8 @@ const config: Config = {
         DEFAULT: '0 1px 3px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.30)',
         md:  '0 6px 18px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30)',
         lg:  '0 18px 40px rgba(0, 0, 0, 0.55), 0 6px 14px rgba(0, 0, 0, 0.35)',
-        focus: '0 0 0 3px rgba(79, 174, 200, 0.30)',
-        glow:  '0 0 0 1px rgba(79, 174, 200, 0.22), 0 6px 18px rgba(79, 174, 200, 0.10)',
+        focus: '0 0 0 3px rgba(91, 181, 240, 0.28)',
+        glow:  '0 0 0 1px rgba(91, 181, 240, 0.22), 0 8px 24px rgba(91, 181, 240, 0.18)',
       },
 
       spacing: {
