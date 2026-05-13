@@ -36,13 +36,13 @@ export default function PurchaseRequestForm() {
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
-  // Entity defaults to 'brix' silently — picker removed per user request.
   const entity: 'brix' | 'freeflow' | 'shared' = 'brix';
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
 
   const [resultMessage, setResultMessage] = useState('');
+  const [emailWarning, setEmailWarning] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
   const totalNum = parseFloat(estimatedAmount) || 0;
@@ -73,6 +73,7 @@ export default function PurchaseRequestForm() {
   const handleSubmit = async () => {
     if (!session) return;
     setStep('submitting');
+    setEmailWarning('');
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
 
@@ -115,11 +116,24 @@ export default function PurchaseRequestForm() {
 
       const notifyData = await notifyRes.json().catch(() => ({}));
 
-      setResultMessage(
-        notifyData.email_sent
-          ? `Purchase request submitted — ${managerEmail} has been notified.`
-          : 'Purchase request submitted and is awaiting approval.',
-      );
+      if (!notifyRes.ok) {
+        // The submission itself succeeded — only the notify failed
+        setResultMessage('Purchase request submitted.');
+        setEmailWarning(
+          `Notification email failed to send: ${notifyData.error || `HTTP ${notifyRes.status}`}. ` +
+          `${managerEmail} won't see this in their queue until they log in manually.`,
+        );
+      } else if (notifyData.email_sent) {
+        setResultMessage(`Purchase request submitted — ${managerEmail} has been notified.`);
+      } else {
+        // 200 OK but email didn't go out — surface the email_error
+        setResultMessage('Purchase request submitted.');
+        setEmailWarning(
+          notifyData.email_error
+            ? `Notification email failed: ${notifyData.email_error}. ${managerEmail} can still find it by logging into the queue.`
+            : `Notification email did NOT send (no Resend API key configured, or the call returned false). ${managerEmail} will see this on their next login.`,
+        );
+      }
       setStep('success');
     } catch (err: any) {
       console.error('PR submission error:', err);
@@ -153,42 +167,22 @@ export default function PurchaseRequestForm() {
 
         <div>
           <Label>What do you need to buy?</Label>
-          <Input
-            placeholder="e.g. CO2 tank, syrup pump, van tire"
-            value={lineItems[0]?.description || ''}
-            onChange={(e) => updateLineItem(0, 'description', e.target.value)}
-          />
+          <Input placeholder="e.g. CO2 tank, syrup pump, van tire" value={lineItems[0]?.description || ''} onChange={(e) => updateLineItem(0, 'description', e.target.value)} />
         </div>
 
         <div>
           <Label>Vendor / Where to buy</Label>
-          <Input
-            placeholder="e.g. Home Depot, Amazon, Grainger"
-            value={vendorName}
-            onChange={(e) => setVendorName(e.target.value)}
-          />
+          <Input placeholder="e.g. Home Depot, Amazon, Grainger" value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Estimated Cost ($)</Label>
-            <Input
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              placeholder="0.00"
-              value={estimatedAmount}
-              onChange={(e) => setEstimatedAmount(e.target.value)}
-            />
+            <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={estimatedAmount} onChange={(e) => setEstimatedAmount(e.target.value)} />
           </div>
           <div>
             <Label>Needed By</Label>
-            <Input
-              type="date"
-              value={neededByDate}
-              onChange={(e) => setNeededByDate(e.target.value)}
-            />
+            <Input type="date" value={neededByDate} onChange={(e) => setNeededByDate(e.target.value)} />
           </div>
         </div>
 
@@ -196,148 +190,63 @@ export default function PurchaseRequestForm() {
 
         <div>
           <Label>COGS / Expense Account</Label>
-          <SelectField
-            value={cogsAccountLabel}
-            onChange={(e) => handleCogsChange(e.target.value)}
-            placeholder="Select account"
-            options={(settings?.cogs_accounts ?? []).map((a) => ({
-              value: a.label,
-              label: a.label,
-            }))}
-          />
+          <SelectField value={cogsAccountLabel} onChange={(e) => handleCogsChange(e.target.value)} placeholder="Select account" options={(settings?.cogs_accounts ?? []).map((a) => ({ value: a.label, label: a.label }))} />
         </div>
 
         <div>
           <Label>Tag</Label>
-          <SelectField
-            value={tag}
-            onChange={(e) => setTag(e.target.value)}
-            placeholder="Optional"
-            options={[
-              { value: '', label: 'None' },
-              ...(settings?.tags ?? []).map((t) => ({ value: t, label: t })),
-            ]}
-          />
+          <SelectField value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Optional" options={[{ value: '', label: 'None' }, ...(settings?.tags ?? []).map((t) => ({ value: t, label: t }))]} />
         </div>
 
         {tag && (
           <div>
             <Label>Department</Label>
-            <SelectField
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="Select department"
-              options={(settings?.departments ?? []).map((d) => ({
-                value: d,
-                label: d,
-              }))}
-            />
+            <SelectField value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Select department" options={(settings?.departments ?? []).map((d) => ({ value: d, label: d }))} />
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
-            <Input
-              placeholder="Customer name"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-            />
+            <Input placeholder="Customer name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           </div>
           <div>
             <Label>Job # (optional)</Label>
-            <Input
-              placeholder="Job number"
-              value={jobNumber}
-              onChange={(e) => setJobNumber(e.target.value)}
-            />
+            <Input placeholder="Job number" value={jobNumber} onChange={(e) => setJobNumber(e.target.value)} />
           </div>
         </div>
 
         <div>
           <Label>Why is this needed?</Label>
-          <Textarea
-            placeholder="Briefly explain the business need"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            rows={3}
-          />
+          <Textarea placeholder="Briefly explain the business need" value={memo} onChange={(e) => setMemo(e.target.value)} rows={3} />
         </div>
 
         <div>
           <Label>Manager for Approval</Label>
-          <SelectField
-            value={managerEmail}
-            onChange={(e) => setManagerEmail(e.target.value)}
-            placeholder="Select manager"
-            options={(settings?.manager_emails ?? []).map((em) => ({
-              value: em,
-              label: em,
-            }))}
-          />
+          <SelectField value={managerEmail} onChange={(e) => setManagerEmail(e.target.value)} placeholder="Select manager" options={(settings?.manager_emails ?? []).map((em) => ({ value: em, label: em }))} />
         </div>
 
         <Card>
-          <CardHeader className="p-3 pb-0">
-            <CardTitle className="text-sm font-medium">
-              Items to Purchase
-            </CardTitle>
-          </CardHeader>
+          <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-medium">Items to Purchase</CardTitle></CardHeader>
           <CardContent className="p-3 space-y-3">
             {lineItems.map((li, idx) => (
               <div key={idx} className="flex items-start gap-2">
                 <div className="flex-1 space-y-1">
-                  <Input
-                    placeholder="Item description"
-                    value={li.description}
-                    onChange={(e) =>
-                      updateLineItem(idx, 'description', e.target.value)
-                    }
-                    className="text-sm"
-                  />
+                  <Input placeholder="Item description" value={li.description} onChange={(e) => updateLineItem(idx, 'description', e.target.value)} className="text-sm" />
                   <div className="grid grid-cols-3 gap-1">
-                    <Input
-                      type="number"
-                      placeholder="Qty"
-                      value={li.qty || ''}
-                      onChange={(e) =>
-                        updateLineItem(idx, 'qty', e.target.value)
-                      }
-                      className="text-sm"
-                    />
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="Price"
-                      value={li.unit_price || ''}
-                      onChange={(e) =>
-                        updateLineItem(idx, 'unit_price', e.target.value)
-                      }
-                      className="text-sm"
-                    />
-                    <div className="flex items-center justify-end text-sm font-medium tabular-nums pr-2">
-                      {formatCurrency(li.amount)}
-                    </div>
+                    <Input type="number" placeholder="Qty" value={li.qty || ''} onChange={(e) => updateLineItem(idx, 'qty', e.target.value)} className="text-sm" />
+                    <Input type="number" step="0.01" placeholder="Price" value={li.unit_price || ''} onChange={(e) => updateLineItem(idx, 'unit_price', e.target.value)} className="text-sm" />
+                    <div className="flex items-center justify-end text-sm font-medium tabular-nums pr-2">{formatCurrency(li.amount)}</div>
                   </div>
                 </div>
                 {lineItems.length > 1 && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive mt-1"
-                    onClick={() => removeLineItem(idx)}
-                  >
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive mt-1" onClick={() => removeLineItem(idx)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
               </div>
             ))}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={addLineItem}
-            >
+            <Button variant="outline" size="sm" className="w-full" onClick={addLineItem}>
               <Plus className="h-4 w-4 mr-1" /> Add Item
             </Button>
           </CardContent>
@@ -345,16 +254,7 @@ export default function PurchaseRequestForm() {
 
         <div className="form-submit-bar">
           <div className="max-w-lg mx-auto">
-            <Button
-              className="w-full"
-              size="lg"
-              disabled={
-                !lineItems[0]?.description.trim() ||
-                totalNum <= 0 ||
-                !managerEmail
-              }
-              onClick={handleSubmit}
-            >
+            <Button className="w-full" size="lg" disabled={!lineItems[0]?.description.trim() || totalNum <= 0 || !managerEmail} onClick={handleSubmit}>
               Submit for Approval — {formatCurrency(totalNum)}
             </Button>
           </div>
@@ -367,9 +267,7 @@ export default function PurchaseRequestForm() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">
-          Submitting and notifying manager…
-        </p>
+        <p className="text-sm text-muted-foreground">Submitting and notifying manager…</p>
       </div>
     );
   }
@@ -379,16 +277,17 @@ export default function PurchaseRequestForm() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
         <h2 className="text-lg font-semibold">{resultMessage}</h2>
-        <p className="text-sm text-muted-foreground">
-          You'll be notified when your manager responds.
-        </p>
+        {emailWarning && (
+          <div className="ap-error" style={{ maxWidth: 480 }}>
+            <strong>Heads-up:</strong> {emailWarning}
+          </div>
+        )}
+        {!emailWarning && (
+          <p className="text-sm text-muted-foreground">You'll be notified when your manager responds.</p>
+        )}
         <div className="flex gap-2 mt-4">
-          <Button variant="outline" onClick={() => navigate('/')}>
-            Home
-          </Button>
-          <Button onClick={() => navigate('/pending')}>
-            View My Requests
-          </Button>
+          <Button variant="outline" onClick={() => navigate('/')}>Home</Button>
+          <Button onClick={() => navigate('/pending')}>View My Requests</Button>
         </div>
       </div>
     );
@@ -399,9 +298,7 @@ export default function PurchaseRequestForm() {
       <AlertTriangle className="h-12 w-12 text-destructive" />
       <h2 className="text-lg font-semibold">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
-      <Button variant="outline" onClick={() => setStep('details')}>
-        Try Again
-      </Button>
+      <Button variant="outline" onClick={() => setStep('details')}>Try Again</Button>
     </div>
   );
 }
