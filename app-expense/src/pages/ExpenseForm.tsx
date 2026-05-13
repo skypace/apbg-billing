@@ -54,7 +54,9 @@ export default function ExpenseForm() {
 
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
-  const [resultBillId, setResultBillId] = useState<string | null>(null);
+  // resultBillId is reserved for the future "Post to QBO" success display.
+  // No setter today — drop it to satisfy tsc strict noUnusedLocals.
+  const [resultBillId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   const totalNum = parseFloat(totalAmount) || 0;
