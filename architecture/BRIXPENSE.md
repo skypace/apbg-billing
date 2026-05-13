@@ -15,8 +15,8 @@
 
 **Brixpense** is APBG's internal expense request and purchase-request
 tool. Employees submit receipts or purchase requests; managers approve
-via magic-link email (no login required); approved expenses auto-create
-QBO bills for AP processing.
+via magic-link email (no login required); approved expenses can be
+posted to QBO as Bills with one click.
 
 - **Surface URL (production):** `https://alamedapointbg.com/expense/`
   (proxied by `apbg-gateway` to `apbg-billing.netlify.app/expense/`).
@@ -56,12 +56,13 @@ git push main
        ▼
 Netlify build  (defined in apbg-billing/netlify.toml)
   1. node architecture/lint-manifest.mjs          ← sync-manifest gate
-  2. npm install --prefix app                     ← Margin Control deps
-  3. npm run build --prefix app                   ← Margin Control build
-  4. npm install --prefix app-expense             ← Brixpense deps
-  5. npm run build --prefix app-expense            ← tsc + vite build
+  2. mkdir -p public/docs && cp -r docs/. public/docs/
+  3. npm install --prefix app                     ← Margin Control deps
+  4. npm run build --prefix app                   ← Margin Control build
+  5. npm install --prefix app-expense             ← Brixpense deps
+  6. npm run build --prefix app-expense            ← tsc + vite build
         ↓ outputs to ../public/expense/
-  6. Netlify publishes `public/`                  ← serves the whole site
+  7. Netlify publishes `public/`                  ← serves the whole site
        │
        ▼
 apbg-billing.netlify.app/expense/   (raw Netlify URL)
@@ -82,9 +83,8 @@ Vite config (`app-expense/vite.config.ts`):
 - Dev server: port `5174` (Margin Control uses 5173).
 - `@` alias resolves to `src/`.
 
-**Important:** `public/expense/` must be committed alongside source
-changes. Netlify publishes `public/` as-is — the Vite build writes
-directly into it.
+`netlify.toml` also defines a SPA fallback so any `/expense/*` path that
+doesn't hit a static file rewrites to `/expense/index.html`.
 
 ---
 
@@ -164,100 +164,103 @@ My Pending, Approvals (manager queue).
                   └──────────┬───────────────────┘
                              │
                     ┌────────▼────────┐
-                    │  amount > $500? │
-                    │  (or type=PR)   │
+                    │  amount > $250? │       (auto_approve_threshold
+                    │  (or type=PR)   │        from ops.expense_settings)
                     └───┬─────────┬───┘
                     yes │         │ no
                         │         │
-               ┌────────▼──┐  ┌──▼──────────┐
-               │  pending   │  │   draft      │
-               │            │  │ (auto-appv.) │
-               └────┬───┬──┘  └──────┬───────┘
+               ┌────────▼──┐  ┌──▼──────────────────┐
+               │  pending   │  │ approved (auto)      │
+               │            │  │ auto_approved=true   │
+               └────┬───┬──┘  └──────┬───────────────┘
           approve   │   │ deny       │
          ┌──────────▼┐  ▼            │
          │ approved   │ denied       │
+         │  (or       │              │
+         │   awaiting │              │
+         │  _invoice  │              │
+         │   if PR)   │              │
          └─────┬─────┘               │
                │                     │
                ▼                     ▼
-     ┌─────────────────┐   ┌─────────────────┐
-     │ awaiting_invoice │   │ QBO bill created │
-     └────────┬────────┘   │ (auto via fn)    │
-              │             └─────────────────┘
-              ▼
-     ┌────────────────┐
-     │   fulfilled    │
-     └───────┬────────┘
-             ▼
-     ┌────────────────┐
-     │    posted       │
-     └────────────────┘
+     ┌──────────────────────────────────┐
+     │ link-bill (mode=create) posts to │
+     │ QBO; status flips to 'posted'    │
+     └──────────────────────────────────┘
 ```
 
 ### Status definitions
 
 | Status | Meaning |
 |---|---|
-| `draft` | Auto-approved expense (under threshold). QBO bill creation attempted immediately. |
-| `pending` | Awaiting manager approval. Magic-link email sent. |
-| `approved` | Manager approved via magic link. |
+| `draft` | New submission, before notify is called. |
+| `pending` | Awaiting manager approval. Magic-link sent. |
+| `approved` | Manager approved via magic link (or auto-approved expense under threshold). |
 | `denied` | Manager denied. Terminal unless re-submitted. |
-| `awaiting_invoice` | Approved but vendor invoice not yet received (purchase requests). |
-| `fulfilled` | Invoice received, QBO bill to be created. |
-| `posted` | QBO bill created and posted. Terminal. |
+| `awaiting_invoice` | Approved PR; waiting for the vendor's invoice. |
+| `fulfilled` | Invoice received, QBO bill to be posted. |
+| `posted` | QBO bill created (or linked). Terminal. |
 
 ### Request types
 
 | Type | Receipt required | Approval rule |
 |---|---|---|
-| `expense` | Yes (receipt upload + OCR) | Auto-approved if total ≤ threshold (default $500); otherwise manager approval required. |
-| `purchase_request` | No | Always requires manager approval regardless of amount. |
+| `expense` | Yes (receipt upload + OCR) | Auto-approved if `total_amount ≤ auto_approve_threshold`; otherwise manager approval required. |
+| `purchase_request` | No | Always requires manager approval; approval moves to `awaiting_invoice`, not `approved`. |
 
 ### Approval threshold
 
-Configurable via the `expense_settings` table (key: `approval_threshold`,
-default: `500`). Stored as a key/value pair, parsed as number in
-`useExpenseSettings()`.
+Configurable via the `ops.expense_settings` table (key:
+`auto_approve_threshold`, seeded default: `250`). Read by
+`expense-request-notify.mjs` and by the frontend `useExpenseSettings()`
+hook.
 
 ---
 
 ## Magic-link approval flow
 
 ```
-Employee submits expense (amount > threshold or PR)
+Employee clicks Submit on ExpenseForm / PurchaseRequestForm
        │
        ▼
-expense-request-notify function
-  1. Generate unique magic token (stored in expense_approvals table)
-  2. Build approval URL: /expense/approve/{token}
-  3. Send email to manager_email via SendGrid/Resend
+POST /api/expense-request-notify   { requestId }
+  1. Look up the request
+  2. If expense ≤ auto_approve_threshold → auto-approve, return
+  3. Otherwise generate a 32-byte hex token, store it on the request
+     row (expense_requests.approval_token), set status='pending'
+  4. Render the Brixpense-branded HTML email with a Review & Approve
+     button pointing at /expense/approve/{token}
+  5. Send via Resend or SendGrid (whichever is configured in env)
        │
        ▼
 Manager clicks link (NO login required)
        │
        ▼
 ApprovalPage.tsx
-  1. GET expense-request-decide?token=...
-     → validates token, checks expiry, returns request details
-  2. Manager reviews: vendor, amount, category, line items, memo
-  3. Signs on signature pad (react-signature-canvas, pen #1F4E79)
-  4. Clicks Approve or Deny (deny requires reason_note)
+  1. GET /api/expense-request-decide?token={token}
+     → validates token, returns request + attachments for display,
+       or already_decided=true if the request is past 'pending'
+  2. Manager reviews and either Approves or Denies (deny requires note)
+  3. (optional) Signs on the signature pad (react-signature-canvas)
        │
        ▼
-  5. POST expense-request-decide
-     → { token, decision, reason_note?, signature_data (base64 PNG) }
-     → records: decided_by, decided_at, ip_address, user_agent
-       │
-       ▼
-  6. If approved → status='approved', trigger QBO bill creation
-     If denied  → status='denied', notify submitter
+POST /api/expense-request-decide
+     { token, action: 'approved'|'denied', decidedBy, decidedByEmail,
+       notes?, signatureUrl? }
+  4. Insert audit row in ops.expense_approvals with IP + UA
+  5. Update ops.expense_requests:
+       - status → 'approved' (expense) | 'awaiting_invoice' (PR) | 'denied'
+       - approved_by + approved_at on approval
+       - denial_reason on denial
 ```
 
 ### Audit trail
 
-Every approval/denial records: decision, decided_by (email),
-decided_at (timestamp), signature_url (PNG stored in Supabase Storage),
-ip_address, user_agent, reason_note. This is the `ExpenseApproval` type
-in `types/expense.ts`.
+Every approval/denial decision is one row in `ops.expense_approvals`
+(singular). Captured fields: `action`, `decided_by`,
+`decided_by_email`, `signature_url`, `ip_address`, `user_agent`,
+`notes`, `token_used`. Auto-approvals are also logged here with
+`decided_by = 'system (auto-approve)'`.
 
 ---
 
@@ -272,173 +275,186 @@ in `types/expense.ts`.
 - **Auth:** anon key embedded in bundle (`app-expense/src/lib/supabase.ts`).
 - **User auth:** Supabase Email/Password. `@brixbev.com` credentials.
 
-### Database tables (ops schema)
+### Migrations
 
-> **Status: NOT YET CREATED.** The frontend is built against these table
-> shapes but no Supabase migrations exist yet. These are the first
-> migrations to write.
+| File | Role |
+|---|---|
+| `supabase/migrations/20260512_create_expense_tables.sql` | Source of truth. Creates the 4 tables, RLS policies, updated_at trigger, and base seed (`auto_approve_threshold=250`, `approval_email`, generic `departments`). |
+| `supabase/migrations/20260512o_brix_expense_requests.sql` | Earlier spec. Mostly no-oped (CREATE TABLE IF NOT EXISTS) against the first migration, except it created an orphan `ops.expense_request_approvals` (plural) that no code reads. Retained in history; superseded by the next file. |
+| `supabase/migrations/20260512p_expense_cleanup.sql` | Reconciliation pass. Drops the orphan plural-named approvals table, finishes the seed (`cogs_accounts`, `manager_emails`, `tags`), and re-aligns `departments` to the Brix entity → COGS taxonomy (delivery/service/reman/ops/freeflow/melt). |
+
+### Tables (ops schema, live shapes)
 
 #### `ops.expense_requests`
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | uuid | PK, default gen_random_uuid() |
-| `type` | text | 'expense' or 'purchase_request' |
-| `status` | text | draft/pending/approved/denied/awaiting_invoice/fulfilled/posted |
-| `submitted_by` | uuid | FK to auth.users.id |
+| `id` | uuid | PK, default `gen_random_uuid()` |
+| `request_type` | text | `'expense'` or `'purchase_request'` |
+| `status` | text | `draft/pending/approved/denied/awaiting_invoice/fulfilled/posted` |
+| `entity` | text | `'brix' / 'freeflow' / 'shared'` |
+| `submitted_by` | uuid | FK to `auth.users.id` |
+| `submitter_name` | text | snapshot at submit time |
+| `submitter_email` | text | snapshot at submit time |
 | `vendor_name` | text | |
 | `total_amount` | numeric(12,2) | |
-| `receipt_date` | date | expense: receipt date; PR: needed-by date |
-| `cogs_account_id` | text | QBO account ID |
+| `currency` | text | default `'USD'` |
+| `receipt_date` | date | expense receipt date / PR needed-by date |
+| `cogs_account_id` | text | QBO account ID (nullable; link-bill falls back to Service COGS=101) |
 | `cogs_account_label` | text | human-readable account name |
-| `tag` | text | business tag (e.g. entity) |
-| `department` | text | conditional on tag |
+| `tag` | text | business tag (project/event/vehicle/customer/store/general) |
+| `department` | text | delivery / service / reman / ops / freeflow / melt |
 | `customer_name` | text | optional |
 | `job_number` | text | optional |
-| `memo` | text | |
-| `line_items` | jsonb | array of { description, qty, unit_price, amount } |
-| `manager_email` | text | set when approval required |
-| `approval_threshold` | numeric | threshold at time of submission |
-| `linked_pr_id` | uuid | nullable; links expense to originating PR |
-| `qbo_bill_id` | text | QBO Bill DocNumber after posting |
-| `margin_result` | jsonb | nullable; margin analysis data |
-| `created_at` | timestamptz | default now() |
-| `updated_at` | timestamptz | default now(), trigger on update |
-
-RLS policy: users see only their own requests (`submitted_by = auth.uid()`)
-plus requests where they are the `manager_email`. The `/approve/:token`
-path uses a Netlify function (server-side, service_role key) to bypass
-RLS.
+| `description`, `notes` | text | free-form |
+| `line_items` | jsonb | array of `{ description, quantity, unit_price, amount, account?, category? }` |
+| `manager_email` | text | set when approval required (informational; not enforced in RLS yet) |
+| `approval_token` | text UNIQUE | magic-link token; anon SELECT/UPDATE gated on this being set |
+| `approved_by`, `approved_at`, `denial_reason`, `auto_approved` | mixed | decision tracking |
+| `qbo_bill_id` | text | QBO Bill.Id after link-bill posts |
+| `posted_at` | timestamptz | |
+| `created_at`, `updated_at` | timestamptz | trigger-maintained |
 
 #### `ops.expense_request_attachments`
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid | PK |
-| `request_id` | uuid | FK to expense_requests.id |
-| `file_name` | text | original filename |
-| `file_type` | text | MIME type |
-| `file_size` | integer | bytes |
-| `storage_path` | text | path in Supabase Storage bucket |
-| `ocr_result` | jsonb | parsed receipt data from OCR |
-| `created_at` | timestamptz | |
+`id`, `request_id` (FK, ON DELETE CASCADE), `file_name`, `file_url`,
+`storage_path`, `file_type`, `file_size`, `ocr_result` (jsonb),
+`created_at`.
 
-Storage bucket: `expense-attachments` (private, RLS-gated).
+#### `ops.expense_approvals` (singular — the live audit table)
 
-#### `ops.expense_approvals`
+`id`, `request_id` (FK, ON DELETE CASCADE), `action`
+(`approved/denied`), `decided_by`, `decided_by_email`,
+`signature_url`, `ip_address`, `user_agent`, `notes`, `token_used`,
+`created_at`.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | uuid | PK |
-| `request_id` | uuid | FK to expense_requests.id |
-| `decision` | text | 'approved' or 'denied' |
-| `decided_by` | text | manager email |
-| `decided_at` | timestamptz | |
-| `signature_url` | text | Supabase Storage path to signature PNG |
-| `ip_address` | text | audit trail |
-| `user_agent` | text | audit trail |
-| `reason_note` | text | required for denials |
-| `magic_token` | uuid | unique token for magic-link auth |
-| `token_expires_at` | timestamptz | expiry (e.g. 72h from creation) |
-| `token_used_at` | timestamptz | null until decision is made |
+> **Note:** an older migration tried to create `expense_request_approvals`
+> (plural). It was dropped in `20260512p_expense_cleanup.sql`. All
+> code targets the singular table.
 
 #### `ops.expense_settings`
 
-Key/value store. The `useExpenseSettings()` hook reads all rows and
-parses them client-side.
-
-| Column | Type | Notes |
-|---|---|---|
-| `key` | text | PK: approval_threshold, manager_emails, cogs_accounts, tags, departments |
-| `value` | jsonb | parsed by type: number for threshold, array for the rest |
-| `updated_at` | timestamptz | |
-
-Known keys:
+Key/value config. Seeded keys (post-cleanup migration):
 
 | Key | Value shape | Default |
 |---|---|---|
-| `approval_threshold` | number | 500 |
-| `manager_emails` | string[] | [] |
-| `cogs_accounts` | `{ id: string, label: string }[]` | [] |
-| `tags` | string[] | [] |
-| `departments` | string[] | [] |
+| `auto_approve_threshold` | number | `250` |
+| `approval_email` | string | `"wgrandell@brixbev.com"` |
+| `departments` | string[] | `["delivery","service","reman","ops","freeflow","melt"]` |
+| `cogs_accounts` | `{ id, label }[]` | Service COGS (101), Equipment Sales COGS (42) + 7 new buckets with null IDs |
+| `manager_emails` | string[] | the 6 current managers |
+| `tags` | string[] | `["project","event","vehicle","customer","store","general"]` |
+
+### RLS posture
+
+`expense_requests`: authenticated SELECT all (the queue UIs need it),
+INSERT requires `submitted_by = auth.uid()`, UPDATE requires
+`submitted_by = auth.uid()`. Anon SELECT/UPDATE allowed only when
+`approval_token IS NOT NULL` (the magic-link approval page is
+anonymous).
+
+`expense_request_attachments`: authenticated full access; anon SELECT
+gated through the parent request's `approval_token`.
+
+`expense_approvals`: authenticated SELECT all; INSERT allowed from
+authenticated and anon (the decide function writes from either
+context).
+
+`expense_settings`: SELECT public; UPDATE authenticated only.
+
+### Storage
+
+The base migration does not declare a private bucket; attachments are
+referenced by `file_url`. The earlier migration declared an
+`expense-attachments` bucket with submitter-scoped folder policies —
+that bucket still exists if it was applied to the project, but is not
+required by current frontend code.
 
 ---
 
 ## Netlify functions
 
-> **Status: NOT YET CREATED.** The frontend calls these four endpoints.
-> They are the first backend work to build.
-
-All expense functions live at `netlify/functions/expense-request-*.mjs`
-(ESM, Node 18+). They use the Supabase **service_role** key (env var)
-to bypass RLS for cross-user operations.
-
-### `process-inbound`
-
-Receipt OCR processing. Called by `ExpenseForm.tsx` upload step.
-
-- **Method:** POST
-- **Input:** multipart form with receipt image/PDF
-- **Output:** `{ vendor_name, total_amount, receipt_date, line_items[] }`
-- **Integration:** TBD — options include Veryfi, Mindee, Google Document
-  AI, or OpenAI Vision. The frontend is agnostic; it expects the JSON
-  shape above.
-- **Note:** This function name matches the existing AP-tool's inbound
-  processing convention but is a separate implementation for expenses.
+All functions live at `netlify/functions/` and use ESM (`.mjs`) with
+the Netlify v2 handler signature. CORS is wide-open for the gateway
+proxy.
 
 ### `expense-request-notify`
 
-Sends magic-link approval email to the designated manager.
+`POST /api/expense-request-notify { requestId }`
 
-- **Method:** POST
-- **Input:** `{ request_id }`
-- **Flow:**
-  1. Read the expense request from DB (service_role)
-  2. Generate a magic token (UUID), insert into `expense_approvals`
-     with `token_expires_at` (72h)
-  3. Build approval URL: `https://alamedapointbg.com/expense/approve/{token}`
-  4. Send email via SendGrid or Resend (env-configured) to `manager_email`
-  5. Return `{ success: true }`
+1. Fetches the request (must be in `'draft'`).
+2. Reads `auto_approve_threshold` and `approval_email` from
+   `ops.expense_settings`.
+3. **Auto-approve path** — expense ≤ threshold:
+   sets `status='approved'`, `auto_approved=true`, logs to
+   `expense_approvals`, returns.
+4. **Manual-approval path** — generates a 32-byte hex token,
+   stores it as `expense_requests.approval_token`, sets
+   `status='pending'`, sends a Brixpense-branded HTML email to the
+   configured approver via `email-helpers.mjs` (Resend / SendGrid).
 
 ### `expense-request-decide`
 
-Validates magic tokens and records approval/denial decisions.
+`GET /api/expense-request-decide?token={token}` — validates the
+token by looking up `expense_requests.approval_token`. Returns the
+request + attachments (or `already_decided` if past `pending`).
+410-style behavior is folded into a 404 with `error` message; expired
+tokens are not separately distinguished in the current build.
 
-- **Method:** GET (validate token) + POST (record decision)
-- **GET** `?token={uuid}`:
-  1. Look up token in `expense_approvals`
-  2. Check not expired (`token_expires_at > now()`)
-  3. Check not already used (`token_used_at IS NULL`)
-  4. Return the full expense request details for display
-  5. Return 410 if expired, 409 if already decided
-- **POST** `{ token, decision, reason_note?, signature_data }`:
-  1. Validate token (same checks as GET)
-  2. Upload signature PNG to Supabase Storage
-  3. Update `expense_approvals`: decision, decided_by, decided_at,
-     signature_url, ip_address, user_agent, reason_note, token_used_at
-  4. Update `expense_requests.status` to 'approved' or 'denied'
-  5. If approved: trigger `expense-request-link-bill` (or call inline)
-  6. Return `{ success: true, decision }`
+`POST /api/expense-request-decide` — body:
+`{ token, action, decidedBy, decidedByEmail?, notes?, signatureUrl? }`.
+Records the decision in `expense_approvals`, updates the request to
+`approved` / `awaiting_invoice` (if PR) / `denied`, stamps
+`approved_by`, `approved_at`, or `denial_reason`. Captures the
+caller's IP + user agent for audit.
 
 ### `expense-request-link-bill`
 
-Creates a QBO bill for an approved expense.
+`POST /api/expense-request-link-bill` (Bearer auth required).
 
-- **Method:** POST
-- **Input:** `{ request_id }`
-- **Flow:**
-  1. Read the expense request (service_role)
-  2. Map fields to QBO Bill object:
-     - VendorRef → vendor_name (look up or create QBO vendor)
-     - Line items → QBO bill lines with AccountRef from cogs_account_id
-     - DepartmentRef from department
-     - TxnDate from receipt_date
-     - PrivateNote from memo
-  3. POST to QBO API (using token from `ops.qbo_token_cache`)
-  4. Update `expense_requests.qbo_bill_id` with the new Bill DocNumber
-  5. Update status to 'posted'
-  6. Return `{ success: true, qbo_bill_id }`
+Three modes:
+
+| Mode | Behavior |
+|---|---|
+| `create` (default) | Matches vendor in QBO (`findQBOVendor`), looks up optional `DepartmentRef`, builds `AccountBasedExpenseLineDetail` lines (one per `line_items` entry; falls back to a single line at `total_amount` if empty), POSTs `/bill` to QBO via `qbo-helpers.qboRequest`. On success: stamps `qbo_bill_id`, `status='posted'`, `posted_at`. Falls back to Service COGS (101) when `cogs_account_id` is null. |
+| `preview` | Returns the payload that *would* be sent to QBO. No write. Used by the UI for dry-run review. |
+| `link` | Legacy passive mode: caller already created the bill elsewhere, just records `qbo_bill_id`. |
+
+Allowed starting statuses: `approved`, `awaiting_invoice`,
+`fulfilled`. Returns 207 (multi-status) if QBO succeeded but the
+local row update failed — never rolls back the QBO bill.
+
+### `process-inbound`
+
+`POST /api/process-inbound` — receipt and inbound-email OCR.
+
+Accepts JSON (custom forwarder / direct file upload) or
+multipart/form-data (SendGrid Inbound Parse, Mailgun Routes). Pulls a
+PDF or image attachment, sends it to **Claude Sonnet 4** via
+`anthropic.com/v1/messages` with a strict JSON-only system prompt,
+parses the response into `{ vendorName, billNumber, billDate, dueDate,
+lineItems[], subtotal, tax, total, notes }`, and (for the AP-tool
+flow) creates a signed approval token + emails the AP approver. The
+same JSON contract feeds the Brixpense form pre-fill.
+
+> **OCR provider note:** the build is Claude-based, not Veryfi /
+> Mindee / Google Document AI / OpenAI Vision (which the earlier doc
+> listed as TBD). The relevant env var is `ANTHROPIC_API_KEY`.
+
+### Shared helpers
+
+- `qbo-helpers.mjs` — `qboRequest`, `qboQuery`, OAuth token cache via
+  Netlify Blobs (`qbo-tokens` store) with refresh-lock to prevent
+  concurrent-refresh storms.
+- `email-helpers.mjs` — `sendEmail({to, subject, html, replyTo})`,
+  `approvalEmailHtml(...)`, `APPROVAL_EMAIL`, `EMAIL_FROM`. Picks
+  Resend if `RESEND_API_KEY` is set; otherwise SendGrid.
+- `token-helpers.mjs` — `createToken({...})` for legacy AP-tool
+  approval URLs (HMAC-signed payload). Brixpense uses the database
+  column `approval_token` instead — a 32-byte hex string — to avoid
+  HMAC-secret coupling.
+- `lib/auth.mjs` — `requireAuth(req, allowedRoles)` for service-role
+  endpoints; not currently used by Brixpense functions.
 
 ---
 
@@ -496,9 +512,9 @@ Lucide React only — same as Margin Control. No mixing icon libraries.
 | Surface | Mechanism | Who |
 |---|---|---|
 | Submitter pages | Supabase Email/Password | Any `@brixbev.com` employee |
-| Manager queue | Supabase Email/Password | Employees whose email appears as `manager_email` on pending requests |
+| Manager queue | Supabase Email/Password | Authenticated user; row visibility currently broad (RLS allows authenticated SELECT all). Tighten later if needed. |
 | Magic-link approval | Token-based, no auth | Managers clicking the email link |
-| Netlify functions | service_role key | Server-side only; anon key never used in functions |
+| `expense-request-link-bill` | Supabase Bearer JWT | Authenticated user with a valid session |
 
 ---
 
@@ -510,9 +526,10 @@ Lucide React only — same as Margin Control. No mixing icon libraries.
 - Purchase request submission (no receipt).
 - Threshold-based auto-approval vs manager approval.
 - Magic-link manager approval with signature capture.
-- QBO bill creation for approved expenses.
+- QBO bill creation for approved expenses (one-click via link-bill).
 - Submission history (per-user) and manager approval queue.
-- Configurable settings (threshold, COGS accounts, tags, departments).
+- Configurable settings (threshold, approval routing, COGS accounts,
+  tags, departments) — currently DB-edit only; admin UI pending.
 
 ### Out of scope (lives elsewhere)
 
@@ -522,57 +539,57 @@ Lucide React only — same as Margin Control. No mixing icon libraries.
 | Sales / margin analytics | `apbg-billing/app/` (BRIX Margin Control) |
 | Operations KPIs | `skypace/APBG-OPS` |
 | QBO sync (read path) | `sync-qbo` Supabase edge function |
-| QBO writeback (items) | `push-qbo-item` Supabase edge function |
+| QBO writeback (items / categories) | `push-qbo-item` Supabase edge function |
 
 ---
 
-## Known gaps + build backlog
+## Known gaps + backlog (as of 2026-05-12)
 
-1. **No Supabase migrations exist.** The frontend is fully built against
-   the table shapes documented above, but zero `supabase/migrations/*expense*.sql`
-   files have been created. This is the **first** backend task.
-
-2. **No Netlify functions exist.** All four functions (`process-inbound`,
-   `expense-request-notify`, `expense-request-decide`,
-   `expense-request-link-bill`) are referenced by the frontend but have
-   no implementation. This is the **second** backend task.
-
-3. **OCR provider not chosen.** `process-inbound` needs an OCR backend.
-   Options: Veryfi, Mindee, Google Document AI, OpenAI Vision. The
-   frontend is provider-agnostic — it only cares about the output JSON
-   shape.
-
-4. **Email provider not confirmed.** `expense-request-notify` needs
-   SendGrid or Resend. Both are referenced in the repo's env vars
-   (from the AP tool), but the expense notification templates don't
-   exist yet.
-
-5. **No mobile sidebar.** `globals.css` hides the sidebar below 768px
+1. **No mobile sidebar.** `globals.css` hides the sidebar below 768px
    but provides no hamburger menu or alternative navigation. Mobile
-   users currently see only the main content area with no nav.
+   users see only the main content area with no nav.
 
-6. **No admin settings UI.** The `expense_settings` key/value table is
+2. **No admin settings UI.** The `expense_settings` key/value table is
    read by `useExpenseSettings()` but there's no admin page to manage
-   threshold, COGS accounts, tags, or departments. Currently requires
-   direct Supabase edits.
+   threshold, approval email, COGS accounts, manager emails, tags, or
+   departments. Currently requires direct Supabase edits.
 
-7. **`netlify.toml` needs updating.** The build command needs
-   `npm install --prefix app-expense && npm run build --prefix app-expense`
-   appended to the existing build pipeline. The gateway proxy for
-   `/expense/*` may also need configuration.
+3. **Entity → Department → COGS cascade not enforced on the form.**
+   The `tag`/`entity`/`department` fields are independent dropdowns;
+   the cascade documented in CLAUDE.md's "Business rules →
+   Department-to-COGS mapping" (delivery → 1150040011, service →
+   1150040012, etc.) isn't wired into the submit flow yet. Bills will
+   route to the right COGS account *if the user picks the right
+   `cogs_account_id`*, but the form doesn't help them.
 
-8. **No sync-manifest entry.** If expense functions write to `ops.*`
-   tables, `architecture/sync-manifest.json` must be updated or the
-   lint gate will fail the build.
+4. **`/edit/:id` doesn't load existing request data.** The route is
+   registered and `ExpenseForm.tsx` renders, but the form always
+   starts fresh — no fetch-by-id, no re-hydrate. Edit/resubmit flow
+   needs a `useEffect` load + `react-hook-form` `reset()`.
 
-9. **Entity split not yet wired.** The `tag` field on expense requests
-   maps to entity (brix/AS, freeflow/FF, shared) but the form doesn't
-   enforce the entity-to-department-to-COGS-account cascade documented
-   in CLAUDE.md's business rules.
+5. **`manager_email` routing is informational only.** RLS doesn't gate
+   visibility on `manager_email = lower(jwt.email)` — any
+   authenticated user can SELECT every row. Tighten when role-based
+   visibility becomes a requirement.
 
-10. **No edit flow for submitted requests.** The `/edit/:id` route
-    exists but `ExpenseForm.tsx` doesn't load existing request data —
-    it always starts fresh. Edit/resubmit flow is not implemented.
+6. **Magic-token TTL not enforced.** The token is generated and stored
+   on the request row, but there's no `token_expires_at` column or
+   TTL check. Re-use is implicitly prevented by status transition
+   (the decide function refuses requests not in `'pending'`), but a
+   leaked link is valid until status changes.
+
+7. **No QBO Department auto-create.** `expense-request-link-bill`
+   looks up a QBO Department by name. If it doesn't exist, the bill
+   still posts (without DepartmentRef). Departments listed in
+   `expense_settings` should ideally be reconciled with QBO at
+   onboarding time.
+
+8. **`cogs_accounts` settings list has 7 null IDs.** Until those
+   QBO accounts are created (or mapped to existing accounts), bills
+   for Fuel / Office Supplies / Working Meals / Travel /
+   R&M Building / New Fountain Installs / Ice Machine Rental will
+   fall back to Service COGS (101). Workable, but each bucket should
+   eventually point at the right account for proper P&L reporting.
 
 ---
 
@@ -586,7 +603,7 @@ list** when working on Brixpense:
 | `app-expense/**` | All frontend source |
 | `public/expense/**` | Vite build output (committed) |
 | `netlify/functions/expense-request-*.mjs` | Backend functions |
-| `netlify/functions/process-inbound.mjs` | OCR receipt processing |
+| `netlify/functions/process-inbound.mjs` | OCR receipt processing (also used by AP tool — coordinate changes) |
 | `supabase/migrations/*expense*.sql` | Database migrations |
 | `architecture/BRIXPENSE.md` | This document |
 
@@ -596,8 +613,8 @@ list** when working on Brixpense:
 - `public/sales-next/` — Margin Control build output
 - `public/sales/` — legacy SPA
 - `public/*.html` — AP billing tool
-- `netlify/functions/` (non-expense functions)
-- Any other `architecture/` files (unless sync-manifest needs an entry)
+- `netlify/functions/` (non-expense functions, except `expense-to-bill.mjs` which is the AP-side SF-job receipt scanner)
+- Any other `architecture/` files (unless `sync-manifest.json` needs an entry)
 
 ---
 
@@ -605,16 +622,13 @@ list** when working on Brixpense:
 
 | Need to … | Go to … |
 |---|---|
-| Create the database tables | Write `supabase/migrations/YYYYMMDD_create_expense_tables.sql` with the schema above |
-| Build the first Netlify function | `netlify/functions/expense-request-decide.mjs` (unblocks the approval flow) |
-| Add OCR | `netlify/functions/process-inbound.mjs` — pick a provider, implement the POST handler |
-| Send approval emails | `netlify/functions/expense-request-notify.mjs` — SendGrid or Resend |
-| Create QBO bills | `netlify/functions/expense-request-link-bill.mjs` — mirror the AP tool's bill creation pattern |
-| Add a new page | `app-expense/src/pages/NewPage.tsx`, register in `App.tsx` routes |
-| Add a new component | `app-expense/src/components/` (app-level) or `components/ui/` (primitives) |
+| Add the mobile sidebar | `app-expense/src/components/AppShell.tsx` + breakpoint CSS in `globals.css` |
+| Build the admin settings UI | New page under `pages/`, new route in `App.tsx`, new sidebar item in `AppShell.tsx`; reads/writes `ops.expense_settings` via supabase client |
+| Wire the entity→COGS cascade | `app-expense/src/pages/ExpenseForm.tsx` (the controlled cascade) + `lib/hooks.ts` for the lookup table |
+| Implement edit flow | `ExpenseForm.tsx` — add `useParams<{id?: string}>()`, fetch on mount, `reset(data)` into the form |
+| Enforce magic-token TTL | Add `token_expires_at` column to `expense_requests` + check in `expense-request-decide` GET handler |
+| Update sync-manifest | `architecture/sync-manifest.json` — already lists the four tables Brixpense writes |
 | Change theme tokens | `app-expense/tailwind.config.ts` + `src/styles/globals.css` |
-| Add a settings admin UI | New page under `pages/`, new route in `App.tsx`, new sidebar item in `AppShell.tsx` |
-| Update sync-manifest | `architecture/sync-manifest.json` — add expense function writers |
 
 ---
 
@@ -622,4 +636,8 @@ list** when working on Brixpense:
 
 | Date | Change |
 |---|---|
-| 2026-05-12 | Initial BRIXPENSE.md. Documents frontend architecture (7 pages, component tree, routing, types, hooks, theme), database schema (4 tables), Netlify function contracts (4 endpoints), expense lifecycle, magic-link approval flow, and build backlog. All backend infrastructure (migrations + functions) is pending. |
+| 2026-05-12 | **Initial BRIXPENSE.md.** Documented frontend architecture (7 pages, component tree, routing, types, hooks, theme), planned database schema (4 tables), Netlify function contracts (4 endpoints), expense lifecycle, magic-link approval flow. Backend was speced but not yet built. |
+| 2026-05-12 | **Backend shipped.** Migration `20260512_create_expense_tables.sql` creates the four tables with RLS + updated_at trigger + base seed. All four Netlify functions live at `netlify/functions/expense-request-*.mjs` + `process-inbound.mjs`. OCR uses Claude (Anthropic API) via `ANTHROPIC_API_KEY`. Email uses Resend or SendGrid via `email-helpers.mjs`. `netlify.toml` build command appends `app-expense` install + build. SPA fallback for `/expense/*` configured. |
+| 2026-05-12 | **Migration reconciliation.** A second migration (`20260512o_brix_expense_requests.sql`) tried to create the tables a second way, but `CREATE TABLE IF NOT EXISTS` no-oped on the live shape — except it created an orphan `ops.expense_request_approvals` (plural) table no code reads. New `20260512p_expense_cleanup.sql` drops the orphan, finishes the seed (`cogs_accounts`, `manager_emails`, `tags`), and re-aligns `departments` to the Brix entity/COGS taxonomy. `architecture/sync-manifest.json` updated to reference `ops.expense_approvals` (singular). |
+| 2026-05-12 | **`expense-request-link-bill` now creates the QBO bill end-to-end.** New modes: `create` (default — vendor match + payload build + POST /bill + status='posted'), `preview` (dry-run, returns payload only), `link` (legacy passive). Falls back to Service COGS (101) when `cogs_account_id` is null. Uses `qbo-helpers.qboRequest` with the Netlify Blobs token cache. |
+| 2026-05-12 | **BRIXPENSE.md updated to live state.** Removed "NOT YET CREATED" warnings, documented actual function contracts, updated backlog to reflect real remaining gaps (mobile nav, admin settings UI, entity-COGS cascade, edit-flow data load, token TTL). |
