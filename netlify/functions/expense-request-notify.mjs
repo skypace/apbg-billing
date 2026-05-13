@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
-import crypto from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -16,11 +15,9 @@ const CORS = {
 
 const DEFAULT_COGS_ACCOUNT_ID = '101';
 
-function json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: CORS }); }
-function err(message, status = 400) { return json({ error: message }, status); }
-function formatUsd(amount) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
-}
+function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, headers: CORS }); }
+function err(m, s = 400) { return json({ error: m }, s); }
+function fmt(n) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0); }
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
 
 async function findQBOVendor(name) {
@@ -33,14 +30,14 @@ async function findQBOVendor(name) {
   } catch {}
   try {
     const words = name.split(/\s+/).filter(w => w.length > 2);
-    for (const word of words.slice(0, 3)) {
-      const clean = word.replace(/[^a-zA-Z0-9]/g, '');
+    for (const w of words.slice(0, 3)) {
+      const clean = w.replace(/[^a-zA-Z0-9]/g, '');
       if (!clean) continue;
       const like = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${clean}%'`);
-      const v = like.QueryResponse?.Vendor || [];
-      if (v.length === 1) return v[0];
-      if (v.length > 1) {
-        const best = v.find(x =>
+      const v2 = like.QueryResponse?.Vendor || [];
+      if (v2.length === 1) return v2[0];
+      if (v2.length > 1) {
+        const best = v2.find(x =>
           x.DisplayName.toLowerCase().includes(name.toLowerCase()) ||
           name.toLowerCase().includes(x.DisplayName.toLowerCase())
         );
@@ -51,9 +48,9 @@ async function findQBOVendor(name) {
   return null;
 }
 
-function buildBillPayload(request, vendor, fallbackAccountId) {
-  const items = Array.isArray(request.line_items) ? request.line_items : [];
-  const accountId = request.cogs_account_id || fallbackAccountId;
+function buildBillPayload(r, vendor, fallback) {
+  const items = Array.isArray(r.line_items) ? r.line_items : [];
+  const accountId = r.cogs_account_id || fallback;
   const lines = items.length > 0
     ? items.map((li, idx) => ({
         DetailType: 'AccountBasedExpenseLineDetail',
@@ -63,42 +60,34 @@ function buildBillPayload(request, vendor, fallbackAccountId) {
       }))
     : [{
         DetailType: 'AccountBasedExpenseLineDetail',
-        Amount: round(request.total_amount),
-        Description: request.memo || request.vendor_name || 'Brixpense expense',
+        Amount: round(r.total_amount),
+        Description: r.memo || r.vendor_name || 'Brixpense expense',
         AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
       }];
-
-  const memoParts = [
-    `BRIXpense ${request.request_type === 'purchase_request' ? 'PR' : 'expense'} ${request.id}`,
-    request.entity ? `entity:${request.entity}` : null,
-    request.department ? `dept:${request.department}` : null,
-    request.tag ? `tag:${request.tag}` : null,
-    request.customer_name ? `cust:${request.customer_name}` : null,
-    request.job_number ? `job:${request.job_number}` : null,
-    request.memo || null,
-  ].filter(Boolean);
-
-  const payload = {
-    VendorRef: { value: vendor.Id },
-    Line: lines,
-    PrivateNote: memoParts.join(' | ').substring(0, 4000),
-  };
-  if (request.receipt_date) payload.TxnDate = request.receipt_date;
+  const memo = [
+    `BRIXpense ${r.request_type === 'purchase_request' ? 'PR' : 'expense'} ${r.id}`,
+    r.entity ? `entity:${r.entity}` : null,
+    r.department ? `dept:${r.department}` : null,
+    r.tag ? `tag:${r.tag}` : null,
+    r.customer_name ? `cust:${r.customer_name}` : null,
+    r.job_number ? `job:${r.job_number}` : null,
+    r.memo || null,
+  ].filter(Boolean).join(' | ');
+  const payload = { VendorRef: { value: vendor.Id }, Line: lines, PrivateNote: memo.substring(0, 4000) };
+  if (r.receipt_date) payload.TxnDate = r.receipt_date;
   return payload;
 }
 
-function buildApprovalEmailHtml(request, approveUrl) {
+function buildNotificationEmailHtml(request, portalUrl) {
   const lineItemsHtml = (request.line_items || []).map((li, i) => {
-    const amount = (li.qty || li.quantity || 1) * (li.unit_price || li.unitCost || 0) || (li.amount || 0);
-    return `
-      <tr>
-        <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;">
-          <div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div>
-          <div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${formatUsd(li.unit_price || li.unitCost || 0)}</div>
-        </td>
-        <td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${formatUsd(amount)}</td>
-      </tr>
-    `;
+    const amt = (li.qty || 1) * (li.unit_price || 0) || (li.amount || 0);
+    return `<tr>
+      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;">
+        <div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div>
+        <div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${fmt(li.unit_price || 0)}</div>
+      </td>
+      <td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${fmt(amt)}</td>
+    </tr>`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -106,15 +95,15 @@ function buildApprovalEmailHtml(request, approveUrl) {
   <div style="max-width:640px;margin:0 auto;background:#ffffff;padding:32px 28px;">
     <div style="border-bottom:3px solid #5BB5F0;padding-bottom:14px;margin-bottom:22px;">
       <div style="font-size:22px;font-weight:800;color:#06121F;">
-        BRI<span style="color:#2EB872;">X</span>PENSE — Purchase Request Approval
+        BRI<span style="color:#2EB872;">X</span>PENSE — Purchase Request Awaiting You
       </div>
       <div style="font-size:13px;color:#6b7280;margin-top:4px;">
-        ${request.submitter_name || 'A team member'} · ${formatUsd(request.total_amount)}
+        ${request.submitter_name || 'A team member'} · ${fmt(request.total_amount)}
       </div>
     </div>
 
     <p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;">
-      <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval. Please review and click <strong>Approve</strong> or <strong>Decline</strong> below.
+      <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval. Open BRIXPENSE and sign in to review and sign.
     </p>
 
     ${request.memo ? `
@@ -129,7 +118,7 @@ function buildApprovalEmailHtml(request, approveUrl) {
       <tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr>
       <tr><td style="padding:6px 0;color:#6b7280;">Account</td><td style="padding:6px 0;color:#0f172a;">${request.cogs_account_label || '—'}</td></tr>
       ${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}
-      <tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${formatUsd(request.total_amount)}</td></tr>
+      <tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${fmt(request.total_amount)}</td></tr>
     </table>
 
     ${lineItemsHtml ? `
@@ -143,18 +132,18 @@ function buildApprovalEmailHtml(request, approveUrl) {
     ` : ''}
 
     <div style="text-align:center;margin:30px 0 14px 0;">
-      <a href="${approveUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
-        Review &amp; Sign →
+      <a href="${portalUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
+        Open BRIXPENSE →
       </a>
     </div>
 
     <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">
-      You'll be able to sign with your mouse, finger, or typed initials on the approval page.
+      You'll be asked to sign in with your @brixbev.com Supabase account before approving.
     </p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" />
     <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">
-      This request was sent by Alameda Point Beverage Group · BRIXPENSE. If you were not expecting this email, please reply to let us know.
+      Alameda Point Beverage Group · BRIXPENSE
     </p>
   </div>
 </body></html>`;
@@ -183,11 +172,10 @@ export default async function handler(req) {
   if (fetchErr || !request) return err('Expense request not found', 404);
   if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
 
-  // ── EXPENSE: try QBO post → posted; fall back to approved-only ──
+  // ── EXPENSE: try QBO post → posted; fall back to approved ──
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
     let vendor = null, qboBill = null, qboError = null;
-
     try {
       vendor = await findQBOVendor(request.vendor_name);
       if (!vendor) {
@@ -213,29 +201,15 @@ export default async function handler(req) {
           qbo_bill_id: qboBill.Id,
         })
         .eq('id', requestId);
-
-      if (updateErr) {
-        console.error('Status update failed after QBO post:', updateErr);
-        return json({
-          success: true, auto_approved: true, partial: true,
-          new_status: 'draft', request_id: requestId,
-          qbo_bill_id: qboBill.Id,
-          message: 'Bill created in QBO but local status update failed.',
-        }, 207);
-      }
+      if (updateErr) return json({ success: true, partial: true, message: 'Bill in QBO, status update failed', qbo_bill_id: qboBill.Id }, 207);
 
       await supabase.from('expense_approvals').insert({
         request_id: requestId, action: 'approved',
         decided_by: 'system (auto-approve + auto-post)',
-        notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id} for ${formatUsd(qboBill.TotalAmt || request.total_amount)}.`,
+        notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id}`,
         token_used: null,
       });
-
-      return json({
-        success: true, auto_approved: true,
-        new_status: 'posted', request_id: requestId,
-        qbo_bill_id: qboBill.Id, qbo_doc_number: qboBill.DocNumber,
-      });
+      return json({ success: true, auto_approved: true, new_status: 'posted', request_id: requestId, qbo_bill_id: qboBill.Id });
     }
 
     // Fallback
@@ -247,7 +221,6 @@ export default async function handler(req) {
         manager_email: null, approval_token: null,
       })
       .eq('id', requestId);
-
     if (updateErr) return err('Failed to auto-approve', 500);
 
     await supabase.from('expense_approvals').insert({
@@ -256,15 +229,10 @@ export default async function handler(req) {
       notes: `Auto-approved. QBO post deferred: ${qboError}.`,
       token_used: null,
     });
-
-    return json({
-      success: true, auto_approved: true,
-      new_status: 'approved', request_id: requestId,
-      qbo_post_deferred: true, qbo_error: qboError,
-    });
+    return json({ success: true, auto_approved: true, new_status: 'approved', request_id: requestId, qbo_post_deferred: true, qbo_error: qboError });
   }
 
-  // ── PURCHASE REQUEST: magic-link email ──
+  // ── PURCHASE REQUEST: notification email (no token) ──
   if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
   if (!request.manager_email) return err('Purchase requests require an approver.', 422);
 
@@ -277,22 +245,16 @@ export default async function handler(req) {
     return err(`Approver "${request.manager_email}" is not in the manager_emails allowlist.`, 422);
   }
 
-  // Generate magic-link token + store on the row + flip to pending in one update
-  const token = crypto.randomBytes(32).toString('hex');
   const { error: updateErr } = await supabase
     .from('expense_requests')
-    .update({ status: 'pending', approval_token: token })
+    .update({ status: 'pending', approval_token: null })
     .eq('id', requestId);
+  if (updateErr) return err('Failed to submit for approval', 500);
 
-  if (updateErr) {
-    console.error('Failed to set pending + token:', updateErr);
-    return err('Failed to submit for approval', 500);
-  }
-
-  // Build approval URL + send email
-  const approveUrl = `${SITE_URL.replace(/\/$/, '')}/expense/approve?token=${encodeURIComponent(token)}`;
-  const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${formatUsd(request.total_amount)} awaiting your approval`;
-  const html = buildApprovalEmailHtml(request, approveUrl);
+  // Email link points at the auth-gated queue page (NOT a magic link)
+  const portalUrl = `${SITE_URL.replace(/\/$/, '')}/expense/queue`;
+  const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${fmt(request.total_amount)} awaiting your approval`;
+  const html = buildNotificationEmailHtml(request, portalUrl);
 
   let emailSent = false;
   let emailError = null;
@@ -308,14 +270,10 @@ export default async function handler(req) {
   }
 
   return json({
-    success: true,
-    auto_approved: false,
-    email_sent: !!emailSent,
-    email_error: emailError,
-    new_status: 'pending',
-    request_id: requestId,
-    approver: request.manager_email,
-    approve_url: approveUrl,
+    success: true, auto_approved: false,
+    email_sent: !!emailSent, email_error: emailError,
+    new_status: 'pending', request_id: requestId,
+    approver: request.manager_email, portal_url: portalUrl,
   });
 }
 
