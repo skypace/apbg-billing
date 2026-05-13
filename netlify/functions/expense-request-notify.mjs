@@ -2,26 +2,28 @@
 // expense-request-notify.mjs
 // POST /api/expense-request-notify   { requestId }
 //
+// In-app approval model. Email is notification only — not a magic-link.
+//
 // Two paths, by request_type:
 //
-//   expense          → auto-approve immediately. No approval flow.
+//   expense          → auto-approve immediately. No email, no approval flow.
 //                      Status='approved', auto_approved=true, audit row.
 //
-//   purchase_request → magic-link to the approver chosen by the
-//                      submitter (request.manager_email, validated
-//                      against expense_settings.manager_emails).
-//                      Generates approval_token, status='pending',
-//                      sends a Brixpense-branded HTML email.
+//   purchase_request → status='pending'. Notification email to the approver
+//                      chosen by the submitter (validated against
+//                      expense_settings.manager_emails). Email body links
+//                      to {SITE_URL}/expense/queue — approver must log in
+//                      with their Supabase account to approve in-app.
 //
-// The submitter passes their Supabase Bearer JWT so RLS sees them.
+// Submitter's Supabase Bearer JWT is required (RLS gates the UPDATE to
+// status='pending' under their own row).
 // ============================================================
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
-import crypto from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const SITE_URL = process.env.URL || 'https://apbg-billing.netlify.app';
+const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,8 +42,8 @@ function formatUsd(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
 }
 
-// HTML template for the approver email (PR-only).
-function buildApprovalEmailHtml(request, approveUrl) {
+// Notification email — links to the authed portal, NOT a magic-link URL.
+function buildNotificationEmailHtml(request, portalUrl) {
   const lineItemsHtml = (request.line_items || []).map((li, i) => `
     <tr>
       <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${i + 1}</td>
@@ -57,7 +59,7 @@ function buildApprovalEmailHtml(request, approveUrl) {
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8fafc;margin:0;padding:20px;">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
     <div style="background:#06121F;padding:24px 32px;">
-      <h1 style="color:#ffffff;margin:0;font-size:20px;">Brixpense — Purchase Request Approval</h1>
+      <h1 style="color:#ffffff;margin:0;font-size:20px;">Brixpense — Purchase Request Waiting for You</h1>
     </div>
 
     <div style="padding:24px 32px;">
@@ -88,12 +90,12 @@ function buildApprovalEmailHtml(request, approveUrl) {
       ` : ''}
 
       <div style="text-align:center;margin:32px 0 16px;">
-        <a href="${approveUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">
-          Review &amp; Sign Approval
+        <a href="${portalUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">
+          Open Approval Queue
         </a>
       </div>
       <p style="text-align:center;color:#94a3b8;font-size:12px;">
-        This link is unique to this request and routes only to you.
+        You'll be asked to log into Brixpense before you can approve.
       </p>
     </div>
 
@@ -147,7 +149,7 @@ export default async function handler(req) {
     return err(`Request is already "${request.status}", cannot submit`, 409);
   }
 
-  // ── EXPENSE: auto-approve always, no email, no approval flow ───────────
+  // ── EXPENSE: auto-approve always, no email, no approval workflow ───────
   if (request.request_type === 'expense') {
     const { error: updateErr } = await supabase
       .from('expense_requests')
@@ -156,8 +158,7 @@ export default async function handler(req) {
         auto_approved: true,
         approved_at: new Date().toISOString(),
         approved_by: 'auto',
-        // PR-only fields cleared in case they came in
-        manager_email: null,
+        manager_email: null,    // expenses don't route to an approver
         approval_token: null,
       })
       .eq('id', requestId);
@@ -183,7 +184,7 @@ export default async function handler(req) {
     });
   }
 
-  // ── PURCHASE REQUEST: route to chosen approver via magic-link ──────────
+  // ── PURCHASE REQUEST: notification email to chosen approver ────────────
   if (request.request_type !== 'purchase_request') {
     return err(`Unknown request_type "${request.request_type}"`, 400);
   }
@@ -211,14 +212,12 @@ export default async function handler(req) {
     );
   }
 
-  // Generate magic-link token, store on the request, flip to pending.
-  const token = crypto.randomBytes(32).toString('hex');
-
+  // Flip status to pending. No token — approver authenticates in-app.
   const { error: updateErr } = await supabase
     .from('expense_requests')
     .update({
       status: 'pending',
-      approval_token: token,
+      approval_token: null,
     })
     .eq('id', requestId);
 
@@ -227,10 +226,10 @@ export default async function handler(req) {
     return err('Failed to submit for approval', 500);
   }
 
-  // Build the approval URL and email body.
-  const approveUrl = `${SITE_URL}/expense/approve/${token}`;
-  const subject = `[Brixpense] Purchase Request from ${request.submitter_name || 'a team member'} — ${formatUsd(request.total_amount)}`;
-  const html = buildApprovalEmailHtml(request, approveUrl);
+  // Build the notification (link to the authed portal queue, not a magic URL).
+  const portalUrl = `${SITE_URL.replace(/\/$/, '')}/expense/queue`;
+  const subject = `[Brixpense] PR from ${request.submitter_name || 'a team member'} — ${formatUsd(request.total_amount)} awaiting your approval`;
+  const html = buildNotificationEmailHtml(request, portalUrl);
 
   const emailSent = await sendEmail({
     to: request.manager_email,
@@ -246,6 +245,7 @@ export default async function handler(req) {
     new_status: 'pending',
     request_id: requestId,
     approver: request.manager_email,
+    portal_url: portalUrl,
   });
 }
 
