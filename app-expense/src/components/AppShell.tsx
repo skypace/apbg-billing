@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixMark, BrixpenseWordmark } from './BrixMark';
+import { BrixMark, BrixWordmark } from './BrixMark';
 
 const navItems = [
   { path: '',        icon: Receipt, label: 'Dashboard' },
@@ -61,7 +61,10 @@ export function AppShell() {
           style={{ cursor: 'pointer' }}
         >
           <BrixMark size={28} />
-          <BrixpenseWordmark />
+          <div className="brand-text">
+            <BrixWordmark />
+            <span className="brand-sub">Expense</span>
+          </div>
         </div>
         <span style={{ width: 40 }} aria-hidden />
       </header>
@@ -86,10 +89,11 @@ export function AppShell() {
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={34} />
+          <BrixMark size={36} />
           {!collapsed && (
             <div className="brand-text">
-              <BrixpenseWordmark />
+              <BrixWordmark />
+              <span className="brand-sub">Expense</span>
             </div>
           )}
           <button
