@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixMark, BrixWordmark } from './BrixMark';
+import { BrixMark, BrixpenseWordmark } from './BrixMark';
 
 const navItems = [
   { path: '',        icon: Receipt, label: 'Dashboard' },
@@ -23,14 +23,12 @@ export function AppShell() {
 
   const currentPath = location.pathname.replace(/^\/expense\/?/, '');
 
-  // Load user email
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? null);
     });
   }, []);
 
-  // Close drawer on route change (mobile)
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
@@ -47,7 +45,7 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      {/* ── Mobile top bar ── */}
+      {/* Mobile top bar */}
       <header className="topbar">
         <button
           type="button"
@@ -63,19 +61,19 @@ export function AppShell() {
           style={{ cursor: 'pointer' }}
         >
           <BrixMark size={28} />
-          <span>Brixpense</span>
+          <BrixpenseWordmark />
         </div>
-        <span style={{ width: 40 }} aria-hidden /> {/* spacer to center brand */}
+        <span style={{ width: 40 }} aria-hidden />
       </header>
 
-      {/* ── Drawer backdrop (mobile only when open) ── */}
+      {/* Drawer backdrop */}
       <div
         className={`drawer-backdrop${drawerOpen ? ' open' : ''}`}
         onClick={() => setDrawerOpen(false)}
         aria-hidden
       />
 
-      {/* ── Sidebar ── */}
+      {/* Sidebar */}
       <aside
         className={[
           'sidebar',
@@ -83,20 +81,17 @@ export function AppShell() {
           drawerOpen ? 'drawer-open' : '',
         ].filter(Boolean).join(' ')}
       >
-        {/* Brand */}
         <div
           className="brand"
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={32} />
+          <BrixMark size={34} />
           {!collapsed && (
             <div className="brand-text">
-              <BrixWordmark />
-              <span className="brand-sub">Expense</span>
+              <BrixpenseWordmark />
             </div>
           )}
-          {/* Mobile-only close button */}
           <button
             type="button"
             onClick={(e) => {
@@ -111,7 +106,6 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="nav">
           {navItems.map((item) => {
             const isActive =
@@ -133,7 +127,6 @@ export function AppShell() {
           })}
         </nav>
 
-        {/* Footer */}
         <div className="sidebar-footer">
           {!collapsed && userEmail && (
             <span className="sidebar-email" title={userEmail}>
@@ -161,7 +154,6 @@ export function AppShell() {
         </div>
       </aside>
 
-      {/* ── Main content ── */}
       <main className="main-content">
         <Outlet />
       </main>
