@@ -28,11 +28,9 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        {/* Brand lockup */}
         <div className="login-brand">
-          <BrixMark size={48} />
-          <BrixWordmark style={{ fontSize: '1.5rem' }} />
-          <span className="login-subtitle">Expense</span>
+          <BrixMark size={96} />
+          <BrixWordmark style={{ fontSize: '2rem' }} />
         </div>
 
         <p className="login-desc">
