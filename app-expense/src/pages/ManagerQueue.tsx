@@ -18,7 +18,11 @@ export default function ManagerQueue() {
   useEffect(() => {
     async function load() {
       if (!session) return;
-      const userEmail = session.user.email;
+      const userEmail = session.user.email?.toLowerCase();
+      if (!userEmail) {
+        setLoading(false);
+        return;
+      }
       const { data } = await supabase
         .from('expense_requests')
         .select('*')
@@ -59,7 +63,7 @@ export default function ManagerQueue() {
             <Card
               key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/expense/edit/${req.id}`)}
+              onClick={() => navigate(`/expense/review/${req.id}`)}
             >
               <CardContent className="flex items-center gap-3 p-3">
                 <div className="flex-1 min-w-0">
