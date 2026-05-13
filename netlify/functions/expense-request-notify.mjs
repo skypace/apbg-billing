@@ -3,19 +3,10 @@ import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-// Hardcoded fallback — the anon key is public (already in the Vite bundle).
-const SUPABASE_ANON_KEY =
-  process.env.SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Content-Type': 'application/json',
-};
-
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
 const DEFAULT_COGS_ACCOUNT_ID = '101';
 
 function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, headers: CORS }); }
@@ -40,10 +31,7 @@ async function findQBOVendor(name) {
       const v2 = like.QueryResponse?.Vendor || [];
       if (v2.length === 1) return v2[0];
       if (v2.length > 1) {
-        const best = v2.find(x =>
-          x.DisplayName.toLowerCase().includes(name.toLowerCase()) ||
-          name.toLowerCase().includes(x.DisplayName.toLowerCase())
-        );
+        const best = v2.find(x => x.DisplayName.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.DisplayName.toLowerCase()));
         if (best) return best;
       }
     }
@@ -81,64 +69,13 @@ function buildBillPayload(r, vendor, fallback) {
   return payload;
 }
 
-function buildNotificationEmailHtml(request, portalUrl) {
+function buildNotificationEmailHtml(request, reviewUrl) {
   const lineItemsHtml = (request.line_items || []).map((li, i) => {
     const amt = (li.qty || 1) * (li.unit_price || 0) || (li.amount || 0);
-    return `<tr>
-      <td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;">
-        <div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div>
-        <div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${fmt(li.unit_price || 0)}</div>
-      </td>
-      <td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${fmt(amt)}</td>
-    </tr>`;
+    return `<tr><td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;"><div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div><div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${fmt(li.unit_price || 0)}</div></td><td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${fmt(amt)}</td></tr>`;
   }).join('');
 
-  return `<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <div style="max-width:640px;margin:0 auto;background:#ffffff;padding:32px 28px;">
-    <div style="border-bottom:3px solid #5BB5F0;padding-bottom:14px;margin-bottom:22px;">
-      <div style="font-size:22px;font-weight:800;color:#06121F;">
-        BRI<span style="color:#2EB872;">X</span>PENSE — Purchase Request Awaiting You
-      </div>
-      <div style="font-size:13px;color:#6b7280;margin-top:4px;">
-        ${request.submitter_name || 'A team member'} · ${fmt(request.total_amount)}
-      </div>
-    </div>
-    <p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;">
-      <strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you for approval. Open BRIXPENSE and sign in to review and sign.
-    </p>
-    ${request.memo ? `
-      <div style="background:#fff7ed;border-left:4px solid #5BB5F0;padding:12px 14px;border-radius:4px;margin:0 0 18px 0;">
-        <div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note from submitter</div>
-        <div style="font-size:14px;color:#111827;white-space:pre-wrap;">${request.memo}</div>
-      </div>
-    ` : ''}
-    <table style="width:100%;margin:0 0 18px 0;font-size:13px;border-collapse:collapse;">
-      <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Vendor</td><td style="padding:6px 0;color:#0f172a;font-weight:600;">${request.vendor_name || '—'}</td></tr>
-      <tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr>
-      <tr><td style="padding:6px 0;color:#6b7280;">Account</td><td style="padding:6px 0;color:#0f172a;">${request.cogs_account_label || '—'}</td></tr>
-      ${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}
-      <tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${fmt(request.total_amount)}</td></tr>
-    </table>
-    ${lineItemsHtml ? `
-      <table style="width:100%;border-collapse:collapse;margin:0 0 18px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
-        <thead><tr style="background:#f9fafb;">
-          <th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Item</th>
-          <th style="padding:9px 10px;text-align:right;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Amount</th>
-        </tr></thead>
-        <tbody>${lineItemsHtml}</tbody>
-      </table>
-    ` : ''}
-    <div style="text-align:center;margin:30px 0 14px 0;">
-      <a href="${portalUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Open BRIXPENSE →</a>
-    </div>
-    <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">
-      You'll be asked to sign in with your @brixbev.com account before approving.
-    </p>
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" />
-    <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">Alameda Point Beverage Group · BRIXPENSE</p>
-  </div>
-</body></html>`;
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"><div style="max-width:640px;margin:0 auto;background:#ffffff;padding:32px 28px;"><div style="border-bottom:3px solid #5BB5F0;padding-bottom:14px;margin-bottom:22px;"><div style="font-size:22px;font-weight:800;color:#06121F;">BRI<span style="color:#2EB872;">X</span>PENSE — Approval Required</div><div style="font-size:13px;color:#6b7280;margin-top:4px;">${request.submitter_name || 'A team member'} · ${fmt(request.total_amount)}</div></div><p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;"><strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you. Click below to review, sign, and approve or decline.</p>${request.memo ? `<div style="background:#fff7ed;border-left:4px solid #5BB5F0;padding:12px 14px;border-radius:4px;margin:0 0 18px 0;"><div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note from submitter</div><div style="font-size:14px;color:#111827;white-space:pre-wrap;">${request.memo}</div></div>` : ''}<table style="width:100%;margin:0 0 18px 0;font-size:13px;border-collapse:collapse;"><tr><td style="padding:6px 0;color:#6b7280;width:140px;">Vendor</td><td style="padding:6px 0;color:#0f172a;font-weight:600;">${request.vendor_name || '—'}</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Account</td><td style="padding:6px 0;color:#0f172a;">${request.cogs_account_label || '—'}</td></tr>${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}<tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${fmt(request.total_amount)}</td></tr></table>${lineItemsHtml ? `<table style="width:100%;border-collapse:collapse;margin:0 0 18px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;"><thead><tr style="background:#f9fafb;"><th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Item</th><th style="padding:9px 10px;text-align:right;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Amount</th></tr></thead><tbody>${lineItemsHtml}</tbody></table>` : ''}<div style="text-align:center;margin:30px 0 14px 0;"><a href="${reviewUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Review & Sign →</a></div><p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">You'll be asked to sign in with your @brixbev.com account before approving.</p><hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" /><p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">Alameda Point Beverage Group · BRIXPENSE</p></div></body></html>`;
 }
 
 export default async function handler(req) {
@@ -158,20 +95,17 @@ export default async function handler(req) {
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { data: request, error: fetchErr } = await supabase
-    .from('expense_requests').select('*').eq('id', requestId).single();
+  const { data: request, error: fetchErr } = await supabase.from('expense_requests').select('*').eq('id', requestId).single();
   if (fetchErr || !request) return err('Expense request not found', 404);
   if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
 
-  // ── EXPENSE: auto-approve + try QBO post ──
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
     let vendor = null, qboBill = null, qboError = null;
     try {
       vendor = await findQBOVendor(request.vendor_name);
-      if (!vendor) {
-        qboError = `Vendor "${request.vendor_name || '(blank)'}" not in QBO`;
-      } else {
+      if (!vendor) qboError = `Vendor "${request.vendor_name || '(blank)'}" not in QBO`;
+      else {
         const payload = buildBillPayload(request, vendor, DEFAULT_COGS_ACCOUNT_ID);
         const qboRes = await qboRequest('POST', '/bill', payload);
         qboBill = qboRes?.Bill;
@@ -183,17 +117,13 @@ export default async function handler(req) {
     }
 
     if (qboBill?.Id) {
-      const { error: updateErr } = await supabase
-        .from('expense_requests')
-        .update({
-          status: 'posted', auto_approved: true,
-          approved_by: 'auto', approved_at: now, posted_at: now,
-          manager_email: null, approval_token: null,
-          qbo_bill_id: qboBill.Id,
-        })
-        .eq('id', requestId);
-      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id, message: 'Bill in QBO, status update failed' }, 207);
-
+      const { error: updateErr } = await supabase.from('expense_requests').update({
+        status: 'posted', auto_approved: true,
+        approved_by: 'auto', approved_at: now, posted_at: now,
+        manager_email: null, approval_token: null,
+        qbo_bill_id: qboBill.Id,
+      }).eq('id', requestId);
+      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id }, 207);
       await supabase.from('expense_approvals').insert({
         request_id: requestId, action: 'approved',
         decided_by: 'system (auto-approve + auto-post)',
@@ -203,16 +133,12 @@ export default async function handler(req) {
       return json({ success: true, auto_approved: true, new_status: 'posted', request_id: requestId, qbo_bill_id: qboBill.Id });
     }
 
-    const { error: updateErr } = await supabase
-      .from('expense_requests')
-      .update({
-        status: 'approved', auto_approved: true,
-        approved_by: 'auto', approved_at: now,
-        manager_email: null, approval_token: null,
-      })
-      .eq('id', requestId);
+    const { error: updateErr } = await supabase.from('expense_requests').update({
+      status: 'approved', auto_approved: true,
+      approved_by: 'auto', approved_at: now,
+      manager_email: null, approval_token: null,
+    }).eq('id', requestId);
     if (updateErr) return err('Failed to auto-approve', 500);
-
     await supabase.from('expense_approvals').insert({
       request_id: requestId, action: 'approved',
       decided_by: 'system (auto-approve)',
@@ -222,37 +148,28 @@ export default async function handler(req) {
     return json({ success: true, auto_approved: true, new_status: 'approved', request_id: requestId, qbo_post_deferred: true, qbo_error: qboError });
   }
 
-  // ── PURCHASE REQUEST: notification email ──
   if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
   if (!request.manager_email) return err('Purchase requests require an approver.', 422);
 
-  const { data: managerSetting } = await supabase
-    .from('expense_settings').select('value').eq('key', 'manager_emails').single();
-  const managerList = Array.isArray(managerSetting?.value)
-    ? managerSetting.value.map((e) => String(e).toLowerCase()) : [];
+  const { data: managerSetting } = await supabase.from('expense_settings').select('value').eq('key', 'manager_emails').single();
+  const managerList = Array.isArray(managerSetting?.value) ? managerSetting.value.map((e) => String(e).toLowerCase()) : [];
   const chosen = String(request.manager_email).toLowerCase();
   if (managerList.length > 0 && !managerList.includes(chosen)) {
     return err(`Approver "${request.manager_email}" is not in the manager_emails allowlist.`, 422);
   }
 
-  const { error: updateErr } = await supabase
-    .from('expense_requests')
-    .update({ status: 'pending', approval_token: null })
-    .eq('id', requestId);
+  const { error: updateErr } = await supabase.from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
   if (updateErr) return err('Failed to submit for approval', 500);
 
-  const portalUrl = `${SITE_URL.replace(/\/$/, '')}/expense/queue`;
+  // DEEP-LINK directly to the review page for this request
+  const reviewUrl = `${SITE_URL.replace(/\/$/, '')}/expense/review/${requestId}`;
   const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${fmt(request.total_amount)} awaiting your approval`;
-  const html = buildNotificationEmailHtml(request, portalUrl);
+  const html = buildNotificationEmailHtml(request, reviewUrl);
 
   let emailSent = false;
   let emailError = null;
   try {
-    emailSent = await sendEmail({
-      to: request.manager_email,
-      subject, html,
-      replyTo: request.submitter_email || EMAIL_FROM,
-    });
+    emailSent = await sendEmail({ to: request.manager_email, subject, html, replyTo: request.submitter_email || EMAIL_FROM });
   } catch (e) {
     console.error('Resend send failed:', e);
     emailError = e?.message || 'Unknown email error';
@@ -262,7 +179,7 @@ export default async function handler(req) {
     success: true, auto_approved: false,
     email_sent: !!emailSent, email_error: emailError,
     new_status: 'pending', request_id: requestId,
-    approver: request.manager_email, portal_url: portalUrl,
+    approver: request.manager_email, review_url: reviewUrl,
   });
 }
 
