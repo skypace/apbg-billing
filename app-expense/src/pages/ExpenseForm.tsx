@@ -36,6 +36,7 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
+  const [entity, setEntity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -148,29 +149,33 @@ export default function ExpenseForm() {
     setStep('submitting');
     setSubmitting(true);
     try {
-      const status = needsApproval ? 'pending' : 'draft';
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
+      const user = session.user;
+      const userName = user.user_metadata?.full_name || user.email || 'Unknown';
 
+      // Insert as draft — the notify function handles status transition
       const { data: req, error: insertErr } = await supabase
         .from('expense_requests')
         .insert({
-          type: 'expense',
-          status,
-          submitted_by: session.user.id,
-          submitted_at: new Date().toISOString(),
+          request_type: 'expense',
+          status: 'draft',
+          submitted_by: user.id,
+          submitter_name: userName,
+          submitter_email: user.email || '',
+          entity,
+          department: department || null,
+          description: memo || null,
           vendor_name: vendorName || null,
-          total_amount: totalNum || null,
+          notes: null,
           receipt_date: receiptDate || null,
           cogs_account_id: cogsAccountId || null,
           cogs_account_label: cogsAccountLabel || null,
           tag: tag || null,
-          department: department || null,
           customer_name: customerName || null,
           job_number: jobNumber || null,
-          memo: memo || null,
-          line_items: nonEmptyLines,
           manager_email: needsApproval ? managerEmail : null,
-          approval_threshold: threshold,
+          total_amount: totalNum || 0,
+          line_items: nonEmptyLines,
         })
         .select()
         .single();
@@ -179,7 +184,7 @@ export default function ExpenseForm() {
 
       // Upload receipt if present
       if (receiptFile) {
-        const storagePath = `${session.user.id}/${req.id}/${receiptFile.name}`;
+        const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
           .upload(storagePath, receiptFile, {
@@ -198,36 +203,30 @@ export default function ExpenseForm() {
         }
       }
 
-      // Route: approval or immediate bill creation
-      const token = await getAccessToken();
+      // Call notify — handles auto-approve or sends email
+      const accessToken = await getAccessToken();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       };
 
-      if (needsApproval) {
-        await fetch('/.netlify/functions/expense-request-notify', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ request_id: req.id }),
-        });
-        setResultMessage(
-          `Submitted for approval — ${managerEmail} has been notified.`,
-        );
-      } else {
-        const billRes = await fetch(
-          '/.netlify/functions/expense-request-link-bill',
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ request_id: req.id }),
-          },
-        );
-        if (billRes.ok) {
-          const bill = await billRes.json();
-          setResultBillId(bill.qbo_bill_id ?? null);
+      const notifyRes = await fetch('/api/expense-request-notify', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ requestId: req.id }),
+      });
+
+      if (notifyRes.ok) {
+        const notifyData = await notifyRes.json();
+        if (notifyData.auto_approved) {
+          setResultMessage('Expense auto-approved and logged.');
+        } else {
+          setResultMessage(
+            `Submitted for approval — ${notifyData.approval_email} has been notified.`,
+          );
         }
-        setResultMessage('Expense logged and QBO bill created.');
+      } else {
+        setResultMessage('Request saved but notification may have failed.');
       }
 
       setStep('success');
@@ -346,6 +345,21 @@ export default function ExpenseForm() {
             Reading receipt…
           </div>
         )}
+
+        {/* Entity */}
+        <div>
+          <Label>Entity</Label>
+          <SelectField
+            value={entity}
+            onChange={(e) => setEntity(e.target.value)}
+            placeholder="Select entity"
+            options={[
+              { value: 'brix', label: 'Brix Beverage (CA)' },
+              { value: 'freeflow', label: 'Freeflow (MA)' },
+              { value: 'shared', label: 'Shared' },
+            ]}
+          />
+        </div>
 
         {/* Vendor */}
         <div>
@@ -581,7 +595,7 @@ export default function ExpenseForm() {
         <p className="text-sm text-muted-foreground">
           {needsApproval
             ? 'Submitting and notifying manager…'
-            : 'Creating QBO bill…'}
+            : 'Processing expense…'}
         </p>
       </div>
     );
@@ -610,6 +624,7 @@ export default function ExpenseForm() {
               setVendorName('');
               setTotalAmount('');
               setReceiptDate(new Date().toISOString().slice(0, 10));
+              setEntity('brix');
               setCogsAccountLabel('');
               setCogsAccountId('');
               setTag('');
