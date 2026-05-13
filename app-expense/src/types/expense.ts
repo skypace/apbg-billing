@@ -11,6 +11,9 @@ export type ExpenseStatus =
 /** Request type */
 export type ExpenseType = 'expense' | 'purchase_request';
 
+/** Entity */
+export type Entity = 'brix' | 'freeflow' | 'shared';
+
 /** Line item within an expense or PR */
 export interface LineItem {
   description: string;
@@ -22,11 +25,13 @@ export interface LineItem {
 /** Core expense request record — mirrors ops.expense_requests */
 export interface ExpenseRequest {
   id: string;
-  type: ExpenseType;
+  request_type: ExpenseType;
   status: ExpenseStatus;
+  entity: Entity;
 
   submitted_by: string;
-  submitted_at: string;
+  submitter_name: string | null;
+  submitter_email: string | null;
 
   vendor_name: string | null;
   vendor_id: string | null;
@@ -46,11 +51,11 @@ export interface ExpenseRequest {
   line_items: LineItem[];
 
   manager_email: string | null;
-  approval_threshold: number;
 
   linked_pr_id: string | null;
 
   qbo_bill_id: string | null;
+  posted_at: string | null;
   qbo_invoice_match: string | null;
   margin_result: Record<string, unknown> | null;
 
@@ -65,7 +70,7 @@ export interface ExpenseAttachment {
   file_name: string;
   file_type: string | null;
   file_size: number | null;
-  storage_path: string;
+  storage_path: string | null;
   ocr_result: Record<string, unknown> | null;
   created_at: string;
 }
@@ -75,12 +80,13 @@ export interface ExpenseApproval {
   id: string;
   request_id: string;
   decision: 'approved' | 'denied';
-  decided_by: string;
+  decided_by: string | null;
+  decided_by_email: string | null;
   decided_at: string;
   signature_url: string | null;
   ip_address: string | null;
   user_agent: string | null;
-  reason_note: string | null;
+  notes: string | null;
   magic_token: string | null;
 }
 
