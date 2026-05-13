@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { supabase, getAccessToken } from '@/lib/supabase';
+import { useSession } from '@/lib/hooks';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -13,72 +14,81 @@ import {
   Loader2,
   AlertTriangle,
   Eraser,
+  ArrowLeft,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 import SignatureCanvas from 'react-signature-canvas';
 
-type PageState = 'loading' | 'ready' | 'decided' | 'expired' | 'error';
+type PageState = 'loading' | 'ready' | 'decided' | 'notfound' | 'error' | 'forbidden';
 
 export default function ApprovalPage() {
-  const { token } = useParams<{ token: string }>();
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { session } = useSession();
+
   const [state, setState] = useState<PageState>('loading');
   const [request, setRequest] = useState<ExpenseRequest | null>(null);
   const [decision, setDecision] = useState<'approved' | 'denied' | null>(null);
   const [reasonNote, setReasonNote] = useState('');
-  const [approverName, setApproverName] = useState('');
-  const [approverEmail, setApproverEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
   const sigRef = useRef<SignatureCanvas | null>(null);
 
-  // Load the request by magic token
+  const myEmail = (session?.user?.email || '').toLowerCase();
+  const myDisplayName = (session?.user?.user_metadata as { full_name?: string } | undefined)?.full_name
+    || session?.user?.email
+    || '';
+
+  // Load the request by id (RLS gates to submitter + matched manager_email)
   useEffect(() => {
     async function load() {
-      if (!token) {
-        setState('error');
+      if (!id) {
+        setState('notfound');
+        return;
+      }
+      const { data, error } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) {
+        setState('notfound');
         return;
       }
 
-      try {
-        const res = await fetch(
-          `/api/expense-request-decide?token=${encodeURIComponent(token)}`
-        );
-        if (res.status === 410) {
-          setState('expired');
-          return;
-        }
-        if (!res.ok) {
-          setState('error');
-          return;
-        }
-        const data = await res.json();
-        if (data.already_decided) {
-          setResultMessage(
-            `This request was already ${data.decision} on ${formatDate(data.decided_at)}.`
-          );
-          setState('decided');
-          return;
-        }
-        setRequest(data.request as ExpenseRequest);
-        // Pre-fill approver email from the request's manager_email if available
-        if (data.request?.manager_email) {
-          setApproverEmail(data.request.manager_email);
-        }
-        setState('ready');
-      } catch {
-        setState('error');
+      const req = data as ExpenseRequest;
+      setRequest(req);
+
+      if (req.status !== 'pending') {
+        setResultMessage(`This request is "${req.status}" and can no longer be acted on.`);
+        setState('decided');
+        return;
       }
+
+      const routedTo = (req.manager_email || '').toLowerCase();
+      if (!routedTo || routedTo !== myEmail) {
+        setState('forbidden');
+        return;
+      }
+      if (req.submitted_by === session?.user?.id) {
+        setState('forbidden');
+        setResultMessage('You cannot approve your own request.');
+        return;
+      }
+
+      setState('ready');
     }
-    load();
-  }, [token]);
+    if (session) load();
+  }, [id, session, myEmail]);
 
   const clearSignature = useCallback(() => {
     sigRef.current?.clear();
   }, []);
 
   async function handleDecision(d: 'approved' | 'denied') {
-    if (!token || !request) return;
+    if (!id || !request) return;
     setSubmitting(true);
     setDecision(d);
 
@@ -88,72 +98,83 @@ export default function ApprovalPage() {
     }
 
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Your session expired. Please log in again.');
+
       const res = await fetch('/api/expense-request-decide', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          token,
+          requestId: id,
           action: d,
-          decidedBy: approverName || null,
-          decidedByEmail: approverEmail || null,
           notes: reasonNote || null,
           signatureUrl: signatureDataUrl,
         }),
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to submit decision');
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `Failed (${res.status})`);
       }
 
       setResultMessage(
         d === 'approved'
-          ? 'Request approved. The submitter has been notified.'
-          : 'Request denied. The submitter has been notified.'
+          ? 'Approved. The submitter will see the status update next time they refresh.'
+          : 'Denied. The submitter will see the status update next time they refresh.'
       );
       setState('decided');
-    } catch (err) {
-      setResultMessage(
-        err instanceof Error ? err.message : 'Something went wrong.'
-      );
+    } catch (e) {
+      setResultMessage(e instanceof Error ? e.message : 'Something went wrong.');
       setState('error');
     } finally {
       setSubmitting(false);
     }
   }
 
-  // LOADING
   if (state === 'loading') {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background">
+      <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  // EXPIRED
-  if (state === 'expired') {
+  if (state === 'notfound') {
     return (
       <CenteredCard
         icon={<AlertTriangle className="h-8 w-8 text-amber-500" />}
-        title="Link Expired"
-        description="This approval link is no longer valid. Please ask the submitter to re-send the request."
+        title="Request not found"
+        description="This request doesn't exist or isn't visible to you."
+        onBack={() => navigate('/expense/queue')}
       />
     );
   }
 
-  // ERROR
+  if (state === 'forbidden') {
+    return (
+      <CenteredCard
+        icon={<XCircle className="h-8 w-8 text-destructive" />}
+        title="Not your request"
+        description={resultMessage || `This purchase request is routed to ${request?.manager_email || 'someone else'}.`}
+        onBack={() => navigate('/expense/queue')}
+      />
+    );
+  }
+
   if (state === 'error') {
     return (
       <CenteredCard
         icon={<XCircle className="h-8 w-8 text-destructive" />}
         title="Something went wrong"
-        description={resultMessage || 'Unable to load this approval request.'}
+        description={resultMessage}
+        onBack={() => navigate('/expense/queue')}
       />
     );
   }
 
-  // DECIDED
   if (state === 'decided') {
     return (
       <CenteredCard
@@ -164,173 +185,144 @@ export default function ApprovalPage() {
             <CheckCircle className="h-8 w-8 text-emerald-500" />
           )
         }
-        title={decision === 'denied' ? 'Request Denied' : 'Request Approved'}
+        title={
+          decision === 'denied' ? 'Request Denied'
+            : decision === 'approved' ? 'Request Approved'
+            : 'Already Decided'
+        }
         description={resultMessage}
+        onBack={() => navigate('/expense/queue')}
       />
     );
   }
 
-  // READY — show the request + approval form
   if (!request) return null;
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-b from-primary/5 to-background p-4">
-      <div className="max-w-md mx-auto space-y-4">
-        {/* Header */}
-        <div className="text-center pt-4 pb-2">
-          <ClipboardList className="h-8 w-8 text-primary mx-auto mb-2" />
-          <h1 className="text-lg font-semibold">Approval Required</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Review and sign to approve or deny this{' '}
-            {request.request_type === 'purchase_request' ? 'purchase request' : 'expense'}.
+    <div className="space-y-4 max-w-md mx-auto">
+      <div className="flex items-center gap-3 pt-2">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/expense/queue')}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-lg font-semibold flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-primary" />
+            Approve Request
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            Reviewing as {myDisplayName}
           </p>
         </div>
-
-        {/* Request summary */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{request.vendor_name || 'No vendor'}</CardTitle>
-              <Badge variant="warning">
-                {request.request_type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="Amount" value={request.total_amount ? formatCurrency(request.total_amount) : '—'} bold />
-            <Row label="Category" value={request.cogs_account_label || '—'} />
-            <Row label="Department" value={request.department || '—'} />
-            <Row label="Tag" value={request.tag || '—'} />
-            {request.customer_name && <Row label="Customer" value={request.customer_name} />}
-            {request.job_number && <Row label="Job #" value={request.job_number} />}
-            {request.memo && <Row label="Memo" value={request.memo} />}
-            {request.receipt_date && <Row label="Date" value={formatDate(request.receipt_date)} />}
-
-            {/* Line items */}
-            {request.line_items && request.line_items.length > 0 && (
-              <div className="pt-2 border-t">
-                <p className="font-medium mb-1">Line Items</p>
-                {request.line_items.map((li, i) => (
-                  <div key={i} className="flex justify-between text-xs text-muted-foreground">
-                    <span className="truncate flex-1">{li.description}</span>
-                    <span className="tabular-nums ml-2">
-                      {li.qty} × {formatCurrency(li.unit_price)} = {formatCurrency(li.amount)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Approver identity */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Your Info</CardTitle>
-            <CardDescription>Enter your name for the approval record.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="approverName">Your Name</Label>
-                <Input
-                  id="approverName"
-                  placeholder="Full name"
-                  value={approverName}
-                  onChange={(e) => setApproverName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="approverEmail">Your Email</Label>
-                <Input
-                  id="approverEmail"
-                  type="email"
-                  placeholder="Email"
-                  value={approverEmail}
-                  onChange={(e) => setApproverEmail(e.target.value)}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Signature pad */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Your Signature</CardTitle>
-            <CardDescription>Sign below to approve this request.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="relative">
-              <SignatureCanvas
-                ref={sigRef}
-                penColor="#1F4E79"
-                canvasProps={{
-                  className: 'sig-canvas w-full',
-                  height: 150,
-                  style: { width: '100%', height: '150px' },
-                }}
-              />
-              <button
-                type="button"
-                onClick={clearSignature}
-                className="absolute top-2 right-2 p-1 rounded bg-white/80 hover:bg-white text-muted-foreground"
-              >
-                <Eraser className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Optional denial reason */}
-            <div className="space-y-1.5">
-              <Label htmlFor="reason">Note (optional, required for denial)</Label>
-              <Textarea
-                id="reason"
-                placeholder="Reason for approval or denial..."
-                value={reasonNote}
-                onChange={(e) => setReasonNote(e.target.value)}
-                rows={2}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <Button
-            variant="destructive"
-            size="lg"
-            onClick={() => handleDecision('denied')}
-            disabled={submitting}
-          >
-            {submitting && decision === 'denied' && (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-            <XCircle className="h-4 w-4" />
-            Deny
-          </Button>
-          <Button
-            variant="success"
-            size="lg"
-            onClick={() => handleDecision('approved')}
-            disabled={submitting || !approverName.trim()}
-          >
-            {submitting && decision === 'approved' && (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-            <CheckCircle className="h-4 w-4" />
-            Approve
-          </Button>
-        </div>
-
-        <p className="text-xs text-center text-muted-foreground pb-4">
-          Your decision, IP address, and signature are logged for audit.
-        </p>
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">{request.vendor_name || 'No vendor'}</CardTitle>
+            <Badge variant="warning">
+              {request.request_type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <Row label="Amount" value={request.total_amount ? formatCurrency(request.total_amount) : '—'} bold />
+          <Row label="Submitter" value={request.submitter_name || request.submitter_email || '—'} />
+          <Row label="Category" value={request.cogs_account_label || '—'} />
+          <Row label="Department" value={request.department || '—'} />
+          <Row label="Tag" value={request.tag || '—'} />
+          {request.customer_name && <Row label="Customer" value={request.customer_name} />}
+          {request.job_number && <Row label="Job #" value={request.job_number} />}
+          {request.memo && <Row label="Memo" value={request.memo} />}
+          {request.receipt_date && <Row label="Date" value={formatDate(request.receipt_date)} />}
+
+          {request.line_items && request.line_items.length > 0 && (
+            <div className="pt-2 border-t">
+              <p className="font-medium mb-1">Line Items</p>
+              {request.line_items.map((li, i) => (
+                <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                  <span className="truncate flex-1">{li.description}</span>
+                  <span className="tabular-nums ml-2">
+                    {li.qty} × {formatCurrency(li.unit_price)} = {formatCurrency(li.amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Sign to Approve</CardTitle>
+          <CardDescription>Required for approvals; optional for denials.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="relative">
+            <SignatureCanvas
+              ref={sigRef}
+              penColor="#1F4E79"
+              canvasProps={{
+                className: 'sig-canvas w-full',
+                height: 150,
+                style: { width: '100%', height: '150px' },
+              }}
+            />
+            <button
+              type="button"
+              onClick={clearSignature}
+              className="absolute top-2 right-2 p-1 rounded bg-white/80 hover:bg-white text-muted-foreground"
+            >
+              <Eraser className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="reason">Note (optional, required for denial)</Label>
+            <Textarea
+              id="reason"
+              placeholder="Reason for approval or denial..."
+              value={reasonNote}
+              onChange={(e) => setReasonNote(e.target.value)}
+              rows={2}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button
+          variant="destructive"
+          size="lg"
+          onClick={() => handleDecision('denied')}
+          disabled={submitting}
+        >
+          {submitting && decision === 'denied' && (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          )}
+          <XCircle className="h-4 w-4" />
+          Deny
+        </Button>
+        <Button
+          variant="success"
+          size="lg"
+          onClick={() => handleDecision('approved')}
+          disabled={submitting}
+        >
+          {submitting && decision === 'approved' && (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          )}
+          <CheckCircle className="h-4 w-4" />
+          Approve
+        </Button>
+      </div>
+
+      <p className="text-xs text-center text-muted-foreground pb-4">
+        Your decision, IP, and signature are logged for audit.
+      </p>
     </div>
   );
 }
 
-/** Reusable detail row */
 function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div className="flex justify-between">
@@ -340,23 +332,29 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-/** Centered status card for terminal states */
 function CenteredCard({
   icon,
   title,
   description,
+  onBack,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
+  onBack?: () => void;
 }) {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background p-4">
+    <div className="flex items-center justify-center py-12">
       <Card className="w-full max-w-sm text-center">
         <CardContent className="pt-8 pb-6 space-y-3">
           <div className="mx-auto">{icon}</div>
           <h2 className="text-lg font-semibold">{title}</h2>
           <p className="text-sm text-muted-foreground">{description}</p>
+          {onBack && (
+            <Button variant="outline" size="sm" onClick={onBack}>
+              Back to queue
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>
