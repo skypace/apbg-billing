@@ -183,6 +183,13 @@ export function ItemsSettingsEditor() {
   const [misalignedOnly, setMisalignedOnly] = useState(false);
   const [applying, setApplying] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [categoryPushPrompt, setCategoryPushPrompt] = useState<{
+    sampleBefore: string;
+    sampleAfter:  string;
+    creating: string[];
+    wouldUpdate: number;
+    alreadyCorrect: number;
+  } | null>(null);
   const [aligning, setAligning] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
@@ -512,28 +519,55 @@ export function ItemsSettingsEditor() {
         setPushing(false);
         return;
       }
-      const creating = dryRun.categories_created ?? [];
-      const ok = confirm(
-        'Sync category overrides to QuickBooks?\n\n'
-        + (creating.length > 0
-            ? `New Category items in QBO: ${creating.length}\n${creating.slice(0, 6).join(', ')}${creating.length > 6 ? '…' : ''}\n\n`
-            : '')
-        + `Items to re-parent: ${s.would_update}\n`
-        + `Already correct: ${s.already_correct}\n\n`
-        + 'This creates any missing QBO Category items and points each item to its category. '
-        + 'No item names or accounts are modified.',
-      );
-      if (!ok) { setPushing(false); return; }
+      // Build a sample of items being re-parented (first 8) from the local
+      // rows that have a category_override differing from their current
+      // QBO category_path. This is the user-visible "currently X / will
+      // become Y" preview before the writeback is allowed.
+      const candidates = (rows ?? [])
+        .filter((r) => r.category_override && r.category_override !== (r.category_path ?? ''))
+        .slice(0, 8);
+      const beforeLines = candidates.map((r) =>
+        `• ${r.item_name}: ${r.category_path ?? '(uncategorized)'}`,
+      ).join('\n');
+      const afterLines = candidates.map((r) =>
+        `• ${r.item_name}: ${r.category_override}`,
+      ).join('\n');
+      const moreCount = Math.max(0, s.would_update - candidates.length);
+      const sampleBefore = beforeLines + (moreCount > 0 ? `\n…and ${moreCount} more` : '');
+      const sampleAfter  = afterLines  + (moreCount > 0 ? `\n…and ${moreCount} more` : '');
+
+      setCategoryPushPrompt({
+        sampleBefore,
+        sampleAfter,
+        creating: dryRun.categories_created ?? [],
+        wouldUpdate:    s.would_update,
+        alreadyCorrect: s.already_correct,
+      });
+    } catch (e) {
+      toast.error('QBO sync failed: ' + (e as Error).message);
+      setPushing(false);
+    }
+  }
+
+  async function confirmCategoryPush() {
+    if (!categoryPushPrompt) return;
+    try {
       const result = await bulkSyncCategoriesToQbo(true);
       const u = result.summary?.updated ?? 0;
       const c = result.categories_created?.length ?? 0;
       toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
+      setCategoryPushPrompt(null);
       load();
     } catch (e) {
       toast.error('QBO sync failed: ' + (e as Error).message);
     } finally {
       setPushing(false);
     }
+  }
+
+  function cancelCategoryPush() {
+    setCategoryPushPrompt(null);
+    setPushing(false);
   }
 
   const alignmentSummary = useMemo(() => {
@@ -929,11 +963,42 @@ export function ItemsSettingsEditor() {
               : 'QuickBooks automatically appends " (deleted)" to the item name on deactivation. Reactivating later does NOT strip it back unless we explicitly rename.',
           },
         ] : []}
-        confirmLabel={activePrompt?.next ? 'Reactivate in QBO' : 'Deactivate in QBO'}
+        confirmLabel={activePrompt?.next ? 'reactivate in QBO' : 'deactivate in QBO'}
         confirmDanger={!activePrompt?.next}
+        requirePassword
         onCancel={cancelActiveToggle}
         onConfirm={confirmActiveToggle}
         busy={activeBusy}
+      />
+
+      <QboConfirmModal
+        open={!!categoryPushPrompt}
+        title="Push category overrides to QuickBooks?"
+        subtitle={categoryPushPrompt
+          ? `${categoryPushPrompt.wouldUpdate} item${categoryPushPrompt.wouldUpdate === 1 ? '' : 's'} will be re-parented · ${categoryPushPrompt.alreadyCorrect} already match`
+          : undefined}
+        fields={categoryPushPrompt ? [
+          {
+            label: 'Items',
+            before: categoryPushPrompt.sampleBefore || '(nothing to change)',
+            after:  categoryPushPrompt.sampleAfter  || '(nothing to change)',
+          },
+          ...(categoryPushPrompt.creating.length > 0 ? [{
+            label: 'New QBO Categories',
+            before: '(none)',
+            after:  categoryPushPrompt.creating.slice(0, 12).join('\n')
+                  + (categoryPushPrompt.creating.length > 12
+                      ? `\n…and ${categoryPushPrompt.creating.length - 12} more`
+                      : ''),
+            warn: 'These Category items will be created in QuickBooks if they do not already exist.',
+          }] : []),
+        ] : []}
+        confirmLabel="push category changes to QBO"
+        confirmDanger
+        requirePassword
+        onCancel={cancelCategoryPush}
+        onConfirm={confirmCategoryPush}
+        busy={pushing}
       />
 
       <div className="gr g4" style={{ marginBottom: 12 }}>
