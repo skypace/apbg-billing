@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+// Hardcoded — anon key is a PUBLIC client identifier per Supabase
+// architecture. Hardcoding here prevents a mis-set Netlify env var
+// from breaking the function with "Invalid API key".
+const SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
@@ -84,11 +87,12 @@ export default async function handler(req) {
   const callerEmail = String(user.email || '').toLowerCase();
 
   const { data: request, error: fetchErr } = await supabase
+    .schema('ops')
     .from('expense_requests')
     .select('*')
     .eq('id', requestId)
     .single();
-  if (fetchErr || !request) return err('Expense request not found', 404);
+  if (fetchErr || !request) return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
 
   if (request.status !== 'pending') return err(`Cannot decide on a request with status "${request.status}"`, 409);
   if (request.submitted_by === user.id) return err('You cannot approve your own request.', 403);
@@ -110,7 +114,7 @@ export default async function handler(req) {
     decided_at: now,
   });
 
-  const { error: approvalErr } = await supabase.from('expense_approvals').insert({
+  const { error: approvalErr } = await supabase.schema('ops').from('expense_approvals').insert({
     request_id: request.id,
     action: finalAction,
     decided_by: signer_name.trim(),
@@ -130,7 +134,7 @@ export default async function handler(req) {
     ? (request.request_type === 'purchase_request' ? 'awaiting_invoice' : 'approved')
     : 'denied';
 
-  const { error: updateErr } = await supabase.from('expense_requests').update({
+  const { error: updateErr } = await supabase.schema('ops').from('expense_requests').update({
     status: nextStatus,
     approved_by: isApprove ? signer_name.trim() : null,
     approved_at: isApprove ? now : null,
@@ -142,7 +146,6 @@ export default async function handler(req) {
     return err('Decision recorded but status update failed', 500);
   }
 
-  // ── Send decision notification to the original submitter ──
   let submitterEmailSent = false;
   let submitterEmailError = null;
   if (request.submitter_email) {
