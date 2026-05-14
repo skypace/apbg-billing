@@ -209,3 +209,27 @@ export async function voidTransfer(transferId: string, reason: string): Promise<
     p_reason: reason,
   });
 }
+
+// ── Adjustments ──────────────────────────────────────────────────────────
+
+export type AdjustmentDirection = 'add' | 'remove';
+
+export async function recordAdjustment(args: {
+  location_id: string;
+  qbo_item_id: string;
+  qty: number;
+  direction: AdjustmentDirection;
+  reason: string;
+  unit_cost?: number | null;
+  occurred_at?: string | null;
+}): Promise<string> {
+  return sbrpc<string>('fn_record_adjustment', {
+    p_location_id: args.location_id,
+    p_qbo_item_id: args.qbo_item_id,
+    p_qty:         args.qty,
+    p_direction:   args.direction,
+    p_reason:      args.reason,
+    p_unit_cost:   args.unit_cost ?? null,
+    p_occurred_at: args.occurred_at ?? null,
+  });
+}

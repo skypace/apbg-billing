@@ -17,14 +17,16 @@ import { StockLocationsTab } from './StockLocationsTab';
 import { StockOnHandTab } from './StockOnHandTab';
 import { StockTransfersTab } from './StockTransfersTab';
 import { StockMovementsTab } from './StockMovementsTab';
+import { StockAdjustmentsTab } from './StockAdjustmentsTab';
 
-type TabId = 'on_hand' | 'locations' | 'transfers' | 'movements';
+type TabId = 'on_hand' | 'locations' | 'transfers' | 'adjustments' | 'movements';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'on_hand',    label: 'On-Hand'   },
-  { id: 'locations',  label: 'Locations' },
-  { id: 'transfers',  label: 'Transfers' },
-  { id: 'movements',  label: 'Movements' },
+  { id: 'on_hand',     label: 'On-Hand'     },
+  { id: 'locations',   label: 'Locations'   },
+  { id: 'transfers',   label: 'Transfers'   },
+  { id: 'adjustments', label: 'Adjustments' },
+  { id: 'movements',   label: 'Movements'   },
 ];
 
 export interface ItemLookup {
@@ -121,6 +123,15 @@ export function StockPage() {
           locations={locations ?? []}
           locationById={locationById}
           itemLookup={itemLookup}
+          onChanged={reloadAll}
+        />
+      )}
+      {tab === 'adjustments' && (
+        <StockAdjustmentsTab
+          locations={locations ?? []}
+          itemLookup={itemLookup}
+          movements={movements}
+          locationById={locationById}
           onChanged={reloadAll}
         />
       )}
