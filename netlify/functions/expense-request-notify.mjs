@@ -4,6 +4,7 @@ import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || null;
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
@@ -13,6 +14,30 @@ function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, 
 function err(m, s = 400) { return json({ error: m }, s); }
 function fmt(n) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0); }
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
+
+/** Trusted read client — service role if available, else anon+user-bearer. */
+function readClient(authHeader) {
+  if (SUPABASE_SERVICE_ROLE_KEY) {
+    return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      db: { schema: 'ops' },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    db: { schema: 'ops' },
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: authHeader } },
+  });
+}
+
+/** User-context write client — RLS applies, audit trail attributable to caller. */
+function userClient(authHeader) {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    db: { schema: 'ops' },
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: authHeader } },
+  });
+}
 
 async function findQBOVendor(name) {
   if (!name) return null;
@@ -90,13 +115,21 @@ export default async function handler(req) {
   const { requestId } = body;
   if (!requestId) return err('Missing requestId');
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    db: { schema: 'ops' },
-    global: { headers: { Authorization: authHeader } },
-  });
+  const reader = readClient(authHeader);
+  const writer = userClient(authHeader);
 
-  const { data: request, error: fetchErr } = await supabase.from('expense_requests').select('*').eq('id', requestId).single();
-  if (fetchErr || !request) return err('Expense request not found', 404);
+  // Explicit .schema('ops') belt-and-suspenders in case db.schema config drops.
+  const { data: request, error: fetchErr } = await reader
+    .schema('ops')
+    .from('expense_requests')
+    .select('*')
+    .eq('id', requestId)
+    .single();
+
+  if (fetchErr || !request) {
+    console.error('notify: lookup failed', { requestId, fetchErr });
+    return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
+  }
   if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
 
   if (request.request_type === 'expense') {
@@ -117,14 +150,14 @@ export default async function handler(req) {
     }
 
     if (qboBill?.Id) {
-      const { error: updateErr } = await supabase.from('expense_requests').update({
+      const { error: updateErr } = await writer.schema('ops').from('expense_requests').update({
         status: 'posted', auto_approved: true,
         approved_by: 'auto', approved_at: now, posted_at: now,
         manager_email: null, approval_token: null,
         qbo_bill_id: qboBill.Id,
       }).eq('id', requestId);
       if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id }, 207);
-      await supabase.from('expense_approvals').insert({
+      await writer.schema('ops').from('expense_approvals').insert({
         request_id: requestId, action: 'approved',
         decided_by: 'system (auto-approve + auto-post)',
         notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id}`,
@@ -133,13 +166,13 @@ export default async function handler(req) {
       return json({ success: true, auto_approved: true, new_status: 'posted', request_id: requestId, qbo_bill_id: qboBill.Id });
     }
 
-    const { error: updateErr } = await supabase.from('expense_requests').update({
+    const { error: updateErr } = await writer.schema('ops').from('expense_requests').update({
       status: 'approved', auto_approved: true,
       approved_by: 'auto', approved_at: now,
       manager_email: null, approval_token: null,
     }).eq('id', requestId);
     if (updateErr) return err('Failed to auto-approve', 500);
-    await supabase.from('expense_approvals').insert({
+    await writer.schema('ops').from('expense_approvals').insert({
       request_id: requestId, action: 'approved',
       decided_by: 'system (auto-approve)',
       notes: `Auto-approved. QBO post deferred: ${qboError}.`,
@@ -151,14 +184,14 @@ export default async function handler(req) {
   if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
   if (!request.manager_email) return err('Purchase requests require an approver.', 422);
 
-  const { data: managerSetting } = await supabase.from('expense_settings').select('value').eq('key', 'manager_emails').single();
+  const { data: managerSetting } = await reader.schema('ops').from('expense_settings').select('value').eq('key', 'manager_emails').single();
   const managerList = Array.isArray(managerSetting?.value) ? managerSetting.value.map((e) => String(e).toLowerCase()) : [];
   const chosen = String(request.manager_email).toLowerCase();
   if (managerList.length > 0 && !managerList.includes(chosen)) {
     return err(`Approver "${request.manager_email}" is not in the manager_emails allowlist.`, 422);
   }
 
-  const { error: updateErr } = await supabase.from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
+  const { error: updateErr } = await writer.schema('ops').from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
   if (updateErr) return err('Failed to submit for approval', 500);
 
   // DEEP-LINK directly to the review page for this request
