@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-  Receipt, Clock, Users, LogOut,
+  Receipt, Clock, Users, LogOut, Inbox,
   ChevronLeft, ChevronRight,
   Menu, X,
 } from 'lucide-react';
@@ -9,9 +9,10 @@ import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
 
 const navItems = [
-  { path: '',        icon: Receipt, label: 'Dashboard' },
-  { path: 'pending', icon: Clock,   label: 'My Pending' },
-  { path: 'queue',   icon: Users,   label: 'Approvals' },
+  { path: '',            icon: Receipt, label: 'Dashboard' },
+  { path: 'pending',     icon: Clock,   label: 'My Pending' },
+  { path: 'queue',       icon: Users,   label: 'Approvals' },
+  { path: 'third-party', icon: Inbox,   label: '3rd Party Bills' },
 ];
 
 export function AppShell() {
