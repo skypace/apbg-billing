@@ -2,8 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
+// Hardcoded on purpose — the anon key is a PUBLIC client identifier per
+// Supabase's architecture (security is via RLS, not key secrecy). Same
+// value ships in the Vite frontend bundle. Hardcoding here prevents a
+// mis-set Netlify env var from breaking the function.
+const SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
@@ -81,7 +86,7 @@ function buildBillPayload(r, vendor, fallback) {
 async function maybeMarginMatch(request, billTotal) {
   if (!request?.job_number) return null;
   try {
-    const inv = await findMatchingInvoice(request.job_number, /* customerId */ null);
+    const inv = await findMatchingInvoice(request.job_number, null);
     if (!inv) return { matched: false, job_number: request.job_number };
     const invSummary = summarizeInvoice(inv);
     const { margin, marginPct } = computeMargin(invSummary.total, billTotal);
