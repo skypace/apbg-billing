@@ -47,6 +47,14 @@ export interface InventoryHealthRow {
   segment_source: 'item' | 'category' | null;
   track_locations: boolean;
   has_bom: boolean;
+  weight_per_unit_lbs: number | null;
+  units_per_pallet: number | null;
+  freight_class: string | null;
+  dim_l_in: number | null;
+  dim_w_in: number | null;
+  dim_h_in: number | null;
+  unit_type: string | null;
+  nmfc_code: string | null;
 }
 
 export interface InventorySettingsRow {
@@ -169,19 +177,35 @@ export function setInventorySettings(opts: {
   category_override?: string | null;
   track_locations?: boolean | null;
   has_bom?: boolean | null;
+  weight_per_unit_lbs?: number | null;
+  units_per_pallet?: number | null;
+  freight_class?: string | null;
+  dim_l_in?: number | null;
+  dim_w_in?: number | null;
+  dim_h_in?: number | null;
+  unit_type?: string | null;
+  nmfc_code?: string | null;
 }) {
   return sbrpc<void>('fn_set_inventory_settings', {
-    p_qbo_item_id:        opts.qbo_item_id,
-    p_is_managed:         opts.is_managed ?? null,
-    p_is_planner:         opts.is_planner ?? null,
-    p_target_days_supply: opts.target_days_supply ?? null,
-    p_lead_time_days:     opts.lead_time_days ?? null,
-    p_reorder_point:      opts.reorder_point ?? null,
-    p_min_order_qty:      opts.min_order_qty ?? null,
-    p_notes:              opts.notes ?? null,
-    p_category_override:  opts.category_override ?? null,
-    p_track_locations:    opts.track_locations ?? null,
-    p_has_bom:            opts.has_bom ?? null,
+    p_qbo_item_id:         opts.qbo_item_id,
+    p_is_managed:          opts.is_managed ?? null,
+    p_is_planner:          opts.is_planner ?? null,
+    p_target_days_supply:  opts.target_days_supply ?? null,
+    p_lead_time_days:      opts.lead_time_days ?? null,
+    p_reorder_point:       opts.reorder_point ?? null,
+    p_min_order_qty:       opts.min_order_qty ?? null,
+    p_notes:               opts.notes ?? null,
+    p_category_override:   opts.category_override ?? null,
+    p_track_locations:     opts.track_locations ?? null,
+    p_has_bom:             opts.has_bom ?? null,
+    p_weight_per_unit_lbs: opts.weight_per_unit_lbs ?? null,
+    p_units_per_pallet:    opts.units_per_pallet ?? null,
+    p_freight_class:       opts.freight_class ?? null,
+    p_dim_l_in:            opts.dim_l_in ?? null,
+    p_dim_w_in:            opts.dim_w_in ?? null,
+    p_dim_h_in:            opts.dim_h_in ?? null,
+    p_unit_type:           opts.unit_type ?? null,
+    p_nmfc_code:           opts.nmfc_code ?? null,
   });
 }
 
