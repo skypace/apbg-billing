@@ -493,24 +493,20 @@ function TransferDetailModal({
   const displayValue   = transfer.declared_value_usd ?? (lineTotals.anyData ? round2(lineTotals.val) : null);
 
   async function doShip() {
-    const sigName = prompt('Shipper signature — type name to lock in BOL.\n\nThis will be printed on the BOL and timestamped.');
-    if (!sigName) return;
-    if (!confirm(`Mark shipped and decrement ${fromLoc?.code ?? 'source'}?\n\nShipper signature: ${sigName}`)) return;
+    if (!confirm(`Mark shipped and decrement ${fromLoc?.code ?? 'source'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
     setBusy(true);
     try {
-      await shipTransfer(transferId, null, sigName);
+      await shipTransfer(transferId);
       toast.success('Marked shipped');
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
   async function doReceive() {
-    const sigName = prompt('Receiver signature — type name to lock in BOL.\n\nThis will be printed on the BOL and timestamped.');
-    if (!sigName) return;
-    if (!confirm(`Mark received and increment ${toLoc?.code ?? 'destination'}?\n\nReceiver signature: ${sigName}`)) return;
+    if (!confirm(`Mark received and increment ${toLoc?.code ?? 'destination'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
     setBusy(true);
     try {
-      await receiveTransfer(transferId, null, sigName);
+      await receiveTransfer(transferId);
       toast.success('Marked received');
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
@@ -548,13 +544,18 @@ function TransferDetailModal({
       const qty = Number(l.qty);
       const wt = l.line_weight_lbs ?? (it?.weight_per_unit_lbs ? Number(it.weight_per_unit_lbs) * qty : null);
       const pal = l.line_pallets ?? (it?.units_per_pallet ? qty / Number(it.units_per_pallet) : null);
+      const dim = (it?.dim_l_in && it?.dim_w_in && it?.dim_h_in)
+        ? `${it.dim_l_in}×${it.dim_w_in}×${it.dim_h_in}"`
+        : '';
+      const unitType = it?.unit_type ? ` ${it.unit_type}` : '';
       return `<tr>
         <td style="width:22px;color:#64748b">${idx + 1}</td>
-        <td>${escapeHtml(it?.item_name ?? l.qbo_item_id)}${l.notes ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${escapeHtml(l.notes)}</div>` : ''}</td>
+        <td>${escapeHtml(it?.item_name ?? l.qbo_item_id)}${dim || unitType ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${escapeHtml(dim)}${escapeHtml(unitType)}</div>` : ''}${l.notes ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${escapeHtml(l.notes)}</div>` : ''}</td>
         <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtNum(qty)}</td>
         <td style="text-align:right;font-variant-numeric:tabular-nums">${wt == null ? '—' : round1(wt).toString()}</td>
         <td style="text-align:right;font-variant-numeric:tabular-nums">${pal == null ? '—' : round2(pal).toString()}</td>
         <td style="text-align:center">${escapeHtml(it?.freight_class ?? '—')}</td>
+        <td style="text-align:center;font-family:monospace;font-size:9.5px">${escapeHtml(it?.nmfc_code ?? '—')}</td>
       </tr>`;
     }).join('');
 
@@ -562,9 +563,6 @@ function TransferDetailModal({
     const totPal = t.total_pallets      ?? (lineTotals.anyData ? round2(lineTotals.pal) : null);
     const totVal = t.declared_value_usd ?? (lineTotals.anyData ? round2(lineTotals.val) : null);
     const totQty = (lines ?? []).reduce((s, l) => s + Number(l.qty), 0);
-
-    const fmtSig = (name: string | null, ts: string | null) =>
-      name ? `${escapeHtml(name)}<div style="font-size:9px;color:#64748b;margin-top:2px">${ts ? new Date(ts).toLocaleString() : ''}</div>` : '<span style="color:#94a3b8">— pending —</span>';
 
     const fmtAddr = (loc?: InventoryLocation) => {
       if (!loc) return '';
@@ -604,8 +602,8 @@ function TransferDetailModal({
         .instr{margin-top:10px;border:1px solid #0a0e17;padding:6px 8px;min-height:34px}
         .instr .lbl{font-size:8px;font-weight:700;letter-spacing:1.5px;color:#475569;text-transform:uppercase;margin-bottom:3px}
         .sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
-        .sig .box{min-height:70px}
-        .sig .name{font-size:13px;font-weight:600;font-family:'Brush Script MT', cursive;letter-spacing:0.3px;padding-top:6px}
+        .sig .box{min-height:60px}
+        .sig .sigline{border-bottom:1px solid #0a0e17;height:34px;margin-top:6px}
         .legal{margin-top:10px;font-size:8px;color:#64748b;line-height:1.5}
         @media print{body{font-size:10.5px}}
       </style></head><body>
@@ -656,19 +654,21 @@ function TransferDetailModal({
             <tr>
               <th style="width:22px">#</th>
               <th>Item / Description</th>
-              <th style="text-align:right;width:70px">Qty</th>
-              <th style="text-align:right;width:90px">Weight (lb)</th>
-              <th style="text-align:right;width:70px">Pallets</th>
-              <th style="text-align:center;width:60px">Class</th>
+              <th style="text-align:right;width:60px">Qty</th>
+              <th style="text-align:right;width:80px">Weight (lb)</th>
+              <th style="text-align:right;width:60px">Pallets</th>
+              <th style="text-align:center;width:55px">Class</th>
+              <th style="text-align:center;width:65px">NMFC #</th>
             </tr>
           </thead>
-          <tbody>${lineRows || '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:14px">No lines</td></tr>'}</tbody>
+          <tbody>${lineRows || '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:14px">No lines</td></tr>'}</tbody>
           <tfoot>
             <tr>
               <td colspan="2" style="text-align:right">TOTAL</td>
               <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtNum(totQty)}</td>
               <td style="text-align:right;font-variant-numeric:tabular-nums">${totWt == null ? '—' : fmtNum(round1(totWt))}</td>
               <td style="text-align:right;font-variant-numeric:tabular-nums">${totPal == null ? '—' : fmtNum(round2(totPal))}</td>
+              <td></td>
               <td></td>
             </tr>
           </tfoot>
@@ -679,16 +679,16 @@ function TransferDetailModal({
 
         <div class="sig">
           <div class="box">
-            <div class="lbl">Shipper</div>
-            <div class="name">${fmtSig(t.shipper_signature_name, t.shipper_signature_at)}</div>
+            <div class="lbl">Shipper signature / date</div>
+            <div class="sigline">&nbsp;</div>
           </div>
           <div class="box">
-            <div class="lbl">Carrier (driver)</div>
-            <div class="name"><span style="color:#94a3b8">— sign on pickup —</span></div>
+            <div class="lbl">Carrier (driver) signature / date</div>
+            <div class="sigline">&nbsp;</div>
           </div>
           <div class="box">
-            <div class="lbl">Consignee (receiver)</div>
-            <div class="name">${fmtSig(t.receiver_signature_name, t.receiver_signature_at)}</div>
+            <div class="lbl">Consignee signature / date</div>
+            <div class="sigline">&nbsp;</div>
           </div>
         </div>
 
@@ -769,25 +769,6 @@ function TransferDetailModal({
               wide onSave={(v) => patchHeader({ special_instructions: v })} />
           </div>
 
-          {/* Signatures (read-only display, captured at ship/receive time) */}
-          {(transfer.shipper_signature_name || transfer.receiver_signature_name) && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 11 }}>
-              <div>
-                <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Shipper sig</div>
-                {transfer.shipper_signature_name
-                  ? <><strong>{transfer.shipper_signature_name}</strong>
-                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>{transfer.shipper_signature_at ? new Date(transfer.shipper_signature_at).toLocaleString() : ''}</div></>
-                  : <span style={{ color: 'var(--mt)' }}>— pending —</span>}
-              </div>
-              <div>
-                <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Receiver sig</div>
-                {transfer.receiver_signature_name
-                  ? <><strong>{transfer.receiver_signature_name}</strong>
-                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>{transfer.receiver_signature_at ? new Date(transfer.receiver_signature_at).toLocaleString() : ''}</div></>
-                  : <span style={{ color: 'var(--mt)' }}>— pending —</span>}
-              </div>
-            </div>
-          )}
         </div>
 
         <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>Lines</div>

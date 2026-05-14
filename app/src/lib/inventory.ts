@@ -50,6 +50,11 @@ export interface InventoryHealthRow {
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
+  dim_l_in: number | null;
+  dim_w_in: number | null;
+  dim_h_in: number | null;
+  unit_type: string | null;
+  nmfc_code: string | null;
 }
 
 export interface InventorySettingsRow {
@@ -175,6 +180,11 @@ export function setInventorySettings(opts: {
   weight_per_unit_lbs?: number | null;
   units_per_pallet?: number | null;
   freight_class?: string | null;
+  dim_l_in?: number | null;
+  dim_w_in?: number | null;
+  dim_h_in?: number | null;
+  unit_type?: string | null;
+  nmfc_code?: string | null;
 }) {
   return sbrpc<void>('fn_set_inventory_settings', {
     p_qbo_item_id:         opts.qbo_item_id,
@@ -191,6 +201,11 @@ export function setInventorySettings(opts: {
     p_weight_per_unit_lbs: opts.weight_per_unit_lbs ?? null,
     p_units_per_pallet:    opts.units_per_pallet ?? null,
     p_freight_class:       opts.freight_class ?? null,
+    p_dim_l_in:            opts.dim_l_in ?? null,
+    p_dim_w_in:            opts.dim_w_in ?? null,
+    p_dim_h_in:            opts.dim_h_in ?? null,
+    p_unit_type:           opts.unit_type ?? null,
+    p_nmfc_code:           opts.nmfc_code ?? null,
   });
 }
 

@@ -66,6 +66,11 @@ interface ItemMasterRow {
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
+  dim_l_in: number | null;
+  dim_w_in: number | null;
+  dim_h_in: number | null;
+  unit_type: string | null;
+  nmfc_code: string | null;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -269,7 +274,7 @@ export function ItemsSettingsEditor() {
 
   async function patchSettings(
     qbo_item_id: string,
-    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override' | 'track_locations' | 'has_bom' | 'weight_per_unit_lbs' | 'units_per_pallet' | 'freight_class'>>,
+    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override' | 'track_locations' | 'has_bom' | 'weight_per_unit_lbs' | 'units_per_pallet' | 'freight_class' | 'dim_l_in' | 'dim_w_in' | 'dim_h_in' | 'unit_type' | 'nmfc_code'>>,
   ) {
     // The grid is tree-grouped by category; group rows have no qbo_item_id.
     // If a control on a group row fires this, silently ignore.
@@ -290,6 +295,11 @@ export function ItemsSettingsEditor() {
         p_weight_per_unit_lbs: patchData.weight_per_unit_lbs ?? null,
         p_units_per_pallet:    patchData.units_per_pallet ?? null,
         p_freight_class:       patchData.freight_class ?? null,
+        p_dim_l_in:            patchData.dim_l_in ?? null,
+        p_dim_w_in:            patchData.dim_w_in ?? null,
+        p_dim_h_in:            patchData.dim_h_in ?? null,
+        p_unit_type:           patchData.unit_type ?? null,
+        p_nmfc_code:           patchData.nmfc_code ?? null,
       });
       setRows((cur) => cur?.map((r) => {
         if (r.qbo_item_id !== qbo_item_id) return r;
@@ -667,6 +677,83 @@ export function ItemsSettingsEditor() {
                 <option key={c} value={c}>{c}</option>
               )}
             </select>
+          );
+        },
+      },
+      {
+        field: 'nmfc_code', headerName: 'NMFC #', width: 90, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="text" defaultValue={p.value ?? ''} maxLength={20}
+              onBlur={(e) => {
+                const v = e.target.value.trim() === '' ? null : e.target.value.trim();
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { nmfc_code: v });
+              }}
+              style={{ ...inp(), width: 70, fontFamily: 'var(--ff-mono)' }}
+              placeholder="—" />
+          );
+        },
+      },
+      {
+        field: 'unit_type', headerName: 'Unit Type', width: 95, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <select defaultValue={p.value ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? null : e.target.value;
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { unit_type: v });
+              }}
+              style={{ ...inp(), width: 80 }}
+            >
+              <option value="">—</option>
+              {['case','pallet','drum','each','bag','crate','box','tote','keg','barrel'].map((u) =>
+                <option key={u} value={u}>{u}</option>
+              )}
+            </select>
+          );
+        },
+      },
+      {
+        field: 'dim_l_in', headerName: 'L (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_l_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'dim_w_in', headerName: 'W (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_w_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'dim_h_in', headerName: 'H (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_h_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
           );
         },
       },
