@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Camera, Upload, X, Plus, Trash2, Loader2,
-  CheckCircle, AlertTriangle, Receipt,
+  CheckCircle, AlertTriangle, Receipt, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,19 @@ import { formatCurrency } from '@/lib/utils';
 import type { LineItem } from '@/types/expense';
 
 type FormStep = 'upload' | 'details' | 'submitting' | 'success' | 'error';
+
+interface MarginMatch {
+  matched: boolean;
+  job_number?: string;
+  invoice?: {
+    id: string;
+    number: string;
+    customerName: string | null;
+    total: number;
+  };
+  margin?: number;
+  marginPct?: number;
+}
 
 export default function ExpenseForm() {
   const navigate = useNavigate();
@@ -57,6 +70,7 @@ export default function ExpenseForm() {
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
   const [resultBillId] = useState<string | null>(null);
+  const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   const totalNum = parseFloat(totalAmount) || 0;
@@ -173,13 +187,11 @@ export default function ExpenseForm() {
             setCogsAccountLabel(matched.label);
             setCogsAccountId(matched.id);
           } else if (ocr.account_guess) {
-            // free-form guess — show it as label so user can refine
             setCogsAccountLabel(ocr.account_guess);
           }
           if (ocr.job_number && !jobNumber) setJobNumber(ocr.job_number);
           if (ocr.customer_name && !customerName) setCustomerName(ocr.customer_name);
           if (ocr.memo && !memo) setMemo(ocr.memo);
-          // notes can be appended into memo so submitter sees it
           if (ocr.notes && !memo) setMemo((m) => (m ? `${m}\n${ocr.notes}` : ocr.notes));
         }
       } catch (e) {
@@ -196,7 +208,6 @@ export default function ExpenseForm() {
   const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileSelect(file);
-    // Reset value so picking the same file again re-fires onChange
     e.target.value = '';
   };
 
@@ -233,6 +244,7 @@ export default function ExpenseForm() {
     if (!session || readOnly) return;
     setStep('submitting');
     setSubmitting(true);
+    setMarginMatch(null);
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
@@ -299,6 +311,7 @@ export default function ExpenseForm() {
 
       if (notifyRes.ok) {
         const notifyData = await notifyRes.json();
+        if (notifyData.margin_match) setMarginMatch(notifyData.margin_match);
         if (notifyData.auto_approved) {
           setResultMessage('Expense auto-approved and logged.');
         } else {
@@ -379,7 +392,6 @@ export default function ExpenseForm() {
                 </Button>
               </div>
             </div>
-            {/* Camera-only input (mobile capture) */}
             <input
               ref={cameraInputRef}
               type="file"
@@ -388,7 +400,6 @@ export default function ExpenseForm() {
               className="hidden"
               onChange={onFileInput}
             />
-            {/* General picker — phone shows action sheet (camera / library / files) */}
             <input
               ref={fileInputRef}
               type="file"
@@ -715,6 +726,10 @@ export default function ExpenseForm() {
   }
 
   if (step === 'success') {
+    const margin = marginMatch?.margin ?? 0;
+    const marginPct = marginMatch?.marginPct ?? 0;
+    const positive = margin >= 0;
+
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
@@ -724,6 +739,34 @@ export default function ExpenseForm() {
             QBO Bill ID: <span className="font-mono">{resultBillId}</span>
           </p>
         )}
+
+        {marginMatch?.matched && marginMatch.invoice && (
+          <Card className="w-full max-w-sm text-left">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                {positive ? (
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <TrendingDown className="h-4 w-4 text-destructive" />
+                )}
+                Matched to invoice
+              </div>
+              <div className="text-2xl font-bold tabular-nums" style={{ color: positive ? 'var(--green)' : 'var(--danger)' }}>
+                {marginPct.toFixed(1)}% — {formatCurrency(margin)}
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1 pt-1">
+                <div>Invoice <span className="font-mono">#{marginMatch.invoice.number}</span> · {marginMatch.invoice.customerName ?? '—'}</div>
+                <div>Job # <span className="font-mono">{marginMatch.job_number}</span> · Invoice total {formatCurrency(marginMatch.invoice.total)}</div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {marginMatch && !marginMatch.matched && marginMatch.job_number && (
+          <div className="text-xs rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200 max-w-sm">
+            No QBO invoice found referencing Job #{marginMatch.job_number}. Either the invoice hasn't been created yet, or the job number doesn't appear on any recent invoice.
+          </div>
+        )}
+
         <div className="flex gap-2 mt-4">
           <Button variant="outline" onClick={() => navigate('/')}>
             Home
