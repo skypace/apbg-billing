@@ -53,12 +53,10 @@ export default function ApprovalPage() {
     || session?.user?.email
     || '';
 
-  // Pre-fill name from session
   useEffect(() => {
     if (myName && !signerName) setSignerName(myName);
   }, [myName]);
 
-  // Load request by id (RLS gates to submitter + matched manager_email)
   useEffect(() => {
     if (!id || !session) return;
     let cancelled = false;
@@ -132,16 +130,37 @@ export default function ApprovalPage() {
           decline_reason: decision === 'decline' ? declineReason.trim() : null,
         }),
       });
-      const d = await r.json();
+
+      // Read as text first so we can show non-JSON bodies (HTML, plain-text 502s)
+      const bodyText = await r.text();
+      let body: any = null;
+      try { body = bodyText ? JSON.parse(bodyText) : null; } catch { /* leave body null */ }
+
       if (!r.ok) {
-        setErrorMessage(d.error || 'Submission failed');
+        if (body?.error) {
+          setErrorMessage(body.error);
+        } else {
+          // Non-JSON failure — surface what we got so we can debug
+          const snippet = bodyText
+            ? `: ${bodyText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200)}`
+            : '';
+          setErrorMessage(`Server returned ${r.status} ${r.statusText}${snippet}`);
+        }
         setSubmitting('');
         return;
       }
-      setDecided({ action: d.action, signer_name: signerName.trim() });
+
+      if (!body) {
+        setErrorMessage('Server returned an empty response. Please try again.');
+        setSubmitting('');
+        return;
+      }
+
+      setDecided({ action: body.action, signer_name: signerName.trim() });
       setState('decided');
     } catch (e) {
-      setErrorMessage(e instanceof Error ? e.message : 'Submission failed');
+      // Network / CORS / fetch-throw
+      setErrorMessage(e instanceof Error ? `Network error: ${e.message}` : 'Submission failed');
       setSubmitting('');
     }
   }
@@ -212,7 +231,6 @@ export default function ApprovalPage() {
 
   return (
     <div className="ap-wrap">
-      {/* Header card */}
       <div className="ap-card">
         <div className="ap-header">
           <button type="button" onClick={() => navigate('/expense/queue')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
@@ -282,7 +300,6 @@ export default function ApprovalPage() {
         )}
       </div>
 
-      {/* Signature card */}
       <div className="ap-card">
         <div className="ap-section-title">Your signature</div>
         <p className="ap-helptext">
