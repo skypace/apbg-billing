@@ -31,6 +31,8 @@ export default function ExpenseForm() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrModel, setOcrModel] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(isEditing);
 
   const [vendorName, setVendorName] = useState('');
@@ -105,9 +107,27 @@ export default function ExpenseForm() {
     };
   }, [id]);
 
+  /** Match the OCR's free-form account guess against the configured COGS list. */
+  const pickCogsAccount = useCallback(
+    (guess: string | null | undefined) => {
+      if (!guess || !settings?.cogs_accounts?.length) return null;
+      const g = guess.toLowerCase().trim();
+      const exact = settings.cogs_accounts.find((a) => a.label.toLowerCase() === g);
+      if (exact) return exact;
+      const partial = settings.cogs_accounts.find(
+        (a) =>
+          g.includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(g),
+      );
+      return partial ?? null;
+    },
+    [settings],
+  );
+
   const handleFileSelect = useCallback(
     async (file: File) => {
       setReceiptFile(file);
+      setOcrError(null);
+      setOcrModel(null);
       if (file.type.startsWith('image/')) {
         setReceiptPreview(URL.createObjectURL(file));
       } else {
@@ -119,35 +139,58 @@ export default function ExpenseForm() {
         const fd = new FormData();
         fd.append('file', file);
         const token = await getAccessToken();
-        const res = await fetch('/expense/.netlify/functions/process-inbound', {
+        const res = await fetch('/expense/api/expense-ocr', {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: fd,
         });
-        if (res.ok) {
+
+        if (!res.ok) {
+          let detail = `OCR failed (${res.status})`;
+          try {
+            const errBody = await res.json();
+            detail = errBody.error || detail;
+          } catch {}
+          setOcrError(`${detail} — fill the details in manually.`);
+        } else {
           const ocr = await res.json();
+          if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
-          if (ocr.total) setTotalAmount(String(ocr.total));
+          if (ocr.total != null) setTotalAmount(String(ocr.total));
           if (ocr.date) setReceiptDate(ocr.date);
-          if (ocr.line_items?.length) {
+          if (Array.isArray(ocr.line_items) && ocr.line_items.length > 0) {
             setLineItems(
               ocr.line_items.map((li: any) => ({
-                description: li.description ?? '',
-                qty: li.qty ?? 1,
-                unit_price: li.unit_price ?? 0,
-                amount: li.amount ?? (li.qty ?? 1) * (li.unit_price ?? 0),
+                description: String(li.description ?? ''),
+                qty: Number(li.qty ?? 1),
+                unit_price: Number(li.unit_price ?? 0),
+                amount: Number(li.amount ?? (li.qty ?? 1) * (li.unit_price ?? 0)),
               })),
             );
           }
+          const matched = pickCogsAccount(ocr.account_guess);
+          if (matched) {
+            setCogsAccountLabel(matched.label);
+            setCogsAccountId(matched.id);
+          } else if (ocr.account_guess) {
+            // free-form guess — show it as label so user can refine
+            setCogsAccountLabel(ocr.account_guess);
+          }
+          if (ocr.job_number && !jobNumber) setJobNumber(ocr.job_number);
+          if (ocr.customer_name && !customerName) setCustomerName(ocr.customer_name);
+          if (ocr.memo && !memo) setMemo(ocr.memo);
+          // notes can be appended into memo so submitter sees it
+          if (ocr.notes && !memo) setMemo((m) => (m ? `${m}\n${ocr.notes}` : ocr.notes));
         }
       } catch (e) {
-        console.warn('OCR failed — manual entry required', e);
+        console.warn('OCR call failed', e);
+        setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
         setOcrLoading(false);
         setStep('details');
       }
     },
-    [],
+    [pickCogsAccount, jobNumber, customerName, memo],
   );
 
   const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -309,7 +352,7 @@ export default function ExpenseForm() {
                 Snap or upload your receipt
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Photo, scan, or PDF — we'll pull the details
+                Photo, scan, or PDF — Claude will read it and fill the form
               </p>
               <div className="flex items-center justify-center gap-2 mt-4">
                 <Button
@@ -412,7 +455,17 @@ export default function ExpenseForm() {
         {ocrLoading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Reading receipt…
+            Reading receipt with Claude…
+          </div>
+        )}
+        {!ocrLoading && ocrModel && !ocrError && (
+          <div className="text-xs text-muted-foreground">
+            Auto-filled from receipt by <span className="font-mono">{ocrModel}</span>. Double-check before submitting.
+          </div>
+        )}
+        {ocrError && (
+          <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            {ocrError}
           </div>
         )}
 
@@ -523,7 +576,7 @@ export default function ExpenseForm() {
             <Label>Job # (optional)</Label>
             <Input
               disabled={readOnly}
-              placeholder="Job number"
+              placeholder="SF / ResQ job #"
               value={jobNumber}
               onChange={(e) => setJobNumber(e.target.value)}
             />
