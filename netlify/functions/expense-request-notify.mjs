@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
+import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
@@ -94,6 +95,25 @@ function buildBillPayload(r, vendor, fallback) {
   return payload;
 }
 
+/**
+ * Best-effort margin check — if the request has a job_number, find the
+ * matching QBO invoice and compute margin. Never throws; failure just
+ * returns null so the auto-approve completes normally.
+ */
+async function maybeMarginMatch(request, billTotal) {
+  if (!request?.job_number) return null;
+  try {
+    const inv = await findMatchingInvoice(request.job_number, /* customerId */ null);
+    if (!inv) return { matched: false, job_number: request.job_number };
+    const invSummary = summarizeInvoice(inv);
+    const { margin, marginPct } = computeMargin(invSummary.total, billTotal);
+    return { matched: true, job_number: request.job_number, invoice: invSummary, margin, marginPct };
+  } catch (e) {
+    console.warn('maybeMarginMatch failed (non-fatal):', e?.message);
+    return null;
+  }
+}
+
 function buildNotificationEmailHtml(request, reviewUrl) {
   const lineItemsHtml = (request.line_items || []).map((li, i) => {
     const amt = (li.qty || 1) * (li.unit_price || 0) || (li.amount || 0);
@@ -163,7 +183,15 @@ export default async function handler(req) {
         notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id}`,
         token_used: null,
       });
-      return json({ success: true, auto_approved: true, new_status: 'posted', request_id: requestId, qbo_bill_id: qboBill.Id });
+
+      // Optional margin/ROI check — best-effort, doesn't block the response
+      const marginMatch = await maybeMarginMatch(request, Number(request.total_amount) || 0);
+
+      return json({
+        success: true, auto_approved: true, new_status: 'posted',
+        request_id: requestId, qbo_bill_id: qboBill.Id,
+        margin_match: marginMatch,
+      });
     }
 
     const { error: updateErr } = await writer.schema('ops').from('expense_requests').update({
