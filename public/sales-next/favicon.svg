@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <radialGradient id="bg" cx="40%" cy="35%" r="75%">
+      <stop offset="0%"   stop-color="#28548A"/>
+      <stop offset="55%"  stop-color="#163966"/>
+      <stop offset="100%" stop-color="#0B2148"/>
+    </radialGradient>
+    <radialGradient id="hl" cx="68%" cy="22%" r="32%">
+      <stop offset="0%"   stop-color="rgba(255,255,255,0.32)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>
+  <circle cx="16" cy="16" r="15.5" fill="url(#bg)"/>
+  <circle cx="16" cy="16" r="15.5" fill="url(#hl)"/>
+  <!-- ° upper-left -->
+  <circle cx="9" cy="11" r="1.4" fill="none" stroke="#FFFFFF" stroke-width="0.9"/>
+  <!-- bx letters -->
+  <text x="16" y="22.5" font-family="'Bricolage Grotesque','Inter Tight',system-ui,sans-serif"
+        font-size="15" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="-1">bx</text>
+</svg>
