@@ -18,6 +18,7 @@ const PlansPage = lazy(() => import('./pages/PlansPage').then((m) => ({ default:
 const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ default: m.ComparePage })));
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const StockPage = lazy(() => import('./pages/stock/StockPage').then((m) => ({ default: m.StockPage })));
+const ProductionPage = lazy(() => import('./pages/production/ProductionPage').then((m) => ({ default: m.ProductionPage })));
 const OperationsPage = lazy(() => import('./pages/OperationsPage').then((m) => ({ default: m.OperationsPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
@@ -80,6 +81,9 @@ export function App() {
       break;
     case 'stock':
       body = <StockPage />;
+      break;
+    case 'production':
+      body = <ProductionPage />;
       break;
     case 'operations':
       body = <OperationsPage />;

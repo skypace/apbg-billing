@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
-  GitCompareArrows, Package, Warehouse, Settings as SettingsIcon, LogOut,
+  GitCompareArrows, Package, Warehouse, Factory, Settings as SettingsIcon, LogOut,
   BookOpen,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { id: 'compare',    label: 'Compare',    icon: GitCompareArrows  },
   { id: 'inventory',  label: 'Inventory',  icon: Package           },
   { id: 'stock',      label: 'Stock',      icon: Warehouse         },
+  { id: 'production', label: 'Production', icon: Factory           },
   { id: 'settings',   label: 'Settings',   icon: SettingsIcon      },
 ];
 
