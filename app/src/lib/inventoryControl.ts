@@ -34,6 +34,8 @@ export interface InventoryLocation {
 
 export type TransferStatus = 'draft' | 'in_transit' | 'received' | 'void';
 
+export type FreightTerms = 'prepaid' | 'collect' | 'third_party';
+
 export interface InventoryTransfer {
   id: string;
   bol_number: string;
@@ -53,6 +55,16 @@ export interface InventoryTransfer {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  pro_number: string | null;
+  freight_terms: FreightTerms | null;
+  total_weight_lbs: number | null;
+  total_pallets: number | null;
+  declared_value_usd: number | null;
+  special_instructions: string | null;
+  shipper_signature_name: string | null;
+  shipper_signature_at: string | null;
+  receiver_signature_name: string | null;
+  receiver_signature_at: string | null;
 }
 
 export interface InventoryTransferLine {
@@ -64,6 +76,8 @@ export interface InventoryTransferLine {
   unit_cost: number | null;
   notes: string | null;
   created_at: string;
+  line_weight_lbs: number | null;
+  line_pallets: number | null;
 }
 
 export interface InventoryTransferLineInput {
@@ -71,6 +85,8 @@ export interface InventoryTransferLineInput {
   qty: number;
   unit_cost?: number | null;
   notes?: string | null;
+  line_weight_lbs?: number | null;
+  line_pallets?: number | null;
 }
 
 export type MovementType =
@@ -175,6 +191,12 @@ export async function createTransfer(args: {
   carrier?: string | null;
   tracking_number?: string | null;
   notes?: string | null;
+  pro_number?: string | null;
+  freight_terms?: FreightTerms | null;
+  total_weight_lbs?: number | null;
+  total_pallets?: number | null;
+  declared_value_usd?: number | null;
+  special_instructions?: string | null;
 }): Promise<string> {
   return sbrpc<string>('fn_create_transfer', {
     p_from_location_id: args.from_location_id,
@@ -183,23 +205,61 @@ export async function createTransfer(args: {
     p_carrier: args.carrier ?? null,
     p_tracking_number: args.tracking_number ?? null,
     p_notes: args.notes ?? null,
+    p_pro_number: args.pro_number ?? null,
+    p_freight_terms: args.freight_terms ?? null,
+    p_total_weight_lbs: args.total_weight_lbs ?? null,
+    p_total_pallets: args.total_pallets ?? null,
+    p_declared_value_usd: args.declared_value_usd ?? null,
+    p_special_instructions: args.special_instructions ?? null,
   });
 }
 
-export async function shipTransfer(transferId: string, shipDate?: string | null): Promise<void> {
+export async function updateTransferFreight(transferId: string, patch: {
+  carrier?: string | null;
+  tracking_number?: string | null;
+  pro_number?: string | null;
+  freight_terms?: FreightTerms | null;
+  total_weight_lbs?: number | null;
+  total_pallets?: number | null;
+  declared_value_usd?: number | null;
+  special_instructions?: string | null;
+  notes?: string | null;
+}): Promise<void> {
+  await sbrpc('fn_update_transfer_freight', {
+    p_transfer_id: transferId,
+    p_carrier: patch.carrier ?? null,
+    p_tracking_number: patch.tracking_number ?? null,
+    p_pro_number: patch.pro_number ?? null,
+    p_freight_terms: patch.freight_terms ?? null,
+    p_total_weight_lbs: patch.total_weight_lbs ?? null,
+    p_total_pallets: patch.total_pallets ?? null,
+    p_declared_value_usd: patch.declared_value_usd ?? null,
+    p_special_instructions: patch.special_instructions ?? null,
+    p_notes: patch.notes ?? null,
+  });
+}
+
+export async function shipTransfer(
+  transferId: string,
+  shipDate?: string | null,
+  shipperSignatureName?: string | null,
+): Promise<void> {
   await sbrpc('fn_ship_transfer', {
     p_transfer_id: transferId,
     p_ship_date: shipDate ?? null,
+    p_shipper_signature_name: shipperSignatureName ?? null,
   });
 }
 
 export async function receiveTransfer(
   transferId: string,
   receivedDate?: string | null,
+  receiverSignatureName?: string | null,
 ): Promise<void> {
   await sbrpc('fn_receive_transfer', {
     p_transfer_id: transferId,
     p_received_date: receivedDate ?? null,
+    p_receiver_signature_name: receiverSignatureName ?? null,
   });
 }
 
