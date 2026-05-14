@@ -2,9 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
@@ -79,11 +78,6 @@ function buildBillPayload(r, vendor, fallback) {
   return payload;
 }
 
-/**
- * Best-effort margin check — if the request has a job_number, find the
- * matching QBO invoice and compute margin. Never throws; failure just
- * returns null so the auto-approve completes normally.
- */
 async function maybeMarginMatch(request, billTotal) {
   if (!request?.job_number) return null;
   try {
@@ -121,7 +115,6 @@ export default async function handler(req) {
 
   const sb = client(authHeader);
 
-  // Explicit .schema('ops') belt-and-suspenders in case db.schema config drops.
   const { data: request, error: fetchErr } = await sb
     .schema('ops')
     .from('expense_requests')
@@ -167,7 +160,6 @@ export default async function handler(req) {
         token_used: null,
       });
 
-      // Optional margin/ROI check — best-effort, doesn't block the response
       const marginMatch = await maybeMarginMatch(request, Number(request.total_amount) || 0);
 
       return json({
@@ -205,7 +197,6 @@ export default async function handler(req) {
   const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
   if (updateErr) return err('Failed to submit for approval', 500);
 
-  // DEEP-LINK directly to the review page for this request
   const reviewUrl = `${SITE_URL.replace(/\/$/, '')}/expense/review/${requestId}`;
   const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${fmt(request.total_amount)} awaiting your approval`;
   const html = buildNotificationEmailHtml(request, reviewUrl);
