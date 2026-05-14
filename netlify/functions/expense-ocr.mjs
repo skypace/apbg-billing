@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+// Hardcoded — anon key is a PUBLIC client identifier per Supabase
+// architecture. Prevents a mis-set Netlify env var from breaking us.
+const SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const CLAUDE_MODEL = process.env.CLAUDE_OCR_MODEL || 'claude-sonnet-4-5-20250929';
 const CLAUDE_FALLBACK = 'claude-haiku-4-5-20251001';
@@ -92,7 +94,6 @@ function normalize(extracted, accountLabels) {
     };
   }).filter((li) => li.description);
 
-  // Match account_guess against the live cogs_accounts list (case-insensitive contains).
   let accountGuess = String(extracted.account_guess ?? '').trim();
   if (accountGuess && Array.isArray(accountLabels) && accountLabels.length > 0) {
     const lower = accountGuess.toLowerCase();
@@ -164,7 +165,6 @@ export default async function handler(req) {
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
     : { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } };
 
-  // Pull live cogs_accounts so Claude can pick from real labels.
   let accountLabels = [];
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
