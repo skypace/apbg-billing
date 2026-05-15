@@ -136,7 +136,7 @@ function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
 export function InventoryPage() {
   const [tab, setTab] = useState<TabId>('reorder');
   const [lookback, setLookback] = useState(90);
-  const [managedOnly, setManagedOnly] = useState(false);
+  const [managedOnly, setManagedOnly] = useState(true);
   const [rows, setRows] = useState<InventoryHealthRow[] | null>(null);
 
   function load() {
