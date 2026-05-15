@@ -9,15 +9,21 @@ import {
   ProductBom, WorkOrder,
   fetchBoms, fetchWorkOrders,
 } from '../../lib/production';
+import {
+  PurchaseOrderRow, QboVendor,
+  fetchPurchaseOrders, fetchVendors,
+} from '../../lib/purchasing';
 import { TABS_SX } from '../stock/stockStyles';
 import { BomsTab } from './BomsTab';
 import { WorkOrdersTab } from './WorkOrdersTab';
+import { PurchaseOrdersTab } from './PurchaseOrdersTab';
 
-type TabId = 'boms' | 'work_orders';
+type TabId = 'boms' | 'work_orders' | 'purchase_orders';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'boms',        label: 'Bills of Materials' },
-  { id: 'work_orders', label: 'Work Orders'        },
+  { id: 'boms',            label: 'Bills of Materials' },
+  { id: 'work_orders',     label: 'Work Orders'        },
+  { id: 'purchase_orders', label: 'Purchase Orders'    },
 ];
 
 export interface ProductionItemLookup {
@@ -32,13 +38,17 @@ export function ProductionPage() {
   const [wos, setWos] = useState<WorkOrder[] | null>(null);
   const [items, setItems] = useState<InventoryHealthRow[] | null>(null);
   const [locations, setLocations] = useState<InventoryLocation[] | null>(null);
+  const [vendors, setVendors] = useState<QboVendor[] | null>(null);
+  const [pos, setPos] = useState<PurchaseOrderRow[] | null>(null);
 
   function reloadAll() {
-    setBoms(null); setWos(null);
+    setBoms(null); setWos(null); setPos(null);
     fetchBoms().then(setBoms).catch(() => setBoms([]));
     fetchWorkOrders().then(setWos).catch(() => setWos([]));
     fetchInventoryHealth({ lookback: 90 }).then(setItems).catch(() => setItems([]));
     fetchLocations().then(setLocations).catch(() => setLocations([]));
+    fetchVendors().then(setVendors).catch(() => setVendors([]));
+    fetchPurchaseOrders().then(setPos).catch(() => setPos([]));
   }
   useEffect(reloadAll, []);
 
@@ -70,15 +80,16 @@ export function ProductionPage() {
 
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Production';
   const openCount = (wos ?? []).filter((w) => w.status === 'draft' || w.status === 'consumed').length;
+  const openPoCount = (pos ?? []).filter((p) => p.status === 'open' || p.status === 'partial').length;
 
   return (
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">BOM · Work Orders · Cost Rollup</div>
+          <div className="hero-eyebrow">BOM · Work Orders · Purchase Orders · Cost Rollup</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
-            {activeLabel} · {boms?.length ?? 0} BOM{(boms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'}
+            {activeLabel} · {boms?.length ?? 0} BOM{(boms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
           </div>
         </div>
         <div className="hero-stamp">
@@ -103,6 +114,16 @@ export function ProductionPage() {
           workOrders={wos}
           boms={boms ?? []}
           bomById={bomById}
+          locations={locations ?? []}
+          locById={locById}
+          itemLookup={itemLookup}
+          onChanged={reloadAll}
+        />
+      )}
+      {tab === 'purchase_orders' && (
+        <PurchaseOrdersTab
+          vendors={vendors}
+          purchaseOrders={pos}
           locations={locations ?? []}
           locById={locById}
           itemLookup={itemLookup}
