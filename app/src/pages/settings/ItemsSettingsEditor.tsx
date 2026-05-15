@@ -242,6 +242,35 @@ export function ItemsSettingsEditor() {
     window.location.reload();
   }
 
+  // Column layout persistence (order + widths). Saved to localStorage so
+  // drag-reordering and resizing survive page reloads.
+  const apiRef = useGridApiRef();
+  const LAYOUT_KEY = 'brix.items-master.layout-v1';
+  const [savedLayout] = useState<{ order: string[]; widths: Record<string, number> } | null>(() => {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+
+  function persistLayout() {
+    if (!apiRef.current) return;
+    try {
+      const cols = apiRef.current.getAllColumns();
+      const order = cols.map((c) => c.field).filter((f) => f !== '__check__' && !f.startsWith('__'));
+      const widths: Record<string, number> = {};
+      for (const c of cols) {
+        if (typeof c.width === 'number') widths[c.field] = c.width;
+      }
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ order, widths }));
+    } catch { /* swallow — layout save is best-effort */ }
+  }
+
+  function resetLayout() {
+    localStorage.removeItem(LAYOUT_KEY);
+    window.location.reload();
+  }
+
   function load() {
     setRows(null);
     Promise.all([
