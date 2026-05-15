@@ -1,0 +1,24 @@
+# Cloudflare Pages / Netlify-compatible redirects.
+#
+# Both Cloudflare Pages and Netlify read _redirects in this same format
+# so the same file works on both deploy targets. Keep this in sync with
+# the [[redirects]] blocks in netlify.toml whenever you add a new rule.
+#
+# Order matters — the first matching rule wins. Function redirects MUST
+# come before the SPA fallback or the SPA catch-all swallows them.
+
+# ── Brixpense API → underlying Netlify Functions ──────────────────────────
+/api/expense-request-decide     /.netlify/functions/expense-request-decide     200
+/api/expense-request-notify     /.netlify/functions/expense-request-notify     200
+/api/expense-request-link-bill  /.netlify/functions/expense-request-link-bill  200
+/api/expense-ocr                /.netlify/functions/expense-ocr                200
+
+# ── Expense app SPA fallback (any unmatched /expense/* → expense SPA) ────
+/expense/*                      /expense/index.html                            200
+
+# ── Margin app SPA fallback (any unmatched /sales-next/* → margin SPA) ───
+/sales-next/*                   /sales-next/index.html                         200
+
+# ── Legacy /ops/ → /sales/ ───────────────────────────────────────────────
+/ops                            /sales/                                        301!
+/ops/*                          /sales/:splat                                  301!
