@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DataGridPro,
+  useGridApiRef,
   type GridColDef,
   type GridGroupNode,
   type GridValidRowModel,
@@ -195,6 +196,34 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string; item_name: string; current: boolean; next: boolean;
   } | null>(null);
   const [activeBusy, setActiveBusy] = useState(false);
+
+  // Column layout persistence (order + widths + visibility). Uses MUI X
+  // Pro's built-in exportState/restoreState — much more reliable than
+  // hand-rolling column reordering. Saved layout is restored via the
+  // `initialState` prop on mount; further changes save on every order or
+  // width change.
+  const apiRef = useGridApiRef();
+  const LAYOUT_KEY = 'brix.items-master.layout-v2';
+  const [layoutInitialState] = useState<unknown>(() => {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+
+  function persistLayout() {
+    if (!apiRef.current) return;
+    try {
+      const state = apiRef.current.exportState();
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(state));
+    } catch { /* swallow — layout save is best-effort */ }
+  }
+
+  function resetLayout() {
+    localStorage.removeItem(LAYOUT_KEY);
+    localStorage.removeItem('brix.items-master.layout-v1');
+    window.location.reload();
+  }
 
   function load() {
     setRows(null);
@@ -850,6 +879,10 @@ export function ItemsSettingsEditor() {
     );
 
     return cols;
+    // Column order + widths are restored by MUI X via initialState —
+    // not here. Don't add the saved state to deps; otherwise we'd
+    // re-render columns on every persist and lose the user's in-flight
+    // drag.
   }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupingColDef = useMemo(() => ({
@@ -1031,6 +1064,10 @@ export function ItemsSettingsEditor() {
           {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
         <button onClick={load} className="tb-btn">Refresh</button>
+        <button onClick={resetLayout} className="tb-btn"
+          title="Reset column order, widths, and visibility to defaults">
+          Reset layout
+        </button>
       </div>
 
       <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
@@ -1038,6 +1075,7 @@ export function ItemsSettingsEditor() {
           <div className="ld">No items match.</div>
         ) : (
           <DataGridPro
+            apiRef={apiRef}
             rows={gridRows} columns={columns}
             treeData getTreeDataPath={getTreeDataPath}
             groupingColDef={groupingColDef}
@@ -1046,11 +1084,23 @@ export function ItemsSettingsEditor() {
             onRowSelectionModelChange={(model) => {
               setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
             }}
+            // Persist column order, widths, visibility, pinning on
+            // every change. MUI X handles the in-grid state itself —
+            // we just snapshot to localStorage.
+            onColumnOrderChange={persistLayout}
+            onColumnWidthChange={persistLayout}
+            onColumnVisibilityModelChange={persistLayout}
+            onPinnedColumnsChange={persistLayout}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
+            // Restore saved layout (column order, widths, visibility,
+            // filters) on top of our defaults. The saved state wins for
+            // any key it specifies; the rest fall through to defaults.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             initialState={{
               pagination: { paginationModel: { pageSize: 60, page: 0 } },
               sorting: { sortModel: [{ field: 'is_managed', sort: 'desc' }] },
+              ...(typeof layoutInitialState === 'object' && layoutInitialState ? (layoutInitialState as Record<string, unknown>) : {}),
             }}
             isGroupExpandedByDefault={(node: GridGroupNode) => node.groupingKey !== INACTIVE_GROUP}
             sx={GRID_SX}
