@@ -18,11 +18,18 @@
 //
 // Both return { ok, response?, user?, role?, jwt? }.
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-const SUPABASE_ANON_KEY =
-  process.env.SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+// Use the validated anon-key resolver from supabase-helpers.mjs rather than
+// reading process.env.SUPABASE_ANON_KEY directly. The Netlify env var is
+// currently set to a value that fails project-ref validation — the brixpense
+// commits (5165bf2 / 8480239 / 7753f84 / f03c518) discovered and worked
+// around this; this file was left reading the env var directly, which made
+// every Supabase /auth/v1/user call use the broken key and return 401, so
+// requireAuth interpreted that as "Invalid or expired token" and 401'd
+// every authed function (resq-sf-sync, health-watchdog, pacer-health,
+// expense-to-bill, approve-bill, master-health, etc.) — meanwhile brixpense
+// (notify/decide/expense-ocr) kept working because those endpoints use the
+// helper. Fix the asymmetry by routing this file through the same helper.
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase-helpers.mjs';
 
 const DEFAULT_ROLES = ['superadmin'];
 
@@ -76,6 +83,22 @@ export async function requireAuth(reqOrEvent, allowedRoles = DEFAULT_ROLES) {
       },
     });
     if (!res.ok) {
+      // Distinguish a Supabase-side outage from a genuinely-invalid token.
+      // Mapping every non-2xx to 401 'Invalid or expired token' made a
+      // paused / 5xx-ing project look like every user's session had
+      // simultaneously expired — operators chased phantom token issues
+      // while the real problem was an upstream outage.
+      // 5xx → upstream auth degraded (502); 4xx → real token problem (401).
+      if (res.status >= 500) {
+        return {
+          ok: false,
+          response: makeError(
+            reqOrEvent,
+            502,
+            `Auth service degraded — Supabase /auth/v1/user returned ${res.status}`
+          ),
+        };
+      }
       return {
         ok: false,
         response: makeError(reqOrEvent, 401, 'Invalid or expired token'),
