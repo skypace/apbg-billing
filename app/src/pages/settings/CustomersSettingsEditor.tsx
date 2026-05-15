@@ -399,6 +399,14 @@ export function CustomersSettingsEditor() {
 
   const groupingColDef = useMemo(() => ({
     headerName: 'Channel / Customer', width: 320, hideDescendantCount: false,
+    // Group rows are channel/parent headers — they have no qbo_customer_id and
+    // shouldn't render the per-row dropdowns. Spanning the whole grid keeps
+    // them visually distinct and stops e.g. the "Primary Channel" select from
+    // showing "— unassigned —" on every section header.
+    colSpan: (_value: unknown, row: Record<string, unknown>) => {
+      const isGroup = row?.qbo_customer_id == null;
+      return isGroup ? columns.length + 1 : 1;
+    },
     renderCell: (params: {
       rowNode: { type: string; groupingKey?: string | number | null; depth?: number };
       row: { display_name?: string; is_sub_customer?: boolean; ar_total?: number };
@@ -431,7 +439,7 @@ export function CustomersSettingsEditor() {
       );
     },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as any, []);
+  }) as any, [columns.length]);
 
   if (!rows) return <div className="ld">Loading customers…</div>;
 
@@ -521,6 +529,7 @@ export function CustomersSettingsEditor() {
             treeData getTreeDataPath={getTreeDataPath}
             groupingColDef={groupingColDef}
             density="compact" pagination disableRowSelectionOnClick
+            isRowSelectable={(p) => (p.row as { qbo_customer_id?: string }).qbo_customer_id != null}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
             initialState={{
