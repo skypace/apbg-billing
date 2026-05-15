@@ -5,6 +5,7 @@ import {
   ProductBom, WorkOrder, WorkOrderCosts, WorkOrderStatus,
   closeWorkOrder, consumeWorkOrder, createWorkOrder,
   fetchBomLines, fetchWorkOrderCosts, voidWorkOrder,
+  pushWorkOrderToQbo,
   ProductBomLine,
 } from '../../lib/production';
 import { InventoryLocation } from '../../lib/inventoryControl';
@@ -334,6 +335,33 @@ function WorkOrderDetailModal({
     finally { setBusy(false); }
   }
 
+  async function doPushToQbo() {
+    if (!confirm(
+      'Push this work order to QuickBooks as an InventoryAdjustment?\n\n' +
+      'This will create a single adjustment record in QBO with:\n' +
+      '  • Negative quantity for each component consumed\n' +
+      '  • Positive quantity for the finished good produced\n\n' +
+      'Only Inventory-tracked items are pushed; Service / NonInventory components are skipped.\n\n' +
+      'The push is idempotent — once successful, this button hides.'
+    )) return;
+    setBusy(true);
+    try {
+      const result = await pushWorkOrderToQbo(woId);
+      if (result.no_change) {
+        toast.info('Already synced to QBO.');
+      } else {
+        toast.success(
+          `Pushed to QBO as InventoryAdjustment #${result.qbo_inventory_adjustment_id}` +
+          (result.skipped && result.skipped.length > 0
+            ? ` (${result.skipped.length} non-inventory items skipped)`
+            : ''),
+        );
+      }
+      onChanged();
+    } catch (e) { toast.error('QBO push failed: ' + errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
   async function doVoid() {
     const reason = prompt('Void reason?');
     if (!reason) return;
@@ -530,6 +558,21 @@ function WorkOrderDetailModal({
           </div>
         )}
 
+        {wo.status === 'closed' && wo.qbo_inventory_adjustment_id && (
+          <div style={{
+            marginTop: 14, padding: '8px 12px', fontSize: 11,
+            background: 'rgba(91,181,240,0.08)', borderLeft: '3px solid var(--ac)',
+            borderRadius: 4, color: 'var(--tx2)',
+          }}>
+            ✓ Synced to QBO as InventoryAdjustment <code style={{ color: 'var(--ac)' }}>#{wo.qbo_inventory_adjustment_id}</code>
+            {wo.qbo_pushed_at && (
+              <span style={{ marginLeft: 8, color: 'var(--mt)' }}>
+                · {new Date(wo.qbo_pushed_at).toLocaleString()}
+              </span>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
           <button onClick={printSummary} style={btnSecondary()}>
             <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Print
@@ -542,6 +585,12 @@ function WorkOrderDetailModal({
           )}
           {wo.status === 'consumed' && (
             <button onClick={doClose} disabled={busy} style={btnPrimary()}>Close + lock costs →</button>
+          )}
+          {wo.status === 'closed' && !wo.qbo_inventory_adjustment_id && (
+            <button onClick={doPushToQbo} disabled={busy} style={btnPrimary()}
+              title="Post an InventoryAdjustment to QBO with the consume + yield deltas from this work order">
+              Push to QBO →
+            </button>
           )}
         </div>
       </div>
