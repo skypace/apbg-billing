@@ -76,6 +76,22 @@ export async function requireAuth(reqOrEvent, allowedRoles = DEFAULT_ROLES) {
       },
     });
     if (!res.ok) {
+      // Distinguish a Supabase-side outage from a genuinely-invalid token.
+      // Mapping every non-2xx to 401 'Invalid or expired token' made a
+      // paused / 5xx-ing project look like every user's session had
+      // simultaneously expired — operators chased phantom token issues
+      // while the real problem was an upstream outage.
+      // 5xx → upstream auth degraded (502); 4xx → real token problem (401).
+      if (res.status >= 500) {
+        return {
+          ok: false,
+          response: makeError(
+            reqOrEvent,
+            502,
+            `Auth service degraded — Supabase /auth/v1/user returned ${res.status}`
+          ),
+        };
+      }
       return {
         ok: false,
         response: makeError(reqOrEvent, 401, 'Invalid or expired token'),
