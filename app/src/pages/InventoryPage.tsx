@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
-import { Search, X } from 'lucide-react';
+import { Search, X, ShoppingCart } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
 import { fm, fmtNum } from '../lib/formatters';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
@@ -30,6 +30,8 @@ const STATUS_COLOR: Record<string, string> = {
   idle:         'var(--mt)', ok:           'var(--gn)',
   inactive:     '#64748b',
 };
+
+const REORDER_STATUSES = new Set(['reorder_now', 'reorder', 'reorder_soon', 'critical']);
 
 const TABS_SX = {
   minHeight: 36, mb: 1.5, borderBottom: '1px solid var(--bd)',
@@ -206,7 +208,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   const reorder = useMemo(() => {
     if (!rows) return [];
     return rows
-      .filter((r) => r.status === 'reorder_now' || r.status === 'reorder' || r.status === 'critical' || r.status === 'reorder_soon' || !r.active)
+      .filter((r) => REORDER_STATUSES.has(r.status) || !r.active)
       .sort((a, b) => Number(a.days_of_supply ?? 999) - Number(b.days_of_supply ?? 999));
   }, [rows]);
   const filtered = useMemo(() => filterBySearch(reorder, search), [reorder, search]);
@@ -236,27 +238,59 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
     { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
+    {
+      field: 'qty_on_order', headerName: 'On Order', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => {
+        const v = Number(p.value ?? 0);
+        return v > 0
+          ? <span style={{ color: 'var(--gn)', fontWeight: 600 }}>{fmtNum(v)}</span>
+          : <span style={{ color: 'var(--mt)' }}>—</span>;
+      },
+    },
     { field: 'reorder_point', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : String(v)) },
     {
       field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 130, cellClassName: 'mn',
       renderCell: (p) => (
-        <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? String(p.value) : '—'}</span>
+        <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
       ),
     },
   ], []);
 
   function exportCsv() {
     if (reorder.length === 0) return;
-    const head = ['Item', 'Category', 'Active', 'On Hand', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
+    const head = ['Item', 'Category', 'Active', 'On Hand', 'On Order', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
       r.item_name, r.category_resolved ?? '', r.active ? 'yes' : 'no',
-      r.on_hand ?? '',
+      r.on_hand ?? '', r.qty_on_order ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
       r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '',
       r.reorder_point ?? '', r.suggested_order_qty ?? '', r.status,
     ]);
     downloadCsv(`reorder_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
+  }
+
+  // Push the visible reorder list into sessionStorage as a PO prefill,
+  // then navigate to the Production page → Purchase Orders tab. The PO
+  // module reads the key on mount, opens its Create form, and seeds
+  // lines with item + suggested qty + last known unit cost.
+  function createPoFromReorder() {
+    const candidates = (filtered.length > 0 ? filtered : reorder).filter(
+      (r) => r.active && r.suggested_order_qty != null && Number(r.suggested_order_qty) > 0,
+    );
+    if (candidates.length === 0) return;
+    const prefill = candidates.map((r) => ({
+      qbo_item_id: r.qbo_item_id,
+      item_name: r.item_name,
+      qty_ordered: Number(r.suggested_order_qty),
+      unit_cost: r.purchase_cost ?? 0,
+    }));
+    sessionStorage.setItem('brix.po.prefill', JSON.stringify({
+      source: 'inventory-reorder',
+      generated_at: new Date().toISOString(),
+      lines: prefill,
+    }));
+    window.location.hash = '#production';
   }
 
   function printOrderSheet() {
@@ -281,14 +315,15 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   const healthy     = rows.filter((r) => r.active && (r.status === 'healthy' || r.status === 'ok'));
   const overstock   = rows.filter((r) => r.active && r.status === 'overstock');
   const inactiveCount = rows.filter((r) => !r.active).length;
+  const onOrderTotal = rows.reduce((s, r) => s + Number(r.qty_on_order ?? 0), 0);
 
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 14 }}>
-        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="below reorder point" />
-        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="approaching reorder point" />
-        <KPICard title="HEALTHY" value={healthy.length} accent="var(--gn)" />
-        <KPICard title="OVERSTOCK" value={overstock.length} accent="#a78bfa" sub={`${inactiveCount} inactive in list`} />
+        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="days of supply ≤ lead time" />
+        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="within 2× lead time" />
+        <KPICard title="ON ORDER" value={fmtNum(onOrderTotal)} accent="var(--gn)" sub="open PO units pending" />
+        <KPICard title="OVERSTOCK" value={overstock.length} accent="#a78bfa" sub={`${healthy.length} healthy · ${inactiveCount} inactive`} />
       </div>
 
       <div className="cd" style={{
@@ -300,7 +335,16 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
           {filtered.length} of {reorder.length} items
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button onClick={printOrderSheet} disabled={reorder.length === 0} style={btnPrimary()}>PRINT ORDER SHEET</button>
+          <button
+            onClick={createPoFromReorder}
+            disabled={reorder.length === 0}
+            style={btnPrimary()}
+            title="Open Production → Purchase Orders pre-filled with these items"
+          >
+            <ShoppingCart size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+            CREATE PO
+          </button>
+          <button onClick={printOrderSheet} disabled={reorder.length === 0} style={btnSecondary()}>PRINT ORDER SHEET</button>
           <button onClick={exportCsv} disabled={reorder.length === 0} style={btnSecondary()}>EXPORT CSV</button>
         </span>
       </div>
@@ -353,6 +397,15 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     { field: 'customers_count', headerName: 'Customers', type: 'number', width: 100, cellClassName: 'mn' },
     { field: 'purchased_qty', headerName: 'Purchased', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
+    {
+      field: 'qty_on_order', headerName: 'On Order', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => {
+        const v = Number(p.value ?? 0);
+        return v > 0
+          ? <span style={{ color: 'var(--gn)', fontWeight: 600 }}>{fmtNum(v)}</span>
+          : <span style={{ color: 'var(--mt)' }}>—</span>;
+      },
+    },
     {
       field: 'adjustment_qty', headerName: 'Adj Qty', type: 'number', width: 100, cellClassName: 'mn',
       renderCell: (p) => {

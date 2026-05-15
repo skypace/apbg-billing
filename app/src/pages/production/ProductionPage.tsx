@@ -33,7 +33,13 @@ export interface ProductionItemLookup {
 }
 
 export function ProductionPage() {
-  const [tab, setTab] = useState<TabId>('boms');
+  // If an Inventory → Reorder click stashed a PO prefill, open that tab
+  // immediately so the prefilled Create-PO form is visible on mount.
+  const initialTab: TabId =
+    typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.po.prefill')
+      ? 'purchase_orders'
+      : 'boms';
+  const [tab, setTab] = useState<TabId>(initialTab);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
   const [wos, setWos] = useState<WorkOrder[] | null>(null);
   const [items, setItems] = useState<InventoryHealthRow[] | null>(null);

@@ -33,6 +33,7 @@ export interface InventoryHealthRow {
   purchased_cost: number;
   adjustment_qty: number;
   shrinkage_qty: number;
+  qty_on_order: number;
   daily_velocity: number | null;
   days_of_supply: number | null;
   suggested_order_qty: number | null;

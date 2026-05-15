@@ -33,14 +33,47 @@ interface Props {
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
+interface PoPrefillLine {
+  qbo_item_id: string;
+  item_name: string;
+  qty_ordered: number;
+  unit_cost: number;
+}
+interface PoPrefillState {
+  source: string;
+  generated_at: string;
+  lines: PoPrefillLine[];
+}
+
+function readPrefill(): PoPrefillState | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  const raw = sessionStorage.getItem('brix.po.prefill');
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as PoPrefillState;
+    if (!parsed || !Array.isArray(parsed.lines) || parsed.lines.length === 0) return null;
+    return parsed;
+  } catch { return null; }
+}
+
 export function PurchaseOrdersTab({
   vendors, purchaseOrders, locations, locById, itemLookup, onChanged,
 }: Props) {
   const toast = useToast();
-  const [creating, setCreating] = useState(false);
+  // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
+  // open the Create form on mount and seed its lines.
+  const [prefill] = useState<PoPrefillState | null>(() => readPrefill());
+  const [creating, setCreating] = useState(prefill !== null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
   const [syncing, setSyncing] = useState(false);
+
+  // One-shot: clear sessionStorage so refreshing doesn't keep opening the form.
+  useEffect(() => {
+    if (prefill && typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('brix.po.prefill');
+    }
+  }, [prefill]);
 
   const physicalLocs = useMemo(
     () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment'),
@@ -167,6 +200,7 @@ export function PurchaseOrdersTab({
           locations={physicalLocs}
           componentItems={componentItems}
           itemLookup={itemLookup}
+          prefill={prefill}
           onCancel={() => setCreating(false)}
           onCreated={() => { setCreating(false); onChanged(); }}
         />
@@ -212,12 +246,13 @@ function newDraftLine(): DraftLine {
 }
 
 function CreatePoForm({
-  vendors, locations, componentItems, itemLookup, onCancel, onCreated,
+  vendors, locations, componentItems, itemLookup, prefill, onCancel, onCreated,
 }: {
   vendors: QboVendor[];
   locations: InventoryLocation[];
   componentItems: { id: string; label: string }[];
   itemLookup: ProductionItemLookup;
+  prefill: PoPrefillState | null;
   onCancel: () => void;
   onCreated: () => void;
 }) {
@@ -225,8 +260,17 @@ function CreatePoForm({
   const [vendorId, setVendorId] = useState('');
   const [locId, setLocId] = useState('');
   const [expected, setExpected] = useState('');
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<DraftLine[]>([newDraftLine()]);
+  const [notes, setNotes] = useState(prefill ? 'Generated from inventory reorder list' : '');
+  const [lines, setLines] = useState<DraftLine[]>(
+    prefill && prefill.lines.length > 0
+      ? prefill.lines.map((p) => ({
+          qbo_item_id: p.qbo_item_id,
+          qty_ordered: String(p.qty_ordered),
+          unit_cost: p.unit_cost > 0 ? String(p.unit_cost) : '',
+          description: '',
+        }))
+      : [newDraftLine()],
+  );
   const [saving, setSaving] = useState(false);
 
   function updateLine(idx: number, patch: Partial<DraftLine>) {
