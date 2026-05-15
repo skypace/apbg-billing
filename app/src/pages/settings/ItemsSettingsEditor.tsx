@@ -18,6 +18,7 @@ import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
 import {
   fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled, logQboWriteback,
+  pullQboItemsNow,
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
@@ -207,6 +208,28 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string; item_name: string; current: boolean; next: boolean;
   } | null>(null);
   const [activeBusy, setActiveBusy] = useState(false);
+  const [qboSyncing, setQboSyncing] = useState(false);
+
+  async function pullFromQbo() {
+    if (qboSyncing) return;
+    setQboSyncing(true);
+    try {
+      const r = await pullQboItemsNow();
+      const parts: string[] = [];
+      if (r.synced != null) parts.push(`${r.synced} items`);
+      if (r.active_in_qbo != null && r.inactive_in_qbo != null) {
+        parts.push(`${r.active_in_qbo} active / ${r.inactive_in_qbo} inactive`);
+      }
+      if (r.reconciled_inactive) parts.push(`${r.reconciled_inactive} reconciled`);
+      const secs = r.duration_ms ? (r.duration_ms / 1000).toFixed(1) : '?';
+      toast.success(`Synced from QBO (${secs}s): ${parts.join(', ')}`);
+      load();
+    } catch (e) {
+      toast.error('QBO sync failed: ' + (e as Error).message);
+    } finally {
+      setQboSyncing(false);
+    }
+  }
   const [pushReview, setPushReview] = useState<{
     categoriesToCreate: string[];
     changes: CategoryChange[];
@@ -1310,6 +1333,11 @@ export function ItemsSettingsEditor() {
           {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
         <button onClick={load} className="tb-btn">Refresh</button>
+        <button onClick={pullFromQbo} disabled={qboSyncing}
+          className={'tb-btn' + (qboSyncing ? '' : ' tb-btn--primary')}
+          title="Pull the latest item master + active/inactive from QuickBooks now (otherwise waits for the 1:30 AM PT nightly sync)">
+          {qboSyncing ? 'Pulling from QBO…' : 'Pull from QBO'}
+        </button>
         <button onClick={resetLayout} className="tb-btn"
           title="Reset column order, widths, and visibility to defaults">
           Reset layout

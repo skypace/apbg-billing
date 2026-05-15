@@ -236,6 +236,38 @@ export async function setItemActive(qbo_item_id: string, active: boolean): Promi
   return callPushQboItem({ action: 'setActive', qbo_item_id, active });
 }
 
+// Pull item master from QBO on demand (instead of waiting for the
+// nightly 1:30am PT cron). Returns the sync result so the UI can show
+// "synced 1,211 items, 738 inactive" or similar.
+export interface QboItemsSyncResult {
+  ok: boolean;
+  synced?: number;
+  active_in_qbo?: number;
+  inactive_in_qbo?: number;
+  with_purchase_cost?: number;
+  upserted?: number;
+  reconciled_inactive?: number;
+  duration_ms?: number;
+  error?: string;
+}
+export async function pullQboItemsNow(): Promise<QboItemsSyncResult> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/sync-qbo-items', {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+  const j = (await res.json()) as QboItemsSyncResult;
+  if (!res.ok || j.ok === false) {
+    throw new Error(j.error || ('QBO items sync failed: HTTP ' + res.status));
+  }
+  return j;
+}
+
 // Logs every QBO writeback attempt to ops.qbo_writeback_log so we have
 // our own audit trail (not just edge-function HTTP logs). Best-effort:
 // logging failures never throw — we don't want to mask the real result.
