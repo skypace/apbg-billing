@@ -48,6 +48,28 @@
 [functions."master-health-cron"]
   timeout = 60
 
+# ── BRIXpense API → underlying functions ──
+# These map the frontend's POST URLs to the actual function names.
+# They MUST appear BEFORE the SPA fallback below, otherwise `/api/expense-*`
+# gets rewritten to /expense/index.html and Marco hits a 404 page when he
+# clicks Approve (which is exactly what happened on PR 80706b57).
+[[redirects]]
+  from = "/api/expense-request-decide"
+  to = "/.netlify/functions/expense-request-decide"
+  status = 200
+[[redirects]]
+  from = "/api/expense-request-notify"
+  to = "/.netlify/functions/expense-request-notify"
+  status = 200
+[[redirects]]
+  from = "/api/expense-request-link-bill"
+  to = "/.netlify/functions/expense-request-link-bill"
+  status = 200
+[[redirects]]
+  from = "/api/expense-ocr"
+  to = "/.netlify/functions/expense-ocr"
+  status = 200
+
 # ── Expense app: SPA fallback ──
 # Any /expense/* path that doesn't match a static file → serve the expense SPA
 [[redirects]]
