@@ -213,11 +213,14 @@ export function ItemsSettingsEditor() {
     alreadyCorrect: number;
   } | null>(null);
 
-  // Column layout persistence (order + widths). Saved to localStorage so
-  // drag-reordering and resizing survive page reloads.
+  // Column layout persistence (order + widths + visibility). Uses MUI X
+  // Pro's built-in exportState/restoreState — much more reliable than
+  // hand-rolling column reordering. Saved layout is restored via the
+  // `initialState` prop on mount; further changes save on every order or
+  // width change.
   const apiRef = useGridApiRef();
-  const LAYOUT_KEY = 'brix.items-master.layout-v1';
-  const [savedLayout] = useState<{ order: string[]; widths: Record<string, number> } | null>(() => {
+  const LAYOUT_KEY = 'brix.items-master.layout-v2';
+  const [layoutInitialState] = useState<unknown>(() => {
     try {
       const raw = localStorage.getItem(LAYOUT_KEY);
       return raw ? JSON.parse(raw) : null;
@@ -227,47 +230,14 @@ export function ItemsSettingsEditor() {
   function persistLayout() {
     if (!apiRef.current) return;
     try {
-      const cols = apiRef.current.getAllColumns();
-      const order = cols.map((c) => c.field).filter((f) => f !== '__check__' && !f.startsWith('__'));
-      const widths: Record<string, number> = {};
-      for (const c of cols) {
-        if (typeof c.width === 'number') widths[c.field] = c.width;
-      }
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ order, widths }));
+      const state = apiRef.current.exportState();
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(state));
     } catch { /* swallow — layout save is best-effort */ }
   }
 
   function resetLayout() {
     localStorage.removeItem(LAYOUT_KEY);
-    window.location.reload();
-  }
-
-  // Column layout persistence (order + widths). Saved to localStorage so
-  // drag-reordering and resizing survive page reloads.
-  const apiRef = useGridApiRef();
-  const LAYOUT_KEY = 'brix.items-master.layout-v1';
-  const [savedLayout] = useState<{ order: string[]; widths: Record<string, number> } | null>(() => {
-    try {
-      const raw = localStorage.getItem(LAYOUT_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  });
-
-  function persistLayout() {
-    if (!apiRef.current) return;
-    try {
-      const cols = apiRef.current.getAllColumns();
-      const order = cols.map((c) => c.field).filter((f) => f !== '__check__' && !f.startsWith('__'));
-      const widths: Record<string, number> = {};
-      for (const c of cols) {
-        if (typeof c.width === 'number') widths[c.field] = c.width;
-      }
-      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ order, widths }));
-    } catch { /* swallow — layout save is best-effort */ }
-  }
-
-  function resetLayout() {
-    localStorage.removeItem(LAYOUT_KEY);
+    localStorage.removeItem('brix.items-master.layout-v1');
     window.location.reload();
   }
 
@@ -1133,24 +1103,12 @@ export function ItemsSettingsEditor() {
       },
     );
 
-    // Apply persisted widths
-    if (savedLayout?.widths) {
-      for (const c of cols) {
-        const w = savedLayout.widths[c.field];
-        if (typeof w === 'number') c.width = w;
-      }
-    }
-    // Reorder by saved order, append any new fields at end
-    if (savedLayout?.order && savedLayout.order.length) {
-      const idx = new Map(savedLayout.order.map((f, i) => [f, i]));
-      cols.sort((a, b) => {
-        const ai = idx.has(a.field) ? idx.get(a.field)! : 999;
-        const bi = idx.has(b.field) ? idx.get(b.field)! : 999;
-        return ai - bi;
-      });
-    }
     return cols;
-  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts, savedLayout]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Column order + widths are restored by MUI X via initialState —
+    // not here. Don't add the saved state to deps; otherwise we'd
+    // re-render columns on every persist and lose the user's in-flight
+    // drag.
+  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Make group rows span the whole grid (no toggles, no "0"s in numeric
   // cells, no autocomplete dropdowns) — the category header sits alone.
@@ -1353,7 +1311,7 @@ export function ItemsSettingsEditor() {
         </button>
         <button onClick={load} className="tb-btn">Refresh</button>
         <button onClick={resetLayout} className="tb-btn"
-          title="Reset column order + widths to defaults">
+          title="Reset column order, widths, and visibility to defaults">
           Reset layout
         </button>
       </div>
@@ -1374,14 +1332,23 @@ export function ItemsSettingsEditor() {
             onRowSelectionModelChange={(model) => {
               setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
             }}
-            // Persist column order + widths on every drag/resize.
+            // Persist column order, widths, visibility, pinning on
+            // every change. MUI X handles the in-grid state itself —
+            // we just snapshot to localStorage.
             onColumnOrderChange={persistLayout}
             onColumnWidthChange={persistLayout}
+            onColumnVisibilityModelChange={persistLayout}
+            onPinnedColumnsChange={persistLayout}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
+            // Restore saved layout (column order, widths, visibility,
+            // filters) on top of our defaults. The saved state wins for
+            // any key it specifies; the rest fall through to defaults.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             initialState={{
               pagination: { paginationModel: { pageSize: 60, page: 0 } },
               sorting: { sortModel: [{ field: 'is_managed', sort: 'desc' }] },
+              ...(typeof layoutInitialState === 'object' && layoutInitialState ? (layoutInitialState as Record<string, unknown>) : {}),
             }}
             isGroupExpandedByDefault={(node: GridGroupNode) => node.groupingKey !== INACTIVE_GROUP}
             sx={GRID_SX}
