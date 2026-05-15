@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Camera, Upload, X, Plus, Trash2, Loader2,
-  CheckCircle, AlertTriangle, Receipt,
+  CheckCircle, AlertTriangle, Receipt, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,24 +18,42 @@ import type { LineItem } from '@/types/expense';
 
 type FormStep = 'upload' | 'details' | 'submitting' | 'success' | 'error';
 
+interface MarginMatch {
+  matched: boolean;
+  job_number?: string;
+  invoice?: {
+    id: string;
+    number: string;
+    customerName: string | null;
+    total: number;
+  };
+  margin?: number;
+  marginPct?: number;
+}
+
 export default function ExpenseForm() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id?: string }>();
+  const isEditing = Boolean(id);
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  /* ── step / receipt state ── */
-  const [step, setStep] = useState<FormStep>('upload');
+  const [step, setStep] = useState<FormStep>(isEditing ? 'details' : 'upload');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrModel, setOcrModel] = useState<string | null>(null);
+  const [loadingExisting, setLoadingExisting] = useState(isEditing);
 
-  /* ── form fields ── */
   const [vendorName, setVendorName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
+  const [entity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -47,68 +65,150 @@ export default function ExpenseForm() {
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
+  const [existingStatus, setExistingStatus] = useState<string | null>(null);
 
-  /* ── submission state ── */
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
-  const [resultBillId, setResultBillId] = useState<string | null>(null);
+  const [resultBillId] = useState<string | null>(null);
+  const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  /* ── derived ── */
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
   const needsApproval = totalNum > threshold;
+  const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
-  /* ── receipt handling ── */
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingExisting(true);
+      const { data, error } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (cancelled) return;
+      if (error || !data) {
+        setErrorMessage(
+          error?.message ||
+            "We couldn't load that submission. It may have been deleted, or you don't have access.",
+        );
+        setStep('error');
+        setLoadingExisting(false);
+        return;
+      }
+      setExistingStatus(data.status);
+      setVendorName(data.vendor_name || '');
+      setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
+      setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
+      setCogsAccountLabel(data.cogs_account_label || '');
+      setCogsAccountId(data.cogs_account_id || '');
+      setTag(data.tag || '');
+      setDepartment(data.department || '');
+      setCustomerName(data.customer_name || '');
+      setJobNumber(data.job_number || '');
+      setMemo(data.memo || '');
+      setManagerEmail(data.manager_email || '');
+      if (Array.isArray(data.line_items) && data.line_items.length > 0) {
+        setLineItems(data.line_items as LineItem[]);
+      }
+      setStep('details');
+      setLoadingExisting(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  /** Match the OCR's free-form account guess against the configured COGS list. */
+  const pickCogsAccount = useCallback(
+    (guess: string | null | undefined) => {
+      if (!guess || !settings?.cogs_accounts?.length) return null;
+      const g = guess.toLowerCase().trim();
+      const exact = settings.cogs_accounts.find((a) => a.label.toLowerCase() === g);
+      if (exact) return exact;
+      const partial = settings.cogs_accounts.find(
+        (a) =>
+          g.includes(a.label.toLowerCase()) || a.label.toLowerCase().includes(g),
+      );
+      return partial ?? null;
+    },
+    [settings],
+  );
+
   const handleFileSelect = useCallback(
     async (file: File) => {
       setReceiptFile(file);
+      setOcrError(null);
+      setOcrModel(null);
       if (file.type.startsWith('image/')) {
         setReceiptPreview(URL.createObjectURL(file));
       } else {
         setReceiptPreview(null);
       }
 
-      // OCR
       setOcrLoading(true);
       try {
         const fd = new FormData();
         fd.append('file', file);
         const token = await getAccessToken();
-        const res = await fetch('/.netlify/functions/process-inbound', {
+        const res = await fetch('/expense/api/expense-ocr', {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: fd,
         });
-        if (res.ok) {
+
+        if (!res.ok) {
+          let detail = `OCR failed (${res.status})`;
+          try {
+            const errBody = await res.json();
+            detail = errBody.error || detail;
+          } catch {}
+          setOcrError(`${detail} — fill the details in manually.`);
+        } else {
           const ocr = await res.json();
+          if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
-          if (ocr.total) setTotalAmount(String(ocr.total));
+          if (ocr.total != null) setTotalAmount(String(ocr.total));
           if (ocr.date) setReceiptDate(ocr.date);
-          if (ocr.line_items?.length) {
+          if (Array.isArray(ocr.line_items) && ocr.line_items.length > 0) {
             setLineItems(
               ocr.line_items.map((li: any) => ({
-                description: li.description ?? '',
-                qty: li.qty ?? 1,
-                unit_price: li.unit_price ?? 0,
-                amount: li.amount ?? (li.qty ?? 1) * (li.unit_price ?? 0),
+                description: String(li.description ?? ''),
+                qty: Number(li.qty ?? 1),
+                unit_price: Number(li.unit_price ?? 0),
+                amount: Number(li.amount ?? (li.qty ?? 1) * (li.unit_price ?? 0)),
               })),
             );
           }
+          const matched = pickCogsAccount(ocr.account_guess);
+          if (matched) {
+            setCogsAccountLabel(matched.label);
+            setCogsAccountId(matched.id);
+          } else if (ocr.account_guess) {
+            setCogsAccountLabel(ocr.account_guess);
+          }
+          if (ocr.job_number && !jobNumber) setJobNumber(ocr.job_number);
+          if (ocr.customer_name && !customerName) setCustomerName(ocr.customer_name);
+          if (ocr.memo && !memo) setMemo(ocr.memo);
+          if (ocr.notes && !memo) setMemo((m) => (m ? `${m}\n${ocr.notes}` : ocr.notes));
         }
       } catch (e) {
-        console.warn('OCR failed — manual entry required', e);
+        console.warn('OCR call failed', e);
+        setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
         setOcrLoading(false);
         setStep('details');
       }
     },
-    [],
+    [pickCogsAccount, jobNumber, customerName, memo],
   );
 
   const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileSelect(file);
+    e.target.value = '';
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -117,14 +217,12 @@ export default function ExpenseForm() {
     if (file) handleFileSelect(file);
   };
 
-  /* ── COGS account change ── */
   const handleCogsChange = (label: string) => {
     setCogsAccountLabel(label);
     const match = settings?.cogs_accounts.find((a) => a.label === label);
     setCogsAccountId(match?.id ?? '');
   };
 
-  /* ── line items ── */
   const updateLineItem = (idx: number, field: keyof LineItem, val: string) => {
     setLineItems((prev) => {
       const next = [...prev];
@@ -142,24 +240,27 @@ export default function ExpenseForm() {
   const removeLineItem = (idx: number) =>
     setLineItems((p) => p.filter((_, i) => i !== idx));
 
-  /* ── submit ── */
   const handleSubmit = async () => {
-    if (!session) return;
+    if (!session || readOnly) return;
     setStep('submitting');
     setSubmitting(true);
+    setMarginMatch(null);
     try {
-      const status = needsApproval ? 'pending' : 'draft';
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
+      const user = session.user;
+      const userName = user.user_metadata?.full_name || user.email || 'Unknown';
 
       const { data: req, error: insertErr } = await supabase
         .from('expense_requests')
         .insert({
-          type: 'expense',
-          status,
-          submitted_by: session.user.id,
-          submitted_at: new Date().toISOString(),
+          request_type: 'expense',
+          status: 'draft',
+          submitted_by: user.id,
+          submitter_name: userName,
+          submitter_email: user.email || '',
+          entity,
           vendor_name: vendorName || null,
-          total_amount: totalNum || null,
+          total_amount: totalNum || 0,
           receipt_date: receiptDate || null,
           cogs_account_id: cogsAccountId || null,
           cogs_account_label: cogsAccountLabel || null,
@@ -168,18 +269,16 @@ export default function ExpenseForm() {
           customer_name: customerName || null,
           job_number: jobNumber || null,
           memo: memo || null,
-          line_items: nonEmptyLines,
           manager_email: needsApproval ? managerEmail : null,
-          approval_threshold: threshold,
+          line_items: nonEmptyLines,
         })
         .select()
         .single();
 
       if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
 
-      // Upload receipt if present
       if (receiptFile) {
-        const storagePath = `${session.user.id}/${req.id}/${receiptFile.name}`;
+        const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
           .upload(storagePath, receiptFile, {
@@ -198,36 +297,30 @@ export default function ExpenseForm() {
         }
       }
 
-      // Route: approval or immediate bill creation
-      const token = await getAccessToken();
+      const accessToken = await getAccessToken();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       };
 
-      if (needsApproval) {
-        await fetch('/.netlify/functions/expense-request-notify', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ request_id: req.id }),
-        });
-        setResultMessage(
-          `Submitted for approval — ${managerEmail} has been notified.`,
-        );
-      } else {
-        const billRes = await fetch(
-          '/.netlify/functions/expense-request-link-bill',
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ request_id: req.id }),
-          },
-        );
-        if (billRes.ok) {
-          const bill = await billRes.json();
-          setResultBillId(bill.qbo_bill_id ?? null);
+      const notifyRes = await fetch('/expense/api/expense-request-notify', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ requestId: req.id }),
+      });
+
+      if (notifyRes.ok) {
+        const notifyData = await notifyRes.json();
+        if (notifyData.margin_match) setMarginMatch(notifyData.margin_match);
+        if (notifyData.auto_approved) {
+          setResultMessage('Expense auto-approved and logged.');
+        } else {
+          setResultMessage(
+            `Submitted for approval — ${notifyData.approver ?? 'the chosen approver'} has been notified.`,
+          );
         }
-        setResultMessage('Expense logged and QBO bill created.');
+      } else {
+        setResultMessage('Request saved but notification may have failed.');
       }
 
       setStep('success');
@@ -240,9 +333,7 @@ export default function ExpenseForm() {
     }
   };
 
-  /* ── RENDER ── */
-
-  if (settingsLoading) {
+  if (settingsLoading || loadingExisting) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -250,7 +341,6 @@ export default function ExpenseForm() {
     );
   }
 
-  /* Step: upload receipt */
   if (step === 'upload') {
     return (
       <div className="space-y-6 pb-4">
@@ -275,22 +365,45 @@ export default function ExpenseForm() {
                 Snap or upload your receipt
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Photo, scan, or PDF — we'll pull the details
+                Photo, scan, or PDF — Claude will read it and fill the form
               </p>
               <div className="flex items-center justify-center gap-2 mt-4">
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cameraInputRef.current?.click();
+                  }}
+                >
                   <Camera className="h-4 w-4 mr-1" /> Camera
                 </Button>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                >
                   <Upload className="h-4 w-4 mr-1" /> Upload
                 </Button>
               </div>
             </div>
             <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={onFileInput}
+            />
+            <input
               ref={fileInputRef}
               type="file"
               accept="image/*,.pdf"
-              capture="environment"
               className="hidden"
               onChange={onFileInput}
             />
@@ -307,18 +420,28 @@ export default function ExpenseForm() {
     );
   }
 
-  /* Step: details form */
   if (step === 'details') {
     return (
-      <div className="space-y-4 pb-24">
+      <div className="space-y-4 pb-36">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => setStep('upload')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold">Expense Details</h1>
+          <h1 className="text-lg font-semibold flex-1">
+            {isEditing ? 'Submission Details' : 'Expense Details'}
+          </h1>
+          {isEditing && existingStatus && (
+            <Badge variant="secondary">{existingStatus}</Badge>
+          )}
         </div>
 
-        {/* Receipt preview */}
+        {readOnly && (
+          <div className="text-xs bg-secondary/40 border border-border rounded-md p-3">
+            This submission has already been processed and is read-only.
+            Use <strong>New Expense</strong> from the dashboard to file a new one.
+          </div>
+        )}
+
         {receiptPreview && (
           <div className="relative">
             <img
@@ -343,25 +466,35 @@ export default function ExpenseForm() {
         {ocrLoading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Reading receipt…
+            Reading receipt with Claude…
+          </div>
+        )}
+        {!ocrLoading && ocrModel && !ocrError && (
+          <div className="text-xs text-muted-foreground">
+            Auto-filled from receipt by <span className="font-mono">{ocrModel}</span>. Double-check before submitting.
+          </div>
+        )}
+        {ocrError && (
+          <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            {ocrError}
           </div>
         )}
 
-        {/* Vendor */}
         <div>
           <Label>Vendor / Payee</Label>
           <Input
+            disabled={readOnly}
             placeholder="e.g. Home Depot, AutoZone"
             value={vendorName}
             onChange={(e) => setVendorName(e.target.value)}
           />
         </div>
 
-        {/* Amount + Date row */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount ($)</Label>
             <Input
+              disabled={readOnly}
               type="number"
               inputMode="decimal"
               step="0.01"
@@ -374,6 +507,7 @@ export default function ExpenseForm() {
           <div>
             <Label>Date</Label>
             <Input
+              disabled={readOnly}
               type="date"
               value={receiptDate}
               onChange={(e) => setReceiptDate(e.target.value)}
@@ -381,7 +515,6 @@ export default function ExpenseForm() {
           </div>
         </div>
 
-        {/* Approval badge */}
         {totalNum > 0 && (
           <div className="text-xs">
             {needsApproval ? (
@@ -396,10 +529,10 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        {/* COGS account */}
         <div>
           <Label>COGS / Expense Account</Label>
           <SelectField
+            disabled={readOnly}
             value={cogsAccountLabel}
             onChange={(e) => handleCogsChange(e.target.value)}
             placeholder="Select account"
@@ -410,10 +543,10 @@ export default function ExpenseForm() {
           />
         </div>
 
-        {/* Tag */}
         <div>
           <Label>Tag</Label>
           <SelectField
+            disabled={readOnly}
             value={tag}
             onChange={(e) => setTag(e.target.value)}
             placeholder="Optional"
@@ -424,11 +557,11 @@ export default function ExpenseForm() {
           />
         </div>
 
-        {/* Department (shown when tag is set) */}
         {tag && (
           <div>
             <Label>Department</Label>
             <SelectField
+              disabled={readOnly}
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
               placeholder="Select department"
@@ -440,11 +573,11 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        {/* Customer + Job row */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
             <Input
+              disabled={readOnly}
               placeholder="Customer name"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
@@ -453,17 +586,18 @@ export default function ExpenseForm() {
           <div>
             <Label>Job # (optional)</Label>
             <Input
-              placeholder="Job number"
+              disabled={readOnly}
+              placeholder="SF / ResQ job #"
               value={jobNumber}
               onChange={(e) => setJobNumber(e.target.value)}
             />
           </div>
         </div>
 
-        {/* Memo */}
         <div>
           <Label>Memo / Notes</Label>
           <Textarea
+            disabled={readOnly}
             placeholder="What was this for?"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
@@ -471,11 +605,11 @@ export default function ExpenseForm() {
           />
         </div>
 
-        {/* Manager selector (shown when over threshold) */}
         {needsApproval && (
           <div>
             <Label>Manager for Approval</Label>
             <SelectField
+              disabled={readOnly}
               value={managerEmail}
               onChange={(e) => setManagerEmail(e.target.value)}
               placeholder="Select manager"
@@ -487,7 +621,6 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        {/* Line items */}
         <Card>
           <CardHeader className="p-3 pb-0">
             <CardTitle className="text-sm font-medium">
@@ -499,6 +632,7 @@ export default function ExpenseForm() {
               <div key={idx} className="flex items-start gap-2">
                 <div className="flex-1 space-y-1">
                   <Input
+                    disabled={readOnly}
                     placeholder="Description"
                     value={li.description}
                     onChange={(e) =>
@@ -508,6 +642,7 @@ export default function ExpenseForm() {
                   />
                   <div className="grid grid-cols-3 gap-1">
                     <Input
+                      disabled={readOnly}
                       type="number"
                       placeholder="Qty"
                       value={li.qty || ''}
@@ -517,6 +652,7 @@ export default function ExpenseForm() {
                       className="text-sm"
                     />
                     <Input
+                      disabled={readOnly}
                       type="number"
                       step="0.01"
                       placeholder="Price"
@@ -531,7 +667,7 @@ export default function ExpenseForm() {
                     </div>
                   </div>
                 </div>
-                {lineItems.length > 1 && (
+                {!readOnly && lineItems.length > 1 && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -543,37 +679,39 @@ export default function ExpenseForm() {
                 )}
               </div>
             ))}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={addLineItem}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add Line
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={addLineItem}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add Line
+              </Button>
+            )}
           </CardContent>
         </Card>
 
-        {/* Submit */}
-        <div className="fixed bottom-16 left-0 right-0 bg-background border-t px-4 py-3">
-          <div className="max-w-lg mx-auto">
-            <Button
-              className="w-full"
-              size="lg"
-              disabled={!vendorName || totalNum <= 0 || (needsApproval && !managerEmail)}
-              onClick={handleSubmit}
-            >
-              {needsApproval
-                ? 'Submit for Approval'
-                : `Submit — ${formatCurrency(totalNum)}`}
-            </Button>
+        {!readOnly && (
+          <div className="form-submit-bar">
+            <div className="max-w-lg mx-auto">
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={!vendorName || totalNum <= 0 || (needsApproval && !managerEmail)}
+                onClick={handleSubmit}
+              >
+                {needsApproval
+                  ? 'Submit for Approval'
+                  : `Submit — ${formatCurrency(totalNum)}`}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
 
-  /* Step: submitting */
   if (step === 'submitting') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -581,14 +719,17 @@ export default function ExpenseForm() {
         <p className="text-sm text-muted-foreground">
           {needsApproval
             ? 'Submitting and notifying manager…'
-            : 'Creating QBO bill…'}
+            : 'Processing expense…'}
         </p>
       </div>
     );
   }
 
-  /* Step: success */
   if (step === 'success') {
+    const margin = marginMatch?.margin ?? 0;
+    const marginPct = marginMatch?.marginPct ?? 0;
+    const positive = margin >= 0;
+
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
@@ -598,32 +739,39 @@ export default function ExpenseForm() {
             QBO Bill ID: <span className="font-mono">{resultBillId}</span>
           </p>
         )}
+
+        {marginMatch?.matched && marginMatch.invoice && (
+          <Card className="w-full max-w-sm text-left">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                {positive ? (
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <TrendingDown className="h-4 w-4 text-destructive" />
+                )}
+                Matched to invoice
+              </div>
+              <div className="text-2xl font-bold tabular-nums" style={{ color: positive ? 'var(--green)' : 'var(--danger)' }}>
+                {marginPct.toFixed(1)}% — {formatCurrency(margin)}
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1 pt-1">
+                <div>Invoice <span className="font-mono">#{marginMatch.invoice.number}</span> · {marginMatch.invoice.customerName ?? '—'}</div>
+                <div>Job # <span className="font-mono">{marginMatch.job_number}</span> · Invoice total {formatCurrency(marginMatch.invoice.total)}</div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {marginMatch && !marginMatch.matched && marginMatch.job_number && (
+          <div className="text-xs rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200 max-w-sm">
+            No QBO invoice found referencing Job #{marginMatch.job_number}. Either the invoice hasn't been created yet, or the job number doesn't appear on any recent invoice.
+          </div>
+        )}
+
         <div className="flex gap-2 mt-4">
           <Button variant="outline" onClick={() => navigate('/')}>
             Home
           </Button>
-          <Button
-            onClick={() => {
-              setStep('upload');
-              setReceiptFile(null);
-              setReceiptPreview(null);
-              setVendorName('');
-              setTotalAmount('');
-              setReceiptDate(new Date().toISOString().slice(0, 10));
-              setCogsAccountLabel('');
-              setCogsAccountId('');
-              setTag('');
-              setDepartment('');
-              setCustomerName('');
-              setJobNumber('');
-              setMemo('');
-              setManagerEmail('');
-              setLineItems([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
-              setResultMessage('');
-              setResultBillId(null);
-              setErrorMessage('');
-            }}
-          >
+          <Button onClick={() => navigate('new')}>
             Submit Another
           </Button>
         </div>
@@ -631,7 +779,6 @@ export default function ExpenseForm() {
     );
   }
 
-  /* Step: error */
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
       <AlertTriangle className="h-12 w-12 text-destructive" />

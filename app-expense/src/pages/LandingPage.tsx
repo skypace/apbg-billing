@@ -3,11 +3,31 @@ import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { supabase } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Receipt, ShoppingCart, Clock, ArrowRight, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Receipt, ShoppingCart, Clock, ArrowRight, Loader2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
+
+const HIDDEN_KEY = 'brixpense.hiddenRequestIds';
+
+function loadHidden(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHidden(ids: string[]) {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore quota / private-mode errors
+  }
+}
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -15,6 +35,7 @@ export default function LandingPage() {
   const { settings } = useExpenseSettings();
   const [recentRequests, setRecentRequests] = useState<ExpenseRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hiddenIds, setHiddenIds] = useState<string[]>(() => loadHidden());
 
   useEffect(() => {
     async function loadRecent() {
@@ -24,16 +45,42 @@ export default function LandingPage() {
         .select('*')
         .eq('submitted_by', session.user.id)
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(20);
       setRecentRequests((data as ExpenseRequest[]) ?? []);
       setLoading(false);
     }
     loadRecent();
   }, [session]);
 
+  const visibleRequests = useMemo(
+    () => recentRequests.filter((r) => !hiddenIds.includes(r.id)).slice(0, 5),
+    [recentRequests, hiddenIds],
+  );
+
+  const hideOne = (id: string) => {
+    const next = Array.from(new Set([...hiddenIds, id]));
+    setHiddenIds(next);
+    saveHidden(next);
+  };
+
+  const clearVisible = () => {
+    const idsToHide = visibleRequests.map((r) => r.id);
+    const next = Array.from(new Set([...hiddenIds, ...idsToHide]));
+    setHiddenIds(next);
+    saveHidden(next);
+  };
+
+  const resetHidden = () => {
+    setHiddenIds([]);
+    saveHidden([]);
+  };
+
   const userFirstName = session?.user?.user_metadata?.full_name?.split(' ')[0]
     ?? session?.user?.email?.split('@')[0]
     ?? 'there';
+
+  const everythingHidden =
+    !loading && recentRequests.length > 0 && visibleRequests.length === 0;
 
   return (
     <div className="space-y-6 pb-4">
@@ -47,47 +94,55 @@ export default function LandingPage() {
         </p>
       </div>
 
-      {/* Mode selection cards */}
+      {/* Mode selection — clickable cta-cards (not button-wrapped) */}
       <div className="grid gap-3">
-        <button
+        <div
+          className="cta-card"
+          role="button"
+          tabIndex={0}
           onClick={() => navigate('new')}
-          className="text-left"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              navigate('new');
+            }
+          }}
         >
-          <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Receipt className="h-6 w-6 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="font-semibold text-base">Expense</h2>
-                <p className="text-sm text-muted-foreground">
-                  I already bought something — snap receipt and log it
-                </p>
-              </div>
-              <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            </CardContent>
-          </Card>
-        </button>
+          <div className="cta-icon-tile">
+            <Receipt className="h-6 w-6" />
+          </div>
+          <div className="cta-body">
+            <div className="cta-title">Expense</div>
+            <div className="cta-desc">
+              I already bought something — snap receipt and log it
+            </div>
+          </div>
+          <ArrowRight className="cta-arrow h-5 w-5" />
+        </div>
 
-        <button
+        <div
+          className="cta-card"
+          role="button"
+          tabIndex={0}
           onClick={() => navigate('new-pr')}
-          className="text-left"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              navigate('new-pr');
+            }
+          }}
         >
-          <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-amber-50 flex items-center justify-center">
-                <ShoppingCart className="h-6 w-6 text-amber-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="font-semibold text-base">Purchase Request</h2>
-                <p className="text-sm text-muted-foreground">
-                  I need to buy something — get approval first
-                </p>
-              </div>
-              <ArrowRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            </CardContent>
-          </Card>
-        </button>
+          <div className="cta-icon-tile amber">
+            <ShoppingCart className="h-6 w-6" />
+          </div>
+          <div className="cta-body">
+            <div className="cta-title">Purchase Request</div>
+            <div className="cta-desc">
+              I need to buy something — get approval first
+            </div>
+          </div>
+          <ArrowRight className="cta-arrow h-5 w-5" />
+        </div>
       </div>
 
       {/* Threshold note */}
@@ -102,10 +157,26 @@ export default function LandingPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-foreground">Recent Submissions</h2>
-          <Button variant="ghost" size="sm" onClick={() => navigate('pending')}>
-            View all
-          </Button>
+          <div className="flex items-center gap-2">
+            {visibleRequests.length > 0 && (
+              <button
+                type="button"
+                onClick={clearVisible}
+                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+              >
+                Clear queue
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('pending')}
+              className="text-xs text-primary hover:underline underline-offset-2"
+            >
+              View all →
+            </button>
+          </div>
         </div>
+
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -119,15 +190,37 @@ export default function LandingPage() {
               </p>
             </CardContent>
           </Card>
+        ) : everythingHidden ? (
+          <Card>
+            <CardContent className="py-6 text-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Queue cleared. {hiddenIds.length} item{hiddenIds.length === 1 ? '' : 's'} hidden from dashboard.
+              </p>
+              <button
+                type="button"
+                onClick={resetHidden}
+                className="text-xs text-primary hover:underline underline-offset-2"
+              >
+                Show hidden
+              </button>
+            </CardContent>
+          </Card>
         ) : (
           <div className="space-y-2">
-            {recentRequests.map((req) => (
-              <Card
-                key={req.id}
-                className="cursor-pointer hover:shadow-sm transition-shadow"
-                onClick={() => navigate(`edit/${req.id}`)}
-              >
-                <CardContent className="flex items-center gap-3 p-3">
+            {visibleRequests.map((req) => (
+              <div key={req.id} className="recent-row">
+                <div
+                  className="recent-row-body"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`edit/${req.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`edit/${req.id}`);
+                    }
+                  }}
+                >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium truncate">
@@ -136,16 +229,39 @@ export default function LandingPage() {
                       <StatusBadge status={req.status} />
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {req.type === 'purchase_request' ? 'PR' : 'Expense'}
+                      {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                       {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                     </p>
                   </div>
                   <span className="text-sm font-semibold tabular-nums">
                     {req.total_amount ? formatCurrency(req.total_amount) : '—'}
                   </span>
-                </CardContent>
-              </Card>
+                </div>
+                <button
+                  type="button"
+                  className="recent-row-hide"
+                  aria-label="Hide from dashboard"
+                  title="Hide from dashboard"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    hideOne(req.id);
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
+            {hiddenIds.length > 0 && (
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={resetHidden}
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                >
+                  {hiddenIds.length} hidden · show all
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

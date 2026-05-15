@@ -93,7 +93,7 @@ export default function PendingList() {
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {req.type === 'purchase_request' ? 'PR' : 'Expense'}
+                    {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                     {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                     {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                   </p>

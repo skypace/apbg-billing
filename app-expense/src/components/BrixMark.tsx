@@ -7,7 +7,6 @@ interface Props {
   title?: string;
 }
 
-// Brand assets — all live in app-expense/public/ (Vite serves from BASE_URL).
 const BRIX_ROUND      = 'Brix-Round-Logo.png';
 const ALAMEDA_SEAL    = 'Alameda-Soda-Seal-Logo-Red-2024.png';
 const ALAMEDA_SCRIPT  = 'ASC-Logo---Red.png';
@@ -16,7 +15,7 @@ function publicUrl(filename: string) {
   return import.meta.env.BASE_URL + filename;
 }
 
-/** Brix Beverage °bx round badge. The default brand mark for the dashboard. */
+/** Brix Beverage °bx round badge. */
 export function BrixMark({ size = 36, className, style, title }: Props) {
   return (
     <img
@@ -31,16 +30,16 @@ export function BrixMark({ size = 36, className, style, title }: Props) {
   );
 }
 
-/** Brix wordmark (BRIX text with X tinted bubble blue). */
+/** Product wordmark — one line: BRI[green X]PENSE. */
 export function BrixWordmark({ style }: { style?: CSSProperties }) {
   return (
     <span className="brand-mark" style={style}>
-      BRI<span className="brand-bx">X</span>
+      BRI<span className="brand-bx">X</span>PENSE
     </span>
   );
 }
 
-/** Alameda Soda Co. mark — seal (default) or script wordmark. */
+/** Alameda Soda Co. */
 export function AlamedaMark({
   size = 36,
   variant = 'seal',

@@ -1,167 +1,226 @@
 import { createClient } from '@supabase/supabase-js';
-import { createToken } from './token-helpers.mjs';
-import { sendEmail, EMAIL_FROM, SITE_URL } from './email-helpers.mjs';
-import { requireAuth } from './lib/auth.mjs';
+import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
+import { qboRequest, qboQuery } from './qbo-helpers.mjs';
+import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { db: { schema: 'ops' } }
-);
+// Hardcoded on purpose — the anon key is a PUBLIC client identifier per
+// Supabase's architecture (security is via RLS, not key secrecy). Same
+// value ships in the Vite frontend bundle. Hardcoding here prevents a
+// mis-set Netlify env var from breaking the function.
+const SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Content-Type': 'application/json' };
+const DEFAULT_COGS_ACCOUNT_ID = '101';
+
+function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, headers: CORS }); }
+function err(m, s = 400) { return json({ error: m }, s); }
+function fmt(n) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0); }
+function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
+
+/** Anon key + user's bearer token. RLS applies — caller's auth.uid() drives access. */
+function client(authHeader) {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    db: { schema: 'ops' },
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: authHeader } },
+  });
 }
 
-/** Look up a user's email from Supabase auth by UUID */
-async function getUserEmail(userId) {
+async function findQBOVendor(name) {
+  if (!name) return null;
   try {
-    const { data, error } = await supabase.auth.admin.getUserById(userId);
-    if (error || !data?.user) return null;
-    return { email: data.user.email, name: data.user.user_metadata?.full_name || data.user.email };
-  } catch {
+    const safe = name.replace(/'/g, "\\'");
+    const exact = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName = '${safe}'`);
+    const v = exact.QueryResponse?.Vendor || [];
+    if (v.length > 0) return v[0];
+  } catch {}
+  try {
+    const words = name.split(/\s+/).filter(w => w.length > 2);
+    for (const w of words.slice(0, 3)) {
+      const clean = w.replace(/[^a-zA-Z0-9]/g, '');
+      if (!clean) continue;
+      const like = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${clean}%'`);
+      const v2 = like.QueryResponse?.Vendor || [];
+      if (v2.length === 1) return v2[0];
+      if (v2.length > 1) {
+        const best = v2.find(x => x.DisplayName.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.DisplayName.toLowerCase()));
+        if (best) return best;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function buildBillPayload(r, vendor, fallback) {
+  const items = Array.isArray(r.line_items) ? r.line_items : [];
+  const accountId = r.cogs_account_id || fallback;
+  const lines = items.length > 0
+    ? items.map((li, idx) => ({
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Amount: round((li.qty || li.quantity || 1) * (li.unit_price || li.unitCost || 0)) || round(li.amount || 0),
+        Description: li.description || `Line ${idx + 1}`,
+        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
+      }))
+    : [{
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Amount: round(r.total_amount),
+        Description: r.memo || r.vendor_name || 'Brixpense expense',
+        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
+      }];
+  const memo = [
+    `BRIXpense ${r.request_type === 'purchase_request' ? 'PR' : 'expense'} ${r.id}`,
+    r.entity ? `entity:${r.entity}` : null,
+    r.department ? `dept:${r.department}` : null,
+    r.tag ? `tag:${r.tag}` : null,
+    r.customer_name ? `cust:${r.customer_name}` : null,
+    r.job_number ? `job:${r.job_number}` : null,
+    r.memo || null,
+  ].filter(Boolean).join(' | ');
+  const payload = { VendorRef: { value: vendor.Id }, Line: lines, PrivateNote: memo.substring(0, 4000) };
+  if (r.receipt_date) payload.TxnDate = r.receipt_date;
+  return payload;
+}
+
+async function maybeMarginMatch(request, billTotal) {
+  if (!request?.job_number) return null;
+  try {
+    const inv = await findMatchingInvoice(request.job_number, null);
+    if (!inv) return { matched: false, job_number: request.job_number };
+    const invSummary = summarizeInvoice(inv);
+    const { margin, marginPct } = computeMargin(invSummary.total, billTotal);
+    return { matched: true, job_number: request.job_number, invoice: invSummary, margin, marginPct };
+  } catch (e) {
+    console.warn('maybeMarginMatch failed (non-fatal):', e?.message);
     return null;
   }
 }
 
-function notifyEmailHtml(request, submitterLabel, approveUrl) {
-  const isExpense = request.type === 'expense';
-  const typeLabel = isExpense ? 'Expense' : 'Purchase Request';
-  const total = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(request.total_amount);
+function buildNotificationEmailHtml(request, reviewUrl) {
+  const lineItemsHtml = (request.line_items || []).map((li, i) => {
+    const amt = (li.qty || 1) * (li.unit_price || 0) || (li.amount || 0);
+    return `<tr><td style="padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;"><div style="font-weight:600;color:#111827;">${li.description || `Line ${i + 1}`}</div><div style="font-size:11px;color:#6b7280;">${li.qty || 1} × ${fmt(li.unit_price || 0)}</div></td><td style="padding:9px 10px;text-align:right;font-size:13px;font-weight:600;color:#111827;">${fmt(amt)}</td></tr>`;
+  }).join('');
 
-  const lineRows = (request.line_items || []).map(li =>
-    `<tr>
-      <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;">${li.description}</td>
-      <td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">$${Number(li.amount).toFixed(2)}</td>
-    </tr>`
-  ).join('');
-
-  return `
-    <div style="font-family:'Inter',system-ui,sans-serif;max-width:600px;margin:0 auto;">
-      <div style="background:#1F4E79;padding:20px 24px;border-radius:8px 8px 0 0;">
-        <h1 style="color:#fff;margin:0;font-size:20px;">${typeLabel} Approval Required</h1>
-      </div>
-      <div style="background:#fff;padding:24px;border:1px solid #e5e7eb;border-top:none;">
-        <p style="margin:0 0 16px;color:#374151;">
-          <strong>${submitterLabel}</strong> submitted a ${typeLabel.toLowerCase()} for your approval.
-        </p>
-
-        <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-          <tr><td style="padding:4px 0;color:#6b7280;">Department</td><td style="padding:4px 0;font-weight:600;">${request.department || '—'}</td></tr>
-          <tr><td style="padding:4px 0;color:#6b7280;">Vendor</td><td style="padding:4px 0;font-weight:600;">${request.vendor_name || '—'}</td></tr>
-          ${request.job_number ? `<tr><td style="padding:4px 0;color:#6b7280;">Job #</td><td style="padding:4px 0;font-weight:600;">${request.job_number}</td></tr>` : ''}
-          <tr><td style="padding:4px 0;color:#6b7280;">Total</td><td style="padding:4px 0;font-weight:700;font-size:18px;color:#1F4E79;">${total}</td></tr>
-        </table>
-
-        ${request.memo ? `<p style="margin:0 0 16px;padding:12px;background:#f9fafb;border-radius:6px;color:#374151;">${request.memo}</p>` : ''}
-
-        ${lineRows ? `
-        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px;">
-          <thead>
-            <tr style="background:#f3f4f6;">
-              <th style="padding:8px 12px;text-align:left;">Description</th>
-              <th style="padding:8px 12px;text-align:right;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>${lineRows}</tbody>
-        </table>` : ''}
-
-        <div style="text-align:center;margin:24px 0;">
-          <a href="${approveUrl}" style="display:inline-block;background:#1F4E79;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:16px;">
-            Review &amp; Decide
-          </a>
-        </div>
-
-        <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;text-align:center;">
-          This link expires in 7 days. You can approve or deny from the review page.
-        </p>
-      </div>
-      <div style="padding:16px 24px;text-align:center;font-size:12px;color:#9ca3af;">
-        Brix Beverage &mdash; Expense Management
-      </div>
-    </div>
-  `;
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"><div style="max-width:640px;margin:0 auto;background:#ffffff;padding:32px 28px;"><div style="border-bottom:3px solid #5BB5F0;padding-bottom:14px;margin-bottom:22px;"><div style="font-size:22px;font-weight:800;color:#06121F;">BRI<span style="color:#2EB872;">X</span>PENSE — Approval Required</div><div style="font-size:13px;color:#6b7280;margin-top:4px;">${request.submitter_name || 'A team member'} · ${fmt(request.total_amount)}</div></div><p style="font-size:15px;color:#111827;line-height:1.6;margin:0 0 14px 0;"><strong>${request.submitter_name || 'A team member'}</strong> submitted a purchase request and routed it to you. Click below to review, sign, and approve or decline.</p>${request.memo ? `<div style="background:#fff7ed;border-left:4px solid #5BB5F0;padding:12px 14px;border-radius:4px;margin:0 0 18px 0;"><div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Note from submitter</div><div style="font-size:14px;color:#111827;white-space:pre-wrap;">${request.memo}</div></div>` : ''}<table style="width:100%;margin:0 0 18px 0;font-size:13px;border-collapse:collapse;"><tr><td style="padding:6px 0;color:#6b7280;width:140px;">Vendor</td><td style="padding:6px 0;color:#0f172a;font-weight:600;">${request.vendor_name || '—'}</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Department</td><td style="padding:6px 0;color:#0f172a;">${request.department || '—'}</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Account</td><td style="padding:6px 0;color:#0f172a;">${request.cogs_account_label || '—'}</td></tr>${request.receipt_date ? `<tr><td style="padding:6px 0;color:#6b7280;">Needed By</td><td style="padding:6px 0;color:#0f172a;">${request.receipt_date}</td></tr>` : ''}<tr style="border-top:2px solid #e5e7eb;"><td style="padding:10px 0;color:#0f172a;font-weight:700;">Total</td><td style="padding:10px 0;color:#5BB5F0;font-weight:800;font-size:18px;">${fmt(request.total_amount)}</td></tr></table>${lineItemsHtml ? `<table style="width:100%;border-collapse:collapse;margin:0 0 18px 0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;"><thead><tr style="background:#f9fafb;"><th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Item</th><th style="padding:9px 10px;text-align:right;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Amount</th></tr></thead><tbody>${lineItemsHtml}</tbody></table>` : ''}<div style="text-align:center;margin:30px 0 14px 0;"><a href="${reviewUrl}" style="display:inline-block;padding:14px 36px;background:#5BB5F0;color:#06121F;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Review & Sign →</a></div><p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0 0;">You'll be asked to sign in with your @brixbev.com account before approving.</p><hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" /><p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">Alameda Point Beverage Group · BRIXPENSE</p></div></body></html>`;
 }
 
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: corsHeaders(), body: '' };
+export default async function handler(req) {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  if (req.method !== 'POST') return err('Method not allowed', 405);
+
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return err('Unauthorized — Bearer token required', 401);
+
+  let body;
+  try { body = await req.json(); } catch { return err('Invalid JSON body'); }
+  const { requestId } = body;
+  if (!requestId) return err('Missing requestId');
+
+  const sb = client(authHeader);
+
+  const { data: request, error: fetchErr } = await sb
+    .schema('ops')
+    .from('expense_requests')
+    .select('*')
+    .eq('id', requestId)
+    .single();
+
+  if (fetchErr || !request) {
+    console.error('notify: lookup failed', { requestId, fetchErr });
+    return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
+  }
+  if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
+
+  if (request.request_type === 'expense') {
+    const now = new Date().toISOString();
+    let vendor = null, qboBill = null, qboError = null;
+    try {
+      vendor = await findQBOVendor(request.vendor_name);
+      if (!vendor) qboError = `Vendor "${request.vendor_name || '(blank)'}" not in QBO`;
+      else {
+        const payload = buildBillPayload(request, vendor, DEFAULT_COGS_ACCOUNT_ID);
+        const qboRes = await qboRequest('POST', '/bill', payload);
+        qboBill = qboRes?.Bill;
+        if (!qboBill?.Id) qboError = 'QBO did not return a bill ID';
+      }
+    } catch (e) {
+      console.error('QBO post failed:', e);
+      qboError = e?.message || 'QBO post failed';
+    }
+
+    if (qboBill?.Id) {
+      const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
+        status: 'posted', auto_approved: true,
+        approved_by: 'auto', approved_at: now, posted_at: now,
+        manager_email: null, approval_token: null,
+        qbo_bill_id: qboBill.Id,
+      }).eq('id', requestId);
+      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id }, 207);
+      await sb.schema('ops').from('expense_approvals').insert({
+        request_id: requestId, action: 'approved',
+        decided_by: 'system (auto-approve + auto-post)',
+        notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id}`,
+        token_used: null,
+      });
+
+      const marginMatch = await maybeMarginMatch(request, Number(request.total_amount) || 0);
+
+      return json({
+        success: true, auto_approved: true, new_status: 'posted',
+        request_id: requestId, qbo_bill_id: qboBill.Id,
+        margin_match: marginMatch,
+      });
+    }
+
+    const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
+      status: 'approved', auto_approved: true,
+      approved_by: 'auto', approved_at: now,
+      manager_email: null, approval_token: null,
+    }).eq('id', requestId);
+    if (updateErr) return err('Failed to auto-approve', 500);
+    await sb.schema('ops').from('expense_approvals').insert({
+      request_id: requestId, action: 'approved',
+      decided_by: 'system (auto-approve)',
+      notes: `Auto-approved. QBO post deferred: ${qboError}.`,
+      token_used: null,
+    });
+    return json({ success: true, auto_approved: true, new_status: 'approved', request_id: requestId, qbo_post_deferred: true, qbo_error: qboError });
   }
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ error: 'Method not allowed' }) };
+  if (request.request_type !== 'purchase_request') return err(`Unknown request_type "${request.request_type}"`, 400);
+  if (!request.manager_email) return err('Purchase requests require an approver.', 422);
+
+  const { data: managerSetting } = await sb.schema('ops').from('expense_settings').select('value').eq('key', 'manager_emails').single();
+  const managerList = Array.isArray(managerSetting?.value) ? managerSetting.value.map((e) => String(e).toLowerCase()) : [];
+  const chosen = String(request.manager_email).toLowerCase();
+  if (managerList.length > 0 && !managerList.includes(chosen)) {
+    return err(`Approver "${request.manager_email}" is not in the manager_emails allowlist.`, 422);
   }
 
-  // Require authenticated user
-  const auth = await requireAuth(event, ['superadmin', 'admin', 'manager', 'user']);
-  if (!auth.ok) return auth.response;
+  const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({ status: 'pending', approval_token: null }).eq('id', requestId);
+  if (updateErr) return err('Failed to submit for approval', 500);
 
+  const reviewUrl = `${SITE_URL.replace(/\/$/, '')}/expense/review/${requestId}`;
+  const subject = `[BRIXPENSE] PR from ${request.submitter_name || 'a team member'} — ${fmt(request.total_amount)} awaiting your approval`;
+  const html = buildNotificationEmailHtml(request, reviewUrl);
+
+  let emailSent = false;
+  let emailError = null;
   try {
-    const { request_id } = JSON.parse(event.body || '{}');
-    if (!request_id) {
-      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'request_id required' }) };
-    }
-
-    // Load the expense request
-    const { data: request, error: fetchErr } = await supabase
-      .from('expense_requests')
-      .select('*')
-      .eq('id', request_id)
-      .single();
-
-    if (fetchErr || !request) {
-      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ error: 'Request not found' }) };
-    }
-
-    if (!request.manager_email) {
-      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'No manager email set on request' }) };
-    }
-
-    // Look up submitter info
-    const submitter = await getUserEmail(request.submitted_by);
-    const submitterLabel = submitter?.name || submitter?.email || 'A team member';
-    const submitterEmail = submitter?.email || null;
-
-    // Create magic-link token (7 day expiry)
-    const token = createToken({
-      request_id: request.id,
-      type: 'expense_approval',
-      exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-    });
-
-    const approveUrl = `${SITE_URL}/expense/approve/${token}`;
-    const isExpense = request.type === 'expense';
-    const typeLabel = isExpense ? 'Expense' : 'Purchase Request';
-    const total = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(request.total_amount);
-
-    await sendEmail({
-      to: request.manager_email,
-      subject: `[Action Required] ${typeLabel} — ${total} from ${submitterLabel}`,
-      html: notifyEmailHtml(request, submitterLabel, approveUrl),
-      replyTo: submitterEmail,
-    });
-
-    // Update request status to pending_approval
-    await supabase
-      .from('expense_requests')
-      .update({ status: 'pending' })
-      .eq('id', request_id);
-
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: JSON.stringify({ ok: true, message: 'Notification sent' }),
-    };
-  } catch (err) {
-    console.error('expense-request-notify error:', err);
-    return {
-      statusCode: 500,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Internal server error' }),
-    };
+    emailSent = await sendEmail({ to: request.manager_email, subject, html, replyTo: request.submitter_email || EMAIL_FROM });
+  } catch (e) {
+    console.error('Resend send failed:', e);
+    emailError = e?.message || 'Unknown email error';
   }
-};
+
+  return json({
+    success: true, auto_approved: false,
+    email_sent: !!emailSent, email_error: emailError,
+    new_status: 'pending', request_id: requestId,
+    approver: request.manager_email, review_url: reviewUrl,
+  });
+}
+
+export const config = { path: '/api/expense-request-notify' };

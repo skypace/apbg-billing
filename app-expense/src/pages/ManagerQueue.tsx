@@ -18,7 +18,8 @@ export default function ManagerQueue() {
   useEffect(() => {
     async function load() {
       if (!session) return;
-      const userEmail = session.user.email;
+      const userEmail = session.user.email?.toLowerCase();
+      if (!userEmail) { setLoading(false); return; }
       const { data } = await supabase
         .from('expense_requests')
         .select('*')
@@ -48,9 +49,7 @@ export default function ManagerQueue() {
         <Card>
           <CardContent className="py-12 text-center">
             <CheckCircle className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">
-              All caught up — nothing to approve.
-            </p>
+            <p className="text-sm text-muted-foreground">All caught up — nothing to approve.</p>
           </CardContent>
         </Card>
       ) : (
@@ -59,16 +58,14 @@ export default function ManagerQueue() {
             <Card
               key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/expense/edit/${req.id}`)}
+              onClick={() => navigate(`/expense/review/${req.id}`)}
             >
               <CardContent className="flex items-center gap-3 p-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">
-                      {req.vendor_name || 'No vendor'}
-                    </p>
+                    <p className="text-sm font-medium truncate">{req.vendor_name || 'No vendor'}</p>
                     <Badge variant="warning">
-                      {req.type === 'purchase_request' ? 'PR' : 'Expense'}
+                      {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">

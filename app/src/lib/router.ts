@@ -8,6 +8,8 @@ export type View =
   | 'plans'
   | 'compare'
   | 'inventory'
+  | 'stock'
+  | 'production'
   | 'operations'
   | 'fleet'
   | 'settings'
@@ -31,6 +33,8 @@ export function parseHash(): Route {
     'plans',
     'compare',
     'inventory',
+    'stock',
+    'production',
     'operations',
     'fleet',
     'settings',

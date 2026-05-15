@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-05-05",
+  "last_updated": "2026-05-13",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
@@ -256,6 +256,35 @@
       "writes": ["ops.sync_log"],
       "multi_writer": true,
       "notes": "Every sync function appends a row to ops.sync_log on completion. No single owner; this is a logging convention."
+    },
+    {
+      "name": "brix-expense:app-and-functions",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (user submits expense / manager approves / link-bill)",
+      "writes": [
+        "ops.expense_requests",
+        "ops.expense_request_attachments",
+        "ops.expense_approvals",
+        "ops.expense_settings"
+      ],
+      "multi_writer": true,
+      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments).",
+      "last_verified": "2026-05-12"
+    },
+    {
+      "name": "brix-stock:app-and-rpcs",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (operator creates/ships/receives transfers)",
+      "writes": [
+        "ops.inventory_locations",
+        "ops.inventory_transfers",
+        "ops.inventory_transfer_lines",
+        "ops.inventory_movements"
+      ],
+      "notes": "BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
+      "last_verified": "2026-05-13"
     }
   ],
 
@@ -271,6 +300,10 @@
     {
       "table": "ops.crm_deals",
       "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
+    },
+    {
+      "table": "ops.expense_request_approvals",
+      "reason": "Pending drop. Plural-named table created as a no-op side effect of 20260512o_brix_expense_requests.sql. No code reads or writes it — the live audit table is ops.expense_approvals (singular). Scheduled for removal by 20260512p_expense_cleanup.sql; this entry + the schema-snapshot row come out in a follow-up commit after that migration is applied to live."
     },
     {
       "table": "ops.fleet_daily",

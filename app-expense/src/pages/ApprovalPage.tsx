@@ -1,325 +1,360 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { useNavigate, useParams } from 'react-router-dom';
+import { supabase, getAccessToken } from '@/lib/supabase';
+import { useSession } from '@/lib/hooks';
 import {
-  ClipboardList,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  AlertTriangle,
-  Eraser,
+  ClipboardList, CheckCircle, XCircle, Loader2, AlertTriangle,
+  Eraser, ShoppingCart, ArrowLeft,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import type { ExpenseRequest } from '@/types/expense';
 import SignatureCanvas from 'react-signature-canvas';
 
-type PageState = 'loading' | 'ready' | 'decided' | 'expired' | 'error';
+type PageState = 'loading' | 'ready' | 'decided' | 'notfound' | 'forbidden' | 'error';
+
+interface RequestRow {
+  id: string;
+  request_type: 'expense' | 'purchase_request';
+  status: string;
+  vendor_name?: string | null;
+  total_amount?: number | null;
+  receipt_date?: string | null;
+  cogs_account_label?: string | null;
+  department?: string | null;
+  customer_name?: string | null;
+  job_number?: string | null;
+  memo?: string | null;
+  submitter_name?: string | null;
+  submitter_email?: string | null;
+  manager_email?: string | null;
+  submitted_by?: string | null;
+  line_items?: Array<{ description?: string; qty?: number; unit_price?: number; amount?: number }>;
+}
 
 export default function ApprovalPage() {
-  const { token } = useParams<{ token: string }>();
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { session } = useSession();
+
   const [state, setState] = useState<PageState>('loading');
-  const [request, setRequest] = useState<ExpenseRequest | null>(null);
-  const [decision, setDecision] = useState<'approved' | 'denied' | null>(null);
-  const [reasonNote, setReasonNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [resultMessage, setResultMessage] = useState('');
+  const [request, setRequest] = useState<RequestRow | null>(null);
+  const [decided, setDecided] = useState<{ action: string; signer_name?: string } | null>(null);
+
+  const [signerName, setSignerName] = useState('');
+  const [signerInitials, setSignerInitials] = useState('');
+  const [declineReason, setDeclineReason] = useState('');
+  const [declineMode, setDeclineMode] = useState(false);
+  const [submitting, setSubmitting] = useState<'' | 'approve' | 'decline'>('');
+  const [errorMessage, setErrorMessage] = useState('');
+
   const sigRef = useRef<SignatureCanvas | null>(null);
 
-  // Load the request by magic token
+  const myEmail = (session?.user?.email || '').toLowerCase();
+  const myName = (session?.user?.user_metadata as { full_name?: string } | undefined)?.full_name
+    || session?.user?.email
+    || '';
+
   useEffect(() => {
-    async function load() {
-      if (!token) {
-        setState('error');
+    if (myName && !signerName) setSignerName(myName);
+  }, [myName]);
+
+  useEffect(() => {
+    if (!id || !session) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (cancelled) return;
+      if (error || !data) {
+        setState('notfound');
+        return;
+      }
+      const req = data as RequestRow;
+      setRequest(req);
+
+      if (req.status !== 'pending') {
+        setDecided({ action: req.status === 'denied' ? 'denied' : 'approved', signer_name: '' });
+        setState('decided');
         return;
       }
 
-      try {
-        // Call the Netlify function to validate and return the request
-        const res = await fetch(
-          `/.netlify/functions/expense-request-decide?token=${encodeURIComponent(token)}`
-        );
-        if (res.status === 410) {
-          setState('expired');
-          return;
-        }
-        if (!res.ok) {
-          setState('error');
-          return;
-        }
-        const data = await res.json();
-        if (data.already_decided) {
-          setResultMessage(
-            `This request was already ${data.decision} on ${formatDate(data.decided_at)}.`
-          );
-          setState('decided');
-          return;
-        }
-        setRequest(data.request as ExpenseRequest);
-        setState('ready');
-      } catch {
-        setState('error');
+      const routedTo = (req.manager_email || '').toLowerCase();
+      if (!routedTo || routedTo !== myEmail) {
+        setState('forbidden');
+        return;
       }
-    }
-    load();
-  }, [token]);
+      if (req.submitted_by === session.user.id) {
+        setState('forbidden');
+        return;
+      }
 
-  const clearSignature = useCallback(() => {
-    sigRef.current?.clear();
-  }, []);
+      setState('ready');
+    })();
+    return () => { cancelled = true; };
+  }, [id, session, myEmail]);
 
-  async function handleDecision(d: 'approved' | 'denied') {
-    if (!token || !request) return;
-    setSubmitting(true);
-    setDecision(d);
+  const clearSig = useCallback(() => sigRef.current?.clear(), []);
+
+  async function submit(decision: 'approve' | 'decline') {
+    if (!id || !request) return;
+    setErrorMessage('');
+    if (!signerName.trim() || signerName.trim().length < 2) { setErrorMessage('Please type your full name.'); return; }
+    if (!signerInitials.trim()) { setErrorMessage('Please type your initials.'); return; }
+    if (decision === 'decline' && !declineReason.trim()) { setErrorMessage('Please explain why you are declining.'); return; }
+    setSubmitting(decision);
 
     let signatureDataUrl: string | null = null;
-    if (d === 'approved' && sigRef.current && !sigRef.current.isEmpty()) {
-      signatureDataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png');
+    if (sigRef.current && !sigRef.current.isEmpty()) {
+      try { signatureDataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png'); }
+      catch { signatureDataUrl = sigRef.current.toDataURL('image/png'); }
     }
 
     try {
-      const res = await fetch('/.netlify/functions/expense-request-decide', {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Your session expired. Please log in again.');
+
+      const r = await fetch('/expense/api/expense-request-decide', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          token,
-          decision: d,
-          reason_note: reasonNote || null,
-          signature_data: signatureDataUrl,
+          requestId: id,
+          action: decision,
+          signer_name: signerName.trim(),
+          signer_initials: signerInitials.trim(),
+          signature_data_url: signatureDataUrl,
+          decline_reason: decision === 'decline' ? declineReason.trim() : null,
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to submit decision');
+      // Read as text first so we can show non-JSON bodies (HTML, plain-text 502s)
+      const bodyText = await r.text();
+      let body: any = null;
+      try { body = bodyText ? JSON.parse(bodyText) : null; } catch { /* leave body null */ }
+
+      if (!r.ok) {
+        if (body?.error) {
+          setErrorMessage(body.error);
+        } else {
+          // Non-JSON failure — surface what we got so we can debug
+          const snippet = bodyText
+            ? `: ${bodyText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200)}`
+            : '';
+          setErrorMessage(`Server returned ${r.status} ${r.statusText}${snippet}`);
+        }
+        setSubmitting('');
+        return;
       }
 
-      setResultMessage(
-        d === 'approved'
-          ? 'Request approved. The submitter has been notified.'
-          : 'Request denied. The submitter has been notified.'
-      );
+      if (!body) {
+        setErrorMessage('Server returned an empty response. Please try again.');
+        setSubmitting('');
+        return;
+      }
+
+      setDecided({ action: body.action, signer_name: signerName.trim() });
       setState('decided');
-    } catch (err) {
-      setResultMessage(
-        err instanceof Error ? err.message : 'Something went wrong.'
-      );
-      setState('error');
-    } finally {
-      setSubmitting(false);
+    } catch (e) {
+      // Network / CORS / fetch-throw
+      setErrorMessage(e instanceof Error ? `Network error: ${e.message}` : 'Submission failed');
+      setSubmitting('');
     }
   }
 
-  // LOADING
   if (state === 'loading') {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="ap-wrap">
+        <div className="ap-loading"><Loader2 className="spin" size={36} /><p>Loading request…</p></div>
       </div>
     );
   }
 
-  // EXPIRED
-  if (state === 'expired') {
+  if (state === 'notfound') {
     return (
-      <CenteredCard
-        icon={<AlertTriangle className="h-8 w-8 text-amber-500" />}
-        title="Link Expired"
-        description="This approval link is no longer valid. Please ask the submitter to re-send the request."
-      />
+      <div className="ap-wrap">
+        <div className="ap-card ap-banner ap-banner-denied">
+          <AlertTriangle size={36} />
+          <h1>Request not found</h1>
+          <p>This request doesn't exist or isn't visible to you.</p>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+        </div>
+      </div>
     );
   }
 
-  // ERROR
+  if (state === 'forbidden') {
+    return (
+      <div className="ap-wrap">
+        <div className="ap-card ap-banner ap-banner-denied">
+          <XCircle size={36} />
+          <h1>Not your request</h1>
+          <p>This purchase request is routed to {request?.manager_email || 'someone else'}.</p>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === 'decided') {
+    const approved = decided?.action === 'approved' || decided?.action === 'approve';
+    return (
+      <div className="ap-wrap">
+        <div className={`ap-card ap-banner ${approved ? 'ap-banner-approved' : 'ap-banner-denied'}`}>
+          {approved ? <CheckCircle size={36} /> : <XCircle size={36} />}
+          <h1>{approved ? '✓ Request Approved' : '✗ Request Declined'}</h1>
+          <p>{request?.vendor_name ? `${request.vendor_name} · ` : ''}{request?.total_amount ? formatCurrency(request.total_amount) : ''}</p>
+          {decided?.signer_name && <p className="ap-banner-sub">Signed by <strong>{decided.signer_name}</strong></p>}
+          <button className="ap-btn ap-btn-approve" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+        </div>
+      </div>
+    );
+  }
+
   if (state === 'error') {
     return (
-      <CenteredCard
-        icon={<XCircle className="h-8 w-8 text-destructive" />}
-        title="Something went wrong"
-        description={resultMessage || 'Unable to load this approval request.'}
-      />
-    );
-  }
-
-  // DECIDED
-  if (state === 'decided') {
-    return (
-      <CenteredCard
-        icon={
-          decision === 'denied' ? (
-            <XCircle className="h-8 w-8 text-destructive" />
-          ) : (
-            <CheckCircle className="h-8 w-8 text-emerald-500" />
-          )
-        }
-        title={decision === 'denied' ? 'Request Denied' : 'Request Approved'}
-        description={resultMessage}
-      />
-    );
-  }
-
-  // READY — show the request + approval form
-  if (!request) return null;
-
-  return (
-    <div className="min-h-[100dvh] bg-gradient-to-b from-primary/5 to-background p-4">
-      <div className="max-w-md mx-auto space-y-4">
-        {/* Header */}
-        <div className="text-center pt-4 pb-2">
-          <ClipboardList className="h-8 w-8 text-primary mx-auto mb-2" />
-          <h1 className="text-lg font-semibold">Approval Required</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Review and sign to approve or deny this{' '}
-            {request.type === 'purchase_request' ? 'purchase request' : 'expense'}.
-          </p>
+      <div className="ap-wrap">
+        <div className="ap-card ap-banner ap-banner-denied">
+          <XCircle size={36} />
+          <h1>Something went wrong</h1>
+          <p>{errorMessage}</p>
         </div>
-
-        {/* Request summary */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{request.vendor_name || 'No vendor'}</CardTitle>
-              <Badge variant="warning">
-                {request.type === 'purchase_request' ? 'Purchase Request' : 'Expense'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="Amount" value={request.total_amount ? formatCurrency(request.total_amount) : '—'} bold />
-            <Row label="Category" value={request.cogs_account_label || '—'} />
-            <Row label="Department" value={request.department || '—'} />
-            <Row label="Tag" value={request.tag || '—'} />
-            {request.customer_name && <Row label="Customer" value={request.customer_name} />}
-            {request.job_number && <Row label="Job #" value={request.job_number} />}
-            {request.memo && <Row label="Memo" value={request.memo} />}
-            {request.receipt_date && <Row label="Date" value={formatDate(request.receipt_date)} />}
-
-            {/* Line items */}
-            {request.line_items && request.line_items.length > 0 && (
-              <div className="pt-2 border-t">
-                <p className="font-medium mb-1">Line Items</p>
-                {request.line_items.map((li, i) => (
-                  <div key={i} className="flex justify-between text-xs text-muted-foreground">
-                    <span className="truncate flex-1">{li.description}</span>
-                    <span className="tabular-nums ml-2">
-                      {li.qty} × {formatCurrency(li.unit_price)} = {formatCurrency(li.amount)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Signature pad */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Your Signature</CardTitle>
-            <CardDescription>Sign below to approve this request.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="relative">
-              <SignatureCanvas
-                ref={sigRef}
-                penColor="#1F4E79"
-                canvasProps={{
-                  className: 'sig-canvas w-full',
-                  height: 150,
-                  style: { width: '100%', height: '150px' },
-                }}
-              />
-              <button
-                type="button"
-                onClick={clearSignature}
-                className="absolute top-2 right-2 p-1 rounded bg-white/80 hover:bg-white text-muted-foreground"
-              >
-                <Eraser className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Optional denial reason */}
-            <div className="space-y-1.5">
-              <Label htmlFor="reason">Note (optional, required for denial)</Label>
-              <Textarea
-                id="reason"
-                placeholder="Reason for approval or denial..."
-                value={reasonNote}
-                onChange={(e) => setReasonNote(e.target.value)}
-                rows={2}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <Button
-            variant="destructive"
-            size="lg"
-            onClick={() => handleDecision('denied')}
-            disabled={submitting}
-          >
-            {submitting && decision === 'denied' && (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-            <XCircle className="h-4 w-4" />
-            Deny
-          </Button>
-          <Button
-            variant="success"
-            size="lg"
-            onClick={() => handleDecision('approved')}
-            disabled={submitting}
-          >
-            {submitting && decision === 'approved' && (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-            <CheckCircle className="h-4 w-4" />
-            Approve
-          </Button>
-        </div>
-
-        <p className="text-xs text-center text-muted-foreground pb-4">
-          Your decision, IP address, and signature are logged for audit.
-        </p>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-/** Reusable detail row */
-function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={bold ? 'font-semibold' : ''}>{value}</span>
-    </div>
-  );
-}
+  if (!request) return null;
+  const isPR = request.request_type === 'purchase_request';
 
-/** Centered status card for terminal states */
-function CenteredCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-primary/5 to-background p-4">
-      <Card className="w-full max-w-sm text-center">
-        <CardContent className="pt-8 pb-6 space-y-3">
-          <div className="mx-auto">{icon}</div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </CardContent>
-      </Card>
+    <div className="ap-wrap">
+      <div className="ap-card">
+        <div className="ap-header">
+          <button type="button" onClick={() => navigate('/expense/queue')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
+            <ArrowLeft size={20} />
+          </button>
+          <ClipboardList className="ap-header-icon" size={28} />
+          <div>
+            <h1>{isPR ? 'Purchase Request Approval' : 'Expense Approval'}</h1>
+            <p className="ap-meta">
+              {request.submitter_name || 'A team member'}
+              {request.total_amount ? ` · ${formatCurrency(request.total_amount)}` : ''}
+            </p>
+          </div>
+        </div>
+
+        <p className="ap-intro">
+          <strong>{request.submitter_name || 'A team member'}</strong> submitted this {isPR ? 'purchase request' : 'expense'} and routed it to you for approval. Review the details below, then sign.
+        </p>
+
+        {isPR && (
+          <div className="ap-warn">
+            <ShoppingCart size={16} />
+            <span><strong>Time-sensitive:</strong> Approve promptly to avoid procurement delays.</span>
+          </div>
+        )}
+
+        {request.memo && (
+          <div className="ap-note">
+            <span className="ap-note-label">Note from submitter</span>
+            <p>{request.memo}</p>
+          </div>
+        )}
+
+        <div className="ap-summary">
+          <div><span className="ap-sum-label">Vendor</span><span className="ap-sum-value">{request.vendor_name || '—'}</span></div>
+          <div><span className="ap-sum-label">Department</span><span className="ap-sum-value">{request.department || '—'}</span></div>
+          <div><span className="ap-sum-label">Account</span><span className="ap-sum-value">{request.cogs_account_label || '—'}</span></div>
+          {request.customer_name && <div><span className="ap-sum-label">Customer</span><span className="ap-sum-value">{request.customer_name}</span></div>}
+          {request.job_number && <div><span className="ap-sum-label">Job #</span><span className="ap-sum-value">{request.job_number}</span></div>}
+          {request.receipt_date && <div><span className="ap-sum-label">{isPR ? 'Needed By' : 'Date'}</span><span className="ap-sum-value">{formatDate(request.receipt_date)}</span></div>}
+          <div><span className="ap-sum-label">Total</span><span className="ap-sum-value ap-sum-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</span></div>
+        </div>
+
+        {request.line_items && request.line_items.length > 0 && (
+          <table className="ap-items">
+            <thead><tr>
+              <th>Item</th><th className="r">Qty</th><th className="r">Price</th><th className="r">Line</th>
+            </tr></thead>
+            <tbody>
+              {request.line_items.map((li, i) => {
+                const amt = li.amount ?? (li.qty || 1) * (li.unit_price || 0);
+                return (
+                  <tr key={i}>
+                    <td>{li.description || `Line ${i + 1}`}</td>
+                    <td className="r">{li.qty || 1}</td>
+                    <td className="r">{formatCurrency(li.unit_price || 0)}</td>
+                    <td className="r" style={{ fontWeight: 600 }}>{formatCurrency(amt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot><tr>
+              <td colSpan={3} className="r">Total</td>
+              <td className="r ap-items-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</td>
+            </tr></tfoot>
+          </table>
+        )}
+      </div>
+
+      <div className="ap-card">
+        <div className="ap-section-title">Your signature</div>
+        <p className="ap-helptext">
+          Sign below with your mouse or finger. Your typed name and initials below are also legally valid as an electronic signature.
+        </p>
+
+        <div className="ap-sig-box">
+          <SignatureCanvas
+            ref={sigRef}
+            penColor="#5BB5F0"
+            canvasProps={{ className: 'ap-sig-canvas', style: { width: '100%', height: '180px' } }}
+          />
+          <button type="button" className="ap-sig-clear" onClick={clearSig}>
+            <Eraser size={14} /> Clear
+          </button>
+        </div>
+
+        <div className="ap-name-grid">
+          <div className="ap-field">
+            <label htmlFor="signerName">Full name <span className="ap-required">*</span></label>
+            <input id="signerName" type="text" placeholder="Jane Doe" autoComplete="name" maxLength={200} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+          </div>
+          <div className="ap-field">
+            <label htmlFor="signerInitials">Initials <span className="ap-required">*</span></label>
+            <input id="signerInitials" type="text" placeholder="JD" maxLength={10} value={signerInitials} onChange={(e) => setSignerInitials(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="ap-date">Date of signature: <strong>{new Date().toLocaleString()}</strong></div>
+
+        <div className="ap-actions">
+          <button type="button" className="ap-btn ap-btn-decline" onClick={() => setDeclineMode(true)} disabled={!!submitting}>
+            Decline
+          </button>
+          <button type="button" className="ap-btn ap-btn-approve" onClick={() => submit('approve')} disabled={!!submitting}>
+            {submitting === 'approve' && <Loader2 className="spin" size={16} />}
+            ✓ Approve
+          </button>
+        </div>
+
+        {declineMode && (
+          <div className="ap-decline-wrap">
+            <label htmlFor="declineReason">Reason for declining <span className="ap-required">*</span></label>
+            <textarea id="declineReason" placeholder="Please explain why you are declining…" rows={3} maxLength={2000} value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
+            <button type="button" className="ap-btn ap-btn-decline" onClick={() => submit('decline')} disabled={!!submitting} style={{ marginTop: 10 }}>
+              {submitting === 'decline' && <Loader2 className="spin" size={16} />}
+              Submit decline
+            </button>
+          </div>
+        )}
+
+        {errorMessage && <div className="ap-error">{errorMessage}</div>}
+      </div>
+
+      <p className="ap-footer">Reviewing as {myName}</p>
     </div>
   );
 }

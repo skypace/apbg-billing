@@ -10,6 +10,7 @@ const PurchaseRequestForm = lazy(() => import('@/pages/PurchaseRequestForm'));
 const PendingList = lazy(() => import('@/pages/PendingList'));
 const ManagerQueue = lazy(() => import('@/pages/ManagerQueue'));
 const ApprovalPage = lazy(() => import('@/pages/ApprovalPage'));
+const ThirdPartyBills = lazy(() => import('@/pages/ThirdPartyBills'));
 
 function LoadingFallback() {
   return (
@@ -21,18 +22,12 @@ function LoadingFallback() {
 
 export default function App() {
   const { session, loading } = useSession();
-
-  if (loading) {
-    return <LoadingFallback />;
-  }
+  if (loading) return <LoadingFallback />;
 
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
-        {/* Public: magic-link approval page (no auth required) */}
-        <Route path="/approve/:token" element={<ApprovalPage />} />
-
-        {/* Auth-gated routes */}
+        {/* All routes are auth-gated. Approver must log into Supabase. */}
         {!session ? (
           <Route path="*" element={<LoginPage />} />
         ) : (
@@ -42,7 +37,9 @@ export default function App() {
             <Route path="new-pr" element={<PurchaseRequestForm />} />
             <Route path="pending" element={<PendingList />} />
             <Route path="queue" element={<ManagerQueue />} />
+            <Route path="third-party" element={<ThirdPartyBills />} />
             <Route path="edit/:id" element={<ExpenseForm />} />
+            <Route path="review/:id" element={<ApprovalPage />} />
             <Route path="*" element={<Navigate to="" replace />} />
           </Route>
         )}

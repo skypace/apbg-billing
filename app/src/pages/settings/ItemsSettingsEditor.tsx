@@ -11,12 +11,13 @@ import TextField from '@mui/material/TextField';
 import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { QboConfirmModal } from '../../components/QboConfirmModal';
+import { PushCategoriesReviewModal, type CategoryChange } from '../../components/PushCategoriesReviewModal';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
 import {
-  fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled,
+  fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled, logQboWriteback,
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
@@ -62,6 +63,16 @@ interface ItemMasterRow {
   segment_code: string | null;
   segment_label: string | null;
   segment_source: 'item' | 'category' | null;
+  track_locations: boolean;
+  has_bom: boolean;
+  weight_per_unit_lbs: number | null;
+  units_per_pallet: number | null;
+  freight_class: string | null;
+  dim_l_in: number | null;
+  dim_w_in: number | null;
+  dim_h_in: number | null;
+  unit_type: string | null;
+  nmfc_code: string | null;
 }
 
 // GridRow combines the typed item shape with GridValidRowModel's loose
@@ -196,6 +207,11 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string; item_name: string; current: boolean; next: boolean;
   } | null>(null);
   const [activeBusy, setActiveBusy] = useState(false);
+  const [pushReview, setPushReview] = useState<{
+    categoriesToCreate: string[];
+    changes: CategoryChange[];
+    alreadyCorrect: number;
+  } | null>(null);
 
   // Column layout persistence (order + widths + visibility). Uses MUI X
   // Pro's built-in exportState/restoreState — much more reliable than
@@ -293,22 +309,32 @@ export function ItemsSettingsEditor() {
 
   async function patchSettings(
     qbo_item_id: string,
-    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override'>>,
+    patchData: Partial<Pick<ItemMasterRow, 'is_managed' | 'is_planner' | 'target_days_supply' | 'lead_time_days' | 'reorder_point' | 'min_order_qty' | 'notes' | 'category_override' | 'track_locations' | 'has_bom' | 'weight_per_unit_lbs' | 'units_per_pallet' | 'freight_class' | 'dim_l_in' | 'dim_w_in' | 'dim_h_in' | 'unit_type' | 'nmfc_code'>>,
   ) {
     // The grid is tree-grouped by category; group rows have no qbo_item_id.
     // If a control on a group row fires this, silently ignore.
     if (!qbo_item_id) return;
     try {
       await sbrpc<void>('fn_set_inventory_settings', {
-        p_qbo_item_id:        qbo_item_id,
-        p_is_managed:         patchData.is_managed ?? null,
-        p_is_planner:         patchData.is_planner ?? null,
-        p_target_days_supply: patchData.target_days_supply ?? null,
-        p_lead_time_days:     patchData.lead_time_days ?? null,
-        p_reorder_point:      patchData.reorder_point ?? null,
-        p_min_order_qty:      patchData.min_order_qty ?? null,
-        p_notes:              patchData.notes ?? null,
-        p_category_override:  patchData.category_override ?? null,
+        p_qbo_item_id:         qbo_item_id,
+        p_is_managed:          patchData.is_managed ?? null,
+        p_is_planner:          patchData.is_planner ?? null,
+        p_target_days_supply:  patchData.target_days_supply ?? null,
+        p_lead_time_days:      patchData.lead_time_days ?? null,
+        p_reorder_point:       patchData.reorder_point ?? null,
+        p_min_order_qty:       patchData.min_order_qty ?? null,
+        p_notes:               patchData.notes ?? null,
+        p_category_override:   patchData.category_override ?? null,
+        p_track_locations:     patchData.track_locations ?? null,
+        p_has_bom:             patchData.has_bom ?? null,
+        p_weight_per_unit_lbs: patchData.weight_per_unit_lbs ?? null,
+        p_units_per_pallet:    patchData.units_per_pallet ?? null,
+        p_freight_class:       patchData.freight_class ?? null,
+        p_dim_l_in:            patchData.dim_l_in ?? null,
+        p_dim_w_in:            patchData.dim_w_in ?? null,
+        p_dim_h_in:            patchData.dim_h_in ?? null,
+        p_unit_type:           patchData.unit_type ?? null,
+        p_nmfc_code:           patchData.nmfc_code ?? null,
       });
       setRows((cur) => cur?.map((r) => {
         if (r.qbo_item_id !== qbo_item_id) return r;
@@ -532,33 +558,80 @@ export function ItemsSettingsEditor() {
     try {
       const dryRun = await bulkSyncCategoriesToQbo(false);
       const s = dryRun.summary;
-      if (!s || (s.would_update === 0 && (dryRun.categories_created?.length ?? 0) === 0)) {
+      const creating = dryRun.categories_created ?? [];
+      if (!s || (s.would_update === 0 && creating.length === 0)) {
         toast.info('Everything in QBO already matches.');
         setPushing(false);
         return;
       }
-      const creating = dryRun.categories_created ?? [];
-      const ok = confirm(
-        'Sync category overrides to QuickBooks?\n\n'
-        + (creating.length > 0
-            ? `New Category items in QBO: ${creating.length}\n${creating.slice(0, 6).join(', ')}${creating.length > 6 ? '…' : ''}\n\n`
-            : '')
-        + `Items to re-parent: ${s.would_update}\n`
-        + `Already correct: ${s.already_correct}\n\n`
-        + 'This creates any missing QBO Category items and points each item to its category. '
-        + 'No item names or accounts are modified.',
-      );
-      if (!ok) { setPushing(false); return; }
+      // Build the per-item diff from local rows. The dry-run RPC only
+      // returns summary counts; we already have category_path (current
+      // QBO parent) and category_override (target) on every row.
+      const changes: CategoryChange[] = (rows ?? [])
+        .filter((r) => r.category_override
+                    && r.category_override !== (r.category_path ?? ''))
+        .map((r) => ({
+          qbo_item_id: r.qbo_item_id,
+          item_name: r.item_name,
+          current_parent: r.category_path ?? '(none)',
+          new_parent: r.category_override!,
+        }))
+        .sort((a, b) => a.new_parent.localeCompare(b.new_parent) || a.item_name.localeCompare(b.item_name));
+      setPushReview({
+        categoriesToCreate: creating,
+        changes,
+        alreadyCorrect: s.already_correct ?? 0,
+      });
+    } catch (e) {
+      toast.error('Push preview failed: ' + (e as Error).message);
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  async function confirmPushToQbo() {
+    if (!pushReview) return;
+    setPushing(true);
+    const before = {
+      categories_to_create: pushReview.categoriesToCreate,
+      items_to_reparent: pushReview.changes.length,
+    };
+    try {
       const result = await bulkSyncCategoriesToQbo(true);
       const u = result.summary?.updated ?? 0;
       const c = result.categories_created?.length ?? 0;
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before, after: { items_updated: u, categories_created: c },
+        result: 'success',
+      }).catch(() => undefined);
       toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
+      setPushReview(null);
       load();
     } catch (e) {
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before, after: {}, result: 'failure',
+        error: (e as Error).message,
+      }).catch(() => undefined);
       toast.error('QBO sync failed: ' + (e as Error).message);
     } finally {
       setPushing(false);
     }
+  }
+
+  function cancelPushToQbo() {
+    if (pushReview) {
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before: {
+          categories_to_create: pushReview.categoriesToCreate,
+          items_to_reparent: pushReview.changes.length,
+        },
+        after: {}, result: 'cancelled',
+      }).catch(() => undefined);
+    }
+    setPushReview(null);
   }
 
   const alignmentSummary = useMemo(() => {
@@ -611,6 +684,158 @@ export function ItemsSettingsEditor() {
               onChange={(v) => patchSettings(p.row.qbo_item_id, { is_planner: v })}
               title="If on, this item appears in the Plan Builder (item × customer × month grid). Use for SKUs you actively budget."
             />
+          );
+        },
+      },
+      {
+        field: 'track_locations', headerName: 'Stock', width: 80, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { track_locations: v })}
+              title="If on, this item participates in the Stock multi-location ledger (#/stock). On-hand by warehouse, transfers, movement audit. Default off — opt in per SKU."
+            />
+          );
+        },
+      },
+      {
+        field: 'has_bom', headerName: 'BOM', width: 80, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchSettings(p.row.qbo_item_id, { has_bom: v })}
+              title="If on, this item is treated as a manufactured/assembled SKU built from components. Drives the Phase 2 BOM editor + work-order cost rollup."
+            />
+          );
+        },
+      },
+      {
+        field: 'weight_per_unit_lbs', headerName: 'Wt/Unit (lb)', type: 'number', width: 110, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { weight_per_unit_lbs: v });
+              }}
+              style={{ ...inp(), width: 80, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'units_per_pallet', headerName: 'Units/Pallet', type: 'number', width: 110, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { units_per_pallet: v });
+              }}
+              style={{ ...inp(), width: 80, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'freight_class', headerName: 'Freight Cls', width: 100, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <select
+              defaultValue={p.value ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? null : e.target.value;
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { freight_class: v });
+              }}
+              style={{ ...inp(), width: 80 }}
+            >
+              <option value="">—</option>
+              {['50','55','60','65','70','77.5','85','92.5','100','110','125','150','175','200','250','300','400','500'].map((c) =>
+                <option key={c} value={c}>{c}</option>
+              )}
+            </select>
+          );
+        },
+      },
+      {
+        field: 'nmfc_code', headerName: 'NMFC #', width: 90, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="text" defaultValue={p.value ?? ''} maxLength={20}
+              onBlur={(e) => {
+                const v = e.target.value.trim() === '' ? null : e.target.value.trim();
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { nmfc_code: v });
+              }}
+              style={{ ...inp(), width: 70, fontFamily: 'var(--ff-mono)' }}
+              placeholder="—" />
+          );
+        },
+      },
+      {
+        field: 'unit_type', headerName: 'Unit Type', width: 95, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <select defaultValue={p.value ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? null : e.target.value;
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { unit_type: v });
+              }}
+              style={{ ...inp(), width: 80 }}
+            >
+              <option value="">—</option>
+              {['case','pallet','drum','each','bag','crate','box','tote','keg','barrel'].map((u) =>
+                <option key={u} value={u}>{u}</option>
+              )}
+            </select>
+          );
+        },
+      },
+      {
+        field: 'dim_l_in', headerName: 'L (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_l_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'dim_w_in', headerName: 'W (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_w_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
+          );
+        },
+      },
+      {
+        field: 'dim_h_in', headerName: 'H (in)', type: 'number', width: 75, cellClassName: 'mn', sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <input type="number" min={0} step="any" defaultValue={p.value ?? ''}
+              onBlur={(e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                if (v !== p.value) patchSettings(p.row.qbo_item_id, { dim_h_in: v });
+              }}
+              style={{ ...inp(), width: 55, textAlign: 'right' }} />
           );
         },
       },
@@ -885,8 +1110,17 @@ export function ItemsSettingsEditor() {
     // drag.
   }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Make group rows span the whole grid (no toggles, no "0"s in numeric
+  // cells, no autocomplete dropdowns) — the category header sits alone.
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
+    colSpan: (_value: unknown, row: Record<string, unknown>) => {
+      // MUI X v7: when colSpan returns > 1, that cell occupies adjacent
+      // columns. We use it for group rows (active===undefined on the
+      // synthetic group row) to span across all data columns.
+      const isGroup = row?.qbo_item_id == null;
+      return isGroup ? columns.length + 1 : 1;
+    },
     renderCell: (params: {
       rowNode: { type: string; groupingKey?: string | number | null };
       row: { item_name?: string };
@@ -898,7 +1132,7 @@ export function ItemsSettingsEditor() {
       return <span style={{ fontWeight: 600 }}>{String(params.row.item_name ?? '')}</span>;
     },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as any, []);
+  }) as any, [columns.length]);
 
   if (!rows) return <div className="ld">Loading items…</div>;
 
@@ -907,8 +1141,20 @@ export function ItemsSettingsEditor() {
   const managedCount     = rows.filter((r) => r.is_managed).length;
   const withOverrideCount = rows.filter((r) => r.category_override).length;
 
+  const pushPassword = (import.meta.env.VITE_QBO_PUSH_PASSWORD as string | undefined) ?? 'BRIX-CONFIRM';
+
   return (
     <div>
+      <PushCategoriesReviewModal
+        open={!!pushReview}
+        busy={pushing}
+        expectedPassword={pushPassword}
+        categoriesToCreate={pushReview?.categoriesToCreate ?? []}
+        changes={pushReview?.changes ?? []}
+        alreadyCorrect={pushReview?.alreadyCorrect ?? 0}
+        onCancel={cancelPushToQbo}
+        onConfirm={confirmPushToQbo}
+      />
       <QboConfirmModal
         open={!!activePrompt}
         title={activePrompt?.next ? 'Reactivate item in QuickBooks?' : 'Deactivate item in QuickBooks?'}
@@ -1081,6 +1327,8 @@ export function ItemsSettingsEditor() {
             groupingColDef={groupingColDef}
             density="compact" pagination disableRowSelectionOnClick
             checkboxSelection
+            // Group rows shouldn't show a checkbox — only leaf rows are selectable.
+            isRowSelectable={(params) => params.row?.qbo_item_id != null}
             onRowSelectionModelChange={(model) => {
               setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
             }}
