@@ -345,9 +345,21 @@ export default async function handler(req, context) {
     resqSchema,
   };
 
-  const hasFailure = Object.values(results).some(r => r.status === 'error');
-  const hasWarning = Object.values(results).some(r => r.status === 'warn');
-  const overall = hasFailure ? 'error' : hasWarning ? 'warn' : 'ok';
+  // Primary services flip the hub "Billing Down" dot. Secondary integrations
+  // (SF, ResQ, sync freshness, ResQ schema drift) still page via email when
+  // they break, but a flaky 3rd-party shouldn't make the gateway show
+  // "Some systems down" — that wakes up the operator on a problem that's not
+  // theirs to fix. Matches the QBO+cache-only `overall` rule in
+  // melt-dashboard/netlify/functions/health-check.mjs.
+  const PRIMARY = new Set(['qbo']);
+  const primaryFailure = Object.entries(results).some(([k, r]) => PRIMARY.has(k) && r.status === 'error');
+  const anyFailure    = Object.values(results).some(r => r.status === 'error');
+  const anyWarning    = Object.values(results).some(r => r.status === 'warn');
+  const overall = primaryFailure ? 'error' : (anyFailure || anyWarning) ? 'warn' : 'ok';
+  // hasFailure / hasWarning preserved for the email-alert branch below so a
+  // ResQ outage still emails the operator even though `overall` stays 'warn'.
+  const hasFailure = anyFailure;
+  const hasWarning = anyWarning;
 
   const payload = { timestamp, overall, checks: results };
 
