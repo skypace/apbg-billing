@@ -10,12 +10,13 @@ import TextField from '@mui/material/TextField';
 import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { QboConfirmModal } from '../../components/QboConfirmModal';
+import { PushCategoriesReviewModal, type CategoryChange } from '../../components/PushCategoriesReviewModal';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
 import {
-  fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled,
+  fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled, logQboWriteback,
   fetchItemPlAudit, applyPlCategorySuggestions,
   bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
@@ -205,6 +206,11 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string; item_name: string; current: boolean; next: boolean;
   } | null>(null);
   const [activeBusy, setActiveBusy] = useState(false);
+  const [pushReview, setPushReview] = useState<{
+    categoriesToCreate: string[];
+    changes: CategoryChange[];
+    alreadyCorrect: number;
+  } | null>(null);
 
   function load() {
     setRows(null);
@@ -523,33 +529,80 @@ export function ItemsSettingsEditor() {
     try {
       const dryRun = await bulkSyncCategoriesToQbo(false);
       const s = dryRun.summary;
-      if (!s || (s.would_update === 0 && (dryRun.categories_created?.length ?? 0) === 0)) {
+      const creating = dryRun.categories_created ?? [];
+      if (!s || (s.would_update === 0 && creating.length === 0)) {
         toast.info('Everything in QBO already matches.');
         setPushing(false);
         return;
       }
-      const creating = dryRun.categories_created ?? [];
-      const ok = confirm(
-        'Sync category overrides to QuickBooks?\n\n'
-        + (creating.length > 0
-            ? `New Category items in QBO: ${creating.length}\n${creating.slice(0, 6).join(', ')}${creating.length > 6 ? '…' : ''}\n\n`
-            : '')
-        + `Items to re-parent: ${s.would_update}\n`
-        + `Already correct: ${s.already_correct}\n\n`
-        + 'This creates any missing QBO Category items and points each item to its category. '
-        + 'No item names or accounts are modified.',
-      );
-      if (!ok) { setPushing(false); return; }
+      // Build the per-item diff from local rows. The dry-run RPC only
+      // returns summary counts; we already have category_path (current
+      // QBO parent) and category_override (target) on every row.
+      const changes: CategoryChange[] = (rows ?? [])
+        .filter((r) => r.category_override
+                    && r.category_override !== (r.category_path ?? ''))
+        .map((r) => ({
+          qbo_item_id: r.qbo_item_id,
+          item_name: r.item_name,
+          current_parent: r.category_path ?? '(none)',
+          new_parent: r.category_override!,
+        }))
+        .sort((a, b) => a.new_parent.localeCompare(b.new_parent) || a.item_name.localeCompare(b.item_name));
+      setPushReview({
+        categoriesToCreate: creating,
+        changes,
+        alreadyCorrect: s.already_correct ?? 0,
+      });
+    } catch (e) {
+      toast.error('Push preview failed: ' + (e as Error).message);
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  async function confirmPushToQbo() {
+    if (!pushReview) return;
+    setPushing(true);
+    const before = {
+      categories_to_create: pushReview.categoriesToCreate,
+      items_to_reparent: pushReview.changes.length,
+    };
+    try {
       const result = await bulkSyncCategoriesToQbo(true);
       const u = result.summary?.updated ?? 0;
       const c = result.categories_created?.length ?? 0;
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before, after: { items_updated: u, categories_created: c },
+        result: 'success',
+      }).catch(() => undefined);
       toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
+      setPushReview(null);
       load();
     } catch (e) {
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before, after: {}, result: 'failure',
+        error: (e as Error).message,
+      }).catch(() => undefined);
       toast.error('QBO sync failed: ' + (e as Error).message);
     } finally {
       setPushing(false);
     }
+  }
+
+  function cancelPushToQbo() {
+    if (pushReview) {
+      logQboWriteback({
+        action: 'bulkSyncCategories', qbo_item_id: null,
+        before: {
+          categories_to_create: pushReview.categoriesToCreate,
+          items_to_reparent: pushReview.changes.length,
+        },
+        after: {}, result: 'cancelled',
+      }).catch(() => undefined);
+    }
+    setPushReview(null);
   }
 
   const alignmentSummary = useMemo(() => {
@@ -1046,8 +1099,20 @@ export function ItemsSettingsEditor() {
   const managedCount     = rows.filter((r) => r.is_managed).length;
   const withOverrideCount = rows.filter((r) => r.category_override).length;
 
+  const pushPassword = (import.meta.env.VITE_QBO_PUSH_PASSWORD as string | undefined) ?? 'BRIX-CONFIRM';
+
   return (
     <div>
+      <PushCategoriesReviewModal
+        open={!!pushReview}
+        busy={pushing}
+        expectedPassword={pushPassword}
+        categoriesToCreate={pushReview?.categoriesToCreate ?? []}
+        changes={pushReview?.changes ?? []}
+        alreadyCorrect={pushReview?.alreadyCorrect ?? 0}
+        onCancel={cancelPushToQbo}
+        onConfirm={confirmPushToQbo}
+      />
       <QboConfirmModal
         open={!!activePrompt}
         title={activePrompt?.next ? 'Reactivate item in QuickBooks?' : 'Deactivate item in QuickBooks?'}
