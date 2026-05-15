@@ -1,4 +1,5 @@
 import { sbq, sbrpc, sbUpdate } from './rpc';
+import { SB_KEY, SB_URL, _sbToken } from './supabase';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,9 @@ export interface WorkOrder {
   voided_by: string | null;
   void_reason: string | null;
   notes: string | null;
+  qbo_inventory_adjustment_id: string | null;
+  qbo_pushed_at: string | null;
+  qbo_push_error: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -167,4 +171,51 @@ export async function closeWorkOrder(woId: string, qtyProducedActual: number, cl
 
 export async function voidWorkOrder(woId: string, reason: string): Promise<void> {
   await sbrpc('fn_void_work_order', { p_wo_id: woId, p_reason: reason });
+}
+
+// ── QBO writeback for closed work orders ────────────────────────────────
+// Posts an InventoryAdjustment to QBO so QBO's Item.QtyOnHand reflects
+// the build. Idempotent — refuses to push a WO that already has
+// qbo_inventory_adjustment_id set. dry_run=true returns the payload
+// preview + resolved adjust account without actually posting.
+export interface PushWoToQboResult {
+  ok: boolean;
+  no_change?: boolean;
+  dry_run?: boolean;
+  work_order_id: string;
+  qbo_inventory_adjustment_id?: string;
+  qbo_pushed_at?: string;
+  adjust_account?: { id: string; name: string };
+  line_count?: number;
+  skipped?: { qbo_item_id: string; reason: string }[];
+  payload?: unknown;
+  error?: string;
+  duration_ms?: number;
+  message?: string;
+}
+
+export async function pushWorkOrderToQbo(
+  woId: string,
+  opts: { dry_run?: boolean; adjust_account_id?: string | null } = {},
+): Promise<PushWoToQboResult> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/push-qbo-item', {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action: 'postInventoryAdjustment',
+      work_order_id: woId,
+      dry_run: opts.dry_run ?? false,
+      adjust_account_id: opts.adjust_account_id ?? null,
+    }),
+  });
+  const j = (await res.json()) as PushWoToQboResult;
+  if (!res.ok || j.ok === false) {
+    throw new Error(j.error || ('push-qbo-item failed: HTTP ' + res.status));
+  }
+  return j;
 }
