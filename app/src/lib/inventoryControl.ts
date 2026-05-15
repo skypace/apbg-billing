@@ -155,6 +155,49 @@ export async function fetchOnHand(): Promise<OnHandRow[]> {
   return sbq<OnHandRow>('v_inventory_on_hand', 'select=*');
 }
 
+// ── Inventory drift / reconcile ──────────────────────────────────────────
+// One row per active item with QBO's qty_on_hand vs the BRIX
+// warehouse-only sum from v_inventory_on_hand. Drift > 0 = BRIX short.
+
+export interface InventoryDriftRow {
+  qbo_item_id: string;
+  item_name: string;
+  item_type: string | null;
+  active: boolean;
+  qbo_qty: number;
+  brix_qty: number;
+  brix_in_transit: number;
+  brix_adjustment_offset: number;
+  drift: number;
+  track_locations: boolean;
+  is_managed: boolean;
+  category_resolved: string;
+}
+
+export async function fetchInventoryDrift(): Promise<InventoryDriftRow[]> {
+  return sbq<InventoryDriftRow>('v_inventory_drift', 'select=*&order=drift.desc');
+}
+
+export interface ReconcileResult {
+  qbo_item_id: string;
+  drift_resolved: number;
+  movement_id: string | null;
+  message: string;
+}
+
+export async function reconcileInventoryToQbo(args: {
+  qbo_item_id: string;
+  target_location_id?: string | null;
+  reason?: string | null;
+}): Promise<ReconcileResult> {
+  const rows = await sbrpc<ReconcileResult[]>('fn_reconcile_inventory_to_qbo', {
+    p_qbo_item_id:        args.qbo_item_id,
+    p_target_location_id: args.target_location_id ?? null,
+    p_reason:             args.reason ?? null,
+  });
+  return Array.isArray(rows) ? rows[0] : (rows as unknown as ReconcileResult);
+}
+
 // ── Location CRUD ────────────────────────────────────────────────────────
 
 export type NewLocation = Pick<InventoryLocation,
