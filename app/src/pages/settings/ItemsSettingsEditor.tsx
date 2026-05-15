@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DataGridPro,
+  useGridApiRef,
   type GridColDef,
   type GridGroupNode,
   type GridValidRowModel,
@@ -195,6 +196,35 @@ export function ItemsSettingsEditor() {
     qbo_item_id: string; item_name: string; current: boolean; next: boolean;
   } | null>(null);
   const [activeBusy, setActiveBusy] = useState(false);
+
+  // Column layout persistence (order + widths). Saved to localStorage so
+  // drag-reordering and resizing survive page reloads.
+  const apiRef = useGridApiRef();
+  const LAYOUT_KEY = 'brix.items-master.layout-v1';
+  const [savedLayout] = useState<{ order: string[]; widths: Record<string, number> } | null>(() => {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+
+  function persistLayout() {
+    if (!apiRef.current) return;
+    try {
+      const cols = apiRef.current.getAllColumns();
+      const order = cols.map((c) => c.field).filter((f) => f !== '__check__' && !f.startsWith('__'));
+      const widths: Record<string, number> = {};
+      for (const c of cols) {
+        if (typeof c.width === 'number') widths[c.field] = c.width;
+      }
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({ order, widths }));
+    } catch { /* swallow — layout save is best-effort */ }
+  }
+
+  function resetLayout() {
+    localStorage.removeItem(LAYOUT_KEY);
+    window.location.reload();
+  }
 
   function load() {
     setRows(null);
@@ -849,11 +879,36 @@ export function ItemsSettingsEditor() {
       },
     );
 
+    // Apply persisted widths
+    if (savedLayout?.widths) {
+      for (const c of cols) {
+        const w = savedLayout.widths[c.field];
+        if (typeof w === 'number') c.width = w;
+      }
+    }
+    // Reorder by saved order, append any new fields at end
+    if (savedLayout?.order && savedLayout.order.length) {
+      const idx = new Map(savedLayout.order.map((f, i) => [f, i]));
+      cols.sort((a, b) => {
+        const ai = idx.has(a.field) ? idx.get(a.field)! : 999;
+        const bi = idx.has(b.field) ? idx.get(b.field)! : 999;
+        return ai - bi;
+      });
+    }
     return cols;
-  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts, savedLayout]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Make group rows span the whole grid (no toggles, no "0"s in numeric
+  // cells, no autocomplete dropdowns) — the category header sits alone.
   const groupingColDef = useMemo(() => ({
     headerName: 'Category / Item', width: 360, hideDescendantCount: false,
+    colSpan: (_value: unknown, row: Record<string, unknown>) => {
+      // MUI X v7: when colSpan returns > 1, that cell occupies adjacent
+      // columns. We use it for group rows (active===undefined on the
+      // synthetic group row) to span across all data columns.
+      const isGroup = row?.qbo_item_id == null;
+      return isGroup ? columns.length + 1 : 1;
+    },
     renderCell: (params: {
       rowNode: { type: string; groupingKey?: string | number | null };
       row: { item_name?: string };
@@ -865,7 +920,7 @@ export function ItemsSettingsEditor() {
       return <span style={{ fontWeight: 600 }}>{String(params.row.item_name ?? '')}</span>;
     },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as any, []);
+  }) as any, [columns.length]);
 
   if (!rows) return <div className="ld">Loading items…</div>;
 
@@ -1031,6 +1086,10 @@ export function ItemsSettingsEditor() {
           {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
         <button onClick={load} className="tb-btn">Refresh</button>
+        <button onClick={resetLayout} className="tb-btn"
+          title="Reset column order + widths to defaults">
+          Reset layout
+        </button>
       </div>
 
       <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
@@ -1038,14 +1097,20 @@ export function ItemsSettingsEditor() {
           <div className="ld">No items match.</div>
         ) : (
           <DataGridPro
+            apiRef={apiRef}
             rows={gridRows} columns={columns}
             treeData getTreeDataPath={getTreeDataPath}
             groupingColDef={groupingColDef}
             density="compact" pagination disableRowSelectionOnClick
             checkboxSelection
+            // Group rows shouldn't show a checkbox — only leaf rows are selectable.
+            isRowSelectable={(params) => params.row?.qbo_item_id != null}
             onRowSelectionModelChange={(model) => {
               setSelectedIds(model.map(String).filter((id) => !id.startsWith('auto-generated-row-')));
             }}
+            // Persist column order + widths on every drag/resize.
+            onColumnOrderChange={persistLayout}
+            onColumnWidthChange={persistLayout}
             pageSizeOptions={[20, 40, 60, 100, 250, { value: -1, label: 'All' }]}
             defaultGroupingExpansionDepth={1}
             initialState={{
