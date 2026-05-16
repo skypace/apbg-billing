@@ -27,6 +27,7 @@ interface RequestRow {
   submitter_email?: string | null;
   manager_email?: string | null;
   submitted_by?: string | null;
+  denial_reason?: string | null;
   line_items?: Array<{ description?: string; qty?: number; unit_price?: number; amount?: number }>;
 }
 
@@ -208,14 +209,14 @@ export default function ApprovalPage() {
     // manager can act, via the same /review/:id URL but authed as them).
     const statusLabel = (() => {
       switch (request.status) {
-        case 'draft':            return { label: 'Draft — not yet submitted to your approver', tone: 'denied' as const };
-        case 'pending':          return { label: 'Pending approval', tone: 'ready' as const };
-        case 'approved':         return { label: 'Approved', tone: 'approved' as const };
-        case 'denied':           return { label: 'Declined', tone: 'denied' as const };
-        case 'awaiting_invoice': return { label: 'Approved — waiting for invoice', tone: 'approved' as const };
-        case 'fulfilled':        return { label: 'Fulfilled', tone: 'approved' as const };
-        case 'posted':           return { label: 'Posted to QBO', tone: 'approved' as const };
-        default:                 return { label: request.status, tone: 'ready' as const };
+        case 'draft':            return 'Draft — not yet submitted to your approver';
+        case 'pending':          return 'Pending approval';
+        case 'approved':         return 'Approved';
+        case 'denied':           return 'Declined';
+        case 'awaiting_invoice': return 'Approved — waiting for invoice';
+        case 'fulfilled':        return 'Fulfilled';
+        case 'posted':           return 'Posted to QBO';
+        default:                 return request.status;
       }
     })();
     const isPR = request.request_type === 'purchase_request';
@@ -230,7 +231,7 @@ export default function ApprovalPage() {
             <div>
               <h1>{isPR ? 'Purchase Request' : 'Expense'}</h1>
               <p className="ap-meta">
-                Status: <strong>{statusLabel.label}</strong>
+                Status: <strong>{statusLabel}</strong>
                 {request.total_amount ? ` · ${formatCurrency(request.total_amount)}` : ''}
               </p>
             </div>
@@ -256,6 +257,12 @@ export default function ApprovalPage() {
             <div className="ap-note">
               <span className="ap-note-label">Memo</span>
               <p>{request.memo}</p>
+            </div>
+          )}
+          {request.status === 'denied' && request.denial_reason && (
+            <div className="ap-note">
+              <span className="ap-note-label">Reason for declining</span>
+              <p>{request.denial_reason}</p>
             </div>
           )}
           <div className="ap-summary">
