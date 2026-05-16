@@ -102,19 +102,41 @@ export default function ExpenseForm() {
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
   useEffect(() => {
-    if (!id) return;
-    // React Router v6 reuses the same ExpenseForm instance when navigating
-    // between two /expense/edit/:id URLs (no `key` prop on the route), so
-    // attachment + receipt state can survive a draft switch. Reset the
-    // flags that the X-button delete path depends on, otherwise a pending
-    // X-click against draft A could fire its delete against draft B's
-    // attachment after navigation.
+    // Reset block ABOVE the `if (!id) return`: both /expense/new and
+    // /expense/edit/:id render the same ExpenseForm instance (no `key` on
+    // either Route), so the /edit/A → /new transition also reuses state.
+    // Without this, "Submit Another" from a successful edit lands on
+    // /new still showing the previous success screen. Also resets
+    // existingStatus + form fields so a load-failure on a new id can't
+    // leave stale draft-A data (with a stale 'draft' existingStatus) that
+    // would slip through Guard 1 in handleSubmit and get UPDATEd onto B.
     setOriginalAttachment(null);
     setPendingAttachmentDelete(false);
     setReceiptPreview(null);
     setReceiptDownloadUrl(null);
     setReceiptDownloadName(null);
     setReceiptFile(null);
+    setExistingStatus(null);
+    setVendorName('');
+    setTotalAmount('');
+    setReceiptDate(new Date().toISOString().slice(0, 10));
+    setEntity('brix');
+    setCogsAccountLabel('');
+    setCogsAccountId('');
+    setTag('');
+    setDepartment('');
+    setCustomerName('');
+    setJobNumber('');
+    setMemo('');
+    setManagerEmail('');
+    setPaymentAccountId('');
+    setPaymentAccountName('');
+    setPaymentAccountType('');
+    setLineItems([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
+    if (!id) {
+      setStep('upload');
+      return;
+    }
 
     let cancelled = false;
     (async () => {
@@ -188,6 +210,11 @@ export default function ExpenseForm() {
         }
       }
 
+      // Cancellation guard: the new attachment + signed-URL awaits earlier
+      // in this effect widen the post-cancel window, so a stale A
+      // continuation could hide B's spinner or flip B's 'error' step back
+      // to 'details'.
+      if (cancelled) return;
       setStep('details');
       setLoadingExisting(false);
     })();
@@ -410,13 +437,27 @@ export default function ExpenseForm() {
         // Editing an existing draft: UPDATE in place. Previously the form
         // always INSERTed, which silently created a duplicate row every
         // time an operator opened a draft to fix a typo.
+        // Status-scoped UPDATE: existingStatus is captured once at load
+        // time and never refreshed, so a two-tab race (or a manager
+        // approving via /review/:id while the submitter has the form
+        // open) would otherwise let this UPDATE clobber editable fields
+        // on a row that already posted to QBO. RLS policy
+        // expense_requests_update_self (20260512s) is status-blind by
+        // design, so the client-side filter is the live guard. .single()
+        // returns no rows → friendly-message throw.
         const { data: updated, error: updateErr } = await supabase
           .from('expense_requests')
           .update(editableFields)
           .eq('id', id)
+          .eq('status', 'draft')
           .select()
           .single();
-        if (updateErr || !updated) throw new Error(updateErr?.message ?? 'Update failed');
+        if (!updated) {
+          throw new Error(
+            "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
+          );
+        }
+        if (updateErr) throw new Error(updateErr.message);
         req = updated;
       } else {
         const { data: inserted, error: insertErr } = await supabase
