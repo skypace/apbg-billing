@@ -550,32 +550,11 @@ export default function ExpenseForm() {
       // non-fatal — garbage-collectable). DELETE RLS policies for both
       // targets land in 20260516d_expense_attachments_delete_rls.sql;
       // without those, both calls would silently no-op.
-      if (pendingAttachmentDelete && originalAttachment) {
-        // Row delete BEFORE storage delete: the worst case if the storage
-        // call fails afterwards is an orphan blob with no row pointer,
-        // which is invisible to the load effect and garbage-collectable
-        // later. The opposite order would leave a row pointing at a
-        // missing blob, and the load effect would happily sign the path
-        // (createSignedUrl doesn't verify existence) → broken preview
-        // on next /edit load.
-        const { error: rowErr } = await supabase
-          .from('expense_request_attachments')
-          .delete()
-          .eq('id', originalAttachment.id);
-        if (rowErr) {
-          throw new Error('Could not delete attachment: ' + rowErr.message);
-        }
-        const { error: storageErr } = await supabase.storage
-          .from('expense-attachments')
-          .remove([originalAttachment.path]);
-        if (storageErr) {
-          // eslint-disable-next-line no-console
-          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
-        }
-        setOriginalAttachment(null);
-        setPendingAttachmentDelete(false);
-      }
-
+      // Upload + attach-INSERT the REPLACEMENT first, before deleting the
+      // original. Otherwise a transient upload failure (5xx, AbortError,
+      // ad-blocker) would leave the audit row with no attachment evidence
+      // — the catch's rollback at insertedForRollback is null on
+      // edit-flow so it doesn't restore the original.
       if (receiptFile) {
         // Prefix with Date.now() so a same-filename re-pick (Screenshot.png,
         // receipt.pdf, scan.pdf) doesn't collide on the now-stable req.id
@@ -598,6 +577,30 @@ export default function ExpenseForm() {
           storage_path: storagePath,
         });
         if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
+      }
+
+      if (pendingAttachmentDelete && originalAttachment) {
+        // Row delete BEFORE storage delete: worst case if the storage
+        // call fails afterwards is an orphan blob with no row pointer,
+        // invisible to the load effect and garbage-collectable later.
+        // The opposite order would leave a row pointing at a missing
+        // blob → broken preview on next /edit load.
+        const { error: rowErr } = await supabase
+          .from('expense_request_attachments')
+          .delete()
+          .eq('id', originalAttachment.id);
+        if (rowErr) {
+          throw new Error('Could not delete attachment: ' + rowErr.message);
+        }
+        const { error: storageErr } = await supabase.storage
+          .from('expense-attachments')
+          .remove([originalAttachment.path]);
+        if (storageErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
+        }
+        setOriginalAttachment(null);
+        setPendingAttachmentDelete(false);
       }
 
       const accessToken = await getAccessToken();
