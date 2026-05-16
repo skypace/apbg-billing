@@ -105,10 +105,6 @@ export default function ApprovalPage() {
         setState('forbidden');
         return;
       }
-      if (req.submitted_by === session.user.id && !isSuperadmin) {
-        setState('forbidden');
-        return;
-      }
 
       setState('ready');
     })();
