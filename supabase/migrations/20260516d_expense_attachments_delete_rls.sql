@@ -14,6 +14,11 @@
 --
 -- Already applied live via Supabase MCP on 2026-05-16.
 
+-- Draft-only: matches the UI contract (X button is gated on !readOnly,
+-- which excludes posted/approved/etc.) AND blocks raw-API attempts to
+-- wipe receipt evidence off finalized rows. The storage half can't
+-- easily check request status (no join from object path back to
+-- request), so the table policy alone closes the bulk of the gap.
 CREATE POLICY expense_attachments_delete ON ops.expense_request_attachments
   FOR DELETE TO authenticated
   USING (
@@ -21,6 +26,7 @@ CREATE POLICY expense_attachments_delete ON ops.expense_request_attachments
       SELECT 1 FROM ops.expense_requests r
       WHERE r.id = request_id
         AND r.submitted_by = auth.uid()
+        AND r.status = 'draft'
     )
   );
 

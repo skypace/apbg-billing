@@ -507,23 +507,26 @@ export default function ExpenseForm() {
       }
 
       if (receiptFile) {
-        const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
+        // Prefix with Date.now() so a same-filename re-pick (Screenshot.png,
+        // receipt.pdf, scan.pdf) doesn't collide on the now-stable req.id
+        // from the UPDATE branch and silently no-op the replacement.
+        const storagePath = `${user.id}/${req.id}/${Date.now()}_${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
           .upload(storagePath, receiptFile, {
             contentType: receiptFile.type,
             upsert: false,
           });
+        if (uploadErr) throw new Error('Could not upload receipt: ' + uploadErr.message);
 
-        if (!uploadErr) {
-          await supabase.from('expense_request_attachments').insert({
-            request_id: req.id,
-            file_name: receiptFile.name,
-            file_type: receiptFile.type,
-            file_size: receiptFile.size,
-            storage_path: storagePath,
-          });
-        }
+        const { error: attachErr } = await supabase.from('expense_request_attachments').insert({
+          request_id: req.id,
+          file_name: receiptFile.name,
+          file_type: receiptFile.type,
+          file_size: receiptFile.size,
+          storage_path: storagePath,
+        });
+        if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
       }
 
       const accessToken = await getAccessToken();
@@ -696,15 +699,19 @@ export default function ExpenseForm() {
                 size="icon"
                 className="absolute top-2 right-2 h-7 w-7"
                 onClick={() => {
+                  // Capture whether a fresh upload was queued BEFORE we
+                  // clear it. Only queue the persisted original for
+                  // deletion if the X is clearing the ORIGINAL — if the
+                  // operator is undoing a fresh replacement upload
+                  // (receiptFile non-null), the original must survive.
+                  const hadFreshUpload = receiptFile != null;
                   setReceiptFile(null);
                   setReceiptPreview(null);
                   setReceiptDownloadUrl(null);
                   setReceiptDownloadName(null);
-                  // If the preview came from a persisted attachment (edit
-                  // mode), mark it for deletion on submit — otherwise the
-                  // X click was visually meaningless and the receipt would
-                  // reappear on the next load.
-                  if (originalAttachment) setPendingAttachmentDelete(true);
+                  if (originalAttachment && !hadFreshUpload) {
+                    setPendingAttachmentDelete(true);
+                  }
                 }}
               >
                 <X className="h-4 w-4" />
