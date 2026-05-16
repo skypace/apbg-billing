@@ -19,6 +19,7 @@
 -- wipe receipt evidence off finalized rows. The storage half can't
 -- easily check request status (no join from object path back to
 -- request), so the table policy alone closes the bulk of the gap.
+DROP POLICY IF EXISTS expense_attachments_delete ON ops.expense_request_attachments;
 CREATE POLICY expense_attachments_delete ON ops.expense_request_attachments
   FOR DELETE TO authenticated
   USING (
@@ -30,6 +31,7 @@ CREATE POLICY expense_attachments_delete ON ops.expense_request_attachments
     )
   );
 
+DROP POLICY IF EXISTS expense_attach_storage_delete ON storage.objects;
 CREATE POLICY expense_attach_storage_delete ON storage.objects
   FOR DELETE TO authenticated
   USING (
