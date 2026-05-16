@@ -537,40 +537,19 @@ export default function ExpenseForm() {
       // error, so the UI thought it succeeded. Now we surface the error
       // from the row delete (the user-visible bit) and warn-only on
       // storage (a stranded object can be garbage-collected later).
-      if (pendingAttachmentDelete && originalAttachment) {
-        // Row delete BEFORE storage delete: the worst case if the storage
-        // call fails afterwards is an orphan blob with no row pointer,
-        // which is invisible to the load effect and garbage-collectable
-        // later. The opposite order would leave a row pointing at a
-        // missing blob, and the load effect would happily sign the path
-        // (createSignedUrl doesn't verify existence) → broken preview
-        // on next /edit load.
-        const { error: rowErr } = await supabase
-          .from('expense_request_attachments')
-          .delete()
-          .eq('id', originalAttachment.id);
-        if (rowErr) {
-          throw new Error('Could not delete attachment: ' + rowErr.message);
-        }
-        const { error: storageErr } = await supabase.storage
-          .from('expense-attachments')
-          .remove([originalAttachment.path]);
-        if (storageErr) {
-          // eslint-disable-next-line no-console
-          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
-        }
-        setOriginalAttachment(null);
-        setPendingAttachmentDelete(false);
-      }
-
+      // Upload + attach-INSERT the REPLACEMENT first, before deleting the
+      // original. If the upload fails (transient 5xx, AbortError, ad-
+      // blocker), the original receipt is still on disk + still pointed
+      // to by its attachment row, so the operator can retry without
+      // having lost evidence. The opposite order (delete-original first)
+      // would destroy the only copy on any upload failure — the edit-
+      // flow rollback block at the bottom doesn't help here because
+      // insertedForRollback is null when isEditing.
       if (receiptFile) {
         // Prefix the storage path with a timestamp so two submissions of
         // the same filename (e.g. operator re-picks Screenshot.png to fix
         // a typo during edit) can't collide on the now-stable req.id from
-        // the UPDATE branch. Pre-PR every submit got a fresh req.id so
-        // collisions were structurally impossible; the UPDATE branch makes
-        // the path reusable, and upload({ upsert: false }) would otherwise
-        // silently no-op a same-named replacement.
+        // the UPDATE branch.
         const storagePath = `${user.id}/${req.id}/${Date.now()}_${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
@@ -591,6 +570,30 @@ export default function ExpenseForm() {
           storage_path: storagePath,
         });
         if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
+      }
+
+      if (pendingAttachmentDelete && originalAttachment) {
+        // Row delete BEFORE storage delete: worst case if the storage
+        // call fails afterwards is an orphan blob with no row pointer,
+        // invisible to the load effect and garbage-collectable later.
+        // The opposite order would leave a row pointing at a missing
+        // blob → broken preview on next /edit load.
+        const { error: rowErr } = await supabase
+          .from('expense_request_attachments')
+          .delete()
+          .eq('id', originalAttachment.id);
+        if (rowErr) {
+          throw new Error('Could not delete attachment: ' + rowErr.message);
+        }
+        const { error: storageErr } = await supabase.storage
+          .from('expense-attachments')
+          .remove([originalAttachment.path]);
+        if (storageErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
+        }
+        setOriginalAttachment(null);
+        setPendingAttachmentDelete(false);
       }
 
       const accessToken = await getAccessToken();
