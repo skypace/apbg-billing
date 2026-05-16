@@ -270,7 +270,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              BOM · v{bom.version} · yield {fmtQty(bom.yield_qty, bom.yield_uom || 'each')} / batch
+              BOM · v{bom.version} · yield {fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')} / batch
             </div>
             <h2 style={{ margin: '4px 0 0', fontSize: 22, color: 'var(--ac)' }}>
               {it?.item_name ?? bom.finished_qbo_item_id}
