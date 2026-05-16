@@ -54,6 +54,12 @@ export interface ExpenseRequest {
 
   linked_pr_id: string | null;
 
+  /** QBO account the expense was paid FROM (CC / bank / petty cash). Required
+   *  for receipt-style expenses since they post as QBO Purchases, not Bills. */
+  payment_account_id: string | null;
+  payment_account_name: string | null;
+  payment_account_type: string | null;
+
   qbo_bill_id: string | null;
   posted_at: string | null;
   qbo_invoice_match: string | null;
@@ -61,6 +67,18 @@ export interface ExpenseRequest {
 
   created_at: string;
   updated_at: string;
+}
+
+/** Payment account option from /api/expense-payment-accounts (QBO Bank +
+ *  CreditCard accounts). Used by the "Paid with" dropdown on the expense
+ *  form. */
+export interface PaymentAccount {
+  id: string;
+  name: string;
+  account_type: string;
+  account_sub_type: string | null;
+  payment_type: 'Cash' | 'Check' | 'CreditCard';
+  current_balance: number | null;
 }
 
 /** Attachment record — mirrors ops.expense_request_attachments */

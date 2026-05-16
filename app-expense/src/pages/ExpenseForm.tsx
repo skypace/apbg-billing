@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { getAccessToken, supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
-import type { LineItem } from '@/types/expense';
+import type { LineItem, PaymentAccount } from '@/types/expense';
 
 type FormStep = 'upload' | 'details' | 'submitting' | 'success' | 'error';
 
@@ -62,6 +62,12 @@ export default function ExpenseForm() {
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
+  // Receipt expenses post as QBO Purchase entries; the submitter picks which
+  // QBO account (corp card / bank / petty cash) was used so we can post
+  // against it without needing a QBO Vendor record.
+  const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+  const [paymentAccountsError, setPaymentAccountsError] = useState<string | null>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -110,6 +116,7 @@ export default function ExpenseForm() {
       setJobNumber(data.job_number || '');
       setMemo(data.memo || '');
       setManagerEmail(data.manager_email || '');
+      setPaymentAccountId(data.payment_account_id || '');
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
@@ -120,6 +127,34 @@ export default function ExpenseForm() {
       cancelled = true;
     };
   }, [id]);
+
+  // Pull the "Paid with" account list from QBO once on mount. Bank + Credit
+  // Card accounts only — the picker is for receipt-style expenses, not bills.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/expense/api/expense-payment-accounts', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`Payment accounts ${res.status}`);
+        const body = await res.json();
+        if (cancelled) return;
+        setPaymentAccounts(Array.isArray(body.accounts) ? body.accounts : []);
+        setPaymentAccountsError(null);
+      } catch (e: any) {
+        if (cancelled) return;
+        setPaymentAccountsError(
+          e?.message ||
+            "Couldn't load payment accounts from QBO. The form will let you submit but the auto-post to QBO will be deferred until you pick one.",
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** Match the OCR's free-form account guess against the configured COGS list. */
   const pickCogsAccount = useCallback(
@@ -242,6 +277,11 @@ export default function ExpenseForm() {
 
   const handleSubmit = async () => {
     if (!session || readOnly) return;
+    if (!paymentAccountId) {
+      setErrorMessage('Pick a "Paid with" account before submitting — the receipt needs to post against a real QBO account.');
+      setStep('error');
+      return;
+    }
     setStep('submitting');
     setSubmitting(true);
     setMarginMatch(null);
@@ -249,6 +289,7 @@ export default function ExpenseForm() {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
       const userName = user.user_metadata?.full_name || user.email || 'Unknown';
+      const pickedAcct = paymentAccounts.find((a) => a.id === paymentAccountId) || null;
 
       const { data: req, error: insertErr } = await supabase
         .from('expense_requests')
@@ -270,6 +311,9 @@ export default function ExpenseForm() {
           job_number: jobNumber || null,
           memo: memo || null,
           manager_email: needsApproval ? managerEmail : null,
+          payment_account_id: paymentAccountId,
+          payment_account_name: pickedAcct?.name ?? null,
+          payment_account_type: pickedAcct?.account_type ?? null,
           line_items: nonEmptyLines,
         })
         .select()
@@ -541,6 +585,31 @@ export default function ExpenseForm() {
               label: a.label,
             }))}
           />
+        </div>
+
+        <div>
+          <Label>
+            Paid with <span className="text-red-500">*</span>
+          </Label>
+          <SelectField
+            disabled={readOnly}
+            value={paymentAccountId}
+            onChange={(e) => setPaymentAccountId(e.target.value)}
+            placeholder={
+              paymentAccounts.length === 0
+                ? paymentAccountsError
+                  ? 'Failed to load — see error below'
+                  : 'Loading QBO accounts…'
+                : 'Select the card or account this was paid from'
+            }
+            options={paymentAccounts.map((a) => ({
+              value: a.id,
+              label: `${a.name} (${a.account_type})`,
+            }))}
+          />
+          {paymentAccountsError && (
+            <p className="text-xs text-amber-600 mt-1">{paymentAccountsError}</p>
+          )}
         </div>
 
         <div>
