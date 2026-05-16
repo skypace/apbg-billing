@@ -16,7 +16,7 @@ import { ChevronRight, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { fm, fmtNum } from '../../lib/formatters';
 import { btnSecondary, inp } from '../../lib/styles';
 import {
-  PoStatus, PurchaseOrderLine, PurchaseOrderRow,
+  PurchaseOrderLine, PurchaseOrderRow,
   fetchPoLines, fetchPurchaseOrders,
 } from '../../lib/purchasing';
 import { sbq } from '../../lib/rpc';
