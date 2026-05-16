@@ -510,23 +510,30 @@ export default function ExpenseForm() {
       }
 
       if (receiptFile) {
-        const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
+        // Prefix the storage path with a timestamp so two submissions of
+        // the same filename (e.g. operator re-picks Screenshot.png to fix
+        // a typo during edit) can't collide on the now-stable req.id from
+        // the UPDATE branch. Pre-PR every submit got a fresh req.id so
+        // collisions were structurally impossible; the UPDATE branch makes
+        // the path reusable, and upload({ upsert: false }) would otherwise
+        // silently no-op a same-named replacement.
+        const storagePath = `${user.id}/${req.id}/${Date.now()}_${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
           .upload(storagePath, receiptFile, {
             contentType: receiptFile.type,
             upsert: false,
           });
+        if (uploadErr) throw new Error('Could not upload receipt: ' + uploadErr.message);
 
-        if (!uploadErr) {
-          await supabase.from('expense_request_attachments').insert({
-            request_id: req.id,
-            file_name: receiptFile.name,
-            file_type: receiptFile.type,
-            file_size: receiptFile.size,
-            storage_path: storagePath,
-          });
-        }
+        const { error: attachErr } = await supabase.from('expense_request_attachments').insert({
+          request_id: req.id,
+          file_name: receiptFile.name,
+          file_type: receiptFile.type,
+          file_size: receiptFile.size,
+          storage_path: storagePath,
+        });
+        if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
       }
 
       const accessToken = await getAccessToken();
@@ -699,15 +706,20 @@ export default function ExpenseForm() {
                 size="icon"
                 className="absolute top-2 right-2 h-7 w-7"
                 onClick={() => {
+                  // Capture whether a fresh upload was queued BEFORE we
+                  // clear it. The X-click should only queue the persisted
+                  // original for deletion if that's what's actually
+                  // on-screen — if the operator is undoing a fresh upload
+                  // (receiptFile non-null), the original survives and the
+                  // delete-on-submit path must not fire against it.
+                  const hadFreshUpload = receiptFile != null;
                   setReceiptFile(null);
                   setReceiptPreview(null);
                   setReceiptDownloadUrl(null);
                   setReceiptDownloadName(null);
-                  // If the preview came from a persisted attachment (edit
-                  // mode), mark it for deletion on submit — otherwise the
-                  // X click was visually meaningless and the receipt would
-                  // reappear on the next load.
-                  if (originalAttachment) setPendingAttachmentDelete(true);
+                  if (originalAttachment && !hadFreshUpload) {
+                    setPendingAttachmentDelete(true);
+                  }
                 }}
               >
                 <X className="h-4 w-4" />
