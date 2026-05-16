@@ -43,6 +43,17 @@ export default function ExpenseForm() {
   const [step, setStep] = useState<FormStep>(isEditing ? 'details' : 'upload');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  // Non-image attachments (PDFs) get rendered as a download link below the
+  // image preview, since the form's previous &lt;img&gt; would just show a
+  // broken-image icon.
+  const [receiptDownloadUrl, setReceiptDownloadUrl] = useState<string | null>(null);
+  const [receiptDownloadName, setReceiptDownloadName] = useState<string | null>(null);
+  // Capture the row + storage path we loaded on edit so the X button can
+  // actually remove it. Without this, clicking X cleared the local preview
+  // but left the persisted attachment intact — it reappeared on the next
+  // page load.
+  const [originalAttachment, setOriginalAttachment] = useState<{ id: string; path: string } | null>(null);
+  const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrModel, setOcrModel] = useState<string | null>(null);
@@ -139,7 +150,7 @@ export default function ExpenseForm() {
       // editing the right submission.
       const { data: att } = await supabase
         .from('expense_request_attachments')
-        .select('storage_path, file_type')
+        .select('id, storage_path, file_type, file_name')
         .eq('request_id', id)
         .order('created_at', { ascending: true })
         .limit(1)
@@ -149,7 +160,17 @@ export default function ExpenseForm() {
           .from('expense-attachments')
           .createSignedUrl(att.storage_path, 60 * 60);
         if (!cancelled && signed?.signedUrl) {
-          setReceiptPreview(signed.signedUrl);
+          setOriginalAttachment({ id: att.id, path: att.storage_path });
+          // Only stuff the signed URL into receiptPreview when it's an
+          // image — &lt;img src=...pdf&gt; would render a broken icon. PDFs
+          // (and anything else uploaded via the .pdf accept) get a
+          // download link instead.
+          if (att.file_type?.startsWith('image/')) {
+            setReceiptPreview(signed.signedUrl);
+          } else {
+            setReceiptDownloadUrl(signed.signedUrl);
+            setReceiptDownloadName(att.file_name || 'receipt');
+          }
         }
       }
 
@@ -382,6 +403,23 @@ export default function ExpenseForm() {
       // branches pattern. Explicit guard.
       if (!req) throw new Error('Save failed');
 
+      // Honor an X-click against an originally-loaded attachment: actually
+      // remove the row + storage object so it doesn't silently reappear on
+      // the next page load. Storage errors are non-fatal — the row delete
+      // is the user-visible bit, and a stranded storage object can be
+      // garbage-collected later.
+      if (pendingAttachmentDelete && originalAttachment) {
+        await supabase.storage
+          .from('expense-attachments')
+          .remove([originalAttachment.path]);
+        await supabase
+          .from('expense_request_attachments')
+          .delete()
+          .eq('id', originalAttachment.id);
+        setOriginalAttachment(null);
+        setPendingAttachmentDelete(false);
+      }
+
       if (receiptFile) {
         const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
@@ -547,24 +585,45 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        {receiptPreview && (
+        {(receiptPreview || receiptDownloadUrl) && (
           <div className="relative">
-            <img
-              src={receiptPreview}
-              alt="Receipt"
-              className="w-full max-h-48 object-contain rounded-lg border bg-muted"
-            />
-            <Button
-              variant="destructive"
-              size="icon"
-              className="absolute top-2 right-2 h-7 w-7"
-              onClick={() => {
-                setReceiptFile(null);
-                setReceiptPreview(null);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            {receiptPreview ? (
+              <img
+                src={receiptPreview}
+                alt="Receipt"
+                className="w-full max-h-48 object-contain rounded-lg border bg-muted"
+              />
+            ) : (
+              <a
+                href={receiptDownloadUrl ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 w-full p-3 rounded-lg border bg-muted hover:bg-muted/70 text-sm"
+              >
+                <Receipt className="h-4 w-4 shrink-0" />
+                <span className="truncate">{receiptDownloadName ?? 'Open receipt'}</span>
+              </a>
+            )}
+            {!readOnly && (
+              <Button
+                variant="destructive"
+                size="icon"
+                className="absolute top-2 right-2 h-7 w-7"
+                onClick={() => {
+                  setReceiptFile(null);
+                  setReceiptPreview(null);
+                  setReceiptDownloadUrl(null);
+                  setReceiptDownloadName(null);
+                  // If the preview came from a persisted attachment (edit
+                  // mode), mark it for deletion on submit — otherwise the
+                  // X click was visually meaningless and the receipt would
+                  // reappear on the next load.
+                  if (originalAttachment) setPendingAttachmentDelete(true);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         )}
 
