@@ -59,6 +59,8 @@
     "qbo_invoice_lines",
     "qbo_invoices",
     "qbo_items",
+    "qbo_purchase_order_lines",
+    "qbo_purchase_orders",
     "qbo_pto_cache",
     "qbo_token_cache",
     "reman_jobs",
