@@ -99,6 +99,12 @@ export default function ExpenseForm() {
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
   const [existingStatus, setExistingStatus] = useState<string | null>(null);
+  // Captured from the loaded row so denied submissions can surface the
+  // approver's reason in the read-only details view. Mirrors the
+  // denial_reason block in ApprovalPage's submitter view so denied
+  // EXPENSES can keep routing to /edit (where the receipt is rendered)
+  // instead of /review (which has no receipt UI).
+  const [denialReason, setDenialReason] = useState<string | null>(null);
 
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
@@ -142,6 +148,7 @@ export default function ExpenseForm() {
     setReceiptDownloadName(null);
     setReceiptFile(null);
     setExistingStatus(null);
+    setDenialReason(null);
     setLoadingExisting(false);
     setOcrModel(null);
     setOcrError(null);
@@ -237,6 +244,7 @@ export default function ExpenseForm() {
         return;
       }
       setExistingStatus(data.status);
+      setDenialReason((data as { denial_reason?: string | null }).denial_reason ?? null);
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
@@ -957,6 +965,34 @@ export default function ExpenseForm() {
             This submission has already been processed and is read-only.
             Use <strong>New Expense</strong> from the dashboard to file a new one.
           </div>
+        )}
+
+        {existingStatus === 'denied' && denialReason && (
+          <div className="text-sm rounded-md p-3 border border-red-500/40 bg-red-500/10 text-red-200">
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1 opacity-80">
+              Reason for declining
+            </div>
+            <p>{denialReason}</p>
+          </div>
+        )}
+
+        {!readOnly && !receiptPreview && !receiptDownloadUrl && (
+          // Post-X recovery affordance. The preview block (with the
+          // Replace button) is gated on (receiptPreview || receiptDownloadUrl),
+          // so an X-click on the persisted original unmounts the only
+          // path to fileInputRef.current?.click() in the details step.
+          // Without this button the operator's options are: submit with
+          // the queued deletion (irreversible), navigate away, or stare
+          // at a blank slot.
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full"
+          >
+            <Upload className="h-4 w-4 mr-1" /> Add receipt
+          </Button>
         )}
 
         {(receiptPreview || receiptDownloadUrl) && (
