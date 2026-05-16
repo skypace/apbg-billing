@@ -6,6 +6,7 @@ import {
 } from '../../lib/production';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
+import { UOM_OPTIONS, scaleBom, fmtQty } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 
 interface Props {
@@ -121,6 +122,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
   const [finishedId, setFinishedId] = useState('');
   const [version, setVersion] = useState('1');
   const [yieldQty, setYieldQty] = useState<string>('1');
+  const [yieldUom, setYieldUom] = useState<string>('each');
   const [effective, setEffective] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<BomLineInput[]>([emptyComponentLine()]);
@@ -139,6 +141,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
       await createBom({
         finished_qbo_item_id: finishedId,
         yield_qty: Number(yieldQty),
+        yield_uom: yieldUom,
         lines,
         version,
         effective_date: effective || null,
@@ -171,9 +174,14 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
         <LField label="Version">
           <input style={inp()} value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1" />
         </LField>
-        <LField label="Yield qty / batch">
-          <input type="number" min={0.0001} step="any" style={inp()}
-            value={yieldQty} onChange={(e) => setYieldQty(e.target.value)} />
+        <LField label="Yield / batch">
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="number" min={0.0001} step="any" style={{ ...inp(), flex: 1 }}
+              value={yieldQty} onChange={(e) => setYieldQty(e.target.value)} />
+            <select value={yieldUom} onChange={(e) => setYieldUom(e.target.value)} style={{ ...inp(), width: 90 }}>
+              {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
         </LField>
         <LField label="Effective date">
           <input type="date" style={inp()} value={effective} onChange={(e) => setEffective(e.target.value)} />
@@ -262,7 +270,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              BOM · v{bom.version} · yield {bom.yield_qty}/batch
+              BOM · v{bom.version} · yield {fmtQty(bom.yield_qty, bom.yield_uom || 'each')} / batch
             </div>
             <h2 style={{ margin: '4px 0 0', fontSize: 22, color: 'var(--ac)' }}>
               {it?.item_name ?? bom.finished_qbo_item_id}
@@ -298,6 +306,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
                   {saving ? 'Saving…' : 'Save lines'}
                 </button>
               </div>
+              <ScaleBomPanel bom={bom} lines={lines} itemLookup={itemLookup} />
             </>}
       </div>
     </div>
@@ -329,6 +338,7 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
             <th style={cellTh}>Type</th>
             <th style={cellTh}>Component / Service</th>
             <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Qty / yield</th>
+            <th style={{ ...cellTh, width: 80 }}>UoM</th>
             <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Scrap %</th>
             <th style={{ ...cellTh, width: 100, textAlign: 'right' }}>Unit Cost</th>
             <th style={{ ...cellTh, width: 150 }}>Notes</th>
@@ -365,6 +375,12 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
               <td style={{ ...cellTd, textAlign: 'right' }}>
                 <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
                   value={l.qty_per} onChange={(e) => patch(i, { qty_per: Number(e.target.value) })} />
+              </td>
+              <td style={cellTd}>
+                <select value={l.qty_uom ?? 'each'} onChange={(e) => patch(i, { qty_uom: e.target.value })}
+                  style={{ ...inp(), width: '100%' }}>
+                  {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </td>
               <td style={{ ...cellTd, textAlign: 'right' }}>
                 <input type="number" min={0} max={99} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
@@ -407,10 +423,10 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
 // ── helpers ─────────────────────────────────────────────────────────────
 
 function emptyComponentLine(): BomLineInput {
-  return { line_type: 'component', component_qbo_item_id: null, qty_per: 1, scrap_pct: 0, default_cost: null, notes: null };
+  return { line_type: 'component', component_qbo_item_id: null, qty_per: 1, qty_uom: 'each', scrap_pct: 0, default_cost: null, notes: null };
 }
 function emptyServiceLine(): BomLineInput {
-  return { line_type: 'service', service_label: '', qty_per: 1, scrap_pct: 0, default_cost: null, notes: null };
+  return { line_type: 'service', service_label: '', qty_per: 1, qty_uom: 'each', scrap_pct: 0, default_cost: null, notes: null };
 }
 function bomLineToInput(l: ProductBomLine): BomLineInput {
   return {
@@ -418,6 +434,7 @@ function bomLineToInput(l: ProductBomLine): BomLineInput {
     component_qbo_item_id: l.component_qbo_item_id,
     service_label: l.service_label,
     qty_per: Number(l.qty_per),
+    qty_uom: l.qty_uom || 'each',
     scrap_pct: Number(l.scrap_pct),
     default_cost: l.default_cost == null ? null : Number(l.default_cost),
     notes: l.notes,
@@ -446,3 +463,88 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
 const cellTh: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10, fontWeight: 600,
   letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)' };
 const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middle' };
+
+// ── Scale this BOM calculator ───────────────────────────────────────────
+//
+// Live scratchpad inside the BOM detail modal. Operator types a target
+// quantity + UoM ("make 1000 gal") and we multiply every line by the
+// implied runs. Read-only — doesn't save anything, just shows the math
+// so the operator can sanity-check a future work order.
+function ScaleBomPanel({ bom, lines, itemLookup }: {
+  bom: ProductBom;
+  lines: BomLineInput[];
+  itemLookup: ProductionItemLookup;
+}) {
+  const [targetQty, setTargetQty] = useState<string>(String(bom.yield_qty));
+  const [targetUom, setTargetUom] = useState<string>(bom.yield_uom || 'each');
+
+  const target = { qty: Number(targetQty) || 0, uom: targetUom };
+  const yield_ = { qty: Number(bom.yield_qty), uom: bom.yield_uom || 'each' };
+  const scaled = target.qty > 0
+    ? scaleBom(target, yield_, lines.map((l, idx) => ({
+        qty_per: Number(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        ref: { line: l, idx },
+      })))
+    : null;
+  const incompat = target.qty > 0 && scaled === null;
+
+  return (
+    <div style={{
+      marginTop: 20, padding: 14, border: '1px solid var(--bd)', borderRadius: 6,
+      background: 'rgba(91,181,240,0.04)',
+    }}>
+      <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 10 }}>
+        Scale this BOM
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12 }}>Make</span>
+        <input type="number" min={0} step="any" style={{ ...inp(), width: 120, textAlign: 'right' }}
+          value={targetQty} onChange={(e) => setTargetQty(e.target.value)} />
+        <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 100 }}>
+          {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {scaled
+          ? <span style={{ fontSize: 12, color: 'var(--mt)' }}>
+              → <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>{scaled.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong> {scaled.runs === 1 ? 'run' : 'runs'} of this BOM
+            </span>
+          : incompat
+            ? <span style={{ fontSize: 11, color: 'var(--am)' }}>
+                Can't convert {targetUom} → {yield_.uom}. Pick a UoM in the same family as the BOM yield, or type in {yield_.uom}.
+              </span>
+            : null}
+      </div>
+
+      {scaled && scaled.scaledLines.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+              <th style={cellTh}>Component / Service</th>
+              <th style={{ ...cellTh, textAlign: 'right' }}>Per yield</th>
+              <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scaled.scaledLines.map(({ qty, uom, ref }) => {
+              const l = ref.line;
+              const label = l.line_type === 'component'
+                ? (l.component_qbo_item_id ? itemLookup.byId.get(l.component_qbo_item_id)?.item_name : null) ?? '(no component)'
+                : (l.service_label || '(no label)');
+              return (
+                <tr key={ref.idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td style={cellTd}>{label}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', color: 'var(--mt)', fontFamily: 'var(--ff-mono)' }}>
+                    {fmtQty(Number(l.qty_per), l.qty_uom || 'each')}
+                  </td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
+                    {fmtQty(qty, uom)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
