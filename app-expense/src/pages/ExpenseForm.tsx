@@ -154,6 +154,15 @@ export default function ExpenseForm() {
         .from('expense_requests')
         .select('*')
         .eq('id', id)
+        // ExpenseForm is the editor for receipt-style expenses only. The
+        // dashboard routes every draft (including purchase_request rows)
+        // to /expense/edit/:id, but a PR loaded into this form would
+        // silently get manager_email rewritten to null on submit (the
+        // under-threshold UI has no manager picker), then notify 422s and
+        // the catch-all 'saved but notification may have failed' would
+        // route to success. Filter request_type so PR rows fall through
+        // to the load-failure 'Back to dashboard' branch.
+        .eq('request_type', 'expense')
         .single();
       if (cancelled) return;
       if (error || !data) {
