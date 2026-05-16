@@ -83,14 +83,19 @@ export function WorkOrdersTab({
     },
     { field: 'finished_label', headerName: 'Finished SKU', flex: 1, minWidth: 200,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value)}</span> },
-    { field: 'qty_to_produce', headerName: 'Qty', width: 130, cellClassName: 'mn',
+    { field: 'qty_to_produce', headerName: 'Qty', type: 'number', width: 130, cellClassName: 'mn',
       renderCell: (p) => {
         const bom = bomById.get(p.row.bom_id);
         const u = bom?.yield_uom || 'each';
         return <span>{fmtNum(Number(p.value ?? 0))} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
       } },
-    { field: 'qty_produced_actual', headerName: 'Actual', type: 'number', width: 90, cellClassName: 'mn',
-      valueFormatter: (v) => v == null ? '—' : fmtNum(Number(v)) },
+    { field: 'qty_produced_actual', headerName: 'Actual', type: 'number', width: 110, cellClassName: 'mn',
+      renderCell: (p) => {
+        if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
+        const bom = bomById.get(p.row.bom_id);
+        const u = bom?.yield_uom || 'each';
+        return <span>{fmtNum(Number(p.value))} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
+      } },
     { field: 'location_label', headerName: 'Location', width: 130 },
     { field: 'scheduled_date', headerName: 'Scheduled', width: 110,
       valueFormatter: (v) => v ? String(v) : '—' },
