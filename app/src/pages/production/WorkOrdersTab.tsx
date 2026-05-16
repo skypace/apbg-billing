@@ -382,9 +382,17 @@ function WorkOrderDetailModal({
   }
 
   async function doClose() {
+    // qty_to_produce is stored in BOM yield_uom (see CreateWorkOrderForm —
+    // operator-typed qty gets converted client-side). Without explicit UoM
+    // disclosure here the operator can type their actual yield in target_uom
+    // (e.g. 'gal') and have fn_close_work_order write it as yield_uom (e.g.
+    // 'case'), inflating finished-good inventory by the conversion factor.
+    const u = bom?.yield_uom || 'each';
+    const targetStr = bom ? fmtQty(Number(wo!.qty_to_produce), u) : String(wo!.qty_to_produce);
+    const enteredAs = wo!.target_uom && wo!.target_uom !== u ? ` (entered as ${wo!.target_uom})` : '';
     const actualStr = prompt(
       `Close ${wo!.batch_code} — finished qty produced?\n\n` +
-      `Target was ${wo!.qty_to_produce}. Enter actual yield.`,
+      `Target was ${targetStr}${enteredAs}. Enter actual yield in ${u}.`,
       String(wo!.qty_to_produce)
     );
     if (actualStr == null) return;
@@ -470,8 +478,8 @@ function WorkOrderDetailModal({
       <h1>Work Order · ${escapeHtml(wo.batch_code)}</h1>
       <div class="meta">
         <div class="kv"><div class="lbl">Finished SKU</div>${escapeHtml(finished?.item_name ?? wo.finished_qbo_item_id)}</div>
-        <div class="kv"><div class="lbl">BOM</div>v${escapeHtml(bom.version)} · yield ${bom.yield_qty}/batch</div>
-        <div class="kv"><div class="lbl">Qty target / actual</div>${fmtNum(Number(wo.qty_to_produce))} / ${wo.qty_produced_actual == null ? '—' : fmtNum(Number(wo.qty_produced_actual))}</div>
+        <div class="kv"><div class="lbl">BOM</div>v${escapeHtml(bom.version)} · yield ${escapeHtml(fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each'))}/batch</div>
+        <div class="kv"><div class="lbl">Qty target / actual</div>${escapeHtml(fmtQty(Number(wo.qty_to_produce), bom.yield_uom || 'each'))} / ${wo.qty_produced_actual == null ? '—' : escapeHtml(fmtQty(Number(wo.qty_produced_actual), bom.yield_uom || 'each'))}${wo.target_uom && wo.target_uom !== (bom.yield_uom || 'each') ? ` <span style="color:#64748b">(entered as ${escapeHtml(wo.target_uom)})</span>` : ''}</div>
         <div class="kv"><div class="lbl">Production location</div>${escapeHtml(loc?.name ?? '?')} · ${escapeHtml(loc?.code ?? '')}</div>
         <div class="kv"><div class="lbl">Status</div>${wo.status.toUpperCase()}</div>
         <div class="kv"><div class="lbl">Scheduled / Closed</div>${escapeHtml(wo.scheduled_date ?? '—')} / ${wo.closed_at ? new Date(wo.closed_at).toLocaleDateString() : '—'}</div>
