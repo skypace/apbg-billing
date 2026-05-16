@@ -302,10 +302,18 @@ export default function ExpenseForm() {
   // any time the operator switches entity. Single source of truth for the
   // entity → department invariant.
   useEffect(() => {
+    // Skip the reconcile on read-only finalized rows. Pre-PR rows
+    // could legitimately have entity='brix' + department='reman'
+    // (entity was hardcoded with no UI control, department dropdown
+    // listed all six). Clearing the stale value on a read-only view
+    // would lie about what was saved — DB still has 'reman' but the
+    // form would render Department='—'. The companion options-filter
+    // gate below keeps the saved value visible in the dropdown.
+    if (readOnly) return;
     if (!department || !settings?.departments) return;
     const visible = filterDepartmentsByEntity(settings.departments, entity);
     if (!visible.includes(department)) setDepartment('');
-  }, [entity, department, settings?.departments]);
+  }, [readOnly, entity, department, settings?.departments]);
 
   // Pull the "Paid with" account list from QBO once on mount. Bank + Credit
   // Card accounts only — the picker is for receipt-style expenses, not bills.
@@ -1100,8 +1108,16 @@ export default function ExpenseForm() {
             placeholder="Select department"
             options={[
               { value: '', label: '—' },
-              ...filterDepartmentsByEntity(settings?.departments ?? [], entity)
-                .map((d) => ({ value: d, label: d })),
+              // In read-only view, bypass the entity filter so a legacy
+              // saved value (e.g. entity='brix' + department='reman'
+              // from before this cascade existed) still appears in the
+              // options array. A native <select> with value='reman'
+              // and no matching <option> would fall back to displaying
+              // the placeholder — wrong for an audit/read-only screen.
+              ...(readOnly
+                ? (settings?.departments ?? [])
+                : filterDepartmentsByEntity(settings?.departments ?? [], entity)
+              ).map((d) => ({ value: d, label: d })),
             ]}
           />
         </div>
