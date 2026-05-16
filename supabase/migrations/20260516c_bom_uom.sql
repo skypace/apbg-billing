@@ -1,14 +1,19 @@
--- BOM unit-of-measure support.
+-- BOM unit-of-measure support + volume bridge for cross-family scaling.
 --
 -- Before this migration, ops.product_bom.yield_qty and
 -- ops.product_bom_lines.qty_per were both dimensionless numerics — the operator
--- had to know what unit they meant. This adds a UoM column to both, and a
+-- had to know what unit they meant. This adds a UoM column to both, plus a
 -- target_uom to ops.work_orders so a production run can specify "make 1000
 -- gallons" and have the BOM scaler convert it to BOM-yield runs.
 --
+-- ops.product_bom.finished_vol_per_yield_gal is the optional volume bridge:
+-- when yield_uom is a count UoM (each/case) and 1 yield produces a known
+-- volume of finished product, this column captures the gallons-per-yield so
+-- the scaler can convert "make 1000 gal" → runs.
+--
 -- Common UoM values: each, case, gal, fl_oz, L, mL, lb, oz. Free text allowed
--- for site-specific units (kg, drum, pallet, etc.). The frontend UoM dropdown
--- in app/src/pages/production/BomsTab.tsx lists the common set;
+-- for site-specific units (kg, drum, pallet, etc.). The frontend dropdown in
+-- app/src/pages/production/BomsTab.tsx lists the common set;
 -- app/src/lib/uom.ts holds the conversion factors + scaler.
 --
 -- Already applied live via Supabase MCP on 2026-05-16.
@@ -22,14 +27,28 @@ ALTER TABLE ops.product_bom_lines
 ALTER TABLE ops.work_orders
   ADD COLUMN IF NOT EXISTS target_uom text;
 
+ALTER TABLE ops.product_bom
+  ADD COLUMN IF NOT EXISTS finished_vol_per_yield_gal numeric;
+
 COMMENT ON COLUMN ops.product_bom.yield_uom IS
   'Unit of measure for yield_qty. Common: each, case, gal, fl_oz, L, mL, lb, oz.';
 COMMENT ON COLUMN ops.product_bom_lines.qty_uom IS
   'Unit of measure for qty_per. Same UoM vocabulary as yield_uom.';
 COMMENT ON COLUMN ops.work_orders.target_uom IS
   'Unit the operator typed when creating the WO. qty_to_produce is converted to BOM yield_uom for multiplying BOM lines. NULL = legacy (qty_to_produce in BOM yield_uom).';
+COMMENT ON COLUMN ops.product_bom.finished_vol_per_yield_gal IS
+  'Optional volume bridge for count-family yields: how many gallons of finished product 1 yield (e.g. 1 case) produces. Enables "make 1000 gal" scaling in the Scale this BOM panel when yield_uom is each/case.';
 
--- fn_create_bom: accept p_yield_uom, persist qty_uom from p_lines jsonb.
+-- Drop the old fixed-arg signatures before re-creating with the new params.
+-- CREATE OR REPLACE only matches on (name, arg_types); changing the signature
+-- creates a new overload alongside the old one (PG zombie overload trap —
+-- see 20260514b_fix_set_inventory_settings_partial_patch.sql for the same
+-- pattern). Use the exact original signatures from 20260514b_phase2_bom_work_orders.sql.
+DROP FUNCTION IF EXISTS ops.fn_create_bom(text, numeric, jsonb, text, date, text);
+DROP FUNCTION IF EXISTS ops.fn_create_work_order(uuid, numeric, uuid, date, text);
+
+-- fn_create_bom: accept p_yield_uom + p_finished_vol_per_yield_gal,
+-- and persist qty_uom from p_lines jsonb.
 CREATE OR REPLACE FUNCTION ops.fn_create_bom(
   p_finished_qbo_item_id text,
   p_yield_qty numeric,
@@ -37,7 +56,8 @@ CREATE OR REPLACE FUNCTION ops.fn_create_bom(
   p_version text DEFAULT '1'::text,
   p_effective_date date DEFAULT NULL::date,
   p_notes text DEFAULT NULL::text,
-  p_yield_uom text DEFAULT 'each'
+  p_yield_uom text DEFAULT 'each',
+  p_finished_vol_per_yield_gal numeric DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -57,8 +77,8 @@ BEGIN
     RAISE EXCEPTION 'p_lines must be a non-empty JSON array';
   END IF;
 
-  INSERT INTO ops.product_bom (finished_qbo_item_id, version, effective_date, yield_qty, yield_uom, notes, created_by)
-  VALUES (p_finished_qbo_item_id, p_version, p_effective_date, p_yield_qty, COALESCE(NULLIF(p_yield_uom, ''), 'each'), p_notes, v_actor)
+  INSERT INTO ops.product_bom (finished_qbo_item_id, version, effective_date, yield_qty, yield_uom, finished_vol_per_yield_gal, notes, created_by)
+  VALUES (p_finished_qbo_item_id, p_version, p_effective_date, p_yield_qty, COALESCE(NULLIF(p_yield_uom, ''), 'each'), p_finished_vol_per_yield_gal, p_notes, v_actor)
   RETURNING id INTO v_id;
 
   FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
@@ -98,7 +118,7 @@ BEGIN
 END;
 $function$;
 
--- fn_replace_bom_lines: persist qty_uom from p_lines jsonb (no signature change).
+-- fn_replace_bom_lines: no signature change, but persist qty_uom from p_lines.
 CREATE OR REPLACE FUNCTION ops.fn_replace_bom_lines(p_bom_id uuid, p_lines jsonb)
 RETURNS void
 LANGUAGE plpgsql
@@ -188,3 +208,9 @@ BEGIN
   RETURN v_id;
 END;
 $function$;
+
+-- Grants match the convention from 20260514b — explicit EXECUTE on every
+-- new signature. CREATE OR REPLACE does not preserve grants across signature
+-- changes, and the prior overloads' grants don't apply to the new ones.
+GRANT EXECUTE ON FUNCTION ops.fn_create_bom(text, numeric, jsonb, text, date, text, text, numeric) TO authenticated;
+GRANT EXECUTE ON FUNCTION ops.fn_create_work_order(uuid, numeric, uuid, date, text, text) TO authenticated;

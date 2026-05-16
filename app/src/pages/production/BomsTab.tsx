@@ -6,7 +6,7 @@ import {
 } from '../../lib/production';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
-import { UOM_OPTIONS, scaleBom, fmtQty } from '../../lib/uom';
+import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 
 interface Props {
@@ -123,6 +123,10 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
   const [version, setVersion] = useState('1');
   const [yieldQty, setYieldQty] = useState<string>('1');
   const [yieldUom, setYieldUom] = useState<string>('each');
+  // Volume bridge: only meaningful when yield is a count UoM (each/case) and
+  // 1 yield produces a known volume of finished product. Lets the scaler
+  // accept "make 1000 gal" against a per-case BOM.
+  const [finishedGal, setFinishedGal] = useState<string>('');
   const [effective, setEffective] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<BomLineInput[]>([emptyComponentLine()]);
@@ -142,6 +146,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
         finished_qbo_item_id: finishedId,
         yield_qty: Number(yieldQty),
         yield_uom: yieldUom,
+        finished_vol_per_yield_gal: finishedGal.trim() === '' ? null : Number(finishedGal),
         lines,
         version,
         effective_date: effective || null,
@@ -183,6 +188,13 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
             </select>
           </div>
         </LField>
+        {uomGroup(yieldUom) === 'count' && (
+          <LField label="Gal of finished product / yield (optional)">
+            <input type="number" min={0} step="any" style={inp()}
+              value={finishedGal} onChange={(e) => setFinishedGal(e.target.value)}
+              placeholder="e.g. 2.25 — enables scaling by gallons" />
+          </LField>
+        )}
         <LField label="Effective date">
           <input type="date" style={inp()} value={effective} onChange={(e) => setEffective(e.target.value)} />
         </LField>
@@ -224,6 +236,12 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   const [lines, setLines] = useState<BomLineInput[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [active, setActive] = useState(bom.is_active);
+  // Local-edit copy of the gal-per-yield bridge. Persists via updateBom on
+  // blur so the ScaleBomPanel can scale by gallons immediately without
+  // needing the user to save+reopen.
+  const [finishedGal, setFinishedGal] = useState<string>(
+    bom.finished_vol_per_yield_gal == null ? '' : String(bom.finished_vol_per_yield_gal),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -256,6 +274,16 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setSaving(false); }
+  }
+
+  async function saveFinishedGal() {
+    const next = finishedGal.trim() === '' ? null : Number(finishedGal);
+    const prev = bom.finished_vol_per_yield_gal;
+    if (next === prev || (next !== null && !Number.isFinite(next))) return;
+    try {
+      await updateBom(bomId, { finished_vol_per_yield_gal: next });
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
   }
 
   return (
@@ -296,6 +324,26 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
           </button>
         </div>
 
+        {uomGroup(bom.yield_uom || 'each') === 'count' && (
+          <div style={{
+            marginBottom: 14, padding: '8px 10px',
+            border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ color: 'var(--mt)' }}>
+              1 {bom.yield_uom || 'each'} produces
+            </span>
+            <input type="number" min={0} step="any" style={{ ...inp(), width: 100 }}
+              value={finishedGal}
+              onChange={(e) => setFinishedGal(e.target.value)}
+              onBlur={saveFinishedGal}
+              placeholder="—" />
+            <span style={{ color: 'var(--mt)' }}>
+              gal of finished product (enables "make N gal" scaling)
+            </span>
+          </div>
+        )}
+
         {lines === null
           ? <div style={{ padding: 18, color: 'var(--mt)' }}>Loading lines…</div>
           : <>
@@ -306,7 +354,12 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
                   {saving ? 'Saving…' : 'Save lines'}
                 </button>
               </div>
-              <ScaleBomPanel bom={bom} lines={lines} itemLookup={itemLookup} />
+              <ScaleBomPanel
+                bom={bom}
+                lines={lines}
+                itemLookup={itemLookup}
+                finishedVolPerYieldGal={finishedGal.trim() === '' ? null : Number(finishedGal)}
+              />
             </>}
       </div>
     </div>
@@ -470,24 +523,43 @@ const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middl
 // quantity + UoM ("make 1000 gal") and we multiply every line by the
 // implied runs. Read-only — doesn't save anything, just shows the math
 // so the operator can sanity-check a future work order.
-function ScaleBomPanel({ bom, lines, itemLookup }: {
+function ScaleBomPanel({ bom, lines, itemLookup, finishedVolPerYieldGal }: {
   bom: ProductBom;
   lines: BomLineInput[];
   itemLookup: ProductionItemLookup;
+  /** Live value from the modal's editable bridge field. Falls back to the
+   *  persisted bom.finished_vol_per_yield_gal so existing BOMs still scale
+   *  without a re-save. */
+  finishedVolPerYieldGal?: number | null;
 }) {
   const [targetQty, setTargetQty] = useState<string>(String(bom.yield_qty));
   const [targetUom, setTargetUom] = useState<string>(bom.yield_uom || 'each');
 
   const target = { qty: Number(targetQty) || 0, uom: targetUom };
-  const yield_ = { qty: Number(bom.yield_qty), uom: bom.yield_uom || 'each' };
+  const bridgeGal = finishedVolPerYieldGal
+    ?? (bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal))
+    ?? undefined;
+  const yield_ = {
+    qty: Number(bom.yield_qty),
+    uom: bom.yield_uom || 'each',
+    finishedVolPerYieldGal: bridgeGal,
+  };
   const scaled = target.qty > 0
     ? scaleBom(target, yield_, lines.map((l, idx) => ({
         qty_per: Number(l.qty_per),
         qty_uom: l.qty_uom || 'each',
+        scrap_pct: Number(l.scrap_pct ?? 0),
         ref: { line: l, idx },
       })))
     : null;
   const incompat = target.qty > 0 && scaled === null;
+  // Hint refinement: count↔count (each↔case) is intentionally not supported
+  // and same-family advice would mislead. Tell the operator what actually
+  // works for their situation.
+  const sameCountFamily =
+    uomGroup(targetUom) === 'count' && uomGroup(yield_.uom) === 'count';
+  const missingBridge =
+    uomGroup(targetUom) === 'volume' && uomGroup(yield_.uom) === 'count' && bridgeGal == null;
 
   return (
     <div style={{
@@ -510,7 +582,12 @@ function ScaleBomPanel({ bom, lines, itemLookup }: {
             </span>
           : incompat
             ? <span style={{ fontSize: 11, color: 'var(--am)' }}>
-                Can't convert {targetUom} → {yield_.uom}. Pick a UoM in the same family as the BOM yield, or type in {yield_.uom}.
+                Can't convert {targetUom} → {yield_.uom}.{' '}
+                {missingBridge
+                  ? <>Set "1 {yield_.uom} produces ___ gal" above to scale by volume, or type the target in {yield_.uom}.</>
+                  : sameCountFamily
+                    ? <>Type the target in {yield_.uom} — there's no fixed conversion between each and case.</>
+                    : <>Type the target in {yield_.uom}.</>}
               </span>
             : null}
       </div>

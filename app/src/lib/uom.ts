@@ -114,6 +114,9 @@ export function convertQty(
 export interface ScalableLine<T = unknown> {
   qty_per: number;
   qty_uom: string;
+  /** 0..1. Matches the (1 + scrap_pct) factor in fn_consume_work_order so
+   *  the scaler agrees with what the WO will actually consume. */
+  scrap_pct?: number;
   ref: T;
 }
 
@@ -154,7 +157,7 @@ export function scaleBom<T>(
   const runs = targetInYieldUom / yield_.qty;
 
   const scaledLines = lines.map((l) => ({
-    qty: l.qty_per * runs,
+    qty: l.qty_per * runs * (1 + (l.scrap_pct ?? 0)),
     uom: l.qty_uom,
     ref: l.ref,
   }));

@@ -10,6 +10,11 @@ export interface ProductBom {
   effective_date: string | null;
   yield_qty: number;
   yield_uom: string;
+  /** Optional bridge for cross-family scaling: if yield_uom is a count
+   *  (each/case) and 1 yield produces a known volume of finished product,
+   *  set this to the gallons-per-yield. Lets the BOM scaler convert "make
+   *  1000 gal" → runs even though yield is in cases. */
+  finished_vol_per_yield_gal: number | null;
   is_active: boolean;
   notes: string | null;
   created_by: string | null;
@@ -121,6 +126,7 @@ export async function createBom(args: {
   finished_qbo_item_id: string;
   yield_qty: number;
   yield_uom?: string;
+  finished_vol_per_yield_gal?: number | null;
   lines: BomLineInput[];
   version?: string;
   effective_date?: string | null;
@@ -130,6 +136,7 @@ export async function createBom(args: {
     p_finished_qbo_item_id: args.finished_qbo_item_id,
     p_yield_qty: args.yield_qty,
     p_yield_uom: args.yield_uom ?? 'each',
+    p_finished_vol_per_yield_gal: args.finished_vol_per_yield_gal ?? null,
     p_lines: args.lines,
     p_version: args.version ?? '1',
     p_effective_date: args.effective_date ?? null,
