@@ -285,6 +285,18 @@
       ],
       "notes": "BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
       "last_verified": "2026-05-13"
+    },
+    {
+      "name": "qbo-pos-import",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (operator clicks 'Pull POs from QBO' in the Margin Production tab)",
+      "writes": [
+        "ops.qbo_purchase_orders",
+        "ops.qbo_purchase_order_lines"
+      ],
+      "notes": "Mirrors QBO-direct PurchaseOrders into shadow tables so the inventory On Order column (fn_items_master.on_order CTE) counts POs that were never created through BRIX. Per-PO picker modal in app/src/pages/production/QboPosPickerModal.tsx. Bearer-only auth (any logged-in @brixbev.com employee can preview + import). Upserts headers by qbo_id; lines are replaced wholesale on each import. De-dup with ops.purchase_orders.qbo_purchase_order_id so a BRIX-native PO pushed to QBO isn't counted twice. Migration: 20260516b_qbo_purchase_orders_shadow.sql.",
+      "last_verified": "2026-05-16"
     }
   ],
 

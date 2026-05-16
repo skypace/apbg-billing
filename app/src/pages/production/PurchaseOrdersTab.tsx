@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, RefreshCw, Truck, CheckCircle2 } from 'lucide-react';
+import { Plus, X as XIcon, RefreshCw, Truck, CheckCircle2, Download } from 'lucide-react';
+import { QboPosPickerModal } from './QboPosPickerModal';
 import {
   PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
   closePurchaseOrder, createPurchaseOrder, fetchPoLines,
@@ -67,6 +68,9 @@ export function PurchaseOrdersTab({
   const [openId, setOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
   const [syncing, setSyncing] = useState(false);
+  // Modal for importing QBO-direct POs into the shadow tables so the
+  // inventory On Order column reflects POs that were never created in BRIX.
+  const [pullingQboPos, setPullingQboPos] = useState(false);
 
   // One-shot: clear sessionStorage so refreshing doesn't keep opening the form.
   useEffect(() => {
@@ -174,6 +178,10 @@ export function PurchaseOrdersTab({
             <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
             {syncing ? 'Syncing…' : 'Pull Vendors from QBO'}
           </button>
+          <button onClick={() => setPullingQboPos(true)} style={btnSecondary()}>
+            <Download size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
+            Pull POs from QBO
+          </button>
           <button
             onClick={() => setCreating(true)}
             style={btnPrimary()}
@@ -183,6 +191,13 @@ export function PurchaseOrdersTab({
           </button>
         </div>
       </div>
+
+      {pullingQboPos && (
+        <QboPosPickerModal
+          onClose={() => setPullingQboPos(false)}
+          onImported={() => { onChanged(); }}
+        />
+      )}
 
       {activeVendors.length === 0 && (
         <div style={{
