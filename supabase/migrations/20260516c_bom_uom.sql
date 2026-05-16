@@ -35,7 +35,7 @@ COMMENT ON COLUMN ops.product_bom.yield_uom IS
 COMMENT ON COLUMN ops.product_bom_lines.qty_uom IS
   'Unit of measure for qty_per. Same UoM vocabulary as yield_uom.';
 COMMENT ON COLUMN ops.work_orders.target_uom IS
-  'Unit the operator typed when creating the WO. qty_to_produce is converted to BOM yield_uom for multiplying BOM lines. NULL = legacy (qty_to_produce in BOM yield_uom).';
+  'Unit the operator typed when creating the WO. Informational-only today: captured for the UI/audit trail, but fn_consume_work_order and fn_close_work_order do NOT read it — they compute (qty_to_produce / yield_qty) * qty_per * (1 + scrap_pct) directly. Phase 2 will wire UoM conversion into those functions. Today, qty_to_produce must already be expressed in BOM yield_uom; passing target_uom != yield_uom will not convert. NULL = legacy (created before this column existed).';
 COMMENT ON COLUMN ops.product_bom.finished_vol_per_yield_gal IS
   'Optional volume bridge for count-family yields: how many gallons of finished product 1 yield (e.g. 1 case) produces. Enables "make 1000 gal" scaling in the Scale this BOM panel when yield_uom is each/case.';
 

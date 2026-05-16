@@ -157,9 +157,12 @@ export async function updateBom(id: string, patch: Partial<ProductBom>): Promise
 export async function createWorkOrder(args: {
   bom_id: string;
   qty_to_produce: number;
-  /** Unit the operator typed. The DB stores qty_to_produce verbatim plus this
-   *  uom; the UI's BOM scaler converts to the BOM's yield_uom when computing
-   *  component requirements. NULL is legacy (qty in BOM yield units). */
+  /** Unit the operator typed. INFORMATIONAL-ONLY today: persisted on the WO
+   *  row for the UI/audit trail, but fn_consume_work_order and
+   *  fn_close_work_order do not read it — they compute consumption as
+   *  (qty_to_produce / yield_qty) * qty_per * (1 + scrap_pct) directly.
+   *  Phase 2 will wire UoM conversion into those functions; until then,
+   *  qty_to_produce must already be expressed in the BOM's yield_uom. */
   target_uom?: string | null;
   production_location_id: string;
   scheduled_date?: string | null;
