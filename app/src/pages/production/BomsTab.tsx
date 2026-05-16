@@ -17,6 +17,14 @@ interface Props {
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
+/** Friendly display label for a BOM. Falls back to "Version N" so the
+ *  table never shows blank cells for older rows that pre-date the name
+ *  field (migration backfill handles existing data; this is the runtime
+ *  safety net for any future null). */
+function bomLabel(b: ProductBom): string {
+  return (b.name && b.name.trim()) || `Version ${b.version}`;
+}
+
 export function BomsTab({ boms, itemLookup, onChanged }: Props) {
   const [creating, setCreating] = useState(false);
   const [openBomId, setOpenBomId] = useState<string | null>(null);
@@ -61,7 +69,7 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
           <thead>
             <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
               <Th>Finished SKU</Th>
-              <Th>Version</Th>
+              <Th>Name</Th>
               <Th style={{ textAlign: 'right' }}>Yield Qty</Th>
               <Th>Status</Th>
               <Th>Effective</Th>
@@ -79,8 +87,15 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
               return (
                 <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <Td><strong>{it?.item_name ?? b.finished_qbo_item_id}</strong></Td>
-                  <Td><code style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)' }}>{b.version}</code></Td>
-                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{Number(b.yield_qty)}</Td>
+                  <Td>
+                    <div style={{ fontWeight: 600, color: 'var(--tx)' }}>{bomLabel(b)}</div>
+                    <div style={{ fontSize: 10, color: 'var(--mt)', fontFamily: 'var(--ff-mono)', marginTop: 1 }}>
+                      v{b.version}
+                    </div>
+                  </Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                    {fmtQty(Number(b.yield_qty), b.yield_uom || 'each')}
+                  </Td>
                   <Td>
                     <span style={{
                       fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5,
@@ -121,6 +136,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
   const toast = useToast();
   const [finishedId, setFinishedId] = useState('');
   const [version, setVersion] = useState('1');
+  const [name, setName] = useState('');
   const [yieldQty, setYieldQty] = useState<string>('1');
   const [yieldUom, setYieldUom] = useState<string>('each');
   // Volume bridge: only meaningful when yield is a count UoM (each/case) and
@@ -149,6 +165,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
         finished_vol_per_yield_gal: finishedGal.trim() === '' ? null : Number(finishedGal),
         lines,
         version,
+        name: name.trim() === '' ? null : name.trim(),
         effective_date: effective || null,
         notes: notes || null,
       });
@@ -178,6 +195,10 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
         </LField>
         <LField label="Version">
           <input style={inp()} value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1" />
+        </LField>
+        <LField label="Name (optional)">
+          <input style={inp()} value={name} onChange={(e) => setName(e.target.value)}
+            placeholder='e.g. "Cola — 1000 gal batch"' />
         </LField>
         <LField label="Yield / batch">
           <div style={{ display: 'flex', gap: 6 }}>
@@ -223,7 +244,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
   );
 }
 
-// ── Detail modal (edit lines, toggle active) ────────────────────────────
+// ── Detail modal (edit lines, toggle active, rename) ───────────────────
 
 function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   bomId: string;
@@ -236,6 +257,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   const [lines, setLines] = useState<BomLineInput[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [active, setActive] = useState(bom.is_active);
+  const [name, setName] = useState<string>(bom.name ?? '');
   // Local-edit copy of the gal-per-yield bridge. Persists via updateBom on
   // blur so the ScaleBomPanel can scale by gallons immediately without
   // needing the user to save+reopen.
@@ -276,6 +298,18 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     finally { setSaving(false); }
   }
 
+  async function saveName() {
+    const next = name.trim() === '' ? null : name.trim();
+    const prev = bom.name ?? null;
+    if (next === prev) return;
+    try {
+      await updateBom(bomId, { name: next });
+      toast.success(next ? `Renamed to "${next}"` : 'Name cleared');
+      // No onChanged — autosave-on-blur, parent treats that as "close+refresh".
+      // Next fetchBoms will pick it up; the detail modal keeps the live state.
+    } catch (e) { toast.error(errMsg(e)); }
+  }
+
   async function saveFinishedGal() {
     const next = finishedGal.trim() === '' ? null : Number(finishedGal);
     // Coerce prev: PostgREST returns numeric as JSON string, so comparing a
@@ -287,15 +321,10 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     if (next === prev || (next !== null && !Number.isFinite(next))) return;
     try {
       await updateBom(bomId, { finished_vol_per_yield_gal: next });
-      // Intentionally not calling onChanged(): the parent treats it as
-      // "modal done, close+refresh" (BomsTab line ~107), but this is an
-      // autosave-on-blur — we want the operator to keep using the modal,
-      // especially the ScaleBomPanel below. The panel already reads the
-      // live finishedGal state via its prop, so no refresh is needed for
-      // scaling. The next time the modal opens, fetchBoms will pick up
-      // the persisted value.
     } catch (e) { toast.error(errMsg(e)); }
   }
+
+  const displayName = (name && name.trim()) || `Version ${bom.version}`;
 
   return (
     <div onClick={onClose} style={{
@@ -309,7 +338,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              BOM · v{bom.version} · yield {fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')} / batch
+              BOM · {displayName} · v{bom.version} · yield {fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')} / batch
             </div>
             <h2 style={{ margin: '4px 0 0', fontSize: 22, color: 'var(--ac)' }}>
               {it?.item_name ?? bom.finished_qbo_item_id}
@@ -318,6 +347,20 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
             <XIcon size={18} />
           </button>
+        </div>
+
+        {/* Rename row */}
+        <div style={{
+          marginBottom: 14, padding: '8px 10px',
+          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ color: 'var(--mt)' }}>Name</span>
+          <input style={{ ...inp(), flex: 1 }}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={saveName}
+            placeholder='e.g. "Cola — 1000 gal batch"' />
         </div>
 
         <div style={{
@@ -564,9 +607,6 @@ function ScaleBomPanel({ bom, lines, itemLookup, finishedVolPerYieldGal }: {
       })))
     : null;
   const incompat = target.qty > 0 && scaled === null;
-  // Hint refinement: count↔count (each↔case) is intentionally not supported
-  // and same-family advice would mislead. Tell the operator what actually
-  // works for their situation.
   const sameCountFamily =
     uomGroup(targetUom) === 'count' && uomGroup(yield_.uom) === 'count';
   const missingBridge =
