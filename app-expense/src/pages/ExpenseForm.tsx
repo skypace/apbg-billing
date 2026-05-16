@@ -53,7 +53,7 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [entity] = useState('brix');
+  const [entity, setEntity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -113,6 +113,7 @@ export default function ExpenseForm() {
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
+      setEntity(data.entity || 'brix');
       setCogsAccountLabel(data.cogs_account_label || '');
       setCogsAccountId(data.cogs_account_id || '');
       setTag(data.tag || '');
@@ -131,6 +132,27 @@ export default function ExpenseForm() {
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
+
+      // Pull the first attachment for the receipt preview. Until now the
+      // edit view showed a blank receipt slot even when the row had a real
+      // image attached, so operators had no way to verify they were
+      // editing the right submission.
+      const { data: att } = await supabase
+        .from('expense_request_attachments')
+        .select('storage_path, file_type')
+        .eq('request_id', id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && att?.storage_path) {
+        const { data: signed } = await supabase.storage
+          .from('expense-attachments')
+          .createSignedUrl(att.storage_path, 60 * 60);
+        if (!cancelled && signed?.signedUrl) {
+          setReceiptPreview(signed.signedUrl);
+        }
+      }
+
       setStep('details');
       setLoadingExisting(false);
     })();
@@ -302,38 +324,59 @@ export default function ExpenseForm() {
       const userName = user.user_metadata?.full_name || user.email || 'Unknown';
       const pickedAcct = paymentAccounts.find((a) => a.id === paymentAccountId) || null;
 
-      const { data: req, error: insertErr } = await supabase
-        .from('expense_requests')
-        .insert({
-          request_type: 'expense',
-          status: 'draft',
-          submitted_by: user.id,
-          submitter_name: userName,
-          submitter_email: user.email || '',
-          entity,
-          vendor_name: vendorName || null,
-          total_amount: totalNum || 0,
-          receipt_date: receiptDate || null,
-          cogs_account_id: cogsAccountId || null,
-          cogs_account_label: cogsAccountLabel || null,
-          tag: tag || null,
-          department: department || null,
-          customer_name: customerName || null,
-          job_number: jobNumber || null,
-          memo: memo || null,
-          manager_email: needsApproval ? managerEmail : null,
-          payment_account_id: paymentAccountId,
-          // Prefer the freshly-picked account, but fall back to the cached
-          // values from loadExisting so re-submitting an edited draft before
-          // the dropdown list resolves doesn't blank these columns.
-          payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
-          payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
-          line_items: nonEmptyLines,
-        })
-        .select()
-        .single();
+      // Fields the operator can edit. Shared between INSERT (new submission)
+      // and UPDATE (editing a draft) so the two paths can't drift.
+      const editableFields = {
+        entity,
+        vendor_name: vendorName || null,
+        total_amount: totalNum || 0,
+        receipt_date: receiptDate || null,
+        cogs_account_id: cogsAccountId || null,
+        cogs_account_label: cogsAccountLabel || null,
+        tag: tag || null,
+        department: department || null,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        memo: memo || null,
+        manager_email: needsApproval ? managerEmail : null,
+        payment_account_id: paymentAccountId,
+        // Prefer the freshly-picked account, but fall back to the cached
+        // values from loadExisting so re-submitting an edited draft before
+        // the dropdown list resolves doesn't blank these columns.
+        payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
+        payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
+        line_items: nonEmptyLines,
+      };
 
-      if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
+      let req: { id: string } | null = null;
+      if (isEditing && id) {
+        // Editing an existing draft: UPDATE in place. Previously the form
+        // always INSERTed, which silently created a duplicate row every
+        // time an operator opened a draft to fix a typo.
+        const { data: updated, error: updateErr } = await supabase
+          .from('expense_requests')
+          .update(editableFields)
+          .eq('id', id)
+          .select()
+          .single();
+        if (updateErr || !updated) throw new Error(updateErr?.message ?? 'Update failed');
+        req = updated;
+      } else {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('expense_requests')
+          .insert({
+            request_type: 'expense',
+            status: 'draft',
+            submitted_by: user.id,
+            submitter_name: userName,
+            submitter_email: user.email || '',
+            ...editableFields,
+          })
+          .select()
+          .single();
+        if (insertErr || !inserted) throw new Error(insertErr?.message ?? 'Insert failed');
+        req = inserted;
+      }
 
       if (receiptFile) {
         const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
