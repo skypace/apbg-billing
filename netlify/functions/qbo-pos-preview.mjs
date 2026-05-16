@@ -1,4 +1,4 @@
-// /api/qbo-pos-preview — list open QBO PurchaseOrders for the
+// /.netlify/functions/qbo-pos-preview — list open QBO PurchaseOrders for the
 // "Pull from QBO" picker. Marks each PO as already-imported (shadow table) or
 // already-managed-in-BRIX (ops.purchase_orders.qbo_purchase_order_id set), so
 // the UI can disable / hide rows the operator shouldn't pick again.
@@ -36,11 +36,6 @@ async function fetchAllPurchaseOrders() {
   return all;
 }
 
-// QBO PurchaseOrder exposes POStatus on the entity ("Open" / "Closed") but it's
-// not always populated in the query response — the source-of-truth is whether
-// every line has a fully-linked Bill. For the picker we keep it simple: treat
-// LinkedTxn containing any Bill as "partial or fully received", and rely on
-// POStatus where present.
 function deriveStatus(po) {
   if (typeof po.POStatus === 'string' && po.POStatus.length > 0) return po.POStatus;
   const linkedBills = (po.LinkedTxn || []).filter((t) => t.TxnType === 'Bill');
@@ -51,9 +46,6 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'GET') return json({ error: 'GET only' }, 405);
 
-  // Bearer-only auth — matches the Brixpense submitter endpoints. Any
-  // logged-in employee with @brixbev.com can see the picker; the actual
-  // import endpoint adds role-based gates.
   const authHeader = req.headers.get('authorization') || '';
   if (!authHeader.startsWith('Bearer ')) return json({ error: 'Unauthorized — Bearer token required' }, 401);
 
@@ -71,12 +63,6 @@ export default async function handler(req) {
     return json({ error: e?.message || 'QBO query failed' }, 502);
   }
 
-  // Cross-reference with what's already in BRIX so the UI can show status
-  // chips. Two separate sources we care about:
-  //   1. ops.qbo_purchase_orders — previously imported via this picker
-  //   2. ops.purchase_orders.qbo_purchase_order_id — BRIX-native POs that
-  //      have been pushed to QBO (those already count in fn_items_master's
-  //      brix_on_order CTE, so re-importing would be redundant)
   const ids = qboPos.map((p) => p.Id);
   const [{ data: already, error: e1 }, { data: brixLinked, error: e2 }] = await Promise.all([
     sb.from('qbo_purchase_orders').select('qbo_id, imported_at, last_synced_at').in('qbo_id', ids),
@@ -127,8 +113,6 @@ export default async function handler(req) {
     };
   });
 
-  // Sort: open + not-yet-imported first (the ones the picker is for), then
-  // newest first within each bucket.
   items.sort((a, b) => {
     const aPick = a.status === 'Open' && !a.already_imported && !a.brix_native ? 0 : 1;
     const bPick = b.status === 'Open' && !b.already_imported && !b.brix_native ? 0 : 1;
@@ -142,5 +126,3 @@ export default async function handler(req) {
     items,
   });
 }
-
-export const config = { path: '/api/qbo-pos-preview' };
