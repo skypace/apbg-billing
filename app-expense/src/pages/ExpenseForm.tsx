@@ -58,6 +58,15 @@ export default function ExpenseForm() {
   // but left the persisted attachment intact — it reappeared on the next
   // page load.
   const [originalAttachment, setOriginalAttachment] = useState<{ id: string; path: string } | null>(null);
+  // Cache the signed URL the load effect minted so the X-click handler
+  // can restore it when the operator cancels a fresh replacement upload.
+  // Without this, replace → X clears the preview slots but leaves the
+  // persisted original intact in storage — the UI shows nothing where
+  // the receipt was, the operator thinks "removed", submits, then
+  // reopen surfaces the original again. UX silently misrepresents.
+  const [originalSignedPreview, setOriginalSignedPreview] = useState<string | null>(null);
+  const [originalSignedDownloadUrl, setOriginalSignedDownloadUrl] = useState<string | null>(null);
+  const [originalSignedDownloadName, setOriginalSignedDownloadName] = useState<string | null>(null);
   const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -133,6 +142,9 @@ export default function ExpenseForm() {
     // (`!existingStatus`) check AND the form inputs, which would otherwise
     // submit-and-overwrite draft B with A's values.
     setOriginalAttachment(null);
+    setOriginalSignedPreview(null);
+    setOriginalSignedDownloadUrl(null);
+    setOriginalSignedDownloadName(null);
     setPendingAttachmentDelete(false);
     setReceiptPreview(null);
     setReceiptDownloadUrl(null);
@@ -250,15 +262,14 @@ export default function ExpenseForm() {
           .createSignedUrl(att.storage_path, 60 * 60);
         if (!cancelled && signed?.signedUrl) {
           setOriginalAttachment({ id: att.id, path: att.storage_path });
-          // Only stuff the signed URL into receiptPreview when it's an
-          // image — &lt;img src=...pdf&gt; would render a broken icon. PDFs
-          // (and anything else uploaded via the .pdf accept) get a
-          // download link instead.
           if (att.file_type?.startsWith('image/')) {
             setReceiptPreview(signed.signedUrl);
+            setOriginalSignedPreview(signed.signedUrl);
           } else {
             setReceiptDownloadUrl(signed.signedUrl);
             setReceiptDownloadName(att.file_name || 'receipt');
+            setOriginalSignedDownloadUrl(signed.signedUrl);
+            setOriginalSignedDownloadName(att.file_name || 'receipt');
           }
         }
       }
@@ -406,13 +417,17 @@ export default function ExpenseForm() {
         console.warn('OCR call failed', e);
         setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
-        // setOcrLoading always runs — once aborted, the OCR is genuinely
-        // done either way. Gating it on !aborted would leave the spinner
-        // pinned to true forever on the abort path (Try Again then shows
-        // the 'Reading receipt…' banner with no OCR running). Only the
-        // step transition needs the gate so OCR doesn't flip a
-        // 'submitting'/'error' step back to 'details'.
-        setOcrLoading(false);
+        // Gate setOcrLoading on ref-identity: clear the flag only if I'm
+        // still the active OCR call. Closes both prior cases at once:
+        // handleSubmit-abort only `.abort()`s without replacing the ref,
+        // so `current === controller` is still true → spinner clears
+        // (Try Again shows no stale spinner). Rapid file replacement
+        // takes over the ref, so the stale fetch's finally becomes a
+        // no-op for the flag (spinner stays visible during the new
+        // fetch). Only the step transition needs the aborted gate.
+        if (ocrAbortRef.current === controller) {
+          setOcrLoading(false);
+        }
         if (!controller.signal.aborted) {
           setStep('details');
         }
@@ -480,13 +495,18 @@ export default function ExpenseForm() {
     // attach-INSERT fails after a successful upload.
     let uploadedStoragePath: string | null = null;
     let attachInsertSucceeded = false;
+    // Track the new attachment row (id + path) for edit-flow rollback.
+    // If the row-delete of the ORIGINAL throws after the new upload +
+    // attach succeeded, the load effect would pick the oldest (Try-1's
+    // orphan) on next /edit and silently render the wrong file. Clean
+    // it up in the catch when the rollback is safe (no notify in flight,
+    // no new-flow row to delete).
+    let newAttachmentForRollback: { id: string; path: string } | null = null;
     // Set just before the notify fetch. If the catch fires while
     // notifyStarted is true, the server may already have POSTed to QBO
     // (notify posts to QBO BEFORE flipping the row off draft), so we
     // MUST NOT roll back — that would wipe a row whose QBO Purchase
-    // already exists, and retry would create a duplicate. Better to
-    // leave the orphan draft visible (recoverable) than risk a phantom
-    // QBO transaction.
+    // already exists, and retry would create a duplicate.
     let notifyStarted = false;
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
@@ -622,15 +642,22 @@ export default function ExpenseForm() {
         // rollback machinery's storage-cleanup gate continues to apply.
         if (insertedForRollback) insertedForRollback.storagePath = storagePath;
 
-        const { error: attachErr } = await supabase.from('expense_request_attachments').insert({
-          request_id: req.id,
-          file_name: receiptFile.name,
-          file_type: receiptFile.type,
-          file_size: receiptFile.size,
-          storage_path: storagePath,
-        });
+        const { data: insertedAttach, error: attachErr } = await supabase
+          .from('expense_request_attachments')
+          .insert({
+            request_id: req.id,
+            file_name: receiptFile.name,
+            file_type: receiptFile.type,
+            file_size: receiptFile.size,
+            storage_path: storagePath,
+          })
+          .select('id')
+          .single();
         if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
         attachInsertSucceeded = true;
+        if (insertedAttach) {
+          newAttachmentForRollback = { id: insertedAttach.id, path: storagePath };
+        }
       }
 
       if (pendingAttachmentDelete && originalAttachment) {
@@ -690,12 +717,16 @@ export default function ExpenseForm() {
     } catch (err: any) {
       console.error('Submission error:', err);
       // If notify has been kicked off, the server may have already POSTed
-      // to QBO. Don't roll back — leave the orphan draft visible so the
-      // operator can reconcile manually, rather than risk a phantom QBO
-      // Purchase and a duplicate on retry.
+      // to QBO. Don't roll back, and don't land on 'error' either: the
+      // 'Try Again' path on /new would re-INSERT a fresh row and notify
+      // would post a SECOND QBO Purchase for the same expense. Mirror
+      // the existing !notifyRes.ok fallback — land on 'success' with
+      // the 'notification may have failed' message. The submission DOES
+      // exist server-side (possibly with a Purchase already posted),
+      // and recovery is via the dashboard, not via Submit again.
       if (notifyStarted) {
-        setErrorMessage(err.message || 'Something went wrong');
-        setStep('error');
+        setResultMessage('Request saved but notification may have failed.');
+        setStep('success');
         setSubmitting(false);
         return;
       }
@@ -710,6 +741,26 @@ export default function ExpenseForm() {
             .from('expense-attachments')
             .remove([uploadedStoragePath]);
         } catch (rbErr) { console.warn('Orphan storage delete failed:', rbErr); }
+      }
+      // Edit-flow new-attachment rollback: attach succeeded but a later
+      // step in the same try failed (typically the original row-delete
+      // at the pendingAttachmentDelete block). Without this, the load
+      // effect would render the wrong receipt on next /edit (it picks
+      // the oldest attachment row, which is Try-1's orphan). Skip when
+      // insertedForRollback is set — the new-flow cascade below handles
+      // it via its own attachRowsDeleted gate.
+      if (newAttachmentForRollback && attachInsertSucceeded && !insertedForRollback) {
+        try {
+          await supabase
+            .from('expense_request_attachments')
+            .delete()
+            .eq('id', newAttachmentForRollback.id);
+        } catch (rbErr) { console.warn('New-attachment rollback (row) failed:', rbErr); }
+        try {
+          await supabase.storage
+            .from('expense-attachments')
+            .remove([newAttachmentForRollback.path]);
+        } catch (rbErr) { console.warn('New-attachment rollback (storage) failed:', rbErr); }
       }
       // Roll back the new-flow INSERT (and its storage blob, if any) so a
       // retry starts from a clean slate instead of duplicating a stuck-
@@ -913,9 +964,20 @@ export default function ExpenseForm() {
                   // delete-on-submit path must not fire against it.
                   const hadFreshUpload = receiptFile != null;
                   setReceiptFile(null);
-                  setReceiptPreview(null);
-                  setReceiptDownloadUrl(null);
-                  setReceiptDownloadName(null);
+                  // If we're canceling a fresh replacement, restore the
+                  // persisted original's signed URL so the preview slot
+                  // doesn't go empty (which would silently misrepresent
+                  // that the original is still attached). On a true
+                  // delete-original X-click, all preview slots clear.
+                  if (hadFreshUpload && originalAttachment) {
+                    setReceiptPreview(originalSignedPreview);
+                    setReceiptDownloadUrl(originalSignedDownloadUrl);
+                    setReceiptDownloadName(originalSignedDownloadName);
+                  } else {
+                    setReceiptPreview(null);
+                    setReceiptDownloadUrl(null);
+                    setReceiptDownloadName(null);
+                  }
                   if (originalAttachment && !hadFreshUpload) {
                     setPendingAttachmentDelete(true);
                   }
