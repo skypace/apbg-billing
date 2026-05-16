@@ -18,8 +18,9 @@ import { StockOnHandTab } from './StockOnHandTab';
 import { StockTransfersTab } from './StockTransfersTab';
 import { StockMovementsTab } from './StockMovementsTab';
 import { StockAdjustmentsTab } from './StockAdjustmentsTab';
+import { StockReconcileTab } from './StockReconcileTab';
 
-type TabId = 'on_hand' | 'locations' | 'transfers' | 'adjustments' | 'movements';
+type TabId = 'on_hand' | 'locations' | 'transfers' | 'adjustments' | 'movements' | 'reconcile';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'on_hand',     label: 'On-Hand'     },
@@ -27,6 +28,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'transfers',   label: 'Transfers'   },
   { id: 'adjustments', label: 'Adjustments' },
   { id: 'movements',   label: 'Movements'   },
+  { id: 'reconcile',   label: 'Reconcile vs QBO' },
 ];
 
 export interface ItemLookup {
@@ -142,6 +144,7 @@ export function StockPage() {
           itemLookup={itemLookup}
         />
       )}
+      {tab === 'reconcile' && <StockReconcileTab onRefresh={reloadAll} />}
     </div>
   );
 }
