@@ -4,7 +4,7 @@
 // through BRIX.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X as XIcon, Loader2, RefreshCw, Download } from 'lucide-react';
+import { X as XIcon, Loader2, RefreshCw, Download, AlertCircle } from 'lucide-react';
 import { fetchQboPosPreview, importQboPos, type QboPoPickerItem } from '../../lib/qboPosPicker';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary } from '../../lib/styles';
@@ -23,16 +23,21 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [items, setItems] = useState<QboPoPickerItem[]>([]);
+  const [hidden, setHidden] = useState<{ closed: number; billed: number; total: number }>(
+    { closed: 0, billed: 0, total: 0 },
+  );
+  const [includeAll, setIncludeAll] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
-  const [showAll, setShowAll] = useState(false); // hide already-imported by default
+  const [showAllImported, setShowAllImported] = useState(false); // hide already-imported by default
 
-  async function load() {
+  async function load(opts: { includeAll?: boolean } = {}) {
     setLoading(true);
     try {
-      const data = await fetchQboPosPreview();
+      const data = await fetchQboPosPreview({ includeAll: opts.includeAll ?? includeAll });
       setItems(data.items);
+      setHidden(data.hidden ?? { closed: 0, billed: 0, total: 0 });
       setSelected(new Set());
     } catch (e) {
       toast.error('Failed to load QBO POs: ' + errMsg(e));
@@ -41,14 +46,20 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load({ includeAll: false }); }, []);
+
+  function toggleIncludeAll() {
+    const next = !includeAll;
+    setIncludeAll(next);
+    void load({ includeAll: next });
+  }
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return items.filter((i) => {
       // Always hide BRIX-native rows — re-importing would double-count.
       if (i.brix_native) return false;
-      if (!showAll && i.already_imported) return false;
+      if (!showAllImported && i.already_imported) return false;
       if (!q) return true;
       return (
         (i.doc_number || '').toLowerCase().includes(q) ||
@@ -56,7 +67,7 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
         (i.memo || '').toLowerCase().includes(q)
       );
     });
-  }, [items, filter, showAll]);
+  }, [items, filter, showAllImported]);
 
   const pickableIds = useMemo(
     () => visible.filter((i) => i.status === 'Open' && !i.brix_native).map((i) => i.qbo_id),
@@ -132,6 +143,52 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
           </button>
         </div>
 
+        {/* Hidden-count banner — only shows when strict filter is active AND something is hidden */}
+        {!includeAll && hidden.total > 0 && (
+          <div style={{
+            padding: '10px 18px',
+            background: 'rgba(91, 181, 240, 0.06)',
+            borderBottom: '1px solid var(--bd)',
+            fontSize: 11.5, color: 'var(--mt)',
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <AlertCircle size={14} color="var(--ac)" />
+            <span>
+              <strong style={{ color: 'var(--tx)' }}>{hidden.total} PO{hidden.total === 1 ? '' : 's'} hidden</strong>
+              {' '}— {hidden.closed} closed, {hidden.billed} with bills already linked (everything received).
+            </span>
+            <button onClick={toggleIncludeAll} style={{
+              marginLeft: 'auto',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--ac)', fontSize: 11.5, fontWeight: 600, padding: 0,
+              textDecoration: 'underline',
+            }}>
+              Show all (closed + billed too) →
+            </button>
+          </div>
+        )}
+
+        {includeAll && (
+          <div style={{
+            padding: '10px 18px',
+            background: 'rgba(239,191,65,0.08)',
+            borderBottom: '1px solid var(--bd)',
+            fontSize: 11.5, color: 'var(--am)',
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <AlertCircle size={14} color="var(--am)" />
+            <span>Showing all POs including closed and bill-linked. These don't add to On Order.</span>
+            <button onClick={toggleIncludeAll} style={{
+              marginLeft: 'auto',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--am)', fontSize: 11.5, fontWeight: 600, padding: 0,
+              textDecoration: 'underline',
+            }}>
+              Hide closed + billed
+            </button>
+          </div>
+        )}
+
         <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--bd)' }}>
           <input
             placeholder="Search by PO #, vendor, memo…"
@@ -140,7 +197,7 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
             style={{ flex: 1, padding: '6px 10px', background: 'var(--bg-2)', color: 'var(--tx)', border: '1px solid var(--bd)', borderRadius: 6, fontSize: 13 }}
           />
           <label style={{ fontSize: 12, color: 'var(--mt)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+            <input type="checkbox" checked={showAllImported} onChange={(e) => setShowAllImported(e.target.checked)} />
             Show already-imported
           </label>
           <button onClick={() => void load()} style={{ ...btnSecondary(), display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -155,7 +212,12 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
             </div>
           ) : visible.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--mt)' }}>
-              No POs match. {!showAll && items.some((i) => i.already_imported) ? 'Toggle "Show already-imported" to see ones already in BRIX.' : ''}
+              No POs match.
+              {!showAllImported && items.some((i) => i.already_imported)
+                ? ' Toggle "Show already-imported" to see ones already in BRIX.'
+                : !includeAll && hidden.total > 0
+                  ? ' Click "Show all" above to include closed + billed POs.'
+                  : ''}
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -193,9 +255,18 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
                         <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(it.total_amt || 0)}</td>
                         <td style={{ padding: '8px 10px', textAlign: 'right' }}>{it.line_count}</td>
                         <td style={{ padding: '8px 10px' }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, padding: '1px 6px', borderRadius: 10, border: '1px solid', color: it.status === 'Open' ? 'var(--gn)' : 'var(--mt)' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
+                            padding: '1px 6px', borderRadius: 10, border: '1px solid',
+                            color: it.status === 'Open' ? 'var(--gn)' : it.has_linked_bills ? 'var(--am)' : 'var(--mt)',
+                          }}>
                             {it.status.toUpperCase()}
                           </span>
+                          {it.has_linked_bills && (
+                            <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--am)' }} title={`${it.linked_bill_count} bill(s) linked`}>
+                              {it.linked_bill_count} bill{it.linked_bill_count === 1 ? '' : 's'}
+                            </span>
+                          )}
                           {it.already_imported && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--mt)' }}>imported</span>}
                           {it.brix_native && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--mt)' }}>brix-native</span>}
                         </td>
