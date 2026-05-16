@@ -40,6 +40,11 @@ export default function ExpenseForm() {
   const { settings, loading: settingsLoading } = useExpenseSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  // OCR is a multi-second LLM call; if the user picks a file on /new and
+  // then navigates to /edit/A before it returns, the late OCR setters
+  // would otherwise overwrite A's just-loaded state. Abort on the next
+  // pick and on route-param change (load effect cleanup).
+  const ocrAbortRef = useRef<AbortController | null>(null);
 
   const [step, setStep] = useState<FormStep>(isEditing ? 'details' : 'upload');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -238,6 +243,9 @@ export default function ExpenseForm() {
     })();
     return () => {
       cancelled = true;
+      // Abort any in-flight OCR so a late response can't overwrite the
+      // freshly-loaded draft's state after route-param navigation.
+      ocrAbortRef.current?.abort();
     };
   }, [id]);
 
@@ -300,6 +308,12 @@ export default function ExpenseForm() {
 
   const handleFileSelect = useCallback(
     async (file: File) => {
+      // Abort any previous in-flight OCR so a late response can't write
+      // into a different draft's state after instance-reuse navigation.
+      ocrAbortRef.current?.abort();
+      const controller = new AbortController();
+      ocrAbortRef.current = controller;
+
       setReceiptFile(file);
       setOcrError(null);
       setOcrModel(null);
@@ -327,7 +341,9 @@ export default function ExpenseForm() {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: fd,
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
 
         if (!res.ok) {
           let detail = `OCR failed (${res.status})`;
@@ -365,11 +381,14 @@ export default function ExpenseForm() {
           if (ocr.notes && !memo) setMemo((m) => (m ? `${m}\n${ocr.notes}` : ocr.notes));
         }
       } catch (e) {
+        if (controller.signal.aborted) return;
         console.warn('OCR call failed', e);
         setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
-        setOcrLoading(false);
-        setStep('details');
+        if (!controller.signal.aborted) {
+          setOcrLoading(false);
+          setStep('details');
+        }
       }
     },
     [pickCogsAccount, jobNumber, customerName, memo],
@@ -420,6 +439,10 @@ export default function ExpenseForm() {
     setStep('submitting');
     setSubmitting(true);
     setMarginMatch(null);
+    // Hoisted above the try so the catch can roll back a partial new-flow
+    // INSERT (and any storage blob) if a later step fails. Edit-flow
+    // submits don't touch this — the existing row is the source of truth.
+    let insertedForRollback: { id: string; storagePath: string | null } | null = null;
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
@@ -507,6 +530,7 @@ export default function ExpenseForm() {
           .single();
         if (insertErr || !inserted) throw new Error(insertErr?.message ?? 'Insert failed');
         req = inserted;
+        insertedForRollback = { id: inserted.id, storagePath: null };
       }
       // Both branches throw on failure, so req is guaranteed non-null
       // here — but TS can't narrow across the let-init-then-assign-in-
@@ -558,6 +582,7 @@ export default function ExpenseForm() {
             upsert: false,
           });
         if (uploadErr) throw new Error('Could not upload receipt: ' + uploadErr.message);
+        if (insertedForRollback) insertedForRollback.storagePath = storagePath;
 
         const { error: attachErr } = await supabase.from('expense_request_attachments').insert({
           request_id: req.id,
@@ -598,6 +623,32 @@ export default function ExpenseForm() {
       setStep('success');
     } catch (err: any) {
       console.error('Submission error:', err);
+      // Roll back the new-flow INSERT (and its storage blob, if any) so a
+      // retry starts from a clean slate instead of duplicating a stuck-
+      // draft row. Best-effort; storage/attachment failures here are
+      // non-fatal — the row delete is the user-visible bit.
+      if (insertedForRollback) {
+        try {
+          await supabase
+            .from('expense_request_attachments')
+            .delete()
+            .eq('request_id', insertedForRollback.id);
+        } catch (rbErr) { console.warn('Rollback attachment delete failed:', rbErr); }
+        if (insertedForRollback.storagePath) {
+          try {
+            await supabase.storage
+              .from('expense-attachments')
+              .remove([insertedForRollback.storagePath]);
+          } catch (rbErr) { console.warn('Rollback storage delete failed:', rbErr); }
+        }
+        try {
+          await supabase
+            .from('expense_requests')
+            .delete()
+            .eq('id', insertedForRollback.id)
+            .eq('status', 'draft');
+        } catch (rbErr) { console.warn('Rollback row delete failed:', rbErr); }
+      }
       setErrorMessage(err.message || 'Something went wrong');
       setStep('error');
     } finally {
