@@ -52,6 +52,13 @@ export default function ApprovalPage() {
   const myName = (session?.user?.user_metadata as { full_name?: string } | undefined)?.full_name
     || session?.user?.email
     || '';
+  // Server-controlled role (vs. user-editable user_metadata). Mirrors the
+  // backend escape hatch in expense-request-decide.mjs so a superadmin who
+  // routed a PR to themselves can actually reach the Approve button —
+  // without this, the page-load gate below short-circuits to 'forbidden'
+  // and the relaxed backend gate is unreachable through the UI.
+  const myRole = (session?.user?.app_metadata as { role?: string } | undefined)?.role || null;
+  const isSuperadmin = myRole === 'superadmin';
 
   useEffect(() => {
     if (myName && !signerName) setSignerName(myName);
@@ -85,7 +92,7 @@ export default function ApprovalPage() {
         setState('forbidden');
         return;
       }
-      if (req.submitted_by === session.user.id) {
+      if (req.submitted_by === session.user.id && !isSuperadmin) {
         setState('forbidden');
         return;
       }

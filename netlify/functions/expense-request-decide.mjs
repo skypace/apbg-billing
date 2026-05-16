@@ -85,6 +85,15 @@ export default async function handler(req) {
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) return err('Invalid or expired session', 401);
   const callerEmail = String(user.email || '').toLowerCase();
+  // Server-controlled role lives in app_metadata (vs. user-editable
+  // user_metadata). Superadmins can submit-to-self and approve-from-self
+  // for their own admin/back-office workflows; the regular separation-of-
+  // duties block still applies to everyone else. RLS already permits the
+  // update (the submitter == manager_email row matches both update_self
+  // and update_manager policies), so this is the only place that gates
+  // the case.
+  const callerRole = user.app_metadata?.role || null;
+  const isSuperadmin = callerRole === 'superadmin';
 
   const { data: request, error: fetchErr } = await supabase
     .schema('ops')
@@ -95,7 +104,9 @@ export default async function handler(req) {
   if (fetchErr || !request) return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
 
   if (request.status !== 'pending') return err(`Cannot decide on a request with status "${request.status}"`, 409);
-  if (request.submitted_by === user.id) return err('You cannot approve your own request.', 403);
+  if (request.submitted_by === user.id && !isSuperadmin) {
+    return err('You cannot approve your own request.', 403);
+  }
   const routedTo = String(request.manager_email || '').toLowerCase();
   if (!routedTo || routedTo !== callerEmail) {
     return err(`This request is routed to ${request.manager_email || 'no one'}, not to you (${user.email}).`, 403);
@@ -112,6 +123,8 @@ export default async function handler(req) {
     decline_reason: decline_reason ? decline_reason.trim() : null,
     free_text_note: notes || null,
     decided_at: now,
+    self_approval: request.submitted_by === user.id,
+    caller_role: callerRole,
   });
 
   const { error: approvalErr } = await supabase.schema('ops').from('expense_approvals').insert({
