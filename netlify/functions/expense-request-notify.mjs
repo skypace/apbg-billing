@@ -53,36 +53,6 @@ async function findQBOVendor(name) {
   return null;
 }
 
-function buildBillPayload(r, vendor, fallback) {
-  const items = Array.isArray(r.line_items) ? r.line_items : [];
-  const accountId = r.cogs_account_id || fallback;
-  const lines = items.length > 0
-    ? items.map((li, idx) => ({
-        DetailType: 'AccountBasedExpenseLineDetail',
-        Amount: round((li.qty || li.quantity || 1) * (li.unit_price || li.unitCost || 0)) || round(li.amount || 0),
-        Description: li.description || `Line ${idx + 1}`,
-        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
-      }))
-    : [{
-        DetailType: 'AccountBasedExpenseLineDetail',
-        Amount: round(r.total_amount),
-        Description: r.memo || r.vendor_name || 'Brixpense expense',
-        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
-      }];
-  const memo = [
-    `BRIXpense ${r.request_type === 'purchase_request' ? 'PR' : 'expense'} ${r.id}`,
-    r.entity ? `entity:${r.entity}` : null,
-    r.department ? `dept:${r.department}` : null,
-    r.tag ? `tag:${r.tag}` : null,
-    r.customer_name ? `cust:${r.customer_name}` : null,
-    r.job_number ? `job:${r.job_number}` : null,
-    r.memo || null,
-  ].filter(Boolean).join(' | ');
-  const payload = { VendorRef: { value: vendor.Id }, Line: lines, PrivateNote: memo.substring(0, 4000) };
-  if (r.receipt_date) payload.TxnDate = r.receipt_date;
-  return payload;
-}
-
 // Receipt-style expenses post as QBO Purchase (not Bill). Differences:
 //   - VendorRef → EntityRef (optional). If a QBO Vendor matches the typed
 //     name we still attach it for reporting, but we don't gate the post on
@@ -91,6 +61,11 @@ function buildBillPayload(r, vendor, fallback) {
 //   - AccountRef on the Purchase itself = the payment account (credit card
 //     / bank), captured per-expense via the "Paid with" picker on the form.
 //   - PaymentType = derived from the picked account's AccountType.
+//
+// The PR-flow Bill posting (purchase_request) has its own buildBillPayload
+// in expense-request-link-bill.mjs — this file no longer posts Bills at all
+// since the expense branch now goes through Purchase. Don't reintroduce a
+// Bill helper here without a matching call site.
 function paymentTypeFromAccountType(accountType) {
   const t = String(accountType || '').toLowerCase();
   if (t === 'credit card') return 'CreditCard';
