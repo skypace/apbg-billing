@@ -4,6 +4,7 @@
 // the expense was paid FROM. No vendor required.
 
 import { qboQuery } from './qbo-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -29,11 +30,22 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'GET') return json({ error: 'GET only' }, 405);
 
+  // Auth required. Without it, every active Bank/CreditCard account id, name
+  // and type leaks to the public internet — operators want this for the
+  // form dropdown, not anyone with curl. Matches the pattern every other
+  // expense-* function uses (expense-to-bill, expense-request-decide,
+  // expense-request-link-bill, expense-ocr).
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
+
   try {
     // Pull Bank + Credit Card accounts in one shot — only ~10 rows total
-    // for APBG so a single query is fine.
+    // for APBG so a single query is fine. We deliberately don't SELECT
+    // CurrentBalance: the only consumer is a form dropdown that renders
+    // "name (type)" and never reads balance, so excluding it tightens
+    // blast radius for any future auth regression.
     const res = await qboQuery(
-      `SELECT Id, Name, AccountType, AccountSubType, Active, CurrentBalance ` +
+      `SELECT Id, Name, AccountType, AccountSubType, Active ` +
         `FROM Account ` +
         `WHERE Active = true AND AccountType IN ('Bank','Credit Card') ` +
         `ORDER BY AccountType, Name`
@@ -45,7 +57,6 @@ export default async function handler(req) {
       account_type: a.AccountType,
       account_sub_type: a.AccountSubType,
       payment_type: paymentTypeFor(a),
-      current_balance: a.CurrentBalance ?? null,
     }));
     return json({ accounts });
   } catch (e) {

@@ -78,7 +78,6 @@ export interface PaymentAccount {
   account_type: string;
   account_sub_type: string | null;
   payment_type: 'Cash' | 'Check' | 'CreditCard';
-  current_balance: number | null;
 }
 
 /** Attachment record — mirrors ops.expense_request_attachments */

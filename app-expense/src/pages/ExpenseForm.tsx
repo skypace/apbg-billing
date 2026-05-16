@@ -767,7 +767,7 @@ export default function ExpenseForm() {
               <Button
                 className="w-full"
                 size="lg"
-                disabled={!vendorName || totalNum <= 0 || (needsApproval && !managerEmail)}
+                disabled={!vendorName || totalNum <= 0 || !paymentAccountId || (needsApproval && !managerEmail)}
                 onClick={handleSubmit}
               >
                 {needsApproval

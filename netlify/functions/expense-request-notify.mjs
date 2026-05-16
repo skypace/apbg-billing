@@ -91,6 +91,13 @@ function buildBillPayload(r, vendor, fallback) {
 //   - AccountRef on the Purchase itself = the payment account (credit card
 //     / bank), captured per-expense via the "Paid with" picker on the form.
 //   - PaymentType = derived from the picked account's AccountType.
+function paymentTypeFromAccountType(accountType) {
+  const t = String(accountType || '').toLowerCase();
+  if (t === 'credit card') return 'CreditCard';
+  if (t === 'bank') return 'Check';
+  return 'Cash';
+}
+
 function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback) {
   const items = Array.isArray(r.line_items) ? r.line_items : [];
   const accountId = r.cogs_account_id || fallback;
@@ -117,9 +124,19 @@ function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback) {
     r.job_number ? `job:${r.job_number}` : null,
     r.memo || null,
   ].filter(Boolean).join(' | ');
+  // PaymentType source-of-truth chain (per the migration comment):
+  //   1. fresh QBO Account lookup (paymentAccount.payment_type)
+  //   2. cached payment_account_type on the row (the column exists for
+  //      exactly this case — a transient QBO 5xx during the SELECT
+  //      shouldn't downgrade a Bank-account expense to CreditCard)
+  //   3. hardcoded 'CreditCard' (covers the legacy corp-card case for rows
+  //      that pre-date the column)
+  const paymentType = paymentAccount?.payment_type
+    || paymentTypeFromAccountType(r.payment_account_type)
+    || 'CreditCard';
   const payload = {
     AccountRef: { value: r.payment_account_id },
-    PaymentType: paymentAccount?.payment_type || 'CreditCard',
+    PaymentType: paymentType,
     Line: lines,
     PrivateNote: memo.substring(0, 4000),
   };
