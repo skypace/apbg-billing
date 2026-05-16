@@ -35,7 +35,7 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
       setItems(data.items);
       setSelected(new Set());
     } catch (e) {
-      toast.push('Failed to load QBO POs: ' + errMsg(e), { type: 'error' });
+      toast.error('Failed to load QBO POs: ' + errMsg(e));
     } finally {
       setLoading(false);
     }
@@ -89,11 +89,11 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
     try {
       const result = await importQboPos(Array.from(selected));
       const lines = result.details.imported.reduce((s, r) => s + r.lines, 0);
-      toast.push(`Imported ${result.imported} PO${result.imported === 1 ? '' : 's'} (${lines} line${lines === 1 ? '' : 's'})${result.skipped > 0 ? ` · ${result.skipped} skipped` : ''}`, { type: 'success' });
+      toast.success(`Imported ${result.imported} PO${result.imported === 1 ? '' : 's'} (${lines} line${lines === 1 ? '' : 's'})${result.skipped > 0 ? ` · ${result.skipped} skipped` : ''}`);
       onImported();
       await load(); // refresh "already imported" flags
     } catch (e) {
-      toast.push('Import failed: ' + errMsg(e), { type: 'error' });
+      toast.error('Import failed: ' + errMsg(e));
     } finally {
       setImporting(false);
     }
@@ -143,7 +143,7 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
             Show already-imported
           </label>
-          <button onClick={() => void load()} className={btnSecondary} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => void load()} style={{ ...btnSecondary(), display: 'flex', alignItems: 'center', gap: 4 }}>
             <RefreshCw size={14} /> Refresh
           </button>
         </div>
@@ -256,12 +256,11 @@ export function QboPosPickerModal({ onClose, onImported }: Props) {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} className={btnSecondary}>Cancel</button>
+            <button onClick={onClose} style={btnSecondary()}>Cancel</button>
             <button
               onClick={() => void doImport()}
               disabled={selected.size === 0 || importing}
-              className={btnPrimary}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              style={{ ...btnPrimary(), display: 'flex', alignItems: 'center', gap: 6 }}
             >
               {importing ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
               Import {selected.size || ''} selected

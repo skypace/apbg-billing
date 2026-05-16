@@ -5,7 +5,7 @@
 // (imported from QBO via this picker). Picking a PO here writes a shadow
 // row that fn_items_master joins against.
 
-import { supabase } from './supabase';
+import { _sbToken } from './supabase';
 
 export interface QboPoPickerLine {
   line_num: number;
@@ -46,8 +46,7 @@ export interface QboPoPickerPreview {
 }
 
 async function bearer(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
+  const token = await _sbToken();
   if (!token) throw new Error('Not signed in');
   return `Bearer ${token}`;
 }
