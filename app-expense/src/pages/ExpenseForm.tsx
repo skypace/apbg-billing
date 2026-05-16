@@ -117,6 +117,15 @@ export default function ExpenseForm() {
     setReceiptDownloadName(null);
     setReceiptFile(null);
     setExistingStatus(null);
+    // Also reset the load + OCR state flags so a /edit/A → /new (or
+    // /edit/B) navigation while A's SELECT is still in flight can't
+    // leave loadingExisting=true forever (cancelled IIFE never flips
+    // it false → permanent spinner). OCR banner/error were similarly
+    // leaking across submissions.
+    setLoadingExisting(false);
+    setOcrModel(null);
+    setOcrError(null);
+    setOcrLoading(false);
     setVendorName('');
     setTotalAmount('');
     setReceiptDate(new Date().toISOString().slice(0, 10));
@@ -434,6 +443,21 @@ export default function ExpenseForm() {
 
       let req: { id: string } | null = null;
       if (isEditing && id) {
+        // Guard: refuse to UPDATE if the original load never succeeded.
+        // existingStatus is set inside the load effect; if it's still null
+        // here, the operator is staring at a default-state form (entity=
+        // 'brix', empty fields) — pressing Submit (after Try Again on a
+        // failed-load error screen) would overwrite the real row with
+        // nulls. The new pre-fetch reset block makes this scenario more
+        // reachable, so the guard is critical.
+        if (!existingStatus) {
+          setErrorMessage(
+            "We couldn't load the original submission, so editing is blocked. Refresh the page to retry, or go back to your dashboard.",
+          );
+          setStep('error');
+          return;
+        }
+
         // Editing an existing draft: UPDATE in place. Previously the form
         // always INSERTed, which silently created a duplicate row every
         // time an operator opened a draft to fix a typo.
@@ -1087,9 +1111,19 @@ export default function ExpenseForm() {
       <AlertTriangle className="h-12 w-12 text-destructive" />
       <h2 className="text-lg font-semibold">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
-      <Button variant="outline" onClick={() => setStep('details')}>
-        Try Again
-      </Button>
+      {/* When the failure was a load (edit mode + no existingStatus),
+       *  "Try Again" semantics don't apply — the form has no data to
+       *  retry against, and a submit would let Guard 1 throw. Route to
+       *  the dashboard instead. */}
+      {isEditing && !existingStatus ? (
+        <Button variant="outline" onClick={() => navigate('/')}>
+          Back to dashboard
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={() => setStep('details')}>
+          Try Again
+        </Button>
+      )}
     </div>
   );
 }
