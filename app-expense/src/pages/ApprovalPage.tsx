@@ -243,7 +243,13 @@ export default function ApprovalPage() {
           {request.status === 'draft' && (
             <div className="ap-warn">
               <AlertTriangle size={16} />
-              <span>This {isPR ? 'purchase request' : 'expense'} hasn't been sent to your approver yet — notify likely failed during submit.</span>
+              <span>
+                {isPR
+                  ? "This purchase request hasn't been sent to your approver yet — notify likely failed during submit."
+                  : request.manager_email
+                    ? "This expense hasn't been sent to your approver yet — notify likely failed during submit."
+                    : "This expense wasn't auto-posted to QBO yet — notify likely failed during submit. Try re-submitting or contact an admin."}
+              </span>
             </div>
           )}
           {request.memo && (

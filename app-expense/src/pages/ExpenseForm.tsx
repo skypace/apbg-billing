@@ -421,8 +421,13 @@ export default function ExpenseForm() {
         console.warn('OCR call failed', e);
         setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
+        // setOcrLoading always runs — once aborted, OCR is done either
+        // way. Gating it on !aborted would leave the spinner pinned to
+        // true forever on the abort path (Try Again then shows the
+        // 'Reading receipt…' banner with no OCR running). Only the step
+        // transition needs the gate.
+        setOcrLoading(false);
         if (!controller.signal.aborted) {
-          setOcrLoading(false);
           setStep('details');
         }
       }
@@ -488,6 +493,13 @@ export default function ExpenseForm() {
     // blob when the attach-INSERT fails after a successful upload.
     let uploadedStoragePath: string | null = null;
     let attachInsertSucceeded = false;
+    // Set just before the notify fetch. If the catch fires while
+    // notifyStarted is true, the server may already have POSTed to QBO
+    // (notify posts to QBO BEFORE flipping the row off draft), so we
+    // MUST NOT roll back — better to leave the orphan draft visible
+    // (recoverable) than risk a phantom QBO Purchase and a duplicate
+    // on retry.
+    let notifyStarted = false;
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
@@ -662,6 +674,7 @@ export default function ExpenseForm() {
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       };
 
+      notifyStarted = true;
       const notifyRes = await fetch('/expense/api/expense-request-notify', {
         method: 'POST',
         headers,
@@ -685,6 +698,16 @@ export default function ExpenseForm() {
       setStep('success');
     } catch (err: any) {
       console.error('Submission error:', err);
+      // If notify has been kicked off, the server may have already POSTed
+      // to QBO. Don't roll back — leave the orphan draft visible so the
+      // operator can reconcile manually, rather than risk a phantom QBO
+      // Purchase and a duplicate on retry.
+      if (notifyStarted) {
+        setErrorMessage(err.message || 'Something went wrong');
+        setStep('error');
+        setSubmitting(false);
+        return;
+      }
       // Edit-flow has no insertedForRollback (UPDATE branch never assigns
       // it), so the cascade below is skipped — but if the upload succeeded
       // and the attach-INSERT then failed, the storage blob is orphaned.
