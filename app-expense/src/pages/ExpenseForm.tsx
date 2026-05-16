@@ -104,16 +104,35 @@ export default function ExpenseForm() {
     if (!id) return;
     // React Router v6 reuses the same ExpenseForm instance when navigating
     // between two /expense/edit/:id URLs (no `key` prop on the route), so
-    // attachment + receipt state can survive a draft switch. Reset the
-    // flags that the X-button delete path depends on, otherwise a pending
-    // X-click against draft A could fire its delete against draft B's
-    // attachment after navigation.
+    // attachment + receipt state — and existingStatus / form fields — can
+    // survive a draft switch. Reset everything that gets populated only on
+    // the success path of this effect, so a subsequent load-failure on a
+    // different id can't leave stale draft-A data behind both the Guard 1
+    // (`!existingStatus`) check AND the form inputs, which would otherwise
+    // submit-and-overwrite draft B with A's values.
     setOriginalAttachment(null);
     setPendingAttachmentDelete(false);
     setReceiptPreview(null);
     setReceiptDownloadUrl(null);
     setReceiptDownloadName(null);
     setReceiptFile(null);
+    setExistingStatus(null);
+    setVendorName('');
+    setTotalAmount('');
+    setReceiptDate(new Date().toISOString().slice(0, 10));
+    setEntity('brix');
+    setCogsAccountLabel('');
+    setCogsAccountId('');
+    setTag('');
+    setDepartment('');
+    setCustomerName('');
+    setJobNumber('');
+    setMemo('');
+    setManagerEmail('');
+    setPaymentAccountId('');
+    setPaymentAccountName('');
+    setPaymentAccountType('');
+    setLineItems([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
 
     let cancelled = false;
     (async () => {
@@ -187,6 +206,11 @@ export default function ExpenseForm() {
         }
       }
 
+      // Cancellation guard before the trailing spinner-off / step transition.
+      // The new attachment-fetch + signed-URL awaits earlier in this effect
+      // widen the post-cancel window; without this, a stale A continuation
+      // can hide B's spinner or flip B's 'error' step back to 'details'.
+      if (cancelled) return;
       setStep('details');
       setLoadingExisting(false);
     })();
@@ -425,12 +449,18 @@ export default function ExpenseForm() {
           .eq('status', 'draft')
           .select()
           .single();
-        if (updateErr || !updated) {
+        // Order matters: when the .eq('status','draft') filter rejects 0
+        // rows, .single() returns a PostgrestError with the cryptic
+        // PGRST116 message "JSON object requested, multiple (or no) rows
+        // returned". `??` doesn't fall through truthy strings, so we must
+        // check !updated FIRST to surface the friendly message in the
+        // exact race scenario this guard exists for.
+        if (!updated) {
           throw new Error(
-            updateErr?.message ??
-              "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
+            "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
           );
         }
+        if (updateErr) throw new Error(updateErr.message);
         req = updated;
       } else {
         const { data: inserted, error: insertErr } = await supabase
