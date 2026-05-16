@@ -278,11 +278,22 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
 
   async function saveFinishedGal() {
     const next = finishedGal.trim() === '' ? null : Number(finishedGal);
-    const prev = bom.finished_vol_per_yield_gal;
+    // Coerce prev: PostgREST returns numeric as JSON string, so comparing a
+    // typed number against bom.finished_vol_per_yield_gal directly always
+    // misses (same gotcha as bom.yield_qty in the detail header).
+    const prev = bom.finished_vol_per_yield_gal == null
+      ? null
+      : Number(bom.finished_vol_per_yield_gal);
     if (next === prev || (next !== null && !Number.isFinite(next))) return;
     try {
       await updateBom(bomId, { finished_vol_per_yield_gal: next });
-      onChanged();
+      // Intentionally not calling onChanged(): the parent treats it as
+      // "modal done, close+refresh" (BomsTab line ~107), but this is an
+      // autosave-on-blur — we want the operator to keep using the modal,
+      // especially the ScaleBomPanel below. The panel already reads the
+      // live finishedGal state via its prop, so no refresh is needed for
+      // scaling. The next time the modal opens, fetchBoms will pick up
+      // the persisted value.
     } catch (e) { toast.error(errMsg(e)); }
   }
 
