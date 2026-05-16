@@ -178,15 +178,24 @@ export default function ExpenseForm() {
         .single();
       if (cancelled) return;
       if (error || !data) {
-        // PGRST116 here typically means the request_type filter excluded
-        // a real row — i.e. the operator landed on /edit/<id> for a
-        // purchase_request row (the dashboard now routes those to
-        // /review/<id>, but direct URL access still hits this path).
-        // Be honest about the case rather than the generic "deleted or
-        // no access" misdirection.
-        const isPurchaseRequestId = error?.code === 'PGRST116';
+        // PGRST116 could mean either the request_type filter excluded a
+        // real row (it's actually a purchase_request) OR the id truly
+        // doesn't exist / was deleted / RLS-hidden. Probe without the
+        // filter to distinguish — otherwise we'd mislabel deleted-row
+        // and bad-URL cases as "this is a PR, check your dashboard"
+        // which sends the operator looking for a row that isn't there.
+        let isPurchaseRequest = false;
+        if (error?.code === 'PGRST116') {
+          const { data: probe } = await supabase
+            .from('expense_requests')
+            .select('request_type')
+            .eq('id', id)
+            .maybeSingle();
+          if (cancelled) return;
+          isPurchaseRequest = probe?.request_type === 'purchase_request';
+        }
         setErrorMessage(
-          isPurchaseRequestId
+          isPurchaseRequest
             ? "That submission is a purchase request and isn't editable here. Open it from your dashboard to view its status."
             : (error?.message ||
                 "We couldn't load that submission. It may have been deleted, or you don't have access."),
