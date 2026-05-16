@@ -53,7 +53,32 @@ async function findQBOVendor(name) {
   return null;
 }
 
-function buildBillPayload(r, vendor, fallback) {
+// Receipt-style expenses post as QBO Purchase (not Bill). Differences:
+//   - VendorRef → EntityRef (optional). If a QBO Vendor matches the typed
+//     name we still attach it for reporting, but we don't gate the post on
+//     finding one. The submitted vendor_name is preserved in line
+//     descriptions and the memo so it shows on the transaction.
+//   - AccountRef on the Purchase itself = the payment account (credit card
+//     / bank), captured per-expense via the "Paid with" picker on the form.
+//   - PaymentType = derived from the picked account's AccountType.
+//
+// The PR-flow Bill posting (purchase_request) has its own buildBillPayload
+// in expense-request-link-bill.mjs — this file no longer posts Bills at all
+// since the expense branch now goes through Purchase. Don't reintroduce a
+// Bill helper here without a matching call site.
+function paymentTypeFromAccountType(accountType) {
+  const t = String(accountType || '').toLowerCase();
+  if (t === 'credit card') return 'CreditCard';
+  if (t === 'bank') return 'Check';
+  // Return null for empty / unknown so the caller's fallback chain falls
+  // through to the next option instead of being short-circuited by a
+  // truthy 'Cash' default. The 'Cash' classification only makes sense
+  // when an operator-picked AccountType is genuinely "Other" or similar.
+  if (!t) return null;
+  return 'Cash';
+}
+
+function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback) {
   const items = Array.isArray(r.line_items) ? r.line_items : [];
   const accountId = r.cogs_account_id || fallback;
   const lines = items.length > 0
@@ -70,7 +95,8 @@ function buildBillPayload(r, vendor, fallback) {
         AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
       }];
   const memo = [
-    `BRIXpense ${r.request_type === 'purchase_request' ? 'PR' : 'expense'} ${r.id}`,
+    `BRIXpense expense ${r.id}`,
+    r.vendor_name ? `vendor:${r.vendor_name}` : null,
     r.entity ? `entity:${r.entity}` : null,
     r.department ? `dept:${r.department}` : null,
     r.tag ? `tag:${r.tag}` : null,
@@ -78,7 +104,25 @@ function buildBillPayload(r, vendor, fallback) {
     r.job_number ? `job:${r.job_number}` : null,
     r.memo || null,
   ].filter(Boolean).join(' | ');
-  const payload = { VendorRef: { value: vendor.Id }, Line: lines, PrivateNote: memo.substring(0, 4000) };
+  // PaymentType source-of-truth chain (per the migration comment):
+  //   1. fresh QBO Account lookup (paymentAccount.payment_type)
+  //   2. cached payment_account_type on the row (the column exists for
+  //      exactly this case — a transient QBO 5xx during the SELECT
+  //      shouldn't downgrade a Bank-account expense to CreditCard)
+  //   3. hardcoded 'CreditCard' (covers the legacy corp-card case for rows
+  //      that pre-date the column)
+  const paymentType = paymentAccount?.payment_type
+    || paymentTypeFromAccountType(r.payment_account_type)
+    || 'CreditCard';
+  const payload = {
+    AccountRef: { value: r.payment_account_id },
+    PaymentType: paymentType,
+    Line: lines,
+    PrivateNote: memo.substring(0, 4000),
+  };
+  if (optionalVendor?.Id) {
+    payload.EntityRef = { value: optionalVendor.Id, type: 'Vendor' };
+  }
   if (r.receipt_date) payload.TxnDate = r.receipt_date;
   return payload;
 }
@@ -135,33 +179,57 @@ export default async function handler(req) {
 
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
-    let vendor = null, qboBill = null, qboError = null;
+    if (!request.payment_account_id) {
+      return err('payment_account_id is required for expense receipts. Pick a "Paid with" account on the form.', 422);
+    }
+    let optionalVendor = null, qboTxn = null, qboError = null;
     try {
-      vendor = await findQBOVendor(request.vendor_name);
-      if (!vendor) qboError = `Vendor "${request.vendor_name || '(blank)'}" not in QBO`;
-      else {
-        const payload = buildBillPayload(request, vendor, DEFAULT_COGS_ACCOUNT_ID);
-        const qboRes = await qboRequest('POST', '/bill', payload);
-        qboBill = qboRes?.Bill;
-        if (!qboBill?.Id) qboError = 'QBO did not return a bill ID';
-      }
+      // Vendor is best-effort — if we recognize the typed name we attach the
+      // EntityRef for QBO reporting, but a missing vendor no longer blocks
+      // the post. The vendor name still lives in the line description + memo.
+      try { optionalVendor = await findQBOVendor(request.vendor_name); } catch {}
+      // Resolve the payment account so we can pick the right PaymentType.
+      // If the lookup fails we fall back to CreditCard, since that covers
+      // the corp-card receipt case that drove this design.
+      let paymentAccount = null;
+      try {
+        const acctRes = await qboQuery(
+          `SELECT Id, Name, AccountType FROM Account WHERE Id = '${String(request.payment_account_id).replace(/'/g, "\\'")}'`
+        );
+        const a = acctRes?.QueryResponse?.Account?.[0];
+        if (a) {
+          const t = String(a.AccountType || '').toLowerCase();
+          paymentAccount = {
+            id: a.Id,
+            name: a.Name,
+            payment_type: t === 'credit card' ? 'CreditCard' : t === 'bank' ? 'Check' : 'Cash',
+          };
+        }
+      } catch {}
+      const payload = buildPurchasePayload(request, paymentAccount, optionalVendor, DEFAULT_COGS_ACCOUNT_ID);
+      const qboRes = await qboRequest('POST', '/purchase', payload);
+      qboTxn = qboRes?.Purchase;
+      if (!qboTxn?.Id) qboError = 'QBO did not return a Purchase ID';
     } catch (e) {
-      console.error('QBO post failed:', e);
-      qboError = e?.message || 'QBO post failed';
+      console.error('QBO Purchase post failed:', e);
+      qboError = e?.message || 'QBO Purchase post failed';
     }
 
-    if (qboBill?.Id) {
+    if (qboTxn?.Id) {
       const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
         status: 'posted', auto_approved: true,
         approved_by: 'auto', approved_at: now, posted_at: now,
         manager_email: null, approval_token: null,
-        qbo_bill_id: qboBill.Id,
+        // The qbo_bill_id column predates the Bill→Purchase split. We reuse it
+        // to store the Purchase Id so existing reporting / margin-match code
+        // keeps working without a schema-wide rename.
+        qbo_bill_id: qboTxn.Id,
       }).eq('id', requestId);
-      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id }, 207);
+      if (updateErr) return json({ success: true, partial: true, qbo_purchase_id: qboTxn.Id }, 207);
       await sb.schema('ops').from('expense_approvals').insert({
         request_id: requestId, action: 'approved',
         decided_by: 'system (auto-approve + auto-post)',
-        notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id}`,
+        notes: `Auto-approved + posted to QBO as Purchase ${qboTxn.DocNumber || qboTxn.Id}${optionalVendor ? ` (vendor: ${optionalVendor.DisplayName})` : ''}`,
         token_used: null,
       });
 
@@ -169,7 +237,7 @@ export default async function handler(req) {
 
       return json({
         success: true, auto_approved: true, new_status: 'posted',
-        request_id: requestId, qbo_bill_id: qboBill.Id,
+        request_id: requestId, qbo_purchase_id: qboTxn.Id,
         margin_match: marginMatch,
       });
     }
@@ -183,7 +251,7 @@ export default async function handler(req) {
     await sb.schema('ops').from('expense_approvals').insert({
       request_id: requestId, action: 'approved',
       decided_by: 'system (auto-approve)',
-      notes: `Auto-approved. QBO post deferred: ${qboError}.`,
+      notes: `Auto-approved. QBO Purchase post deferred: ${qboError}.`,
       token_used: null,
     });
     return json({ success: true, auto_approved: true, new_status: 'approved', request_id: requestId, qbo_post_deferred: true, qbo_error: qboError });

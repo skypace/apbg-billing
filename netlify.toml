@@ -69,6 +69,10 @@
   from = "/api/expense-ocr"
   to = "/.netlify/functions/expense-ocr"
   status = 200
+[[redirects]]
+  from = "/api/expense-payment-accounts"
+  to = "/.netlify/functions/expense-payment-accounts"
+  status = 200
 
 # ── Expense app: SPA fallback ──
 # Any /expense/* path that doesn't match a static file → serve the expense SPA
