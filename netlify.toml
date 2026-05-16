@@ -60,11 +60,16 @@
 # fell through to the SPA fallback and returned 404 (Sky hit this on the
 # notify call when submitting an expense). The wildcard rule below
 # catches both shapes: any `/expense/api/<name>` request gets rewritten
-# to `/.netlify/functions/<name>` via the :splat. Add new functions by
-# name with no extra config needed.
+# to the function's REAL path (`/api/<name>`), which the function
+# registers via `export const config = { path: '/api/<name>' }` (Netlify
+# v2 functions). NOTE: with `config.path` set, the legacy
+# `/.netlify/functions/<name>` URL does NOT also work — the function is
+# only at the configured path. Rewriting to /.netlify/functions/ here
+# was the bug that caused PR-approval 404s on 2026-05-16; rewriting to
+# /api/:splat hits the real path.
 [[redirects]]
   from = "/expense/api/*"
-  to = "/.netlify/functions/:splat"
+  to = "/api/:splat"
   status = 200
 
 [[redirects]]
