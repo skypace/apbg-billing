@@ -122,22 +122,16 @@ export default function ExpenseForm() {
   const needsApproval = totalNum > threshold;
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
-  useEffect(() => {
-    // Abort any in-flight OCR FIRST — before the reset block and before
-    // the !id early-return — so a /new → /edit/X navigation mid-OCR
-    // aborts the stale call. If we only aborted in the trailing cleanup
-    // return, the /new effect's cleanup (which never registered because
-    // !id paths return undefined here) would leave the late OCR free to
-    // overwrite the freshly-loaded draft's state.
-    ocrAbortRef.current?.abort();
-    // Reset block ABOVE the `if (!id) return`: both /expense/new and
-    // /expense/edit/:id render the same ExpenseForm instance (no `key` on
-    // either Route), so the /edit/A → /new transition also reuses state.
-    // Without this, "Submit Another" from a successful edit lands on
-    // /new still showing the previous success screen. Also resets
-    // existingStatus + form fields so a load-failure on a new id can't
-    // leave stale draft-A data (with a stale 'draft' existingStatus) that
-    // would slip through Guard 1 in handleSubmit and get UPDATEd onto B.
+  // Reset every piece of state that any code path populates from a
+  // submission or DB load. Shared by (a) the load effect's reset block
+  // — both /expense/new and /expense/edit/:id reuse the same instance
+  // (no `key` on either Route), so /edit/A → /new must reset stale
+  // draft-A data — and (b) the Submit Another handler, where
+  // navigate('new') on /new is a no-op (id stays undefined → load
+  // effect doesn't refire) so the same setters have to fire directly.
+  // OCR's preserve-existing guards (customer/job/memo) would
+  // otherwise smuggle prior metadata into the next submission.
+  const resetFormState = useCallback(() => {
     setOriginalAttachment(null);
     setOriginalSignedPreview(null);
     setOriginalSignedDownloadUrl(null);
@@ -148,11 +142,6 @@ export default function ExpenseForm() {
     setReceiptDownloadName(null);
     setReceiptFile(null);
     setExistingStatus(null);
-    // Also reset the load + OCR state flags so a /edit/A → /new (or
-    // /edit/B) navigation while A's SELECT is still in flight can't
-    // leave loadingExisting=true forever (cancelled IIFE never flips
-    // it false → permanent spinner). OCR banner/error were similarly
-    // leaking across submissions.
     setLoadingExisting(false);
     setOcrModel(null);
     setOcrError(null);
@@ -173,6 +162,28 @@ export default function ExpenseForm() {
     setPaymentAccountName('');
     setPaymentAccountType('');
     setLineItems([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
+    setMarginMatch(null);
+    setResultMessage('');
+    setErrorMessage('');
+  }, []);
+
+  useEffect(() => {
+    // Abort any in-flight OCR FIRST — before the reset block and before
+    // the !id early-return — so a /new → /edit/X navigation mid-OCR
+    // aborts the stale call. If we only aborted in the trailing cleanup
+    // return, the /new effect's cleanup (which never registered because
+    // !id paths return undefined here) would leave the late OCR free to
+    // overwrite the freshly-loaded draft's state.
+    ocrAbortRef.current?.abort();
+    // Reset block ABOVE the `if (!id) return`: both /expense/new and
+    // /expense/edit/:id render the same ExpenseForm instance (no `key` on
+    // either Route), so the /edit/A → /new transition also reuses state.
+    // Without this, "Submit Another" from a successful edit lands on
+    // /new still showing the previous success screen. Also resets
+    // existingStatus + form fields so a load-failure on a new id can't
+    // leave stale draft-A data (with a stale 'draft' existingStatus) that
+    // would slip through Guard 1 in handleSubmit and get UPDATEd onto B.
+    resetFormState();
     if (!id) {
       setStep('upload');
       return;
@@ -973,7 +984,19 @@ export default function ExpenseForm() {
                 size="sm"
                 type="button"
                 className="absolute bottom-2 right-2 h-7 px-2 text-xs"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  // Queue the persisted original for deletion BEFORE
+                  // opening the file picker. Without this, submit
+                  // uploads the new file and INSERTs a new attachment
+                  // row, but skips the original-delete block — two
+                  // rows survive for the same request_id and the
+                  // edit-load query (oldest-wins .order().limit(1))
+                  // surfaces the ORIGINAL on the next /edit. The
+                  // X-cancel branch below clears this flag if the
+                  // operator backs out before submit.
+                  if (originalAttachment) setPendingAttachmentDelete(true);
+                  fileInputRef.current?.click();
+                }}
               >
                 <Upload className="h-3.5 w-3.5 mr-1" /> Replace receipt
               </Button>
@@ -998,6 +1021,11 @@ export default function ExpenseForm() {
                     setReceiptPreview(originalSignedPreview);
                     setReceiptDownloadUrl(originalSignedDownloadUrl);
                     setReceiptDownloadName(originalSignedDownloadName);
+                    // Also clear the pending-delete flag that the
+                    // Replace button set when the picker opened — the
+                    // operator just cancelled the replacement, so the
+                    // original must NOT get deleted on submit.
+                    setPendingAttachmentDelete(false);
                   } else {
                     setReceiptPreview(null);
                     setReceiptDownloadUrl(null);
@@ -1378,17 +1406,15 @@ export default function ExpenseForm() {
           </Button>
           <Button onClick={() => {
             // navigate('new') alone is a no-op on /new → /new (id stays
-            // undefined so useEffect[id] doesn't refire). Reset the
-            // submission state directly so the form lands on a clean
-            // upload step regardless of the previous URL.
+            // undefined so useEffect[id] doesn't refire and its reset
+            // block is skipped). Reset every piece of state via the
+            // shared helper so the next submission can't carry the
+            // previous one's vendor / total / customer / job / memo /
+            // payment-account into a fresh row. OCR's preserve-existing
+            // guards (customer/job/memo) would otherwise smuggle prior
+            // metadata in even after a new receipt is uploaded.
+            resetFormState();
             setStep('upload');
-            setReceiptFile(null);
-            setReceiptPreview(null);
-            setReceiptDownloadUrl(null);
-            setReceiptDownloadName(null);
-            setMarginMatch(null);
-            setResultMessage('');
-            setErrorMessage('');
             navigate('new');
           }}>
             Submit Another
