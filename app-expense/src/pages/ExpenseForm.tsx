@@ -39,10 +39,35 @@ export default function ExpenseForm() {
   const { settings, loading: settingsLoading } = useExpenseSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  // OCR is a multi-second LLM call; if the user picks a file on /new and
+  // then navigates to /edit/A before it returns, the late OCR setters
+  // would otherwise overwrite A's just-loaded state. Abort on the next
+  // pick and on route-param change (load effect cleanup).
+  const ocrAbortRef = useRef<AbortController | null>(null);
 
   const [step, setStep] = useState<FormStep>(isEditing ? 'details' : 'upload');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  // Non-image attachments (PDFs) get rendered as a download link below the
+  // image preview, since the form's previous &lt;img&gt; would just show a
+  // broken-image icon.
+  const [receiptDownloadUrl, setReceiptDownloadUrl] = useState<string | null>(null);
+  const [receiptDownloadName, setReceiptDownloadName] = useState<string | null>(null);
+  // Capture the row + storage path we loaded on edit so the X button can
+  // actually remove it. Without this, clicking X cleared the local preview
+  // but left the persisted attachment intact — it reappeared on the next
+  // page load.
+  const [originalAttachment, setOriginalAttachment] = useState<{ id: string; path: string } | null>(null);
+  // Cache the signed URL the load effect minted so the X-click handler
+  // can restore it when the operator cancels a fresh replacement upload.
+  // Without this, replace → X clears the preview slots but leaves the
+  // persisted original intact in storage — the UI shows nothing where
+  // the receipt was, the operator thinks "removed", submits, then
+  // reopen surfaces the original again. UX silently misrepresents.
+  const [originalSignedPreview, setOriginalSignedPreview] = useState<string | null>(null);
+  const [originalSignedDownloadUrl, setOriginalSignedDownloadUrl] = useState<string | null>(null);
+  const [originalSignedDownloadName, setOriginalSignedDownloadName] = useState<string | null>(null);
+  const [pendingAttachmentDelete, setPendingAttachmentDelete] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrModel, setOcrModel] = useState<string | null>(null);
@@ -53,7 +78,7 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [entity] = useState('brix');
+  const [entity, setEntity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -77,6 +102,12 @@ export default function ExpenseForm() {
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
   const [existingStatus, setExistingStatus] = useState<string | null>(null);
+  // Captured from the loaded row so denied submissions can surface the
+  // approver's reason in the read-only details view. Mirrors the
+  // denial_reason block in ApprovalPage's submitter view so the dashboard
+  // can keep routing denied EXPENSES to /edit (where the receipt is
+  // already rendered) instead of /review (which has no receipt UI).
+  const [denialReason, setDenialReason] = useState<string | null>(null);
 
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
@@ -84,13 +115,84 @@ export default function ExpenseForm() {
   const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Revoke object URLs on change/unmount so each file pick + clear doesn't
+  // pin the underlying File in browser memory. Only blob: URLs need
+  // revoking; the edit-load path puts Supabase signed URLs into these
+  // same state slots, and URL.revokeObjectURL is a no-op on those anyway.
+  useEffect(() => {
+    return () => {
+      if (receiptPreview?.startsWith('blob:')) URL.revokeObjectURL(receiptPreview);
+      if (receiptDownloadUrl?.startsWith('blob:')) URL.revokeObjectURL(receiptDownloadUrl);
+    };
+  }, [receiptPreview, receiptDownloadUrl]);
+
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
   const needsApproval = totalNum > threshold;
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
+  // Reset every piece of state that any code path populates from a
+  // submission or DB load. Shared by (a) the load effect's reset block
+  // — defends against stale draft-A data surviving into a draft-B load
+  // — and (b) the Submit Another handler, where navigate('new') is a
+  // no-op on /new → /new so the load effect's reset doesn't fire and
+  // the form would otherwise carry the previous submission's vendor /
+  // total / customer / job / memo / payment-account into the next row.
+  const resetFormState = useCallback(() => {
+    setOriginalAttachment(null);
+    setOriginalSignedPreview(null);
+    setOriginalSignedDownloadUrl(null);
+    setOriginalSignedDownloadName(null);
+    setPendingAttachmentDelete(false);
+    setReceiptPreview(null);
+    setReceiptDownloadUrl(null);
+    setReceiptDownloadName(null);
+    setReceiptFile(null);
+    setExistingStatus(null);
+    setDenialReason(null);
+    setLoadingExisting(false);
+    setOcrModel(null);
+    setOcrError(null);
+    setOcrLoading(false);
+    setVendorName('');
+    setTotalAmount('');
+    setReceiptDate(new Date().toISOString().slice(0, 10));
+    setEntity('brix');
+    setCogsAccountLabel('');
+    setCogsAccountId('');
+    setTag('');
+    setDepartment('');
+    setCustomerName('');
+    setJobNumber('');
+    setMemo('');
+    setManagerEmail('');
+    setPaymentAccountId('');
+    setPaymentAccountName('');
+    setPaymentAccountType('');
+    setLineItems([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
+    setMarginMatch(null);
+    setResultMessage('');
+    setErrorMessage('');
+  }, []);
+
   useEffect(() => {
+    // Abort any in-flight OCR FIRST — before the early !id return — so a
+    // /new → /edit/X navigation mid-OCR aborts the stale call. If we did
+    // this only in the trailing cleanup return, the prior effect's cleanup
+    // wouldn't fire because /new returned undefined here (no cleanup
+    // registered) and the late OCR would still overwrite X's state.
+    ocrAbortRef.current?.abort();
     if (!id) return;
+    // React Router v6 reuses the same ExpenseForm instance when navigating
+    // between two /expense/edit/:id URLs (no `key` prop on the route), so
+    // attachment + receipt state — and existingStatus / form fields — can
+    // survive a draft switch. Reset everything that gets populated only on
+    // the success path of this effect, so a subsequent load-failure on a
+    // different id can't leave stale draft-A data behind both the Guard 1
+    // (`!existingStatus`) check AND the form inputs, which would otherwise
+    // submit-and-overwrite draft B with A's values.
+    resetFormState();
+
     let cancelled = false;
     (async () => {
       setLoadingExisting(true);
@@ -98,21 +200,51 @@ export default function ExpenseForm() {
         .from('expense_requests')
         .select('*')
         .eq('id', id)
+        // ExpenseForm is the editor for receipt-style expenses only. The
+        // dashboard routes every draft (including purchase_request rows)
+        // to /expense/edit/:id, but a PR loaded into this form would
+        // silently get manager_email rewritten to null on submit (the
+        // under-threshold UI has no manager picker), then notify 422s and
+        // the catch-all 'saved but notification may have failed' would
+        // route to success. Filter request_type so PR rows fall through
+        // to the load-failure 'Back to dashboard' branch.
+        .eq('request_type', 'expense')
         .single();
       if (cancelled) return;
       if (error || !data) {
+        // PGRST116 could mean either the request_type filter excluded a
+        // real row (it's actually a purchase_request) OR the id truly
+        // doesn't exist / was deleted / RLS-hidden. Probe without the
+        // filter to distinguish — otherwise we'd mislabel deleted-row
+        // and bad-URL cases as "this is a PR, check your dashboard".
+        let isPurchaseRequest = false;
+        if (error?.code === 'PGRST116') {
+          const { data: probe } = await supabase
+            .from('expense_requests')
+            .select('request_type')
+            .eq('id', id)
+            .maybeSingle();
+          if (cancelled) return;
+          isPurchaseRequest = probe?.request_type === 'purchase_request';
+        }
+        const friendlyDefault = "We couldn't load that submission. It may have been deleted, or you don't have access.";
         setErrorMessage(
-          error?.message ||
-            "We couldn't load that submission. It may have been deleted, or you don't have access.",
+          isPurchaseRequest
+            ? "That submission is a purchase request and isn't editable here. Open it from your dashboard to view its status."
+            : (error?.code === 'PGRST116'
+                ? friendlyDefault
+                : (error?.message || friendlyDefault)),
         );
         setStep('error');
         setLoadingExisting(false);
         return;
       }
       setExistingStatus(data.status);
+      setDenialReason((data as { denial_reason?: string | null }).denial_reason ?? null);
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
+      setEntity(data.entity || 'brix');
       setCogsAccountLabel(data.cogs_account_label || '');
       setCogsAccountId(data.cogs_account_id || '');
       setTag(data.tag || '');
@@ -131,11 +263,49 @@ export default function ExpenseForm() {
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
+
+      // Pull the first attachment for the receipt preview. Until now the
+      // edit view showed a blank receipt slot even when the row had a real
+      // image attached, so operators had no way to verify they were
+      // editing the right submission.
+      const { data: att } = await supabase
+        .from('expense_request_attachments')
+        .select('id, storage_path, file_type, file_name')
+        .eq('request_id', id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && att?.storage_path) {
+        const { data: signed } = await supabase.storage
+          .from('expense-attachments')
+          .createSignedUrl(att.storage_path, 60 * 60);
+        if (!cancelled && signed?.signedUrl) {
+          setOriginalAttachment({ id: att.id, path: att.storage_path });
+          if (att.file_type?.startsWith('image/')) {
+            setReceiptPreview(signed.signedUrl);
+            setOriginalSignedPreview(signed.signedUrl);
+          } else {
+            setReceiptDownloadUrl(signed.signedUrl);
+            setReceiptDownloadName(att.file_name || 'receipt');
+            setOriginalSignedDownloadUrl(signed.signedUrl);
+            setOriginalSignedDownloadName(att.file_name || 'receipt');
+          }
+        }
+      }
+
+      // Cancellation guard before the trailing spinner-off / step transition.
+      // The new attachment-fetch + signed-URL awaits earlier in this effect
+      // widen the post-cancel window; without this, a stale A continuation
+      // can hide B's spinner or flip B's 'error' step back to 'details'.
+      if (cancelled) return;
       setStep('details');
       setLoadingExisting(false);
     })();
     return () => {
       cancelled = true;
+      // Abort any in-flight OCR so a late response can't overwrite the
+      // freshly-loaded draft's state after route-param navigation.
+      ocrAbortRef.current?.abort();
     };
   }, [id]);
 
@@ -185,13 +355,30 @@ export default function ExpenseForm() {
 
   const handleFileSelect = useCallback(
     async (file: File) => {
+      // Abort any previous in-flight OCR before starting a new one (also
+      // handles the rapid-replacement case where the user picks a second
+      // file before the first OCR returns).
+      ocrAbortRef.current?.abort();
+      const controller = new AbortController();
+      ocrAbortRef.current = controller;
+
       setReceiptFile(file);
       setOcrError(null);
       setOcrModel(null);
+      // Symmetric with the edit-load path: images render in the &lt;img&gt;
+      // preview, anything else (PDFs are the only other accepted type)
+      // renders as a download link. Without this, new-flow PDF uploads
+      // left both states null and the entire preview block — including
+      // the X button — failed to render, so the operator had no way to
+      // verify or undo the attachment.
       if (file.type.startsWith('image/')) {
         setReceiptPreview(URL.createObjectURL(file));
+        setReceiptDownloadUrl(null);
+        setReceiptDownloadName(null);
       } else {
         setReceiptPreview(null);
+        setReceiptDownloadUrl(URL.createObjectURL(file));
+        setReceiptDownloadName(file.name);
       }
 
       setOcrLoading(true);
@@ -203,7 +390,10 @@ export default function ExpenseForm() {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: fd,
+          signal: controller.signal,
         });
+        // Bail before any setState if the user navigated away mid-OCR.
+        if (controller.signal.aborted) return;
 
         if (!res.ok) {
           let detail = `OCR failed (${res.status})`;
@@ -241,11 +431,25 @@ export default function ExpenseForm() {
           if (ocr.notes && !memo) setMemo((m) => (m ? `${m}\n${ocr.notes}` : ocr.notes));
         }
       } catch (e) {
+        // AbortError on navigation — fully expected, suppress.
+        if (controller.signal.aborted) return;
         console.warn('OCR call failed', e);
         setOcrError('Could not reach the OCR service — fill the details in manually.');
       } finally {
-        setOcrLoading(false);
-        setStep('details');
+        // Gate setOcrLoading on ref-identity: clear the flag only if I'm
+        // still the active OCR call. Closes both prior cases at once:
+        // handleSubmit-abort only `.abort()`s without replacing the ref,
+        // so `current === controller` is still true → spinner clears
+        // (Try Again shows no stale spinner). Rapid file replacement
+        // takes over the ref, so the stale fetch's finally becomes a
+        // no-op for the flag (spinner stays visible during the new
+        // fetch). Only the step transition needs the aborted gate.
+        if (ocrAbortRef.current === controller) {
+          setOcrLoading(false);
+        }
+        if (!controller.signal.aborted) {
+          setStep('details');
+        }
       }
     },
     [pickCogsAccount, jobNumber, customerName, memo],
@@ -293,66 +497,210 @@ export default function ExpenseForm() {
       setStep('error');
       return;
     }
+    // Abort any in-flight OCR so its finally block can't flip step back
+    // to 'details' (and overwrite vendor/total/line_items with whatever
+    // the OCR happened to extract) while this submit is processing.
+    ocrAbortRef.current?.abort();
     setStep('submitting');
     setSubmitting(true);
     setMarginMatch(null);
+    // Hoisted above the try so the catch can roll back a partial new-flow
+    // INSERT (and any storage blob) if a later step fails. Edit-flow
+    // submits don't touch this — the existing row is the source of truth.
+    let insertedForRollback: { id: string; storagePath: string | null } | null = null;
+    // Track the storage upload + attachment INSERT independently of
+    // insertedForRollback so the edit-flow (which doesn't populate
+    // insertedForRollback) can still clean an orphan blob when the
+    // attach-INSERT fails after a successful upload.
+    let uploadedStoragePath: string | null = null;
+    let attachInsertSucceeded = false;
+    // Track the new attachment row (id + path) for edit-flow rollback.
+    // If the row-delete of the ORIGINAL throws after the new upload +
+    // attach succeeded, the load effect would pick the oldest (Try-1's
+    // orphan) on next /edit and silently render the wrong file. Clean
+    // it up in the catch when the rollback is safe (no notify in flight,
+    // no new-flow row to delete).
+    let newAttachmentForRollback: { id: string; path: string } | null = null;
+    // Set just before the notify fetch. If the catch fires while
+    // notifyStarted is true, the server may already have POSTed to QBO
+    // (notify posts to QBO BEFORE flipping the row off draft), so we
+    // MUST NOT roll back — that would wipe a row whose QBO Purchase
+    // already exists, and retry would create a duplicate.
+    let notifyStarted = false;
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
       const userName = user.user_metadata?.full_name || user.email || 'Unknown';
       const pickedAcct = paymentAccounts.find((a) => a.id === paymentAccountId) || null;
 
-      const { data: req, error: insertErr } = await supabase
-        .from('expense_requests')
-        .insert({
-          request_type: 'expense',
-          status: 'draft',
-          submitted_by: user.id,
-          submitter_name: userName,
-          submitter_email: user.email || '',
-          entity,
-          vendor_name: vendorName || null,
-          total_amount: totalNum || 0,
-          receipt_date: receiptDate || null,
-          cogs_account_id: cogsAccountId || null,
-          cogs_account_label: cogsAccountLabel || null,
-          tag: tag || null,
-          department: department || null,
-          customer_name: customerName || null,
-          job_number: jobNumber || null,
-          memo: memo || null,
-          manager_email: needsApproval ? managerEmail : null,
-          payment_account_id: paymentAccountId,
-          // Prefer the freshly-picked account, but fall back to the cached
-          // values from loadExisting so re-submitting an edited draft before
-          // the dropdown list resolves doesn't blank these columns.
-          payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
-          payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
-          line_items: nonEmptyLines,
-        })
-        .select()
-        .single();
+      // Fields the operator can edit. Shared between INSERT (new submission)
+      // and UPDATE (editing a draft) so the two paths can't drift.
+      const editableFields = {
+        entity,
+        vendor_name: vendorName || null,
+        total_amount: totalNum || 0,
+        receipt_date: receiptDate || null,
+        cogs_account_id: cogsAccountId || null,
+        cogs_account_label: cogsAccountLabel || null,
+        tag: tag || null,
+        department: department || null,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        memo: memo || null,
+        manager_email: needsApproval ? managerEmail : null,
+        payment_account_id: paymentAccountId,
+        // Prefer the freshly-picked account, but fall back to the cached
+        // values from loadExisting so re-submitting an edited draft before
+        // the dropdown list resolves doesn't blank these columns.
+        payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
+        payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
+        line_items: nonEmptyLines,
+      };
 
-      if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
+      let req: { id: string } | null = null;
+      if (isEditing && id) {
+        // Editing an existing draft: UPDATE in place. Previously the form
+        // always INSERTed, which silently created a duplicate row every
+        // time an operator opened a draft to fix a typo.
 
+        // Guard 1: refuse to UPDATE if the original load never succeeded.
+        // existingStatus is set inside the load effect; if it's still null
+        // here, the operator is staring at a default-state form (entity=
+        // 'brix', empty fields) — pressing Submit would overwrite the real
+        // row with nulls. Pre-PR the same path produced a benign duplicate
+        // INSERT; the new UPDATE branch turns that into data loss.
+        if (!existingStatus) {
+          setErrorMessage(
+            "We couldn't load the original submission, so editing is blocked. Refresh the page to retry, or go back to your dashboard.",
+          );
+          setStep('error');
+          return;
+        }
+
+        // Guard 2: also key the UPDATE on status='draft'. RLS policy
+        // expense_requests_update_self (20260512s) is intentionally
+        // status-blind so the submitter retains row access post-decision,
+        // but we don't want a stale tab to overwrite a row that another
+        // session has already posted to QBO. If the row changed status
+        // since load, .single() returns 0 rows → updateErr → throw.
+        const { data: updated, error: updateErr } = await supabase
+          .from('expense_requests')
+          .update(editableFields)
+          .eq('id', id)
+          .eq('status', 'draft')
+          .select()
+          .single();
+        // PGRST116 is the only code that maps to "row changed status since
+        // load" — surface the friendly race message for that specifically.
+        // Any other updateErr (JWT expiry, transient 5xx, CHECK constraint
+        // on the new cascade fields) surfaces its real message; the
+        // ?? || !updated shape I tried earlier defeats this because per
+        // supabase-js's .single() dual contract !updated covers every
+        // failure case, so the OR collapses to "any error" and the
+        // trailing throw becomes dead code.
+        if (updateErr?.code === 'PGRST116') {
+          throw new Error(
+            "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
+          );
+        }
+        if (updateErr) throw new Error(updateErr.message);
+        if (!updated) throw new Error('Update returned no row');
+        req = updated;
+      } else {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('expense_requests')
+          .insert({
+            request_type: 'expense',
+            status: 'draft',
+            submitted_by: user.id,
+            submitter_name: userName,
+            submitter_email: user.email || '',
+            ...editableFields,
+          })
+          .select()
+          .single();
+        if (insertErr || !inserted) throw new Error(insertErr?.message ?? 'Insert failed');
+        req = inserted;
+        insertedForRollback = { id: inserted.id, storagePath: null };
+      }
+      // Both branches throw on failure, so req is guaranteed non-null
+      // here — but TS can't narrow across the let-init-then-assign-in-
+      // branches pattern. Explicit guard.
+      if (!req) throw new Error('Save failed');
+
+      // Honor an X-click against an originally-loaded attachment: actually
+      // remove the row + storage object so it doesn't silently reappear on
+      // the next page load. The supabase calls used to swallow errors;
+      // when RLS denied the row delete it returned zero affected rows + no
+      // error, so the UI thought it succeeded. Now we surface the error
+      // from the row delete (the user-visible bit) and warn-only on
+      // storage (a stranded object can be garbage-collected later).
+      // Upload + attach-INSERT the REPLACEMENT first, before deleting the
+      // original. If the upload fails (transient 5xx, AbortError, ad-
+      // blocker), the original receipt is still on disk + still pointed
+      // to by its attachment row, so the operator can retry without
+      // having lost evidence. The opposite order (delete-original first)
+      // would destroy the only copy on any upload failure — the edit-
+      // flow rollback block at the bottom doesn't help here because
+      // insertedForRollback is null when isEditing.
       if (receiptFile) {
-        const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
+        // Prefix the storage path with a timestamp so two submissions of
+        // the same filename (e.g. operator re-picks Screenshot.png to fix
+        // a typo during edit) can't collide on the now-stable req.id from
+        // the UPDATE branch.
+        const storagePath = `${user.id}/${req.id}/${Date.now()}_${receiptFile.name}`;
         const { error: uploadErr } = await supabase.storage
           .from('expense-attachments')
           .upload(storagePath, receiptFile, {
             contentType: receiptFile.type,
             upsert: false,
           });
+        if (uploadErr) throw new Error('Could not upload receipt: ' + uploadErr.message);
+        uploadedStoragePath = storagePath;
+        // Mirror onto insertedForRollback (new-flow only) so the existing
+        // rollback machinery's storage-cleanup gate continues to apply.
+        if (insertedForRollback) insertedForRollback.storagePath = storagePath;
 
-        if (!uploadErr) {
-          await supabase.from('expense_request_attachments').insert({
+        const { data: insertedAttach, error: attachErr } = await supabase
+          .from('expense_request_attachments')
+          .insert({
             request_id: req.id,
             file_name: receiptFile.name,
             file_type: receiptFile.type,
             file_size: receiptFile.size,
             storage_path: storagePath,
-          });
+          })
+          .select('id')
+          .single();
+        if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
+        attachInsertSucceeded = true;
+        if (insertedAttach) {
+          newAttachmentForRollback = { id: insertedAttach.id, path: storagePath };
         }
+      }
+
+      if (pendingAttachmentDelete && originalAttachment) {
+        // Row delete BEFORE storage delete: worst case if the storage
+        // call fails afterwards is an orphan blob with no row pointer,
+        // invisible to the load effect and garbage-collectable later.
+        // The opposite order would leave a row pointing at a missing
+        // blob → broken preview on next /edit load.
+        const { error: rowErr } = await supabase
+          .from('expense_request_attachments')
+          .delete()
+          .eq('id', originalAttachment.id);
+        if (rowErr) {
+          throw new Error('Could not delete attachment: ' + rowErr.message);
+        }
+        const { error: storageErr } = await supabase.storage
+          .from('expense-attachments')
+          .remove([originalAttachment.path]);
+        if (storageErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
+        }
+        setOriginalAttachment(null);
+        setPendingAttachmentDelete(false);
       }
 
       const accessToken = await getAccessToken();
@@ -361,6 +709,9 @@ export default function ExpenseForm() {
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       };
 
+      // Set BEFORE the fetch so any throw past this point (network drop
+      // mid-response, body-parse fail) skips the rollback in the catch.
+      notifyStarted = true;
       const notifyRes = await fetch('/expense/api/expense-request-notify', {
         method: 'POST',
         headers,
@@ -384,6 +735,105 @@ export default function ExpenseForm() {
       setStep('success');
     } catch (err: any) {
       console.error('Submission error:', err);
+      // If notify has been kicked off, the server may have already POSTed
+      // to QBO. Don't roll back, and don't land on 'error' either: the
+      // 'Try Again' path on /new would re-INSERT a fresh row and notify
+      // would post a SECOND QBO Purchase for the same expense. Mirror
+      // the existing !notifyRes.ok fallback — land on 'success' with
+      // the 'notification may have failed' message. The submission DOES
+      // exist server-side (possibly with a Purchase already posted),
+      // and recovery is via the dashboard, not via Submit again.
+      if (notifyStarted) {
+        setResultMessage('Request saved but notification may have failed.');
+        setStep('success');
+        setSubmitting(false);
+        return;
+      }
+      // Edit-flow has no insertedForRollback (UPDATE branch never assigns
+      // it), so the cascade below is skipped — but if the upload succeeded
+      // and the attach-INSERT then failed, the storage blob is orphaned
+      // with no row pointing at it. Clean it up here unconditionally
+      // before the cascade; works for both flows.
+      if (uploadedStoragePath && !attachInsertSucceeded) {
+        try {
+          await supabase.storage
+            .from('expense-attachments')
+            .remove([uploadedStoragePath]);
+        } catch (rbErr) { console.warn('Orphan storage delete failed:', rbErr); }
+      }
+      // Edit-flow new-attachment rollback: attach succeeded but a later
+      // step in the same try failed (typically the original row-delete
+      // at the pendingAttachmentDelete block). Without this, the load
+      // effect would render the wrong receipt on next /edit (it picks
+      // the oldest attachment row, which is Try-1's orphan). Skip when
+      // insertedForRollback is set — the new-flow cascade below handles
+      // it via its own attachRowsDeleted gate.
+      if (newAttachmentForRollback && attachInsertSucceeded && !insertedForRollback) {
+        try {
+          await supabase
+            .from('expense_request_attachments')
+            .delete()
+            .eq('id', newAttachmentForRollback.id);
+        } catch (rbErr) { console.warn('New-attachment rollback (row) failed:', rbErr); }
+        try {
+          await supabase.storage
+            .from('expense-attachments')
+            .remove([newAttachmentForRollback.path]);
+        } catch (rbErr) { console.warn('New-attachment rollback (storage) failed:', rbErr); }
+      }
+      // Roll back the new-flow INSERT (and its storage blob, if any) so a
+      // retry starts from a clean slate instead of duplicating a stuck-
+      // draft row. Order matters and so does the row-count check:
+      //
+      // 1. Delete attachment rows FIRST while the parent still exists at
+      //    status='draft' — the expense_attachments_delete RLS policy
+      //    requires that EXISTS check, so this also acts as our race
+      //    detector. If notify already transitioned the parent off
+      //    draft before the response was lost, the RLS evaluation fails
+      //    and 0 rows are returned.
+      // 2. Only remove the storage blob when we actually deleted the
+      //    attachment row that pointed at it — otherwise the storage
+      //    delete (which is folder-only RLS, status-blind) would destroy
+      //    receipt evidence for a now-finalized QBO Purchase.
+      // 3. Delete the parent row last, also status-gated. The .eq filter
+      //    is the second line of defense against the same race.
+      if (insertedForRollback) {
+        let attachRowsDeleted = 0;
+        try {
+          const { data: deletedAtts } = await supabase
+            .from('expense_request_attachments')
+            .delete()
+            .eq('request_id', insertedForRollback.id)
+            .select('id');
+          attachRowsDeleted = deletedAtts?.length ?? 0;
+        } catch (rbErr) { console.warn('Rollback attachment delete failed:', rbErr); }
+
+        // Capture the parent row delete result. attachRowsDeleted alone
+        // can't distinguish "RLS denied because notify finalized" (keep
+        // blob — receipt evidence for a posted QBO Purchase) from
+        // "attach INSERT failed earlier, no row ever existed" (clean
+        // the orphan blob — parent is being deleted, evidence has zero
+        // audit value). If the row delete actually removed the parent,
+        // the blob's evidence value is gone either way.
+        let rowDeleted = 0;
+        try {
+          const { data: deletedRows } = await supabase
+            .from('expense_requests')
+            .delete()
+            .eq('id', insertedForRollback.id)
+            .eq('status', 'draft')
+            .select('id');
+          rowDeleted = deletedRows?.length ?? 0;
+        } catch (rbErr) { console.warn('Rollback row delete failed:', rbErr); }
+
+        if (insertedForRollback.storagePath && (attachRowsDeleted > 0 || rowDeleted > 0)) {
+          try {
+            await supabase.storage
+              .from('expense-attachments')
+              .remove([insertedForRollback.storagePath]);
+          } catch (rbErr) { console.warn('Rollback storage delete failed:', rbErr); }
+        }
+      }
       setErrorMessage(err.message || 'Something went wrong');
       setStep('error');
     } finally {
@@ -481,6 +931,26 @@ export default function ExpenseForm() {
   if (step === 'details') {
     return (
       <div className="space-y-4 pb-36">
+        {/* Hidden file inputs rendered in the details step too so the
+            preview's "Replace receipt" button can trigger them. The
+            upload step has its own copy; the active step is the only
+            one mounted at a time. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={onFileInput}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,.pdf"
+          className="hidden"
+          onChange={onFileInput}
+        />
+
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
@@ -500,24 +970,117 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        {receiptPreview && (
+        {existingStatus === 'denied' && denialReason && (
+          <div className="text-sm rounded-md p-3 border border-red-500/40 bg-red-500/10 text-red-200">
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1 opacity-80">
+              Reason for declining
+            </div>
+            <p>{denialReason}</p>
+          </div>
+        )}
+
+        {!readOnly && !receiptPreview && !receiptDownloadUrl && (
+          // Post-X recovery affordance. The preview block (with the
+          // Replace button) is gated on (receiptPreview || receiptDownloadUrl),
+          // so an X-click on the persisted original unmounts the only
+          // path to fileInputRef.current?.click() in the details step.
+          // Without this button the operator's options are: submit with
+          // the queued deletion (irreversible), navigate away, or stare
+          // at a blank slot.
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full"
+          >
+            <Upload className="h-4 w-4 mr-1" /> Add receipt
+          </Button>
+        )}
+
+        {(receiptPreview || receiptDownloadUrl) && (
           <div className="relative">
-            <img
-              src={receiptPreview}
-              alt="Receipt"
-              className="w-full max-h-48 object-contain rounded-lg border bg-muted"
-            />
-            <Button
-              variant="destructive"
-              size="icon"
-              className="absolute top-2 right-2 h-7 w-7"
-              onClick={() => {
-                setReceiptFile(null);
-                setReceiptPreview(null);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            {receiptPreview ? (
+              <img
+                src={receiptPreview}
+                alt="Receipt"
+                className="w-full max-h-48 object-contain rounded-lg border bg-muted"
+              />
+            ) : (
+              <a
+                href={receiptDownloadUrl ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 w-full p-3 rounded-lg border bg-muted hover:bg-muted/70 text-sm"
+              >
+                <Receipt className="h-4 w-4 shrink-0" />
+                <span className="truncate">{receiptDownloadName ?? 'Open receipt'}</span>
+              </a>
+            )}
+            {!readOnly && (
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                className="absolute bottom-2 right-2 h-7 px-2 text-xs"
+                onClick={() => {
+                  // Queue the persisted original for deletion BEFORE
+                  // opening the file picker. Without this, submit
+                  // uploads the new file and INSERTs a new attachment
+                  // row, but skips the original-delete block — two
+                  // rows survive for the same request_id and the
+                  // edit-load query (oldest-wins .order().limit(1))
+                  // surfaces the ORIGINAL on the next /edit. The
+                  // X-cancel branch below clears this flag if the
+                  // operator backs out before submit.
+                  if (originalAttachment) setPendingAttachmentDelete(true);
+                  fileInputRef.current?.click();
+                }}
+              >
+                <Upload className="h-3.5 w-3.5 mr-1" /> Replace receipt
+              </Button>
+            )}
+            {!readOnly && (
+              <Button
+                variant="destructive"
+                size="icon"
+                className="absolute top-2 right-2 h-7 w-7"
+                onClick={() => {
+                  // Capture whether a fresh upload was queued BEFORE we
+                  // clear it. The X-click should only queue the persisted
+                  // original for deletion if that's what's actually
+                  // on-screen — if the operator is undoing a fresh upload
+                  // (receiptFile non-null), the original survives and the
+                  // delete-on-submit path must not fire against it.
+                  const hadFreshUpload = receiptFile != null;
+                  setReceiptFile(null);
+                  // If we're canceling a fresh replacement, restore the
+                  // persisted original's signed URL so the preview slot
+                  // doesn't go empty (which would silently misrepresent
+                  // that the original is still attached). On a true
+                  // delete-original X-click, all preview slots clear.
+                  if (hadFreshUpload && originalAttachment) {
+                    setReceiptPreview(originalSignedPreview);
+                    setReceiptDownloadUrl(originalSignedDownloadUrl);
+                    setReceiptDownloadName(originalSignedDownloadName);
+                    // Also clear the pending-delete flag that the
+                    // Replace button set when the picker opened — the
+                    // operator just cancelled the replacement, so the
+                    // original must NOT get deleted on submit.
+                    setPendingAttachmentDelete(false);
+                  } else {
+                    setReceiptPreview(null);
+                    setReceiptDownloadUrl(null);
+                    setReceiptDownloadName(null);
+                  }
+                  if (originalAttachment && !hadFreshUpload) {
+                    setPendingAttachmentDelete(true);
+                  }
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         )}
 
@@ -854,7 +1417,19 @@ export default function ExpenseForm() {
           <Button variant="outline" onClick={() => navigate('/')}>
             Home
           </Button>
-          <Button onClick={() => navigate('new')}>
+          <Button onClick={() => {
+            // navigate('new') alone is a no-op on /new → /new (id stays
+            // undefined so useEffect[id] doesn't refire and its reset
+            // block is skipped). Reset every piece of state via the
+            // shared helper so the next submission can't carry the
+            // previous one's vendor / total / customer / job / memo /
+            // payment-account into a fresh row. OCR's preserve-existing
+            // guards (customer/job/memo) would otherwise smuggle prior
+            // metadata in even after a new receipt is uploaded.
+            resetFormState();
+            setStep('upload');
+            navigate('new');
+          }}>
             Submit Another
           </Button>
         </div>
@@ -867,9 +1442,19 @@ export default function ExpenseForm() {
       <AlertTriangle className="h-12 w-12 text-destructive" />
       <h2 className="text-lg font-semibold">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
-      <Button variant="outline" onClick={() => setStep('details')}>
-        Try Again
-      </Button>
+      {/* If the load itself failed (edit mode with no existingStatus),
+       *  there's nothing on the form to "try again" — Submit at that point
+       *  would write defaults over the real row. Route back to the
+       *  dashboard so the operator can re-open the draft fresh. */}
+      {isEditing && !existingStatus ? (
+        <Button variant="outline" onClick={() => navigate('/')}>
+          Back to dashboard
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={() => setStep('details')}>
+          Try Again
+        </Button>
+      )}
     </div>
   );
 }

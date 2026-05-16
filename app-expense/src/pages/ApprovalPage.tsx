@@ -9,7 +9,7 @@ import {
 import { formatCurrency, formatDate } from '@/lib/utils';
 import SignatureCanvas from 'react-signature-canvas';
 
-type PageState = 'loading' | 'ready' | 'decided' | 'notfound' | 'forbidden' | 'error';
+type PageState = 'loading' | 'ready' | 'decided' | 'submitter' | 'notfound' | 'forbidden' | 'error';
 
 interface RequestRow {
   id: string;
@@ -27,6 +27,7 @@ interface RequestRow {
   submitter_email?: string | null;
   manager_email?: string | null;
   submitted_by?: string | null;
+  denial_reason?: string | null;
   line_items?: Array<{ description?: string; qty?: number; unit_price?: number; amount?: number }>;
 }
 
@@ -81,18 +82,45 @@ export default function ApprovalPage() {
       const req = data as RequestRow;
       setRequest(req);
 
+      // Submitter view: the submitter clicked their own PR row from the
+      // dashboard. ApprovalPage was originally manager-only — without
+      // this branch a draft PR would hit the !pending guard and render
+      // 'Approved' (wrong), and a pending PR would hit the routed-to
+      // check below and render 'Not your request' (also wrong, since
+      // they ARE the submitter). Render a read-only summary instead.
+      // The carve-out only skips the submitter view for superadmins
+      // who actually routed THIS PR to themselves (mirrors the backend
+      // escape hatch in expense-request-decide.mjs). A superadmin who
+      // routed to someone else still gets the submitter view on their
+      // own row — without this `isApproverForThis` gate they'd fall
+      // through and the page would render either '✓ Approved' (stuck
+      // draft) or 'Not your request' (routed to other) on their own
+      // submission.
+      const routedTo = (req.manager_email || '').toLowerCase();
+      const isApproverForThis = isSuperadmin && !!routedTo && routedTo === myEmail;
+      if (req.submitted_by === session.user.id && !isApproverForThis) {
+        setState('submitter');
+        return;
+      }
+
+      // Explicit draft handling above the !pending fallthrough — without
+      // this, a stuck draft (notify failed, row left at status='draft')
+      // viewed by a non-submitter (or by a superadmin who routed to self)
+      // would map to 'approved' in the decided branch below and render
+      // the green '✓ Request Approved' banner for a row that was never
+      // approved. Land them on the read-only summary instead.
+      if (req.status === 'draft') {
+        setState('submitter');
+        return;
+      }
+
       if (req.status !== 'pending') {
         setDecided({ action: req.status === 'denied' ? 'denied' : 'approved', signer_name: '' });
         setState('decided');
         return;
       }
 
-      const routedTo = (req.manager_email || '').toLowerCase();
       if (!routedTo || routedTo !== myEmail) {
-        setState('forbidden');
-        return;
-      }
-      if (req.submitted_by === session.user.id && !isSuperadmin) {
         setState('forbidden');
         return;
       }
@@ -189,6 +217,100 @@ export default function ApprovalPage() {
           <p>This request doesn't exist or isn't visible to you.</p>
           <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
+      </div>
+    );
+  }
+
+  if (state === 'submitter' && request) {
+    const statusLabel = (() => {
+      switch (request.status) {
+        case 'draft':            return 'Draft — not yet submitted to your approver';
+        case 'pending':          return 'Pending approval';
+        case 'approved':         return 'Approved';
+        case 'denied':           return 'Declined';
+        case 'awaiting_invoice': return 'Approved — waiting for invoice';
+        case 'fulfilled':        return 'Fulfilled';
+        case 'posted':           return 'Posted to QBO';
+        default:                 return request.status;
+      }
+    })();
+    const isPR = request.request_type === 'purchase_request';
+    return (
+      <div className="ap-wrap">
+        <div className="ap-card">
+          <div className="ap-header">
+            <button type="button" onClick={() => navigate('/expense/')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
+              <ArrowLeft size={20} />
+            </button>
+            <ClipboardList className="ap-header-icon" size={28} />
+            <div>
+              <h1>{isPR ? 'Purchase Request' : 'Expense'}</h1>
+              <p className="ap-meta">
+                Status: <strong>{statusLabel}</strong>
+                {request.total_amount ? ` · ${formatCurrency(request.total_amount)}` : ''}
+              </p>
+            </div>
+          </div>
+          {request.manager_email && request.status === 'pending' && (
+            <p className="ap-intro">
+              Routed to <strong>{request.manager_email}</strong> for approval.
+            </p>
+          )}
+          {request.status === 'draft' && (
+            <div className="ap-warn">
+              <AlertTriangle size={16} />
+              <span>
+                {isPR
+                  ? "This purchase request hasn't been sent to your approver yet — notify likely failed during submit."
+                  : request.manager_email
+                    ? "This expense hasn't been sent to your approver yet — notify likely failed during submit."
+                    : "This expense wasn't auto-posted to QBO yet — notify likely failed during submit. Try re-submitting or contact an admin."}
+              </span>
+            </div>
+          )}
+          {request.memo && (
+            <div className="ap-note">
+              <span className="ap-note-label">Memo</span>
+              <p>{request.memo}</p>
+            </div>
+          )}
+          {request.status === 'denied' && request.denial_reason && (
+            <div className="ap-note">
+              <span className="ap-note-label">Reason for declining</span>
+              <p>{request.denial_reason}</p>
+            </div>
+          )}
+          <div className="ap-summary">
+            <div><span className="ap-sum-label">Vendor</span><span className="ap-sum-value">{request.vendor_name || '—'}</span></div>
+            <div><span className="ap-sum-label">Department</span><span className="ap-sum-value">{request.department || '—'}</span></div>
+            <div><span className="ap-sum-label">Account</span><span className="ap-sum-value">{request.cogs_account_label || '—'}</span></div>
+            {request.customer_name && <div><span className="ap-sum-label">Customer</span><span className="ap-sum-value">{request.customer_name}</span></div>}
+            {request.job_number && <div><span className="ap-sum-label">Job #</span><span className="ap-sum-value">{request.job_number}</span></div>}
+            {request.receipt_date && <div><span className="ap-sum-label">{isPR ? 'Needed By' : 'Date'}</span><span className="ap-sum-value">{formatDate(request.receipt_date)}</span></div>}
+            <div><span className="ap-sum-label">Total</span><span className="ap-sum-value ap-sum-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</span></div>
+          </div>
+          {request.line_items && request.line_items.length > 0 && (
+            <table className="ap-items">
+              <thead><tr><th>Item</th><th className="r">Qty</th><th className="r">Price</th><th className="r">Line</th></tr></thead>
+              <tbody>
+                {request.line_items.map((li, i) => {
+                  const amt = li.amount ?? (li.qty || 1) * (li.unit_price || 0);
+                  return (
+                    <tr key={i}>
+                      <td>{li.description || `Line ${i + 1}`}</td>
+                      <td className="r">{li.qty || 1}</td>
+                      <td className="r">{formatCurrency(li.unit_price || 0)}</td>
+                      <td className="r" style={{ fontWeight: 600 }}>{formatCurrency(amt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr><td colSpan={3} className="r">Total</td><td className="r ap-items-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</td></tr></tfoot>
+            </table>
+          )}
+          <button className="ap-btn ap-btn-approve" onClick={() => navigate('/expense/')} style={{ marginTop: 20 }}>Back to dashboard</button>
+        </div>
+        <p className="ap-footer">Viewing as {myName} (submitter)</p>
       </div>
     );
   }
