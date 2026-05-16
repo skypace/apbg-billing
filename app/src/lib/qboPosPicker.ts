@@ -27,6 +27,13 @@ export interface QboPoPickerItem {
   txn_date: string | null;
   total_amt: number | null;
   status: string;
+  /** Raw POStatus straight from QBO ('Open' / 'Closed'). Useful when the
+   *  derived status differs because Bills were linked. */
+  po_status_raw: string | null;
+  /** True if QBO has any LinkedTxn of type Bill — meaning some/all of the
+   *  PO has been received against. */
+  has_linked_bills: boolean;
+  linked_bill_count: number;
   memo: string | null;
   line_count: number;
   lines: QboPoPickerLine[];
@@ -42,6 +49,11 @@ export interface QboPoPickerItem {
 export interface QboPoPickerPreview {
   count: number;
   open_pickable: number;
+  /** When the strict filter is in effect (include_all=false), these
+   *  counts tell the UI how many POs were hidden so it can surface a
+   *  "N hidden — show all" toggle. */
+  hidden: { closed: number; billed: number; total: number };
+  include_all: boolean;
   items: QboPoPickerItem[];
 }
 
@@ -51,8 +63,9 @@ async function bearer(): Promise<string> {
   return `Bearer ${token}`;
 }
 
-export async function fetchQboPosPreview(): Promise<QboPoPickerPreview> {
-  const res = await fetch('/margin/.netlify/functions/qbo-pos-preview', {
+export async function fetchQboPosPreview(opts: { includeAll?: boolean } = {}): Promise<QboPoPickerPreview> {
+  const qs = opts.includeAll ? '?include_all=true' : '';
+  const res = await fetch('/margin/.netlify/functions/qbo-pos-preview' + qs, {
     method: 'GET',
     headers: { Authorization: await bearer() },
   });
