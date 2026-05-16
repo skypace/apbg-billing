@@ -106,6 +106,12 @@ export default function ExpenseForm() {
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
   useEffect(() => {
+    // Abort any in-flight OCR FIRST — before the early !id return — so a
+    // /new → /edit/X navigation mid-OCR aborts the stale call. If we did
+    // this only in the trailing cleanup return, the prior effect's cleanup
+    // wouldn't fire because /new returned undefined here (no cleanup
+    // registered) and the late OCR would still overwrite X's state.
+    ocrAbortRef.current?.abort();
     if (!id) return;
     // React Router v6 reuses the same ExpenseForm instance when navigating
     // between two /expense/edit/:id URLs (no `key` prop on the route), so
@@ -500,20 +506,21 @@ export default function ExpenseForm() {
           .eq('status', 'draft')
           .select()
           .single();
-        // Branch on the zero-rows code so the friendly message only fires
-        // for the actual race scenario the .eq('status','draft') filter
-        // is guarding against. Any other failure (JWT expiry, transient
-        // 5xx, future CHECK constraint) surfaces its real message —
-        // "reload" wouldn't help and would mislead. Per supabase-js's
-        // .single() dual contract, {data,error} are mutually exclusive,
-        // so the second throw is reachable exactly when updated is null
-        // for a non-PGRST116 reason.
-        if (updateErr?.code === 'PGRST116' || !updated) {
+        // PGRST116 is the only code that maps to "row changed status since
+        // load" — surface the friendly race message for that specifically.
+        // Any other updateErr (JWT expiry, transient 5xx, CHECK constraint
+        // on the new cascade fields) surfaces its real message; the
+        // ?? || !updated shape I tried earlier defeats this because per
+        // supabase-js's .single() dual contract !updated covers every
+        // failure case, so the OR collapses to "any error" and the
+        // trailing throw becomes dead code.
+        if (updateErr?.code === 'PGRST116') {
           throw new Error(
             "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
           );
         }
         if (updateErr) throw new Error(updateErr.message);
+        if (!updated) throw new Error('Update returned no row');
         req = updated;
       } else {
         const { data: inserted, error: insertErr } = await supabase
@@ -634,17 +641,32 @@ export default function ExpenseForm() {
       console.error('Submission error:', err);
       // Roll back the new-flow INSERT (and its storage blob, if any) so a
       // retry starts from a clean slate instead of duplicating a stuck-
-      // draft row. The cascade is best-effort: storage/attachment errors
-      // here are non-fatal because the row delete is what makes the
-      // remnant invisible to the dashboard's "recent submissions" query.
+      // draft row. Order matters and so does the row-count check:
+      //
+      // 1. Delete attachment rows FIRST while the parent still exists at
+      //    status='draft' — the expense_attachments_delete RLS policy
+      //    requires that EXISTS check, so this also acts as our race
+      //    detector. If notify already transitioned the parent off
+      //    draft before the response was lost, the RLS evaluation fails
+      //    and 0 rows are returned.
+      // 2. Only remove the storage blob when we actually deleted the
+      //    attachment row that pointed at it — otherwise the storage
+      //    delete (which is folder-only RLS, status-blind) would destroy
+      //    receipt evidence for a now-finalized QBO Purchase.
+      // 3. Delete the parent row last, also status-gated. The .eq filter
+      //    is the second line of defense against the same race.
       if (insertedForRollback) {
+        let attachRowsDeleted = 0;
         try {
-          await supabase
+          const { data: deletedAtts } = await supabase
             .from('expense_request_attachments')
             .delete()
-            .eq('request_id', insertedForRollback.id);
+            .eq('request_id', insertedForRollback.id)
+            .select('id');
+          attachRowsDeleted = deletedAtts?.length ?? 0;
         } catch (rbErr) { console.warn('Rollback attachment delete failed:', rbErr); }
-        if (insertedForRollback.storagePath) {
+
+        if (insertedForRollback.storagePath && attachRowsDeleted > 0) {
           try {
             await supabase.storage
               .from('expense-attachments')
