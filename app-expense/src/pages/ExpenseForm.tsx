@@ -102,6 +102,19 @@ export default function ExpenseForm() {
 
   useEffect(() => {
     if (!id) return;
+    // React Router v6 reuses the same ExpenseForm instance when navigating
+    // between two /expense/edit/:id URLs (no `key` prop on the route), so
+    // attachment + receipt state can survive a draft switch. Reset the
+    // flags that the X-button delete path depends on, otherwise a pending
+    // X-click against draft A could fire its delete against draft B's
+    // attachment after navigation.
+    setOriginalAttachment(null);
+    setPendingAttachmentDelete(false);
+    setReceiptPreview(null);
+    setReceiptDownloadUrl(null);
+    setReceiptDownloadName(null);
+    setReceiptFile(null);
+
     let cancelled = false;
     (async () => {
       setLoadingExisting(true);
@@ -231,10 +244,20 @@ export default function ExpenseForm() {
       setReceiptFile(file);
       setOcrError(null);
       setOcrModel(null);
+      // Symmetric with the edit-load path: images render in the &lt;img&gt;
+      // preview, anything else (PDFs are the only other accepted type)
+      // renders as a download link. Without this, new-flow PDF uploads
+      // left both states null and the entire preview block — including
+      // the X button — failed to render, so the operator had no way to
+      // verify or undo the attachment.
       if (file.type.startsWith('image/')) {
         setReceiptPreview(URL.createObjectURL(file));
+        setReceiptDownloadUrl(null);
+        setReceiptDownloadName(null);
       } else {
         setReceiptPreview(null);
+        setReceiptDownloadUrl(URL.createObjectURL(file));
+        setReceiptDownloadName(file.name);
       }
 
       setOcrLoading(true);
@@ -432,17 +455,26 @@ export default function ExpenseForm() {
 
       // Honor an X-click against an originally-loaded attachment: actually
       // remove the row + storage object so it doesn't silently reappear on
-      // the next page load. Storage errors are non-fatal — the row delete
-      // is the user-visible bit, and a stranded storage object can be
-      // garbage-collected later.
+      // the next page load. The supabase calls used to swallow errors;
+      // when RLS denied the row delete it returned zero affected rows + no
+      // error, so the UI thought it succeeded. Now we surface the error
+      // from the row delete (the user-visible bit) and warn-only on
+      // storage (a stranded object can be garbage-collected later).
       if (pendingAttachmentDelete && originalAttachment) {
-        await supabase.storage
+        const { error: storageErr } = await supabase.storage
           .from('expense-attachments')
           .remove([originalAttachment.path]);
-        await supabase
+        if (storageErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
+        }
+        const { error: rowErr } = await supabase
           .from('expense_request_attachments')
           .delete()
           .eq('id', originalAttachment.id);
+        if (rowErr) {
+          throw new Error('Could not delete attachment: ' + rowErr.message);
+        }
         setOriginalAttachment(null);
         setPendingAttachmentDelete(false);
       }
