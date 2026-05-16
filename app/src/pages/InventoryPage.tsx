@@ -13,12 +13,14 @@ import {
   addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth,
   fetchVelocityExcludes, removeVelocityExclude,
 } from '../lib/inventory';
+import { OpenPOsTab } from './inventory/OpenPOsTab';
 
-type TabId = 'reorder' | 'velocity' | 'excludes';
+type TabId = 'reorder' | 'velocity' | 'pos' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'reorder',  label: 'Reorder' },
   { id: 'velocity', label: 'Velocity' },
+  { id: 'pos',      label: 'Purchase Orders' },
   { id: 'excludes', label: 'Velocity Excludes' },
 ];
 
@@ -154,15 +156,16 @@ export function InventoryPage() {
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Reorder · Velocity · Health</div>
+          <div className="hero-eyebrow">Reorder · Velocity · Purchase Orders · Health</div>
           <h1 className="hero-title">Inventory</h1>
           <div className="hero-meta">
-            {tabLabel} · {lookback}-day lookback{managedOnly ? ' · managed only' : ''}
+            {tabLabel}
+            {tab !== 'pos' && tab !== 'excludes' && ` · ${lookback}-day lookback${managedOnly ? ' · managed only' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
           <span className="status-dot" aria-hidden="true" />
-          {rows ? fmtNum(rows.length) + ' items' : 'loading…'}
+          {tab === 'pos' ? 'PO View' : rows ? fmtNum(rows.length) + ' items' : 'loading…'}
         </div>
       </div>
 
@@ -197,6 +200,7 @@ export function InventoryPage() {
 
       {tab === 'reorder' && <ReorderTable rows={rows} />}
       {tab === 'velocity' && <VelocityTable rows={rows} />}
+      {tab === 'pos' && <OpenPOsTab />}
       {tab === 'excludes' && <ExcludesTab />}
     </div>
   );
