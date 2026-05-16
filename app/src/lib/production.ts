@@ -9,6 +9,12 @@ export interface ProductBom {
   version: string;
   effective_date: string | null;
   yield_qty: number;
+  yield_uom: string;
+  /** Optional bridge for cross-family scaling: if yield_uom is a count
+   *  (each/case) and 1 yield produces a known volume of finished product,
+   *  set this to the gallons-per-yield. Lets the BOM scaler convert "make
+   *  1000 gal" → runs even though yield is in cases. */
+  finished_vol_per_yield_gal: number | null;
   is_active: boolean;
   notes: string | null;
   created_by: string | null;
@@ -25,6 +31,7 @@ export interface ProductBomLine {
   component_qbo_item_id: string | null;
   service_label: string | null;
   qty_per: number;
+  qty_uom: string;
   scrap_pct: number;
   default_cost: number | null;
   notes: string | null;
@@ -37,6 +44,7 @@ export interface BomLineInput {
   component_qbo_item_id?: string | null;
   service_label?: string | null;
   qty_per: number;
+  qty_uom?: string;
   scrap_pct?: number;
   default_cost?: number | null;
   notes?: string | null;
@@ -50,6 +58,7 @@ export interface WorkOrder {
   bom_id: string;
   finished_qbo_item_id: string;
   qty_to_produce: number;
+  target_uom: string | null;
   qty_produced_actual: number | null;
   production_location_id: string;
   status: WorkOrderStatus;
@@ -116,6 +125,8 @@ export async function fetchWorkOrderCosts(woId: string): Promise<WorkOrderCosts 
 export async function createBom(args: {
   finished_qbo_item_id: string;
   yield_qty: number;
+  yield_uom?: string;
+  finished_vol_per_yield_gal?: number | null;
   lines: BomLineInput[];
   version?: string;
   effective_date?: string | null;
@@ -124,6 +135,8 @@ export async function createBom(args: {
   return sbrpc<string>('fn_create_bom', {
     p_finished_qbo_item_id: args.finished_qbo_item_id,
     p_yield_qty: args.yield_qty,
+    p_yield_uom: args.yield_uom ?? 'each',
+    p_finished_vol_per_yield_gal: args.finished_vol_per_yield_gal ?? null,
     p_lines: args.lines,
     p_version: args.version ?? '1',
     p_effective_date: args.effective_date ?? null,
@@ -144,6 +157,13 @@ export async function updateBom(id: string, patch: Partial<ProductBom>): Promise
 export async function createWorkOrder(args: {
   bom_id: string;
   qty_to_produce: number;
+  /** Unit the operator typed. INFORMATIONAL-ONLY today: persisted on the WO
+   *  row for the UI/audit trail, but fn_consume_work_order and
+   *  fn_close_work_order do not read it — they compute consumption as
+   *  (qty_to_produce / yield_qty) * qty_per * (1 + scrap_pct) directly.
+   *  Phase 2 will wire UoM conversion into those functions; until then,
+   *  qty_to_produce must already be expressed in the BOM's yield_uom. */
+  target_uom?: string | null;
   production_location_id: string;
   scheduled_date?: string | null;
   notes?: string | null;
@@ -151,6 +171,7 @@ export async function createWorkOrder(args: {
   return sbrpc<string>('fn_create_work_order', {
     p_bom_id: args.bom_id,
     p_qty_to_produce: args.qty_to_produce,
+    p_target_uom: args.target_uom ?? null,
     p_production_location_id: args.production_location_id,
     p_scheduled_date: args.scheduled_date ?? null,
     p_notes: args.notes ?? null,
