@@ -100,6 +100,17 @@ export default function ExpenseForm() {
   const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Revoke object URLs on change/unmount so each file pick + clear doesn't
+  // pin the underlying File in browser memory. Only blob: URLs need
+  // revoking; the edit-load path puts Supabase signed URLs into these
+  // same state slots, and URL.revokeObjectURL is a no-op on those anyway.
+  useEffect(() => {
+    return () => {
+      if (receiptPreview?.startsWith('blob:')) URL.revokeObjectURL(receiptPreview);
+      if (receiptDownloadUrl?.startsWith('blob:')) URL.revokeObjectURL(receiptDownloadUrl);
+    };
+  }, [receiptPreview, receiptDownloadUrl]);
+
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
   const needsApproval = totalNum > threshold;
@@ -446,6 +457,10 @@ export default function ExpenseForm() {
       setStep('error');
       return;
     }
+    // Abort any in-flight OCR so its finally block can't flip step back
+    // to 'details' (and overwrite vendor/total/line_items with whatever
+    // the OCR happened to extract) while this submit is processing.
+    ocrAbortRef.current?.abort();
     setStep('submitting');
     setSubmitting(true);
     setMarginMatch(null);
@@ -453,6 +468,12 @@ export default function ExpenseForm() {
     // INSERT (and any storage blob) if a later step fails. Edit-flow
     // submits don't touch this — the existing row is the source of truth.
     let insertedForRollback: { id: string; storagePath: string | null } | null = null;
+    // Track the storage upload + attachment INSERT independently of
+    // insertedForRollback so the edit-flow (which doesn't populate
+    // insertedForRollback) can still clean an orphan blob when the
+    // attach-INSERT fails after a successful upload.
+    let uploadedStoragePath: string | null = null;
+    let attachInsertSucceeded = false;
     try {
       const nonEmptyLines = lineItems.filter((li) => li.description.trim());
       const user = session.user;
@@ -582,8 +603,9 @@ export default function ExpenseForm() {
             upsert: false,
           });
         if (uploadErr) throw new Error('Could not upload receipt: ' + uploadErr.message);
-        // Record the storage path so the catch can remove the blob if a
-        // later step (attachment INSERT, notify) fails.
+        uploadedStoragePath = storagePath;
+        // Mirror onto insertedForRollback (new-flow only) so the existing
+        // rollback machinery's storage-cleanup gate continues to apply.
         if (insertedForRollback) insertedForRollback.storagePath = storagePath;
 
         const { error: attachErr } = await supabase.from('expense_request_attachments').insert({
@@ -594,6 +616,7 @@ export default function ExpenseForm() {
           storage_path: storagePath,
         });
         if (attachErr) throw new Error('Could not record attachment: ' + attachErr.message);
+        attachInsertSucceeded = true;
       }
 
       if (pendingAttachmentDelete && originalAttachment) {
@@ -649,6 +672,18 @@ export default function ExpenseForm() {
       setStep('success');
     } catch (err: any) {
       console.error('Submission error:', err);
+      // Edit-flow has no insertedForRollback (UPDATE branch never assigns
+      // it), so the cascade below is skipped — but if the upload succeeded
+      // and the attach-INSERT then failed, the storage blob is orphaned
+      // with no row pointing at it. Clean it up here unconditionally
+      // before the cascade; works for both flows.
+      if (uploadedStoragePath && !attachInsertSucceeded) {
+        try {
+          await supabase.storage
+            .from('expense-attachments')
+            .remove([uploadedStoragePath]);
+        } catch (rbErr) { console.warn('Orphan storage delete failed:', rbErr); }
+      }
       // Roll back the new-flow INSERT (and its storage blob, if any) so a
       // retry starts from a clean slate instead of duplicating a stuck-
       // draft row. Order matters and so does the row-count check:
