@@ -49,24 +49,16 @@
   timeout = 60
 
 # ── BRIXpense API → underlying functions ──
-# These map the frontend's POST URLs to the actual function names.
-# They MUST appear BEFORE the SPA fallback below, otherwise `/api/expense-*`
-# gets rewritten to /expense/index.html and Marco hits a 404 page when he
-# clicks Approve (which is exactly what happened on PR 80706b57).
+# These MUST appear BEFORE the SPA fallback below — otherwise /expense/api/*
+# gets rewritten to /expense/index.html and the function POST returns HTML
+# (which is why Marco/Sky both saw "404 Page not found" when clicking
+# Approve directly on apbg-billing.netlify.app).
 #
-# 2026-05-16: The Brixpense frontend actually fetches `/expense/api/...`
-# (with the `/expense/` prefix) — see app-expense/src/pages/*.tsx. The
-# bare `/api/...` redirects below don't catch those paths, which silently
-# fell through to the SPA fallback and returned 404 (Sky hit this on the
-# notify call when submitting an expense). The wildcard rule below
-# catches both shapes: any `/expense/api/<name>` request gets rewritten
-# to `/.netlify/functions/<name>` via the :splat. Add new functions by
-# name with no extra config needed.
-[[redirects]]
-  from = "/expense/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
+# Two URL prefixes covered:
+#   /api/expense-*           — for traffic that came through the gateway
+#                              (gateway already strips /expense/)
+#   /expense/api/expense-*   — for traffic hitting apbg-billing.netlify.app
+#                              directly (gateway bypassed)
 [[redirects]]
   from = "/api/expense-request-decide"
   to = "/.netlify/functions/expense-request-decide"
@@ -83,17 +75,22 @@
   from = "/api/expense-ocr"
   to = "/.netlify/functions/expense-ocr"
   status = 200
+
 [[redirects]]
-  from = "/api/expense-payment-accounts"
-  to = "/.netlify/functions/expense-payment-accounts"
+  from = "/expense/api/expense-request-decide"
+  to = "/.netlify/functions/expense-request-decide"
   status = 200
 [[redirects]]
-  from = "/api/qbo-pos-preview"
-  to = "/.netlify/functions/qbo-pos-preview"
+  from = "/expense/api/expense-request-notify"
+  to = "/.netlify/functions/expense-request-notify"
   status = 200
 [[redirects]]
-  from = "/api/qbo-pos-import"
-  to = "/.netlify/functions/qbo-pos-import"
+  from = "/expense/api/expense-request-link-bill"
+  to = "/.netlify/functions/expense-request-link-bill"
+  status = 200
+[[redirects]]
+  from = "/expense/api/expense-ocr"
+  to = "/.netlify/functions/expense-ocr"
   status = 200
 
 # ── Expense app: SPA fallback ──
