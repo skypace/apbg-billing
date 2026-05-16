@@ -88,9 +88,28 @@ export default function ApprovalPage() {
       // 'Approved' (wrong), and a pending PR would hit the routed-to
       // check below and render 'Not your request' (also wrong, since
       // they ARE the submitter). Render a read-only summary instead.
-      // Superadmins fall through to the manager flow so they can approve
-      // PRs they routed to themselves (mirrors the backend escape hatch).
-      if (req.submitted_by === session.user.id && !isSuperadmin) {
+      // The carve-out only skips the submitter view for superadmins
+      // who actually routed THIS PR to themselves (mirrors the backend
+      // escape hatch in expense-request-decide.mjs). A superadmin who
+      // routed to someone else still gets the submitter view on their
+      // own row — without this `isApproverForThis` gate they'd fall
+      // through and the page would render either '✓ Approved' (stuck
+      // draft) or 'Not your request' (routed to other) on their own
+      // submission.
+      const routedTo = (req.manager_email || '').toLowerCase();
+      const isApproverForThis = isSuperadmin && !!routedTo && routedTo === myEmail;
+      if (req.submitted_by === session.user.id && !isApproverForThis) {
+        setState('submitter');
+        return;
+      }
+
+      // Explicit draft handling above the !pending fallthrough — without
+      // this, a stuck draft (notify failed, row left at status='draft')
+      // viewed by a non-submitter (or by a superadmin who routed to self)
+      // would map to 'approved' in the decided branch below and render
+      // the green '✓ Request Approved' banner for a row that was never
+      // approved. Land them on the read-only summary instead.
+      if (req.status === 'draft') {
         setState('submitter');
         return;
       }
@@ -101,7 +120,6 @@ export default function ApprovalPage() {
         return;
       }
 
-      const routedTo = (req.manager_email || '').toLowerCase();
       if (!routedTo || routedTo !== myEmail) {
         setState('forbidden');
         return;
