@@ -13,6 +13,7 @@ import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX } from '../stock/stockStyles';
+import { UOM_OPTIONS, convertQty, fmtQty, uomGroup } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 
 const STATUS_COLOR: Record<WorkOrderStatus, string> = {
@@ -82,8 +83,12 @@ export function WorkOrdersTab({
     },
     { field: 'finished_label', headerName: 'Finished SKU', flex: 1, minWidth: 200,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value)}</span> },
-    { field: 'qty_to_produce', headerName: 'Qty', type: 'number', width: 90, cellClassName: 'mn',
-      valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
+    { field: 'qty_to_produce', headerName: 'Qty', width: 130, cellClassName: 'mn',
+      renderCell: (p) => {
+        const bom = bomById.get(p.row.bom_id);
+        const u = bom?.yield_uom || 'each';
+        return <span>{fmtNum(Number(p.value ?? 0))} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
+      } },
     { field: 'qty_produced_actual', headerName: 'Actual', type: 'number', width: 90, cellClassName: 'mn',
       valueFormatter: (v) => v == null ? '—' : fmtNum(Number(v)) },
     { field: 'location_label', headerName: 'Location', width: 130 },
@@ -91,7 +96,7 @@ export function WorkOrdersTab({
       valueFormatter: (v) => v ? String(v) : '—' },
     { field: 'created_at', headerName: 'Created', width: 160,
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
-  ], []);
+  ], [bomById]);
 
   const activeBoms = boms.filter((b) => b.is_active);
 
@@ -177,22 +182,56 @@ function CreateWorkOrderForm({
   const toast = useToast();
   const [bomId, setBomId] = useState('');
   const [qty, setQty] = useState<string>('');
+  const [targetUom, setTargetUom] = useState<string>('');
   const [locId, setLocId] = useState('');
   const [scheduled, setScheduled] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canSave = !!bomId && Number(qty) > 0 && !!locId;
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
 
+  // When the operator picks a BOM, default target_uom to the BOM's yield_uom
+  // — most WOs are "make N of whatever this BOM yields" and only the cross-
+  // family case (e.g. case-yield BOM, "make 1000 gal") needs a different unit.
+  useEffect(() => {
+    if (selectedBom) setTargetUom(selectedBom.yield_uom || 'each');
+    else setTargetUom('');
+  }, [selectedBom?.id, selectedBom?.yield_uom]);
+
+  // Convert operator-typed qty (in target_uom) → BOM yield_uom so
+  // fn_consume_work_order's existing (qty_to_produce / yield_qty) math is
+  // correct without changing the SQL. Stays in sync with ScaleBomPanel by
+  // using the same lib/uom.ts helpers.
+  const yieldQtyNum = selectedBom ? Number(selectedBom.yield_qty) : 0;
+  const yieldUom = selectedBom?.yield_uom || 'each';
+  const bridgeGal = selectedBom?.finished_vol_per_yield_gal == null
+    ? undefined
+    : Number(selectedBom.finished_vol_per_yield_gal);
+  const qtyNum = Number(qty);
+  const effectiveQtyInYieldUom = selectedBom && qtyNum > 0 && targetUom
+    ? convertQty(qtyNum, targetUom, yieldUom, {
+        yieldQty: yieldQtyNum, yieldUom, finishedVolPerYieldGal: bridgeGal,
+      })
+    : null;
+  const batches = effectiveQtyInYieldUom != null && yieldQtyNum > 0
+    ? effectiveQtyInYieldUom / yieldQtyNum
+    : 0;
+  const conversionFailed = !!selectedBom && qtyNum > 0 && targetUom !== yieldUom && effectiveQtyInYieldUom == null;
+
+  const canSave = !!bomId && qtyNum > 0 && !!locId && effectiveQtyInYieldUom != null;
+
   async function submit() {
-    if (!canSave) return;
+    if (!canSave || effectiveQtyInYieldUom == null) return;
     setSaving(true);
     try {
       await createWorkOrder({
         bom_id: bomId,
-        qty_to_produce: Number(qty),
+        // Store the converted qty in yield_uom so the consumption math
+        // works without touching fn_consume_work_order. target_uom is the
+        // audit trail of what the operator typed.
+        qty_to_produce: effectiveQtyInYieldUom,
+        target_uom: targetUom || null,
         production_location_id: locId,
         scheduled_date: scheduled || null,
         notes: notes || null,
@@ -227,8 +266,15 @@ function CreateWorkOrderForm({
           </select>
         </LField>
         <LField label="Qty to produce">
-          <input type="number" min={0.0001} step="any" style={inp()}
-            value={qty} onChange={(e) => setQty(e.target.value)} />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="number" min={0.0001} step="any" style={{ ...inp(), flex: 1 }}
+              value={qty} onChange={(e) => setQty(e.target.value)} />
+            <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)}
+              style={{ ...inp(), width: 100 }} disabled={!selectedBom}>
+              {!selectedBom && <option value="">—</option>}
+              {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
         </LField>
         <LField label="Production location">
           <select style={inp()} value={locId} onChange={(e) => setLocId(e.target.value)}>
@@ -244,11 +290,27 @@ function CreateWorkOrderForm({
       {selectedBom && (
         <div style={{
           marginTop: 12, padding: 10,
-          background: 'rgba(91,181,240,0.04)', border: '1px solid var(--bd)', borderRadius: 4,
-          fontSize: 11, color: 'var(--mt)',
+          background: conversionFailed ? 'rgba(230,170,90,0.06)' : 'rgba(91,181,240,0.04)',
+          border: '1px solid var(--bd)', borderRadius: 4,
+          fontSize: 11, color: conversionFailed ? 'var(--am)' : 'var(--mt)',
         }}>
-          BOM yield: <strong style={{ color: 'var(--tx)' }}>{selectedBom.yield_qty}</strong> {selectedFinished?.item_name ?? ''} per batch
-          {Number(qty) > 0 && <> · running <strong style={{ color: 'var(--tx)' }}>{(Number(qty) / Number(selectedBom.yield_qty)).toFixed(2)}</strong> batches</>}
+          BOM yield: <strong style={{ color: 'var(--tx)' }}>{fmtQty(yieldQtyNum, yieldUom)}</strong> {selectedFinished?.item_name ?? ''} per batch
+          {qtyNum > 0 && effectiveQtyInYieldUom != null && (
+            <> · running <strong style={{ color: 'var(--tx)' }}>{batches.toFixed(2)}</strong> batches
+              {targetUom !== yieldUom && (
+                <> · stored as <strong style={{ color: 'var(--tx)' }}>{fmtQty(effectiveQtyInYieldUom, yieldUom)}</strong></>
+              )}
+            </>
+          )}
+          {conversionFailed && (
+            <> · can't convert <strong>{targetUom}</strong> → <strong>{yieldUom}</strong>.
+              {uomGroup(targetUom) === 'volume' && uomGroup(yieldUom) === 'count' && bridgeGal == null
+                ? <> Set "1 {yieldUom} produces ___ gal" on the BOM first.</>
+                : uomGroup(targetUom) === 'count' && uomGroup(yieldUom) === 'count'
+                  ? <> Type the qty in {yieldUom} — no fixed conversion between each and case.</>
+                  : <> Type the qty in {yieldUom}.</>}
+            </>
+          )}
         </div>
       )}
 
@@ -451,8 +513,18 @@ function WorkOrderDetailModal({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, fontSize: 12, marginBottom: 14 }}>
-          <Meta label="BOM" value={bom ? `v${bom.version} · yield ${bom.yield_qty}/batch` : '?'} />
-          <Meta label="Qty (target / actual)" value={`${fmtNum(Number(wo.qty_to_produce))} / ${wo.qty_produced_actual == null ? '—' : fmtNum(Number(wo.qty_produced_actual))}`} />
+          <Meta label="BOM" value={bom ? `v${bom.version} · yield ${fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')}/batch` : '?'} />
+          <Meta label="Qty (target / actual)" value={(() => {
+            const u = bom?.yield_uom || 'each';
+            const stored = `${fmtQty(Number(wo.qty_to_produce), u)} / ${wo.qty_produced_actual == null ? '—' : fmtQty(Number(wo.qty_produced_actual), u)}`;
+            // If the operator typed a different unit at create time, show
+            // both for audit. wo.target_uom is informational; the stored
+            // value is what fn_consume_work_order will multiply.
+            if (wo.target_uom && bom && wo.target_uom !== (bom.yield_uom || 'each')) {
+              return `${stored}  (entered as ${wo.target_uom})`;
+            }
+            return stored;
+          })()} />
           <Meta label="Batches" value={batches > 0 ? batches.toFixed(2) : '—'} />
           <Meta label="Location" value={loc ? `${loc.code} — ${loc.name}` : '?'} />
           <Meta label="Scheduled" value={wo.scheduled_date ?? '—'} />
