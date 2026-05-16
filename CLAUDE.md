@@ -145,6 +145,8 @@ Legacy AP-tool mappings (Service COGS 101, Equipment Sales COGS 42) are the defa
 - **Hard-delete staff records** — set `status='inactive'` instead.
 - **Modify `ops.qbo_token_cache` or `ops.sf_token_cache` directly** — use the lease RPCs / Netlify Blobs.
 - **Add new writers to `ops.*` tables without updating `architecture/sync-manifest.json`.** The lint will fail the build.
+- **Commit build output (`public/expense/`, `public/sales-next/`) via the GitHub MCP `github_create_or_update_file` tool with pre-encoded base64.** The MCP base64-encodes whatever you pass — if you hand it pre-encoded base64, it gets double-encoded and stored as literal text on disk. Netlify then serves base64 text instead of HTML/JS and the SPA never loads. Either (a) run `npm run build --prefix app-expense` locally and commit via normal `git add/commit`, or (b) if you must use the MCP, pass the raw decoded content as a UTF-8 string. PR #61 was a full-day debug of this exact mistake.
+- **Default-schema bug in Supabase Edge Functions.** `createClient(url, key)` defaults the JS data client to schema `public`. All our tables live in `ops`. If you write an edge function that does `sb.from('qbo_invoices').insert(...)`, the insert silently no-ops (PostgREST returns an error, supabase-js doesn't throw). Always pass `{ db: { schema: 'ops' } }` to `createClient`, or use `.schema('ops').from(...)` per query. RPC calls (`.rpc(...)`) are name-based and not affected by this.
 
 ---
 
