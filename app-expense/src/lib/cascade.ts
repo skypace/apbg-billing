@@ -1,4 +1,6 @@
-// Entity → department → COGS cascade rules for the expense + PR forms.
+// Entity → department → COGS cascade rules for the expense form.
+// (PurchaseRequestForm still hardcodes entity = 'brix' and uses a tag-gated
+// department picker; wiring it through this helper is deferred to a follow-up.)
 //
 // The current ops.expense_settings JSON stores `departments` + `cogs_accounts`
 // as flat lists with no association columns, so this file holds the
@@ -25,17 +27,20 @@ export const DEPARTMENT_ENTITIES: Record<string, ReadonlyArray<Entity>> = {
   melt:     ['brix'],           // Melt is the Brix subsidiary
 };
 
-/** Preferred COGS account IDs per department. Best-effort defaults that
- *  surface the most-likely accounts first; the operator can still pick
- *  anything from the rest of the list. Department keys not listed here
- *  get all accounts shown without re-ordering. */
+/** Preferred COGS accounts per department, keyed by label. We use the label
+ *  (not the QBO id) as the join key because the seeded cogs_accounts have
+ *  null ids for everything except Service COGS (101) and Equipment Sales
+ *  COGS (42) — see migrations/20260512p_expense_cleanup.sql. Once the
+ *  remaining buckets get real QBO accounts the labels stay stable, and
+ *  this list keeps working without an update. Labels are matched
+ *  case-sensitively against the seeded values verbatim. */
 export const DEPARTMENT_COGS_PREFERENCES: Record<string, ReadonlyArray<string>> = {
-  delivery: ['54', '92'],                   // Fuel, Travel
-  service:  ['101', '92', '54', '19'],      // Service COGS, Travel, Fuel, Office Supplies
-  reman:    ['42', '19'],                   // Equipment COGS, Office Supplies
-  ops:      ['19', '338', '66'],            // Office Supplies, Working Meals, Building R&M
-  freeflow: ['42', '141', '90'],            // Equipment, New Fountain Installs, Ice Machine Rental
-  melt:     ['42', '141', '90'],
+  delivery: ['Fuel', 'Travel'],
+  service:  ['Service COGS', 'Travel', 'Fuel', 'Office Supplies'],
+  reman:    ['Equipment Sales COGS', 'Office Supplies'],
+  ops:      ['Office Supplies', 'Working Meals', 'Repair & Maintenance — Building'],
+  freeflow: ['Equipment Sales COGS', 'New Fountain Installs COGS', 'Ice Machine Rental COGS'],
+  melt:     ['Equipment Sales COGS', 'New Fountain Installs COGS', 'Ice Machine Rental COGS'],
 };
 
 export function filterDepartmentsByEntity<T extends string>(
@@ -52,18 +57,19 @@ export function filterDepartmentsByEntity<T extends string>(
 }
 
 /** Returns the list of cogs_accounts sorted by preference for the given
- *  department: matching IDs first (in preference order), then the rest in
- *  their original order. Doesn't drop anything. */
-export function sortCogsByDepartment<T extends { id: string }>(
+ *  department: labels listed in `DEPARTMENT_COGS_PREFERENCES` first (in
+ *  preference order), then the rest in their original order. Doesn't
+ *  drop anything. Match is by label, not id — see DEPARTMENT_COGS_PREFERENCES. */
+export function sortCogsByDepartment<T extends { label: string }>(
   cogsAccounts: ReadonlyArray<T>,
   department: string,
 ): T[] {
   const prefs = DEPARTMENT_COGS_PREFERENCES[department];
   if (!prefs || prefs.length === 0) return [...cogsAccounts];
   const preferred = prefs
-    .map((id) => cogsAccounts.find((a) => a.id === id))
+    .map((label) => cogsAccounts.find((a) => a.label === label))
     .filter((a): a is T => a != null);
-  const preferredIds = new Set(preferred.map((a) => a.id));
-  const rest = cogsAccounts.filter((a) => !preferredIds.has(a.id));
+  const preferredLabels = new Set(preferred.map((a) => a.label));
+  const rest = cogsAccounts.filter((a) => !preferredLabels.has(a.label));
   return [...preferred, ...rest];
 }

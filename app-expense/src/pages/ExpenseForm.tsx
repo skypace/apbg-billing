@@ -183,6 +183,19 @@ export default function ExpenseForm() {
     };
   }, [id]);
 
+  // Reconcile department against the entity filter. Fires after the
+  // load-effect sets entity + department from a pre-existing row (those two
+  // setState calls run independently, so a legacy row with entity='brix'
+  // + department='reman' would otherwise leave a stale value in React state
+  // that the dropdown can't display but submit still writes back), and again
+  // any time the operator switches entity. Single source of truth for the
+  // entity → department invariant.
+  useEffect(() => {
+    if (!department || !settings?.departments) return;
+    const visible = filterDepartmentsByEntity(settings.departments, entity);
+    if (!visible.includes(department)) setDepartment('');
+  }, [entity, department, settings?.departments]);
+
   // Pull the "Paid with" account list from QBO once on mount. Bank + Credit
   // Card accounts only — the picker is for receipt-style expenses, not bills.
   useEffect(() => {
@@ -704,19 +717,7 @@ export default function ExpenseForm() {
           <SelectField
             disabled={readOnly}
             value={entity}
-            onChange={(e) => {
-              const next = e.target.value as Entity;
-              setEntity(next);
-              // If the previously-picked department doesn't apply to the
-              // new entity, clear it so the operator notices and re-picks.
-              if (department) {
-                const stillVisible = filterDepartmentsByEntity(
-                  settings?.departments ?? [],
-                  next,
-                ).includes(department);
-                if (!stillVisible) setDepartment('');
-              }
-            }}
+            onChange={(e) => setEntity(e.target.value as Entity)}
             options={[
               { value: 'brix',     label: 'Brix / Alameda Soda' },
               { value: 'freeflow', label: 'FreeFlow Beverage Solutions' },
