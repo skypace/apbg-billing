@@ -374,13 +374,40 @@ export default function ExpenseForm() {
         // Editing an existing draft: UPDATE in place. Previously the form
         // always INSERTed, which silently created a duplicate row every
         // time an operator opened a draft to fix a typo.
+
+        // Guard 1: refuse to UPDATE if the original load never succeeded.
+        // existingStatus is set inside the load effect; if it's still null
+        // here, the operator is staring at a default-state form (entity=
+        // 'brix', empty fields) — pressing Submit would overwrite the real
+        // row with nulls. Pre-PR the same path produced a benign duplicate
+        // INSERT; the new UPDATE branch turns that into data loss.
+        if (!existingStatus) {
+          setErrorMessage(
+            "We couldn't load the original submission, so editing is blocked. Refresh the page to retry, or go back to your dashboard.",
+          );
+          setStep('error');
+          return;
+        }
+
+        // Guard 2: also key the UPDATE on status='draft'. RLS policy
+        // expense_requests_update_self (20260512s) is intentionally
+        // status-blind so the submitter retains row access post-decision,
+        // but we don't want a stale tab to overwrite a row that another
+        // session has already posted to QBO. If the row changed status
+        // since load, .single() returns 0 rows → updateErr → throw.
         const { data: updated, error: updateErr } = await supabase
           .from('expense_requests')
           .update(editableFields)
           .eq('id', id)
+          .eq('status', 'draft')
           .select()
           .single();
-        if (updateErr || !updated) throw new Error(updateErr?.message ?? 'Update failed');
+        if (updateErr || !updated) {
+          throw new Error(
+            updateErr?.message ??
+              "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
+          );
+        }
         req = updated;
       } else {
         const { data: inserted, error: insertErr } = await supabase
@@ -973,9 +1000,19 @@ export default function ExpenseForm() {
       <AlertTriangle className="h-12 w-12 text-destructive" />
       <h2 className="text-lg font-semibold">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
-      <Button variant="outline" onClick={() => setStep('details')}>
-        Try Again
-      </Button>
+      {/* If the load itself failed (edit mode with no existingStatus),
+       *  there's nothing on the form to "try again" — Submit at that point
+       *  would write defaults over the real row. Route back to the
+       *  dashboard so the operator can re-open the draft fresh. */}
+      {isEditing && !existingStatus ? (
+        <Button variant="outline" onClick={() => navigate('/')}>
+          Back to dashboard
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={() => setStep('details')}>
+          Try Again
+        </Button>
+      )}
     </div>
   );
 }
