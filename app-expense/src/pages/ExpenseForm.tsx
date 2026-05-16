@@ -676,20 +676,31 @@ export default function ExpenseForm() {
           attachRowsDeleted = deletedAtts?.length ?? 0;
         } catch (rbErr) { console.warn('Rollback attachment delete failed:', rbErr); }
 
-        if (insertedForRollback.storagePath && attachRowsDeleted > 0) {
+        // Capture the parent row delete result. attachRowsDeleted alone
+        // can't distinguish "RLS denied because notify finalized" (keep
+        // blob — receipt evidence for a posted QBO Purchase) from
+        // "attach INSERT failed earlier, no row ever existed" (clean
+        // the orphan blob — parent is being deleted, evidence has zero
+        // audit value). If the row delete actually removed the parent,
+        // the blob's evidence value is gone either way.
+        let rowDeleted = 0;
+        try {
+          const { data: deletedRows } = await supabase
+            .from('expense_requests')
+            .delete()
+            .eq('id', insertedForRollback.id)
+            .eq('status', 'draft')
+            .select('id');
+          rowDeleted = deletedRows?.length ?? 0;
+        } catch (rbErr) { console.warn('Rollback row delete failed:', rbErr); }
+
+        if (insertedForRollback.storagePath && (attachRowsDeleted > 0 || rowDeleted > 0)) {
           try {
             await supabase.storage
               .from('expense-attachments')
               .remove([insertedForRollback.storagePath]);
           } catch (rbErr) { console.warn('Rollback storage delete failed:', rbErr); }
         }
-        try {
-          await supabase
-            .from('expense_requests')
-            .delete()
-            .eq('id', insertedForRollback.id)
-            .eq('status', 'draft');
-        } catch (rbErr) { console.warn('Rollback row delete failed:', rbErr); }
       }
       setErrorMessage(err.message || 'Something went wrong');
       setStep('error');
