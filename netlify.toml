@@ -53,6 +53,20 @@
 # They MUST appear BEFORE the SPA fallback below, otherwise `/api/expense-*`
 # gets rewritten to /expense/index.html and Marco hits a 404 page when he
 # clicks Approve (which is exactly what happened on PR 80706b57).
+#
+# 2026-05-16: The Brixpense frontend actually fetches `/expense/api/...`
+# (with the `/expense/` prefix) — see app-expense/src/pages/*.tsx. The
+# bare `/api/...` redirects below don't catch those paths, which silently
+# fell through to the SPA fallback and returned 404 (Sky hit this on the
+# notify call when submitting an expense). The wildcard rule below
+# catches both shapes: any `/expense/api/<name>` request gets rewritten
+# to `/.netlify/functions/<name>` via the :splat. Add new functions by
+# name with no extra config needed.
+[[redirects]]
+  from = "/expense/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 [[redirects]]
   from = "/api/expense-request-decide"
   to = "/.netlify/functions/expense-request-decide"
