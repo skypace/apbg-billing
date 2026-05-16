@@ -64,8 +64,13 @@ export default function ExpenseForm() {
   const [managerEmail, setManagerEmail] = useState('');
   // Receipt expenses post as QBO Purchase entries; the submitter picks which
   // QBO account (corp card / bank / petty cash) was used so we can post
-  // against it without needing a QBO Vendor record.
+  // against it without needing a QBO Vendor record. The name + type are
+  // cached on the row so reports / audit reads don't have to round-trip
+  // QBO, and so PaymentType derivation on the notify path has a fallback
+  // when the live QBO Account SELECT 5xx's.
   const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentAccountName, setPaymentAccountName] = useState('');
+  const [paymentAccountType, setPaymentAccountType] = useState('');
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [paymentAccountsError, setPaymentAccountsError] = useState<string | null>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([
@@ -117,6 +122,12 @@ export default function ExpenseForm() {
       setMemo(data.memo || '');
       setManagerEmail(data.manager_email || '');
       setPaymentAccountId(data.payment_account_id || '');
+      // Restore the cached name + type too. Without these, a fast resubmit
+      // of an edited draft (before the paymentAccounts mount-effect resolves)
+      // would write nulls back over them, breaking reporting and the
+      // notify-path PaymentType fallback chain.
+      setPaymentAccountName(data.payment_account_name || '');
+      setPaymentAccountType(data.payment_account_type || '');
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
@@ -312,8 +323,11 @@ export default function ExpenseForm() {
           memo: memo || null,
           manager_email: needsApproval ? managerEmail : null,
           payment_account_id: paymentAccountId,
-          payment_account_name: pickedAcct?.name ?? null,
-          payment_account_type: pickedAcct?.account_type ?? null,
+          // Prefer the freshly-picked account, but fall back to the cached
+          // values from loadExisting so re-submitting an edited draft before
+          // the dropdown list resolves doesn't blank these columns.
+          payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
+          payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
           line_items: nonEmptyLines,
         })
         .select()

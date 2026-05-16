@@ -95,6 +95,11 @@ function paymentTypeFromAccountType(accountType) {
   const t = String(accountType || '').toLowerCase();
   if (t === 'credit card') return 'CreditCard';
   if (t === 'bank') return 'Check';
+  // Return null for empty / unknown so the caller's fallback chain falls
+  // through to the next option instead of being short-circuited by a
+  // truthy 'Cash' default. The 'Cash' classification only makes sense
+  // when an operator-picked AccountType is genuinely "Other" or similar.
+  if (!t) return null;
   return 'Cash';
 }
 
