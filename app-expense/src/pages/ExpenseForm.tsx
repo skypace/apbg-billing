@@ -508,7 +508,13 @@ export default function ExpenseForm() {
           .eq('status', 'draft')
           .select()
           .single();
-        if (!updated) {
+        // Branch on the zero-rows code so the friendly message only fires
+        // for the actual race scenario the guard exists for. Any other
+        // error (JWT expiry, transient 5xx, CHECK constraint) surfaces
+        // its real message — "reload" wouldn't help and would mislead.
+        // Per the supabase-js .single() dual contract, {data,error} are
+        // mutually exclusive: !updated ⇒ updateErr is set.
+        if (updateErr?.code === 'PGRST116' || !updated) {
           throw new Error(
             "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
           );
