@@ -493,13 +493,15 @@ export default function ExpenseForm() {
           .eq('status', 'draft')
           .select()
           .single();
-        // Order matters: when the .eq('status','draft') filter rejects 0
-        // rows, .single() returns a PostgrestError with the cryptic
-        // PGRST116 message "JSON object requested, multiple (or no) rows
-        // returned". `??` doesn't fall through truthy strings, so we must
-        // check !updated FIRST to surface the friendly message in the
-        // exact race scenario this guard exists for.
-        if (!updated) {
+        // Branch on the zero-rows code so the friendly message only fires
+        // for the actual race scenario the .eq('status','draft') filter
+        // is guarding against. Any other failure (JWT expiry, transient
+        // 5xx, future CHECK constraint) surfaces its real message —
+        // "reload" wouldn't help and would mislead. Per supabase-js's
+        // .single() dual contract, {data,error} are mutually exclusive,
+        // so the second throw is reachable exactly when updated is null
+        // for a non-PGRST116 reason.
+        if (updateErr?.code === 'PGRST116' || !updated) {
           throw new Error(
             "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
           );
