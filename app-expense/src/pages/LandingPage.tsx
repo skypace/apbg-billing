@@ -213,11 +213,11 @@ export default function LandingPage() {
                   className="recent-row-body"
                   role="button"
                   tabIndex={0}
-                  onClick={() => navigate(`edit/${req.id}`)}
+                  onClick={() => navigate(req.request_type === 'purchase_request' ? `review/${req.id}` : `edit/${req.id}`)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      navigate(`edit/${req.id}`);
+                      navigate(req.request_type === 'purchase_request' ? `review/${req.id}` : `edit/${req.id}`);
                     }
                   }}
                 >
