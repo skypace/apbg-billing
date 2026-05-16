@@ -107,6 +107,13 @@ export default function ExpenseForm() {
   const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
 
   useEffect(() => {
+    // Abort any in-flight OCR FIRST — before the reset block and before
+    // the !id early-return — so a /new → /edit/X navigation mid-OCR
+    // aborts the stale call. If we only aborted in the trailing cleanup
+    // return, the /new effect's cleanup (which never registered because
+    // !id paths return undefined here) would leave the late OCR free to
+    // overwrite the freshly-loaded draft's state.
+    ocrAbortRef.current?.abort();
     // Reset block ABOVE the `if (!id) return`: both /expense/new and
     // /expense/edit/:id render the same ExpenseForm instance (no `key` on
     // either Route), so the /edit/A → /new transition also reuses state.
@@ -523,12 +530,18 @@ export default function ExpenseForm() {
         // its real message — "reload" wouldn't help and would mislead.
         // Per the supabase-js .single() dual contract, {data,error} are
         // mutually exclusive: !updated ⇒ updateErr is set.
-        if (updateErr?.code === 'PGRST116' || !updated) {
+        // PGRST116 is the only code that maps to "row changed status since
+        // load" — surface the friendly race message for that specifically.
+        // The earlier `|| !updated` shape masked every UPDATE failure
+        // (JWT expiry, transient 5xx, CHECK constraint) because per
+        // .single()'s dual contract !updated implies updateErr is set.
+        if (updateErr?.code === 'PGRST116') {
           throw new Error(
             "Couldn't update this submission — it may have been posted from another tab. Reload and try again.",
           );
         }
         if (updateErr) throw new Error(updateErr.message);
+        if (!updated) throw new Error('Update returned no row');
         req = updated;
       } else {
         const { data: inserted, error: insertErr } = await supabase
@@ -641,18 +654,25 @@ export default function ExpenseForm() {
       setStep('success');
     } catch (err: any) {
       console.error('Submission error:', err);
-      // Roll back the new-flow INSERT (and its storage blob, if any) so a
-      // retry starts from a clean slate instead of duplicating a stuck-
-      // draft row. Best-effort; storage/attachment failures here are
-      // non-fatal — the row delete is the user-visible bit.
+      // Roll back the new-flow INSERT (and its storage blob, if any) so
+      // retry starts clean. Attachment row delete is status-gated by RLS
+      // (expense_attachments_delete requires r.status='draft'), so a
+      // post-notify rollback returns 0 rows — use that as the race
+      // detector. Only remove the storage blob when the attachment row
+      // was actually deleted, since the storage policy is folder-only
+      // and would otherwise destroy receipt evidence for a now-
+      // finalized QBO Purchase.
       if (insertedForRollback) {
+        let attachRowsDeleted = 0;
         try {
-          await supabase
+          const { data: deletedAtts } = await supabase
             .from('expense_request_attachments')
             .delete()
-            .eq('request_id', insertedForRollback.id);
+            .eq('request_id', insertedForRollback.id)
+            .select('id');
+          attachRowsDeleted = deletedAtts?.length ?? 0;
         } catch (rbErr) { console.warn('Rollback attachment delete failed:', rbErr); }
-        if (insertedForRollback.storagePath) {
+        if (insertedForRollback.storagePath && attachRowsDeleted > 0) {
           try {
             await supabase.storage
               .from('expense-attachments')
