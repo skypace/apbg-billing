@@ -18,15 +18,17 @@ import { StockOnHandTab } from './StockOnHandTab';
 import { StockTransfersTab } from './StockTransfersTab';
 import { StockMovementsTab } from './StockMovementsTab';
 import { StockAdjustmentsTab } from './StockAdjustmentsTab';
+import { OpenPOsTab } from '../inventory/OpenPOsTab';
 
-type TabId = 'on_hand' | 'locations' | 'transfers' | 'adjustments' | 'movements';
+type TabId = 'on_hand' | 'locations' | 'purchase_orders' | 'transfers' | 'adjustments' | 'movements';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'on_hand',     label: 'On-Hand'     },
-  { id: 'locations',   label: 'Locations'   },
-  { id: 'transfers',   label: 'Transfers'   },
-  { id: 'adjustments', label: 'Adjustments' },
-  { id: 'movements',   label: 'Movements'   },
+  { id: 'on_hand',         label: 'On-Hand'         },
+  { id: 'locations',       label: 'Locations'       },
+  { id: 'purchase_orders', label: 'Purchase Orders' },
+  { id: 'transfers',       label: 'Transfers'       },
+  { id: 'adjustments',     label: 'Adjustments'     },
+  { id: 'movements',       label: 'Movements'       },
 ];
 
 export interface ItemLookup {
@@ -48,16 +50,11 @@ export function StockPage() {
     fetchOnHand().then(setOnHand).catch(() => setOnHand([]));
     fetchTransfers().then(setTransfers).catch(() => setTransfers([]));
     fetchMovements().then(setMovements).catch(() => setMovements([]));
-    // Items master is the lookup source for item names + costs across tabs.
     fetchInventoryHealth({ lookback: 90 }).then(setItems).catch(() => setItems([]));
   }
   useEffect(reloadAll, []);
 
   const itemLookup: ItemLookup = useMemo(() => {
-    // byId maps every item so the On-Hand / Movements / Transfers tabs can
-    // resolve names for legacy rows even after an item is opted out. The
-    // `options` list (used by the New Transfer picker) only contains items
-    // the operator has flagged track_locations = true.
     const byId = new Map<string, InventoryHealthRow>();
     const options: { id: string; label: string }[] = [];
     for (const it of items ?? []) {
@@ -76,7 +73,7 @@ export function StockPage() {
     return m;
   }, [locations]);
 
-  const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Stock';
+  const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory';
 
   const physicalLocCount = (locations ?? []).filter(
     (l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment',
@@ -86,8 +83,8 @@ export function StockPage() {
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Locations · Transfers · Movement Ledger</div>
-          <h1 className="hero-title">Stock</h1>
+          <div className="hero-eyebrow">On-Hand · Locations · Purchase Orders · Transfers · Movements</div>
+          <h1 className="hero-title">Inventory</h1>
           <div className="hero-meta">
             {activeLabel} · {physicalLocCount} active location{physicalLocCount === 1 ? '' : 's'}
             {transfers ? ` · ${transfers.filter((t) => t.status === 'in_transit').length} in transit` : ''}
@@ -95,7 +92,7 @@ export function StockPage() {
         </div>
         <div className="hero-stamp">
           <span className="status-dot" aria-hidden="true" />
-          Phase 1
+          Operations
         </div>
       </div>
 
@@ -117,6 +114,7 @@ export function StockPage() {
           onChanged={reloadAll}
         />
       )}
+      {tab === 'purchase_orders' && <OpenPOsTab />}
       {tab === 'transfers' && (
         <StockTransfersTab
           transfers={transfers}
