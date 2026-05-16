@@ -4,7 +4,6 @@
 // the expense was paid FROM. No vendor required.
 
 import { qboQuery } from './qbo-helpers.mjs';
-import { requireAuth } from './lib/auth.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -30,13 +29,16 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'GET') return json({ error: 'GET only' }, 405);
 
-  // Auth required. Without it, every active Bank/CreditCard account id, name
-  // and type leaks to the public internet — operators want this for the
-  // form dropdown, not anyone with curl. Matches the pattern every other
-  // expense-* function uses (expense-to-bill, expense-request-decide,
-  // expense-request-link-bill, expense-ocr).
-  const auth = await requireAuth(req);
-  if (!auth.ok) return auth.response;
+  // Bearer-only auth — matches the sibling Brixpense submitter endpoints
+  // (expense-ocr / expense-request-notify / expense-request-decide /
+  // expense-request-link-bill). Any logged-in @brixbev.com user needs the
+  // dropdown to file a receipt; gating on role='superadmin' (the
+  // requireAuth default) would lock out every employee. JWT validity is
+  // verified by Supabase RLS on any expense_requests insert downstream.
+  const authHeader = req.headers.get('authorization') || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return json({ error: 'Unauthorized — Bearer token required' }, 401);
+  }
 
   try {
     // Pull Bank + Credit Card accounts in one shot — only ~10 rows total
