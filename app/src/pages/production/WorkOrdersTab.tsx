@@ -87,14 +87,18 @@ export function WorkOrdersTab({
       renderCell: (p) => {
         const bom = bomById.get(p.row.bom_id);
         const u = bom?.yield_uom || 'each';
-        return <span>{fmtNum(Number(p.value ?? 0))} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
+        // Match the modal Meta + print summary which use fmtQty (2 decimal
+        // places). The grid used to round to 0 — fine when qty_to_produce
+        // was always an integer, but cross-family WOs now persist
+        // fractional values (e.g. 444.44 case for "1000 gal").
+        return <span>{fmtNum(Number(p.value ?? 0), 2)} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
       } },
     { field: 'qty_produced_actual', headerName: 'Actual', type: 'number', width: 110, cellClassName: 'mn',
       renderCell: (p) => {
         if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
         const bom = bomById.get(p.row.bom_id);
         const u = bom?.yield_uom || 'each';
-        return <span>{fmtNum(Number(p.value))} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
+        return <span>{fmtNum(Number(p.value), 2)} <span style={{ color: 'var(--mt)' }}>{u}</span></span>;
       } },
     { field: 'location_label', headerName: 'Location', width: 130 },
     { field: 'scheduled_date', headerName: 'Scheduled', width: 110,
