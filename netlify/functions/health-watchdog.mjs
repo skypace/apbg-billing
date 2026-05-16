@@ -7,6 +7,7 @@ import { requireScheduledOrAuth } from './lib/auth.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sendEmail, APPROVAL_EMAIL } from './email-helpers.mjs';
+import { createClient } from '@supabase/supabase-js';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -97,6 +98,88 @@ async function checkSyncFreshness() {
       return { status: 'error', detail: `Last sync was ${ageMin} minutes ago (threshold: 15 min)` };
     }
     return { status: 'ok', detail: `Last sync ${ageMin} min ago` };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
+// ── Per-source freshness from ops.sync_log ──────────────────────────────
+//
+// Why this exists: the legacy `checkSyncFreshness` only watches the
+// ResQ↔SF blob. Every other sync (sync-qbo invoice/lines, sync-qbo-items,
+// sync-qbo-customers, sync-qbo-expenses, sync-sf, sync-fleetcomplete) is
+// invisible to it. We learned this the hard way on 2026-05-14 — sync-qbo
+// had been silently writing zero rows for 19 days because the edge
+// function was defaulting to the `public` schema while every table lives
+// in `ops`. The function returned HTTP 200, pg_cron logged "succeeded,"
+// no alert ever fired, and Margin showed stale data without anyone
+// noticing.
+//
+// This check reads max(completed_at) per (source, sync_type) from
+// ops.sync_log directly and compares to a per-source SLA. Any source
+// older than its threshold gets surfaced as a row in the watchdog email.
+const SYNC_SLA = {
+  // expected nightly + every 3 min backfill; data should be < 1 day old
+  'qbo:invoices':           { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo header upserts' },
+  'qbo:lines_backfill':     { maxAgeMs: 30 * 60 * 1000,      label: 'sync-qbo line backfill (every 3 min)' },
+  'qbo:pl_snapshots':       { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo P&L snapshots (nightly)' },
+  // SF jobs incremental: every 30 min
+  'sf:jobs':                { maxAgeMs: 90 * 60 * 1000,      label: 'sync-sf jobs (every 30 min)' },
+};
+
+async function checkOpsSyncFreshness() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read ops.sync_log' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    // Pull the most recent completed_at per (source, sync_type) where status=success.
+    const { data, error } = await sb
+      .from('sync_log')
+      .select('source, sync_type, completed_at, records_synced')
+      .eq('status', 'success')
+      .order('completed_at', { ascending: false })
+      .limit(1000);
+    if (error) {
+      return { status: 'error', detail: 'sync_log read failed: ' + error.message };
+    }
+
+    // Reduce to one row per (source, sync_type) — latest only.
+    const latestByKey = new Map();
+    for (const r of (data || [])) {
+      const k = r.source + ':' + r.sync_type;
+      if (!latestByKey.has(k)) latestByKey.set(k, r);
+    }
+
+    const now = Date.now();
+    const rows = [];
+    let worst = 'ok';
+    for (const [key, sla] of Object.entries(SYNC_SLA)) {
+      const r = latestByKey.get(key);
+      if (!r) {
+        rows.push({ key, status: 'error', detail: sla.label + ' — no success entry on file' });
+        worst = 'error';
+        continue;
+      }
+      const age = now - new Date(r.completed_at).getTime();
+      const ageMin = Math.round(age / 60000);
+      const ageHr  = Math.round(age / 3600000);
+      const friendly = age > 24 * 3600 * 1000 ? `${ageHr}h` : `${ageMin}m`;
+      if (age > sla.maxAgeMs) {
+        rows.push({ key, status: 'error', detail: `${sla.label} — last success ${friendly} ago (SLA: ${Math.round(sla.maxAgeMs / 60000)}m)` });
+        worst = 'error';
+      } else {
+        rows.push({ key, status: 'ok', detail: `${sla.label} — ${friendly} ago` });
+      }
+    }
+
+    return {
+      status: worst,
+      detail: rows.filter(r => r.status === 'error').map(r => r.detail).join(' | ') || 'All ops.sync_log entries within SLA',
+      rows,
+    };
   } catch (e) {
     return { status: 'error', detail: e.message };
   }
@@ -324,11 +407,12 @@ export default async function handler(req, context) {
   console.log(`[health-watchdog] Starting checks at ${timestamp}`);
 
   // Run all checks concurrently (ResQ schema depends on ResQ login)
-  const [qbo, sf, resq, syncFreshness] = await Promise.all([
+  const [qbo, sf, resq, syncFreshness, opsSyncFreshness] = await Promise.all([
     checkQBO(),
     checkSF(),
     checkResQ(),
     checkSyncFreshness(),
+    checkOpsSyncFreshness(),
   ]);
 
   // Schema check uses the ResQ session from the login check
@@ -341,7 +425,8 @@ export default async function handler(req, context) {
     qbo,
     serviceFusion: sf,
     resq: resqClean,
-    syncFreshness,
+    syncFreshness,           // resq-sf blob (legacy)
+    opsSyncFreshness,        // per-source SLA on ops.sync_log
     resqSchema,
   };
 
