@@ -377,6 +377,10 @@ export default function ExpenseForm() {
         if (insertErr || !inserted) throw new Error(insertErr?.message ?? 'Insert failed');
         req = inserted;
       }
+      // Both branches throw on failure, so req is guaranteed non-null
+      // here — but TS can't narrow across the let-init-then-assign-in-
+      // branches pattern. Explicit guard.
+      if (!req) throw new Error('Save failed');
 
       if (receiptFile) {
         const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;
