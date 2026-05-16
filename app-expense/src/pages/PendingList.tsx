@@ -80,7 +80,7 @@ export default function PendingList() {
             <Card
               key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate((req.request_type === 'purchase_request' || req.status === 'denied') ? `/expense/review/${req.id}` : `/expense/edit/${req.id}`)}
+              onClick={() => navigate(req.request_type === 'purchase_request' ? `/expense/review/${req.id}` : `/expense/edit/${req.id}`)}
             >
               <CardContent className="flex items-center gap-3 p-3">
                 <div className="flex-1 min-w-0">
