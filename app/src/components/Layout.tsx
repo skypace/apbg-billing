@@ -12,18 +12,28 @@ import { AlamedaMark, BrixMark } from './BrixMark';
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
 // Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
+//
+// Inventory naming (per operator request 2026-05):
+//   - "Inventory" (route #stock) = operational view: on-hand, locations,
+//     purchase orders, transfers, adjustments, movements. The view that
+//     answers "where is it and what's coming in."
+//   - "Inventory Planning" (route #inventory) = analytics view: reorder,
+//     velocity, velocity excludes. The view that answers "what to buy
+//     and when."
+// Route hashes are unchanged so deep links keep working — only labels
+// were swapped.
 const NAV: NavItem[] = [
-  { id: 'overview',   label: 'Overview',   icon: LayoutDashboard   },
-  { id: 'margin',     label: 'Margin',     icon: TrendingUp        },
-  { id: 'operations', label: 'Operations', icon: Activity          },
-  { id: 'customers',  label: 'Customers',  icon: Users             },
-  { id: 'reports',    label: 'Reports',    icon: FileText          },
-  { id: 'plans',      label: 'Plans',      icon: CalendarRange     },
-  { id: 'compare',    label: 'Compare',    icon: GitCompareArrows  },
-  { id: 'inventory',  label: 'Inventory',  icon: Package           },
-  { id: 'stock',      label: 'Stock',      icon: Warehouse         },
-  { id: 'production', label: 'Production', icon: Factory           },
-  { id: 'settings',   label: 'Settings',   icon: SettingsIcon      },
+  { id: 'overview',   label: 'Overview',          icon: LayoutDashboard   },
+  { id: 'margin',     label: 'Margin',            icon: TrendingUp        },
+  { id: 'operations', label: 'Operations',        icon: Activity          },
+  { id: 'customers',  label: 'Customers',         icon: Users             },
+  { id: 'reports',    label: 'Reports',           icon: FileText          },
+  { id: 'plans',      label: 'Plans',             icon: CalendarRange     },
+  { id: 'compare',    label: 'Compare',           icon: GitCompareArrows  },
+  { id: 'stock',      label: 'Inventory',         icon: Warehouse         },
+  { id: 'inventory',  label: 'Inventory Planning', icon: Package          },
+  { id: 'production', label: 'Production',        icon: Factory           },
+  { id: 'settings',   label: 'Settings',          icon: SettingsIcon      },
 ];
 
 // Interactive user guide — markdown source at docs/margin-control/user-guide.md,
