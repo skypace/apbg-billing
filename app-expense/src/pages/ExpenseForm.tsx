@@ -213,11 +213,13 @@ export default function ExpenseForm() {
           if (cancelled) return;
           isPurchaseRequest = probe?.request_type === 'purchase_request';
         }
+        const friendlyDefault = "We couldn't load that submission. It may have been deleted, or you don't have access.";
         setErrorMessage(
           isPurchaseRequest
             ? "That submission is a purchase request and isn't editable here. Open it from your dashboard to view its status."
-            : (error?.message ||
-                "We couldn't load that submission. It may have been deleted, or you don't have access."),
+            : (error?.code === 'PGRST116'
+                ? friendlyDefault
+                : (error?.message || friendlyDefault)),
         );
         setStep('error');
         setLoadingExisting(false);
@@ -899,6 +901,26 @@ export default function ExpenseForm() {
   if (step === 'details') {
     return (
       <div className="space-y-4 pb-36">
+        {/* Hidden file inputs rendered in the details step too so the
+            preview's "Replace receipt" button can trigger them. The
+            upload step has its own copy; the active step is the only
+            one mounted at a time. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={onFileInput}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,.pdf"
+          className="hidden"
+          onChange={onFileInput}
+        />
+
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
@@ -936,6 +958,17 @@ export default function ExpenseForm() {
                 <Receipt className="h-4 w-4 shrink-0" />
                 <span className="truncate">{receiptDownloadName ?? 'Open receipt'}</span>
               </a>
+            )}
+            {!readOnly && (
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                className="absolute bottom-2 right-2 h-7 px-2 text-xs"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="h-3.5 w-3.5 mr-1" /> Replace receipt
+              </Button>
             )}
             {!readOnly && (
               <Button
@@ -1327,7 +1360,21 @@ export default function ExpenseForm() {
           <Button variant="outline" onClick={() => navigate('/')}>
             Home
           </Button>
-          <Button onClick={() => navigate('new')}>
+          <Button onClick={() => {
+            // navigate('new') alone is a no-op on /new → /new (id stays
+            // undefined so useEffect[id] doesn't refire). Reset the
+            // submission state directly so the form lands on a clean
+            // upload step regardless of the previous URL.
+            setStep('upload');
+            setReceiptFile(null);
+            setReceiptPreview(null);
+            setReceiptDownloadUrl(null);
+            setReceiptDownloadName(null);
+            setMarginMatch(null);
+            setResultMessage('');
+            setErrorMessage('');
+            navigate('new');
+          }}>
             Submit Another
           </Button>
         </div>
