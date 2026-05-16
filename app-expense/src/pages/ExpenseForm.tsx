@@ -500,19 +500,26 @@ export default function ExpenseForm() {
       // from the row delete (the user-visible bit) and warn-only on
       // storage (a stranded object can be garbage-collected later).
       if (pendingAttachmentDelete && originalAttachment) {
-        const { error: storageErr } = await supabase.storage
-          .from('expense-attachments')
-          .remove([originalAttachment.path]);
-        if (storageErr) {
-          // eslint-disable-next-line no-console
-          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
-        }
+        // Row delete BEFORE storage delete: the worst case if the storage
+        // call fails afterwards is an orphan blob with no row pointer,
+        // which is invisible to the load effect and garbage-collectable
+        // later. The opposite order would leave a row pointing at a
+        // missing blob, and the load effect would happily sign the path
+        // (createSignedUrl doesn't verify existence) → broken preview
+        // on next /edit load.
         const { error: rowErr } = await supabase
           .from('expense_request_attachments')
           .delete()
           .eq('id', originalAttachment.id);
         if (rowErr) {
           throw new Error('Could not delete attachment: ' + rowErr.message);
+        }
+        const { error: storageErr } = await supabase.storage
+          .from('expense-attachments')
+          .remove([originalAttachment.path]);
+        if (storageErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Receipt storage delete failed (non-fatal):', storageErr.message);
         }
         setOriginalAttachment(null);
         setPendingAttachmentDelete(false);
