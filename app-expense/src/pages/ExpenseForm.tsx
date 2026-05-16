@@ -14,7 +14,8 @@ import { Badge } from '@/components/ui/badge';
 import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { getAccessToken, supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
-import type { LineItem, PaymentAccount } from '@/types/expense';
+import { filterDepartmentsByEntity, sortCogsByDepartment } from '@/lib/cascade';
+import type { Entity, LineItem, PaymentAccount } from '@/types/expense';
 
 type FormStep = 'upload' | 'details' | 'submitting' | 'success' | 'error';
 
@@ -64,7 +65,7 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [entity, setEntity] = useState('brix');
+  const [entity, setEntity] = useState<Entity>('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -124,7 +125,7 @@ export default function ExpenseForm() {
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
-      setEntity(data.entity || 'brix');
+      setEntity((data.entity as Entity) || 'brix');
       setCogsAccountLabel(data.cogs_account_label || '');
       setCogsAccountId(data.cogs_account_id || '');
       setTag(data.tag || '');
@@ -693,6 +694,52 @@ export default function ExpenseForm() {
           </div>
         )}
 
+        {/* Entity → Department → COGS cascade. Picking the entity narrows
+         *  the visible departments (per CLAUDE.md business rules) and the
+         *  department reorders the COGS list so the most-likely accounts
+         *  surface first (without dropping the rest — operator can still
+         *  pick anything). */}
+        <div>
+          <Label>Entity</Label>
+          <SelectField
+            disabled={readOnly}
+            value={entity}
+            onChange={(e) => {
+              const next = e.target.value as Entity;
+              setEntity(next);
+              // If the previously-picked department doesn't apply to the
+              // new entity, clear it so the operator notices and re-picks.
+              if (department) {
+                const stillVisible = filterDepartmentsByEntity(
+                  settings?.departments ?? [],
+                  next,
+                ).includes(department);
+                if (!stillVisible) setDepartment('');
+              }
+            }}
+            options={[
+              { value: 'brix',     label: 'Brix / Alameda Soda' },
+              { value: 'freeflow', label: 'FreeFlow Beverage Solutions' },
+              { value: 'shared',   label: 'Shared (both entities)' },
+            ]}
+          />
+        </div>
+
+        <div>
+          <Label>Department</Label>
+          <SelectField
+            disabled={readOnly}
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            placeholder="Select department"
+            options={[
+              { value: '', label: '—' },
+              ...filterDepartmentsByEntity(settings?.departments ?? [], entity)
+                .map((d) => ({ value: d, label: d })),
+            ]}
+          />
+        </div>
+
         <div>
           <Label>COGS / Expense Account</Label>
           <SelectField
@@ -700,7 +747,10 @@ export default function ExpenseForm() {
             value={cogsAccountLabel}
             onChange={(e) => handleCogsChange(e.target.value)}
             placeholder="Select account"
-            options={(settings?.cogs_accounts ?? []).map((a) => ({
+            options={sortCogsByDepartment(
+              settings?.cogs_accounts ?? [],
+              department,
+            ).map((a) => ({
               value: a.label,
               label: a.label,
             }))}
@@ -745,22 +795,6 @@ export default function ExpenseForm() {
             ]}
           />
         </div>
-
-        {tag && (
-          <div>
-            <Label>Department</Label>
-            <SelectField
-              disabled={readOnly}
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="Select department"
-              options={(settings?.departments ?? []).map((d) => ({
-                value: d,
-                label: d,
-              }))}
-            />
-          </div>
-        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
