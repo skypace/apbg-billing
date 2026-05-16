@@ -117,6 +117,15 @@ export default function ExpenseForm() {
     setReceiptDownloadName(null);
     setReceiptFile(null);
     setExistingStatus(null);
+    // Also reset the load + OCR state flags. loadingExisting is the
+    // critical one: /edit/A → /new/edit/B while A's SELECT is in flight
+    // leaves the cancelled IIFE unable to flip it false → permanent
+    // spinner. OCR banner state was leaking the previous submission's
+    // model/error attribution across navigations.
+    setLoadingExisting(false);
+    setOcrModel(null);
+    setOcrError(null);
+    setOcrLoading(false);
     setVendorName('');
     setTotalAmount('');
     setReceiptDate(new Date().toISOString().slice(0, 10));
