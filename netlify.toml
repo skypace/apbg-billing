@@ -95,6 +95,16 @@
   to = "/api/:splat"
   status = 200
 
+# Brixpense user-guide viewer. Must come BEFORE the /expense/* SPA fallback
+# below — otherwise React Router would swallow it. The viewer lives at
+# /docs/brixpense/index.html (alongside the Margin viewer) and fetches its
+# markdown from ./user-guide.md at runtime; copied from docs/brixpense/ at
+# build time by the `cp -r docs/. public/docs/` step in [build].command.
+[[redirects]]
+  from = "/expense/docs/*"
+  to = "/docs/:splat"
+  status = 200
+
 # ── Expense app: SPA fallback ──
 # Any /expense/* path that doesn't match a static file or the rules above
 # rewrites to the SPA's index.html so React Router can handle deep links.

@@ -223,21 +223,21 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [activeModifiers]);
 
-  // Clicking a rollup chip EXCLUDES that chain's revenue from totals (e.g.
-  // "show me what the numbers look like without Melt"). Customers /
-  // categories / items resolved by fn_preview_rollup_match get pushed into
-  // the exclude_* filter slots that fn_sales_pivot + fn_sales_totals read.
+  // Clicking a rollup chip EXCLUDES that bucket from totals. Chips are
+  // FLAT: each one targets a single dimension (chain rollups carry only
+  // customers; category rollups carry only categories). Stacking chips
+  // unions their exclusions. See chainModifiers.ts for the chip catalog.
   const effectiveFilters = useMemo(() => {
     const next: SalesFilters = { ...filters };
-    const excludeMap = {
+    const map = {
       customers:  'exclude_customers' as const,
       categories: 'exclude_categories' as const,
       items:      'exclude_items' as const,
     };
-    for (const src of Object.keys(excludeMap) as Array<keyof typeof excludeMap>) {
+    for (const src of Object.keys(map) as Array<keyof typeof map>) {
       const exp = expandedRollup.filters[src];
       if (!exp || exp.length === 0) continue;
-      const dst = excludeMap[src];
+      const dst = map[src];
       const cur = (next[dst] as string[] | null | undefined) ?? [];
       next[dst] = Array.from(new Set([...cur, ...exp]));
     }

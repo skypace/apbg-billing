@@ -16,32 +16,65 @@ export interface ChainModifier {
 }
 
 // ─────────── Defaults (shipped baseline) ───────────
+//
+// Rollups are flat exclusion chips: each chip removes either CUSTOMERS or
+// CATEGORIES (never both). The previous "MTE = Melt customers AND E&S
+// categories" intersection model worked for include-narrowing but on
+// exclusion it wiped the entire grid (customer NOT in Melt OR category
+// NOT in E&S can't be expressed as independent NOT-IN lists).
+//
+// Chips are stackable — click MT + SODA to see totals without Melt
+// customers AND without soda categories. The settings localStorage key
+// was bumped to chainModifiersV2 on 2026-05-17 so the new defaults apply.
 
 const MELT     = 'THE MELT';
 const STARBIRD = 'STARBIRD';
-const ES_CATEGORIES   = ['Equipment', 'Service'];
-const SODA_CATEGORIES = ['BIB', 'Cans', 'Fountain', 'Gas'];
+
+const SODA_REVENUE_LINES = [
+  'BIB - 3 Gallon',
+  'BIB - 5 Gallon',
+  'BIB - Delivery Fees',
+  'Packaged Beverage',
+];
+const ES_REVENUE_LINES = [
+  'Equipment Sales',
+  'Equipment Rental',
+  'Tank Rental',
+  'Subleased Space',
+  'Service - General',
+  'Service - PM Contract',
+  'Service - Reman',
+  'Service - Freshpet',
+];
+const GAS_REVENUE_LINES = [
+  'Gas - CO2',
+  'Gas - Mixed/Nitro',
+  'Gas - Hazmat Fees',
+];
 
 export const DEFAULT_CHAIN_MODIFIERS: ChainModifier[] = [
-  { code: 'CHE', label: 'Chain E&S',     full: 'Chain Equipment & Service Sales',
-    filters: { customers: [MELT, STARBIRD], categories: ES_CATEGORIES }, group: 'equipment' },
-  { code: 'CHS', label: 'Chain Soda',    full: 'Chain Soda Sales',
-    filters: { customers: [MELT, STARBIRD], categories: SODA_CATEGORIES }, group: 'soda' },
-  { code: 'MTE', label: 'Melt E&S',      full: 'Melt Equipment & Service Sales',
-    filters: { customers: [MELT], categories: ES_CATEGORIES }, parent: 'CHE', group: 'equipment' },
-  { code: 'MTS', label: 'Melt Soda',     full: 'Melt Soda Sales',
-    filters: { customers: [MELT], categories: SODA_CATEGORIES }, parent: 'CHS', group: 'soda' },
-  { code: 'SBE', label: 'Starbird E&S',  full: 'Starbird Equipment & Service Sales',
-    filters: { customers: [STARBIRD], categories: ES_CATEGORIES }, parent: 'CHE', group: 'equipment' },
-  { code: 'SBS', label: 'Starbird Soda', full: 'Starbird Soda Sales',
-    filters: { customers: [STARBIRD], categories: SODA_CATEGORIES }, parent: 'CHS', group: 'soda' },
+  // Chain rollups — exclude customers whose name contains the chain pattern
+  { code: 'MT', label: 'Melt',     full: 'The Melt (all locations)',
+    filters: { customers: [MELT] }, group: 'equipment' },
+  { code: 'SB', label: 'Starbird', full: 'Starbird (all locations)',
+    filters: { customers: [STARBIRD] }, group: 'equipment' },
+  { code: 'CH', label: 'Chains',   full: 'All chain customers (Melt + Starbird)',
+    filters: { customers: [MELT, STARBIRD] }, group: 'equipment' },
+
+  // Category rollups — exclude entire revenue-line groups
+  { code: 'SODA', label: 'Soda',                  full: '3 Gallon + 5 Gallon + Packaged Beverage',
+    filters: { categories: SODA_REVENUE_LINES }, group: 'soda' },
+  { code: 'ES',   label: 'Equipment & Service',   full: 'All Equipment and Service revenue',
+    filters: { categories: ES_REVENUE_LINES }, group: 'equipment' },
+  { code: 'GAS',  label: 'Gas',                   full: 'CO2, Mixed/Nitro, Hazmat fees',
+    filters: { categories: GAS_REVENUE_LINES }, group: 'soda' },
 ];
 
 export const DEFAULT_ENTITY_AUTO_FILTERS: Record<string, Partial<SalesFilters>> = {
-  AS:       { categories: SODA_CATEGORIES },
+  AS:       { categories: SODA_REVENUE_LINES },
   freeflow: { customers:  ['FREEFLOW CUSTOMER', 'FRESHPET CUSTOMER'] },
   FF:       { customers:  ['FREEFLOW CUSTOMER', 'FRESHPET CUSTOMER'] },
-  brix:     { categories: ['Service', 'Equipment Rental'] },
+  brix:     { categories: ES_REVENUE_LINES },
 };
 
 // ─────────── Runtime getters/setters (localStorage-backed) ───────────
