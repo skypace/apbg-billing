@@ -223,13 +223,23 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [activeModifiers]);
 
+  // Clicking a rollup chip EXCLUDES that chain's revenue from totals (e.g.
+  // "show me what the numbers look like without Melt"). Customers /
+  // categories / items resolved by fn_preview_rollup_match get pushed into
+  // the exclude_* filter slots that fn_sales_pivot + fn_sales_totals read.
   const effectiveFilters = useMemo(() => {
     const next: SalesFilters = { ...filters };
-    for (const k of ['customers', 'categories', 'items', 'channels', 'segments'] as const) {
-      const exp = expandedRollup.filters[k];
+    const excludeMap = {
+      customers:  'exclude_customers' as const,
+      categories: 'exclude_categories' as const,
+      items:      'exclude_items' as const,
+    };
+    for (const src of Object.keys(excludeMap) as Array<keyof typeof excludeMap>) {
+      const exp = expandedRollup.filters[src];
       if (!exp || exp.length === 0) continue;
-      const cur = (next[k] as string[] | null | undefined) ?? [];
-      next[k] = Array.from(new Set([...cur, ...exp]));
+      const dst = excludeMap[src];
+      const cur = (next[dst] as string[] | null | undefined) ?? [];
+      next[dst] = Array.from(new Set([...cur, ...exp]));
     }
     return next;
   }, [filters, expandedRollup]);
@@ -635,7 +645,7 @@ export function MarginPage() {
               {enrichmentLoading ? ' · loading column data…' : ''}
               {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
               {expandedRollup.perRollup.length > 0 && (
-                ' · rollup: ' + expandedRollup.perRollup.map((r) =>
+                ' · excluding: ' + expandedRollup.perRollup.map((r) =>
                   r.code + ' (' + r.matched_customers + 'c · ' + r.matched_items + 'i)'
                 ).join(' + ')
               )}
