@@ -43,7 +43,7 @@ export function LoginPage() {
           </div>
           <div className="login-brand-sub">
             <span className="status-dot" aria-hidden="true" />
-            Margin Control
+            Margin &amp; Product Control
           </div>
           <div className="login-tagline">
             Real-time margin, cost coverage, and customer health.
