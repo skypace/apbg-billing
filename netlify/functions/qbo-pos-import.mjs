@@ -1,7 +1,8 @@
-// /api/qbo-pos-import — accept a list of QBO PO ids and upsert them + their
-// lines into the shadow tables. Triggered by the operator clicking
-// "Import N selected" on the picker modal. Re-running on the same ids
-// refreshes the snapshot (line items, total, status) from QBO.
+// /.netlify/functions/qbo-pos-import — accept a list of QBO PO ids and
+// upsert them + their lines into the shadow tables. Triggered by the
+// operator clicking "Import N selected" on the picker modal. Re-running
+// on the same ids refreshes the snapshot (line items, total, status)
+// from QBO.
 
 import { createClient } from '@supabase/supabase-js';
 import { qboQuery } from './qbo-helpers.mjs';
@@ -141,5 +142,3 @@ export default async function handler(req) {
     details: { imported, skipped, missing },
   });
 }
-
-export const config = { path: '/api/qbo-pos-import' };

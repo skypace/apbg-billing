@@ -49,48 +49,36 @@
   timeout = 60
 
 # ── BRIXpense API → underlying functions ──
-# These map the frontend's POST URLs to the actual function names.
-# They MUST appear BEFORE the SPA fallback below, otherwise `/api/expense-*`
-# gets rewritten to /expense/index.html and Marco hits a 404 page when he
-# clicks Approve (which is exactly what happened on PR 80706b57).
 #
-# 2026-05-16: The Brixpense frontend actually fetches `/expense/api/...`
-# (with the `/expense/` prefix) — see app-expense/src/pages/*.tsx. The
-# bare `/api/...` redirects below don't catch those paths, which silently
-# fell through to the SPA fallback and returned 404 (Sky hit this on the
-# notify call when submitting an expense). The wildcard rule below
-# catches both shapes: any `/expense/api/<name>` request gets rewritten
-# to the function's REAL path (`/api/<name>`), which the function
-# registers via `export const config = { path: '/api/<name>' }` (Netlify
-# v2 functions). NOTE: with `config.path` set, the legacy
-# `/.netlify/functions/<name>` URL does NOT also work — the function is
-# only at the configured path. Rewriting to /.netlify/functions/ here
-# was the bug that caused PR-approval 404s on 2026-05-16; rewriting to
-# /api/:splat hits the real path.
-[[redirects]]
-  from = "/expense/api/*"
-  to = "/api/:splat"
-  status = 200
+# The Brixpense expense-* functions are all Netlify v2 ESM functions that
+# register themselves at `/api/<name>` via `export const config = { path: ... }`.
+# Per Netlify docs: when config.path is set, the function is available ONLY at
+# that path — the legacy `/.netlify/functions/<name>` URL does NOT also work.
+# (Cowork rediscovered the same constraint and dropped config.path on
+# qbo-pos-preview in commit e44584d — see that commit's message.)
+#
+# The Brixpense SPA's basename is `/expense`, so its fetch() calls go to
+# `/expense/api/<name>`. The wildcard below rewrites those to the function's
+# real path (`/api/<name>`).
+#
+# IMPORTANT: do NOT add bare `/api/expense-*` → `/.netlify/functions/<name>`
+# rules. Those would PREEMPT the function (because /api/<name> is also the
+# function's real path) and rewrite to a dead route. Traffic that already
+# arrives at /api/<name> (e.g. from the gateway which strips the /expense/
+# prefix) lands on the function directly with no rewrite needed.
+#
+# qbo-pos-preview + qbo-pos-import are different — they don't use config.path,
+# so they ARE at /.netlify/functions/<name>. Explicit rules cover both shapes
+# below (must be BEFORE the wildcard so the wildcard doesn't snatch them).
 
+# qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
-  from = "/api/expense-request-decide"
-  to = "/.netlify/functions/expense-request-decide"
+  from = "/expense/api/qbo-pos-preview"
+  to = "/.netlify/functions/qbo-pos-preview"
   status = 200
 [[redirects]]
-  from = "/api/expense-request-notify"
-  to = "/.netlify/functions/expense-request-notify"
-  status = 200
-[[redirects]]
-  from = "/api/expense-request-link-bill"
-  to = "/.netlify/functions/expense-request-link-bill"
-  status = 200
-[[redirects]]
-  from = "/api/expense-ocr"
-  to = "/.netlify/functions/expense-ocr"
-  status = 200
-[[redirects]]
-  from = "/api/expense-payment-accounts"
-  to = "/.netlify/functions/expense-payment-accounts"
+  from = "/expense/api/qbo-pos-import"
+  to = "/.netlify/functions/qbo-pos-import"
   status = 200
 [[redirects]]
   from = "/api/qbo-pos-preview"
@@ -101,8 +89,15 @@
   to = "/.netlify/functions/qbo-pos-import"
   status = 200
 
+# Brixpense expense-* — wildcard to the real function path (/api/<name>)
+[[redirects]]
+  from = "/expense/api/*"
+  to = "/api/:splat"
+  status = 200
+
 # ── Expense app: SPA fallback ──
-# Any /expense/* path that doesn't match a static file → serve the expense SPA
+# Any /expense/* path that doesn't match a static file or the rules above
+# rewrites to the SPA's index.html so React Router can handle deep links.
 [[redirects]]
   from = "/expense/*"
   to = "/expense/index.html"

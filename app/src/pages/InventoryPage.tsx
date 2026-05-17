@@ -14,6 +14,12 @@ import {
   fetchVelocityExcludes, removeVelocityExclude,
 } from '../lib/inventory';
 
+// "Inventory Planning" — analytics + buying companion to the operational
+// "Inventory" page (formerly Stock). Operator mental model:
+//   - Inventory          = where is it? what's coming? — operational
+//   - Inventory Planning = what should we buy? how fast does it move? — analytics
+// Purchase Orders tab lives on the operational page now.
+
 type TabId = 'reorder' | 'velocity' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -148,16 +154,17 @@ export function InventoryPage() {
   }
   useEffect(load, [lookback, managedOnly]);
 
-  const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory';
+  const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory Planning';
 
   return (
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Reorder · Velocity · Health</div>
-          <h1 className="hero-title">Inventory</h1>
+          <div className="hero-eyebrow">Reorder · Velocity · Health · Buying Signals</div>
+          <h1 className="hero-title">Inventory Planning</h1>
           <div className="hero-meta">
-            {tabLabel} · {lookback}-day lookback{managedOnly ? ' · managed only' : ''}
+            {tabLabel}
+            {tab !== 'excludes' && ` · ${lookback}-day lookback${managedOnly ? ' · managed only' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
@@ -270,10 +277,6 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     downloadCsv(`reorder_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
   }
 
-  // Push the visible reorder list into sessionStorage as a PO prefill,
-  // then navigate to the Production page → Purchase Orders tab. The PO
-  // module reads the key on mount, opens its Create form, and seeds
-  // lines with item + suggested qty + last known unit cost.
   function createPoFromReorder() {
     const candidates = (filtered.length > 0 ? filtered : reorder).filter(
       (r) => r.active && r.suggested_order_qty != null && Number(r.suggested_order_qty) > 0,

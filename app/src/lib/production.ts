@@ -7,6 +7,10 @@ export interface ProductBom {
   id: string;
   finished_qbo_item_id: string;
   version: string;
+  /** Friendly operator-assigned label. Lets you save multiple named
+   *  recipes per finished SKU (e.g., "Cola — 1000 gal batch"). Falls back
+   *  to "Version N" when null. */
+  name: string | null;
   effective_date: string | null;
   yield_qty: number;
   yield_uom: string;
@@ -129,6 +133,7 @@ export async function createBom(args: {
   finished_vol_per_yield_gal?: number | null;
   lines: BomLineInput[];
   version?: string;
+  name?: string | null;
   effective_date?: string | null;
   notes?: string | null;
 }): Promise<string> {
@@ -141,6 +146,7 @@ export async function createBom(args: {
     p_version: args.version ?? '1',
     p_effective_date: args.effective_date ?? null,
     p_notes: args.notes ?? null,
+    p_name: args.name ?? null,
   });
 }
 
