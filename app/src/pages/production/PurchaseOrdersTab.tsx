@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, RefreshCw, Truck, CheckCircle2, Download } from 'lucide-react';
-import { QboPosPickerModal } from './QboPosPickerModal';
+import { Plus, X as XIcon, Truck, CheckCircle2 } from 'lucide-react';
 import {
   PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
   closePurchaseOrder, createPurchaseOrder, fetchPoLines,
-  pullQboVendorsNow, pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder,
+  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder,
 } from '../../lib/purchasing';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
@@ -13,6 +12,7 @@ import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
+import { OpenPOsTab } from '../inventory/OpenPOsTab';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -60,17 +60,12 @@ function readPrefill(): PoPrefillState | null {
 export function PurchaseOrdersTab({
   vendors, purchaseOrders, locations, locById, itemLookup, onChanged,
 }: Props) {
-  const toast = useToast();
   // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
   // open the Create form on mount and seed its lines.
   const [prefill] = useState<PoPrefillState | null>(() => readPrefill());
   const [creating, setCreating] = useState(prefill !== null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
-  const [syncing, setSyncing] = useState(false);
-  // Modal for importing QBO-direct POs into the shadow tables so the
-  // inventory On Order column reflects POs that were never created in BRIX.
-  const [pullingQboPos, setPullingQboPos] = useState(false);
 
   // One-shot: clear sessionStorage so refreshing doesn't keep opening the form.
   useEffect(() => {
@@ -146,20 +141,30 @@ export function PurchaseOrdersTab({
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
   ], []);
 
-  async function doSyncVendors() {
-    setSyncing(true);
-    try {
-      const r = await pullQboVendorsNow();
-      toast.success('Synced ' + r.vendors_synced + ' vendors from QBO');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setSyncing(false); }
-  }
-
   const componentItems = itemLookup.componentOptions;
 
   return (
     <div>
+      {/* ── Unified view: all open POs (BRIX + QBO imported) ────────────
+          Same component the Inventory page uses. Sync buttons live there
+          now, not here. */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{
+          fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
+          textTransform: 'uppercase', marginBottom: 8, fontWeight: 700,
+        }}>
+          All Open Purchase Orders (BRIX-native + QBO imports)
+        </div>
+        <OpenPOsTab onChanged={onChanged} />
+      </div>
+
+      <div style={{
+        fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
+        textTransform: 'uppercase', marginTop: 24, marginBottom: 8, fontWeight: 700,
+      }}>
+        Manage BRIX-native POs (create · receive · push to QBO · void)
+      </div>
+
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -174,14 +179,6 @@ export function PurchaseOrdersTab({
             </select>
           </div>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
-          <button onClick={doSyncVendors} style={btnSecondary()} disabled={syncing}>
-            <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
-            {syncing ? 'Syncing…' : 'Pull Vendors from QBO'}
-          </button>
-          <button onClick={() => setPullingQboPos(true)} style={btnSecondary()}>
-            <Download size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
-            Pull POs from QBO
-          </button>
           <button
             onClick={() => setCreating(true)}
             style={btnPrimary()}
@@ -192,20 +189,13 @@ export function PurchaseOrdersTab({
         </div>
       </div>
 
-      {pullingQboPos && (
-        <QboPosPickerModal
-          onClose={() => setPullingQboPos(false)}
-          onImported={() => { onChanged(); }}
-        />
-      )}
-
       {activeVendors.length === 0 && (
         <div style={{
           padding: 10, marginBottom: 14,
           background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)',
           borderRadius: 4, fontSize: 11, color: 'var(--am)',
         }}>
-          No vendors loaded yet. Click <strong>Pull Vendors from QBO</strong> above to fetch the vendor list before creating a PO.
+          No vendors loaded yet. Go to <strong>Inventory → Purchase Orders</strong> and click <strong>Pull Vendors from QBO</strong> first.
         </div>
       )}
 
@@ -461,7 +451,7 @@ function PoDetailModal({
   const toast = useToast();
   const [lines, setLines] = useState<PurchaseOrderLine[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [receiving, setReceiving] = useState<Record<string, string>>({}); // line_id -> qty input
+  const [receiving, setReceiving] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let alive = true;
