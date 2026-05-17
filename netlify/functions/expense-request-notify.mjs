@@ -78,7 +78,7 @@ function paymentTypeFromAccountType(accountType) {
   return 'Cash';
 }
 
-function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback) {
+function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback, prApproval) {
   const items = Array.isArray(r.line_items) ? r.line_items : [];
   const accountId = r.cogs_account_id || fallback;
   const lines = items.length > 0
@@ -94,7 +94,19 @@ function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback) {
         Description: r.memo || r.vendor_name || 'Brixpense expense',
         AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
       }];
+  // When this expense fulfills an approved PR, lead the PrivateNote with the
+  // manager-approval audit so QBO carries the chain-of-custody in plain text
+  // (operator opens the Purchase in QBO → sees who approved + when + which PR
+  // without leaving QBO). Falls through silently if there's no linked PR.
+  const approvalPrefix = prApproval
+    ? [
+        `PR approved by ${prApproval.decided_by || 'manager'}` +
+          (prApproval.decided_at ? ` on ${String(prApproval.decided_at).slice(0, 10)}` : ''),
+        r.linked_pr_id ? `linked PR: ${String(r.linked_pr_id).slice(0, 8)}` : null,
+      ].filter(Boolean).join(' | ')
+    : null;
   const memo = [
+    approvalPrefix,
     `BRIXpense expense ${r.id}`,
     r.vendor_name ? `vendor:${r.vendor_name}` : null,
     r.entity ? `entity:${r.entity}` : null,
@@ -206,7 +218,24 @@ export default async function handler(req) {
           };
         }
       } catch {}
-      const payload = buildPurchasePayload(request, paymentAccount, optionalVendor, DEFAULT_COGS_ACCOUNT_ID);
+      // If this expense fulfills an approved PR, fetch the PR's most-recent
+      // approval row so we can stamp "approved by X on Y" into the Purchase's
+      // PrivateNote. Server-side lookup — never trust a client to assert who
+      // approved what.
+      let prApproval = null;
+      if (request.linked_pr_id) {
+        const { data: app } = await sb
+          .schema('ops')
+          .from('expense_approvals')
+          .select('decided_by, decided_at, action')
+          .eq('request_id', request.linked_pr_id)
+          .eq('action', 'approved')
+          .order('decided_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (app) prApproval = app;
+      }
+      const payload = buildPurchasePayload(request, paymentAccount, optionalVendor, DEFAULT_COGS_ACCOUNT_ID, prApproval);
       const qboRes = await qboRequest('POST', '/purchase', payload);
       qboTxn = qboRes?.Purchase;
       if (!qboTxn?.Id) qboError = 'QBO did not return a Purchase ID';
@@ -233,11 +262,32 @@ export default async function handler(req) {
         token_used: null,
       });
 
+      // Close the loop on the source PR if this expense was filed via
+      // PendingList's "Log Receipt" CTA. The PR's status flips from
+      // 'awaiting_invoice' → 'fulfilled' so it stops showing the CTA and
+      // disappears from open-PR rollups. Best-effort: if the update errors
+      // we surface it but don't fail the whole post (the Purchase is real,
+      // the audit log already captured the approval chain, this is only a
+      // bookkeeping hygiene step).
+      let fulfilledPRId = null;
+      if (request.linked_pr_id) {
+        const { error: prErr } = await sb.schema('ops').from('expense_requests').update({
+          status: 'fulfilled',
+          updated_at: now,
+        }).eq('id', request.linked_pr_id);
+        if (prErr) {
+          console.warn('Failed to flip linked PR to fulfilled:', prErr.message);
+        } else {
+          fulfilledPRId = request.linked_pr_id;
+        }
+      }
+
       const marginMatch = await maybeMarginMatch(request, Number(request.total_amount) || 0);
 
       return json({
         success: true, auto_approved: true, new_status: 'posted',
         request_id: requestId, qbo_purchase_id: qboTxn.Id,
+        fulfilled_pr_id: fulfilledPRId,
         margin_match: marginMatch,
       });
     }
