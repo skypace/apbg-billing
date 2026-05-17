@@ -152,6 +152,70 @@ const CACHE_TABLES = [
   { table: 'qbo_pto_cache',             col: 'last_synced_at', maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_pto_cache' },
 ];
 
+// ── pg_net cron-trigger failures ───────────────────────────────────────
+//
+// Final layer of the silent-cron-failure defense. The migration
+// 20260517_pg_net_failure_scanner runs `ops.fn_scan_pg_net_failures()`
+// every 5 min, which inserts a row in `ops.sync_log` (status='error',
+// source IN ('qbo','sf','fleetcomplete','pg_net')) for every non-2xx or
+// timed-out response in `net._http_response`. This means a cron job whose
+// http_post lands on a 401/500/timeout no longer disappears — it lands as
+// a sync_log error row that this check counts.
+//
+// Why a separate check (vs. just reading sync_log staleness): the SLA-
+// based check only fires on lack of recent success. A cron that fails
+// every run might not have any success rows to compare against. This
+// check looks at recent errors directly.
+async function checkPgNetFailures() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read sync_log' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    // Last 35 min so we cover the full watchdog tick window (every 30min).
+    const cutoff = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+    const { data, error } = await sb
+      .from('sync_log')
+      .select('source, sync_type, error_message, started_at, metadata')
+      .eq('status', 'error')
+      .gte('started_at', cutoff)
+      .order('started_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      return { status: 'error', detail: 'sync_log error scan failed: ' + error.message };
+    }
+    const failures = data || [];
+    if (failures.length === 0) {
+      return { status: 'ok', detail: 'No cron→HTTP failures in the last 35 min' };
+    }
+    // Group by sync_type for a concise summary.
+    const byType = new Map();
+    for (const f of failures) {
+      const key = `${f.source}:${f.sync_type}`;
+      const cur = byType.get(key) || { count: 0, lastErr: '', lastAt: '' };
+      cur.count += 1;
+      if (!cur.lastAt || f.started_at > cur.lastAt) {
+        cur.lastAt = f.started_at;
+        cur.lastErr = (f.error_message || '').slice(0, 200);
+      }
+      byType.set(key, cur);
+    }
+    const summary = [...byType.entries()]
+      .map(([k, v]) => `${k} ×${v.count}: ${v.lastErr}`)
+      .join(' | ');
+    return {
+      status: 'error',
+      detail: `${failures.length} cron→HTTP failures in last 35 min — ${summary}`,
+      failures: failures.length,
+      groups: Object.fromEntries(byType),
+    };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
 async function checkCacheTableFreshness() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -494,13 +558,14 @@ export default async function handler(req, context) {
   console.log(`[health-watchdog] Starting checks at ${timestamp}`);
 
   // Run all checks concurrently (ResQ schema depends on ResQ login)
-  const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness] = await Promise.all([
+  const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness, pgNetFailures] = await Promise.all([
     checkQBO(),
     checkSF(),
     checkResQ(),
     checkSyncFreshness(),
     checkOpsSyncFreshness(),
     checkCacheTableFreshness(),
+    checkPgNetFailures(),
   ]);
 
   // Schema check uses the ResQ session from the login check
@@ -516,6 +581,7 @@ export default async function handler(req, context) {
     syncFreshness,           // resq-sf blob (legacy)
     opsSyncFreshness,        // per-source SLA on ops.sync_log
     cacheTableFreshness,     // max(synced_at) on each cache table — catches silent no-op writes
+    pgNetFailures,           // any pg_net 4xx/5xx/timeout in last 35min — catches cron-triggered HTTP failures
     resqSchema,
   };
 
