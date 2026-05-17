@@ -127,6 +127,93 @@ const SYNC_SLA = {
   'sf:jobs':                { maxAgeMs: 90 * 60 * 1000,      label: 'sync-sf jobs (every 30 min)' },
 };
 
+// ── Direct cache-table freshness (max(synced_at) per table) ────────────
+//
+// Belt-and-suspenders for the 2026-05-14 sync-qbo silent-failure. The
+// source-based check above reads `ops.sync_log`, which is written by the
+// edge function itself — if the function defaults to the wrong schema
+// (the actual bug), it can still log "success" with records_synced=0 while
+// every cache table stays frozen. Reading max(synced_at) on the cache
+// table directly catches that case: the row count won't move and the
+// timestamp won't advance no matter what sync_log says.
+//
+// Column names aren't uniform across tables — see the per-table `col`
+// below. SLA is generous (24h+ for daily caches, 7d for low-churn caches)
+// to avoid flapping during cron slippage.
+const CACHE_TABLES = [
+  { table: 'qbo_invoices',              col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_invoices cache' },
+  { table: 'qbo_items',                 col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_items cache' },
+  { table: 'qbo_customers',             col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_customers cache' },
+  { table: 'qbo_vendors',               col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_vendors cache' },
+  { table: 'qbo_expense_lines',         col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_expense_lines cache' },
+  { table: 'qbo_inventory_adjustments', col: 'synced_at',      maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_inventory_adjustments cache' },
+  { table: 'qbo_purchase_orders',       col: 'last_synced_at', maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_purchase_orders cache' },
+  { table: 'qbo_employees_cache',       col: 'qbo_synced_at',  maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_employees_cache' },
+  { table: 'qbo_pto_cache',             col: 'last_synced_at', maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_pto_cache' },
+];
+
+async function checkCacheTableFreshness() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read cache tables' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    const now = Date.now();
+
+    const rows = await Promise.all(CACHE_TABLES.map(async (cfg) => {
+      const { data, error } = await sb
+        .from(cfg.table)
+        .select(cfg.col)
+        .order(cfg.col, { ascending: false, nullsFirst: false })
+        .limit(1);
+      if (error) {
+        return { table: cfg.table, status: 'error', detail: `${cfg.label} — read failed: ${error.message}` };
+      }
+      const ts = data?.[0]?.[cfg.col];
+      if (!ts) {
+        // Empty cache could be legitimate (no source data yet) or a never-run
+        // sync — ambiguous, so warn rather than error to avoid paging on a
+        // false positive. The 'rows' row still surfaces it in the email.
+        return { table: cfg.table, status: 'warn', detail: `${cfg.label} — empty (no rows or all-null timestamps)` };
+      }
+      const age = now - new Date(ts).getTime();
+      const ageMin = Math.round(age / 60000);
+      const ageHr  = Math.round(age / 3600000);
+      const friendly = age > 24 * 3600 * 1000 ? `${ageHr}h` : `${ageMin}m`;
+      if (age > cfg.maxAgeMs) {
+        return {
+          table: cfg.table,
+          status: 'error',
+          detail: `${cfg.label} — newest row ${friendly} old (SLA: ${Math.round(cfg.maxAgeMs / 3600000)}h)`,
+          lastSyncedAt: ts,
+          ageMs: age,
+        };
+      }
+      return {
+        table: cfg.table,
+        status: 'ok',
+        detail: `${cfg.label} — newest ${friendly} ago`,
+        lastSyncedAt: ts,
+        ageMs: age,
+      };
+    }));
+
+    const worst = rows.some(r => r.status === 'error') ? 'error'
+                : rows.some(r => r.status === 'warn')  ? 'warn'
+                : 'ok';
+    return {
+      status: worst,
+      detail: rows.filter(r => r.status !== 'ok').map(r => r.detail).join(' | ')
+              || 'All cache tables within SLA',
+      rows,
+    };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
 async function checkOpsSyncFreshness() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -407,12 +494,13 @@ export default async function handler(req, context) {
   console.log(`[health-watchdog] Starting checks at ${timestamp}`);
 
   // Run all checks concurrently (ResQ schema depends on ResQ login)
-  const [qbo, sf, resq, syncFreshness, opsSyncFreshness] = await Promise.all([
+  const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness] = await Promise.all([
     checkQBO(),
     checkSF(),
     checkResQ(),
     checkSyncFreshness(),
     checkOpsSyncFreshness(),
+    checkCacheTableFreshness(),
   ]);
 
   // Schema check uses the ResQ session from the login check
@@ -427,6 +515,7 @@ export default async function handler(req, context) {
     resq: resqClean,
     syncFreshness,           // resq-sf blob (legacy)
     opsSyncFreshness,        // per-source SLA on ops.sync_log
+    cacheTableFreshness,     // max(synced_at) on each cache table — catches silent no-op writes
     resqSchema,
   };
 
