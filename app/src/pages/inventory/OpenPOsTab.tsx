@@ -1,8 +1,7 @@
 // Inventory → "Purchase Orders" sub-tab.
 //
 // Unified read-only view of every open PO that contributes to the On Order
-// column on the Reorder/Velocity tabs. Sources are merged client-side so
-// the operator gets one list to scan:
+// column on the Reorder/Velocity tabs. Sources are merged client-side:
 //
 //   1. BRIX-native — ops.purchase_orders + lines (status draft/open/partial/received)
 //   2. QBO-direct  — ops.qbo_purchase_orders + lines (status='Open', not also brix-native)
@@ -12,16 +11,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { ChevronRight, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Download } from 'lucide-react';
 import { fm, fmtNum } from '../../lib/formatters';
-import { btnSecondary, inp } from '../../lib/styles';
+import { btnPrimary, btnSecondary } from '../../lib/styles';
 import {
   PurchaseOrderLine, PurchaseOrderRow,
-  fetchPoLines, fetchPurchaseOrders,
+  fetchPoLines, fetchPurchaseOrders, pullQboVendorsNow,
 } from '../../lib/purchasing';
 import { sbq } from '../../lib/rpc';
 import { KPICard } from '../../components/KPICard';
 import { TableSkeleton } from '../../components/Skeletons';
+import { useToast } from '../../lib/toast';
+import { QboPosPickerModal } from '../production/QboPosPickerModal';
 
 const GRID_SX = {
   height: '64vh', border: 'none', background: 'transparent', color: 'var(--ink)',
@@ -38,15 +39,13 @@ const GRID_SX = {
   '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
 };
 
-// ── Shadow-table types (BRIX-side ops.qbo_purchase_orders) ───────────────
-
 interface QboPoShadow {
   qbo_id: string;
   doc_number: string | null;
   qbo_vendor_id: string | null;
   vendor_name: string | null;
   txn_date: string | null;
-  po_status: string;        // 'Open', 'Closed', 'PartiallyBilled', etc.
+  po_status: string;
   total_amt: number | null;
   memo: string | null;
   imported_by: string | null;
@@ -68,40 +67,39 @@ interface BrixQboLink {
   qbo_purchase_order_id: string;
 }
 
-// ── Unified row shape ────────────────────────────────────────────────────
-
 type UnifiedSource = 'brix' | 'qbo';
 
 interface UnifiedPoRow {
-  id: string;             // DataGrid row id (composite)
+  id: string;
   source: UnifiedSource;
   po_number: string;
-  status: string;         // BRIX PoStatus or QBO po_status
+  status: string;
   vendor_name: string | null;
   txn_date: string | null;
   expected_date: string | null;
   line_count: number;
-  qty_open: number;       // ordered - received (BRIX) or qty (QBO open)
-  qty_received: number;   // BRIX only — QBO always 0
+  qty_open: number;
+  qty_received: number;
   qty_ordered: number;
   subtotal: number;
-  brix_po_id?: string;    // for "Open in Production"
+  brix_po_id?: string;
   qbo_id?: string;
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  draft:    'var(--mt)',
-  open:     'var(--ac)',
-  Open:     'var(--ac)',
-  partial:  'var(--am)',
-  PartiallyBilled: 'var(--am)',
-  received: 'var(--gn)',
-  closed:   '#64748b',
-  Closed:   '#64748b',
-  void:     '#64748b',
+  draft: 'var(--mt)', open: 'var(--ac)', Open: 'var(--ac)',
+  partial: 'var(--am)', PartiallyBilled: 'var(--am)',
+  received: 'var(--gn)', closed: '#64748b', Closed: '#64748b', void: '#64748b',
 };
 
-export function OpenPOsTab() {
+interface Props {
+  /** Parent can hook in so the Reorder/Velocity tabs also refetch
+   *  fn_items_master after an import lands (qty_on_order refresh). */
+  onChanged?: () => void;
+}
+
+export function OpenPOsTab({ onChanged }: Props = {}) {
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [brixPos, setBrixPos] = useState<PurchaseOrderRow[]>([]);
   const [qboPos, setQboPos] = useState<QboPoShadow[]>([]);
@@ -113,6 +111,8 @@ export function OpenPOsTab() {
     lines: PurchaseOrderLine[] | QboPoLineShadow[];
   } | null>(null);
   const [linesLoading, setLinesLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [syncingVendors, setSyncingVendors] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -134,8 +134,19 @@ export function OpenPOsTab() {
   }
   useEffect(() => { void load(); }, []);
 
-  // Build unified row list. Filter QBO POs to exclude already-linked BRIX
-  // ones (same dedup logic as fn_items_master).
+  async function doSyncVendors() {
+    setSyncingVendors(true);
+    try {
+      const r = await pullQboVendorsNow();
+      toast.success('Synced ' + r.vendors_synced + ' vendors from QBO');
+      onChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncingVendors(false);
+    }
+  }
+
   const rows = useMemo<UnifiedPoRow[]>(() => {
     const brixUnified: UnifiedPoRow[] = brixPos.map((p) => {
       const ordered = Number(p.qty_ordered_total ?? 0);
@@ -166,8 +177,8 @@ export function OpenPOsTab() {
         vendor_name: p.vendor_name,
         txn_date: p.txn_date,
         expected_date: null,
-        line_count: 0,            // populated on expand
-        qty_open: 0,              // computed from lines on expand; for top-line we use total_amt
+        line_count: 0,
+        qty_open: 0,
         qty_received: 0,
         qty_ordered: 0,
         subtotal: Number(p.total_amt ?? 0),
@@ -217,7 +228,6 @@ export function OpenPOsTab() {
 
   function openInProduction(row: UnifiedPoRow) {
     if (row.source !== 'brix' || !row.brix_po_id) return;
-    // Production page reads ?tab and ?po from the hash. Simple deep-link.
     window.location.hash = `#production?tab=purchase_orders&po=${row.brix_po_id}`;
   }
 
@@ -336,17 +346,38 @@ export function OpenPOsTab() {
       }}>
         <span className="toolbar-label">Filter</span>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'open_only' | 'all')}
-          style={{ ...inp(), width: 160 }}>
+          style={{
+            padding: '4px 8px', height: 28, fontSize: 11, borderRadius: 4,
+            background: 'var(--bg)', color: 'var(--tx)', border: '1px solid var(--bd)', width: 160,
+          }}>
           <option value="open_only">Open + partial + draft</option>
           <option value="all">All statuses</option>
         </select>
         <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
           {rows.length} PO{rows.length === 1 ? '' : 's'} · BRIX-native and QBO-direct both feed the On Order column
         </span>
-        <span style={{ marginLeft: 'auto' }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <button onClick={() => void doSyncVendors()} style={btnSecondary()} disabled={syncingVendors}>
+            <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
+            {syncingVendors ? 'Syncing…' : 'Pull Vendors from QBO'}
+          </button>
+          <button onClick={() => setPickerOpen(true)} style={btnPrimary()}>
+            <Download size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
+            Pull POs from QBO
+          </button>
           <button onClick={() => void load()} style={btnSecondary()}>Refresh</button>
         </span>
       </div>
+
+      {pickerOpen && (
+        <QboPosPickerModal
+          onClose={() => setPickerOpen(false)}
+          onImported={() => {
+            void load();
+            onChanged?.();
+          }}
+        />
+      )}
 
       <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         <DataGridPro
@@ -359,7 +390,6 @@ export function OpenPOsTab() {
         />
       </div>
 
-      {/* Expanded line panel — rendered below the grid so it always has room */}
       {expandedId && (
         <div className="cd" style={{ marginTop: 14, padding: 14 }}>
           <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
