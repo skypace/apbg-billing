@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Receipt, Clock, Users, LogOut, Inbox,
   ChevronLeft, ChevronRight,
-  Menu, X,
+  Menu, X, BookOpen,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
@@ -137,6 +137,17 @@ export function AppShell() {
               {userEmail}
             </span>
           )}
+          <a
+            href="/expense/docs/brixpense/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="nav-item"
+            title="User guide"
+            style={{ textDecoration: 'none' }}
+          >
+            <BookOpen size={18} />
+            <span>User Guide</span>
+          </a>
           <button
             type="button"
             onClick={handleLogout}

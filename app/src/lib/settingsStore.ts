@@ -5,12 +5,15 @@
 const PREFIX = 'brix.settings.';
 
 export const KEYS = {
-  chainModifiers:   'chainModifiers',
+  // Bumped to v2 on 2026-05-17 when the rollup model changed from
+  // intersection-style (customers AND categories per chip) to flat
+  // single-dimension exclusion (chains exclude customers, category
+  // chips exclude categories). Old v1 values would still describe the
+  // intersection shape and produce empty grids on click.
+  chainModifiers:   'chainModifiersV2',
   entityDefaults:   'entityDefaults',
   itemRules:        'itemTaxonomyRules',
   customerRules:    'customerTaxonomyRules',
-  // Margin → Columns picker. Stored as Record<Dim, ColumnId[]> so
-  // each Group-by dim remembers which extra columns the user wants.
   marginColumns:    'marginColumns',
 } as const;
 

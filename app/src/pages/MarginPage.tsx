@@ -223,22 +223,23 @@ export function MarginPage() {
     return () => { cancelled = true; };
   }, [activeModifiers]);
 
-  // Clicking a rollup chip EXCLUDES that chain's customers from totals (e.g.
-  // "show me what the numbers look like without Melt"). We deliberately use
-  // only the customer expansion, not the category/item expansion — a rollup
-  // like MTE is defined as "Melt customers AND E&S categories" (an
-  // intersection on include), and the de-Morgan equivalent on exclude
-  // (customer NOT in Melt OR category NOT in E&S) can't be expressed as
-  // three independent exclusion lists. Excluding the categories too would
-  // wipe out virtually every row in the dataset. Customer exclusion is the
-  // useful operator intent ("hide this chain"); category narrowing remains
-  // available via the regular Category picker.
+  // Clicking a rollup chip EXCLUDES that bucket from totals. Chips are
+  // FLAT: each one targets a single dimension (chain rollups carry only
+  // customers; category rollups carry only categories). Stacking chips
+  // unions their exclusions. See chainModifiers.ts for the chip catalog.
   const effectiveFilters = useMemo(() => {
     const next: SalesFilters = { ...filters };
-    const exp = expandedRollup.filters.customers;
-    if (exp && exp.length > 0) {
-      const cur = (next.exclude_customers ?? []);
-      next.exclude_customers = Array.from(new Set([...cur, ...exp]));
+    const map = {
+      customers:  'exclude_customers' as const,
+      categories: 'exclude_categories' as const,
+      items:      'exclude_items' as const,
+    };
+    for (const src of Object.keys(map) as Array<keyof typeof map>) {
+      const exp = expandedRollup.filters[src];
+      if (!exp || exp.length === 0) continue;
+      const dst = map[src];
+      const cur = (next[dst] as string[] | null | undefined) ?? [];
+      next[dst] = Array.from(new Set([...cur, ...exp]));
     }
     return next;
   }, [filters, expandedRollup]);
