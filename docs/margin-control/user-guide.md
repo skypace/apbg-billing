@@ -100,6 +100,16 @@ The **Export CSV** button (top right of the grid) downloads the current pivot ex
 
 The Margin page header shows the last time the QBO item cost cache was refreshed. If it's stale (>24h), click **Sync Item Costs**. That triggers `sync-qbo-items` server-side and re-populates `ops.qbo_items.purchase_cost`. The est. cost / est. margin columns light up once it's done.
 
+### Chain Rollup picker (exclude)
+
+The **Rollup** picker in the Margin filter bar lets you **subtract a chain's revenue from the totals** so you can see what the numbers look like *without* that chain. Useful for "real margin excluding Melt" or "non-chain customer mix" questions.
+
+- Click `MTE` (Melt E&S) → the totals row drops by the Melt amount; the hero line shows `· excluding: MTE (Nc · Mi)` so you can see the bucket size that got subtracted.
+- Stack multiple chips (e.g. `MTE` + `SBE` Starbird E&S) to subtract more.
+- Clear the chips to return to the baseline.
+
+Rollup definitions live under **Settings → Chain Rollups** (admin) — each rollup is an ILIKE pattern over customer names. The picker resolves the pattern to a real customer list at the moment you click, so renames in QBO don't silently break the math.
+
 ### Common workflows
 
 - **Quarterly margin review:** date = last quarter, group by category, prior-period on. Export. Done.
@@ -259,6 +269,8 @@ Each will get its own section in this guide as soon as the screen is stable.
 | KPI cards show "—" | First page load — RPCs still warming | Wait 2 sec or hit refresh |
 | DataGrid shows "license expired" watermark | MUI X Pro license env var missing on Netlify | Ask Sky to set `VITE_MUI_X_LICENSE` and trigger a redeploy |
 | Numbers seem stale | Materialized view hasn't refreshed since last QBO sync | Trigger refresh: `POST /functions/v1/sync-qbo?mode=refresh-mv` (admin only) |
+| Numbers don't match QBO P&L for an income account | Account isn't mapped to a revenue line (sits in `(unspecified)`) | Open **Settings → Accounts** and assign a Category. Backfill is automatic on the next 10-min refresh tick. |
+| One specific invoice's lines look wrong | Stale lines from before a QBO edit | Wait — the rolling refresh cron sweeps the last 90 days every ~6 hours. Or trigger an immediate refetch via the admin Master Control panel. |
 | Health checks say "down" on the Ops Hub | You're not a superadmin → 403 on health endpoints. Cosmetic — systems are fine. | Ignore, or ask Sky to elevate your role |
 | Login loops | Browser blocked Supabase third-party cookies | Allow cookies for `gfsdpwiqzshhexkofiif.supabase.co` |
 
@@ -266,8 +278,24 @@ If you hit something not on this list, message Sky on Slack with a screenshot.
 
 ---
 
+## What's behind the curtain (for the curious)
+
+The cache reconciles against QBO continuously now:
+
+- **Nightly sync (09:00 UTC)** pulls all four QBO sales-transaction types — Invoices, Sales Receipts, Credit Memos, Refund Receipts — into `ops.qbo_invoices` + `ops.qbo_invoice_lines`. Credit Memos and Refund Receipts are stored as negative amounts so `SUM(amount)` directly equals net revenue.
+- **Every 10 minutes**, a rolling refresh re-fetches lines for ~100 invoices in the last 90 days. Over ~6 hours the full window is refreshed once. Edits made to an invoice in QBO propagate within this window — no manual backfill needed.
+- **Every 3 minutes**, a line-backfill cron catches any invoice that lost its line cache (rare, but it can happen if the sync function times out mid-loop).
+- **Every 5 minutes**, a `pg_net` failure scanner watches for silent cron→HTTP errors so a broken sync can't hide for days like it did in early May 2026.
+
+The Margin app reads from `ops.mv_sales_lines` (materialized view, ~50K rows, sub-100ms response). The view is refreshed automatically after every sync.
+
+If you're ever debugging a number that doesn't match QBO live, the canonical authority order is: **QBO P&L → `ops.pl_snapshots` → `ops.mv_sales_lines` → Margin UI**. Drift between any two layers is a bug worth filing.
+
+---
+
 ## Change log
 
 | Date | Change |
 |---|---|
+| 2026-05-17 | Added **Chain Rollup picker (exclude)** section under Margin — clicking a chip subtracts that chain's revenue from totals. Added **What's behind the curtain** explainer for the new polymorphic sync (Sales Receipts, Credit Memos, Refund Receipts, Discounts) and the self-healing rolling refresh. Added troubleshooting rows for unmapped income accounts and stale lines. |
 | 2026-05-11 | Initial scaffold. Covers Getting Started + Overview + Margin + Customers + Customer Detail + Compare + Inventory + Reports + Tips. Operations / Plans / Settings flagged as in progress. |
