@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Camera, Upload, X, Plus, Trash2, Loader2,
   CheckCircle, AlertTriangle, Receipt, TrendingUp, TrendingDown,
@@ -34,6 +34,13 @@ interface MarginMatch {
 export default function ExpenseForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
+  // `?fromPR=<uuid>` — when present, ExpenseForm is being used to log the
+  // receipt for an already-approved Purchase Request. We pre-fill vendor /
+  // amount / account routing from that PR and set linkedPRId so the new
+  // expense carries linked_pr_id back to the original request. Set by the
+  // "Log Receipt" CTA on PendingList for awaiting_invoice PR rows.
+  const [searchParams] = useSearchParams();
+  const fromPRId = searchParams.get('fromPR') || null;
   const isEditing = Boolean(id);
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
@@ -77,6 +84,11 @@ export default function ExpenseForm() {
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
   const [existingStatus, setExistingStatus] = useState<string | null>(null);
+  // Set when this expense fulfills an approved Purchase Request. The insert
+  // payload below carries this in `linked_pr_id` so the PR-side row can be
+  // flipped to 'fulfilled' by expense-request-notify after the QBO post.
+  const [linkedPRId, setLinkedPRId] = useState<string | null>(null);
+  const [linkedPRVendor, setLinkedPRVendor] = useState<string | null>(null);
 
   const [, setSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
@@ -138,6 +150,49 @@ export default function ExpenseForm() {
       cancelled = true;
     };
   }, [id]);
+
+  // "Log Receipt for PR" pre-fill — fired when the URL is /expense/new?fromPR=<uuid>.
+  // Reads the approved PR's row, copies the vendor + amount + account routing
+  // (cogs/dept/customer/job/tag/memo) into the form, and remembers the source
+  // PR id so the insert below writes linked_pr_id back. Only runs when we're
+  // NOT in edit mode (id is undefined). The PR's manager-approval audit
+  // travels separately: expense-request-notify reads it server-side from
+  // ops.expense_approvals at QBO Purchase post time.
+  useEffect(() => {
+    if (id || !fromPRId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('expense_requests')
+        .select('id, request_type, status, vendor_name, total_amount, cogs_account_id, cogs_account_label, tag, department, customer_name, job_number, memo, line_items')
+        .eq('id', fromPRId)
+        .single();
+      if (cancelled) return;
+      if (error || !data) return;
+      if (data.request_type !== 'purchase_request') return;
+      // Pre-fill — only fields the user explicitly entered on the PR; date,
+      // payment account, and signature are receipt-specific and stay blank
+      // for the user to fill in.
+      setLinkedPRId(data.id);
+      setLinkedPRVendor(data.vendor_name || null);
+      setVendorName(data.vendor_name || '');
+      setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
+      setCogsAccountId(data.cogs_account_id || '');
+      setCogsAccountLabel(data.cogs_account_label || '');
+      setTag(data.tag || '');
+      setDepartment(data.department || '');
+      setCustomerName(data.customer_name || '');
+      setJobNumber(data.job_number || '');
+      setMemo(data.memo || '');
+      if (Array.isArray(data.line_items) && data.line_items.length > 0) {
+        setLineItems(data.line_items as LineItem[]);
+      }
+      // Skip the upload step — the user already approved this purchase;
+      // they just need to attach the receipt + pick a payment account.
+      setStep('details');
+    })();
+    return () => { cancelled = true; };
+  }, [id, fromPRId]);
 
   // Pull the "Paid with" account list from QBO once on mount. Bank + Credit
   // Card accounts only — the picker is for receipt-style expenses, not bills.
@@ -329,6 +384,11 @@ export default function ExpenseForm() {
           payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
           payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
           line_items: nonEmptyLines,
+          // Carries back to the approved PR this expense fulfills, if any.
+          // expense-request-notify reads this server-side, posts the QBO
+          // Purchase with the PR's approval audit in PrivateNote, and flips
+          // the PR row to status='fulfilled'.
+          linked_pr_id: linkedPRId,
         })
         .select()
         .single();
@@ -497,6 +557,14 @@ export default function ExpenseForm() {
           <div className="text-xs bg-secondary/40 border border-border rounded-md p-3">
             This submission has already been processed and is read-only.
             Use <strong>New Expense</strong> from the dashboard to file a new one.
+          </div>
+        )}
+
+        {linkedPRId && !isEditing && (
+          <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 rounded-md p-3">
+            Logging the receipt for your approved Purchase Request
+            {linkedPRVendor ? ` (${linkedPRVendor})` : ''}.
+            Vendor, amount, and accounts are pre-filled from the PR — just attach the receipt and pick the "Paid with" account.
           </div>
         )}
 

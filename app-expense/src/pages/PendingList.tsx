@@ -5,7 +5,7 @@ import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Clock } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock, Receipt } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 
@@ -76,34 +76,55 @@ export default function PendingList() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => (
-            <Card
-              key={req.id}
-              className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/expense/edit/${req.id}`)}
-            >
-              <CardContent className="flex items-center gap-3 p-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">
-                      {req.vendor_name || 'No vendor'}
+          {requests.map((req) => {
+            // PRs in 'awaiting_invoice' status are approved-and-ready-to-be-fulfilled.
+            // The "Log Receipt" CTA below opens ExpenseForm pre-filled from this PR
+            // so the submitter doesn't have to re-type vendor/amount/accounts after
+            // they actually buy the thing. Receipt + payment account close the loop.
+            const isReadyForReceipt =
+              req.request_type === 'purchase_request' && req.status === 'awaiting_invoice';
+            return (
+              <Card
+                key={req.id}
+                className="cursor-pointer hover:shadow-sm transition-shadow"
+                onClick={() => navigate(`/expense/edit/${req.id}`)}
+              >
+                <CardContent className="flex items-center gap-3 p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">
+                        {req.vendor_name || 'No vendor'}
+                      </p>
+                      <Badge variant={statusVariant[req.status] ?? 'secondary'}>
+                        {statusLabel[req.status] ?? req.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
+                      {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
+                      {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                     </p>
-                    <Badge variant={statusVariant[req.status] ?? 'secondary'}>
-                      {statusLabel[req.status] ?? req.status}
-                    </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
-                    {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
-                    {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
-                  </p>
-                </div>
-                <span className="text-sm font-semibold tabular-nums">
-                  {req.total_amount ? formatCurrency(req.total_amount) : '—'}
-                </span>
-              </CardContent>
-            </Card>
-          ))}
+                  <span className="text-sm font-semibold tabular-nums">
+                    {req.total_amount ? formatCurrency(req.total_amount) : '—'}
+                  </span>
+                  {isReadyForReceipt && (
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/expense/new?fromPR=${req.id}`);
+                      }}
+                      title="Log the receipt for this approved purchase"
+                    >
+                      <Receipt className="h-4 w-4 mr-1" />
+                      Log Receipt
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
