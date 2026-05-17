@@ -55,6 +55,11 @@ export interface SalesFilters {
   segments?: string[] | null;
   product_families?: string[] | null;
   product_types?: string[] | null;
+  // Exclude filters — populated by the rollup picker on the Margin page so
+  // clicking a chain takes its revenue OUT of totals (vs narrowing to it).
+  exclude_customers?: string[] | null;
+  exclude_categories?: string[] | null;
+  exclude_items?: string[] | null;
 }
 
 export function rpcArgs(f: SalesFilters) {
@@ -69,6 +74,9 @@ export function rpcArgs(f: SalesFilters) {
     p_segments:         f.segments         && f.segments.length         ? f.segments         : null,
     p_product_families: f.product_families && f.product_families.length ? f.product_families : null,
     p_product_types:    f.product_types    && f.product_types.length    ? f.product_types    : null,
+    p_exclude_customers:  f.exclude_customers  && f.exclude_customers.length  ? f.exclude_customers  : null,
+    p_exclude_categories: f.exclude_categories && f.exclude_categories.length ? f.exclude_categories : null,
+    p_exclude_items:      f.exclude_items      && f.exclude_items.length      ? f.exclude_items      : null,
   };
 }
 
