@@ -1,10 +1,10 @@
-# BRIX Margin & Product Control — User Guide
+# BRIX Refractor — User Guide
 
 > **Live URL:** `alamedapointbg.com/margin/`
 > **This guide:** `alamedapointbg.com/margin/docs/margin-control/`
 > **Editable source:** `apbg-billing/docs/margin-control/user-guide.md` on GitHub. The viewer fetches this file at runtime — edit it, push, and the guide updates on the next Netlify deploy.
 
-BRIX Margin & Product Control is the internal margin / sales / customer / product analytics tool. It reads QuickBooks invoice and item data through a curated `ops.*` schema in Supabase and renders 9 dashboards around it. This guide covers what each page does, the controls on it, and the workflows people use it for.
+BRIX Refractor is the internal margin / product / customer analytics tool — named for the instrument that measures degrees Brix in a sample. It reads QuickBooks invoice and item data through a curated `ops.*` schema in Supabase and renders 9 dashboards around it. This guide covers what each page does, the controls on it, and the workflows people use it for.
 
 ---
 
@@ -297,6 +297,6 @@ If you're ever debugging a number that doesn't match QBO live, the canonical aut
 
 | Date | Change |
 |---|---|
-| 2026-05-17 | Renamed app from **Margin Control** to **Margin & Product Control** — reflects the broader scope (items / inventory / categories / rollups in addition to margin). Hub card on alamedapointbg.com now sits alongside a new **Brixpense** card. |
+| 2026-05-17 | App renamed to **BRIX Refractor** — short, on-brand (a refractometer is the instrument that reads degrees Brix), and reflects the broader scope (items / inventory / categories / rollups in addition to margin). Operations page removed; that dashboard lives at `alamedapointbg.com/operations/` now. Hub card on alamedapointbg.com sits alongside a new Brixpense card. |
 | 2026-05-17 | Added **Chain Rollup picker (exclude)** section under Margin — clicking a chip subtracts that chain's revenue from totals. Added **What's behind the curtain** explainer for the new polymorphic sync (Sales Receipts, Credit Memos, Refund Receipts, Discounts) and the self-healing rolling refresh. Added troubleshooting rows for unmapped income accounts and stale lines. |
 | 2026-05-11 | Initial scaffold. Covers Getting Started + Overview + Margin + Customers + Customer Detail + Compare + Inventory + Reports + Tips. Operations / Plans / Settings flagged as in progress. |

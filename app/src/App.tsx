@@ -24,13 +24,13 @@ const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) =>
 
 function Splash() {
   return (
-    <div className="splash" role="status" aria-label="Loading BRIX Margin & Product Control">
+    <div className="splash" role="status" aria-label="Loading BRIX Refractor">
       <div>
         <BrixMark size={88} title="Brix Beverage" />
         <div className="splash-brand" style={{ marginTop: 18 }}>
           BRI<span style={{ color: 'var(--ac)' }}>X</span>
         </div>
-        <div className="splash-sub">Margin &amp; Product Control</div>
+        <div className="splash-sub">Refractor</div>
       </div>
     </div>
   );

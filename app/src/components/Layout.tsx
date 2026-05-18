@@ -88,7 +88,7 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
             <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
             <div className="brand-sub">
               <span className="status-dot" aria-hidden="true" />
-              Margin &amp; Product Control
+              Refractor
             </div>
           </div>
         </div>
@@ -125,7 +125,7 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
             target="_blank"
             rel="noopener noreferrer"
             className="sign-out help-link"
-            title="Open the BRIX Margin &amp; Product Control user guide in a new tab"
+            title="Open the BRIX Refractor user guide in a new tab"
           >
             <BookOpen size={13} strokeWidth={2} aria-hidden="true" />
             <span>User Guide</span>
