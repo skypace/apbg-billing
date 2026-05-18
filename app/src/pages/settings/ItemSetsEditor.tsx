@@ -52,7 +52,7 @@ export function ItemSetsEditor() {
     addItemSetMember({
       set_code: active,
       qbo_item_id: it.qbo_item_id,
-      item_name: it.fully_qualified_name || it.name,
+      item_name: it.name || it.fully_qualified_name || undefined,
     }).then(() => loadMembers(active));
   }
 
@@ -140,7 +140,7 @@ export function ItemSetsEditor() {
               <option value="">+ add an item to this set</option>
               {availableItems.map((it) => (
                 <option key={it.qbo_item_id} value={it.qbo_item_id}>
-                  {it.fully_qualified_name || it.name}
+                  {it.name || it.fully_qualified_name}
                 </option>
               ))}
             </select>

@@ -322,10 +322,27 @@ Deno.serve(async (req: Request) => {
     await getAccessToken(sb);
 
     const items = await fetchAllItems(sb);
-    const rows = items.map(toRow);
-    const withCost = rows.filter((r) => r.purchase_cost != null).length;
-    const activeCount   = rows.filter((r) => r.active === true).length;
-    const inactiveCount = rows.filter((r) => r.active === false).length;
+    const rowsRaw = items.map(toRow);
+    const withCost = rowsRaw.filter((r) => r.purchase_cost != null).length;
+    const activeCount   = rowsRaw.filter((r) => r.active === true).length;
+    const inactiveCount = rowsRaw.filter((r) => r.active === false).length;
+
+    // Skip items that the user has edited locally in the Margin Control
+    // Items master. ops.inventory_settings.is_qbo_locked = true means the
+    // inbound sync must not overwrite that qbo_items row. Sky's normal
+    // workflow is: edit in BRIX → push-qbo-item explicitly when ready,
+    // not the other way around.
+    const { data: lockedRows, error: lockErr } = await sb
+      .schema("ops")
+      .from("inventory_settings")
+      .select("qbo_item_id")
+      .eq("is_qbo_locked", true);
+    if (lockErr) throw lockErr;
+    const lockedIds = new Set(
+      (lockedRows ?? []).map((r: { qbo_item_id: string }) => r.qbo_item_id),
+    );
+    const rows = rowsRaw.filter((r) => !lockedIds.has(r.qbo_item_id));
+    const skipped_locked = rowsRaw.length - rows.length;
 
     let upserted = 0;
     if (rows.length) {
@@ -340,7 +357,9 @@ Deno.serve(async (req: Request) => {
     // Belt-and-suspenders reconciliation: anything in our DB that
     // didn't come back from QBO is either hard-deleted or otherwise
     // unreachable. Mark such rows inactive so they at least disappear
-    // from default UI filters.
+    // from default UI filters. Locked rows are exempted — if Sky has
+    // intentionally curated an item that no longer exists in QBO, we
+    // respect that choice rather than silently deactivating it.
     const fetchedIds = new Set(items.map((i) => i.Id));
     let reconciled_inactive = 0;
     const { data: existing, error: existErr } = await sb
@@ -350,7 +369,7 @@ Deno.serve(async (req: Request) => {
     if (existErr) throw existErr;
     const stale = (existing ?? [])
       .map((r) => r.qbo_item_id)
-      .filter((id: string) => !fetchedIds.has(id));
+      .filter((id: string) => !fetchedIds.has(id) && !lockedIds.has(id));
     if (stale.length > 0) {
       const { error: updErr } = await sb
         .schema("ops")
@@ -371,6 +390,7 @@ Deno.serve(async (req: Request) => {
       with_purchase_cost: withCost,
       without_cost: items.length - withCost,
       upserted,
+      skipped_locked,
       reconciled_inactive,
       duration_ms: Date.now() - startedAt,
     });
