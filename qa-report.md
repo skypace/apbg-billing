@@ -741,3 +741,104 @@
 - Severity: LOW
 - Notes: If BOL tracking is needed it'd be a new column on the PO row.
 
+### [claim-112] — Compare page has two date-range pickers labeled Period A and Period B
+- Status: WIRING_BROKEN
+- Code path: `app/src/pages/ComparePage.tsx:155-168`
+- Expected: two date-range pickers
+- Actual: two **saved-view dropdowns** (View A / View B). No date pickers anywhere on the page — periods come from whatever date range each saved view captured.
+- Severity: MEDIUM
+- Notes: The entire Compare page is a completely different feature than the guide describes. See cascade on claims 113-118.
+
+### [claim-113] — Multi-select dimension chooser (customer / item / category / entity)
+- Status: WIRING_BROKEN
+- Code path: not found
+- Expected: a multi-select dimension chooser on the page
+- Actual: no dimension chooser. Each side uses the dim that was captured in its saved view (`view.config.dim ?? 'category'`, line 67, 132).
+- Severity: MEDIUM
+
+### [claim-114] — Side-by-side table with cols Period A / Period B / delta abs / delta %
+- Status: WIRING_BROKEN
+- Code path: `ComparePage.tsx:173-176`
+- Expected: a single unified table with both periods + delta columns
+- Actual: **two separate MarginGrid instances** side by side in a 2-column grid — each shows its own pivot rows. Deltas are NOT computed; the user has to eyeball.
+- Severity: MEDIUM
+- Notes: This is functionally inferior to the Margin page's prior-period toggle (claim-35/36), which at least computes a single side-by-side delta.
+
+### [claim-115] — Cell coloring scales (deeper green/red for bigger improvement/drop)
+- Status: WIRING_BROKEN
+- Code path: not found
+- Expected: per-cell delta coloring
+- Actual: no delta cells exist (claim-114), so no coloring exists.
+- Severity: LOW
+
+### [claim-116] — MoM preset fills "this month vs last"
+- Status: WIRING_BROKEN
+- Code path: not found
+- Actual: no preset buttons on the page at all
+- Severity: LOW
+
+### [claim-117] — QoQ preset fills "this quarter vs last"
+- Status: WIRING_BROKEN
+- Code path: not found
+- Actual: same — no preset buttons
+- Severity: LOW
+
+### [claim-118] — YoY preset fills "this period vs same period last year"
+- Status: WIRING_BROKEN
+- Code path: not found
+- Actual: same — no preset buttons
+- Severity: LOW
+- Notes: The Margin page DOES have a "Prior year" compare toggle (claim-36). The guide may be conflating Compare-page features with Margin-page features.
+
+### [claim-119] — Compare totals reconcile to QBO P&L for both periods independently
+- Status: DEFERRED (QBO numeric reconciliation, contingent on the page actually doing what it claims)
+- Code path: `ComparePage.tsx:68-71` — totals come from `fetchTotals(f)` per side, same RPC as Margin
+- QBO source: QBO P&L for whatever date range each saved view encodes
+- Severity: HIGH (assuming the page is functioning as intended at all — but see claims 112-118)
+- Notes: Marked deferred but practically meaningless until claims 112-118 are resolved.
+
+> **Section I cross-cutting note** — Per `app/src/components/Layout.tsx:16-24`, the "Inventory" sidebar item now points to route `#stock` (the operational view; on-hand, locations, POs, transfers, adjustments). The guide's "Inventory page (item master)" maps to **`Settings → Items`** today (`app/src/pages/settings/ItemsSettingsEditor.tsx`). The third related page, "Inventory Planning" (route `#inventory`, `app/src/pages/InventoryPage.tsx`), is reorder/velocity analytics and is not described in the guide at all. Claims 120-126 are therefore evaluated against `ItemsSettingsEditor.tsx` (where the item master actually lives) and flagged GUIDE_WRONG when they describe a page that no longer exists at the documented location.
+
+### [claim-120] — Inventory columns include Item name, SKU, Category, Segment, Type, Est. cost, Last cost update, P&L Alignment, Notes
+- Status: GUIDE_WRONG (page renamed) / PASS in `Settings → Items`
+- Code path: `app/src/pages/settings/ItemsSettingsEditor.tsx:976` (P&L Align), 1021 (P&L Account), 46 (`purchase_cost`)
+- Expected (guide): a page at "Inventory" with item master columns
+- Actual: that page is at `Settings → Items`. The route `#inventory` is Inventory Planning (Reorder/Velocity/Excludes). The columns the guide lists exist on `ItemsSettingsEditor` — but not Segment (which is a customer-level RFM concept, not an item attribute in this codebase).
+- Severity: MEDIUM
+- Notes: "Segment" doesn't appear to be a column on items anywhere — that field is conflated with customer RFM segments elsewhere. The other columns exist.
+
+### [claim-121] — Item Type values include inventory / service / non-inventory
+- Status: PASS
+- Code path: `ItemsSettingsEditor.tsx` and `lib/inventory.ts` reference QBO `Item.Type` (Inventory / Service / NonInventory) values directly
+- Severity: LOW
+- Notes: This is QBO-native — the program does not redefine it.
+
+### [claim-122] — P&L Alignment column flags items whose category doesn't match their P&L account
+- Status: PASS
+- Code path: `ItemsSettingsEditor.tsx:976` (`alignment_status` column) + `fn_item_pl_audit` RPC (referenced in `CLAUDE.md` changelog)
+- Severity: LOW
+
+### [claim-123] — "Auto-categorize from P&L" produces a preview before commit
+- Status: PASS
+- Code path: `ItemsSettingsEditor.tsx:521-532` (preview/confirm dialog before applying), and a separate "Align all to P&L" button at line 1313 for a bulk path
+- Severity: LOW
+
+### [claim-124] — Filters: Category, Segment, Type, "Items missing cost", "Items with P&L mismatch"
+- Status: UNTESTABLE (page-too-large to inspect filter UI here without reading the entire 1436-line file)
+- Code path: `ItemsSettingsEditor.tsx` (filter UI is somewhere in the unread portion)
+- Severity: LOW
+- Notes: Marked manual-test; the underlying data + RPCs (`fn_item_pl_audit` for mismatches, null `purchase_cost` for "missing cost") clearly exist.
+
+### [claim-125] — "Sync Item Costs" header button pushes QBO last-purchase-cost into `ops.qbo_items.purchase_cost`
+- Status: PASS (wiring) — already covered by claim-40 on the Margin page
+- Code path: same Sync Item Costs function call; reachable from Margin page header. There is no separate `Sync Item Costs` button on the Items master page header (operators reach it via Margin per claim-40).
+- Severity: LOW
+- Notes: Guide says it's on the **Inventory** page header — on the actual `Settings → Items` page that button is **not** present. Sync from QBO is initiated from Margin only.
+
+### [claim-126] — Inventory est. cost reconciles to QBO `Item.PurchaseCost`
+- Status: DEFERRED (QBO numeric reconciliation)
+- Code path: `ops.qbo_items.purchase_cost` populated by `sync-qbo-items` from QBO Item.PurchaseCost
+- QBO source: QBO Item list (PurchaseCost field)
+- Severity: MEDIUM
+- Notes: Wiring intent is clear; spot-check 10-20 items against QBO Item.PurchaseCost once re-auth.
+
