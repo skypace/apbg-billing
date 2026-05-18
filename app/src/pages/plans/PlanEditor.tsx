@@ -6,13 +6,11 @@ import { downloadCsv, toCsv } from '../../lib/csv';
 import { fm } from '../../lib/formatters';
 import {
   MONTHS_SHORT,
-  PlanAccountRollupRow,
   PlanLineSection,
   QboItemOption,
   SalesPlan,
   SalesPlanLine,
   fetchItemOptions,
-  fetchPlanAccountRollup,
   fetchPlanLineSections,
   fetchPlanLines,
 } from '../../lib/plans';
@@ -23,7 +21,7 @@ import { PlanPlView } from './PlanPlView';
 import { PlanBuildDialog } from './PlanBuildDialog';
 import { PlanLinesGrouped } from './PlanLinesGrouped';
 
-type Mode = 'pl' | 'lines' | 'rollup' | 'vs_actuals' | 'forecast';
+type Mode = 'pl' | 'lines' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
 
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
@@ -44,7 +42,6 @@ interface Props {
 export function PlanEditor({ plan, onBack }: Props) {
   const [lines, setLines] = useState<SalesPlanLine[] | null>(null);
   const [linesSections, setLinesSections] = useState<PlanLineSection[] | null>(null);
-  const [rollup, setRollup] = useState<PlanAccountRollupRow[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
   const [actualsByItem, setActualsByItem] = useState<Record<string, { amounts: number[]; total: number }> | null>(null);
@@ -55,11 +52,10 @@ export function PlanEditor({ plan, onBack }: Props) {
   function load() {
     Promise.all([
       fetchPlanLines(plan.id),
-      fetchPlanAccountRollup(plan.id),
       fetchPlanLineSections(plan.id),
     ])
-      .then(([ls, ru, ss]) => { setLines(ls); setRollup(ru); setLinesSections(ss); })
-      .catch(() => { setLines([]); setRollup([]); setLinesSections([]); });
+      .then(([ls, ss]) => { setLines(ls); setLinesSections(ss); })
+      .catch(() => { setLines([]); setLinesSections([]); });
   }
   useEffect(load, [plan.id]);
 
@@ -219,30 +215,39 @@ export function PlanEditor({ plan, onBack }: Props) {
   }
 
   function exportRollupCsv() {
-    if (!rollup || rollup.length === 0) { alert('Nothing to export yet.'); return; }
+    if (!lines || lines.length === 0) { alert('Nothing to export yet.'); return; }
+    // Aggregate plan lines by account, client-side. Each line's amounts[]
+    // is summed by month for its account.
+    const byAcc = new Map<string, { qbo_account_id: string | null; m: number[]; total: number }>();
+    for (const l of lines) {
+      const key = l.account_name ?? '(unmapped)';
+      if (!byAcc.has(key)) byAcc.set(key, { qbo_account_id: l.qbo_account_id, m: Array(12).fill(0), total: 0 });
+      const e = byAcc.get(key)!;
+      const amt = l.amounts ?? [];
+      for (let i = 0; i < 12; i++) e.m[i] += Number(amt[i] ?? 0);
+      e.total += amt.reduce((s, v) => s + Number(v || 0), 0);
+    }
+    const sorted = Array.from(byAcc.entries()).sort((a, b) => b[1].total - a[1].total);
     const head = ['Account', 'QBO Account ID', ...MONTHS_SHORT, 'Total'];
-    const rows = rollup.map((r) => [
-      r.account_name,
-      r.qbo_account_id ?? '',
-      ...['m1','m2','m3','m4','m5','m6','m7','m8','m9','m10','m11','m12'].map((k) =>
-        Number((r as unknown as Record<string, number>)[k] ?? 0).toFixed(2),
-      ),
-      Number(r.total ?? 0).toFixed(2),
+    const rows = sorted.map(([name, e]) => [
+      name,
+      e.qbo_account_id ?? '',
+      ...e.m.map((v) => v.toFixed(2)),
+      e.total.toFixed(2),
     ]);
     downloadCsv(plan.name.replace(/\s+/g, '_') + `_FY${plan.fiscal_year}_budget.csv`, toCsv([head, ...rows]));
   }
 
   const totalAnnual = useMemo(
-    () => (rollup ?? []).reduce((s, r) => s + Number(r.total ?? 0), 0),
-    [rollup],
+    () => (lines ?? []).reduce((s, l) => s + (l.amounts ?? []).reduce((a, v) => a + Number(v || 0), 0), 0),
+    [lines],
   );
 
-  if (!lines || !rollup) return <div className="ld">Loading plan…</div>;
+  if (!lines) return <div className="ld">Loading plan…</div>;
 
   const modeBtns: { id: Mode; label: string }[] = [
     { id: 'pl',         label: 'P&L' },
     { id: 'lines',      label: 'Plan Lines' },
-    { id: 'rollup',     label: 'Account Rollup' },
     { id: 'vs_actuals', label: 'vs Actuals' },
     { id: 'forecast',   label: 'Forecast' },
   ];
@@ -377,43 +382,6 @@ export function PlanEditor({ plan, onBack }: Props) {
               onDelete={(id) => deleteLine(id)}
             />
           </div>
-        </div>
-      )}
-
-      {mode === 'rollup' && (
-        <div className="cd" style={{ padding: 0 }}>
-          {rollup.length === 0 ? (
-            <div className="ld">No rollup yet — add some lines first.</div>
-          ) : (
-            <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-              <table>
-                <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                  <tr>
-                    <th>Account</th>
-                    <th style={{ fontSize: 9, color: 'var(--mt)' }}>Lines</th>
-                    {MONTHS_SHORT.map((m) => (
-                      <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
-                    ))}
-                    <th style={{ textAlign: 'right' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rollup.map((r) => (
-                    <tr key={r.qbo_account_id ?? r.account_name}>
-                      <td style={{ fontWeight: 600 }}>{r.account_name}</td>
-                      <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.line_count}</td>
-                      {(['m1','m2','m3','m4','m5','m6','m7','m8','m9','m10','m11','m12'] as const).map((k) => (
-                        <td key={k} className="mn" style={{ textAlign: 'right', fontSize: 10 }}>
-                          {fm((r as unknown as Record<string, number>)[k])}
-                        </td>
-                      ))}
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(r.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       )}
 
