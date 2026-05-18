@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { DataGridPro, type GridColDef, type GridRenderCellParams } from '@mui/x-data-grid-pro';
 import { KPICard } from '../../components/KPICard';
 import { CustomerLink } from '../../components/CustomerLink';
 import { fm, fp } from '../../lib/formatters';
@@ -272,84 +273,168 @@ export function VoidsReport() {
         </div>
       )}
 
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {loading || !rows ? (
           <div className="ld">Loading…</div>
         ) : customers.length === 0 ? (
           <div className="ld">No customers in this set / window.</div>
         ) : (
-          <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th style={{ minWidth: 200 }}>Customer</th>
-                  <th>Channel</th>
-                  <th style={{ textAlign: 'right' }}>Set $</th>
-                  <th style={{ textAlign: 'right' }}>Bought / Total</th>
-                  {itemCols.map((it) => (
-                    <th key={it.id} style={{ fontSize: 9, maxWidth: 90, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={it.name}>
-                      {it.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {customers.map((c) => (
-                  <tr key={c.id}>
-                    <td
-                      style={{
-                        maxWidth: 220,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 600,
-                      }}
-                      title={c.name}
-                    >
-                      <CustomerLink qboCustomerId={c.id} name={c.name} />
-                    </td>
-                    <td style={{ fontSize: 10, color: 'var(--mt)' }}>{c.channel ?? '—'}</td>
-                    <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(c.set_revenue)}</td>
-                    <td
-                      className="mn"
-                      style={{
-                        textAlign: 'right',
-                        color:
-                          c.items_bought >= c.set_total
-                            ? 'var(--gn)'
-                            : c.items_bought >= c.set_total / 2
-                              ? 'var(--am)'
-                              : 'var(--rd)',
-                      }}
-                    >
-                      {c.items_bought}/{c.set_total}
-                    </td>
-                    {itemCols.map((it) => {
-                      const cell = c.cells[it.id];
-                      const has = cell?.has;
-                      return (
-                        <td
-                          key={it.id}
-                          className="mn"
-                          style={{
-                            textAlign: 'right',
-                            background: has ? 'rgba(22,163,74,0.06)' : 'rgba(220,38,38,0.04)',
-                            color: has ? 'var(--gn)' : 'var(--rd)',
-                            fontWeight: has ? 600 : 400,
-                            fontSize: 10,
-                          }}
-                        >
-                          {has ? fm(cell?.revenue ?? 0) : '—'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <VoidsGrid customers={customers} itemCols={itemCols} />
         )}
       </div>
     </div>
+  );
+}
+
+// MUI DataGrid Pro view: sortable, draggable columns, pinned Customer column,
+// pagination, density toggle. Item columns are dynamic — one per item in the
+// selected set — so we build the column defs in useMemo from itemCols.
+interface GridRow {
+  id: string;
+  customer_name: string;
+  channel: string | null;
+  set_revenue: number;
+  items_bought: number;
+  set_total: number;
+  // dynamic per-item fields: `item_${qbo_item_id}` = revenue (0 when not bought)
+  [k: string]: unknown;
+}
+
+function VoidsGrid({ customers, itemCols }: { customers: CustomerCell[]; itemCols: { id: string; name: string }[] }) {
+  const gridRows: GridRow[] = useMemo(
+    () => customers.map((c) => {
+      const r: GridRow = {
+        id: c.id,
+        customer_name: c.name,
+        channel: c.channel,
+        set_revenue: c.set_revenue,
+        items_bought: c.items_bought,
+        set_total: c.set_total,
+      };
+      for (const it of itemCols) r[`item_${it.id}`] = c.cells[it.id]?.revenue ?? 0;
+      return r;
+    }),
+    [customers, itemCols],
+  );
+
+  const columns: GridColDef<GridRow>[] = useMemo(() => {
+    const base: GridColDef<GridRow>[] = [
+      {
+        field: 'customer_name',
+        headerName: 'Customer',
+        flex: 2,
+        minWidth: 200,
+        renderCell: (p: GridRenderCellParams<GridRow>) => (
+          <span
+            title={String(p.value ?? '')}
+            style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            <CustomerLink qboCustomerId={p.row.id} name={String(p.value ?? '')} />
+          </span>
+        ),
+      },
+      {
+        field: 'channel',
+        headerName: 'Channel',
+        width: 160,
+        valueFormatter: (v: unknown) => (v ?? '—') as string,
+      },
+      {
+        field: 'set_revenue',
+        headerName: 'Set $',
+        type: 'number',
+        width: 110,
+        cellClassName: 'mn',
+        renderCell: (p: GridRenderCellParams<GridRow>) => (
+          <span style={{ fontWeight: 600 }}>{fm(p.value as number)}</span>
+        ),
+      },
+      {
+        field: 'items_bought',
+        headerName: 'Bought',
+        type: 'number',
+        width: 80,
+        cellClassName: 'mn',
+        renderCell: (p: GridRenderCellParams<GridRow>) => {
+          const bought = Number(p.value ?? 0);
+          const total = p.row.set_total;
+          const color = bought >= total ? 'var(--gn)' : bought >= total / 2 ? 'var(--am)' : 'var(--rd)';
+          return <span style={{ color, fontWeight: 600 }}>{bought}/{total}</span>;
+        },
+      },
+      {
+        field: 'set_total',
+        headerName: 'Set Total',
+        type: 'number',
+        width: 80,
+        cellClassName: 'mn',
+      },
+    ];
+
+    const itemColumns: GridColDef<GridRow>[] = itemCols.map((it) => ({
+      field: `item_${it.id}`,
+      headerName: it.name,
+      type: 'number',
+      width: 110,
+      cellClassName: 'mn',
+      renderCell: (p: GridRenderCellParams<GridRow>) => {
+        const rev = Number(p.value ?? 0);
+        const has = rev > 0;
+        return (
+          <span style={{
+            color: has ? 'var(--gn)' : 'var(--rd)',
+            fontWeight: has ? 600 : 400,
+            fontSize: 10,
+          }}>
+            {has ? fm(rev) : '—'}
+          </span>
+        );
+      },
+    }));
+
+    return [...base, ...itemColumns];
+  }, [itemCols]);
+
+  return (
+    <DataGridPro
+      rows={gridRows}
+      columns={columns}
+      density="compact"
+      pagination
+      pageSizeOptions={[10, 25, 50, 100, 250, { value: -1, label: 'All' }]}
+      initialState={{
+        pagination: { paginationModel: { pageSize: 25, page: 0 } },
+        pinnedColumns: { left: ['customer_name'] },
+        sorting: { sortModel: [{ field: 'set_revenue', sort: 'desc' }] },
+        columns: { columnVisibilityModel: { set_total: false } },
+      }}
+      disableRowSelectionOnClick
+      sx={{
+        height: '64vh',
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--tx)',
+        fontFamily: 'inherit',
+        fontSize: 12,
+        '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
+        '& .MuiDataGrid-columnHeader': {
+          fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
+          fontSize: 10.5, color: 'var(--mt)',
+        },
+        '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
+        '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
+        '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
+        '& .MuiDataGrid-row:hover': { background: 'rgba(91,181,240,0.06)' },
+        '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
+        '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
+        '& .MuiDataGrid-footerContainer': {
+          borderTop: '1px solid var(--bd)',
+          background: 'var(--sf)',
+          minHeight: 40,
+        },
+        '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
+        '& .MuiDataGrid-menuIconButton, & .MuiDataGrid-sortIcon': { color: 'var(--mt)' },
+      }}
+    />
   );
 }
