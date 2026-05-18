@@ -26,11 +26,10 @@ function Splash() {
   return (
     <div className="splash" role="status" aria-label="Loading BRIX Refractor">
       <div>
-        <BrixMark size={88} title="Brix Beverage" />
-        <div className="splash-brand" style={{ marginTop: 18 }}>
-          BRI<span style={{ color: 'var(--ac)' }}>X</span>
+        <BrixMark size={96} title="Brix Beverage" />
+        <div className="splash-brand" style={{ marginTop: 22 }}>
+          Bri<span style={{ color: 'var(--ac)' }}>XR</span>efractor
         </div>
-        <div className="splash-sub">Refractor</div>
       </div>
     </div>
   );

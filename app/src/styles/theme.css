@@ -227,14 +227,15 @@ td.mn, th.mn {
   height: 1px;
   background: var(--glass-edge-line);
 }
-.brand-mark-svg { flex: none; width: 36px; height: 36px }
+.brand-mark-svg { flex: none; width: 40px; height: 40px }
 .brand-mark {
   font-family: var(--ff-display);
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.2px;
   color: var(--tx);
   line-height: 1;
+  white-space: nowrap;
 }
 .brand-mark .brand-bx { color: var(--ac) }
 @keyframes shimmer-text {
