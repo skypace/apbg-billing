@@ -25,7 +25,6 @@ interface NavItem { id: View; label: string; icon: LucideIcon }
 const NAV: NavItem[] = [
   { id: 'overview',   label: 'Overview',          icon: LayoutDashboard   },
   { id: 'margin',     label: 'Margin',            icon: TrendingUp        },
-  { id: 'operations', label: 'Operations',        icon: Activity          },
   { id: 'customers',  label: 'Customers',         icon: Users             },
   { id: 'reports',    label: 'Reports',           icon: FileText          },
   { id: 'plans',      label: 'Plans',             icon: CalendarRange     },

@@ -1,6 +1,16 @@
-// import-qbo-budget — pulls a budget out of QuickBooks Online and
-// materializes it as an ops.sales_plans row + ops.sales_plan_lines
-// (one line per Account, with amounts[1..12] populated).
+// import-qbo-budget v2 (2026-05-17): fixes two bugs found when "import 2026
+// budget" succeeded but wrote nothing.
+//   1. `SELECT * FROM Budget` returns budget HEADERS only — the BudgetDetail
+//      array comes back empty. You have to query a specific budget by ID
+//      (`SELECT * FROM Budget WHERE Id = 'X'`) to get the per-month detail.
+//      v1 was reading from the list query and always saw 0 lines.
+//   2. The per-month detail field is `BudgetDate`, NOT `StartDate`. v1
+//      checked `d.StartDate` and skipped every detail because it was
+//      undefined.
+//
+// Pulls a budget out of QuickBooks Online and materializes it as an
+// ops.sales_plans row + ops.sales_plan_lines (one line per Account, with
+// amounts[1..12] populated).
 //
 // POST body:
 //   { fiscal_year: 2026, budget_name?: 'My Budget', new_plan_name?: '...', dry_run?: true }
@@ -67,7 +77,7 @@ async function persistTokens(sb: SupabaseClient, accessToken: string, refreshTok
     p_realm_id: getRealm(),
     p_access_token: accessToken, p_access_expires: accessExpiry,
     p_refresh_token: refreshToken, p_refresh_expires: refreshExpiry,
-    p_refreshed_by: "import-qbo-budget@v1",
+    p_refreshed_by: "import-qbo-budget@v2",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
@@ -130,8 +140,8 @@ Deno.serve(async (req: Request) => {
     const wantedName: string | undefined = body?.budget_name?.toString()?.trim() || undefined;
     const newPlanName: string = body?.new_plan_name?.toString()?.trim() || ('QBO Budget FY' + fiscalYear);
 
-    const q = encodeURIComponent('select * from Budget');
-    const listResp = await qboGet(sb, '/query?query=' + q);
+    // 1. List all budgets (headers only — BudgetDetail is omitted from list queries).
+    const listResp = await qboGet(sb, '/query?query=' + encodeURIComponent('select * from Budget'));
     const allBudgets: any[] = listResp?.QueryResponse?.Budget ?? [];
     const yearStart = fiscalYear + '-01-01';
     const candidates = allBudgets.filter((b) => {
@@ -145,16 +155,28 @@ Deno.serve(async (req: Request) => {
         all_budgets_found: allBudgets.map((b) => ({ id: b.Id, name: b.Name, start: b.StartDate, end: b.EndDate })),
       }, 404);
     }
-    let chosen = candidates[0];
+    let chosenHeader = candidates[0];
     if (wantedName) {
       const named = candidates.find((b) => String(b.Name || '').trim().toLowerCase() === wantedName.toLowerCase());
-      if (named) chosen = named;
+      if (named) chosenHeader = named;
     } else {
-      chosen = candidates.reduce((a, b) =>
+      chosenHeader = candidates.reduce((a, b) =>
         new Date(a?.MetaData?.LastUpdatedTime || 0) > new Date(b?.MetaData?.LastUpdatedTime || 0) ? a : b,
       );
     }
 
+    // 2. Fetch the chosen budget BY ID. The list query above omits the
+    //    BudgetDetail array entirely — only a single-budget `where Id = 'X'`
+    //    query returns the per-month detail. v1 read from the list response
+    //    and always got 0 lines.
+    const detailResp = await qboGet(sb, '/query?query=' +
+      encodeURIComponent("select * from Budget where Id = '" + chosenHeader.Id + "'"));
+    const detailedBudgets: any[] = detailResp?.QueryResponse?.Budget ?? [];
+    const chosen = detailedBudgets[0] ?? chosenHeader;
+
+    // 3. Roll up budget detail into per-account 12-month arrays. The per-line
+    //    field is `BudgetDate`, NOT `StartDate`. v1 read the wrong field and
+    //    skipped every line.
     type AccountAgg = { account_id: string; account_name: string; amounts: number[] };
     const byAccount = new Map<string, AccountAgg>();
     const details: any[] = chosen?.BudgetDetail ?? [];
@@ -162,9 +184,9 @@ Deno.serve(async (req: Request) => {
       const ref = d?.AccountRef;
       const accId = String(ref?.value ?? '');
       const accName = String(ref?.name ?? accId);
-      const startDate = String(d?.StartDate ?? '');
-      if (!startDate || !accId) continue;
-      const m = parseInt(startDate.slice(5, 7), 10) - 1;
+      const budgetDate = String(d?.BudgetDate ?? d?.StartDate ?? '');
+      if (!budgetDate || !accId) continue;
+      const m = parseInt(budgetDate.slice(5, 7), 10) - 1;
       if (m < 0 || m > 11) continue;
       if (!byAccount.has(accId)) byAccount.set(accId, { account_id: accId, account_name: accName, amounts: Array(12).fill(0) });
       const agg = byAccount.get(accId)!;
