@@ -316,14 +316,15 @@ function fmNum(n: number): string {
 function overlayStyle(): React.CSSProperties {
   return {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 20,
+    zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+    padding: '90px 20px 20px',
+    overflowY: 'auto',
   };
 }
 function panelStyle(): React.CSSProperties {
   return {
     background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 6,
-    width: 'min(1200px, 98vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+    width: 'min(1200px, 98vw)', maxHeight: 'calc(100vh - 110px)', display: 'flex', flexDirection: 'column',
     boxShadow: '0 12px 60px rgba(0,0,0,0.4)',
   };
 }

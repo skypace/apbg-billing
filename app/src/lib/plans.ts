@@ -171,6 +171,17 @@ export function fetchPlanPlRollup(plan_id: string) {
   return sbrpc<PlanPlRollupRow[]>('fn_plan_pl_rollup', { p_plan_id: plan_id });
 }
 
+export interface PlanLineSection {
+  line_id: string;
+  section: 'revenue' | 'cogs' | 'opex' | 'other';
+  section_order: number;
+  pl_line: string;
+}
+
+export function fetchPlanLineSections(plan_id: string) {
+  return sbrpc<PlanLineSection[]>('fn_plan_lines_with_section', { p_plan_id: plan_id });
+}
+
 // ----- Split-growth bottom-up build (Refractor planner Phase 2) -----
 
 export interface BuildFromGrowthResultRow {

@@ -427,11 +427,12 @@ function WorkOrderDetailModal({
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      padding: '90px 20px 20px', overflowY: 'auto',
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
-        maxWidth: 940, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 20,
+        maxWidth: 940, width: '100%', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', padding: 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
           <div>

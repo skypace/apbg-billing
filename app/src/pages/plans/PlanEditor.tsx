@@ -7,11 +7,13 @@ import { fm } from '../../lib/formatters';
 import {
   MONTHS_SHORT,
   PlanAccountRollupRow,
+  PlanLineSection,
   QboItemOption,
   SalesPlan,
   SalesPlanLine,
   fetchItemOptions,
   fetchPlanAccountRollup,
+  fetchPlanLineSections,
   fetchPlanLines,
 } from '../../lib/plans';
 import { Dim, fetchPivot } from '../../lib/sales';
@@ -19,6 +21,7 @@ import { PlanVsActuals } from './PlanVsActuals';
 import { PlanForecast } from './PlanForecast';
 import { PlanPlView } from './PlanPlView';
 import { PlanBuildDialog } from './PlanBuildDialog';
+import { PlanLinesGrouped } from './PlanLinesGrouped';
 
 type Mode = 'pl' | 'lines' | 'rollup' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
@@ -40,6 +43,7 @@ interface Props {
 
 export function PlanEditor({ plan, onBack }: Props) {
   const [lines, setLines] = useState<SalesPlanLine[] | null>(null);
+  const [linesSections, setLinesSections] = useState<PlanLineSection[] | null>(null);
   const [rollup, setRollup] = useState<PlanAccountRollupRow[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
@@ -49,9 +53,13 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [buildOpen, setBuildOpen] = useState(false);
 
   function load() {
-    Promise.all([fetchPlanLines(plan.id), fetchPlanAccountRollup(plan.id)])
-      .then(([ls, ru]) => { setLines(ls); setRollup(ru); })
-      .catch(() => { setLines([]); setRollup([]); });
+    Promise.all([
+      fetchPlanLines(plan.id),
+      fetchPlanAccountRollup(plan.id),
+      fetchPlanLineSections(plan.id),
+    ])
+      .then(([ls, ru, ss]) => { setLines(ls); setRollup(ru); setLinesSections(ss); })
+      .catch(() => { setLines([]); setRollup([]); setLinesSections([]); });
   }
   useEffect(load, [plan.id]);
 
@@ -359,93 +367,15 @@ export function PlanEditor({ plan, onBack }: Props) {
               </select>
             </div>
           )}
-          <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
-            {lines.length === 0 ? (
-              <div className="ld">No lines yet. Click + ADD ITEM.</div>
-            ) : (
-              <table>
-                <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                  <tr>
-                    <th>Item</th>
-                    <th style={{ fontSize: 9, color: 'var(--mt)' }}>Account</th>
-                    {MONTHS_SHORT.map((m) => (
-                      <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
-                    ))}
-                    <th style={{ textAlign: 'right' }} title={
-                      viewMode === 'revenue' ? 'Annual revenue (sum of months)'
-                      : viewMode === 'qty'     ? 'Annual units (sum of months)'
-                      : viewMode === 'price'   ? 'Blended avg price = annual revenue ÷ annual units'
-                      :                          'Extended annual cost = Σ qty[i] × cost[i]'
-                    }>
-                      {viewMode === 'revenue' ? 'Annual Rev'
-                       : viewMode === 'qty'    ? 'Annual Qty'
-                       : viewMode === 'price'  ? 'Avg Price'
-                       :                          'Annual Cost'}
-                    </th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((l) => {
-                    const arr = arrayFor(l, viewMode);
-                    const total = totalFor(l, viewMode);
-                    const isMoney = viewMode !== 'qty';
-                    return (
-                      <tr key={l.id}>
-                        <td
-                          style={{
-                            maxWidth: 200,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontSize: 11,
-                          }}
-                          title={l.item_name ?? ''}
-                        >
-                          {l.item_name ?? '—'}
-                        </td>
-                        <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
-                        {arr.map((v, idx) => (
-                          <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
-                            <input
-                              type="number"
-                              step={viewMode === 'qty' ? 1 : 0.01}
-                              defaultValue={v ?? 0}
-                              onBlur={(e) => {
-                                if (Number(e.target.value) !== Number(v)) setCell(l, idx, e.target.value);
-                              }}
-                              style={{ ...inp(), width: 72, textAlign: 'right', fontSize: 10, padding: '3px 4px' }}
-                            />
-                          </td>
-                        ))}
-                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {isMoney ? fm(total) : Math.round(total).toLocaleString()}
-                        </td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button
-                            onClick={() => {
-                              const annualRev = (l.amounts ?? []).reduce((s, v) => s + Number(v || 0), 0);
-                              const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
-                              if (v != null) fillFlat(l, v);
-                            }}
-                            style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
-                            title="Spread an annual revenue total flat across 12 months"
-                          >
-                            ÷12
-                          </button>
-                          <button
-                            onClick={() => deleteLine(l.id)}
-                            style={{ ...btnDanger(), marginLeft: 4 }}
-                          >
-                            ×
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+          <div style={{ maxHeight: '78vh', overflow: 'auto' }}>
+            <PlanLinesGrouped
+              lines={lines}
+              linesSections={linesSections}
+              viewMode={viewMode}
+              onSetCell={(line, monthIdx, value) => setCell(line, monthIdx, value)}
+              onFillFlat={(line, total) => fillFlat(line, total)}
+              onDelete={(id) => deleteLine(id)}
+            />
           </div>
         </div>
       )}

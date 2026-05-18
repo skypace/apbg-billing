@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, X as XIcon } from 'lucide-react';
 import {
   BomLineInput, ProductBom, ProductBomLine,
@@ -259,8 +259,8 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   const [active, setActive] = useState(bom.is_active);
   const [name, setName] = useState<string>(bom.name ?? '');
   // Local-edit copy of the gal-per-yield bridge. Persists via updateBom on
-  // blur so the ScaleBomPanel can scale by gallons immediately without
-  // needing the user to save+reopen.
+  // blur so the BOM scaler can convert "make N gal" → runs without a
+  // save + reopen.
   const [finishedGal, setFinishedGal] = useState<string>(
     bom.finished_vol_per_yield_gal == null ? '' : String(bom.finished_vol_per_yield_gal),
   );
@@ -274,7 +274,37 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     return () => { alive = false; };
   }, [bomId]);
 
+  // Target volume for scaling — drives the "Required for batch" column in
+  // BomLinesEditor. Held here so a single input at the top controls the rows.
+  const [targetQty, setTargetQty] = useState<string>('');
+  const [targetUom, setTargetUom] = useState<string>(bom.yield_uom || 'each');
+
   const it = itemLookup.byId.get(bom.finished_qbo_item_id);
+
+  const bridgeGal = useMemo(() => {
+    const live = finishedGal.trim();
+    if (live !== '') return Number(live);
+    return bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal);
+  }, [finishedGal, bom.finished_vol_per_yield_gal]);
+
+  const scaling = useMemo(() => {
+    const tQty = Number(targetQty) || 0;
+    if (!lines || tQty <= 0) return { scaled: null, incompat: false, scaledByIdx: new Map<number, { qty: number; uom: string }>() };
+    const yieldDef = { qty: Number(bom.yield_qty), uom: bom.yield_uom || 'each', finishedVolPerYieldGal: bridgeGal };
+    const out = scaleBom(
+      { qty: tQty, uom: targetUom },
+      yieldDef,
+      lines.map((l, idx) => ({
+        qty_per: Number(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        scrap_pct: Number(l.scrap_pct ?? 0),
+        ref: { idx },
+      })),
+    );
+    const map = new Map<number, { qty: number; uom: string }>();
+    if (out) for (const s of out.scaledLines) map.set(s.ref.idx, { qty: s.qty, uom: s.uom });
+    return { scaled: out, incompat: out === null, scaledByIdx: map };
+  }, [lines, bom.yield_qty, bom.yield_uom, bridgeGal, targetQty, targetUom]);
 
   async function saveLines() {
     if (!lines || !lines.every(validLine)) return;
@@ -329,11 +359,12 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      padding: '90px 20px 20px', overflowY: 'auto',
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
-        maxWidth: 880, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 20,
+        maxWidth: 1080, width: '100%', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', padding: 20,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
@@ -380,7 +411,7 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
 
         {uomGroup(bom.yield_uom || 'each') === 'count' && (
           <div style={{
-            marginBottom: 14, padding: '8px 10px',
+            marginBottom: 10, padding: '8px 10px',
             border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
@@ -398,22 +429,58 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
           </div>
         )}
 
+        {/* Scale-to-batch input — drives the Required column in the BOM lines editor below. */}
+        <div style={{
+          marginBottom: 14, padding: '10px 12px',
+          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 12,
+          background: 'rgba(91,181,240,0.04)',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        }}>
+          <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            Scale to make
+          </span>
+          <input type="number" min={0} step="any" style={{ ...inp(), width: 110, textAlign: 'right' }}
+            value={targetQty}
+            onChange={(e) => setTargetQty(e.target.value)}
+            placeholder="qty" />
+          <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 110 }}>
+            {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          {scaling.scaled ? (
+            <span style={{ color: 'var(--mt)' }}>
+              → <strong style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)' }}>
+                {scaling.scaled.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              </strong> {scaling.scaled.runs === 1 ? 'run' : 'runs'} · BOM lines below show required quantities for this batch
+            </span>
+          ) : scaling.incompat ? (
+            <span style={{ color: 'var(--am)', fontSize: 11 }}>
+              Can't convert {targetUom} → {bom.yield_uom || 'each'}.
+              {uomGroup(targetUom) === 'volume' && uomGroup(bom.yield_uom || 'each') === 'count' && bridgeGal == null
+                ? <> Set "1 {bom.yield_uom || 'each'} produces ___ gal" above.</>
+                : <> Enter the target in {bom.yield_uom || 'each'}.</>}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--mt)', fontSize: 11 }}>
+              Enter a target qty to see Required columns auto-populate.
+            </span>
+          )}
+        </div>
+
         {lines === null
           ? <div style={{ padding: 18, color: 'var(--mt)' }}>Loading lines…</div>
           : <>
-              <BomLinesEditor lines={lines} setLines={setLines} itemLookup={itemLookup} />
+              <BomLinesEditor
+                lines={lines}
+                setLines={setLines}
+                itemLookup={itemLookup}
+                scaledByIdx={scaling.scaledByIdx}
+              />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
                 <button onClick={onClose} style={btnSecondary()}>Close</button>
                 <button onClick={saveLines} disabled={saving || !lines.every(validLine)} style={btnPrimary()}>
                   {saving ? 'Saving…' : 'Save lines'}
                 </button>
               </div>
-              <ScaleBomPanel
-                bom={bom}
-                lines={lines}
-                itemLookup={itemLookup}
-                finishedVolPerYieldGal={finishedGal.trim() === '' ? null : Number(finishedGal)}
-              />
             </>}
       </div>
     </div>
@@ -422,11 +489,16 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
 
 // ── BOM lines sub-editor (shared by create form + detail modal) ─────────
 
-function BomLinesEditor({ lines, setLines, itemLookup }: {
+function BomLinesEditor({ lines, setLines, itemLookup, scaledByIdx }: {
   lines: BomLineInput[];
   setLines: (next: BomLineInput[]) => void;
   itemLookup: ProductionItemLookup;
+  /** Per-row scaled qty + uom keyed by line index. Empty Map = no scaling
+   *  active; the Required column renders "—". */
+  scaledByIdx?: Map<number, { qty: number; uom: string }>;
 }) {
+  const showRequired = (scaledByIdx?.size ?? 0) > 0;
+
   function addComponent() { setLines([...lines, emptyComponentLine()]); }
   function addService()   { setLines([...lines, emptyServiceLine()]); }
   function rm(i: number)  { setLines(lines.filter((_, idx) => idx !== i)); }
@@ -437,7 +509,7 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
   return (
     <>
       <div style={{ marginTop: 14, fontSize: 10, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>
-        Lines (per yield qty)
+        Lines (per yield qty){showRequired ? ' · Required column shows scaled batch quantities' : ''}
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
@@ -446,6 +518,9 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
             <th style={cellTh}>Component / Service</th>
             <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Qty / yield</th>
             <th style={{ ...cellTh, width: 80 }}>UoM</th>
+            {showRequired && (
+              <th style={{ ...cellTh, width: 110, textAlign: 'right', color: 'var(--ac)' }}>Required</th>
+            )}
             <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Scrap %</th>
             <th style={{ ...cellTh, width: 100, textAlign: 'right' }}>Unit Cost</th>
             <th style={{ ...cellTh, width: 150 }}>Notes</th>
@@ -489,6 +564,13 @@ function BomLinesEditor({ lines, setLines, itemLookup }: {
                   {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </td>
+              {showRequired && (
+                <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600, color: 'var(--ac)' }}>
+                  {scaledByIdx?.has(i)
+                    ? fmtQty(scaledByIdx.get(i)!.qty, scaledByIdx.get(i)!.uom)
+                    : <span style={{ color: 'var(--mt)' }}>—</span>}
+                </td>
+              )}
               <td style={{ ...cellTd, textAlign: 'right' }}>
                 <input type="number" min={0} max={99} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
                   value={(l.scrap_pct ?? 0) * 100}
@@ -571,108 +653,3 @@ const cellTh: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fo
   letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)' };
 const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middle' };
 
-// ── Scale this BOM calculator ───────────────────────────────────────────
-//
-// Live scratchpad inside the BOM detail modal. Operator types a target
-// quantity + UoM ("make 1000 gal") and we multiply every line by the
-// implied runs. Read-only — doesn't save anything, just shows the math
-// so the operator can sanity-check a future work order.
-function ScaleBomPanel({ bom, lines, itemLookup, finishedVolPerYieldGal }: {
-  bom: ProductBom;
-  lines: BomLineInput[];
-  itemLookup: ProductionItemLookup;
-  /** Live value from the modal's editable bridge field. Falls back to the
-   *  persisted bom.finished_vol_per_yield_gal so existing BOMs still scale
-   *  without a re-save. */
-  finishedVolPerYieldGal?: number | null;
-}) {
-  const [targetQty, setTargetQty] = useState<string>(String(bom.yield_qty));
-  const [targetUom, setTargetUom] = useState<string>(bom.yield_uom || 'each');
-
-  const target = { qty: Number(targetQty) || 0, uom: targetUom };
-  const bridgeGal = finishedVolPerYieldGal
-    ?? (bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal))
-    ?? undefined;
-  const yield_ = {
-    qty: Number(bom.yield_qty),
-    uom: bom.yield_uom || 'each',
-    finishedVolPerYieldGal: bridgeGal,
-  };
-  const scaled = target.qty > 0
-    ? scaleBom(target, yield_, lines.map((l, idx) => ({
-        qty_per: Number(l.qty_per),
-        qty_uom: l.qty_uom || 'each',
-        scrap_pct: Number(l.scrap_pct ?? 0),
-        ref: { line: l, idx },
-      })))
-    : null;
-  const incompat = target.qty > 0 && scaled === null;
-  const sameCountFamily =
-    uomGroup(targetUom) === 'count' && uomGroup(yield_.uom) === 'count';
-  const missingBridge =
-    uomGroup(targetUom) === 'volume' && uomGroup(yield_.uom) === 'count' && bridgeGal == null;
-
-  return (
-    <div style={{
-      marginTop: 20, padding: 14, border: '1px solid var(--bd)', borderRadius: 6,
-      background: 'rgba(91,181,240,0.04)',
-    }}>
-      <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 10 }}>
-        Scale this BOM
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12 }}>Make</span>
-        <input type="number" min={0} step="any" style={{ ...inp(), width: 120, textAlign: 'right' }}
-          value={targetQty} onChange={(e) => setTargetQty(e.target.value)} />
-        <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 100 }}>
-          {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        {scaled
-          ? <span style={{ fontSize: 12, color: 'var(--mt)' }}>
-              → <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>{scaled.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong> {scaled.runs === 1 ? 'run' : 'runs'} of this BOM
-            </span>
-          : incompat
-            ? <span style={{ fontSize: 11, color: 'var(--am)' }}>
-                Can't convert {targetUom} → {yield_.uom}.{' '}
-                {missingBridge
-                  ? <>Set "1 {yield_.uom} produces ___ gal" above to scale by volume, or type the target in {yield_.uom}.</>
-                  : sameCountFamily
-                    ? <>Type the target in {yield_.uom} — there's no fixed conversion between each and case.</>
-                    : <>Type the target in {yield_.uom}.</>}
-              </span>
-            : null}
-      </div>
-
-      {scaled && scaled.scaledLines.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-              <th style={cellTh}>Component / Service</th>
-              <th style={{ ...cellTh, textAlign: 'right' }}>Per yield</th>
-              <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scaled.scaledLines.map(({ qty, uom, ref }) => {
-              const l = ref.line;
-              const label = l.line_type === 'component'
-                ? (l.component_qbo_item_id ? itemLookup.byId.get(l.component_qbo_item_id)?.item_name : null) ?? '(no component)'
-                : (l.service_label || '(no label)');
-              return (
-                <tr key={ref.idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={cellTd}>{label}</td>
-                  <td style={{ ...cellTd, textAlign: 'right', color: 'var(--mt)', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtQty(Number(l.qty_per), l.qty_uom || 'each')}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
-                    {fmtQty(qty, uom)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
