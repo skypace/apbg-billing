@@ -92,18 +92,24 @@ export function CustomersPage() {
       headerName: 'Customer',
       flex: 2,
       minWidth: 240,
-      renderCell: (p: GridRenderCellParams<CustomerGridRow>) => (
-        <span style={{
-          fontWeight: 600,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }} title={p.value as string}>
-          {p.value as string}
-          {p.row.is_sub_customer && <span className="bg bg-p" style={{ marginLeft: 6 }}>SUB</span>}
-          {!p.row.active && <span className="bg bg-p" style={{ marginLeft: 6 }}>INACTIVE</span>}
-        </span>
-      ),
+      renderCell: (p: GridRenderCellParams<CustomerGridRow>) => {
+        const name = (p.value as string | null | undefined);
+        const hasName = name && String(name).trim() !== '';
+        return (
+          <span style={{
+            fontWeight: hasName ? 600 : 500,
+            color: hasName ? undefined : 'var(--am)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontStyle: hasName ? undefined : 'italic',
+          }} title={hasName ? String(name) : `Customer with no name. QBO ID: ${p.row.qbo_customer_id}`}>
+            {hasName ? name : `(no name · QBO #${p.row.qbo_customer_id})`}
+            {p.row.is_sub_customer && <span className="bg bg-p" style={{ marginLeft: 6 }}>SUB</span>}
+            {!p.row.active && <span className="bg bg-p" style={{ marginLeft: 6 }}>INACTIVE</span>}
+          </span>
+        );
+      },
     },
     {
       field: 'state',
