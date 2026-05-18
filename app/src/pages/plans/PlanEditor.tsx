@@ -17,8 +17,10 @@ import {
 import { Dim, fetchPivot } from '../../lib/sales';
 import { PlanVsActuals } from './PlanVsActuals';
 import { PlanForecast } from './PlanForecast';
+import { PlanPlView } from './PlanPlView';
+import { PlanBuildDialog } from './PlanBuildDialog';
 
-type Mode = 'lines' | 'rollup' | 'vs_actuals' | 'forecast';
+type Mode = 'pl' | 'lines' | 'rollup' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
 
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
@@ -42,8 +44,9 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
   const [actualsByItem, setActualsByItem] = useState<Record<string, { amounts: number[]; total: number }> | null>(null);
-  const [mode, setMode] = useState<Mode>('lines');
+  const [mode, setMode] = useState<Mode>('pl');
   const [viewMode, setViewMode] = useState<ViewMode>('revenue');
+  const [buildOpen, setBuildOpen] = useState(false);
 
   function load() {
     Promise.all([fetchPlanLines(plan.id), fetchPlanAccountRollup(plan.id)])
@@ -229,6 +232,7 @@ export function PlanEditor({ plan, onBack }: Props) {
   if (!lines || !rollup) return <div className="ld">Loading plan…</div>;
 
   const modeBtns: { id: Mode; label: string }[] = [
+    { id: 'pl',         label: 'P&L' },
     { id: 'lines',      label: 'Plan Lines' },
     { id: 'rollup',     label: 'Account Rollup' },
     { id: 'vs_actuals', label: 'vs Actuals' },
@@ -280,13 +284,27 @@ export function PlanEditor({ plan, onBack }: Props) {
               </button>
             );
           })}
+          <button onClick={() => setBuildOpen(true)} style={btnPrimary()}>
+            BUILD…
+          </button>
           <button onClick={copyFromActuals} style={btnSecondary()}>
             COPY FROM {plan.fiscal_year - 1}
           </button>
           <button onClick={pushToQbo} style={btnSecondary()}>PUSH TO QBO</button>
-          <button onClick={exportRollupCsv} style={btnPrimary()}>EXPORT CSV</button>
+          <button onClick={exportRollupCsv} style={btnSecondary()}>EXPORT CSV</button>
         </div>
       </div>
+
+      {mode === 'pl' && <PlanPlView planId={plan.id} />}
+
+      {buildOpen && (
+        <PlanBuildDialog
+          planId={plan.id}
+          planFiscalYear={plan.fiscal_year}
+          onClose={() => setBuildOpen(false)}
+          onApplied={load}
+        />
+      )}
 
       {mode === 'lines' && (
         <div className="cd" style={{ padding: 0, marginBottom: 10 }}>

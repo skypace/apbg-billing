@@ -91,6 +91,38 @@ export function fetchItemOptions() {
   );
 }
 
+export interface QboItemWithCategory extends QboItemOption {
+  category_path: string | null;
+  parent_ref_id: string | null;
+  type: string | null;
+}
+
+export function fetchItemsWithCategory() {
+  return sbq<QboItemWithCategory>(
+    'qbo_items',
+    'select=qbo_item_id,name,fully_qualified_name,income_account_ref_id,income_account_name,category_path,parent_ref_id,type'
+    + '&active=eq.true&order=category_path,name&limit=4000',
+  );
+}
+
+export interface PlanHistoryForItemRow {
+  qbo_item_id: string;
+  item_name: string;
+  category_path: string;
+  income_account_name: string | null;
+  ly_annual_qty: number;
+  ly_annual_revenue: number;
+  ly_avg_unit_price: number | null;
+  ly_customer_count: number;
+}
+
+export function fetchPlanHistoryForItems(item_ids: string[], source_year: number | null) {
+  return sbrpc<PlanHistoryForItemRow[]>('fn_plan_history_for_items', {
+    p_item_ids:    item_ids,
+    p_source_year: source_year,
+  });
+}
+
 // ----- Plan Builder auto-fill (v0.9.31) -----
 
 export interface AutofillResultRow {
@@ -116,5 +148,57 @@ export function autofillPlanFromHistory(opts: {
     p_customer_ids:   opts.customer_ids ?? null,
     p_adjustment_pct: opts.adjustment_pct ?? 0,
     p_source_year:    opts.source_year ?? null,
+  });
+}
+
+// ----- P&L rollup (Refractor planner Phase 1) -----
+
+export interface PlanPlRollupRow {
+  section: 'revenue' | 'cogs' | 'opex' | 'other';
+  section_order: number;
+  pl_line: string;
+  pl_line_order: number;
+  account_name: string;
+  item_category: string;
+  line_count: number;
+  m1: number; m2: number; m3: number; m4: number;
+  m5: number; m6: number; m7: number; m8: number;
+  m9: number; m10: number; m11: number; m12: number;
+  total: number;
+}
+
+export function fetchPlanPlRollup(plan_id: string) {
+  return sbrpc<PlanPlRollupRow[]>('fn_plan_pl_rollup', { p_plan_id: plan_id });
+}
+
+// ----- Split-growth bottom-up build (Refractor planner Phase 2) -----
+
+export interface BuildFromGrowthResultRow {
+  qbo_item_id: string;
+  item_name: string;
+  qbo_customer_id: string;
+  customer_name: string;
+  ly_annual_qty: number;
+  ly_annual_revenue: number;
+  planned_annual_qty: number;
+  planned_annual_revenue: number;
+  created: boolean;
+}
+
+export function buildPlanFromGrowth(opts: {
+  plan_id: string;
+  item_ids?: string[] | null;
+  customer_ids?: string[] | null;
+  qty_growth_pct?: number;
+  price_growth_pct?: number;
+  source_year?: number | null;
+}) {
+  return sbrpc<BuildFromGrowthResultRow[]>('fn_plan_build_from_growth', {
+    p_plan_id:          opts.plan_id,
+    p_item_ids:         opts.item_ids ?? null,
+    p_customer_ids:     opts.customer_ids ?? null,
+    p_qty_growth_pct:   opts.qty_growth_pct   ?? 0,
+    p_price_growth_pct: opts.price_growth_pct ?? 0,
+    p_source_year:      opts.source_year ?? null,
   });
 }
