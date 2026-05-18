@@ -530,3 +530,139 @@
 - QBO source: Sales by Customer Summary, filter to single customer
 - Severity: HIGH
 
+### [claim-73] — Each plan has FY + name + status; landing page lists them
+- Status: PASS
+- Code path: `app/src/pages/PlansPage.tsx:241-294` (table) + `lib/plans.ts:SalesPlan` shape
+- Notes: Columns rendered are Name / FY / Scenario / Status / Updated. "Scenario" is an extra dimension the guide doesn't mention (plan / forecast / stretch / conservative / budget).
+- Severity: LOW
+
+### [claim-74] — Plan editor default tab = P&L
+- Status: PASS
+- Code path: `app/src/pages/plans/PlanEditor.tsx:48` (`useState<Mode>('pl')`)
+- Severity: LOW
+
+### [claim-75] — P&L tab renders Revenue → COGS → Gross Margin (%) → OpEx → Net Income (%)
+- Status: PASS
+- Code path: `app/src/pages/plans/PlanPlView.tsx:75-82`
+- Notes: Section subtotals named TOTAL REVENUE / TOTAL COGS / GROSS MARGIN / TOTAL OPERATING EXPENSES / NET INCOME, with `gmPct` and `netPct` exposed.
+- Severity: LOW
+
+### [claim-76] — Plan Lines tab has per-month editable cells with P&L grouping
+- Status: PASS
+- Code path: `PlanEditor.tsx:322-386` + `pages/plans/PlanLinesGrouped.tsx`
+- Severity: LOW
+
+### [claim-77] — Section subtotals (TOTAL REVENUE/COGS/OPEX) shown
+- Status: PASS
+- Code path: `PlanPlView.tsx:75-82`
+- Severity: LOW
+
+### [claim-78] — Gross Margin row = Revenue − COGS, shows % of revenue
+- Status: PASS
+- Code path: `PlanLinesGrouped.tsx:258` (`GROSS MARGIN · X%`) and `PlanPlView.tsx` (`gmPct`)
+- Severity: LOW
+
+### [claim-79] — Net Income row = GM − OpEx, shows % of revenue
+- Status: PASS
+- Code path: `PlanLinesGrouped.tsx:270` (`NET INCOME · X%`)
+- Severity: LOW
+
+### [claim-80] — Section + pl_line groups have ▶/▼ collapse carets
+- Status: PASS
+- Code path: `PlanLinesGrouped.tsx:171-188` (section toggle) and the same triangle character is used
+- Severity: LOW
+
+### [claim-81] — View modes: Revenue ($) / Qty / Price ($/unit) / Cost ($/unit)
+- Status: PASS
+- Code path: `PlanEditor.tsx:27-32`
+- Severity: LOW
+
+### [claim-82] — Cell edit: Tab/Shift-Tab navigate; blur commits; saves to `sales_plan_lines`
+- Status: PASS (server-side write) / UNTESTABLE for blur/Tab UX without manual test
+- Code path: `PlanEditor.tsx:119-148` `setCell` → `sbUpdate('sales_plan_lines', …)` on every cell change
+- Notes: Implementation does `onBlur`-style save (each setCell triggers an `sbUpdate`). Tab/Shift-Tab is default browser behavior on `<input>` elements; not explicitly customized.
+- Severity: LOW
+
+### [claim-83] — ÷12 button spreads annual total flat across 12 months
+- Status: PASS
+- Code path: `PlanEditor.tsx:170-175` `fillFlat` + button at `PlanLinesGrouped.tsx:225` (`÷12` title="Spread an annual revenue total flat across 12 months")
+- Severity: LOW
+
+### [claim-84] — "×" button deletes the line
+- Status: PASS
+- Code path: `PlanEditor.tsx:166-168` `deleteLine` + button at `PlanLinesGrouped.tsx:227`
+- Severity: LOW
+
+### [claim-85] — BUILD source year defaults to plan year − 1
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:37` (`useState<number>(planFiscalYear - 1)`)
+- Severity: LOW
+
+### [claim-86] — BUILD populates one row per item in chosen category w/ last year's actuals
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:65-95` `loadCategory` → `fetchPlanHistoryForItems` (returns ly_qty / ly_revenue / ly_avg_unit_price / ly_customer_count)
+- Severity: LOW
+
+### [claim-87] — "Default qty %" and "Default price %" apply on Apply-defaults-to-all
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:97-100,205-209`
+- Severity: LOW
+
+### [claim-88] — Per-item Qty % and Price % overrides
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:249-264` (inputs per row writing through `updateRow`)
+- Severity: LOW
+
+### [claim-89] — Live computed Plan Qty / Plan Price / Plan Revenue update as user types
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:238-240,265-267` (computed during render)
+- Severity: LOW
+
+### [claim-90] — Footer total shows whole-category total
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:272-283` (`<tfoot>` with `totals`)
+- Severity: LOW
+
+### [claim-91] — Apply writes via `fn_plan_build_from_growth`
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:109-137` `apply` → `buildPlanFromGrowth` → RPC `fn_plan_build_from_growth`
+- Notes: Smart: groups items by unique (qty_pct, price_pct) and makes one RPC call per group (line 115-121).
+- Severity: LOW
+- Notes: UNTESTABLE for actual write — not invoked in this audit.
+
+### [claim-92] — Items with zero sales last year appear greyed out
+- Status: PASS
+- Code path: `PlanBuildDialog.tsx:241-243` (`const noHistory = r.ly_annual_revenue === 0; style={ opacity: 0.5 }`)
+- Severity: LOW
+
+### [claim-93] — "COPY FROM <prior year>" bulk autofill with uniform multiplier
+- Status: GUIDE_WRONG (partial)
+- Code path: `PlanEditor.tsx:177-195` `copyFromActuals`
+- Expected (guide): "bulk autofill from prior year's actuals with a single uniform multiplier"
+- Actual: copies prior-year revenue **divided by 12** flat across months. **There is no multiplier input.** No 1.05×, no 0.90× — just a straight copy.
+- Diff: guide says "uniform multiplier", code applies no multiplier
+- Severity: LOW
+- Notes: The Build dialog (claim-87) is the place where multipliers are entered; the Copy-From button is a "1×" shortcut. Guide is overselling it.
+
+### [claim-94] — "PUSH TO QBO" generates QBO Budget import CSV
+- Status: PASS (wiring) / UNTESTABLE (write — manual)
+- Code path: `PlanEditor.tsx:197-215` posts to `/functions/v1/push-qbo-budget` with `write: false` → response includes `csv` → downloads as `<plan>_FY<yr>_qbo_budget.csv`
+- Severity: MEDIUM
+- Notes: The Supabase function `push-qbo-budget` is not in `app/`; trust that it produces a CSV matching QBO Budget import format. CSV format itself was not validated against a real QBO import in this audit.
+
+### [claim-95] — Plans "Export CSV" aggregates by account, sorted by total
+- Status: PASS
+- Code path: `PlanEditor.tsx:217-239` (`exportRollupCsv` rolls up `lines.amounts[]` by `account_name`, sorts by total desc)
+- Severity: LOW
+
+### [claim-96] — vs Actuals tab shows item-level variance YTD plan vs YTD actual + % delta + status
+- Status: PASS (variance + delta) / WIRING_BROKEN (status badge)
+- Code path: `app/src/pages/plans/PlanVsActuals.tsx:23-37` computes `ytdVar` and `fyVar`
+- Notes: Plain text shows the variance; no explicit "status badge" (ahead/behind/critical) in vs-Actuals — those status values are computed in the Forecast tab via `fetchPlanForecast`, not vs Actuals.
+- Severity: LOW
+
+### [claim-97] — Forecast tab projects full-year from YTD pace
+- Status: PASS
+- Code path: `app/src/pages/plans/PlanForecast.tsx:17-48` + RPC `fetchPlanForecast` returns `projected_full_year`, `months_complete`, and a status enum (ahead / on_track / behind / critical / no_data)
+- Severity: LOW
+
