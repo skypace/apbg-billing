@@ -383,3 +383,150 @@
 - Severity: HIGH
 - Notes: This is the same root cause as claim-25. The program cannot reconcile to QBO posted COGS as the guide implies — only to its own est cost. File as: either fix the guide language ("est margin", not "COGS"), or add a posted-COGS column sourced from `pl_snapshots`.
 
+### [claim-50] — Customers page renders MUI X DataGrid Pro
+- Status: PASS
+- Code path: `app/src/pages/CustomersPage.tsx:2,257`
+- Severity: LOW
+
+### [claim-51] — Toolbar exposes a Channel dropdown
+- Status: PASS
+- Code path: `CustomersPage.tsx:219-234` (MUI Autocomplete on `channelOptions`)
+- Severity: LOW
+- Notes: `channelOptions` is derived from the visible rows — channels seen in the dataset; if a channel has no customers in the current YTD window it won't appear.
+
+### [claim-52] — Toolbar exposes a "Show inactive" checkbox
+- Status: PASS
+- Code path: `CustomersPage.tsx:236-239`
+- Severity: LOW
+
+### [claim-53] — Search box filters by customer name
+- Status: PASS
+- Code path: `CustomersPage.tsx:207-217` + debounced state at 33-36; passed as `p_search` to `fn_customer_classification_list` (`lib/customers.ts:111`)
+- Notes: 250 ms debounce; trim before sending.
+- Severity: LOW
+
+### [claim-54] — Columns include Customer, State, Channel, YTD Revenue, Invoices, Segment, RFM
+- Status: PASS
+- Code path: `CustomersPage.tsx:89-158`
+- Severity: LOW
+
+### [claim-55] — Customer column is pinned left
+- Status: PASS
+- Code path: `CustomersPage.tsx:265` (`pinnedColumns: { left: ['display_name'] }`)
+- Severity: LOW
+
+### [claim-56] — Sub-customer rows display "SUB" badge
+- Status: PASS
+- Code path: `CustomersPage.tsx:108`
+- Severity: LOW
+
+### [claim-57] — Inactive customer rows display "INACTIVE" badge
+- Status: PASS
+- Code path: `CustomersPage.tsx:109`
+- Severity: LOW
+
+### [claim-58] — RFM column shows composite score on 0–15 scale
+- Status: PASS
+- Code path: `CustomersPage.tsx:150-157` renders `{value}/15`
+- Severity: LOW
+
+### [claim-59] — Segment column shows RFM segments (Champions / Loyal / At-risk / Lost / etc.)
+- Status: PASS (wiring) / UNTESTABLE (without live data we can't enumerate seen segments)
+- Code path: `CustomersPage.tsx:143-149` + `components/SegmentChip.tsx` (renders the string from `health.rfm_segment`); values come from `fn_customer_health`
+- Severity: LOW
+
+### [claim-60] — List capped server-side at 200 most-recent active customers by revenue
+- Status: GUIDE_WRONG
+- Code path: `CustomersPage.tsx:42-48` passes `limit: 1000`. The RPC default is 200 (`lib/customers.ts:115`) but the page **overrides it to 1000**.
+- Expected (guide): 200-row cap
+- Actual: 1000-row cap; "Show inactive" client-side filters the 1000 down
+- Diff: 5× the documented cap
+- Severity: LOW
+
+### [claim-61] — Name-search bypasses the cap
+- Status: PASS (technically the cap still applies — 1000 rows — but for any realistic customer count name-match comes back within that window)
+- Code path: `CustomersPage.tsx:42-48`
+- Notes: `p_search` is passed to the RPC and (per the SQL function name `fn_customer_classification_list`) presumably applies before the LIMIT. Server-side limit-1000 is generous enough that this is effectively unbounded for current data.
+- Severity: LOW
+
+### [claim-62] — Deleted-customer ghosts render as `(no name · QBO #1234)` italic amber
+- Status: PASS
+- Code path: `CustomersPage.tsx:99-107` — when `display_name` is null/empty, renders italic amber with `(no name · QBO #${qbo_customer_id})`
+- Severity: LOW
+
+### [claim-63] — ~22 ghost rows exist (May 2026 backfill), visible only with "Show inactive"
+- Status: DEFERRED (Supabase data check)
+- Code path: relies on the seed migration; can be verified by `SELECT COUNT(*) FROM ops.qbo_customers WHERE active = false AND (display_name LIKE '%(deleted)' OR display_name IS NULL)`
+- Severity: LOW
+- Notes: Count check deferred; the rendering path (claim-62) does work.
+
+### [claim-64] — YTD Revenue column matches QBO sales-by-customer totals
+- Status: DEFERRED (QBO numeric reconciliation)
+- Code path: `lib/customers.ts:110-117` `fn_customer_classification_list` (rolls up `ops.mv_sales_lines` per customer)
+- QBO source: Sales by Customer Summary, YTD
+- Severity: HIGH
+
+### [claim-65] — Header shows customer name, classification, entity, total YTD revenue
+- Status: GUIDE_WRONG
+- Code path: `CustomerDetailPage.tsx:240-289`
+- Expected: name + classification + entity + YTD revenue **in the header**
+- Actual: header shows name + SUB/INACTIVE badge + RFM segment label + back-link + Print button + (address, channel) in meta. **Entity is not shown** in the header. **YTD revenue is shown in the KPI tile row below**, not in the header.
+- Diff: classification = "RFM segment" not "customer type"; entity missing; YTD revenue is one section down
+- Severity: LOW
+
+### [claim-66] — Section 1 Contact & address: parent chain (if sub), multi-line postal address, contact, "Open in QBO"
+- Status: WIRING_BROKEN (partial)
+- Code path: `CustomerDetailPage.tsx:291-335`
+- Expected: parent-chain name (when sub), multi-line postal address, contact, "Open in QBO" link
+- Actual: shows Channel, Address (multi-line postal), Contact (email · phone), and **QBO Customer Type** (not parent chain). There is **no "Open in QBO" link**. The **parent chain name is not displayed** anywhere — only the SUB badge. `fn_customer_detail` doesn't return parent display_name either (`migrations/20260503n_customer_detail.sql:52-65` projects `qc.*` but no parent JOIN).
+- Diff: missing parent name, missing "Open in QBO" link
+- Severity: MEDIUM
+- Notes: Parent chain context is useful for understanding sub-customer revenue; absence is a real gap.
+
+### [claim-67] — Sub-customer with no own address falls back to parent's address
+- Status: WIRING_BROKEN
+- Code path: `CustomerDetailPage.tsx:311-322` (frontend) + `supabase/migrations/20260503n_customer_detail.sql:52-65` (RPC)
+- Expected: when sub-customer's `bill_addr_*` are all null, populate from the parent record
+- Actual: the RPC selects only `qc.bill_addr_*` from `ops.qbo_customers` for the requested ID. **No JOIN to `parent_ref_id` and no COALESCE to parent.** The frontend then renders "— no address —" when those four fields are empty.
+- Diff: feature is unimplemented end to end
+- Severity: MEDIUM
+- Notes: This is a real bug — the guide promises this behavior. Fixable in `fn_customer_detail` with a `LEFT JOIN` on `parent_ref_id` and `COALESCE(qc.bill_addr_line1, parent.bill_addr_line1)` etc.
+
+### [claim-68] — Section 2 Revenue summary: YTD, prior year, delta, AR outstanding, AR overdue, avg days-to-pay, # active invoices
+- Status: WIRING_BROKEN (partial)
+- Code path: `CustomerDetailPage.tsx:337-390` (KPI tiles) + `fn_customer_detail` (`migrations/20260503n_customer_detail.sql:22-39`)
+- Expected: 7 metrics: YTD, prior year, delta, AR outstanding, AR overdue, **avg days-to-pay**, # active invoices
+- Actual: KPI tiles cover YTD Revenue, YTD Margin, Lifetime Revenue, AR Balance (+ overdue subtotal), and Health (RFM). **Prior year + delta are not shown**; **avg days-to-pay is not computed or rendered anywhere**. "# active invoices" is shown inside the YTD card sub (`current_invoice_count`).
+- Diff: missing prior-year, missing delta, missing avg DTP
+- Severity: MEDIUM
+- Notes: `current_revenue` and `lifetime_revenue` are returned by the RPC, but no prior-year aggregate is computed. Avg DTP would need a `paid_date − txn_date` aggregate on invoices, which isn't in `fn_customer_detail`.
+
+### [claim-69] — Customer Detail AR values reconcile to QBO A/R Aging Detail
+- Status: DEFERRED (QBO numeric reconciliation)
+- Code path: `migrations/20260503n_customer_detail.sql:34-39` — sums `ops.qbo_invoices.balance > 0` for the customer
+- QBO source: A/R Aging Detail, filter to customer
+- Severity: HIGH
+
+### [claim-70] — Section 3 "Margin by item" lists every item billed with revenue, est. cost, est. margin %, qty
+- Status: GUIDE_WRONG (partial)
+- Code path: `CustomerDetailPage.tsx:455-516`
+- Expected: revenue, est. cost, est. margin %, qty
+- Actual: TOP ITEMS section shows **Item, Qty, Revenue, Margin %** — no Est Cost column displayed.
+- Severity: LOW
+- Notes: `est_cost` is fetched (it's in the pivot rows) but not rendered. Minor display gap.
+
+### [claim-71] — Section 4 "Recent invoices" lists last 20–50 invoices; click to see line items
+- Status: GUIDE_WRONG
+- Code path: `CustomerDetailPage.tsx:519-593`; data via `fn_pivot_drill` with `p_limit: 300` (`lib/customers.ts:153,77-83`)
+- Expected: last 20–50 invoices; clickable to see line items
+- Actual: it's NOT a list of invoices — it's a list of **invoice LINES** (up to 300). Each row is one line item (Date, Doc#, Item, Qty, Price, Revenue, Margin). **Clicking a row does nothing.** There's no nested "click invoice → see lines" interaction; lines are already flat.
+- Diff: rendering granularity is "lines" not "invoices"; click-to-expand is not implemented
+- Severity: LOW
+- Notes: Practical for the user (lines are the more useful unit) but doesn't match the guide.
+
+### [claim-72] — Customer-detail revenue reconciles to QBO invoice total for that customer
+- Status: DEFERRED (QBO numeric reconciliation)
+- Code path: `migrations/20260503n_customer_detail.sql:22-28` (`SELECT sum(revenue) FROM ops.v_sales_lines WHERE customer_ref_id = p_qbo_customer_id AND txn_date BETWEEN p_start AND p_end`)
+- QBO source: Sales by Customer Summary, filter to single customer
+- Severity: HIGH
+
