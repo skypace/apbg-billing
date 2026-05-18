@@ -104,7 +104,7 @@
 }
 
 .login-brand-mark {
-  font-size: 76px;
+  font-size: 52px;
   font-weight: 800;
   letter-spacing: 0.5px;
   color: var(--tx);
@@ -279,7 +279,7 @@
 }
 
 @media (max-width: 480px) {
-  .login-brand-mark { font-size: 42px; letter-spacing: 0.5px }
+  .login-brand-mark { font-size: 34px; letter-spacing: 0.5px }
   .login-form { padding: 22px 18px 18px }
   .login-tagline { font-size: 16px }
   .splash-brand { font-size: 46px; letter-spacing: 0.5px }

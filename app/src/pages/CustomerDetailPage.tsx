@@ -308,7 +308,17 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         </div>
         <div>
           <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>Address</div>
-          <div style={{ fontSize: 12, marginTop: 3 }}>{addr || '—'}</div>
+          {detail.bill_addr_line1 || detail.bill_addr_city || detail.bill_addr_state || detail.bill_addr_postal ? (
+            <div style={{ fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>
+              {detail.bill_addr_line1 && <div>{detail.bill_addr_line1}</div>}
+              <div>
+                {[detail.bill_addr_city, detail.bill_addr_state].filter(Boolean).join(', ')}
+                {detail.bill_addr_postal ? ` ${detail.bill_addr_postal}` : ''}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, marginTop: 3, color: 'var(--mt)' }}>— no address —</div>
+          )}
         </div>
         <div>
           <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>Contact</div>
