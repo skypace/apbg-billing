@@ -24,7 +24,7 @@ Everyone with an APBG login can read the data. Some admin-only screens (Settings
 
 ### Sidebar (left)
 
-9 sections, in order: **Overview · Margin · Operations · Customers · Reports · Plans · Compare · Inventory · Settings**. Click any item to jump.
+8 sections, in order: **Overview · Margin · Customers · Plans · Production · Compare · Inventory · Reports · Settings**. Click any item to jump.
 
 ### Header (top right)
 
@@ -124,13 +124,23 @@ Rollup definitions live under **Settings → Chain Rollups** (admin) — each ro
 
 ### List view
 
-The Customers page is a searchable list. Use the search box at the top to filter by name. Filter chips down the side scope to:
+The Customers page is an MUI DataGrid Pro — searchable, sortable, draggable, paginated. Use the search box at the top to filter by name. Toolbar filters: **Channel** dropdown, **Show inactive** checkbox.
 
-- **Classification** (active / prospect / inactive / churned)
-- **Entity** (which billing entity owns the record)
-- **Parent only** (hide sub-locations, show only chain parents)
+Columns (drag headers to reorder, click headers to sort, right-click for show/hide):
 
-The list shows: name, classification chip, parent chain (if a sub), entity, last invoice date, last 90-day revenue.
+- **Customer** — name (pinned left). Sub-customers show a SUB badge; inactive show INACTIVE.
+- **State** — billing-address state
+- **Channel** — primary channel
+- **YTD Revenue** — current year invoiced
+- **Invoices** — count this YTD
+- **Segment** — RFM segment (Champions / Loyal / At-risk / Lost / etc.)
+- **RFM** — 0–15 composite score
+
+The list is capped at 200 of the most recent active customers by revenue (server-side `LIMIT 200`). If you can't find someone, search by name to pull them in regardless of the cap, or toggle **Show inactive**.
+
+### Customers with no name
+
+If you see a row reading `(no name · QBO #1234)` in italic amber, that customer was deleted in QBO after their invoices were already created. The invoice record persists (we still need it for revenue history), but the master record is gone. There were 22 of these in May 2026 — they've been backfilled as inactive ghost rows with the QBO-recorded name + `(deleted)` suffix, so they only show with **Show inactive** on. If a new one appears, message Sky with the QBO ID.
 
 ### Click a row
 
@@ -150,7 +160,9 @@ Header: customer name + classification + entity + total YTD revenue. Below the h
 
 ### 1. Contact & address
 
-Parent chain (if a sub), billing/shipping address, contact info pulled from QBO. "Open in QBO" link sends you to the customer record on QuickBooks.
+Parent chain (if a sub), billing address (multi-line postal style: line 1 on top, City, ST ZIP below), contact info pulled from QBO. "Open in QBO" link sends you to the customer record on QuickBooks.
+
+**Sub-customer address fallback.** When a sub-customer has no address of its own (common in QBO when address is set on the parent), the detail card now falls back to the parent customer's address. The card always shows _something_ when an address exists anywhere in the chain.
 
 ### 2. Revenue summary
 
@@ -168,6 +180,92 @@ The last 20-50 invoices, newest first. Click any invoice to see its line items.
 
 - **Before a customer call:** open Customer Detail, scan revenue summary, screenshot the margin-by-item mini pivot. Five-minute prep.
 - **Pricing review:** open the customer, sort margin-by-item ascending by margin %. Anything under your target margin is a conversation.
+
+---
+
+## Plans
+
+**What it's for:** annual revenue / COGS / margin planning, built bottom-up from last year's actuals. The plan _is_ a P&L — open it and you see Revenue → COGS → Gross Margin → OpEx → Net Income directly, with editable cells inside each section.
+
+A plan has a fiscal year + a name (e.g. "QBO Budget FY2026") + a status. The Plans landing page lists every plan you have. Click a plan to open the editor.
+
+### Tabs inside a plan
+
+- **P&L** (default landing) — read-only P&L view. Revenue lines, COGS lines, Gross Margin row (with %), OpEx lines, Net Income row (with %). Rows are grouped by P&L line label inside each section, then by item category.
+- **Plan Lines** — the same data, fully editable, with the same P&L grouping plus per-month inputs. The pane you spend the most time in.
+- **vs Actuals** — item-level variance: YTD plan vs. YTD actual, % delta, status badge.
+- **Forecast** — projects full-year totals based on YTD pace.
+
+### Plan Lines tab — how it works
+
+The grid is grouped by section, then by P&L line (e.g. "BIB - 3 Gallon"), then by item. Subtotals appear at every level: pl_line subtotal, section subtotal (TOTAL REVENUE, TOTAL COGS, TOTAL OPERATING EXPENSES), plus computed **Gross Margin** (Revenue − COGS) and **Net Income** (GM − OpEx) rows with % of revenue.
+
+**Expand / collapse arrows.** Every section and every pl_line group has a ▶/▼ caret. Click to toggle:
+- Collapse a section → only its subtotal remains visible
+- Collapse a pl_line group → only its subtotal remains visible
+
+Use this to roll up to account level: collapse all pl_lines under Revenue and you get the per-account revenue breakdown with the Gross Margin still showing one row below.
+
+**View modes** (top right of the table): switch between Revenue ($) / Qty / Price ($/unit) / Cost ($/unit). The same grid renders different cell values; the section grouping persists.
+
+**Editing.** Click any monthly cell to type a new value. Tab/Shift-Tab to move horizontally. Blur (click away) commits. Changes save immediately to `sales_plan_lines`.
+
+**Quick actions per row.** `÷12` button spreads an annual total flat across 12 months. `×` deletes the line.
+
+### Build... dialog — bottom-up planning
+
+Click **BUILD…** in the toolbar to open the plan-build dialog. Workflow:
+
+1. **Source year** — defaults to the plan year minus 1. The dialog pulls last year's actual qty, average unit price, revenue, and customer count for every item in the chosen category.
+2. **Category** — pick a QBO item category (e.g. "Beverages:3 Gallon BIB"). The table populates with one row per item in that category.
+3. **Default qty %** and **Default price %** — apply to every row when you click **Apply defaults to all**. Per-item overrides are still editable.
+4. **Per-item growth.** Each row has its own **Qty %** and **Price %** inputs. Live computed Plan Qty / Plan Price / Plan Revenue columns update as you type, plus a footer total for the whole category.
+5. **Apply** — writes the plan lines via `fn_plan_build_from_growth`. Customers × items already in the plan for those items get overwritten with the new growth assumptions; the assumptions themselves are stored on the line so you can see what built it later.
+
+Items in the chosen category that had zero sales last year still appear, but greyed out — set their growth manually or skip them.
+
+### Other toolbar buttons
+
+- **COPY FROM &lt;prior year&gt;** — bulk autofill from prior year's actuals with a single uniform multiplier. Older / simpler alternative to Build.
+- **PUSH TO QBO** — generates a QuickBooks Online Budget import CSV. Drop into QBO → Settings → Tools → Budgeting → Import.
+- **EXPORT CSV** — downloads plan lines aggregated by account, sorted by total.
+
+### Common workflows
+
+- **Build next year's plan.** New plan → set FY → open → Build → pick "3 Gallon BIB" category → +5% qty, +3% price → Apply. Repeat for each category. Switch to the P&L tab to sanity-check Gross Margin %.
+- **What if we raised prices 8%?** Open the plan → Build → set Default price % to 8 → Apply defaults to all → click Apply. Plan Lines tab now shows Revenue up 8% with COGS unchanged → GM expands. Net Income row reflects the bottom-line impact.
+- **Sales is asking what we'd need to grow 15% revenue.** Open Build → start with qty +15% / price 0 → see if the implied volumes are realistic. Iterate by category — some flavors can grow 25%, others maybe 5%.
+
+---
+
+## Production
+
+**What it's for:** Bills of Materials (BOMs), work orders (production batches), and purchase orders.
+
+### BOMs
+
+A BOM is a recipe: finished good + a list of component items and service costs per yield unit. Click a BOM row in the list to open the detail modal.
+
+**Editor sections:**
+
+- **Name + version + yield** — what the BOM produces and the yield qty/UoM per batch run.
+- **1 &lt;yield-uom&gt; produces &lt;N&gt; gal** — the bridge that lets you scale a count-based BOM (e.g. "1 case") by gallons. Only shows when yield UoM is a count unit.
+- **Scale to make &lt;qty&gt; &lt;UoM&gt;** — the calculator at the top of every BOM modal. Type a target volume and pick the UoM (gal, oz, case, etc.). The header strip shows how many batch runs that would require, and **every BOM row below populates a "Required" column** with its scaled quantity in the correct UoM.
+- **BOM rows** — editable Type / Component / Qty per yield / UoM / Scrap % / Unit cost / Notes table. The **Required** column only appears when "Scale to make" has a non-zero target — otherwise rows show just the per-yield ratios.
+
+**The trick.** The per-yield values are what's _saved_. The Required column is a display-only multiplier — entering a target volume doesn't modify the BOM, it just shows what running the recipe at that scale would consume.
+
+When the target UoM doesn't fit the BOM's natural family (e.g. you ask for gallons of a BOM that yields cases without a gal-per-case bridge), you'll get an amber "Can't convert" message pointing at the missing bridge.
+
+### Work orders
+
+A work order is a production batch tied to a BOM. Status flows: **draft → consumed → closed** (or **void**). When you close a work order, costs are locked in `ops.work_order_costs` and pushed to QBO if your environment is wired for QBO writebacks.
+
+The Work Order detail modal opens with breathing room at the top of the screen so the header is never cut off, regardless of how tall the modal grows.
+
+### Purchase orders
+
+Vendor PO management — track expected ship date, BOL, receipt status. Outside the scope of margin planning; see the Production page for details.
 
 ---
 
@@ -219,19 +317,79 @@ Category · Segment · Type · "Items missing cost" · "Items with P&L mismatch.
 
 ## Reports
 
-**What it's for:** save and export reusable report templates. If you find yourself building the same pivot every Monday, save it as a Report.
+**What it's for:** named report views — Voids & Cross-sells, Anomalies, Health Movers, Inactive Customers, plus saved templates.
 
-### Available templates
+### Voids & Cross-sells
 
-- **Monthly margin recap** — Margin pivot, last month, group by category, prior-period on
-- **Customer margin** — Margin pivot, last 90 days, group by customer
-- **Item margin** — Margin pivot, last quarter, group by item
-- **AR aging** — Open invoices bucketed by 0-30 / 31-60 / 61-90 / 90+
-- **YoY by category** — Compare page, YoY, group by category
+The deepest of the reports. Built around the idea of an **item set** — a curated list of items that "go together" (e.g. **CSD FOUNTAIN** = the 11 fountain flavors). For each customer that buys ≥1 item from the set, the report shows which set items they're missing (the **voids**) and the gap-dollar potential if they bought the missing items at their average per-item AOV.
 
-### Run a report
+#### The rules
 
-Click a template card. Reports run in a side panel — you can tweak filters before committing. **Export** drops a CSV. **Schedule** (coming) will email the report on a cadence.
+Who appears:
+
+1. **Bought at least one item from the set** in the selected date window. Customers who bought zero set items never appear — there's nothing to void if they're not a buyer.
+2. **Active in QBO** (the 22 deleted-customer ghosts are filtered out).
+3. **Total spend on the set ≥ Min set $** (toolbar field; default 0).
+4. **"Hide completionists" satisfied** — when checked, customers who bought every item in the set are dropped (they have no voids).
+
+"Has the item" rule:
+
+- `has_item = revenue > 0` over the window. Any positive spend counts. Trial/sample purchases register as "has it" intentionally.
+
+KPI cards:
+
+| Card | Formula |
+|---|---|
+| **CUSTOMERS** | Visible customer rows after all filters |
+| **COVERAGE** | Σ items_bought ÷ Σ items_possible — fraction of (customer × item) cells that are green |
+| **GAP $ POTENTIAL** | Σ over customers of `(set_revenue ÷ items_bought) × (set_total − items_bought)` — heuristic upside if each missing item sold at the customer's average per-item AOV |
+| **ITEMS IN SET** | Count of items in the set (constant) |
+
+Gap $ is a heuristic, not a forecast. It assumes the missing items would have sold at the same per-item rate the customer already pays — fine for ranking, not for top-line forecasting.
+
+#### Toolbar filters (left to right)
+
+- **Set** — which item set to evaluate against (currently CSD FOUNTAIN; more can be defined in Settings → Item Sets).
+- **From / To** — date window.
+- **Min set $** — minimum total spend across the set before a customer qualifies.
+- **# items ≥ N ≤ M** — minimum and maximum count of items in the set the customer must have bought. Leave M blank for "any". Example: `≥ 5` answers "who buys at least 5 flavors".
+- **Hide completionists** — drops customers who bought every item (no voids to surface).
+
+#### Per-item filter chips
+
+Below the toolbar, one chip per item in the selected set. Click to cycle:
+
+- **off** (grey outline) — no filter on this item
+- **must buy** (green fill, `+` prefix) — customer must show ≥$0.01 spend on this item
+- **must NOT buy** (red fill, `−` prefix) — customer must show $0 spend on this item
+
+Multiple chips AND together. **Clear (N)** button resets all chips.
+
+Example queries:
+
+- "Who buys at least 5 flavors but no Cola" → `# items ≥ 5` + click the Cola chip twice (off → must buy → must NOT buy)
+- "Customers missing Cranberry AND Orange Juice" → click both chips to red
+- "Customers who buy 3-Gallon Cola AND Diet but nothing else" → all three to green (Cola, Diet), and `# items ≤ 2`
+
+KPI cards (Customers, Coverage, Gap $) recompute from the filtered set, not the full population — so the numbers always describe what's visible.
+
+#### The customer × item grid (DataGrid Pro)
+
+- **Customer** column is pinned left and stays visible when you scroll right.
+- Click any column header to sort. Item columns sort by **revenue on that item** — clicking "APT CRANBERRY" orders customers by cranberry spend descending.
+- Drag column headers left/right to reorder.
+- Burger menu on each header → hide, pin left/right, sort, filter on that column.
+- Pagination dropdown at the bottom: 10 / 25 / 50 / 100 / 250 / All.
+- Set Total column hidden by default; show via the column visibility menu.
+
+Cell coloring: green with $ when bought, red with `—` when not.
+
+### Other reports
+
+- **Anomalies** — items + customers where YoY change is statistically unusual
+- **Health Movers** — customers whose RFM segment shifted (improved or declined) in the last snapshot
+- **Inactive Customers** — customers with no invoice in N days, sorted by lifetime revenue
+- **AR aging** — open invoices bucketed by 0-30 / 31-60 / 61-90 / 90+
 
 ### Custom reports
 
@@ -242,7 +400,15 @@ Build a pivot on the Margin or Compare page, then click **Save view → Save as 
 ## Tips & shortcuts
 
 - **Saved filter views.** On Margin, Compare, Inventory, and Customers — once you've set filters you like, click **Save view** in the page header. Name it. It's saved in your browser (LocalStorage) and shows in the **Saved views** dropdown next time.
-- **Keyboard:** `⌘K` / `Ctrl K` doesn't open search inside Margin Control yet — only on the Operations Hub. Coming.
+- **DataGrid Pro everywhere.** The Customers, Voids, Items, Compare, and Plans grids all share the same Pro feature set:
+  - Click a column header to sort
+  - Drag headers to reorder
+  - Drag column edges to resize
+  - Burger menu (right side of each header) → hide / pin left / pin right / sort / filter
+  - Density toggle in the footer area when toolbar is shown
+  - Footer pagination — 10 / 25 / 50 / 100 / 250 / All
+- **Modals open lower.** Plan Build, BOM detail, and Work Order detail dialogs all open 90 px from the top of the viewport — top of the modal is always visible, body scrolls inside the panel.
+- **Keyboard:** `⌘K` / `Ctrl K` doesn't open search inside Refractor yet — only on the Operations Hub. Coming.
 - **Deep links:** the URL hash (`#/margin?from=2026-01-01&to=2026-03-31&group=customer`) reflects your filters. Bookmark or share a link and the recipient lands on the same view.
 - **Mobile:** the app is usable down to ~1024 px. Below that, the DataGrid gets cramped. Use a laptop.
 - **Refresh data:** click the LIVE badge in the header. It re-fetches the materialized view. New invoices appear within seconds of the QBO sync completing.
@@ -252,13 +418,9 @@ Build a pivot on the Margin or Compare page, then click **Save view → Save as 
 
 ## In progress — coming next
 
-The following pages exist but are still maturing. They'll be added to this guide as they freeze:
-
-- **Operations** — KPIs for delivery / service / reman (some content currently lives in APBG-OPS).
-- **Plans** — plan-based pricing model editors. Schema is settling.
-- **Settings** — sub-screens still moving (Customers master, Items master, Categories, P&L Alignment editor, Sales Reps assignment).
-
-Each will get its own section in this guide as soon as the screen is stable.
+- **Settings** — sub-screens still maturing: Customers master, Items master, Categories, P&L Alignment editor, Sales Reps assignment. Functional today; section will be added to this guide once the layout freezes.
+- **OpEx side of the planner** — Build dialog currently only covers Revenue-side items. Planning OpEx bottom-up (rent, payroll, etc.) is a v0.10 enhancement.
+- **Item-level COGS coupling on the plan** — today, Plan Lines stores `unit_cost` per line and the P&L view computes implied COGS = qty × unit_cost. Auto-updating unit_cost from current `qbo_items.purchase_cost` when the item changes is a v0.10 enhancement.
 
 ---
 
@@ -297,6 +459,7 @@ If you're ever debugging a number that doesn't match QBO live, the canonical aut
 
 | Date | Change |
 |---|---|
-| 2026-05-17 | App renamed to **BRIX Refractor** — short, on-brand (a refractometer is the instrument that reads degrees Brix), and reflects the broader scope (items / inventory / categories / rollups in addition to margin). Operations page removed; that dashboard lives at `alamedapointbg.com/operations/` now. Hub card on alamedapointbg.com sits alongside a new Brixpense card. |
+| 2026-05-18 | **Big Plans rebuild.** Plan editor is now P&L-shaped end to end. New default tab — **P&L** — renders Revenue → COGS → **Gross Margin** → OpEx → **Net Income** with subtotals. **Plan Lines** tab uses the same P&L grouping with editable cells; section + pl_line headers have ▶/▼ collapse arrows so you can roll up to account level without leaving the editing surface. Account Rollup tab removed (the collapsed Plan Lines view supersedes it). EXPORT CSV repointed to aggregate plan lines client-side by account. New **BUILD…** dialog: pick a category (QBO item parent), see every item with last year's qty / avg price / revenue / customer count, set per-item **Qty %** and **Price %** growth (separate inputs), see live computed plan totals, apply via `fn_plan_build_from_growth`. New schema columns `qty_growth_pct` / `price_growth_pct` / `baseline_year` on `sales_plan_lines` so the assumptions that built a line stay visible. **BOMs** now auto-scale inline: enter "Make 1000 gal" at the top of the BOM modal and every row's **Required** column populates with the scaled quantity in the right UoM (replaces the separate ScaleBomPanel at the bottom). Plan Build, BOM detail, and Work Order detail dialogs all open 90px from the top of the screen — no more clipped headers. **Voids & Cross-sells** converted to DataGrid Pro (sort, drag-reorder, resize, column visibility, pinned Customer); added per-item filter chips (must buy / must NOT buy / off), `# items ≥ N ≤ M` range inputs, fixed the misleading "Require ≥1 item bought" label → "Hide completionists". CSD FOUNTAIN set gained **APT Cranberry**, **APT Orange Juice**, **APT Pineapple**. **Customers tab** customer name now renders `(no name · QBO #1234)` in italic amber when the master record is missing — and the 22 invoice-referenced customers that were deleted in QBO post-billing were backfilled as inactive ghost rows with their QBO-recorded `(deleted)` names. **Customer Detail** address card is now multi-line postal style; sub-customers without their own address fall back to the parent's. |
+| 2026-05-17 | App renamed to **BRIX Refractor** — short, on-brand (a refractometer is the instrument that reads degrees Brix), and reflects the broader scope (items / inventory / categories / rollups in addition to margin). Operations page removed; that dashboard lives at `alamedapointbg.com/operations/` now. Hub card on alamedapointbg.com sits alongside a new Brixpense card. Wordmark unified to **BriXRefractor** (single token, **XR** highlighted in brand green). |
 | 2026-05-17 | Added **Chain Rollup picker (exclude)** section under Margin — clicking a chip subtracts that chain's revenue from totals. Added **What's behind the curtain** explainer for the new polymorphic sync (Sales Receipts, Credit Memos, Refund Receipts, Discounts) and the self-healing rolling refresh. Added troubleshooting rows for unmapped income accounts and stale lines. |
 | 2026-05-11 | Initial scaffold. Covers Getting Started + Overview + Margin + Customers + Customer Detail + Compare + Inventory + Reports + Tips. Operations / Plans / Settings flagged as in progress. |
