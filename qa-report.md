@@ -208,3 +208,178 @@
 - Severity: MEDIUM
 - Notes: Cards are not clickable at all — no deep-link from Overview KPIs.
 
+### [claim-24] — Center pivot is a MUI X DataGrid Pro
+- Status: PASS
+- Code path: `app/src/components/MarginGrid.tsx:2,203` (imports + uses `DataGridPro`)
+- Severity: LOW
+
+### [claim-25] — Columns include revenue, COGS, gross profit, gross margin %, est. cost, est. margin %
+- Status: GUIDE_WRONG
+- Code path: `app/src/components/MarginGrid.tsx:151-186`
+- Expected (guide): six columns including **COGS** and **gross profit** as distinct columns from est. cost / est. margin
+- Actual: default columns are **Lines, Qty, Revenue, Est Cost, Est Margin, Margin %** (six metric cols, but no QBO-posted "COGS" or "gross profit" — the program is est-cost based throughout)
+- Diff: There is no column showing QBO-posted COGS. "Est Margin" is treated as both "gross profit" and "est. margin" interchangeably. Optional columns (`marginColumns.ts:171-176`) add per-unit / overhead / forecast / AR / address / inventory metrics — none of them are QBO-posted COGS either.
+- Severity: MEDIUM
+- Notes: This is a conceptual gap: the program's analytic basis is *item-cost cached from QBO* (`qbo_items.purchase_cost`), not journal-posted COGS. The guide language implies the user can compare to QBO P&L — they can only do so via the snapshot in `pl_snapshots`, which isn't surfaced on this page. Worth fixing the guide language or adding a COGS column.
+
+### [claim-26] — Rows group by the dimension chosen in the header
+- Status: PASS
+- Code path: `app/src/pages/MarginPage.tsx:180` (`const [dim, setDim] = useState<Dim>('category')`) + grid prop wiring
+- Severity: LOW
+
+### [claim-27] — Date-range presets exist for YTD, last quarter, last 12 months
+- Status: GUIDE_WRONG
+- Code path: `MarginPage.tsx:97-100` (`PRESETS = [mtd, qtd, ytd, last30, last90, last365]`)
+- Expected (guide): YTD, last quarter, last 12 months
+- Actual: MTD, QTD (quarter-**to-date**, not "last quarter"), YTD, 30d, 90d, 12mo
+- Diff: there is no "last quarter" preset; QTD ≠ last quarter. 12mo and YTD match. Six presets total, not three.
+- Severity: LOW
+
+### [claim-28] — Entity filter is multi-select
+- Status: GUIDE_WRONG
+- Code path: `MarginPage.tsx:785-790`
+- Expected: multi-select picker
+- Actual: a **single-select** `<Autocomplete>` (the value binding is `filters.entities?.[0]` and `onChange` writes `[entity]`). User can only pick one entity at a time.
+- Severity: LOW
+- Notes: A "shared" pseudo-entity exists so cross-entity totals are still reachable via `entity = null` (All).
+
+### [claim-29] — Customer / Item / Category / Segment pickers are multi-select with type-to-search
+- Status: PASS
+- Code path: `MarginPage.tsx:65-73,822-831` (FILTER_DIMS + MultiPicker)
+- Severity: LOW
+- Notes: `MultiPicker` is the shared multi-select component; supports typing to filter options.
+
+### [claim-30] — "Group by" supports: category, item, customer, month, segment, entity
+- Status: GUIDE_WRONG
+- Code path: `MarginPage.tsx:53-59`
+- Expected: 6 group-by options listed
+- Actual: **10** options — category, item, customer, month, entity, account, segment, channel, product_family, product_type
+- Severity: LOW
+- Notes: Program supports more than guide documents.
+
+### [claim-31] — Click a pivot row opens a Row Detail Modal
+- Status: GUIDE_WRONG
+- Code path: `MarginPage.tsx:892-898` + `MarginGrid.tsx:121-136,211`
+- Expected: row click → modal
+- Actual: row click triggers **`drillInto(row)`** (changes group-by to next dim + adds filter chip — `MarginPage.tsx:509-520`). The modal is opened by an **Info icon button rendered inside the dim_label cell** (`MarginGrid.tsx:121-136`), not by clicking the row body.
+- Severity: LOW
+- Notes: Functional but the UX differs from documentation; an operator following the guide will be surprised when row-clicks change the pivot instead of opening a modal.
+
+### [claim-32] — Row Detail Modal shows the underlying invoice lines
+- Status: WIRING_BROKEN
+- Code path: `app/src/components/RowDetailModal.tsx:152-156,159-345`
+- Expected: list of invoice lines that built the row
+- Actual: modal has three tabs — **Waterfall** (Revenue → COGS → GM → OH → Net), **Price Ladder** (item-dim only; customers paying for the item with their avg price vs median, via `fn_item_price_ladder`), and **What-if** (price/volume sliders). None of these renders the underlying invoice lines.
+- Diff: completely different content than guide describes
+- Severity: MEDIUM
+- Notes: The "Waterfall / Price Ladder / What-if" content is actually quite useful — guide may be stale and should be updated to describe what's there.
+
+### [claim-33] — Row Detail Modal contains a mini chart
+- Status: WIRING_BROKEN
+- Code path: `RowDetailModal.tsx`
+- Expected: a mini chart
+- Actual: all three tabs render tables, no chart components imported. The "waterfall" tab is a table, not a waterfall *chart*.
+- Severity: LOW
+
+### [claim-34] — "Filter by this row" button on the modal
+- Status: WIRING_BROKEN
+- Code path: not found in `RowDetailModal.tsx`
+- Expected: a button in the modal that adds the row's value as a chip filter
+- Actual: no such button. The page does have a `filterToLabel()` helper (`MarginPage.tsx:522-531`) — but it's invoked by **`TopMoversStrip`**, not by the modal.
+- Severity: LOW
+
+### [claim-35] — "Prior period" toggle adds 2 extra columns
+- Status: GUIDE_WRONG
+- Code path: `MarginGrid.tsx:160-177`
+- Expected: 2 columns added
+- Actual: **3** columns added — `prior_revenue`, `delta_revenue` ("Δ $"), `delta_pct` ("Δ %")
+- Severity: LOW
+
+### [claim-36] — "Prior year" toggle adds 2 extra columns
+- Status: GUIDE_WRONG
+- Code path: same as claim-35
+- Actual: same 3 columns added. The same compare-mode toggle handles both (`prior_period` / `prior_year`); the column count is independent of mode.
+- Severity: LOW
+
+### [claim-37] — Delta % colored green positive / red negative
+- Status: PASS
+- Code path: `MarginGrid.tsx:28-30` (`deltaColor`) used at line 168, 174
+- Severity: LOW
+
+### [claim-38] — Export CSV downloads current pivot with same columns/rows/chips
+- Status: PASS
+- Code path: `MarginPage.tsx:459-505` (`exportCsv`)
+- Notes: Filename includes dim, date range, compare mode, and active modifiers. Headers and rows match the visible grid (including comparison cols and extraColumns). Filter chips are applied via `effectiveFilters` so the data is already filtered.
+- Severity: LOW
+
+### [claim-39] — Margin header shows last cost-cache refresh timestamp
+- Status: PASS
+- Code path: `MarginPage.tsx:260-368` (`syncedAt` state, `loadSyncedAt`, `syncFresh` formatter) + render at 657-668
+- Notes: Pulls from `ops.qbo_items` order by `synced_at` desc limit 1. The "LIVE · Costs Nm ago · MMM D, h:mm A" stamp is here.
+- Severity: LOW
+- Notes: Companion to claim-5/6 — this is the page-local equivalent (which the global header should have but doesn't).
+
+### [claim-40] — "Sync Item Costs" triggers `sync-qbo-items` writing to `ops.qbo_items.purchase_cost`
+- Status: PASS (wiring) / UNTESTABLE (write behavior — manual test)
+- Code path: `MarginPage.tsx:336-359` `syncItemCosts()` posts to `${SB_URL}/functions/v1/sync-qbo-items`
+- Notes: Function source not in this repo (it's in `apbg-gateway` or `supabase/functions` — the guide refers to it as a Supabase edge function). I did not invoke it; that's the rule for this audit.
+- Severity: HIGH (revenue-adjacent — operators rely on cost data) but wiring looks intact.
+
+### [claim-41] — Est. cost / est. margin columns "light up" after a successful sync
+- Status: PASS (degraded)
+- Code path: `MarginGrid.tsx:180-185` — null-safe formatters render "—" until populated, then the numeric value.
+- Notes: No literal "lighting up" effect — they just render the value. After the sync `setFilters((cur) => ({ ...cur }))` (line 350) triggers a re-fetch. Practical behavior matches intent.
+- Severity: LOW
+
+### [claim-42] — Chain Rollup picker subtracts a chain's revenue from totals
+- Status: PASS (wiring) / DEFERRED (numeric correctness)
+- Code path: `MarginPage.tsx:213-245` (`expandedRollup` + exclusion merging into `effectiveFilters.exclude_customers/categories/items`) + `lib/chainModifiers.ts:158-198` (`expandModifierFilters` → `fn_preview_rollup_match`)
+- Notes: Comment at `MarginPage.tsx:226-229` explicitly notes "Clicking a rollup chip EXCLUDES that bucket from totals." Architecturally correct.
+- Severity: HIGH (a wrong exclusion changes the headline number) — numeric test deferred.
+
+### [claim-43] — Hero shows "· excluding: MTE (Nc · Mi)" when rollup active
+- Status: GUIDE_WRONG
+- Code path: `MarginPage.tsx:647-650`
+- Expected (guide): code `MTE`, label format `Nc · Mi` (customers · items)
+- Actual: default rollup code is `MT` (`chainModifiers.ts:57`), not `MTE`. Label format is `<code> (<matched_customers>c · <matched_items>i)` — lowercase c / i, no spaces around the dot.
+- Diff: code name mismatch (`MT` vs `MTE`) and slight format difference
+- Severity: LOW
+- Notes: There is no rollup with code `MTE` shipped (only `MT`, `SB`, `CH`, `SODA`, `ES`, `GAS`). Either guide is stale or the user-customized rollups in their own LocalStorage use a different code.
+
+### [claim-44] — Multiple rollup chips stack additively
+- Status: PASS
+- Code path: `chainModifiers.ts:167-198` — for-loop unions all matched customer/category/item names across active codes; the unioned set is appended to `exclude_*` filters.
+- Severity: MEDIUM
+
+### [claim-45] — Clearing all rollup chips returns totals to baseline
+- Status: PASS
+- Code path: `MarginPage.tsx:214-218` — when `activeModifiers.length === 0`, `expandedRollup` resets to `{ filters: {}, perRollup: [] }` and `effectiveFilters` no longer adds exclusions.
+- Severity: LOW
+
+### [claim-46] — Rollup definitions live under Settings → Chain Rollups, ILIKE pattern over customer names
+- Status: PASS (wiring) / GUIDE_WRONG (storage detail)
+- Code path: `app/src/pages/SettingsPage.tsx:34` (tab) + `app/src/pages/settings/ChainModifiersEditor.tsx` + `lib/chainModifiers.ts:82-87`
+- Notes: Settings UI exists. **Storage is LocalStorage**, not a server-side table — `setChainModifiers` writes via `saveSetting`, not to Supabase. That means rollup definitions are **per-browser, not shared across users**, which is at odds with operators expecting consistent global rollups. ILIKE is performed server-side by `fn_preview_rollup_match` (called from `expandModifierFilters`).
+- Severity: MEDIUM
+- Notes: The per-browser storage is the surprising bit — file separately.
+
+### [claim-47] — Rollup membership resolves at click time (renames in QBO don't silently break)
+- Status: PASS
+- Code path: `chainModifiers.ts:158-198` calls `previewRollupMatch` whenever modifiers change (`MarginPage.tsx:214-224`). The RPC `fn_preview_rollup_match` is presumably ILIKE-based against current `ops.qbo_customers`/`ops.qbo_items` rows.
+- Severity: LOW
+
+### [claim-48] — Margin revenue total reconciles to QBO P&L Total Income
+- Status: DEFERRED (QBO numeric reconciliation)
+- Code path: `MarginPage.tsx:389` → `fetchTotals` (RPC `fn_sales_totals` over `ops.mv_sales_lines`)
+- QBO source: P&L Total Income, same date range / entity
+- Severity: HIGH
+- Notes: Wiring verified. Per guide's "what's behind the curtain", `mv_sales_lines` is downstream of `qbo_invoices` (Invoices + SR + CM + RR with CM/RR stored negative). Will compare once QBO re-auth.
+
+### [claim-49] — Margin COGS total reconciles to QBO P&L COGS
+- Status: WIRING_BROKEN (note: NO posted-COGS column exists)
+- Code path: `MarginPage.tsx:683` exposes only `totals.est_margin` (gross profit using `qbo_items.purchase_cost × qty`)
+- Expected: a COGS figure comparable to QBO posted COGS
+- Actual: program tracks **est cost** (qty × cached purchase cost), which is *not* QBO-posted COGS. They will systematically differ — by inventory adjustments, COGS journal entries, items missing a purchase_cost, etc.
+- Severity: HIGH
+- Notes: This is the same root cause as claim-25. The program cannot reconcile to QBO posted COGS as the guide implies — only to its own est cost. File as: either fix the guide language ("est margin", not "COGS"), or add a posted-COGS column sourced from `pl_snapshots`.
+
