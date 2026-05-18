@@ -78,6 +78,53 @@ function paymentTypeFromAccountType(accountType) {
   return 'Cash';
 }
 
+// "Not paid — create bill" path: build a /bill payload (unpaid AP) instead
+// of a /purchase payload. Vendor is required here because QBO Bills don't
+// accept a free-floating expense without a VendorRef. Lines are the same
+// AccountBasedExpenseLineDetail shape — the difference vs Purchase is the
+// top-level VendorRef + no AccountRef/PaymentType.
+function buildBillPayload(r, vendor, fallback, prApproval) {
+  const items = Array.isArray(r.line_items) ? r.line_items : [];
+  const accountId = r.cogs_account_id || fallback;
+  const lines = items.length > 0
+    ? items.map((li, idx) => ({
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Amount: round((li.qty || li.quantity || 1) * (li.unit_price || li.unitCost || 0)) || round(li.amount || 0),
+        Description: li.description || `Line ${idx + 1}`,
+        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
+      }))
+    : [{
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Amount: round(r.total_amount),
+        Description: r.memo || r.vendor_name || 'Brixpense expense',
+        AccountBasedExpenseLineDetail: { AccountRef: { value: accountId }, BillableStatus: 'NotBillable' },
+      }];
+  const approvalPrefix = prApproval
+    ? [
+        `PR approved by ${prApproval.decided_by || 'manager'}` +
+          (prApproval.decided_at ? ` on ${String(prApproval.decided_at).slice(0, 10)}` : ''),
+        r.linked_pr_id ? `linked PR: ${String(r.linked_pr_id).slice(0, 8)}` : null,
+      ].filter(Boolean).join(' | ')
+    : null;
+  const memo = [
+    approvalPrefix,
+    `BRIXpense expense ${r.id} (unpaid bill)`,
+    r.entity ? `entity:${r.entity}` : null,
+    r.department ? `dept:${r.department}` : null,
+    r.tag ? `tag:${r.tag}` : null,
+    r.customer_name ? `cust:${r.customer_name}` : null,
+    r.job_number ? `job:${r.job_number}` : null,
+    r.memo || null,
+  ].filter(Boolean).join(' | ');
+  const payload = {
+    VendorRef: { value: vendor.Id },
+    Line: lines,
+    PrivateNote: memo.substring(0, 4000),
+  };
+  if (r.receipt_date) payload.TxnDate = r.receipt_date;
+  return payload;
+}
+
 function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback, prApproval) {
   const items = Array.isArray(r.line_items) ? r.line_items : [];
   const accountId = r.cogs_account_id || fallback;
@@ -191,6 +238,63 @@ export default async function handler(req) {
 
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
+
+    // Bill flow — the user picked "Not paid — create bill" on the form, so we
+    // post the expense as an unpaid QBO Bill (AP) instead of a paid Purchase.
+    // Bills *require* a vendor in QBO, so the vendor name has to resolve.
+    if (request.as_bill) {
+      const vendor = await findQBOVendor(request.vendor_name);
+      if (!vendor) {
+        return err(`"Not paid — create bill" requires a vendor that already exists in QBO. "${request.vendor_name || ''}" didn't match. Create the vendor in QBO first, then resubmit.`, 422);
+      }
+      let prApproval = null;
+      if (request.linked_pr_id) {
+        const { data: app } = await sb
+          .schema('ops')
+          .from('expense_approvals')
+          .select('decided_by, decided_at, action')
+          .eq('request_id', request.linked_pr_id)
+          .eq('action', 'approved')
+          .order('decided_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (app) prApproval = app;
+      }
+      let qboBill = null, qboError = null;
+      try {
+        const payload = buildBillPayload(request, vendor, DEFAULT_COGS_ACCOUNT_ID, prApproval);
+        const qboRes = await qboRequest('POST', '/bill', payload);
+        qboBill = qboRes?.Bill;
+        if (!qboBill?.Id) qboError = 'QBO did not return a Bill ID';
+      } catch (e) {
+        console.error('QBO Bill post failed:', e);
+        qboError = e?.message || 'QBO Bill post failed';
+      }
+      if (!qboBill?.Id) {
+        return err(`QBO Bill post failed: ${qboError || 'unknown'}`, 502);
+      }
+      const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
+        status: 'posted', auto_approved: true,
+        approved_by: 'auto', approved_at: now, posted_at: now,
+        manager_email: null, approval_token: null,
+        qbo_bill_id: qboBill.Id,
+      }).eq('id', requestId);
+      if (updateErr) return json({ success: true, partial: true, qbo_bill_id: qboBill.Id }, 207);
+      await sb.schema('ops').from('expense_approvals').insert({
+        request_id: requestId, action: 'approved',
+        decided_by: 'system (auto-approve + bill mode)',
+        notes: `Auto-approved + posted to QBO as Bill ${qboBill.DocNumber || qboBill.Id} (vendor: ${vendor.DisplayName}) — unpaid, awaiting QBO payment.`,
+        token_used: null,
+      });
+      return json({
+        success: true, mode: 'bill',
+        request_id: requestId,
+        qbo_bill_id: qboBill.Id,
+        qbo_doc_number: qboBill.DocNumber,
+        vendor: vendor.DisplayName,
+      });
+    }
+
     if (!request.payment_account_id) {
       return err('payment_account_id is required for expense receipts. Pick a "Paid with" account on the form.', 422);
     }
