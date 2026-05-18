@@ -356,6 +356,11 @@ export default function ExpenseForm() {
       const user = session.user;
       const userName = user.user_metadata?.full_name || user.email || 'Unknown';
       const pickedAcct = paymentAccounts.find((a) => a.id === paymentAccountId) || null;
+      // "Not paid — create bill" flips the downstream QBO post from Purchase
+      // to Bill. We don't persist payment_account_id in this case since the
+      // user picked a synthetic option; expense-request-notify routes on
+      // as_bill instead.
+      const asBill = paymentAccountId === '__bill__';
 
       const { data: req, error: insertErr } = await supabase
         .from('expense_requests')
@@ -377,12 +382,13 @@ export default function ExpenseForm() {
           job_number: jobNumber || null,
           memo: memo || null,
           manager_email: needsApproval ? managerEmail : null,
-          payment_account_id: paymentAccountId,
+          payment_account_id: asBill ? null : paymentAccountId,
           // Prefer the freshly-picked account, but fall back to the cached
           // values from loadExisting so re-submitting an edited draft before
           // the dropdown list resolves doesn't blank these columns.
-          payment_account_name: pickedAcct?.name ?? paymentAccountName ?? null,
-          payment_account_type: pickedAcct?.account_type ?? paymentAccountType ?? null,
+          payment_account_name: asBill ? null : (pickedAcct?.name ?? paymentAccountName ?? null),
+          payment_account_type: asBill ? null : (pickedAcct?.account_type ?? paymentAccountType ?? null),
+          as_bill: asBill,
           line_items: nonEmptyLines,
           // Carries back to the approved PR this expense fulfills, if any.
           // expense-request-notify reads this server-side, posts the QBO
@@ -681,14 +687,22 @@ export default function ExpenseForm() {
               paymentAccounts.length === 0
                 ? paymentAccountsError
                   ? 'Failed to load — see error below'
-                  : 'Loading QBO accounts…'
+                  : 'Loading accounts…'
                 : 'Select the card or account this was paid from'
             }
             options={paymentAccounts.map((a) => ({
               value: a.id,
-              label: `${a.name} (${a.account_type})`,
+              label: a.id === '__bill__'
+                ? '— Not paid — create bill in QBO —'
+                : `${a.name} (${a.account_type})`,
             }))}
           />
+          {paymentAccountId === '__bill__' && (
+            <p className="text-xs text-amber-400 mt-1">
+              This expense will be posted as an unpaid <strong>Bill</strong> in QBO
+              (vendor required). Pay it from QBO later.
+            </p>
+          )}
           {paymentAccountsError && (
             <p className="text-xs text-amber-600 mt-1">{paymentAccountsError}</p>
           )}
