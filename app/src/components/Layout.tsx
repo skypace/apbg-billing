@@ -83,13 +83,9 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
         </button>
 
         <div className="brand">
-          <BrixMark size={collapsed ? 32 : 38} className="brand-mark-svg" title="Brix Beverage" />
+          <BrixMark size={collapsed ? 32 : 40} className="brand-mark-svg" title="Brix Beverage" />
           <div>
-            <div className="brand-mark">BRI<span className="brand-bx">X</span></div>
-            <div className="brand-sub">
-              <span className="status-dot" aria-hidden="true" />
-              Refractor
-            </div>
+            <div className="brand-mark">Bri<span className="brand-bx">XR</span>efractor</div>
           </div>
         </div>
         <nav className="nav">

@@ -10,12 +10,13 @@
 }
 .splash-brand {
   font-family: var(--ff-display);
-  font-size: 72px;
+  font-size: 84px;
   font-weight: 800;
-  letter-spacing: 8px;
+  letter-spacing: 0.5px;
   color: var(--tx);
   line-height: 1;
   display: inline-block;
+  white-space: nowrap;
   text-shadow:
     0 0 24px rgba(230, 238, 247, 0.30),
     0 0 48px rgba(91, 181, 240, 0.20);
@@ -103,12 +104,13 @@
 }
 
 .login-brand-mark {
-  font-size: 64px;
+  font-size: 76px;
   font-weight: 800;
-  letter-spacing: 10px;
+  letter-spacing: 0.5px;
   color: var(--tx);
   line-height: 1;
   margin-top: 8px;
+  white-space: nowrap;
   text-shadow:
     0 0 24px rgba(230, 238, 247, 0.32),
     0 0 48px rgba(91, 181, 240, 0.20);
@@ -277,10 +279,10 @@
 }
 
 @media (max-width: 480px) {
-  .login-brand-mark { font-size: 48px; letter-spacing: 6px }
+  .login-brand-mark { font-size: 42px; letter-spacing: 0.5px }
   .login-form { padding: 22px 18px 18px }
   .login-tagline { font-size: 16px }
-  .splash-brand { font-size: 52px; letter-spacing: 6px }
+  .splash-brand { font-size: 46px; letter-spacing: 0.5px }
   .login-brand-marks { gap: 18px }
   .login-mark--alameda img { transform: scale(0.85) }
   .login-mark--brix img    { transform: scale(0.85) }

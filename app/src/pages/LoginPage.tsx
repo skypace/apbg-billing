@@ -39,11 +39,7 @@ export function LoginPage() {
           </div>
 
           <div className="brand-mark login-brand-mark">
-            BRI<span className="brand-bx">X</span>
-          </div>
-          <div className="login-brand-sub">
-            <span className="status-dot" aria-hidden="true" />
-            Refractor
+            Bri<span className="brand-bx">XR</span>efractor
           </div>
           <div className="login-tagline">
             Real-time margin, cost coverage, and customer health.
