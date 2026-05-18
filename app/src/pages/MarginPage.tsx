@@ -639,7 +639,7 @@ export function MarginPage() {
             <div className="hero-eyebrow">
               {heroBrandLabel}{activeModifiers.length > 0 ? ' · ' + activeModifiers.join(' + ') : ''}
             </div>
-            <h1 className="hero-title">Margin &amp; Product Control</h1>
+            <h1 className="hero-title">Margin</h1>
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}

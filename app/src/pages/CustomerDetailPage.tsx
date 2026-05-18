@@ -201,7 +201,7 @@ td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
 ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No items in window</td></tr>'}
 </tbody></table>
 <div style="margin-top:24px;font-size:9px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px">
-  Generated ${new Date().toISOString().slice(0, 10)} · BRIX Margin &amp; Product Control · Customer first seen ${escapeHtml(sc.first_invoice_date ?? '-')}
+  Generated ${new Date().toISOString().slice(0, 10)} · BRIX Refractor · Customer first seen ${escapeHtml(sc.first_invoice_date ?? '-')}
 </div>
 <script>setTimeout(function(){window.print()}, 350);</script>
 </body></html>`);
