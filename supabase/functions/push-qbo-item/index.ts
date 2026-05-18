@@ -1,4 +1,4 @@
-// push-qbo-item v5 — single-item + bulk pushes back to QBO.
+// push-qbo-item v6 — single-item + bulk pushes back to QBO.
 // verify_jwt=false so pg_cron can call this; QBO writes are gated by
 // SUPABASE_SERVICE_ROLE_KEY + QBO OAuth.
 //
@@ -17,6 +17,12 @@
 //   action: 'postPurchaseOrder'          → given {purchase_order_id}, builds + POSTs a
 //                                          QBO PurchaseOrder and persists the returned id
 //                                          to ops.purchase_orders. Idempotent.
+//   action: 'unparentAndInactivateCategories' → one-shot cleanup that flattens every
+//                                          QBO sub-item (ParentRef=null, SubItem=false)
+//                                          then inactivates the now-empty QBO Category
+//                                          items. BRIX inventory_settings.category_override
+//                                          is NEVER touched — local categorization survives.
+//                                          Phased + batched ({phase, commit, limit}).
 //
 // deno-lint-ignore-file no-explicit-any
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -643,6 +649,219 @@ Deno.serve(async (req: Request) => {
         skipped,
         duration_ms: Date.now() - startedAt,
       });
+    }
+
+    // Sky's one-time cleanup: flatten every sub-item in QBO so the
+    // "Category:Item" prefix disappears from transactions / reports / invoices,
+    // then inactivate the now-empty QBO Category items. BRIX's local
+    // ops.inventory_settings.category_override is deliberately NOT touched so
+    // BRIX reports keep their categorization.
+    //
+    // The action is phased + batched. The UI calls it repeatedly until
+    // remaining drops to zero. Idempotent: if a row is already unparented
+    // in QBO, we just sync the local mirror and move on. Dry-run mode
+    // (commit !== true) returns the same counts without making any QBO
+    // calls beyond the target read.
+    //
+    //   body: {
+    //     action: "unparentAndInactivateCategories",
+    //     phase:  "preview" | "unparent" | "inactivate",
+    //     commit: false | true,        // default false
+    //     limit:  1..200               // batch size (default 50)
+    //   }
+    if (action === "unparentAndInactivateCategories") {
+      const commit = body?.commit === true;
+      const phase = String(body?.phase || "preview");
+      const limit = Math.min(Math.max(Number(body?.limit || 50), 1), 200);
+
+      if (phase === "preview") {
+        const { count: toUnparent, error: e1 } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .not("parent_ref_id", "is", null);
+        if (e1) throw new Error("count unparent: " + e1.message);
+        const { count: catsActive, error: e2 } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .eq("type", "Category").eq("active", true);
+        if (e2) throw new Error("count categories: " + e2.message);
+        const { count: catsTotal, error: e3 } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .eq("type", "Category");
+        if (e3) throw new Error("count categories total: " + e3.message);
+        return jsonRes({
+          ok: true, phase, commit: false,
+          items_to_unparent:        toUnparent ?? 0,
+          categories_to_inactivate: catsActive ?? 0,
+          categories_total_in_qbo:  catsTotal  ?? 0,
+          note: "BRIX inventory_settings.category_override stays untouched. Categorization in Margin Control is preserved.",
+        });
+      }
+
+      if (phase === "unparent") {
+        // Process the next batch of items that locally still show a
+        // parent_ref_id. We read fresh QBO state for each before patching
+        // — qbo_items mirror could be stale and SyncToken must be current.
+        const { data: targets, error: tErr } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id, name")
+          .not("parent_ref_id", "is", null)
+          .order("qbo_item_id", { ascending: true })
+          .limit(limit);
+        if (tErr) throw new Error("read targets: " + tErr.message);
+        const summary = {
+          attempted: targets?.length ?? 0,
+          updated: 0, already_clean: 0,
+          errors: [] as { id: string; error: string }[],
+        };
+        const { count: remaining } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .not("parent_ref_id", "is", null);
+
+        if (!commit) {
+          return jsonRes({ ok: true, phase, commit: false, summary, remaining: remaining ?? 0 });
+        }
+
+        for (const t of targets ?? []) {
+          try {
+            const j = await qboGet(sb, "/item/" + encodeURIComponent(t.qbo_item_id));
+            const item = j?.Item;
+            if (!item) {
+              summary.errors.push({ id: t.qbo_item_id, error: "not found in QBO" });
+              continue;
+            }
+            if (item.SubItem !== true && !item.ParentRef) {
+              // QBO is already clean — just bring the local mirror in line.
+              await sb.schema("ops").from("qbo_items")
+                .update({ parent_ref_id: null, category_path: item.FullyQualifiedName ?? null })
+                .eq("qbo_item_id", t.qbo_item_id);
+              summary.already_clean++;
+              continue;
+            }
+            // Full update — sparse PATCH can't clear ParentRef, so we send
+            // the full item with ParentRef omitted and SubItem=false.
+            const { ParentRef: _drop, ...rest } = item;
+            await qboPost(sb, "/item", {
+              ...rest,
+              Id: item.Id, SyncToken: item.SyncToken,
+              SubItem: false,
+            });
+            await sb.schema("ops").from("qbo_items")
+              .update({ parent_ref_id: null, category_path: item.Name ?? null })
+              .eq("qbo_item_id", t.qbo_item_id);
+            summary.updated++;
+          } catch (e) {
+            summary.errors.push({ id: t.qbo_item_id, error: (e as Error).message });
+          }
+          await sleep(120);
+        }
+
+        const { count: remainingAfter } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .not("parent_ref_id", "is", null);
+
+        try {
+          await sb.schema("ops").from("sync_log").insert({
+            sync_type: "push_qbo_unparent",
+            status:    summary.errors.length === 0 ? "success" : "partial",
+            metadata:  { commit, phase, summary, remaining_after: remainingAfter ?? 0 },
+            completed_at: new Date().toISOString(),
+          });
+        } catch (_) { /* sync_log shape may differ; non-fatal */ }
+
+        return jsonRes({
+          ok: true, phase, commit, summary,
+          remaining: remainingAfter ?? 0,
+          duration_ms: Date.now() - startedAt,
+        });
+      }
+
+      if (phase === "inactivate") {
+        // Only safe to inactivate categories that no longer have children
+        // pointing at them in QBO. We refuse to start this phase if any
+        // sub-items still exist locally — caller should finish phase
+        // "unparent" first.
+        const { count: stillSub, error: sErr } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .not("parent_ref_id", "is", null);
+        if (sErr) throw new Error("safety check: " + sErr.message);
+        if ((stillSub ?? 0) > 0) {
+          return jsonRes({
+            ok: false,
+            error: `Refusing to inactivate categories — ${stillSub} sub-items still parented locally. Run phase=unparent until remaining=0 first.`,
+          }, 409);
+        }
+
+        const { data: cats, error: cErr } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id, name")
+          .eq("type", "Category").eq("active", true)
+          .order("qbo_item_id", { ascending: true })
+          .limit(limit);
+        if (cErr) throw new Error("read categories: " + cErr.message);
+
+        const summary = {
+          attempted: cats?.length ?? 0,
+          updated: 0, already_inactive: 0,
+          errors: [] as { id: string; error: string }[],
+        };
+        const { count: catsLeft } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .eq("type", "Category").eq("active", true);
+
+        if (!commit) {
+          return jsonRes({ ok: true, phase, commit: false, summary, remaining: catsLeft ?? 0 });
+        }
+
+        for (const c of cats ?? []) {
+          try {
+            const j = await qboGet(sb, "/item/" + encodeURIComponent(c.qbo_item_id));
+            const item = j?.Item;
+            if (!item) { summary.errors.push({ id: c.qbo_item_id, error: "not found in QBO" }); continue; }
+            if (item.Active === false) {
+              await sb.schema("ops").from("qbo_items").update({ active: false }).eq("qbo_item_id", c.qbo_item_id);
+              summary.already_inactive++;
+              continue;
+            }
+            await qboPost(sb, "/item", {
+              Id: item.Id, SyncToken: item.SyncToken, sparse: true,
+              Active: false,
+            });
+            await sb.schema("ops").from("qbo_items").update({ active: false }).eq("qbo_item_id", c.qbo_item_id);
+            summary.updated++;
+          } catch (e) {
+            summary.errors.push({ id: c.qbo_item_id, error: (e as Error).message });
+          }
+          await sleep(120);
+        }
+
+        const { count: catsAfter } = await sb
+          .schema("ops").from("qbo_items")
+          .select("qbo_item_id", { count: "exact", head: true })
+          .eq("type", "Category").eq("active", true);
+
+        try {
+          await sb.schema("ops").from("sync_log").insert({
+            sync_type: "push_qbo_inactivate_categories",
+            status:    summary.errors.length === 0 ? "success" : "partial",
+            metadata:  { commit, phase, summary, remaining_after: catsAfter ?? 0 },
+            completed_at: new Date().toISOString(),
+          });
+        } catch (_) { /* non-fatal */ }
+
+        return jsonRes({
+          ok: true, phase, commit, summary,
+          remaining: catsAfter ?? 0,
+          duration_ms: Date.now() - startedAt,
+        });
+      }
+
+      return jsonRes({ ok: false, error: "unknown phase: " + phase }, 400);
     }
 
     return jsonRes({ ok: false, error: "unknown action: " + action }, 400);

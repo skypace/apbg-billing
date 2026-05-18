@@ -8,7 +8,8 @@ import {
 } from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X, Eraser } from 'lucide-react';
+import { QboCategoryCleanupModal } from './QboCategoryCleanupModal';
 import { KPICard } from '../../components/KPICard';
 import { QboConfirmModal } from '../../components/QboConfirmModal';
 import { PushCategoriesReviewModal, type CategoryChange } from '../../components/PushCategoriesReviewModal';
@@ -195,6 +196,7 @@ export function ItemsSettingsEditor() {
   const [applying, setApplying] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [aligning, setAligning] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
   const [families, setFamilies] = useState<ProductFamily[]>([]);
@@ -1332,6 +1334,18 @@ export function ItemsSettingsEditor() {
           <UploadCloud size={12} strokeWidth={2.4} aria-hidden="true" />
           {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
+        <button
+          onClick={() => setCleanupOpen(true)}
+          className="tb-btn"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            color: 'var(--rd)', borderColor: 'var(--rd)',
+          }}
+          title="One-shot QBO cleanup — flatten every sub-item and inactivate the QBO Category items. Removes the Category:Item prefix from QBO transactions, reports, and invoices. BRIX categories stay intact."
+        >
+          <Eraser size={12} strokeWidth={2.4} aria-hidden="true" />
+          Cleanup QBO categories
+        </button>
         <button onClick={load} className="tb-btn">Refresh</button>
         <button onClick={pullFromQbo} disabled={qboSyncing}
           className={'tb-btn' + (qboSyncing ? '' : ' tb-btn--primary')}
@@ -1431,6 +1445,7 @@ export function ItemsSettingsEditor() {
         already agree. Apply individual suggestions or click <em>Smart suggest</em> to commit
         high-confidence ones. <em>Align all to P&amp;L</em> force-sets every category to its income account name.
       </div>
+      <QboCategoryCleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
     </div>
   );
 }

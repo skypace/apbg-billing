@@ -348,6 +348,57 @@ export async function bulkSyncCategoriesToQbo(commit = false): Promise<QboCatego
   });
 }
 
+// ── One-shot QBO cleanup: flatten + inactivate categories ────────────────
+// Companion of bulkSyncCategoriesToQbo. Runs in phases — UI calls it
+// repeatedly until `remaining` drops to 0 for each phase. BRIX
+// inventory_settings.category_override stays untouched throughout.
+export interface QboUnparentResult {
+  ok: boolean;
+  phase: 'preview' | 'unparent' | 'inactivate';
+  commit?: boolean;
+  // preview-only fields:
+  items_to_unparent?: number;
+  categories_to_inactivate?: number;
+  categories_total_in_qbo?: number;
+  // phase-run fields:
+  summary?: {
+    attempted: number;
+    updated?: number;
+    already_clean?: number;
+    already_inactive?: number;
+    errors: { id: string; error: string }[];
+  };
+  remaining?: number;
+  duration_ms?: number;
+  error?: string;
+  note?: string;
+}
+
+export async function previewQboCategoryCleanup() {
+  return callPushQboItem<QboUnparentResult>({
+    action: 'unparentAndInactivateCategories',
+    phase: 'preview',
+  });
+}
+
+export async function runQboUnparentBatch(commit: boolean, limit = 50) {
+  return callPushQboItem<QboUnparentResult>({
+    action: 'unparentAndInactivateCategories',
+    phase: 'unparent',
+    commit,
+    limit,
+  });
+}
+
+export async function runQboInactivateBatch(commit: boolean, limit = 50) {
+  return callPushQboItem<QboUnparentResult>({
+    action: 'unparentAndInactivateCategories',
+    phase: 'inactivate',
+    commit,
+    limit,
+  });
+}
+
 export function fetchCategoryList() {
   return sbrpc<CategoryOption[]>('fn_list_category_options', {});
 }
