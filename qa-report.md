@@ -842,3 +842,165 @@
 - Severity: MEDIUM
 - Notes: Wiring intent is clear; spot-check 10-20 items against QBO Item.PurchaseCost once re-auth.
 
+### [claim-127] — Reports page exposes "Voids & Cross-sells"
+- Status: PASS
+- Code path: `app/src/pages/ReportsPage.tsx:8,17,58` (tab id `voids`, label "Voids / Cross-Sell")
+- Severity: LOW
+
+### [claim-128] — Default item set is "CSD FOUNTAIN"
+- Status: DEFERRED (Supabase data check) / wiring PASS
+- Code path: `app/src/pages/reports/VoidsReport.tsx:58-63` — first row by `sort_order, label` is selected as default
+- Severity: LOW
+- Notes: Whether CSD FOUNTAIN is the first row depends on `item_sets.sort_order` seed values. Quick verify: `SELECT set_code FROM ops.item_sets WHERE is_active = true ORDER BY sort_order, label LIMIT 1`.
+
+### [claim-129] — CSD FOUNTAIN set contains documented flavors (incl. APT Cranberry / OJ / Pineapple)
+- Status: DEFERRED (Supabase data check)
+- Code path: items resolved through `item_set_members` joined to `qbo_items` server-side
+- Severity: LOW
+
+### [claim-130] — Customer must have bought ≥1 item from the set in the window
+- Status: PASS (wiring) / DEFERRED (numeric)
+- Code path: `VoidsReport.tsx:71-77` passes `require_some: true` (default) to `fetchProductVoids`; the RPC `fn_product_voids` then filters server-side
+- Severity: MEDIUM
+- Notes: The flag name `require_some` is stale — the toolbar label (claim-133) calls it "Hide completionists" instead. Code and label disagree; functional outcome is documented but maintenance hazard.
+
+### [claim-131] — Active-in-QBO filter excludes the 22 ghosts
+- Status: DEFERRED (Supabase data + RPC check)
+- Code path: assumed inside `fn_product_voids` (RPC). Not visible in the frontend.
+- Severity: LOW
+
+### [claim-132] — Min set $ filter requires total customer spend ≥ value
+- Status: PASS
+- Code path: `VoidsReport.tsx:75,186-192` (`min_set_revenue` filter)
+- Severity: LOW
+
+### [claim-133] — "Hide completionists" drops customers who bought every item
+- Status: PASS (functional) / GUIDE_WRONG (variable name)
+- Code path: `VoidsReport.tsx:214-224` (checkbox bound to `f.require_some`); the checkbox title reads "When checked: hide customers who already bought every item in the set"
+- Severity: LOW
+- Notes: Variable `require_some` and label "Hide completionists" disagree — minor footgun for future maintainers.
+
+### [claim-134] — `has_item = revenue > 0` (any positive counts)
+- Status: PASS
+- Code path: `VoidsReport.tsx:382` (`const has = rev > 0`) — matches the RPC's `has_item` field which is also revenue>0 per the surrounding code
+- Severity: LOW
+
+### [claim-135] — KPI "CUSTOMERS" = visible rows after all filters
+- Status: PASS
+- Code path: `VoidsReport.tsx:153` (`customers.length` post-filter)
+- Severity: LOW
+
+### [claim-136] — KPI "COVERAGE" = Σ bought / Σ possible
+- Status: PASS
+- Code path: `VoidsReport.tsx:126-128`
+- Severity: LOW
+
+### [claim-137] — KPI "GAP $ POTENTIAL" = Σ over customers of (set_revenue / items_bought) × (set_total − items_bought)
+- Status: PASS
+- Code path: `VoidsReport.tsx:129-134` — matches the guide's formula exactly
+- Severity: LOW
+
+### [claim-138] — KPI "ITEMS IN SET" = count of items in selected set
+- Status: PASS
+- Code path: `VoidsReport.tsx:161` (`itemCols.length`)
+- Severity: LOW
+
+### [claim-139] — KPIs recompute from the filtered set
+- Status: PASS
+- Code path: `VoidsReport.tsx:86-137` (the same useMemo computes filtered `customers` AND totals)
+- Severity: LOW
+
+### [claim-140] — Toolbar "Min set $" filter
+- Status: PASS — see claim-132
+- Severity: LOW
+
+### [claim-141] — "# items ≥ N" / "≤ M"; M blank = any
+- Status: PASS
+- Code path: `VoidsReport.tsx:194-212,123-124` (`maxItems` is nullable; `null` skips the upper-bound filter)
+- Severity: LOW
+
+### [claim-142] — Per-item chips cycle off → must buy (green +) → must NOT buy (red −)
+- Status: PASS
+- Code path: `VoidsReport.tsx:45-55,229-274`
+- Severity: LOW
+
+### [claim-143] — Multiple chips AND together
+- Status: PASS
+- Code path: `VoidsReport.tsx:117-122` — uses `.every(...)` for both mustBuy and mustNotBuy sets
+- Severity: LOW
+
+### [claim-144] — "Clear (N)" button resets all chips
+- Status: PASS
+- Code path: `VoidsReport.tsx:238-241,56`
+- Severity: LOW
+
+### [claim-145] — Customer column pinned left
+- Status: PASS
+- Code path: `VoidsReport.tsx:407` (`pinnedColumns: { left: ['customer_name'] }`)
+- Severity: LOW
+
+### [claim-146] — Item column header sort = sort by revenue on that item (desc)
+- Status: PASS
+- Code path: `VoidsReport.tsx:374-393` — each item column's `field` is `item_<id>` and its value is the revenue number; default DataGridPro sort behavior orders by that.
+- Severity: LOW
+
+### [claim-147] — Column drag-reorder works
+- Status: PASS
+- Code path: DataGridPro Pro feature, enabled by default
+- Severity: LOW
+
+### [claim-148] — Burger menu: hide / pin / sort / filter
+- Status: PASS
+- Code path: DataGridPro Pro feature, enabled by default
+- Severity: LOW
+
+### [claim-149] — Pagination dropdown: 10 / 25 / 50 / 100 / 250 / All
+- Status: PASS
+- Code path: `VoidsReport.tsx:404` (`pageSizeOptions={[10, 25, 50, 100, 250, { value: -1, label: 'All' }]}`)
+- Severity: LOW
+
+### [claim-150] — Set Total column hidden by default
+- Status: PASS
+- Code path: `VoidsReport.tsx:409` (`columnVisibilityModel: { set_total: false }`)
+- Severity: LOW
+
+### [claim-151] — Cells green with $ when bought, red with "—" when not
+- Status: PASS
+- Code path: `VoidsReport.tsx:381-391`
+- Severity: LOW
+
+### [claim-152] — "Anomalies" report flags items/customers with statistically unusual YoY change
+- Status: PASS (existence) / UNTESTABLE (statistical correctness without seeing data)
+- Code path: `app/src/pages/reports/AnomaliesReport.tsx` + RPC `fetchAnomalies` (sigma-threshold based)
+- Notes: `OverviewPage.tsx:257` invokes it with `sigma_threshold: 2`. The report exists as a Reports tab.
+- Severity: LOW
+
+### [claim-153] — "Health Movers" shows customers whose RFM segment shifted in last snapshot
+- Status: PASS
+- Code path: `app/src/pages/reports/HealthMoversReport.tsx` + RPC `fetchHealthMovers(window_days)`
+- Severity: LOW
+
+### [claim-154] — "Inactive Customers" — no invoice in N days, sorted by lifetime revenue
+- Status: PASS
+- Code path: `app/src/pages/reports/InactiveCustomersReport.tsx` + RPC `fetchInactiveCustomers`
+- Severity: LOW
+
+### [claim-155] — "AR aging" report buckets open invoices into 0-30 / 31-60 / 61-90 / 90+
+- Status: WIRING_BROKEN
+- Code path: not found on Reports page (`ReportsPage.tsx:10-18` lists 5 tabs — `inactive`, `movers`, `health_movers`, `anomalies`, `voids` — none of them AR aging)
+- Expected: a dedicated AR Aging report on this page
+- Actual: AR-aging data exists (as per-customer columns on the Margin page — `marginColumns.ts:142-149`), but there is no standalone AR aging report on Reports
+- Severity: MEDIUM
+- Notes: Operators looking for AR aging on Reports will be confused. The data is reachable but not where promised.
+
+### [claim-156] — AR Aging report buckets reconcile to QBO A/R Aging Summary
+- Status: DEFERRED (and dependent on claim-155 being implemented at all)
+- Severity: MEDIUM
+
+### [claim-157] — "Save view → Save as Report" promotes a pivot to the Reports tab
+- Status: WIRING_BROKEN
+- Code path: not found
+- Expected: a button on Margin/Compare that saves a pivot as a Reports tab visible to everyone
+- Actual: `Save view` (on Margin and Compare) creates a row in `saved_views` (Supabase table; see `lib/savedViews.ts:43`). Those rows show up in the **per-page Saved-views dropdown**, not as Reports tabs. ReportsPage has 5 hardcoded tabs and no UI to load a saved view.
+- Severity: LOW
+
