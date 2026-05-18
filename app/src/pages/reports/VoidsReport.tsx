@@ -32,6 +32,28 @@ export function VoidsReport() {
   const [rows, setRows] = useState<VoidRow[] | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Per-item filter chips. mustBuy = customer's row must show has_item=true
+  // for every selected item. mustNotBuy = must show has_item=false.
+  // Empty sets = no filter.
+  const [mustBuy, setMustBuy] = useState<Set<string>>(new Set());
+  const [mustNotBuy, setMustNotBuy] = useState<Set<string>>(new Set());
+  const [minItems, setMinItems] = useState<number>(0);
+  const [maxItems, setMaxItems] = useState<number | null>(null);
+
+  // Three-state chip cycle: off → must buy → must NOT buy → off
+  function cycleChip(itemId: string) {
+    const inBuy    = mustBuy.has(itemId);
+    const inNotBuy = mustNotBuy.has(itemId);
+    const nextBuy    = new Set(mustBuy);
+    const nextNotBuy = new Set(mustNotBuy);
+    if (!inBuy && !inNotBuy)      nextBuy.add(itemId);
+    else if (inBuy)             { nextBuy.delete(itemId); nextNotBuy.add(itemId); }
+    else                          nextNotBuy.delete(itemId);
+    setMustBuy(nextBuy);
+    setMustNotBuy(nextNotBuy);
+  }
+  function clearItemFilters() { setMustBuy(new Set()); setMustNotBuy(new Set()); }
+
   useEffect(() => {
     sbq<ItemSet>('item_sets', 'select=set_code,label,sort_order,is_active&is_active=eq.true&order=sort_order,label')
       .then((rs) => {
@@ -56,7 +78,10 @@ export function VoidsReport() {
       .catch(() => { setRows([]); setLoading(false); });
   }, [setCode, f.start, f.end, f.min_set_revenue, f.require_some]);
 
-  // Pivot the long-format rows (one per customer × item) into a customer-row × item-col matrix.
+  // Pivot once into customers × items, then apply the per-item filters
+  // (mustBuy / mustNotBuy / min items / max items) on top of the pivoted
+  // matrix. This keeps the underlying RPC simple — the matrix shape doesn't
+  // change, only which customer rows pass the filter.
   const { customers, itemCols, totalCovered, totalGapDollars } = useMemo(() => {
     if (!rows || rows.length === 0) {
       return { customers: [] as CustomerCell[], itemCols: [], totalCovered: 0, totalGapDollars: 0 };
@@ -86,7 +111,17 @@ export function VoidsReport() {
       cust.cells[r.qbo_item_id] = { revenue: Number(r.revenue || 0), has: r.has_item };
     }
 
-    const arr = Array.from(byCustomer.values()).sort((a, b) => b.set_revenue - a.set_revenue);
+    let arr = Array.from(byCustomer.values()).sort((a, b) => b.set_revenue - a.set_revenue);
+    // Apply per-item + count filters
+    if (mustBuy.size > 0) {
+      arr = arr.filter((c) => Array.from(mustBuy).every((id) => c.cells[id]?.has === true));
+    }
+    if (mustNotBuy.size > 0) {
+      arr = arr.filter((c) => Array.from(mustNotBuy).every((id) => c.cells[id]?.has !== true));
+    }
+    if (minItems > 0) arr = arr.filter((c) => c.items_bought >= minItems);
+    if (maxItems != null) arr = arr.filter((c) => c.items_bought <= maxItems);
+
     const totalItems = arr.reduce((s, c) => s + c.set_total, 0);
     const totalBought = arr.reduce((s, c) => s + c.items_bought, 0);
     const cov = totalItems === 0 ? 0 : totalBought / totalItems;
@@ -98,7 +133,7 @@ export function VoidsReport() {
     }, 0);
 
     return { customers: arr, itemCols, totalCovered: cov, totalGapDollars: gap };
-  }, [rows]);
+  }, [rows, mustBuy, mustNotBuy, minItems, maxItems]);
 
   if (!sets.length) {
     return (
@@ -154,17 +189,88 @@ export function VoidsReport() {
           onChange={(e) => setF({ ...f, min_set_revenue: Number(e.target.value) })}
           style={{ ...inp(), width: 80 }}
         />
+
+        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8 }}># items ≥</span>
+        <input
+          type="number"
+          min={0}
+          value={minItems}
+          onChange={(e) => setMinItems(Number(e.target.value) || 0)}
+          style={{ ...inp(), width: 60 }}
+          title="Show customers who bought at least N items from the set"
+        />
+        <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>≤</span>
+        <input
+          type="number"
+          min={0}
+          value={maxItems ?? ''}
+          onChange={(e) => setMaxItems(e.target.value === '' ? null : Number(e.target.value))}
+          style={{ ...inp(), width: 60 }}
+          title="Optional: cap at N items"
+          placeholder="any"
+        />
+
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
           <input
             type="checkbox"
             checked={f.require_some}
             onChange={(e) => setF({ ...f, require_some: e.target.checked })}
           />
-          <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Require ≥1 item bought
+          <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}
+                title="When checked: hide customers who already bought every item in the set (no voids). When unchecked: show everyone, including completionists.">
+            Hide completionists
           </span>
         </label>
       </div>
+
+      {/* Item filter chips — click to cycle: none → must buy → must NOT buy → none.
+          mustBuy = customers who DO have this item; mustNotBuy = customers MISSING this item. */}
+      {itemCols.length > 0 && (
+        <div className="cd" style={{ padding: '10px 12px', marginBottom: 10, fontSize: 11 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Filter by item
+            </span>
+            <span style={{ color: 'var(--mt)', fontSize: 10 }}>
+              Click to toggle MUST BUY (green) ↔ MUST NOT BUY (red) ↔ off
+            </span>
+            {(mustBuy.size > 0 || mustNotBuy.size > 0) && (
+              <button onClick={clearItemFilters} style={{ ...inp(), background: 'transparent', cursor: 'pointer', fontSize: 10 }}>
+                Clear ({mustBuy.size + mustNotBuy.size})
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {itemCols.map((it) => {
+              const mode = mustBuy.has(it.id) ? 'buy' : mustNotBuy.has(it.id) ? 'notbuy' : 'off';
+              const bg = mode === 'buy'    ? 'rgba(22,163,74,0.18)'
+                      :  mode === 'notbuy' ? 'rgba(220,38,38,0.18)'
+                      :                       'transparent';
+              const bd = mode === 'buy'    ? 'var(--gn)'
+                      :  mode === 'notbuy' ? 'var(--rd)'
+                      :                       'var(--bd)';
+              const fg = mode === 'buy'    ? 'var(--gn)'
+                      :  mode === 'notbuy' ? 'var(--rd)'
+                      :                       'var(--tx2)';
+              const prefix = mode === 'buy' ? '+ ' : mode === 'notbuy' ? '− ' : '';
+              return (
+                <button
+                  key={it.id}
+                  onClick={() => cycleChip(it.id)}
+                  title={mode === 'off' ? 'Click to require: must buy' : mode === 'buy' ? 'Click to flip: must NOT buy' : 'Click to clear'}
+                  style={{
+                    padding: '3px 8px', fontSize: 10, fontWeight: 600,
+                    border: `1px solid ${bd}`, borderRadius: 12, cursor: 'pointer',
+                    background: bg, color: fg,
+                  }}
+                >
+                  {prefix}{it.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="cd" style={{ padding: 0 }}>
         {loading || !rows ? (
