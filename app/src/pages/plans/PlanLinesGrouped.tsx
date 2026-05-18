@@ -3,7 +3,7 @@
 // only changes how rows are laid out so you can see Revenue and COGS together
 // while you adjust them.
 
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { MONTHS_SHORT, PlanLineSection, SalesPlanLine } from '../../lib/plans';
 import { fm } from '../../lib/formatters';
 import { btnDanger, btnSecondary, inp } from '../../lib/styles';
@@ -33,6 +33,19 @@ export function PlanLinesGrouped({
   lines, linesSections, viewMode, onSetCell, onFillFlat, onDelete,
 }: Props) {
   const isMoney = viewMode !== 'qty';
+
+  // Collapsed state. Section keys: 'section:revenue', pl_line keys:
+  // 'pl:revenue|BIB - 3 Gallon'. Collapsing a section hides every pl_line
+  // and item row; the section subtotal stays visible.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  function toggle(key: string) {
+    setCollapsed((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  const isCollapsed = (key: string) => collapsed.has(key);
 
   // Build section→pl_line→[lines] grouping. When the section RPC hasn't
   // returned yet, fall back to "other" so the editor never blanks out.
@@ -150,19 +163,34 @@ export function PlanLinesGrouped({
         </tr>
       </thead>
       <tbody>
-        {grouped.map((sec, secIdx) => (
+        {grouped.map((sec, secIdx) => {
+          const sectionKey = 'section:' + sec.name;
+          const sectionCollapsed = isCollapsed(sectionKey);
+          return (
           <Fragment key={sec.name}>
-            <tr>
-              <td colSpan={15} style={sectionHeaderStyle()}>{SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}</td>
+            <tr onClick={() => toggle(sectionKey)} style={{ cursor: 'pointer' }} title={sectionCollapsed ? 'Click to expand' : 'Click to collapse'}>
+              <td colSpan={15} style={sectionHeaderStyle()}>
+                <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
+                  {sectionCollapsed ? '▶' : '▼'}
+                </span>
+                {SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}
+              </td>
             </tr>
-            {sec.plGroups.map((g) => {
+            {!sectionCollapsed && sec.plGroups.map((g) => {
+              const groupKey = 'pl:' + sec.name + '|' + g.plLine;
+              const groupCollapsed = isCollapsed(groupKey);
               const groupSum = groupMonthly(g.lines);
               return (
                 <Fragment key={sec.name + '|' + g.plLine}>
-                  <tr>
-                    <td colSpan={15} style={plLineHeaderStyle()}>{g.plLine} <span style={{ color: 'var(--mt)', fontSize: 9 }}>· {g.lines.length} line{g.lines.length === 1 ? '' : 's'}</span></td>
+                  <tr onClick={() => toggle(groupKey)} style={{ cursor: 'pointer' }} title={groupCollapsed ? 'Click to expand' : 'Click to collapse'}>
+                    <td colSpan={15} style={plLineHeaderStyle()}>
+                      <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
+                        {groupCollapsed ? '▶' : '▼'}
+                      </span>
+                      {g.plLine} <span style={{ color: 'var(--mt)', fontSize: 9 }}>· {g.lines.length} line{g.lines.length === 1 ? '' : 's'}</span>
+                    </td>
                   </tr>
-                  {g.lines.map((l) => {
+                  {!groupCollapsed && g.lines.map((l) => {
                     const arr = arrayFor(l);
                     const total = totalFor(l);
                     return (
@@ -249,7 +277,8 @@ export function PlanLinesGrouped({
               </tr>
             )}
           </Fragment>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
