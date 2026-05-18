@@ -2,19 +2,30 @@
 // GET  → returns sync status/mapping from blobs (fast)
 // POST → kicks off background function, returns 202 immediately
 
+import { requireAuth } from './lib/auth.mjs';
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders() };
   }
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+  event._authJwt = auth.jwt;
   const qs = event.queryStringParameters || {};
   if (qs.lookup) return handleLookup(qs.lookup);
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
   if (qs.resetFlags) return handleResetFlags(qs.resetFlags);
+  if (qs.deleteMapping) return handleDeleteMapping(qs.deleteMapping);
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
   if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
+  if (qs.dedupeReport) return handleDedupeReport();
+  if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
+  if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
+  if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
+  if (qs.clearErrors) return handleClearErrors();
   if (event.httpMethod === 'GET') return handleGet();
-  if (event.httpMethod === 'POST') return handlePost();
+  if (event.httpMethod === 'POST') return handlePost(event);
   return { statusCode: 405, body: 'GET or POST only' };
 }
 
@@ -368,32 +379,222 @@ async function handleResetFlags(code) {
   }
 }
 
+// --- Delete Mapping: Remove a WO entry from wo-mapping entirely ---
+async function handleDeleteMapping(code) {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    const removed = [];
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === code || k === code) {
+        removed.push({ key: k, resqCode: v.resqCode, sfJobId: v.sfJobId });
+        delete mapping[k];
+      }
+    }
+    if (removed.length === 0) {
+      return json({ deleted: false, code, message: 'Not found in mapping' }, 404);
+    }
+    await store.set('wo-mapping', JSON.stringify(mapping));
+    return json({ deleted: true, code, removed });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
 // --- GET: Return sync status from blobs ---
 async function handleGet() {
   try {
     const store = await getStore();
     if (!store) return json({ error: 'Blob store not available' }, 500);
 
-    const [mappingRaw, lastRunRaw, lastErrorsRaw] = await Promise.all([
+    const [mappingRaw, lastRunRaw, lastErrorsRaw, dedupeRaw] = await Promise.all([
       store.get('wo-mapping').catch(() => null),
       store.get('last-sync').catch(() => null),
       store.get('last-errors').catch(() => null),
+      store.get('dedupe-report').catch(() => null),
     ]);
 
     const mapping = mappingRaw ? JSON.parse(mappingRaw) : {};
+    const dedupe = dedupeRaw ? JSON.parse(dedupeRaw) : { totalIssues: 0, items: [] };
     return json({
       lastSync: lastRunRaw ? JSON.parse(lastRunRaw) : null,
       lastErrors: lastErrorsRaw ? JSON.parse(lastErrorsRaw) : [],
       mappingCount: Object.keys(mapping).length,
       mappings: mapping,
+      dedupeReport: dedupe,
     });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
 }
 
+// --- Dedupe Report: full list of WOs that need manual review ---
+async function handleDedupeReport() {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('dedupe-report').catch(() => null);
+    if (!raw) return json({ generated: null, totalIssues: 0, items: [] });
+    return json(JSON.parse(raw));
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Cancel SF Job: PUT /jobs/{id} with status=Cancelled ---
+async function handleCancelSfJob(jobId, resqCode) {
+  if (!jobId) return json({ error: 'jobId required' }, 400);
+  try {
+    const { sfRequest } = await import('./sf-helpers.mjs');
+    await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Cancelled' });
+
+    // Drop the cancelled job from the dedupe report so it disappears from the UI immediately.
+    const store = await getStore();
+    if (store) {
+      try {
+        const raw = await store.get('dedupe-report');
+        if (raw) {
+          const r = JSON.parse(raw);
+          for (const item of (r.items || [])) {
+            if (item.sfJobs) item.sfJobs = item.sfJobs.filter(j => String(j.id) !== String(jobId));
+          }
+          // Remove items that lose their last SF job, OR whose duplicate set drops below 2.
+          r.items = (r.items || []).filter(i => {
+            if (i.reason === 'duplicates_no_progressed') {
+              return (i.sfJobs?.length || 0) > 1;
+            }
+            if (i.reason === 'cancel_failed' && String(i.sfJobId) === String(jobId)) {
+              return false;
+            }
+            return true;
+          });
+          r.totalIssues = r.items.length;
+          r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+          await store.set('dedupe-report', JSON.stringify(r));
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+
+    return json({ ok: true, jobId, status: 'Cancelled', resqCode });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Relink: point a mapping at a different SF job ---
+async function handleRelink(resqCode, toSfJobId) {
+  if (!resqCode || !toSfJobId) return json({ error: 'resqCode and toSfJobId required' }, 400);
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    let found = null;
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === resqCode || k === resqCode) {
+        v.replacedSfJobId = v.sfJobId;
+        v.sfJobId = toSfJobId;
+        v.relinkedAt = new Date().toISOString();
+        v.lastSyncAt = new Date().toISOString();
+        v.reconciled = true;
+        delete v.sfDeleted;
+        found = v;
+      }
+    }
+    if (!found) return json({ error: 'No mapping found for ' + resqCode }, 404);
+    await store.set('wo-mapping', JSON.stringify(mapping));
+
+    // Drop this WO from the dedupe report — user has resolved it.
+    try {
+      const reportRaw = await store.get('dedupe-report');
+      if (reportRaw) {
+        const r = JSON.parse(reportRaw);
+        r.items = (r.items || []).filter(i => i.resqCode !== resqCode);
+        r.totalIssues = r.items.length;
+        r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+        await store.set('dedupe-report', JSON.stringify(r));
+      }
+    } catch (e) { /* non-fatal */ }
+
+    return json({ ok: true, resqCode, sfJobId: toSfJobId });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Clear errors: wipe last-errors and remove errors from the last sync log ---
+async function handleClearErrors() {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    let cleared = 0;
+
+    // Reset last-errors to empty.
+    try {
+      const before = await store.get('last-errors').catch(() => null);
+      if (before) cleared += JSON.parse(before).length || 0;
+      await store.set('last-errors', '[]');
+    } catch (e) {}
+
+    // Strip errors out of the last-sync log so the dashboard log stops showing them.
+    try {
+      const raw = await store.get('last-sync');
+      if (raw) {
+        const log = JSON.parse(raw);
+        if (Array.isArray(log.errors)) {
+          cleared += log.errors.length;
+          log.errors = [];
+        }
+        await store.set('last-sync', JSON.stringify(log));
+      }
+    } catch (e) {}
+
+    return json({ ok: true, cleared });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Dismiss: remove a WO from the report without taking action ---
+async function handleDismissIssue(resqCode) {
+  if (!resqCode) return json({ error: 'resqCode required' }, 400);
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('dedupe-report').catch(() => null);
+    if (!raw) return json({ ok: true, dismissed: 0 });
+    const r = JSON.parse(raw);
+    const before = (r.items || []).length;
+    r.items = (r.items || []).filter(i => i.resqCode !== resqCode);
+    r.totalIssues = r.items.length;
+    r.byReason = r.items.reduce((acc, x) => { acc[x.reason] = (acc[x.reason] || 0) + 1; return acc; }, {});
+    await store.set('dedupe-report', JSON.stringify(r));
+
+    // Also mark the mapping as reconciled so the next sync doesn't re-flag it.
+    try {
+      const mappingRaw = await store.get('wo-mapping');
+      if (mappingRaw) {
+        const mapping = JSON.parse(mappingRaw);
+        for (const [k, v] of Object.entries(mapping)) {
+          if (v.resqCode === resqCode) {
+            v.reconciled = true;
+            v.dismissedAt = new Date().toISOString();
+          }
+        }
+        await store.set('wo-mapping', JSON.stringify(mapping));
+      }
+    } catch (e) { /* non-fatal */ }
+
+    return json({ ok: true, dismissed: before - r.totalIssues });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
 // --- POST: Write "running" marker, invoke background function ---
-async function handlePost() {
+async function handlePost(event) {
   try {
     // Write a "running" marker so the dashboard shows sync in progress
     const store = await getStore();
@@ -414,11 +615,13 @@ async function handlePost() {
     // and continue running for up to 15 minutes
     const siteUrl = process.env.URL || 'https://apbg-billing.netlify.app';
     const bgUrl = `${siteUrl}/.netlify/functions/resq-sf-sync-background`;
+    const bgHeaders = { 'Content-Type': 'application/json' };
+    if (event?._authJwt) bgHeaders.Authorization = `Bearer ${event._authJwt}`;
     let bgStatus = 'unknown';
     try {
       const bgRes = await fetch(bgUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: bgHeaders,
         body: JSON.stringify({ trigger: 'manual', ts: Date.now() }),
       });
       bgStatus = `${bgRes.status}`;
@@ -458,7 +661,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 

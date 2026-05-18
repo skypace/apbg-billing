@@ -1,9 +1,13 @@
 import { qboQuery, corsHeaders } from './qbo-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
+
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
 
   try {
     const result = await qboQuery(

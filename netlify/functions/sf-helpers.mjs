@@ -210,11 +210,20 @@ export async function sfRequest(method, endpoint, body = null) {
   const res = await fetch(url, opts);
 
   if (!res.ok) {
-    const err = await res.text();
+    const rawErr = await res.text();
+    // Truncate HTML error pages — SF returns full HTML on 404s
+    const err = rawErr.length > 300 ? rawErr.substring(0, 200) + '... [truncated]' : rawErr;
     throw new Error(`SF API error: ${res.status} ${err}`);
   }
 
-  return res.json();
+  // Handle empty responses (204, or 200 with no body)
+  const text = await res.text();
+  if (!text || text.trim() === '') return {};
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`SF API returned invalid JSON (${res.status}): ${text.substring(0, 200)}`);
+  }
 }
 
 export async function createSFCustomer({ customerName, firstName, lastName, phone, email, address, city, state, zip }) {

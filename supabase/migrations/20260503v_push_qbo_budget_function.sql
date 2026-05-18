@@ -1,0 +1,18 @@
+-- Slice W: push-qbo-budget edge function deployed (no SQL schema changes).
+--
+-- Edge function: push-qbo-budget (verify_jwt = true)
+--   POST {plan_id: uuid, write?: bool}
+--
+-- Reads ops.fn_plan_account_rollup(plan_id) and produces:
+--   - QBO-import-ready CSV (Account, Jan..Dec, Total columns)
+--   - Equivalent QBO Budget API JSON payload
+--   - When write=true, attempts POST /v3/company/{realm}/budget
+--
+-- QBO's Budget create API is restricted by realm/account combination.
+-- The default flow is dry_run (write=false): the dashboard downloads
+-- the CSV and the user imports via QBO Web:
+--   Settings (gear) → Tools → Budgeting → Add Budget → Import.
+--
+-- Re-uses the same lease-based token rotation as sync-qbo-items
+-- (qbo_token_claim_refresh / qbo_token_persist / qbo_token_release_failed).
+SELECT 1;
