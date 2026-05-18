@@ -666,3 +666,78 @@
 - Code path: `app/src/pages/plans/PlanForecast.tsx:17-48` + RPC `fetchPlanForecast` returns `projected_full_year`, `months_complete`, and a status enum (ahead / on_track / behind / critical / no_data)
 - Severity: LOW
 
+### [claim-98] — BOM detail modal opens 90 px from top
+- Status: PASS
+- Code path: `app/src/pages/production/BomsTab.tsx:363` (`padding: '90px 20px 20px'`)
+- Severity: LOW
+
+### [claim-99] — BOM editor shows name + version + yield qty/UoM
+- Status: PASS
+- Code path: `BomsTab.tsx:371-376` (header line) + 357 (`displayName`) + 391-394 (rename input)
+- Severity: LOW
+
+### [claim-100] — Count-based BOMs show "1 <uom> produces N gal" bridge
+- Status: PASS
+- Code path: `BomsTab.tsx:412-430` rendered only when `uomGroup(bom.yield_uom) === 'count'`
+- Severity: LOW
+
+### [claim-101] — "Scale to make <qty> <UoM>" calculator at top
+- Status: PASS
+- Code path: `BomsTab.tsx:433-467`
+- Severity: LOW
+
+### [claim-102] — Scaled "Required" column populates on every BOM row
+- Status: PASS
+- Code path: `BomsTab.tsx:521-573` (`scaledByIdx` → cell at 567-573)
+- Severity: LOW
+
+### [claim-103] — Row columns Type/Component/Qty/UoM/Scrap %/Unit cost/Notes, all editable
+- Status: PASS
+- Code path: `BomsTab.tsx:515-528` (headers) + 530-601 (editable cells)
+- Severity: LOW
+
+### [claim-104] — Required column hidden when "Scale to make" is empty
+- Status: PASS
+- Code path: `BomsTab.tsx:500` (`showRequired = (scaledByIdx?.size ?? 0) > 0`)
+- Severity: LOW
+
+### [claim-105] — Per-yield values are what's saved; scaling does not mutate the BOM
+- Status: PASS
+- Code path: `BomsTab.tsx:309-318` `saveLines` calls `replaceBomLines(bomId, lines)` with the unmutated `lines` array; `targetQty` / `scaling` only affect display.
+- Severity: LOW
+
+### [claim-106] — Amber "Can't convert" warning when target UoM has no bridge
+- Status: PASS
+- Code path: `BomsTab.tsx:455-461` (`scaling.incompat` branch)
+- Severity: LOW
+
+### [claim-107] — WO status flow: draft → consumed → closed (or void)
+- Status: PASS
+- Code path: `app/src/pages/production/WorkOrdersTab.tsx:19-22,106-109,581-590` (filter dropdown + status-conditional action buttons)
+- Severity: LOW
+
+### [claim-108] — Closing a WO writes locked costs to `ops.work_order_costs`
+- Status: PASS
+- Code path: schema in `supabase/migrations/20260514b_phase2_bom_work_orders.sql:137-141` (table); close-RPC at line 518 (`INSERT INTO ops.work_order_costs (...)`)
+- Severity: LOW
+- Notes: UNTESTABLE for behavior without invoking a close — wiring verified.
+
+### [claim-109] — Closing pushes to QBO when QBO-writeback is wired
+- Status: PASS (wiring)
+- Code path: `WorkOrdersTab.tsx:562,590` (renders QBO Inventory Adjustment link only when `qbo_inventory_adjustment_id` is set) — i.e. the wiring exists; a separate "Push to QBO" action populates that ID.
+- Severity: MEDIUM
+- Notes: UNTESTABLE — write path. Manual test required to confirm a real Inventory Adjustment is created.
+
+### [claim-110] — WO detail modal opens 90 px from top
+- Status: PASS
+- Code path: `WorkOrdersTab.tsx:431` (`padding: '90px 20px 20px'`)
+- Severity: LOW
+
+### [claim-111] — PO module tracks vendor, expected ship, BOL, receipt status
+- Status: GUIDE_WRONG (partial)
+- Code path: `app/src/pages/production/PurchaseOrdersTab.tsx`
+- Expected: vendor, expected ship date, BOL, receipt status
+- Actual: vendor ✓ (line 115, 331-333), expected_date ✓ (line 132, 303), receipt status ✓ (qty_received tracking + status enum at 21, 176, 593-603). **No BOL / bill-of-lading field exists** in the PO model or the editor.
+- Severity: LOW
+- Notes: If BOL tracking is needed it'd be a new column on the PO row.
+
