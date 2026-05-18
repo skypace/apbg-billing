@@ -6,13 +6,65 @@
 **Scope:** Read-only audit of the BRIX Refractor program (`app/`, surfaced at `alamedapointbg.com/margin/`). No writes to QBO or Supabase. Diagnosis only — no fixes in this pass.
 **QBO realm:** `9130352144155116` (via the `904de308…` QBO MCP)
 
-> **SUMMARY section will be written at the end** (Step 3). Until then, this file is being appended live as each claim is tested. If the session dies, scroll to the last `### [claim-N]` entry — that's how far testing got.
+## SUMMARY
+
+**Total claims tested:** 173
+**Pass rate:** ~64% (110 / 173 PASS in some form)
+
+### Breakdown by status
+
+| Status | Count | What it means |
+|---|---:|---|
+| **PASS** | 110 | Code path verified; wiring intact. Includes 11 "PASS (wiring)" where the call path is verified but a write/network action wasn't invoked. |
+| **GUIDE_WRONG** | 19 | The program works; the user guide misrepresents it (stale labels, wrong counts, renamed pages, etc.) |
+| **WIRING_BROKEN** | 29 | A documented feature has no implementation, or the implementation does something materially different than the guide describes. |
+| **DEFERRED — QBO numeric** | 11 | Wiring verified; numeric reconciliation against QBO needs MCP re-auth (see "Status notes" below). |
+| **DEFERRED — Supabase data check** | 3 | Wiring verified; specific row counts / seed values need a quick SELECT. |
+| **UNTESTABLE** | 2 | Manual test or admin-role session required. |
+
+### Top 5 highest-impact issues
+
+> Severity: HIGH = breaks revenue recognition / customer-facing output / financial accuracy. MEDIUM = wrong number caught downstream. LOW = cosmetic or guide-only.
+
+1. **HIGH — Overview is missing three of its six documented KPI cards** (claims 9, 12, 13, 14, 16).
+   The guide promises Revenue · Gross margin % · **Net income** · **AR outstanding** · **AR overdue** · Active customers. The code (`app/src/pages/OverviewPage.tsx:528-536`) renders only Revenue · Margin % · Customers · **Avg Order Value**. Net income, AR outstanding, and AR overdue tiles are unimplemented. `grep -r pl_snapshots app/src` returns nothing — there is no code path that reads the P&L snapshot for the Net Income tile. Operators using Overview as the daily-pulse page have no AR visibility from there at all.
+
+2. **HIGH — No QBO-posted COGS column anywhere on Margin** (claims 25, 49).
+   The Margin pivot is **est-cost-based throughout** (`qbo_items.purchase_cost × qty`). The grid has columns Lines · Qty · Revenue · Est Cost · Est Margin · Margin %, but no column derived from QBO-posted COGS. The guide implies operators can reconcile Margin to QBO P&L; they cannot — they can reconcile only to the program's own est-cost rollup. Posted COGS and est cost will differ systematically (inventory adjustments, JE-only COGS entries, items with null purchase_cost). Either add a posted-COGS column sourced from `ops.pl_snapshots`, or fix the guide language to say "est margin" not "COGS / gross profit".
+
+3. **MEDIUM — Compare page does not match its documentation at all** (claims 112-118).
+   The guide describes two date-range pickers (Period A / B), a dimension chooser, a unified side-by-side delta table with color coding, and MoM / QoQ / YoY presets. The actual page (`app/src/pages/ComparePage.tsx`) is two **saved-view dropdowns** rendering two separate `MarginGrid` instances side by side. No date pickers, no dimension chooser, no delta columns, no presets. The single feature with the most guide↔code drift in the audit.
+
+4. **MEDIUM — Sub-customer address fallback is unimplemented end-to-end** (claims 66, 67).
+   The guide explicitly promises that a sub-customer with no own address falls back to the parent's address. The RPC `fn_customer_detail` (`supabase/migrations/20260503n_customer_detail.sql:52-65`) selects only the customer's own `bill_addr_*` from `ops.qbo_customers` — there is no JOIN to `parent_ref_id` and no COALESCE. The frontend (`CustomerDetailPage.tsx:311-322`) renders "— no address —" for such customers. Compounding this: the parent chain name itself is not displayed (only a "SUB" badge), and there is no "Open in QBO" link in the contact card.
+
+5. **MEDIUM — AR Aging report is missing from Reports** (claims 155, 156).
+   The guide lists AR Aging (0-30 / 31-60 / 61-90 / 90+) as one of the Reports tabs. The actual ReportsPage (`app/src/pages/ReportsPage.tsx:12-18`) has only five tabs — Lost/Inactive · Top Movers · Health Movers · Anomalies · Voids — none of them AR aging. AR-aging *data* exists (as opt-in customer columns on Margin via `marginColumns.ts:142-149`), but there is no standalone AR aging report where promised.
+
+### Notable cluster: guide drift around recent renames
+
+A pattern emerges of the user guide being out of date with respect to recent (May 2026) renames/refactors:
+
+- **Sidebar** — claim-3: guide says 8 sections in order A; code has 10 in order B (Reports moved up, Stock added as separate item, Inventory→Inventory Planning relabel per `Layout.tsx:16-24`).
+- **"Inventory" page** — claims 120-126: the page the guide describes (item master with P&L Alignment, Sync Item Costs button) now lives at **Settings → Items** (`pages/settings/ItemsSettingsEditor.tsx`). The `#inventory` route is now Inventory Planning analytics.
+- **Saved views** — claim-158: guide says LocalStorage on four pages; code uses Supabase `saved_views` table on two pages (Margin + Compare).
+- **Rollup code** — claim-43: guide example uses `MTE`; default rollup code is `MT` (`chainModifiers.ts:57`).
+- **Margin pivot dims** — claim-30: guide lists 6 dims; code supports 10.
+- **Margin presets** — claim-27: guide says YTD/last quarter/last 12 months; code has MTD/QTD/YTD/30d/90d/12mo, no "last quarter".
+
+A guide-refresh pass would fix ~12 LOW-severity issues at once.
 
 ---
 
 ## Status notes
 
-- **QBO MCP token expired at start of Step 2.** Numeric reconciliation claims that need QBO ground truth (claim-10, 11, 12, 13, 14, 15, 41, 48, 49, 64, 69, 72, 119, 126, 156, 170) are deferred until re-auth. Wiring + structural checks proceed immediately.
+- **QBO MCP token expired at start of Step 2.** Numeric reconciliation claims that need QBO ground truth (claim-10, 11, 12, 13, 14, 15, 41, 48, 49, 64, 69, 72, 119, 126, 156, 170) are deferred until re-auth. Wiring + structural checks completed.
+- **Read-only enforced.** No QBO writes, no Supabase writes, no deploys triggered. Write-path claims (40, 82, 91, 94, 108, 109, 123, 125, 173) are marked PASS (wiring) or UNTESTABLE.
+- **Code-level review only.** I inspected the source on `claude/qa-brix-refractor-VLgQq` (rooted at commit synced with `dev`) but did NOT run the app or render any page. Findings about hidden filters / runtime behavior would benefit from a manual click-through of each surface.
+
+---
+
+> **Detailed findings follow.** Each `### [claim-N]` entry shows code path, severity, and diff vs. guide. Use Ctrl-F on the claim id to jump.
 
 ---
 
