@@ -78,7 +78,7 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
           const h = byId.get(it.qbo_item_id);
           return {
             qbo_item_id:        it.qbo_item_id,
-            item_name:          it.fully_qualified_name || it.name,
+            item_name:          it.name || it.fully_qualified_name || it.qbo_item_id,
             category_path:      cat,
             ly_annual_qty:      Number(h?.ly_annual_qty ?? 0),
             ly_annual_revenue:  Number(h?.ly_annual_revenue ?? 0),

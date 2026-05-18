@@ -94,7 +94,7 @@ export function PlanEditor({ plan, onBack }: Props) {
       plan_id: plan.id,
       line_type: 'item',
       qbo_item_id: it.qbo_item_id,
-      item_name: it.fully_qualified_name || it.name,
+      item_name: it.name || it.fully_qualified_name,
       qbo_account_id: it.income_account_ref_id,
       account_name: it.income_account_name,
       amounts: ZEROS(),
@@ -365,7 +365,7 @@ export function PlanEditor({ plan, onBack }: Props) {
                   .filter((it) => !lines.some((l) => l.qbo_item_id === it.qbo_item_id))
                   .map((it) => (
                     <option key={it.qbo_item_id} value={it.qbo_item_id}>
-                      {(it.fully_qualified_name || it.name) +
+                      {(it.name || it.fully_qualified_name) +
                         (it.income_account_name ? ' → ' + it.income_account_name : '')}
                     </option>
                   ))}
