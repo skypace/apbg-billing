@@ -1004,3 +1004,99 @@
 - Actual: `Save view` (on Margin and Compare) creates a row in `saved_views` (Supabase table; see `lib/savedViews.ts:43`). Those rows show up in the **per-page Saved-views dropdown**, not as Reports tabs. ReportsPage has 5 hardcoded tabs and no UI to load a saved view.
 - Severity: LOW
 
+### [claim-158] — Saved filter views on Margin, Compare, Inventory, Customers; LocalStorage; "Saved views" dropdown
+- Status: GUIDE_WRONG
+- Code path: `app/src/lib/savedViews.ts:33-62`; consumers: `MarginPage.tsx:268-298,733-746` and `ComparePage.tsx:43-71`
+- Expected: LocalStorage; available on Margin / Compare / Inventory / Customers
+- Actual: Saved views are stored in the Supabase `saved_views` table (NOT LocalStorage). Available only on **Margin** and **Compare**. Inventory and Customers do not implement a Save-view UI.
+- Severity: LOW
+- Notes: Supabase storage is actually *better* than LocalStorage (shared across browsers and devices), but the guide is stale on both the storage location and the page coverage.
+
+### [claim-159] — Plan Build, BOM detail, WO detail dialogs open 90 px from top
+- Status: PASS
+- Code path: `app/src/pages/plans/PlanBuildDialog.tsx:320` (`padding: '90px 20px 20px'`); `app/src/pages/production/BomsTab.tsx:363`; `app/src/pages/production/WorkOrdersTab.tsx:431`
+- Severity: LOW
+
+### [claim-160] — ⌘K / Ctrl K doesn't open search inside Refractor
+- Status: PASS (the guide claim that it's NOT wired is correct)
+- Code path: no global keyboard listener for `Cmd+K` / `Ctrl+K` found in the app
+- Severity: LOW
+
+### [claim-161] — URL hash reflects filter state; deep links land on the same view
+- Status: WIRING_BROKEN (partial)
+- Code path: `app/src/lib/router.ts:23-44`
+- Expected (guide): `#/margin?from=...&to=...&group=customer` reflects filters; bookmarks share the view
+- Actual: the router only handles **the view name** (`#margin`, `#customers`, `#customer-<id>`) and a single `customer-<id>` deep link. It does NOT parse query parameters from the hash. Margin filters live entirely in component state — they do not persist to the URL on change, and a "deep link with filters" would not restore filter state on load.
+- Diff: deep-link-with-filters is unimplemented
+- Severity: MEDIUM
+- Notes: The Saved-views feature (claim-158) is an alternative way to share filtered views via DB. The URL-hash approach the guide describes does not work.
+
+### [claim-162] — LIVE-badge click re-fetches the materialized view
+- Status: WIRING_BROKEN
+- Code path: `OverviewPage.tsx:435-438` and `MarginPage.tsx:657-668`
+- Expected: clicking the LIVE stamp triggers a refresh
+- Actual: the LIVE stamp is a plain `<div className="hero-stamp">` with no click handler on either page. Margin's stamp does have a `title` tooltip for the last cost sync time, but no click action; Overview's is just a render-time timestamp.
+- Severity: LOW
+- Notes: A separate "Refresh" / "Sync Item Costs" button exists in Margin (claim-40). Hard refresh (Ctrl+R) of course works.
+
+### [claim-163] — Nightly cron at 09:00 UTC pulls Invoices / SR / CM / RR
+- Status: PASS
+- Code path: polymorphic shift in `supabase/migrations/20260518a_qbo_invoices_txn_type.sql` (txn_type column + sign-flip for CM/RR); the 09:00 UTC nightly-qbo-sync is the base sync, with 09:30/35/40/50 follow-ups in `20260503r_nightly_sync_crons.sql:7-31`.
+- Severity: LOW
+- Notes: The 09:00 UTC base sync's `cron.schedule(...)` definition is not in migrations (presumably set in the Supabase dashboard pre-migration era) — confirming the schedule lives in the running `cron.job` registry.
+
+### [claim-164] — CM / RR stored as negative amounts so SUM(amount) = net revenue
+- Status: PASS
+- Code path: `supabase/migrations/20260518a_qbo_invoices_txn_type.sql:11` (comment: "sign-flips CreditMemo + RefundReceipt amounts (they REDUCE income)")
+- Severity: MEDIUM
+
+### [claim-165] — 10-min rolling refresh fetches ~100 invoices over last 90 days
+- Status: PASS
+- Code path: `supabase/migrations/20260518c_refresh_lines_rolling_cron.sql:19-42` — cron `refresh-lines-rolling` every `*/10` min, batch=100 across rolling 90-day window
+- Severity: LOW
+- Notes: With 100 invoices per 10 min and ~6 hour cycle, that's 36 batches × 100 = 3600 invoices per cycle. Whether 3600 covers the full 90-day window depends on invoice volume.
+
+### [claim-166] — 3-minute line-backfill cron catches missing line caches
+- Status: PASS (existence) / UNTESTABLE (its schedule isn't in committed migrations)
+- Code path: referenced as "jobid 3" in `20260518c_refresh_lines_rolling_cron.sql:4-6` but its `cron.schedule(...)` call is not in any migration file
+- Severity: LOW
+- Notes: Likely registered via Supabase dashboard. Verify by `SELECT jobname, schedule FROM cron.job WHERE schedule LIKE '%/3 *%'`.
+
+### [claim-167] — 5-min pg_net failure scanner
+- Status: PASS
+- Code path: `supabase/migrations/20260517a_pg_net_failure_scanner.sql:101-105` (cron `pg-net-failure-scanner` every `*/5` min, 15-min lookback)
+- Severity: LOW
+
+### [claim-168] — Margin app reads from `ops.mv_sales_lines`
+- Status: PASS
+- Code path: `supabase/migrations/20260512n_margin_rpcs_use_matview.sql:34,99,157,184,240` — `fn_sales_pivot`, `fn_sales_totals`, `fn_sparkline`, and friends all SELECT FROM `ops.mv_sales_lines`
+- Severity: LOW
+
+### [claim-169] — `mv_sales_lines` is auto-refreshed after every sync
+- Status: PASS (within visible migrations)
+- Code path: e.g. `supabase/migrations/20260517e_fix_bib_income_acct29.sql:15` (REFRESH MATERIALIZED VIEW CONCURRENTLY after data fix); generally the sync-qbo function is expected to trigger a refresh on completion
+- Severity: LOW
+- Notes: I did not verify the sync function itself (it's in `supabase/functions/sync-qbo/`, not the audit's `app/` scope) actually issues the REFRESH on every sync. Mark trust-but-verify.
+
+### [claim-170] — Authority chain QBO P&L → `pl_snapshots` → `mv_sales_lines` → Margin UI is internally consistent
+- Status: DEFERRED (QBO numeric reconciliation; requires layer-by-layer compare)
+- Severity: HIGH
+- Notes: This is the integrity claim that subsumes claims 48, 49, 64, 72, 119, 126. Single biggest reconciliation test once QBO MCP is re-authed.
+
+### [claim-171] — Unmapped income accounts land in `(unspecified)`; backfill on the next 10-min refresh
+- Status: PASS (wiring) / DEFERRED (behavioral)
+- Code path: P&L Alignment editor in `app/src/pages/settings/AccountsEditor.tsx` (referenced in `SettingsPage.tsx`)
+- Severity: LOW
+- Notes: The actual "next 10-min refresh tick re-applies the mapping" claim depends on the cron-refresh path including a re-categorize step. Cannot verify without invoking.
+
+### [claim-172] — Health-check 403 for non-superadmin is cosmetic
+- Status: PASS
+- Code path: Master Control panel lives at `public/control.html` (out of scope of this audit, but the claim is about the *Refractor* operator's perception). Within Refractor itself nothing renders a health-check banner that would be affected.
+- Severity: LOW
+
+### [claim-173] — `POST /functions/v1/sync-qbo?mode=refresh-mv` triggers MV refresh (admin only)
+- Status: PASS (wiring) / UNTESTABLE (admin-only, write path)
+- Code path: not in `app/` (Supabase edge function); claim is documented in the guide for admin use
+- Severity: LOW
+- Notes: I will not invoke this in the audit.
+
