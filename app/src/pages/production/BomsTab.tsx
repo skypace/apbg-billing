@@ -272,6 +272,14 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
       ? ''
       : String(bom.dilution_ratio),
   );
+  // Pack sizing for the cost-rollup card. 24 × 12 oz is the default
+  // because that's what all of Sky's RAW INGREDIENTS sheet rows use.
+  const [cansPerCase, setCansPerCase] = useState<string>(
+    bom.cans_per_case == null ? '24' : String(bom.cans_per_case),
+  );
+  const [ozPerCan, setOzPerCan] = useState<string>(
+    bom.oz_per_can == null ? '12' : String(bom.oz_per_can),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -300,6 +308,16 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     if (live !== '') return Number(live);
     return bom.dilution_ratio == null ? 0 : Number(bom.dilution_ratio);
   }, [dilutionRatio, bom.dilution_ratio]);
+
+  // Effective pack sizing (live edits before they're persisted).
+  const cansPerCaseNum = useMemo(() => {
+    const v = Number(cansPerCase);
+    return Number.isFinite(v) && v > 0 ? v : 24;
+  }, [cansPerCase]);
+  const ozPerCanNum = useMemo(() => {
+    const v = Number(ozPerCan);
+    return Number.isFinite(v) && v > 0 ? v : 12;
+  }, [ozPerCan]);
 
   const scaling = useMemo(() => {
     const tQty = Number(targetQty) || 0;
@@ -341,6 +359,62 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     if (out) for (const s of out.scaledLines) map.set(s.ref.idx, { qty: s.qty, uom: s.uom });
     return { scaled: out, incompat: out === null, scaledByIdx: map };
   }, [lines, bom.yield_qty, bom.yield_uom, bridgeGal, dilutionNum, targetQty, targetUom, itemLookup]);
+
+  // Cost rollup at the target scale. Theoretical math — assumes 100% yield.
+  // Per-line cost = qty_required × (line.default_cost ?? item.purchase_cost ?? 0).
+  // Per-unit costs are derived from the target volume + pack sizing.
+  const costRollup = useMemo(() => {
+    if (!lines || !scaling.scaled) return null;
+    let totalBatchCost = 0;
+    let componentsCost = 0;
+    let servicesCost = 0;
+    const rows: { idx: number; label: string; unit_cost: number; qty: number; uom: string; subtotal: number }[] = [];
+    for (const [i, l] of lines.entries()) {
+      const scaled = scaling.scaledByIdx.get(i);
+      if (!scaled) continue;
+      const item = l.component_qbo_item_id ? itemLookup.byId.get(l.component_qbo_item_id) : null;
+      const unitCost = l.default_cost != null && Number(l.default_cost) > 0
+        ? Number(l.default_cost)
+        : Number(item?.purchase_cost ?? 0);
+      const subtotal = scaled.qty * unitCost;
+      const label = l.line_type === 'component'
+        ? (item?.item_name ?? '(missing item)')
+        : (l.service_label ?? '(service)');
+      rows.push({ idx: i, label, unit_cost: unitCost, qty: scaled.qty, uom: scaled.uom, subtotal });
+      totalBatchCost += subtotal;
+      if (l.line_type === 'service') servicesCost += subtotal;
+      else componentsCost += subtotal;
+    }
+    // Target volume in fl_oz — the denominator for $/oz.
+    // When target is in volume units, that's straightforward.
+    // When target is in count + we have ingredient-mode scaling, use the
+    // computed finished volume from scaleBom. Otherwise we can't show
+    // per-oz / per-can / per-case — only total + per-unit-of-yield.
+    let finishedFlOz: number | null = null;
+    const tQty = Number(targetQty) || 0;
+    if (uomGroup(targetUom) === 'volume' && tQty > 0) {
+      finishedFlOz = tQty * (
+        targetUom === 'gal' ? 128
+        : targetUom === 'fl_oz' ? 1
+        : targetUom === 'L' ? 33.8140227
+        : targetUom === 'mL' ? 0.0338140227
+        : 0
+      );
+    } else if (scaling.scaled?.finishedVolPerYieldGal && scaling.scaled.runs > 0) {
+      finishedFlOz = scaling.scaled.finishedVolPerYieldGal * scaling.scaled.runs * 128;
+    }
+    const perOz = finishedFlOz && finishedFlOz > 0 ? totalBatchCost / finishedFlOz : null;
+    const perCan = perOz != null ? perOz * ozPerCanNum : null;
+    const perCase = perCan != null ? perCan * cansPerCaseNum : null;
+    const perGalFinished = perOz != null ? perOz * 128 : null;
+    const cansProduced = finishedFlOz != null && ozPerCanNum > 0 ? finishedFlOz / ozPerCanNum : null;
+    const casesProduced = cansProduced != null ? cansProduced / cansPerCaseNum : null;
+    return {
+      totalBatchCost, componentsCost, servicesCost, rows,
+      finishedFlOz, cansProduced, casesProduced,
+      perOz, perCan, perCase, perGalFinished,
+    };
+  }, [lines, scaling, itemLookup, targetQty, targetUom, ozPerCanNum, cansPerCaseNum]);
 
   async function saveLines() {
     if (!lines || !lines.every(validLine)) return;
@@ -397,6 +471,19 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     try {
       await updateBom(bomId, { dilution_ratio: next });
     } catch (e) { toast.error(errMsg(e)); }
+  }
+
+  async function savePackSizing() {
+    const nextCans = Number(cansPerCase) || 24;
+    const nextOz = Number(ozPerCan) || 12;
+    const prevCans = bom.cans_per_case ?? 24;
+    const prevOz = Number(bom.oz_per_can ?? 12);
+    const patch: Partial<ProductBom> = {};
+    if (nextCans !== prevCans && Number.isFinite(nextCans) && nextCans > 0) patch.cans_per_case = nextCans;
+    if (nextOz !== prevOz && Number.isFinite(nextOz) && nextOz > 0) patch.oz_per_can = nextOz;
+    if (Object.keys(patch).length === 0) return;
+    try { await updateBom(bomId, patch); }
+    catch (e) { toast.error(errMsg(e)); }
   }
 
   const displayName = (name && name.trim()) || `Version ${bom.version}`;
@@ -562,6 +649,73 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
                 itemLookup={itemLookup}
                 scaledByIdx={scaling.scaledByIdx}
               />
+
+              {/* Pack sizing — controls $/case and $/oz in the rollup card. */}
+              <div style={{
+                marginTop: 14, padding: '8px 10px',
+                border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              }}>
+                <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10 }}>
+                  Pack sizing
+                </span>
+                <input type="number" min={1} step="any" style={{ ...inp(), width: 60, textAlign: 'right' }}
+                  value={cansPerCase}
+                  onChange={(e) => setCansPerCase(e.target.value)}
+                  onBlur={savePackSizing} />
+                <span style={{ color: 'var(--mt)' }}>cans per case ×</span>
+                <input type="number" min={0.01} step="any" style={{ ...inp(), width: 60, textAlign: 'right' }}
+                  value={ozPerCan}
+                  onChange={(e) => setOzPerCan(e.target.value)}
+                  onBlur={savePackSizing} />
+                <span style={{ color: 'var(--mt)' }}>
+                  oz per can = {(cansPerCaseNum * ozPerCanNum).toLocaleString(undefined, { maximumFractionDigits: 2 })} oz/case
+                  ({(cansPerCaseNum * ozPerCanNum / 128).toLocaleString(undefined, { maximumFractionDigits: 3 })} gal/case)
+                </span>
+              </div>
+
+              {/* Cost rollup — theoretical (assumes 100% yield). The Work
+                  Order detail modal owns the actual-yield-aware variant. */}
+              {costRollup && costRollup.totalBatchCost > 0 && (
+                <div className="cd" style={{ marginTop: 14, padding: 14, background: 'rgba(58,167,113,0.04)', borderColor: 'rgba(58,167,113,0.3)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
+                    Theoretical cost rollup at this scale (100% yield)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 12 }}>
+                    <CostStat label="Total batch cost" value={`$${costRollup.totalBatchCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} primary />
+                    <CostStat label="Components" value={`$${costRollup.componentsCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+                    <CostStat label="Services / labor" value={`$${costRollup.servicesCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+                    {costRollup.casesProduced != null && (
+                      <CostStat
+                        label="Cases produced"
+                        value={costRollup.casesProduced.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                      />
+                    )}
+                  </div>
+                  {(costRollup.perCase != null || costRollup.perCan != null || costRollup.perOz != null) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bd)' }}>
+                      {costRollup.perCase != null && (
+                        <CostStat label="$ / case" value={`$${costRollup.perCase.toFixed(4)}`} primary />
+                      )}
+                      {costRollup.perCan != null && (
+                        <CostStat label="$ / can" value={`$${costRollup.perCan.toFixed(4)}`} />
+                      )}
+                      {costRollup.perOz != null && (
+                        <CostStat label="$ / oz" value={`$${costRollup.perOz.toFixed(5)}`} />
+                      )}
+                      {costRollup.perGalFinished != null && (
+                        <CostStat label="$ / gal finished" value={`$${costRollup.perGalFinished.toFixed(4)}`} />
+                      )}
+                    </div>
+                  )}
+                  {costRollup.perOz == null && (
+                    <div style={{ fontSize: 10, color: 'var(--mt)', fontStyle: 'italic', marginTop: 8 }}>
+                      Enter the target in a volume unit (gal / fl_oz / L) or set a dilution_ratio to see per-can / per-case / per-oz numbers.
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
                 <button onClick={onClose} style={btnSecondary()}>Close</button>
                 <button onClick={saveLines} disabled={saving || !lines.every(validLine)} style={btnPrimary()}>
@@ -756,4 +910,24 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
 const cellTh: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10, fontWeight: 600,
   letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)' };
 const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middle' };
+
+// Small KPI-style stat tile used in the cost-rollup card.
+function CostStat({ label, value, primary }: { label: string; value: string; primary?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: primary ? 16 : 14,
+        fontWeight: primary ? 700 : 600,
+        fontFamily: 'var(--ff-mono)',
+        color: primary ? 'var(--gn)' : 'var(--tx)',
+        marginTop: 2,
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
 
