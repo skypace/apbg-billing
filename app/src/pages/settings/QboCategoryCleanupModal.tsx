@@ -77,6 +77,8 @@ export function QboCategoryCleanupModal({ open, onClose }: Props) {
     setErrorMsg(null);
     try {
       // Phase A — unparent in batches until remaining hits 0.
+      let lastRemaining: number | null = null;
+      let stalledRuns = 0;
       while (true) {
         const r = await runQboUnparentBatch(true, PHASE_LIMIT);
         const updated = (r.summary?.updated ?? 0) + (r.summary?.already_clean ?? 0);
@@ -92,10 +94,29 @@ export function QboCategoryCleanupModal({ open, onClose }: Props) {
           // No forward progress and no errors — bail to avoid infinite loop.
           throw new Error('Unparent phase stalled with no progress and no errors. Check the QBO sync log.');
         }
+        // Bail if `remaining` count refuses to decrease for two batches in a
+        // row — happens when QBO rejects the same items on every retry and
+        // we'd otherwise loop forever accumulating dupe errors.
+        const remaining = r.remaining ?? 0;
+        if (lastRemaining !== null && remaining >= lastRemaining) {
+          stalledRuns++;
+          if (stalledRuns >= 2) {
+            throw new Error(
+              `Unparent phase stalled — ${remaining} item(s) keep erroring on every retry. ` +
+              `Check ops.qbo_writeback_log for the per-item QBO error and resolve those items manually in QBO. ` +
+              `The other ${(progress.unparented + updated).toLocaleString()} item(s) were unparented successfully.`,
+            );
+          }
+        } else {
+          stalledRuns = 0;
+        }
+        lastRemaining = remaining;
       }
 
       // Phase B — inactivate categories in batches until remaining hits 0.
       setStep('inactivating');
+      lastRemaining = null;
+      stalledRuns = 0;
       while (true) {
         const r = await runQboInactivateBatch(true, PHASE_LIMIT);
         const updated = (r.summary?.updated ?? 0) + (r.summary?.already_inactive ?? 0);
@@ -110,6 +131,19 @@ export function QboCategoryCleanupModal({ open, onClose }: Props) {
         if (updated === 0 && (r.summary?.errors?.length ?? 0) === 0) {
           throw new Error('Inactivate phase stalled with no progress and no errors. Check the QBO sync log.');
         }
+        const remaining = r.remaining ?? 0;
+        if (lastRemaining !== null && remaining >= lastRemaining) {
+          stalledRuns++;
+          if (stalledRuns >= 2) {
+            throw new Error(
+              `Inactivate phase stalled — ${remaining} categor(ies) keep erroring on every retry. ` +
+              `Check ops.qbo_writeback_log for the per-item QBO error and resolve those categories manually in QBO.`,
+            );
+          }
+        } else {
+          stalledRuns = 0;
+        }
+        lastRemaining = remaining;
       }
       setStep('done');
     } catch (e) {
