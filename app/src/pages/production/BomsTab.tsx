@@ -6,7 +6,7 @@ import {
 } from '../../lib/production';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
-import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup } from '../../lib/uom';
+import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup, inferItemVolumeFlOz } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 
 interface Props {
@@ -264,6 +264,14 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
   const [finishedGal, setFinishedGal] = useState<string>(
     bom.finished_vol_per_yield_gal == null ? '' : String(bom.finished_vol_per_yield_gal),
   );
+  // Post-mix dilution: water parts per 1 part concentrate. When set, the
+  // scaler computes runs from ingredient volumes × (1 + dilution_ratio)
+  // instead of the legacy yield bridge. 5:1 fountain syrup → 5 here.
+  const [dilutionRatio, setDilutionRatio] = useState<string>(
+    bom.dilution_ratio == null || Number(bom.dilution_ratio) === 0
+      ? ''
+      : String(bom.dilution_ratio),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -287,24 +295,52 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     return bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal);
   }, [finishedGal, bom.finished_vol_per_yield_gal]);
 
+  const dilutionNum = useMemo(() => {
+    const live = dilutionRatio.trim();
+    if (live !== '') return Number(live);
+    return bom.dilution_ratio == null ? 0 : Number(bom.dilution_ratio);
+  }, [dilutionRatio, bom.dilution_ratio]);
+
   const scaling = useMemo(() => {
     const tQty = Number(targetQty) || 0;
-    if (!lines || tQty <= 0) return { scaled: null, incompat: false, scaledByIdx: new Map<number, { qty: number; uom: string }>() };
-    const yieldDef = { qty: Number(bom.yield_qty), uom: bom.yield_uom || 'each', finishedVolPerYieldGal: bridgeGal };
+    if (!lines || tQty <= 0) {
+      return {
+        scaled: null,
+        incompat: false,
+        scaledByIdx: new Map<number, { qty: number; uom: string }>(),
+      };
+    }
+    const yieldDef = {
+      qty: Number(bom.yield_qty),
+      uom: bom.yield_uom || 'each',
+      finishedVolPerYieldGal: bridgeGal,
+      dilutionRatio: dilutionNum,
+    };
     const out = scaleBom(
       { qty: tQty, uom: targetUom },
       yieldDef,
-      lines.map((l, idx) => ({
-        qty_per: Number(l.qty_per),
-        qty_uom: l.qty_uom || 'each',
-        scrap_pct: Number(l.scrap_pct ?? 0),
-        ref: { idx },
-      })),
+      lines.map((l, idx) => {
+        const item = l.component_qbo_item_id
+          ? itemLookup.byId.get(l.component_qbo_item_id)
+          : null;
+        return {
+          qty_per: Number(l.qty_per),
+          qty_uom: l.qty_uom || 'each',
+          scrap_pct: Number(l.scrap_pct ?? 0),
+          ref: { idx },
+          itemName: item?.item_name ?? l.service_label ?? null,
+          // Pass 'Service' for service lines so the SKU parser skips
+          // descriptive volume tokens in labor item names ("12OZ CAN FILL
+          // LABOR" must not parse as 12 fl_oz). Components fall through to
+          // null which lets the parser run.
+          itemType: l.line_type === 'service' ? 'Service' : null,
+        };
+      }),
     );
     const map = new Map<number, { qty: number; uom: string }>();
     if (out) for (const s of out.scaledLines) map.set(s.ref.idx, { qty: s.qty, uom: s.uom });
     return { scaled: out, incompat: out === null, scaledByIdx: map };
-  }, [lines, bom.yield_qty, bom.yield_uom, bridgeGal, targetQty, targetUom]);
+  }, [lines, bom.yield_qty, bom.yield_uom, bridgeGal, dilutionNum, targetQty, targetUom, itemLookup]);
 
   async function saveLines() {
     if (!lines || !lines.every(validLine)) return;
@@ -351,6 +387,15 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     if (next === prev || (next !== null && !Number.isFinite(next))) return;
     try {
       await updateBom(bomId, { finished_vol_per_yield_gal: next });
+    } catch (e) { toast.error(errMsg(e)); }
+  }
+
+  async function saveDilutionRatio() {
+    const next = dilutionRatio.trim() === '' ? 0 : Number(dilutionRatio);
+    const prev = bom.dilution_ratio == null ? 0 : Number(bom.dilution_ratio);
+    if (next === prev || !Number.isFinite(next) || next < 0) return;
+    try {
+      await updateBom(bomId, { dilution_ratio: next });
     } catch (e) { toast.error(errMsg(e)); }
   }
 
@@ -424,10 +469,34 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
               onBlur={saveFinishedGal}
               placeholder="—" />
             <span style={{ color: 'var(--mt)' }}>
-              gal of finished product (enables "make N gal" scaling)
+              gal of finished product (legacy bridge; superseded by dilution ratio when set)
             </span>
           </div>
         )}
+
+        {/* Dilution ratio — water parts per 1 part concentrate. Set this
+            for post-mix BOMs (e.g. 5 for 5:1 fountain syrup) and the
+            scaler computes finished volume directly from the parsed
+            ingredient SKU volumes. */}
+        <div style={{
+          marginBottom: 10, padding: '8px 10px',
+          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ color: 'var(--mt)' }}>
+            Dilution ratio (water parts per 1 part concentrate)
+          </span>
+          <input type="number" min={0} step="any" style={{ ...inp(), width: 80 }}
+            value={dilutionRatio}
+            onChange={(e) => setDilutionRatio(e.target.value)}
+            onBlur={saveDilutionRatio}
+            placeholder="0" />
+          <span style={{ color: 'var(--mt)' }}>
+            {dilutionNum > 0
+              ? `→ 1 + ${dilutionNum} = ${1 + dilutionNum}× finished per concentrate (SKU prefix drives qty)`
+              : '0 = no dilution (concentrate is finished). 5 = standard post-mix.'}
+          </span>
+        </div>
 
         {/* Scale-to-batch input — drives the Required column in the BOM lines editor below. */}
         <div style={{
@@ -450,7 +519,25 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
             <span style={{ color: 'var(--mt)' }}>
               → <strong style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)' }}>
                 {scaling.scaled.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-              </strong> {scaling.scaled.runs === 1 ? 'run' : 'runs'} · BOM lines below show required quantities for this batch
+              </strong> {scaling.scaled.runs === 1 ? 'run' : 'runs'} ·{' '}
+              {scaling.scaled.mode === 'ingredient' && scaling.scaled.finishedVolPerYieldGal != null ? (
+                <>
+                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
+                    {fmtQty(scaling.scaled.ingredientVolGal ?? 0, 'gal')}
+                  </strong>{' '}
+                  concentrate ×{' '}
+                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
+                    {(1 + dilutionNum).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  ={' '}
+                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
+                    {fmtQty(scaling.scaled.finishedVolPerYieldGal, 'gal')}
+                  </strong>{' '}
+                  finished per yield · BOM lines show required quantities
+                </>
+              ) : (
+                <>BOM lines below show required quantities for this batch</>
+              )}
             </span>
           ) : scaling.incompat ? (
             <span style={{ color: 'var(--am)', fontSize: 11 }}>
@@ -542,6 +629,23 @@ function BomLinesEditor({ lines, setLines, itemLookup, scaledByIdx }: {
                 </select>
               </td>
               <td style={cellTd}>
+                {l.line_type === 'component' && l.component_qbo_item_id && (
+                  (() => {
+                    const it = itemLookup.byId.get(l.component_qbo_item_id);
+                    if (!it) return null;
+                    const fl = inferItemVolumeFlOz(it.item_name, null);
+                    if (fl == null || fl <= 0) return null;
+                    const gal = fl / 128;
+                    const display = gal >= 1
+                      ? `${gal.toLocaleString(undefined, { maximumFractionDigits: 3 })} gal`
+                      : `${fl.toLocaleString(undefined, { maximumFractionDigits: 2 })} fl oz`;
+                    return (
+                      <div style={{ fontSize: 9, color: 'var(--mt)', marginBottom: 2 }}>
+                        SKU → <strong style={{ color: 'var(--ac)' }}>{display}</strong>/unit
+                      </div>
+                    );
+                  })()
+                )}
                 {l.line_type === 'component'
                   ? <select value={l.component_qbo_item_id ?? ''}
                       onChange={(e) => patch(i, { component_qbo_item_id: e.target.value || null })}

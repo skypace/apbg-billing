@@ -19,6 +19,11 @@ export interface ProductBom {
    *  set this to the gallons-per-yield. Lets the BOM scaler convert "make
    *  1000 gal" → runs even though yield is in cases. */
   finished_vol_per_yield_gal: number | null;
+  /** Post-mix dilution: water parts per 1 part concentrate. 5:1 → 5. The
+   *  BOM scaler computes finished_vol_per_yield = concentrate_vol × (1 +
+   *  dilution_ratio) when this is set and ingredient SKUs parse to known
+   *  per-unit volumes. Default 0 = no dilution (concentrate is finished). */
+  dilution_ratio: number;
   is_active: boolean;
   notes: string | null;
   created_by: string | null;

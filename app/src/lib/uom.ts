@@ -127,25 +127,170 @@ export interface ScaledLine<T> {
 }
 
 /**
+ * Best-effort: parse a QBO item's name/SKU for the per-unit volume in fl_oz.
+ *
+ * Recognized patterns (anchored at the start of the name):
+ *   "1GNS1091 …"             → 1 gal      (one-gallon syrup pack)
+ *   "1GN1091 …"              → 1 gal
+ *   "3G2051 …"               → 3 gal      (BIB)
+ *   "5G… "                   → 5 gal
+ *   "2L2051 …"               → 2 L
+ *   "12OZ CAN GOLDEN GATE …" → 12 fl_oz   (single can)
+ *   "8PK6481 … (8 × 12 fl oz)" → 96 fl_oz (from parenthesized N × M oz)
+ *   "24P126481 …"            → 288 fl_oz (24-pack of 12 oz)
+ *
+ * Returns null when:
+ *   - the item is a Service / Category (Service items like "12OZ CAN FILL
+ *     LABOR" share the prefix but aren't a volume themselves)
+ *   - the pattern is ambiguous (e.g. "5P…" — could be 5-pack or 5-pint)
+ *
+ * The parser is intentionally conservative — false negatives are fine
+ * (the operator can override on the line), but false positives would
+ * silently break the scaler math.
+ */
+export function inferItemVolumeFlOz(name?: string | null, type?: string | null): number | null {
+  if (!name) return null;
+  // Service / Category items don't represent a volume of beverage even when
+  // their name happens to include a unit (e.g. "12OZ CAN FILL LABOR" is a
+  // labor service whose 12oz is just descriptive).
+  if (type === 'Service' || type === 'Category') return null;
+
+  const s = name.trim();
+
+  // Parenthesized "(N × M oz)" or "(N × M fl oz)" — most reliable signal,
+  // try it first so 8PK6481 with "(8 × 12 fl oz)" wins over a leading
+  // "8" misread.
+  const paren = s.match(/\((\d+(?:\.\d+)?)\s*[×x*]\s*(\d+(?:\.\d+)?)\s*(fl\s*oz|oz|gal|L|mL)\s*\)/i);
+  if (paren) {
+    const n = Number(paren[1]);
+    const m = Number(paren[2]);
+    const u = paren[3].toLowerCase().replace(/\s+/g, '');
+    if (Number.isFinite(n) && Number.isFinite(m) && n > 0 && m > 0) {
+      if (u === 'floz' || u === 'oz') return n * m;
+      if (u === 'gal')                 return n * m * VOLUME.gal;
+      if (u === 'l')                   return n * m * VOLUME.L;
+      if (u === 'ml')                  return n * m * VOLUME.mL;
+    }
+  }
+
+  // Leading "NGN" or "NGNS" / "NG" + digit (gallon SKU prefix).
+  // "1GNS1091" → 1 gal.  "3G2051" → 3 gal.  Require a digit AFTER the unit
+  // letter to keep this from matching service codes like "3GAL FEE".
+  const galPrefix = s.match(/^(\d+(?:\.\d+)?)\s*G(?:NS?)?\d/i);
+  if (galPrefix) {
+    const n = Number(galPrefix[1]);
+    if (Number.isFinite(n) && n > 0) return n * VOLUME.gal;
+  }
+
+  // Leading "NL" + digit (liter SKU prefix). "2L2051" → 2 L.
+  const literPrefix = s.match(/^(\d+(?:\.\d+)?)\s*L\d/i);
+  if (literPrefix) {
+    const n = Number(literPrefix[1]);
+    if (Number.isFinite(n) && n > 0) return n * VOLUME.L;
+  }
+
+  // Leading "NPK" + ... + "MOZ" (case-pack with N units of M ounces).
+  // "24P126481" / "8PK6481 (alt)" patterns vary; only commit when both
+  // counts are explicit.
+  const pkOz = s.match(/^(\d+)\s*PK(\d+)/i);
+  if (pkOz) {
+    const n = Number(pkOz[1]);
+    const m = Number(pkOz[2]);
+    // Only count if M looks like fl_oz (8-32 range). Otherwise the second
+    // number is more likely a SKU suffix.
+    if (n > 0 && m >= 6 && m <= 32) return n * m;
+  }
+
+  // Leading "12OZ" / "16OZ" + space + word (single can — describes the
+  // beverage, not labor/packaging service). The conservative gate: the next
+  // token must look like a beverage word, not a labor/service word.
+  const ozCan = s.match(/^(\d+(?:\.\d+)?)\s*OZ\s+(CAN|BTL|BOTTLE|CUP|MUG|GLASS)/i);
+  if (ozCan) {
+    const n = Number(ozCan[1]);
+    if (n > 0) return n;
+  }
+
+  return null;
+}
+
+/**
  * Scale BOM lines to a target production quantity.
  *
  * @param target  How much finished product the operator wants to make (qty + uom).
  * @param yield_  The BOM's yield (qty + uom). 1 "run" of the BOM produces this much.
  * @param lines   The BOM lines (qty_per per yield + uom + caller-defined ref).
- * @returns       { runs, scaledLines }. `runs` is the multiplier applied to
- *                qty_per (1 BOM yields `yield_.qty` of `yield_.uom`; to make
- *                `target.qty` of `target.uom` we need `runs` repetitions of
- *                the BOM). Scaled line qty/uom preserves the line's own UoM.
- *                Returns null if target ↔ yield UoMs are incompatible.
+ *                Each line may carry optional `itemName` and `itemType` so the
+ *                scaler can derive per-unit volume from the SKU prefix and
+ *                run ingredient-driven math when `dilutionRatio` is set.
+ * @returns       { runs, scaledLines, ingredientVolGal?, finishedVolPerYieldGal? }
+ *                — runs and scaled qty/uom preserved as before, plus the
+ *                computed concentrate + finished volumes when ingredient
+ *                math kicked in. Returns null if target ↔ yield UoMs are
+ *                incompatible and no ingredient-derived path exists.
  */
 export function scaleBom<T>(
   target: { qty: number; uom: string },
-  yield_: { qty: number; uom: string; finishedVolPerYieldGal?: number },
-  lines: ScalableLine<T>[],
-): { runs: number; scaledLines: ScaledLine<T>[] } | null {
+  yield_: {
+    qty: number;
+    uom: string;
+    finishedVolPerYieldGal?: number;
+    /** Water parts per 1 part concentrate. 5:1 post-mix → 5. */
+    dilutionRatio?: number;
+  },
+  lines: ScalableLineWithItem<T>[],
+): {
+  runs: number;
+  scaledLines: ScaledLine<T>[];
+  ingredientVolGal?: number;
+  finishedVolPerYieldGal?: number;
+  mode: 'yield' | 'ingredient';
+} | null {
   if (!(target.qty > 0) || !(yield_.qty > 0)) return null;
 
-  // How many "runs" of this BOM are needed to satisfy the target?
+  // Ingredient-driven scaling: when target is in volume units AND any
+  // ingredient line parses to a per-unit volume AND a dilution_ratio is
+  // configured on the BOM, compute the finished-volume-per-yield from the
+  // ingredients themselves rather than from the legacy
+  // finishedVolPerYieldGal bridge. This is how Sky's "5:1 post-mix"
+  // workflow works: 1 gal syrup × (1 + 5) = 6 gal finished, target /
+  // 6 = runs.
+  if (uomGroup(target.uom) === 'volume' && (yield_.dilutionRatio ?? 0) > 0) {
+    const targetFlOz = target.qty * VOLUME[target.uom];
+    let concentrateFlOzPerYield = 0;
+    for (const l of lines) {
+      const perUnit = inferItemVolumeFlOz(l.itemName, l.itemType);
+      if (perUnit != null && perUnit > 0) {
+        // Line's qty_per is in fl_oz (its UoM is 'each') or in its own
+        // volume unit. We rely on the SKU-derived per-unit volume so this
+        // path doesn't double-count when qty_uom is already a volume.
+        if (uomGroup(l.qty_uom) === 'volume') {
+          concentrateFlOzPerYield += l.qty_per * VOLUME[l.qty_uom];
+        } else {
+          concentrateFlOzPerYield += l.qty_per * perUnit;
+        }
+      }
+    }
+    if (concentrateFlOzPerYield > 0) {
+      const multiplier = 1 + (yield_.dilutionRatio ?? 0);
+      const finishedFlOzPerYield = concentrateFlOzPerYield * multiplier;
+      const runs = targetFlOz / finishedFlOzPerYield;
+      const scaledLines = lines.map((l) => ({
+        qty: l.qty_per * runs * (1 + (l.scrap_pct ?? 0)),
+        uom: l.qty_uom,
+        ref: l.ref,
+      }));
+      return {
+        runs,
+        scaledLines,
+        ingredientVolGal: concentrateFlOzPerYield / VOLUME.gal,
+        finishedVolPerYieldGal: finishedFlOzPerYield / VOLUME.gal,
+        mode: 'ingredient',
+      };
+    }
+    // No parseable ingredient volumes — fall through to legacy yield mode.
+  }
+
+  // Legacy: how many "runs" of this BOM are needed to satisfy the target?
   // 1 run produces yield_.qty of yield_.uom; convert target to yield_.uom to
   // get the runs.
   const targetInYieldUom = convertQty(target.qty, target.uom, yield_.uom, {
@@ -162,7 +307,16 @@ export function scaleBom<T>(
     ref: l.ref,
   }));
 
-  return { runs, scaledLines };
+  return { runs, scaledLines, mode: 'yield' as const };
+}
+
+/** A ScalableLine that carries optional item context so scaleBom can run
+ *  ingredient-driven math (SKU → per-unit volume → dilution). When the
+ *  caller doesn't have item info, leave `itemName`/`itemType` undefined and
+ *  scaleBom falls back to the legacy yield-bridge path. */
+export interface ScalableLineWithItem<T = unknown> extends ScalableLine<T> {
+  itemName?: string | null;
+  itemType?: string | null;
 }
 
 /** Friendly display: "2.25 gal" not "2.2500000". */
