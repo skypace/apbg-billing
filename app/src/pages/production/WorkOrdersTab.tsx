@@ -475,6 +475,75 @@ function WorkOrderDetailModal({
               <Kv label="Total"      value={fm(Number(costs.total_cost))} bold />
               <Kv label="Unit cost"  value={costs.unit_cost == null ? '—' : `$${Number(costs.unit_cost).toFixed(4)}`} bold accent />
             </div>
+            {/* Per-can / per-case / per-oz from actual yield. Computed
+                client-side from total_cost ÷ finished_oz, where finished_oz
+                is derived from qty_produced × the BOM's finished-volume
+                yield (gallons-per-yield bridge or dilution-driven). The
+                actual_yield_pct vs target reveals yield loss in $$.  */}
+            {(() => {
+              if (!bom || !costs) return null;
+              const actualQty = Number(costs.qty_produced);
+              const targetQty = Number(wo.qty_to_produce);
+              const total = Number(costs.total_cost);
+              if (!(actualQty > 0) || !(total > 0)) return null;
+              // Resolve finished volume per yield-unit (gal). Uses the
+              // dilution path when set, else legacy gal-bridge, else
+              // yield_uom if it's already a volume.
+              let finishedGalPerYieldUnit: number | null = null;
+              const dr = Number(bom.dilution_ratio || 0);
+              if (dr > 0 && bom.yield_qty > 0) {
+                // Can't perfectly derive ingredient volume without the
+                // lines; fall back to gal-bridge if set.
+              }
+              if (finishedGalPerYieldUnit == null && bom.finished_vol_per_yield_gal) {
+                finishedGalPerYieldUnit = Number(bom.finished_vol_per_yield_gal) / Number(bom.yield_qty);
+              }
+              if (finishedGalPerYieldUnit == null && (bom.yield_uom === 'gal' || bom.yield_uom === 'fl_oz' || bom.yield_uom === 'L' || bom.yield_uom === 'mL')) {
+                // Yield UoM is already a volume; per yield-unit = 1 of that unit
+                const VOLUME: Record<string, number> = { gal: 128, fl_oz: 1, L: 33.8140227, mL: 0.0338140227 };
+                finishedGalPerYieldUnit = VOLUME[bom.yield_uom] / 128;
+              }
+              if (finishedGalPerYieldUnit == null) {
+                return (
+                  <div style={{ marginTop: 10, fontSize: 10, color: 'var(--mt)', fontStyle: 'italic' }}>
+                    Set <strong>1 {bom.yield_uom || 'each'} produces ___ gal</strong> on the BOM (or use volume-UoM yield) to compute $/case · $/can · $/oz.
+                  </div>
+                );
+              }
+              const cansPerCase = Number(bom.cans_per_case ?? 24);
+              const ozPerCan    = Number(bom.oz_per_can ?? 12);
+              const finishedGal = actualQty * finishedGalPerYieldUnit;
+              const finishedOz  = finishedGal * 128;
+              const cansProduced = finishedOz / ozPerCan;
+              const casesProduced = cansProduced / cansPerCase;
+              const perOz   = total / finishedOz;
+              const perCan  = perOz * ozPerCan;
+              const perCase = perCan * cansPerCase;
+              const perGal  = perOz * 128;
+              const yieldPct = targetQty > 0 ? actualQty / targetQty : null;
+              const yieldLoss = yieldPct != null && yieldPct < 1 ? total * (1 - yieldPct) / Math.max(yieldPct, 0.0001) : 0;
+              return (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--bd)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                    Per-unit (from actual yield: {actualQty} {bom.yield_uom || 'each'} = {finishedGal.toLocaleString(undefined, { maximumFractionDigits: 1 })} gal · {cansProduced.toLocaleString(undefined, { maximumFractionDigits: 0 })} cans · {casesProduced.toLocaleString(undefined, { maximumFractionDigits: 1 })} cases)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 13 }}>
+                    <Kv label="$ / case" value={`$${perCase.toFixed(4)}`} bold accent />
+                    <Kv label="$ / can"  value={`$${perCan.toFixed(4)}`} />
+                    <Kv label="$ / oz"   value={`$${perOz.toFixed(5)}`} />
+                    <Kv label="$ / gal"  value={`$${perGal.toFixed(4)}`} />
+                  </div>
+                  {yieldPct != null && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: yieldPct < 1 ? 'var(--am)' : 'var(--gn)' }}>
+                      Yield: <strong>{(yieldPct * 100).toFixed(1)}%</strong> ({actualQty} actual / {targetQty} target)
+                      {yieldPct < 1 && (
+                        <> · loss attributable to missed yield: <strong>${yieldLoss.toFixed(2)}</strong></>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {costs.detail.length > 0 && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 10 }}>
                 <thead>

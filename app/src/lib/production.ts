@@ -24,6 +24,11 @@ export interface ProductBom {
    *  dilution_ratio) when this is set and ingredient SKUs parse to known
    *  per-unit volumes. Default 0 = no dilution (concentrate is finished). */
   dilution_ratio: number;
+  /** Pack count per case. Default 24. Used by the BOM cost-rollup to
+   *  derive $/case from $/can. Configurable per BOM for non-24 packs. */
+  cans_per_case: number;
+  /** Fluid ounces per can. Default 12. Used for $/oz and $/gal-finished. */
+  oz_per_can: number;
   is_active: boolean;
   notes: string | null;
   created_by: string | null;
@@ -69,6 +74,10 @@ export interface WorkOrder {
   qty_to_produce: number;
   target_uom: string | null;
   qty_produced_actual: number | null;
+  /** Actual yield reported at WO close. Together with actual_yield_uom this
+   *  drives the actual-vs-theoretical cost rollup. NULL until closed. */
+  actual_yield_qty: number | null;
+  actual_yield_uom: string | null;
   production_location_id: string;
   status: WorkOrderStatus;
   scheduled_date: string | null;
@@ -105,6 +114,13 @@ export interface WorkOrderCosts {
   total_cost: number;
   unit_cost: number | null;
   qty_produced: number;
+  /** Set when actual_yield_qty was recorded at WO close. NULL otherwise. */
+  per_case: number | null;
+  per_can: number | null;
+  per_oz: number | null;
+  per_gal_finished: number | null;
+  actual_yield_pct: number | null;
+  yield_loss_dollars: number | null;
   detail: WorkOrderCostDetail[];
   computed_at: string;
 }
