@@ -81,26 +81,26 @@ export function convertQty(
   }
 
   // Cross-family bridge: count ↔ volume via the BOM yield definition.
-  if (bridge && bridge.yieldQty > 0) {
+  // bridge.finishedVolPerYieldGal is "gal of finished product per 1
+  // yield_uom unit" — explicitly per-unit semantics, matching the column
+  // comment on ops.product_bom.finished_vol_per_yield_gal and the BomsTab
+  // input label ("1 {yield_uom} produces ___ gal"). The yieldQty factor
+  // does NOT appear here — applying it would double-count for yield_qty>1
+  // BOMs (e.g. 2 cases/batch at 2.25 gal/case = 4.5 gal/batch; without the
+  // fix, "1000 gal" stored as 888.88 case instead of the correct 444.44).
+  if (bridge && bridge.yieldQty > 0 && bridge.finishedVolPerYieldGal) {
     const yieldGroup = uomGroup(bridge.yieldUom);
-    // Bridge: 1 yield = bridge.yieldQty (yieldUom). For "case → gal" or
-    // "gal → case" we need a yield expressed in the target group OR the
-    // optional finishedVolPerYieldGal hint.
-    if (yieldGroup === 'count' && gFrom === 'volume') {
-      // gal → case (when 1 case = X gal finished)
+    if (yieldGroup === 'count' && gFrom === 'volume' && to === bridge.yieldUom) {
+      // gal-family → yield_uom (e.g. fl_oz → case): convert input to gal
+      // first, then divide by per-unit bridge.
       const gal = qty * VOLUME[from] / VOLUME.gal;
-      if (bridge.finishedVolPerYieldGal) {
-        const yields = gal / bridge.finishedVolPerYieldGal;
-        if (to === bridge.yieldUom) return yields * bridge.yieldQty;
-      }
+      return gal / bridge.finishedVolPerYieldGal;
     }
-    if (yieldGroup === 'count' && gTo === 'volume') {
-      // case → gal (when 1 case = X gal finished)
-      if (from === bridge.yieldUom && bridge.finishedVolPerYieldGal) {
-        const yields = qty / bridge.yieldQty;
-        const gal = yields * bridge.finishedVolPerYieldGal;
-        return gal * VOLUME.gal / VOLUME[to];
-      }
+    if (yieldGroup === 'count' && gTo === 'volume' && from === bridge.yieldUom) {
+      // yield_uom → gal-family (e.g. case → fl_oz): multiply by per-unit
+      // bridge first, then convert from gal to the target volume unit.
+      const gal = qty * bridge.finishedVolPerYieldGal;
+      return gal * VOLUME.gal / VOLUME[to];
     }
   }
 
