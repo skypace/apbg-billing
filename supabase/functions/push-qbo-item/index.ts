@@ -1,12 +1,11 @@
-// push-qbo-item v7 — single-item + bulk pushes back to QBO.
+// push-qbo-item v8 — single-item + bulk pushes back to QBO.
 // verify_jwt=false so pg_cron can call this; QBO writes are gated by
 // SUPABASE_SERVICE_ROLE_KEY + QBO OAuth.
 //
 // Actions:
 //   action: 'setActive'                  → flips Item.Active in QBO + mirrors locally
-//   action: 'bulkSyncCategories'         → ensures QBO Category Items exist for every
-//                                          category_override and points each item's
-//                                          ParentRef at it. Supports {commit: true}.
+//   action: 'bulkSyncCategories'         → DISABLED 2026-05-22. Returns HTTP 410.
+//                                          See handler comment + git history for context.
 //   action: 'postInventoryAdjustment'    → given {work_order_id}, builds + POSTs an
 //                                          InventoryAdjustment for the WO's consume +
 //                                          yield movements so QBO's Item.QtyOnHand
@@ -174,52 +173,6 @@ async function qboPost(sb: SupabaseClient, path: string, body: any): Promise<any
   return res.json();
 }
 
-async function fetchAllQboCategories(sb: SupabaseClient): Promise<Map<string, { id: string; syncToken: string }>> {
-  const map = new Map<string, { id: string; syncToken: string }>();
-  let start = 1;
-  const page = 1000;
-  while (true) {
-    const q = encodeURIComponent(
-      `select Id, Name, SyncToken from Item where Type = 'Category' startposition ${start} maxresults ${page}`,
-    );
-    const j = await qboGet(sb, "/query?query=" + q);
-    const list = j?.QueryResponse?.Item ?? [];
-    for (const it of list) {
-      if (it?.Name) {
-        map.set(String(it.Name).trim(), { id: String(it.Id), syncToken: String(it.SyncToken ?? "0") });
-      }
-    }
-    if (list.length < page) break;
-    start += page;
-  }
-  return map;
-}
-
-async function ensureCategoryId(
-  sb: SupabaseClient,
-  categoryMap: Map<string, { id: string; syncToken: string }>,
-  name: string,
-  commit: boolean,
-  created: string[],
-): Promise<string | null> {
-  const trimmed = name.trim();
-  if (!trimmed) return null;
-  const found = categoryMap.get(trimmed);
-  if (found) return found.id;
-  if (!commit) {
-    if (!created.includes(trimmed)) created.push(trimmed + " (would create)");
-    return null;
-  }
-  const j = await qboPost(sb, "/item", { Name: trimmed, Type: "Category" });
-  const created_item = j?.Item;
-  if (!created_item?.Id) throw new Error("category create failed for " + trimmed);
-  const id = String(created_item.Id);
-  const syncToken = String(created_item.SyncToken ?? "0");
-  categoryMap.set(trimmed, { id, syncToken });
-  if (!created.includes(trimmed)) created.push(trimmed);
-  return id;
-}
-
 async function resolveAdjustAccount(
   sb: SupabaseClient,
   preferredId: string | null,
@@ -288,79 +241,23 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "bulkSyncCategories") {
-      const commit = body?.commit === true;
-
-      const { data: targets, error: tErr } = await sb
-        .schema("ops").from("inventory_settings")
-        .select("qbo_item_id, category_override")
-        .not("category_override", "is", null).neq("category_override", "");
-      if (tErr) throw new Error("read inventory_settings: " + tErr.message);
-      const overrides = new Map<string, string>();
-      for (const t of targets ?? []) {
-        if (t.qbo_item_id && t.category_override) {
-          overrides.set(t.qbo_item_id, String(t.category_override).trim());
-        }
-      }
-      if (overrides.size === 0) {
-        return jsonRes({
-          ok: true, commit, message: "no overrides to sync",
-          duration_ms: Date.now() - startedAt,
-        });
-      }
-
-      const categoryMap = await fetchAllQboCategories(sb);
-      const desiredNames = Array.from(new Set(Array.from(overrides.values())));
-      const createdLog: string[] = [];
-      for (const n of desiredNames) {
-        await ensureCategoryId(sb, categoryMap, n, commit, createdLog);
-      }
-
-      const summary = {
-        total: overrides.size, already_correct: 0, would_update: 0, updated: 0,
-        skipped_unknown_category: 0, errors: [] as any[],
-      };
-      let i = 0;
-      for (const [qboItemId, desiredName] of overrides) {
-        i++;
-        try {
-          const cat = categoryMap.get(desiredName);
-          if (!cat) {
-            if (!commit) { summary.would_update++; continue; }
-            summary.skipped_unknown_category++; continue;
-          }
-          const j = await qboGet(sb, "/item/" + encodeURIComponent(qboItemId));
-          const item = j?.Item;
-          if (!item) { summary.errors.push({ qboItemId, error: "item not found in QBO" }); continue; }
-          const currentParentId = item?.ParentRef?.value;
-          if (currentParentId === cat.id && item?.SubItem === true) {
-            summary.already_correct++; continue;
-          }
-          if (!commit) { summary.would_update++; continue; }
-          await qboPost(sb, "/item", {
-            Id: item.Id, SyncToken: item.SyncToken, sparse: true,
-            SubItem: true,
-            ParentRef: { value: cat.id, name: desiredName },
-          });
-          summary.updated++;
-        } catch (e) {
-          summary.errors.push({ qboItemId, error: (e as Error).message });
-        }
-        if (i % 50 === 0) await sleep(200);
-      }
-      try {
-        await sb.schema("ops").from("sync_log").insert({
-          sync_type: "push_qbo_categories",
-          status:    summary.errors.length === 0 ? "success" : "partial",
-          metadata:  { commit, summary, categories_created: createdLog },
-          completed_at: new Date().toISOString(),
-        });
-      } catch (_e) { /* sync_log shape may differ; non-fatal */ }
+      // DISABLED 2026-05-22. This used to push BRIX's local category_override
+      // into QBO as Category items + ParentRef on every product. The nightly
+      // cron (jobid 31) was unscheduled and the action is now a hard no-op so
+      // neither a future cron, a UI button, nor a manual curl can re-create
+      // the QBO category structure. BRIX's local categorization in
+      // ops.inventory_settings.category_override is untouched and Margin
+      // Control still uses it.
       return jsonRes({
-        ok: true, commit,
-        categories_total: desiredNames.length,
-        categories_created: createdLog, summary,
-        duration_ms: Date.now() - startedAt,
-      });
+        ok: false,
+        disabled: true,
+        action: "bulkSyncCategories",
+        error: "bulkSyncCategories is permanently disabled. BRIX local " +
+          "categorization is preserved in ops.inventory_settings.category_override; " +
+          "QBO category structure must NOT be re-synced. Remove this guard in " +
+          "supabase/functions/push-qbo-item/index.ts only if reviving the path " +
+          "is a deliberate decision.",
+      }, 410);
     }
 
     if (action === "postInventoryAdjustment") {
