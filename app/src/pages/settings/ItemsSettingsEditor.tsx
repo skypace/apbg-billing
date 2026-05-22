@@ -8,11 +8,9 @@ import {
 } from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X, Eraser } from 'lucide-react';
-import { QboCategoryCleanupModal } from './QboCategoryCleanupModal';
+import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, Zap, X } from 'lucide-react';
 import { KPICard } from '../../components/KPICard';
 import { QboConfirmModal } from '../../components/QboConfirmModal';
-import { PushCategoriesReviewModal, type CategoryChange } from '../../components/PushCategoriesReviewModal';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
@@ -21,7 +19,6 @@ import {
   fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled, logQboWriteback,
   pullQboItemsNow,
   fetchItemPlAudit, applyPlCategorySuggestions,
-  bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
   alignCategoriesToPl,
   fetchProductFamilies, fetchProductTypes, fetchSegmentOptions,
@@ -194,9 +191,7 @@ export function ItemsSettingsEditor() {
   const [showAlignment, setShowAlignment] = useState(false);
   const [misalignedOnly, setMisalignedOnly] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [pushing, setPushing] = useState(false);
   const [aligning, setAligning] = useState(false);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [hygiene, setHygiene] = useState<ItemHygieneRow[]>([]);
   const [hygieneFilter, setHygieneFilter] = useState<HygieneBucket | null>(null);
   const [families, setFamilies] = useState<ProductFamily[]>([]);
@@ -232,12 +227,6 @@ export function ItemsSettingsEditor() {
       setQboSyncing(false);
     }
   }
-  const [pushReview, setPushReview] = useState<{
-    categoriesToCreate: string[];
-    changes: CategoryChange[];
-    alreadyCorrect: number;
-  } | null>(null);
-
   // Column layout persistence (order + widths + visibility). Uses MUI X
   // Pro's built-in exportState/restoreState — much more reliable than
   // hand-rolling column reordering. Saved layout is restored via the
@@ -576,87 +565,6 @@ export function ItemsSettingsEditor() {
     } finally {
       setAligning(false);
     }
-  }
-
-  async function pushCategoriesToQbo() {
-    setPushing(true);
-    try {
-      const dryRun = await bulkSyncCategoriesToQbo(false);
-      const s = dryRun.summary;
-      const creating = dryRun.categories_created ?? [];
-      if (!s || (s.would_update === 0 && creating.length === 0)) {
-        toast.info('Everything in QBO already matches.');
-        setPushing(false);
-        return;
-      }
-      // Build the per-item diff from local rows. The dry-run RPC only
-      // returns summary counts; we already have category_path (current
-      // QBO parent) and category_override (target) on every row.
-      const changes: CategoryChange[] = (rows ?? [])
-        .filter((r) => r.category_override
-                    && r.category_override !== (r.category_path ?? ''))
-        .map((r) => ({
-          qbo_item_id: r.qbo_item_id,
-          item_name: r.item_name,
-          current_parent: r.category_path ?? '(none)',
-          new_parent: r.category_override!,
-        }))
-        .sort((a, b) => a.new_parent.localeCompare(b.new_parent) || a.item_name.localeCompare(b.item_name));
-      setPushReview({
-        categoriesToCreate: creating,
-        changes,
-        alreadyCorrect: s.already_correct ?? 0,
-      });
-    } catch (e) {
-      toast.error('Push preview failed: ' + (e as Error).message);
-    } finally {
-      setPushing(false);
-    }
-  }
-
-  async function confirmPushToQbo() {
-    if (!pushReview) return;
-    setPushing(true);
-    const before = {
-      categories_to_create: pushReview.categoriesToCreate,
-      items_to_reparent: pushReview.changes.length,
-    };
-    try {
-      const result = await bulkSyncCategoriesToQbo(true);
-      const u = result.summary?.updated ?? 0;
-      const c = result.categories_created?.length ?? 0;
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before, after: { items_updated: u, categories_created: c },
-        result: 'success',
-      }).catch(() => undefined);
-      toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
-      setPushReview(null);
-      load();
-    } catch (e) {
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before, after: {}, result: 'failure',
-        error: (e as Error).message,
-      }).catch(() => undefined);
-      toast.error('QBO sync failed: ' + (e as Error).message);
-    } finally {
-      setPushing(false);
-    }
-  }
-
-  function cancelPushToQbo() {
-    if (pushReview) {
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before: {
-          categories_to_create: pushReview.categoriesToCreate,
-          items_to_reparent: pushReview.changes.length,
-        },
-        after: {}, result: 'cancelled',
-      }).catch(() => undefined);
-    }
-    setPushReview(null);
   }
 
   const alignmentSummary = useMemo(() => {
@@ -1166,20 +1074,8 @@ export function ItemsSettingsEditor() {
   const managedCount     = rows.filter((r) => r.is_managed).length;
   const withOverrideCount = rows.filter((r) => r.category_override).length;
 
-  const pushPassword = (import.meta.env.VITE_QBO_PUSH_PASSWORD as string | undefined) ?? 'BRIX-CONFIRM';
-
   return (
     <div>
-      <PushCategoriesReviewModal
-        open={!!pushReview}
-        busy={pushing}
-        expectedPassword={pushPassword}
-        categoriesToCreate={pushReview?.categoriesToCreate ?? []}
-        changes={pushReview?.changes ?? []}
-        alreadyCorrect={pushReview?.alreadyCorrect ?? 0}
-        onCancel={cancelPushToQbo}
-        onConfirm={confirmPushToQbo}
-      />
       <QboConfirmModal
         open={!!activePrompt}
         title={activePrompt?.next ? 'Reactivate item in QuickBooks?' : 'Deactivate item in QuickBooks?'}
@@ -1324,28 +1220,6 @@ export function ItemsSettingsEditor() {
           <Sparkles size={12} strokeWidth={2.4} aria-hidden="true" />
           {applying ? 'Applying…' : `Smart suggest (${alignmentSummary.suggestions})`}
         </button>
-        <button
-          onClick={pushCategoriesToQbo}
-          disabled={pushing || withOverrideCount === 0}
-          className="tb-btn"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          title={withOverrideCount === 0 ? 'No category overrides to push' : 'Sync all category overrides back to QuickBooks (creates missing Category Items + sets each item ParentRef)'}
-        >
-          <UploadCloud size={12} strokeWidth={2.4} aria-hidden="true" />
-          {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
-        </button>
-        <button
-          onClick={() => setCleanupOpen(true)}
-          className="tb-btn"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            color: 'var(--rd)', borderColor: 'var(--rd)',
-          }}
-          title="One-shot QBO cleanup — flatten every sub-item and inactivate the QBO Category items. Removes the Category:Item prefix from QBO transactions, reports, and invoices. BRIX categories stay intact."
-        >
-          <Eraser size={12} strokeWidth={2.4} aria-hidden="true" />
-          Cleanup QBO categories
-        </button>
         <button onClick={load} className="tb-btn">Refresh</button>
         <button onClick={pullFromQbo} disabled={qboSyncing}
           className={'tb-btn' + (qboSyncing ? '' : ' tb-btn--primary')}
@@ -1445,7 +1319,6 @@ export function ItemsSettingsEditor() {
         already agree. Apply individual suggestions or click <em>Smart suggest</em> to commit
         high-confidence ones. <em>Align all to P&amp;L</em> force-sets every category to its income account name.
       </div>
-      <QboCategoryCleanupModal open={cleanupOpen} onClose={() => setCleanupOpen(false)} />
     </div>
   );
 }
