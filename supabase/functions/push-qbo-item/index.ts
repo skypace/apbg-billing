@@ -1,4 +1,4 @@
-// push-qbo-item v6 — single-item + bulk pushes back to QBO.
+// push-qbo-item v7 — single-item + bulk pushes back to QBO.
 // verify_jwt=false so pg_cron can call this; QBO writes are gated by
 // SUPABASE_SERVICE_ROLE_KEY + QBO OAuth.
 //
@@ -740,18 +740,40 @@ Deno.serve(async (req: Request) => {
               summary.already_clean++;
               continue;
             }
-            // Full update — sparse PATCH can't clear ParentRef, so we send
-            // the full item with ParentRef omitted and SubItem=false.
-            const { ParentRef: _drop, ...rest } = item;
-            await qboPost(sb, "/item", {
-              ...rest,
-              Id: item.Id, SyncToken: item.SyncToken,
-              SubItem: false,
-            });
-            await sb.schema("ops").from("qbo_items")
-              .update({ parent_ref_id: null, category_path: item.Name ?? null })
-              .eq("qbo_item_id", t.qbo_item_id);
-            summary.updated++;
+            // Strategy 1: sparse update — SubItem: false in sparse mode signals
+            // QBO to clear the ParentRef without requiring a full item body.
+            // More compatible with Service + NonInventory items that reject
+            // the full-body update due to type-specific validation.
+            let sparseErrMsg: string | null = null;
+            try {
+              await qboPost(sb, "/item", {
+                Id: item.Id, SyncToken: item.SyncToken, sparse: true, SubItem: false,
+              });
+              await sb.schema("ops").from("qbo_items")
+                .update({ parent_ref_id: null, category_path: item.Name ?? null })
+                .eq("qbo_item_id", t.qbo_item_id);
+              summary.updated++;
+            } catch (sparseErr) {
+              sparseErrMsg = (sparseErr as Error).message;
+              // Strategy 2: full-body update with ParentRef omitted. Falls back
+              // when sparse fails (some QBO item types require the full body
+              // for a SubItem → false transition).
+              try {
+                const { ParentRef: _drop, ...rest } = item;
+                await qboPost(sb, "/item", {
+                  ...rest, Id: item.Id, SyncToken: item.SyncToken, SubItem: false,
+                });
+                await sb.schema("ops").from("qbo_items")
+                  .update({ parent_ref_id: null, category_path: item.Name ?? null })
+                  .eq("qbo_item_id", t.qbo_item_id);
+                summary.updated++;
+              } catch (fullErr) {
+                summary.errors.push({
+                  id: t.qbo_item_id,
+                  error: "sparse: " + sparseErrMsg + " | full: " + (fullErr as Error).message,
+                });
+              }
+            }
           } catch (e) {
             summary.errors.push({ id: t.qbo_item_id, error: (e as Error).message });
           }
