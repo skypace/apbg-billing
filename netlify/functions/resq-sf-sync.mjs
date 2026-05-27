@@ -2,10 +2,15 @@
 // GET  → returns sync status/mapping from blobs (fast)
 // POST → kicks off background function, returns 202 immediately
 
+import { requireAuth } from './lib/auth.mjs';
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders() };
   }
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
+  event._authJwt = auth.jwt;
   const qs = event.queryStringParameters || {};
   if (qs.lookup) return handleLookup(qs.lookup);
   if (qs.sfPhotos) return handleSfPhotos(qs.sfPhotos);
@@ -20,7 +25,7 @@ export async function handler(event) {
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
   if (event.httpMethod === 'GET') return handleGet();
-  if (event.httpMethod === 'POST') return handlePost();
+  if (event.httpMethod === 'POST') return handlePost(event);
   return { statusCode: 405, body: 'GET or POST only' };
 }
 
@@ -589,7 +594,7 @@ async function handleDismissIssue(resqCode) {
 }
 
 // --- POST: Write "running" marker, invoke background function ---
-async function handlePost() {
+async function handlePost(event) {
   try {
     // Write a "running" marker so the dashboard shows sync in progress
     const store = await getStore();
@@ -610,11 +615,13 @@ async function handlePost() {
     // and continue running for up to 15 minutes
     const siteUrl = process.env.URL || 'https://apbg-billing.netlify.app';
     const bgUrl = `${siteUrl}/.netlify/functions/resq-sf-sync-background`;
+    const bgHeaders = { 'Content-Type': 'application/json' };
+    if (event?._authJwt) bgHeaders.Authorization = `Bearer ${event._authJwt}`;
     let bgStatus = 'unknown';
     try {
       const bgRes = await fetch(bgUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: bgHeaders,
         body: JSON.stringify({ trigger: 'manual', ts: Date.now() }),
       });
       bgStatus = `${bgRes.status}`;
@@ -654,7 +661,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 

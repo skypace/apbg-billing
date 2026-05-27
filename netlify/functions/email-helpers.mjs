@@ -1,40 +1,109 @@
-// Email sending helper
-// Supports SendGrid (SENDGRID_API_KEY) or Resend (RESEND_API_KEY)
-// Set EMAIL_FROM in env vars (default: billing@brixbev.com)
-// Set APPROVAL_EMAIL in env vars (who gets approval emails — default: Whitney)
+// Email sending helper — wired for the APBG Resend account.
+//
+// IMPORTANT: brixbev.com is NOT verified in Resend. All outbound mail must
+// route through alamedapointbg.com (or alamedapointbeveragegroup.com), the
+// domains that ARE SPF/DKIM-verified in the APBG Resend tenant. This module
+// uses alamedapointbg.com as the primary sender and falls back to the same
+// domain if a per-call from override triggers a 403/domain error.
+//
+// Env vars:
+//   RESEND_API_KEY    — required for Resend send
+//   SENDGRID_API_KEY  — alternative provider; preferred if both set
+//   EMAIL_FROM        — optional override of the default "from" address
+//                       (must use a verified domain on whichever provider)
+//   APPROVAL_EMAIL    — AP-tool default approver inbox
+//   URL               — Netlify-provided site URL
 
-export const APPROVAL_EMAIL = process.env.APPROVAL_EMAIL || 'wgrandell@brixbev.com';
-export const EMAIL_FROM = process.env.EMAIL_FROM || 'Pacer Billing <billing@brixbev.com>';
-export const SITE_URL = process.env.URL || 'https://pacer-billing.netlify.app';
-
-export async function sendEmail({ to, subject, html, replyTo }) {
-  // Try SendGrid first, then Resend
-  if (process.env.SENDGRID_API_KEY) {
-    return sendViaSendGrid({ to, subject, html, replyTo });
+function readEnv(name) {
+  // Netlify Functions v2 prefers Netlify.env.get; fall back to process.env.
+  if (typeof Netlify !== 'undefined' && Netlify?.env?.get) {
+    return Netlify.env.get(name) || process.env[name];
   }
-  if (process.env.RESEND_API_KEY) {
-    return sendViaResend({ to, subject, html, replyTo });
+  return process.env[name];
+}
+
+export const APPROVAL_EMAIL = readEnv('APPROVAL_EMAIL') || 'wgrandell@brixbev.com';
+
+// Verified Resend sender on the APBG tenant. Same address Melt's
+// send-order-approval falls back to — guaranteed to pass SPF/DKIM.
+const DEFAULT_FROM   = 'BRIXpense <alerts@alamedapointbg.com>';
+const FALLBACK_FROM  = 'APBG <alerts@alamedapointbg.com>';
+
+export const EMAIL_FROM = readEnv('EMAIL_FROM') || DEFAULT_FROM;
+export const SITE_URL   = readEnv('URL') || 'https://alamedapointbg.com';
+
+export async function sendEmail({ to, subject, html, replyTo, from }) {
+  const sendgridKey = readEnv('SENDGRID_API_KEY');
+  const resendKey   = readEnv('RESEND_API_KEY');
+
+  // SendGrid first if its key exists (keeps AP-tool compat); else Resend.
+  if (sendgridKey) {
+    return sendViaSendGrid({ to, subject, html, replyTo, from: from || EMAIL_FROM, sendgridKey });
+  }
+  if (resendKey) {
+    return sendViaResendWithFallback({ to, subject, html, replyTo, from: from || EMAIL_FROM, resendKey });
   }
   console.warn('No email service configured — skipping email send');
   return false;
 }
 
-async function sendViaSendGrid({ to, subject, html, replyTo }) {
+async function sendViaResendWithFallback({ to, subject, html, replyTo, from, resendKey }) {
+  try {
+    return await sendViaResend({ to, subject, html, replyTo, from, resendKey });
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (/domain|from|verified|403|unauthorized/i.test(msg)) {
+      // Caller-specified or env-specified domain isn't verified in Resend.
+      // Retry with the known-good APBG sender.
+      console.warn(`Resend rejected from="${from}" (${msg}); retrying with ${FALLBACK_FROM}`);
+      return await sendViaResend({ to, subject, html, replyTo, from: FALLBACK_FROM, resendKey });
+    }
+    throw e;
+  }
+}
+
+async function sendViaResend({ to, subject, html, replyTo, from, resendKey }) {
+  const payload = {
+    from,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html,
+  };
+  if (replyTo) payload.reply_to = replyTo;
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${resendKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend ${res.status}: ${err.substring(0, 300)}`);
+  }
+  return res.json();
+}
+
+async function sendViaSendGrid({ to, subject, html, replyTo, from, sendgridKey }) {
+  const fromAddr = from.match(/<(.+)>/)?.[1] || from;
+  const fromName = from.match(/^(.+?)\s*</)?.[1] || 'APBG';
   const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${process.env.SENDGRID_API_KEY}`,
+      Authorization: `Bearer ${sendgridKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }] }],
-      from: { email: EMAIL_FROM.match(/<(.+)>/)?.[1] || EMAIL_FROM, name: EMAIL_FROM.match(/^(.+?)\s*</)?.[1] || 'Pacer Billing' },
+      from: { email: fromAddr, name: fromName },
       reply_to: replyTo ? { email: replyTo } : undefined,
       subject,
       content: [{ type: 'text/html', value: html }],
     }),
   });
-
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`SendGrid error: ${res.status} ${err}`);
@@ -42,30 +111,7 @@ async function sendViaSendGrid({ to, subject, html, replyTo }) {
   return true;
 }
 
-async function sendViaResend({ to, subject, html, replyTo }) {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: EMAIL_FROM,
-      to: [to],
-      reply_to: replyTo,
-      subject,
-      html,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend error: ${res.status} ${err}`);
-  }
-  return true;
-}
-
-// ─── Email Templates ───
+// ─── Email Templates (AP-tool flow, preserved verbatim) ───
 
 export function approvalEmailHtml(billData, approveUrl) {
   const lines = (billData.lineItems || []).map(li =>
@@ -112,7 +158,6 @@ export function approvalEmailHtml(billData, approveUrl) {
 
 export function confirmationEmailHtml({ bill, invoice, margin, marginPct, matched }) {
   if (matched) {
-    // ── SUCCESS: Bill matched to invoice ──
     const invoiceLines = (invoice.lines || []).map(li =>
       `<tr><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #eee;">${li.description || '—'}</td>
        <td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #eee;text-align:right;">$${(li.amount || 0).toFixed(2)}</td></tr>`
@@ -154,7 +199,6 @@ export function confirmationEmailHtml({ bill, invoice, margin, marginPct, matche
       </div>
     </div>`;
   } else {
-    // ── WARNING: No matching invoice ──
     return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;">
       <div style="background:#991B1B;padding:24px 28px;border-radius:8px 8px 0 0;">

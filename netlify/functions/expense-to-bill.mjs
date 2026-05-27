@@ -11,6 +11,7 @@
 
 import { sfRequest } from './sf-helpers.mjs';
 import { qboRequest, qboQuery, corsHeaders } from './qbo-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 const ACCOUNT_MAP = {
   equipment: { id: '42', name: 'Equipment Sales COGS' },
@@ -31,6 +32,9 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
+
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
 
   const qs = event.queryStringParameters || {};
 

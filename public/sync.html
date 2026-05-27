@@ -4,6 +4,8 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/sync.html'+location.search);</script>
 <title>APBG — ResQ ↔ SF Sync</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/billing/auth.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#F4F6F9;color:#1F2937;min-height:100vh}
@@ -45,6 +47,8 @@ table{width:100%;border-collapse:collapse;font-size:0.82rem}
 th{background:#F9FAFB;text-align:left;padding:10px 16px;font-weight:600;color:#6B7280;text-transform:uppercase;font-size:0.7rem;letter-spacing:0.5px}
 td{padding:10px 16px;border-top:1px solid #F3F4F6}
 tr:hover td{background:#F9FAFB}
+td a,.review-head .code a,.review-job .meta a{color:#1F4E79;text-decoration:none;border-bottom:1px dotted #1F4E79}
+td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;border-bottom-color:#2E75B6}
 
 .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
 .badge.unscheduled{background:#FEF3C7;color:#92400E}
@@ -160,13 +164,11 @@ tr:hover td{background:#F9FAFB}
 </head>
 <body>
 
-<!-- Login Gate -->
-<div class="gate" id="gateScreen">
-  <div class="gate-card">
-    <h1>🔄 ResQ ↔ SF Sync</h1>
-    <p>Enter admin code to access the sync dashboard</p>
-    <input type="password" id="gateInput" placeholder="Admin code" autocomplete="off">
-    <div class="err" id="gateErr">Invalid code</div>
+<!-- Loading state while auth check runs -->
+<div id="authLoading" style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'DM Sans',system-ui,sans-serif;color:#6B7280">
+  <div style="text-align:center">
+    <div class="spinner" style="display:inline-block;width:32px;height:32px;border:3px solid #E2E6ED;border-top-color:#1F4E79;border-radius:50%;animation:spin 0.6s linear infinite;margin-bottom:12px"></div>
+    <div>Checking access…</div>
   </div>
 </div>
 
@@ -283,21 +285,14 @@ tr:hover td{background:#F9FAFB}
 </div>
 
 <script>
-const GATE_CODE = 'pacer2026';
 const API_BASE = '/billing/.netlify/functions';
+const fetch = (...args) => APBG.auth.authedFetch(...args);
 
-// --- Gate ---
-const gateInput = document.getElementById('gateInput');
-gateInput.addEventListener('keyup', (e) => {
-  if (gateInput.value === GATE_CODE) {
-    document.getElementById('gateScreen').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    loadStatus();
-  } else if (gateInput.value.length >= GATE_CODE.length) {
-    document.getElementById('gateErr').style.display = 'block';
-    setTimeout(() => { document.getElementById('gateErr').style.display = 'none'; }, 2000);
-    gateInput.value = '';
-  }
+// --- Auth gate ---
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  loadStatus();
 });
 
 // --- Load Status ---
@@ -510,11 +505,13 @@ function renderMappings(mappings) {
       ? `<button class="expense-btn" onclick="openExpense('${sfJob}','${m.resqCode || ''}')">💰 Bill</button>`
       : '—';
 
+    const resqLink = resqLinkHtml(resqId, m.resqCode);
+    const sfLink = sfLinkHtml(m.sfJobId, m.sfJobNumber);
     html += `<tr>
-      <td><strong>${m.resqCode || '—'}</strong></td>
+      <td>${resqLink}</td>
       <td>${(m.title || '').substring(0, 50)}</td>
       <td>${m.facility || '—'}</td>
-      <td>${m.sfJobNumber || m.sfJobId || '—'}</td>
+      <td>${sfLink}</td>
       <td>${resqBadge}</td>
       <td>${sfBadge}</td>
       <td>${photoBtn}</td>
@@ -565,9 +562,10 @@ function renderReview(report) {
       const isLinked = linkedId && String(j.id) === String(linkedId);
       const status = j.status || '—';
       const num = j.number || j.id;
+      const sfHref = `https://admin.servicefusion.com/jobs/view/${encodeURIComponent(j.id)}`;
       return `<div class="review-job">
         <div class="meta">
-          <strong>SF #${j.id}</strong> ${num !== j.id ? `(${num})` : ''} —
+          <a href="${sfHref}" target="_blank" rel="noopener" title="Open in Service Fusion"><strong>SF #${j.id}</strong></a> ${num !== j.id ? `(${num})` : ''} —
           ${statusBadge(status)}
           ${j.created_at ? `<span style="color:#9CA3AF;font-size:0.72rem;margin-left:6px">created ${new Date(j.created_at).toLocaleDateString()}</span>` : ''}
           ${isLinked ? '<span class="linked-pill">CURRENTLY LINKED</span>' : ''}
@@ -580,10 +578,11 @@ function renderReview(report) {
     }).join('');
 
     // For cancel_failed, the item has sfJobId not sfJobs
+    const cancelFailedHref = item.sfJobId ? `https://admin.servicefusion.com/jobs/view/${encodeURIComponent(item.sfJobId)}` : '';
     const cancelFailedHtml = item.reason === 'cancel_failed'
       ? `<div class="review-job">
           <div class="meta">
-            <strong>SF #${item.sfJobId}</strong> — ${statusBadge(item.status || 'Unscheduled')}
+            <a href="${cancelFailedHref}" target="_blank" rel="noopener" title="Open in Service Fusion"><strong>SF #${item.sfJobId}</strong></a> — ${statusBadge(item.status || 'Unscheduled')}
             <span style="color:#991B1B;font-size:0.72rem;margin-left:6px">last error: ${(item.error || '').substring(0, 80)}</span>
           </div>
           <div class="actions">
@@ -592,9 +591,12 @@ function renderReview(report) {
         </div>`
       : '';
 
+    const resqHref = item.resqCode || item.resqId
+      ? `https://app.getresq.com/work-orders/${encodeURIComponent(item.resqId || item.resqCode)}`
+      : '';
     return `<div class="review-item">
       <div class="review-head">
-        <span class="code">${item.resqCode || '—'}</span>
+        <span class="code">${resqHref ? `<a href="${resqHref}" target="_blank" rel="noopener" title="Open in ResQ">${item.resqCode || '—'}</a>` : (item.resqCode || '—')}</span>
         <span class="review-reason ${reasonClass[item.reason] || 'dup'}">${reasonLabel[item.reason] || item.reason}</span>
       </div>
       <div class="review-msg">${item.message || ''}</div>
@@ -659,6 +661,21 @@ function renderLog(data) {
   }
   html += `<span class="info">Completed: ${data.completed || '?'} | Created: ${data.created || 0} | Updated: ${data.updated || 0}</span>`;
   document.getElementById('syncLog').innerHTML = html;
+}
+
+// External deep links to ResQ + Service Fusion ticket detail pages
+function resqLinkHtml(resqId, resqCode) {
+  const label = resqCode || '—';
+  if (!resqId && !resqCode) return `<strong>—</strong>`;
+  const target = resqId || resqCode;
+  const url = `https://app.getresq.com/work-orders/${encodeURIComponent(target)}`;
+  return `<a href="${url}" target="_blank" rel="noopener" title="Open in ResQ"><strong>${label}</strong></a>`;
+}
+function sfLinkHtml(sfJobId, sfJobNumber) {
+  const label = sfJobNumber || sfJobId || '—';
+  if (!sfJobId) return label;
+  const url = `https://admin.servicefusion.com/jobs/view/${encodeURIComponent(sfJobId)}`;
+  return `<a href="${url}" target="_blank" rel="noopener" title="Open in Service Fusion">${label}</a>`;
 }
 
 function statusBadge(status) {

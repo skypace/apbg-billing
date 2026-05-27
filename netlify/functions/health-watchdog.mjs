@@ -3,9 +3,11 @@
 // Sends alert email only when something is wrong
 
 import { qboQuery } from './qbo-helpers.mjs';
+import { requireScheduledOrAuth } from './lib/auth.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sendEmail, APPROVAL_EMAIL } from './email-helpers.mjs';
+import { createClient } from '@supabase/supabase-js';
 
 export const config = { schedule: '*/30 * * * *' };
 
@@ -96,6 +98,239 @@ async function checkSyncFreshness() {
       return { status: 'error', detail: `Last sync was ${ageMin} minutes ago (threshold: 15 min)` };
     }
     return { status: 'ok', detail: `Last sync ${ageMin} min ago` };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
+// ── Per-source freshness from ops.sync_log ──────────────────────────────
+//
+// Why this exists: the legacy `checkSyncFreshness` only watches the
+// ResQ↔SF blob. Every other sync (sync-qbo invoice/lines, sync-qbo-items,
+// sync-qbo-customers, sync-qbo-expenses, sync-sf, sync-fleetcomplete) is
+// invisible to it. We learned this the hard way on 2026-05-14 — sync-qbo
+// had been silently writing zero rows for 19 days because the edge
+// function was defaulting to the `public` schema while every table lives
+// in `ops`. The function returned HTTP 200, pg_cron logged "succeeded,"
+// no alert ever fired, and Margin showed stale data without anyone
+// noticing.
+//
+// This check reads max(completed_at) per (source, sync_type) from
+// ops.sync_log directly and compares to a per-source SLA. Any source
+// older than its threshold gets surfaced as a row in the watchdog email.
+const SYNC_SLA = {
+  // expected nightly + every 3 min backfill; data should be < 1 day old
+  'qbo:invoices':           { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo header upserts' },
+  'qbo:lines_backfill':     { maxAgeMs: 30 * 60 * 1000,      label: 'sync-qbo line backfill (every 3 min)' },
+  'qbo:pl_snapshots':       { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo P&L snapshots (nightly)' },
+  // SF jobs incremental: every 30 min
+  'sf:jobs':                { maxAgeMs: 90 * 60 * 1000,      label: 'sync-sf jobs (every 30 min)' },
+};
+
+// ── Direct cache-table freshness (max(synced_at) per table) ────────────
+//
+// Belt-and-suspenders for the 2026-05-14 sync-qbo silent-failure. The
+// source-based check above reads `ops.sync_log`, which is written by the
+// edge function itself — if the function defaults to the wrong schema
+// (the actual bug), it can still log "success" with records_synced=0 while
+// every cache table stays frozen. Reading max(synced_at) on the cache
+// table directly catches that case: the row count won't move and the
+// timestamp won't advance no matter what sync_log says.
+//
+// Column names aren't uniform across tables — see the per-table `col`
+// below. SLA is generous (24h+ for daily caches, 7d for low-churn caches)
+// to avoid flapping during cron slippage.
+const CACHE_TABLES = [
+  { table: 'qbo_invoices',              col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_invoices cache' },
+  { table: 'qbo_items',                 col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_items cache' },
+  { table: 'qbo_customers',             col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_customers cache' },
+  { table: 'qbo_vendors',               col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_vendors cache' },
+  { table: 'qbo_expense_lines',         col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_expense_lines cache' },
+  { table: 'qbo_inventory_adjustments', col: 'synced_at',      maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_inventory_adjustments cache' },
+  { table: 'qbo_purchase_orders',       col: 'last_synced_at', maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_purchase_orders cache' },
+  { table: 'qbo_employees_cache',       col: 'qbo_synced_at',  maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_employees_cache' },
+  { table: 'qbo_pto_cache',             col: 'last_synced_at', maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_pto_cache' },
+];
+
+// ── pg_net cron-trigger failures ───────────────────────────────────────
+//
+// Final layer of the silent-cron-failure defense. The migration
+// 20260517_pg_net_failure_scanner runs `ops.fn_scan_pg_net_failures()`
+// every 5 min, which inserts a row in `ops.sync_log` (status='error',
+// source IN ('qbo','sf','fleetcomplete','pg_net')) for every non-2xx or
+// timed-out response in `net._http_response`. This means a cron job whose
+// http_post lands on a 401/500/timeout no longer disappears — it lands as
+// a sync_log error row that this check counts.
+//
+// Why a separate check (vs. just reading sync_log staleness): the SLA-
+// based check only fires on lack of recent success. A cron that fails
+// every run might not have any success rows to compare against. This
+// check looks at recent errors directly.
+async function checkPgNetFailures() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read sync_log' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    // Last 35 min so we cover the full watchdog tick window (every 30min).
+    const cutoff = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+    const { data, error } = await sb
+      .from('sync_log')
+      .select('source, sync_type, error_message, started_at, metadata')
+      .eq('status', 'error')
+      .gte('started_at', cutoff)
+      .order('started_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      return { status: 'error', detail: 'sync_log error scan failed: ' + error.message };
+    }
+    const failures = data || [];
+    if (failures.length === 0) {
+      return { status: 'ok', detail: 'No cron→HTTP failures in the last 35 min' };
+    }
+    // Group by sync_type for a concise summary.
+    const byType = new Map();
+    for (const f of failures) {
+      const key = `${f.source}:${f.sync_type}`;
+      const cur = byType.get(key) || { count: 0, lastErr: '', lastAt: '' };
+      cur.count += 1;
+      if (!cur.lastAt || f.started_at > cur.lastAt) {
+        cur.lastAt = f.started_at;
+        cur.lastErr = (f.error_message || '').slice(0, 200);
+      }
+      byType.set(key, cur);
+    }
+    const summary = [...byType.entries()]
+      .map(([k, v]) => `${k} ×${v.count}: ${v.lastErr}`)
+      .join(' | ');
+    return {
+      status: 'error',
+      detail: `${failures.length} cron→HTTP failures in last 35 min — ${summary}`,
+      failures: failures.length,
+      groups: Object.fromEntries(byType),
+    };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
+async function checkCacheTableFreshness() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read cache tables' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    const now = Date.now();
+
+    const rows = await Promise.all(CACHE_TABLES.map(async (cfg) => {
+      const { data, error } = await sb
+        .from(cfg.table)
+        .select(cfg.col)
+        .order(cfg.col, { ascending: false, nullsFirst: false })
+        .limit(1);
+      if (error) {
+        return { table: cfg.table, status: 'error', detail: `${cfg.label} — read failed: ${error.message}` };
+      }
+      const ts = data?.[0]?.[cfg.col];
+      if (!ts) {
+        // Empty cache could be legitimate (no source data yet) or a never-run
+        // sync — ambiguous, so warn rather than error to avoid paging on a
+        // false positive. The 'rows' row still surfaces it in the email.
+        return { table: cfg.table, status: 'warn', detail: `${cfg.label} — empty (no rows or all-null timestamps)` };
+      }
+      const age = now - new Date(ts).getTime();
+      const ageMin = Math.round(age / 60000);
+      const ageHr  = Math.round(age / 3600000);
+      const friendly = age > 24 * 3600 * 1000 ? `${ageHr}h` : `${ageMin}m`;
+      if (age > cfg.maxAgeMs) {
+        return {
+          table: cfg.table,
+          status: 'error',
+          detail: `${cfg.label} — newest row ${friendly} old (SLA: ${Math.round(cfg.maxAgeMs / 3600000)}h)`,
+          lastSyncedAt: ts,
+          ageMs: age,
+        };
+      }
+      return {
+        table: cfg.table,
+        status: 'ok',
+        detail: `${cfg.label} — newest ${friendly} ago`,
+        lastSyncedAt: ts,
+        ageMs: age,
+      };
+    }));
+
+    const worst = rows.some(r => r.status === 'error') ? 'error'
+                : rows.some(r => r.status === 'warn')  ? 'warn'
+                : 'ok';
+    return {
+      status: worst,
+      detail: rows.filter(r => r.status !== 'ok').map(r => r.detail).join(' | ')
+              || 'All cache tables within SLA',
+      rows,
+    };
+  } catch (e) {
+    return { status: 'error', detail: e.message };
+  }
+}
+
+async function checkOpsSyncFreshness() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return { status: 'warn', detail: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — cannot read ops.sync_log' };
+  }
+  try {
+    const sb = createClient(url, key, { db: { schema: 'ops' } });
+    // Pull the most recent completed_at per (source, sync_type) where status=success.
+    const { data, error } = await sb
+      .from('sync_log')
+      .select('source, sync_type, completed_at, records_synced')
+      .eq('status', 'success')
+      .order('completed_at', { ascending: false })
+      .limit(1000);
+    if (error) {
+      return { status: 'error', detail: 'sync_log read failed: ' + error.message };
+    }
+
+    // Reduce to one row per (source, sync_type) — latest only.
+    const latestByKey = new Map();
+    for (const r of (data || [])) {
+      const k = r.source + ':' + r.sync_type;
+      if (!latestByKey.has(k)) latestByKey.set(k, r);
+    }
+
+    const now = Date.now();
+    const rows = [];
+    let worst = 'ok';
+    for (const [key, sla] of Object.entries(SYNC_SLA)) {
+      const r = latestByKey.get(key);
+      if (!r) {
+        rows.push({ key, status: 'error', detail: sla.label + ' — no success entry on file' });
+        worst = 'error';
+        continue;
+      }
+      const age = now - new Date(r.completed_at).getTime();
+      const ageMin = Math.round(age / 60000);
+      const ageHr  = Math.round(age / 3600000);
+      const friendly = age > 24 * 3600 * 1000 ? `${ageHr}h` : `${ageMin}m`;
+      if (age > sla.maxAgeMs) {
+        rows.push({ key, status: 'error', detail: `${sla.label} — last success ${friendly} ago (SLA: ${Math.round(sla.maxAgeMs / 60000)}m)` });
+        worst = 'error';
+      } else {
+        rows.push({ key, status: 'ok', detail: `${sla.label} — ${friendly} ago` });
+      }
+    }
+
+    return {
+      status: worst,
+      detail: rows.filter(r => r.status === 'error').map(r => r.detail).join(' | ') || 'All ops.sync_log entries within SLA',
+      rows,
+    };
   } catch (e) {
     return { status: 'error', detail: e.message };
   }
@@ -254,7 +489,23 @@ function buildAlertEmail(results, timestamp) {
 
 // ── Main handler ──
 
-export default async function handler(req) {
+export default async function handler(req, context) {
+  // CORS preflight must short-circuit BEFORE auth — preflights are unauthenticated.
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    });
+  }
+
+  // Allow Netlify scheduler OR authenticated superadmin only.
+  const auth = await requireScheduledOrAuth(req, context);
+  if (!auth.ok) return auth.response;
+
   // Handle GET requests — return last health check result (or live with ?refresh=1)
   if (req.method === 'GET') {
     const url = new URL(req.url);
@@ -297,7 +548,7 @@ export default async function handler(req) {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
     });
   }
@@ -307,11 +558,14 @@ export default async function handler(req) {
   console.log(`[health-watchdog] Starting checks at ${timestamp}`);
 
   // Run all checks concurrently (ResQ schema depends on ResQ login)
-  const [qbo, sf, resq, syncFreshness] = await Promise.all([
+  const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness, pgNetFailures] = await Promise.all([
     checkQBO(),
     checkSF(),
     checkResQ(),
     checkSyncFreshness(),
+    checkOpsSyncFreshness(),
+    checkCacheTableFreshness(),
+    checkPgNetFailures(),
   ]);
 
   // Schema check uses the ResQ session from the login check
@@ -324,13 +578,28 @@ export default async function handler(req) {
     qbo,
     serviceFusion: sf,
     resq: resqClean,
-    syncFreshness,
+    syncFreshness,           // resq-sf blob (legacy)
+    opsSyncFreshness,        // per-source SLA on ops.sync_log
+    cacheTableFreshness,     // max(synced_at) on each cache table — catches silent no-op writes
+    pgNetFailures,           // any pg_net 4xx/5xx/timeout in last 35min — catches cron-triggered HTTP failures
     resqSchema,
   };
 
-  const hasFailure = Object.values(results).some(r => r.status === 'error');
-  const hasWarning = Object.values(results).some(r => r.status === 'warn');
-  const overall = hasFailure ? 'error' : hasWarning ? 'warn' : 'ok';
+  // Primary services flip the hub "Billing Down" dot. Secondary integrations
+  // (SF, ResQ, sync freshness, ResQ schema drift) still page via email when
+  // they break, but a flaky 3rd-party shouldn't make the gateway show
+  // "Some systems down" — that wakes up the operator on a problem that's not
+  // theirs to fix. Matches the QBO+cache-only `overall` rule in
+  // melt-dashboard/netlify/functions/health-check.mjs.
+  const PRIMARY = new Set(['qbo']);
+  const primaryFailure = Object.entries(results).some(([k, r]) => PRIMARY.has(k) && r.status === 'error');
+  const anyFailure    = Object.values(results).some(r => r.status === 'error');
+  const anyWarning    = Object.values(results).some(r => r.status === 'warn');
+  const overall = primaryFailure ? 'error' : (anyFailure || anyWarning) ? 'warn' : 'ok';
+  // hasFailure / hasWarning preserved for the email-alert branch below so a
+  // ResQ outage still emails the operator even though `overall` stays 'warn'.
+  const hasFailure = anyFailure;
+  const hasWarning = anyWarning;
 
   const payload = { timestamp, overall, checks: results };
 

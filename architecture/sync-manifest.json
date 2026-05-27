@@ -1,0 +1,345 @@
+{
+  "$schema": "./sync-manifest.schema.json",
+  "version": 1,
+  "last_updated": "2026-05-13",
+  "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
+
+  "writers": [
+    {
+      "name": "sync-qbo",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:00 UTC + every 3 min backfill",
+      "writes": [
+        "ops.qbo_invoices",
+        "ops.qbo_invoice_lines",
+        "ops.pl_snapshots",
+        "ops.qbo_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API"],
+      "notes": "Legacy QBO sync. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh().",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-items",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:30 UTC + on-demand from Margin UI",
+      "writes": ["ops.qbo_items", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Items"],
+      "notes": "Populates purchase_cost which powers est_cost / est_margin in v_sales_lines. Uses lease RPC for token refresh. Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-customers",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:35 UTC",
+      "writes": ["ops.qbo_customers", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Customers"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql. Writes the upstream customer record (display_name, addresses, etc.). Geocode columns (lat/lon/geocoded_at/geocode_status) are managed by the geocode-customers function.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "geocode-customers",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "nightly 10:30 UTC (cron geocode-customers-nightly, max=80 per run)",
+      "writes": ["ops.qbo_customers"],
+      "multi_writer": true,
+      "external_inputs": ["OpenStreetMap Nominatim geocoder"],
+      "notes": "Source at supabase/functions/geocode-customers/. Populates qbo_customers.lat/lon for the cohort: active + has billing address + (billed in last 90 days OR is the Alameda depot at '1951 Monarch'). Idempotent — skips already-geocoded rows unless qbo_updated_at advances. ~440-row backfill takes ~6 nightly runs (max=80 keeps each call under the 150s idle timeout). Drives auto-geofence stop attribution in sync-fleetcomplete (mode=trips). Cron in 20260509e.",
+      "last_verified": "2026-05-09"
+    },
+    {
+      "name": "sync-qbo-expenses",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:40 UTC",
+      "writes": ["ops.qbo_expense_lines", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Purchase / Bill / VendorCredit"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-inventory-adjustments",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "nightly 09:50 UTC",
+      "writes": [
+        "ops.qbo_inventory_adjustments",
+        "ops.qbo_inventory_adjustment_lines",
+        "ops.qbo_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: InventoryAdjustment"],
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-qbo-employees",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "hourly (planned)",
+      "writes": ["ops.qbo_employees_cache", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Employees"],
+      "notes": "Lives in apbg-ops repo per its CLAUDE.md / README updates 2026-05-05. Uses the same lease RPC.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sync-sf",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "every 30 min",
+      "writes": [
+        "ops.delivery_stops",
+        "ops.service_jobs",
+        "ops.reman_jobs",
+        "ops.sf_token_cache"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["Service Fusion API"],
+      "notes": "Pulls SF jobs into ops tables. Joint doc claims this writes; source not in either repo.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "sf-oauth-callback",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "on-demand (HTTP)",
+      "writes": ["ops.sf_token_cache"],
+      "multi_writer": true,
+      "notes": "OAuth redirect target for Service Fusion auth flow.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "stale-invoice-alert",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "daily 7am PT",
+      "writes": [],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Read-only: scans delivery_stops / service_jobs / reman_jobs for SF $$ with no QBO match >5 days, emails Sky.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "digest-email",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "hourly (cron digest-email-hourly, 0 * * * *)",
+      "writes": ["ops.digest_log"],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Reads digest_subscriptions to decide which subs are due. Defined in 20260503m_digest_email.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "push-qbo-budget",
+      "kind": "supabase-edge-function",
+      "source_repo": "unknown",
+      "schedule": "on-demand",
+      "writes": ["ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online Budget API"],
+      "notes": "Reads sales_plans and pushes a budget to QBO. Defined in 20260503v_push_qbo_budget_function.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "health-alert",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "every 15 min",
+      "writes": ["ops.health_alerts_sent"],
+      "external_inputs": ["Resend API (outbound email)"],
+      "notes": "Reads sync_log + qbo_token_diagnostics; emails Sky on sync_health red/yellow.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "fn_take_health_snapshot",
+      "kind": "sql-function-cron",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "weekly Mon 10:00 UTC (cron weekly-health-snapshot)",
+      "writes": ["ops.customer_health_snapshots"],
+      "notes": "Postgres function called by pg_cron. Defined in 20260503s_health_snapshots_plan_alerts.sql.",
+      "last_verified": "2026-05-05"
+    },
+    {
+      "name": "fn_compute_kpi_daily",
+      "kind": "sql-function-cron",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "nightly 11:00 UTC (cron nightly-kpi-daily) for current_date - 1",
+      "writes": ["ops.kpi_daily"],
+      "notes": "Postgres function called by pg_cron. Joins delivery_stops/service_jobs/reman_jobs to team_members via driver_id/tech_id and upserts per-(date, team_member) rows. Defined in 20260506b_kpi_daily_rollup.sql; backfills last 30 days at apply time.",
+      "last_verified": "2026-05-06"
+    },
+    {
+      "name": "snapshot_db_health",
+      "kind": "sql-function-cron",
+      "source_repo": "unknown",
+      "schedule": "daily 06:00 UTC (cron db_health_daily)",
+      "writes": ["ops.db_health_snapshots"],
+      "notes": "Postgres function ops.snapshot_db_health() called by pg_cron. Captures DB metrics into a jsonb blob. Defining migration not located in this repo's supabase/migrations/; function exists in prod and cron is scheduled.",
+      "last_verified": "2026-05-06"
+    },
+    {
+      "name": "sync-fleetcomplete",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "every 5 min latest-snapshots (cron fleetcomplete-latest-snapshots); hourly :05 roster — vehicles + people + geofences (cron fleetcomplete-roster); daily 09:00 UTC trips + driver-events (cron fleetcomplete-trips)",
+      "writes": [
+        "ops.fc_token_cache",
+        "ops.fleet_vehicles",
+        "ops.fleet_latest_snapshots",
+        "ops.fleet_drivers",
+        "ops.fleet_geofences",
+        "ops.fleet_trips",
+        "ops.fleet_driver_events",
+        "ops.fleet_stop_visits",
+        "ops.fleet_fuel_transactions",
+        "ops.fleet_maintenance"
+      ],
+      "external_inputs": ["Unity by Powerfleet GraphQL API at api.fleetcomplete.com"],
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, extracts driverBehaviour events into fleet_driver_events, and matches each stop (≥5 min dwell) to the nearest geocoded qbo_customer within 200 m → fleet_stop_visits. Fleet page in the SPA exposes Map / Trips / Stops / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
+      "last_verified": "2026-05-09"
+    },
+    {
+      "name": "manual-ui:margin-minder-settings",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (user action)",
+      "writes": [
+        "ops.channels",
+        "ops.customer_channels",
+        "ops.segments",
+        "ops.category_segments",
+        "ops.item_segments",
+        "ops.expense_buckets",
+        "ops.expense_bucket_types",
+        "ops.sales_plans",
+        "ops.sales_plan_lines",
+        "ops.item_sets",
+        "ops.item_set_items",
+        "ops.inventory_settings",
+        "ops.inventory_velocity_excludes",
+        "ops.saved_views",
+        "ops.digest_subscriptions",
+        "ops.revenue_categories",
+        "ops.cogs_accounts",
+        "ops.dashboard_settings",
+        "ops.alert_settings"
+      ],
+      "notes": "Margin Minder dashboard settings UI writes via fn_set_* RPCs and direct table inserts. Authenticated only."
+    },
+    {
+      "name": "manual-ui:apbg-ops-roster",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-ops",
+      "schedule": "on-demand (user action)",
+      "writes": [
+        "ops.team_members",
+        "ops.staff",
+        "ops.staff_roles",
+        "ops.role_types",
+        "ops.third_party_crews"
+      ],
+      "notes": "Apbg-ops Staff Roster page writes via gateway-issued JWT against permissive policies."
+    },
+    {
+      "name": "all-sync-functions:sync-log-append",
+      "kind": "convention",
+      "source_repo": "multiple",
+      "schedule": "on every sync run",
+      "writes": ["ops.sync_log"],
+      "multi_writer": true,
+      "notes": "Every sync function appends a row to ops.sync_log on completion. No single owner; this is a logging convention."
+    },
+    {
+      "name": "brix-expense:app-and-functions",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (user submits expense / manager approves / link-bill)",
+      "writes": [
+        "ops.expense_requests",
+        "ops.expense_request_attachments",
+        "ops.expense_approvals",
+        "ops.expense_settings"
+      ],
+      "multi_writer": true,
+      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments).",
+      "last_verified": "2026-05-12"
+    },
+    {
+      "name": "brix-stock:app-and-rpcs",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (operator creates/ships/receives transfers)",
+      "writes": [
+        "ops.inventory_locations",
+        "ops.inventory_transfers",
+        "ops.inventory_transfer_lines",
+        "ops.inventory_movements"
+      ],
+      "notes": "BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
+      "last_verified": "2026-05-13"
+    },
+    {
+      "name": "qbo-pos-import",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (operator clicks 'Pull POs from QBO' in the Margin Production tab)",
+      "writes": [
+        "ops.qbo_purchase_orders",
+        "ops.qbo_purchase_order_lines"
+      ],
+      "notes": "Mirrors QBO-direct PurchaseOrders into shadow tables so the inventory On Order column (fn_items_master.on_order CTE) counts POs that were never created through BRIX. Per-PO picker modal in app/src/pages/production/QboPosPickerModal.tsx. Bearer-only auth (any logged-in @brixbev.com employee can preview + import). Upserts headers by qbo_id; lines are replaced wholesale on each import. De-dup with ops.purchase_orders.qbo_purchase_order_id so a BRIX-native PO pushed to QBO isn't counted twice. Migration: 20260516b_qbo_purchase_orders_shadow.sql.",
+      "last_verified": "2026-05-16"
+    }
+  ],
+
+  "orphans": [
+    {
+      "table": "ops.qbo_pto_cache",
+      "reason": "Table exists, 0 rows in prod. No sync function on schedule. Decision (Sky 2026-05-05): keep as dead-but-acceptable schema; either wire a syncer or drop in a future cleanup."
+    },
+    {
+      "table": "ops.balance_sheet_snapshots",
+      "reason": "Table exists, 0 rows. No cron, no edge function. Planned cadence and endpoint not yet specified."
+    },
+    {
+      "table": "ops.crm_deals",
+      "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
+    },
+    {
+      "table": "ops.expense_request_approvals",
+      "reason": "Pending drop. Plural-named table created as a no-op side effect of 20260512o_brix_expense_requests.sql. No code reads or writes it — the live audit table is ops.expense_approvals (singular). Scheduled for removal by 20260512p_expense_cleanup.sql; this entry + the schema-snapshot row come out in a follow-up commit after that migration is applied to live."
+    },
+    {
+      "table": "ops.fleet_daily",
+      "reason": "FleetComplete daily rollup. Will be written by a daily aggregator that joins fleet_trips + fleet_fuel_transactions. Not yet built; sync-fleetcomplete handles per-resource pulls but doesn't compute the daily rollup."
+    },
+    {
+      "table": "ops.hr_employees",
+      "reason": "HR integration placeholder. CLAUDE.md (apbg-billing) §3D: Bambee has no API; BambooHR has REST. Manual entry forms or BambooHR sync pending decision."
+    },
+    {
+      "table": "ops.hr_documents",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_onboarding",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_performance",
+      "reason": "HR integration placeholder; pending."
+    },
+    {
+      "table": "ops.hr_time_off",
+      "reason": "HR integration placeholder; pending. Could be fed by qbo_pto_cache if that gets wired."
+    }
+  ]
+}

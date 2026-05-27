@@ -5,6 +5,24 @@ const RESQ_GQL = 'https://api.getresq.com/api/graphql/';
 const RESQ_LOGIN = 'https://api.getresq.com/api/auth/login/';
 const RESQ_CSRF = 'https://api.getresq.com/api/auth/csrf/';
 
+// A hung ResQ host used to take down both /api/health (melt) and
+// /health-watchdog (apbg-billing) because every fetch here was uncapped.
+// 10s is well above ResQ's healthy p99 and below the 15s gateway probe abort.
+const RESQ_FETCH_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(url, opts = {}, timeoutMs = RESQ_FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    if (e?.name === 'AbortError') throw new Error(`ResQ request timed out after ${timeoutMs}ms: ${url}`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Login as vendor (default) or facility
 // Pass { facility: true } to use RESQ_FACILITY_EMAIL/PASSWORD
 export async function resqLogin(opts = {}) {
@@ -14,7 +32,7 @@ export async function resqLogin(opts = {}) {
   if (!email || !password) throw new Error(`${label} not set`);
 
   // Get CSRF token
-  const csrfRes = await fetch(RESQ_LOGIN, {
+  const csrfRes = await fetchWithTimeout(RESQ_LOGIN, {
     method: 'OPTIONS',
     headers: { 'Accept': 'application/json' },
   });
@@ -29,7 +47,7 @@ export async function resqLogin(opts = {}) {
 
   // Fallback: dedicated CSRF endpoint
   if (!csrfToken) {
-    const initRes = await fetch(RESQ_CSRF, {
+    const initRes = await fetchWithTimeout(RESQ_CSRF, {
       headers: { 'Accept': 'application/json' },
     });
     for (const sc of (initRes.headers.getSetCookie?.() || [])) {
@@ -40,7 +58,7 @@ export async function resqLogin(opts = {}) {
   }
 
   // Login (ResQ expects "username", not "email")
-  const loginRes = await fetch(RESQ_LOGIN, {
+  const loginRes = await fetchWithTimeout(RESQ_LOGIN, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -69,7 +87,7 @@ export async function resqGql(session, query, variables) {
   const body = { query };
   if (variables) body.variables = variables;
 
-  const res = await fetch(RESQ_GQL, {
+  const res = await fetchWithTimeout(RESQ_GQL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
