@@ -23,7 +23,7 @@ const DEFAULT_ACCOUNT = ACCOUNT_MAP.service;
 // other facilities (e.g. Brix warehouse) are still created but without
 // a CustomerRef, matching pre-feature behavior.
 const RESQ_CUSTOMER_MAP = {
-  starbird: 'STARBIRD: RESQ',
+  starbird: 'STARBIRD CHICKEN RESQ',
   melt:     'THE MELT RESQ',
 };
 
