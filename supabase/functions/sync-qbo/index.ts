@@ -1,4 +1,9 @@
 // sync-qbo edge function — APBG-BILLING Supabase project
+// version 41 (2026-05-28): extract Service Fusion job id from QBO PrivateNote /
+//   CustomerMemo via regex (Job #?\d{8,12} | SF[-\s]?\d{8,12}) and persist to
+//   ops.qbo_invoices.sf_job_id on every header upsert. NULL when the memo
+//   carries no job reference. Surfaces to brix-order /invoices/:id so
+//   customers can cross-reference an invoice with its delivery/service job.
 // version 40 (2026-05-28): populate ops.qbo_invoices.invoice_payment_url with
 //   Invoice.InvoiceLink (QBO-hosted "Pay now" URL) on every per-invoice read.
 //   Read path now passes ?include=invoiceLink&minorversion=70 for Invoice-type
@@ -183,6 +188,22 @@ async function readSalesTxn(sb: SupabaseClient, cfg: TxnConfig, id: string): Pro
   return qboRead(sb, cfg.readPath, id);
 }
 
+// extractSfJobId — best-effort regex extraction of a Service Fusion job id
+// from QBO's PrivateNote and CustomerMemo fields. Matches "Job #1089501883",
+// "Job 1089501883", "SF-1089501883", "SF 1089501883" (case-insensitive).
+// Returns the first capture group or null.
+const SF_JOB_ID_RE = /(?:Job\s*#?|SF[-\s]?)(\d{8,12})\b/i;
+function extractSfJobId(txn: any): string | null {
+  const candidates: string[] = [];
+  if (txn.PrivateNote) candidates.push(String(txn.PrivateNote));
+  if (txn.CustomerMemo?.value) candidates.push(String(txn.CustomerMemo.value));
+  for (const c of candidates) {
+    const m = c.match(SF_JOB_ID_RE);
+    if (m && m[1]) return m[1];
+  }
+  return null;
+}
+
 function headerRow(txn: any, txnType: string, sign: 1 | -1) {
   return {
     qbo_invoice_id: txn.Id, txn_type: txnType,
@@ -195,6 +216,7 @@ function headerRow(txn: any, txnType: string, sign: 1 | -1) {
     status: parseFloat(txn.Balance) === 0 ? "paid" : "open",
     department: txn.DepartmentRef?.name || null,
     memo: txn.PrivateNote || null,
+    sf_job_id: extractSfJobId(txn),
     synced_at: new Date().toISOString(),
     qbo_updated_at: txn.MetaData?.LastUpdatedTime || null,
     // InvoiceLink only comes back when the read includes ?include=invoiceLink;
@@ -353,7 +375,7 @@ Deno.serve(async (req: Request) => {
     const r = await refreshSalesLines(sb);
     return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
   }
-  if (mode === "whoami") return jsonRes({ version: 40, txn_types_supported: ALL_TXN_TYPES });
+  if (mode === "whoami") return jsonRes({ version: 41, txn_types_supported: ALL_TXN_TYPES });
 
   // === refresh-lines mode ===
   // Reads a slice of qbo_invoices by date+offset and refetches their lines via
