@@ -8,7 +8,7 @@
     {
       "name": "sync-qbo",
       "kind": "supabase-edge-function",
-      "source_repo": "unknown",
+      "source_repo": "skypace/apbg-billing",
       "schedule": "nightly 09:00 UTC + every 3 min backfill",
       "writes": [
         "ops.qbo_invoices",
@@ -18,8 +18,8 @@
       ],
       "multi_writer": true,
       "external_inputs": ["QuickBooks Online API"],
-      "notes": "Legacy QBO sync. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh().",
-      "last_verified": "2026-05-05"
+      "notes": "Source at supabase/functions/sync-qbo/. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh(). v40 (2026-05-28) populates qbo_invoices.invoice_payment_url with Invoice.InvoiceLink via per-invoice read with ?include=invoiceLink&minorversion=70; surfaces to brix-order /invoices/:id 'Pay now' CTA.",
+      "last_verified": "2026-05-28"
     },
     {
       "name": "sync-qbo-items",
