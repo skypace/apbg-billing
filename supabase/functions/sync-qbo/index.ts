@@ -1,4 +1,12 @@
 // sync-qbo edge function — APBG-BILLING Supabase project
+// version 42 (2026-05-28): extend SF job-id extraction beyond memo/CustomerMemo
+//   to also scan the FIRST 5 description-only lines on the invoice. Brix's
+//   FreeFlow invoicing automation places the Service Fusion job id (and order
+//   metadata) in the top 3-4 "empty" line items at the top of the invoice as
+//   DescriptionOnly entries rather than in PrivateNote / CustomerMemo. Pattern
+//   stays Job #?\d{8,12} or SF[-\s]?\d{8,12}; in line descriptions we also
+//   accept a bare 8-12 digit token. refresh-lines + lines + incremental sync
+//   all persist sf_job_id during their per-invoice reads.
 // version 41 (2026-05-28): extract Service Fusion job id from QBO PrivateNote /
 //   CustomerMemo via regex (Job #?\d{8,12} | SF[-\s]?\d{8,12}) and persist to
 //   ops.qbo_invoices.sf_job_id on every header upsert. NULL when the memo
@@ -188,20 +196,57 @@ async function readSalesTxn(sb: SupabaseClient, cfg: TxnConfig, id: string): Pro
   return qboRead(sb, cfg.readPath, id);
 }
 
-// extractSfJobId — best-effort regex extraction of a Service Fusion job id
-// from QBO's PrivateNote and CustomerMemo fields. Matches "Job #1089501883",
-// "Job 1089501883", "SF-1089501883", "SF 1089501883" (case-insensitive).
-// Returns the first capture group or null.
+// extractSfJobId — best-effort extraction of a Service Fusion job id from a
+// QBO invoice. Two passes:
+//
+//   1. PrivateNote / CustomerMemo, prefix required ("Job #...", "SF-...").
+//   2. First 5 description-only lines at the top of the invoice. Brix's
+//      FreeFlow invoicing automation places the SF job id (and ancillary
+//      order metadata) into the first 3-4 lines as DescriptionOnly entries.
+//      In a line description we ALSO accept a bare 8-12 digit token, since
+//      line descriptions don't carry phone numbers or other digit noise.
+//
+// Returns the first match or null.
 const SF_JOB_ID_RE = /(?:Job\s*#?|SF[-\s]?)(\d{8,12})\b/i;
+const BARE_JOB_ID_RE = /\b(\d{8,12})\b/;
 function extractSfJobId(txn: any): string | null {
-  const candidates: string[] = [];
-  if (txn.PrivateNote) candidates.push(String(txn.PrivateNote));
-  if (txn.CustomerMemo?.value) candidates.push(String(txn.CustomerMemo.value));
-  for (const c of candidates) {
-    const m = c.match(SF_JOB_ID_RE);
+  // Pass 1: memo fields, prefix required.
+  for (const c of [txn.PrivateNote, txn.CustomerMemo?.value]) {
+    if (!c) continue;
+    const m = String(c).match(SF_JOB_ID_RE);
     if (m && m[1]) return m[1];
   }
+
+  // Pass 2: the top description-only / "empty" lines on the invoice. Skip
+  // real item lines (SalesItemLineDetail with an ItemRef). Scan up to 5
+  // candidate lines before giving up so we don't drift into product
+  // descriptions.
+  const lines = Array.isArray(txn.Line) ? txn.Line : [];
+  let scanned = 0;
+  for (const l of lines) {
+    if (scanned >= 5) break;
+    const hasItem =
+      l?.DetailType === "SalesItemLineDetail" && l?.SalesItemLineDetail?.ItemRef?.value;
+    if (hasItem) continue;
+    const desc = l?.Description;
+    if (!desc) continue;
+    scanned++;
+    const prefixed = String(desc).match(SF_JOB_ID_RE);
+    if (prefixed && prefixed[1]) return prefixed[1];
+    const bare = String(desc).match(BARE_JOB_ID_RE);
+    if (bare && bare[1]) return bare[1];
+  }
   return null;
+}
+
+// updateInvoiceSfJobId — writes the extracted SF job id back to the header
+// row. Called from the per-invoice read paths (refresh-lines, lines, and the
+// secondary read in syncOneType) so existing invoices get backfilled without
+// requiring a full bulk re-sync.
+async function updateInvoiceSfJobId(sb: SupabaseClient, invRowId: number, jobId: string | null) {
+  const { error } = await sb.from("qbo_invoices")
+    .update({ sf_job_id: jobId }).eq("id", invRowId);
+  if (error) console.error(`update sf_job_id id=${invRowId}: ${error.message}`);
 }
 
 function headerRow(txn: any, txnType: string, sign: 1 | -1) {
@@ -351,6 +396,7 @@ async function syncOneType(
           if (cfg.hasInvoiceLink) {
             await updateInvoicePaymentUrl(sb, invDbId, body.InvoiceLink || null);
           }
+          await updateInvoiceSfJobId(sb, invDbId, extractSfJobId(body));
           await sleep(80);
         } catch (e: any) {
           errors++;
@@ -375,7 +421,7 @@ Deno.serve(async (req: Request) => {
     const r = await refreshSalesLines(sb);
     return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
   }
-  if (mode === "whoami") return jsonRes({ version: 41, txn_types_supported: ALL_TXN_TYPES });
+  if (mode === "whoami") return jsonRes({ version: 42, txn_types_supported: ALL_TXN_TYPES });
 
   // === refresh-lines mode ===
   // Reads a slice of qbo_invoices by date+offset and refetches their lines via
@@ -393,7 +439,7 @@ Deno.serve(async (req: Request) => {
       .gte("txn_date", start).lte("txn_date", end)
       .order("id")
       .range(offset, offset + batch - 1);
-    let processed = 0, linesWritten = 0, urlsWritten = 0, errors = 0;
+    let processed = 0, linesWritten = 0, urlsWritten = 0, jobsWritten = 0, errors = 0;
     for (const r of (rows || []) as any[]) {
       const cfg = TXN_CONFIGS[r.txn_type] || TXN_CONFIGS.Invoice;
       try {
@@ -406,6 +452,9 @@ Deno.serve(async (req: Request) => {
           await updateInvoicePaymentUrl(sb, r.id, body.InvoiceLink || null);
           if (body.InvoiceLink) urlsWritten++;
         }
+        const jobId = extractSfJobId(body);
+        await updateInvoiceSfJobId(sb, r.id, jobId);
+        if (jobId) jobsWritten++;
         processed++;
         await sleep(80);
       } catch (e: any) {
@@ -417,7 +466,9 @@ Deno.serve(async (req: Request) => {
     return jsonRes({
       status: "success", mode: "refresh-lines",
       start, end, offset, batch,
-      rows_returned: rows?.length || 0, processed, lines_written: linesWritten, urls_written: urlsWritten, errors,
+      rows_returned: rows?.length || 0, processed,
+      lines_written: linesWritten, urls_written: urlsWritten, jobs_written: jobsWritten,
+      errors,
       next_offset: offset + batch, mv_refresh: mvResult,
     });
   }
@@ -445,6 +496,7 @@ Deno.serve(async (req: Request) => {
         if (cfg.hasInvoiceLink) {
           await updateInvoicePaymentUrl(sb, inv.id, body.InvoiceLink || null);
         }
+        await updateInvoiceSfJobId(sb, inv.id, extractSfJobId(body));
         processed++;
         await sleep(80);
       } catch (e: any) {
