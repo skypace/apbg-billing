@@ -1,8 +1,9 @@
-// sf-webhook — on-demand single-job ResQ <-> SF sync target (Phase 3).
+// sf-webhook — on-demand single-job ResQ <-> SF sync (Phase 3).
 //
-// Trigger-agnostic: call it from a Service Fusion webhook/automation, a Zapier/
-// Make scenario, or by hand. It syncs ONE work order immediately instead of
-// waiting for the 5-min cron.
+// Internal trigger only (SF has no outbound webhook and we are NOT using
+// Zapier). Call it from our own code, a scheduled job, or by hand to sync ONE
+// work order immediately instead of waiting for the 5-min cron. The dashboard
+// "force-sync" button uses the authed resq-sf-sync?syncOne path instead.
 //
 //   POST { resq_code: "R12345" }      — sync that WO now
 //   POST { sf_job_id: "1088..." }     — resolve the WO via the SF job's po_number, then sync
