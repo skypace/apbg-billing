@@ -51,7 +51,9 @@ export function mapEntryToLinkRow(resqWoId, e) {
 // Upsert all links in one request (PostgREST array upsert on resq_wo_id).
 // Backfills the table from the current mapping and keeps it current.
 export async function bulkUpsertLinks(rows) {
-  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY not set');
+  // No service-role key on apbg-billing → the Phase 2 mirror stays dormant
+  // (sync still runs fine off the Blob). Skip cleanly rather than error every run.
+  if (!SERVICE_KEY) return 0;
   if (!rows || !rows.length) return 0;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/resq_sf_links?on_conflict=resq_wo_id`, {
     method: 'POST',
@@ -64,7 +66,7 @@ export async function bulkUpsertLinks(rows) {
 
 // Append audit events in one request.
 export async function bulkInsertEvents(events) {
-  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY not set');
+  if (!SERVICE_KEY) return 0;
   if (!events || !events.length) return 0;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/sync_events`, {
     method: 'POST',
