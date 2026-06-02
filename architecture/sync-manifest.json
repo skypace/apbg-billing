@@ -323,6 +323,18 @@
       "external_inputs": ["ResQ GraphQL API", "Service Fusion API"],
       "notes": "Phase 2 of resq-sf-sync v2. The background worker (resq-sf-sync-background.mjs) dual-writes its state into ops.resq_sf_links (one row per ResQ WO <-> SF job link, replacing the wo-mapping Netlify Blob) and appends an audit trail to ops.sync_events at the end of every run. The Netlify Blob remains the authoritative read source for now; these tables mirror it (additive, non-fatal on failure). Writes via service-role through netlify/functions/lib/resq-sf-links.mjs. sync_events is append-only (multi_writer for future writers). Migration 20260602c_resq_sf_links.sql.",
       "last_verified": "2026-06-02"
+    },
+    {
+      "name": "site-settings",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Master Control panel toggles)",
+      "writes": [
+        "ops.site_settings"
+      ],
+      "external_inputs": [],
+      "notes": "Generic key/value site settings (anon-readable so any app can read a flag; service-role writes). First use: the maintenance flag/banner, toggled from public/control.html and read client-side by public/maintenance-banner.js. POST is superadmin-gated (requireAuth). Migration 20260602d_site_settings.sql.",
+      "last_verified": "2026-06-02"
     }
   ],
 

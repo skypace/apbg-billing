@@ -73,6 +73,7 @@
     "segments",
     "service_jobs",
     "sf_token_cache",
+    "site_settings",
     "staff",
     "staff_roles",
     "sync_customers",
