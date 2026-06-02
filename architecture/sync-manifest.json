@@ -307,7 +307,33 @@
         "ops.sync_customers"
       ],
       "external_inputs": ["QuickBooks Online API: Customer (discovers RESQ-named candidates)"],
-      "notes": "Phase 1 of resq-sf-sync v2. Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). Replaces the drifted string literals in resq-sf-sync-background.mjs (SF_CUSTOMERS/FACILITY_MAP) and expense-to-bill.mjs (RESQ_CUSTOMER_MAP). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945). Read at runtime by resq-sf-sync-background and expense-to-bill via netlify/functions/lib/sync-customers.mjs.",
+      "notes": "Phase 1 of resq-sf-sync v2. Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). Replaces the drifted string literals in resq-sf-sync-background.mjs (SF_CUSTOMERS/FACILITY_MAP) and expense-to-bill.mjs (RESQ_CUSTOMER_MAP). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945) + 20260602b (BRIX WAREHOUSE EQUIPMENT 1412). Read at runtime by resq-sf-sync-background and expense-to-bill via netlify/functions/lib/sync-customers.mjs.",
+      "last_verified": "2026-06-02"
+    },
+    {
+      "name": "resq-sf-sync",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "every 5 min (resq-sf-sync-cron) + on-demand from sync.html",
+      "writes": [
+        "ops.resq_sf_links",
+        "ops.sync_events"
+      ],
+      "multi_writer": true,
+      "external_inputs": ["ResQ GraphQL API", "Service Fusion API"],
+      "notes": "Phase 2 of resq-sf-sync v2. The background worker (resq-sf-sync-background.mjs) dual-writes its state into ops.resq_sf_links (one row per ResQ WO <-> SF job link, replacing the wo-mapping Netlify Blob) and appends an audit trail to ops.sync_events at the end of every run. The Netlify Blob remains the authoritative read source for now; these tables mirror it (additive, non-fatal on failure). Writes via service-role through netlify/functions/lib/resq-sf-links.mjs. sync_events is append-only (multi_writer for future writers). Migration 20260602c_resq_sf_links.sql.",
+      "last_verified": "2026-06-02"
+    },
+    {
+      "name": "site-settings",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Master Control panel toggles)",
+      "writes": [
+        "ops.site_settings"
+      ],
+      "external_inputs": [],
+      "notes": "Generic key/value site settings (anon-readable so any app can read a flag; service-role writes). First use: the maintenance flag/banner, toggled from public/control.html and read client-side by public/maintenance-banner.js. POST is superadmin-gated (requireAuth). Migration 20260602d_site_settings.sql.",
       "last_verified": "2026-06-02"
     }
   ],

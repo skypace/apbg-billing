@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="maintenance-banner.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/sync.html'+location.search);</script>
 <title>APBG — ResQ ↔ SF Sync</title>
@@ -214,10 +215,10 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
       <button class="secondary" id="clearErrBtn" onclick="clearErrors()">🧹 Clear Errors</button>
     </div>
 
-    <!-- Linked Customers (Settings) -->
-    <div class="section" id="settingsSection">
-      <h2>⚙️ Linked Customers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— customers with “RESQ” in the name that sync to Service Fusion</span></h2>
-      <div id="syncCustomersBox" style="padding:16px 20px"><div class="empty">Loading…</div></div>
+    <!-- Linked Customers moved to Master Control -->
+    <div class="section">
+      <h2>⚙️ Linked Customers</h2>
+      <div style="padding:16px 20px;color:#6B7280;font-size:0.85rem">Managing which customers sync (ResQ ↔ Service Fusion) now lives in <a href="/control" style="color:#1F4E79;font-weight:600">Master Control → Linked Customers</a>, alongside Maintenance Mode.</div>
     </div>
 
     <!-- Mapping Table -->
@@ -239,6 +240,12 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
     <div class="section">
       <h2>Last Sync Log</h2>
       <div class="log" id="syncLog">No sync data yet. Click "Run Sync Now" to start.</div>
+    </div>
+
+    <!-- Recent Sync Events (Phase 2 audit trail from ops.sync_events) -->
+    <div class="section">
+      <h2>🧾 Recent Sync Events <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— audit trail (newest first)</span></h2>
+      <div id="syncEventsBox" style="padding:12px 20px"><div class="empty">Loading…</div></div>
     </div>
 
     <!-- Health Status -->
@@ -299,78 +306,38 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   loadStatus();
-  loadSyncCustomers();
+  loadSyncEvents();
 });
 
-function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-// --- Linked Customers (Settings) ---
-async function loadSyncCustomers() {
-  const box = document.getElementById('syncCustomersBox');
+// --- Recent Sync Events (Phase 2) ---
+async function loadSyncEvents() {
+  const box = document.getElementById('syncEventsBox');
   try {
-    const res = await fetch(`${API_BASE}/sync-customers`);
+    const res = await fetch(`${API_BASE}/resq-sf-links?events=1&limit=50`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.status);
-    renderSyncCustomers(data);
+    const evs = data.events || [];
+    if (!evs.length) { box.innerHTML = '<div class="empty">No events yet — they appear after the next sync run.</div>'; return; }
+    const color = a => a==='error' ? '#991B1B' : a==='created' ? '#065F46' : '#1F4E79';
+    box.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:4px 8px">When</th><th style="padding:4px 8px">ResQ</th><th style="padding:4px 8px">SF Job</th>
+        <th style="padding:4px 8px">Dir</th><th style="padding:4px 8px">Action</th><th style="padding:4px 8px">Message</th></tr></thead>
+      <tbody>${evs.map(e => `<tr style="border-top:1px solid #F1F3F5">
+        <td style="padding:4px 8px;color:#9CA3AF;white-space:nowrap">${timeAgo(e.created_at)}</td>
+        <td style="padding:4px 8px">${esc(e.resq_code||'—')}</td>
+        <td style="padding:4px 8px">${esc(e.sf_job_id||'—')}</td>
+        <td style="padding:4px 8px;color:#9CA3AF">${esc(e.direction||'')}</td>
+        <td style="padding:4px 8px;font-weight:600;color:${color(e.action)}">${esc(e.action)}</td>
+        <td style="padding:4px 8px;color:#4B5563">${esc(e.message||'')}</td></tr>`).join('')}</tbody></table>`;
   } catch (e) {
-    box.innerHTML = `<div class="upload-result err" style="display:block">Failed to load linked customers: ${esc(e.message)}</div>`;
+    box.innerHTML = `<div class="upload-result err" style="display:block">Failed to load events: ${esc(e.message)}</div>`;
   }
 }
 
-function renderSyncCustomers(data) {
-  const box = document.getElementById('syncCustomersBox');
-  const rows = (data.customers || []).map(c => {
-    const kws = (c.resq_facility_keywords || []).join(', ');
-    const badge = c.linked
-      ? '<span class="badge" style="background:#D1FAE5;color:#065F46">Linked</span>'
-      : '<span class="badge" style="background:#F3F4F6;color:#6B7280">Off</span>';
-    const toggle = c.linked
-      ? `<button class="clear-btn" onclick="setLinked(${c.id},false)">Unlink</button>`
-      : `<button class="upload-btn" onclick="setLinked(${c.id},true)">Re-link</button>`;
-    return `<tr>
-      <td style="padding:6px 8px"><strong>${esc(c.qbo_customer_name)}</strong><div style="color:#9CA3AF;font-size:0.72rem">QBO #${esc(c.qbo_customer_id)}</div></td>
-      <td style="padding:6px 8px"><input value="${esc(c.sf_customer_name || c.qbo_customer_name)}" onchange="saveSfName(${c.id}, this.value)" placeholder="SF customer name" title="The Service Fusion customer name jobs are created under" style="width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px"></td>
-      <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id}, this.value)" placeholder="facility keywords, comma-separated" style="width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px"></td>
-      <td style="padding:6px 8px">${badge}</td>
-      <td style="padding:6px 8px">${toggle}</td>
-    </tr>`;
-  }).join('');
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  const candidates = (data.candidates || []).map(c =>
-    `<div class="expense-item"><div class="info"><strong>${esc(c.qbo_customer_name)}</strong> <span class="cat">QBO #${esc(c.qbo_customer_id)}</span></div>
-     <button class="upload-btn" onclick="linkCandidate('${esc(c.qbo_customer_id)}', '${esc(c.qbo_customer_name).replace(/'/g,'&#39;')}')">+ Link</button></div>`
-  ).join('');
-
-  box.innerHTML = `
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr style="text-align:left;color:#6B7280;font-size:0.72rem;text-transform:uppercase">
-        <th style="padding:6px 8px">QBO Customer</th><th style="padding:6px 8px">SF Name</th>
-        <th style="padding:6px 8px">ResQ Facility Keywords</th><th style="padding:6px 8px">Status</th><th></th>
-      </tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="empty" style="padding:14px">No linked customers yet.</td></tr>'}</tbody>
-    </table>
-    ${data.candidatesError ? `<div style="color:#B45309;font-size:0.75rem;margin-top:10px">Couldn't list RESQ candidates from QBO: ${esc(data.candidatesError)}</div>` : ''}
-    ${candidates ? `<div style="margin-top:14px"><div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Available “RESQ” customers to link</div>${candidates}</div>` : ''}
-  `;
-}
-
-async function setLinked(id, linked) { await postSyncCustomer({ action: linked ? 'relink' : 'unlink', id }); }
-async function saveKeywords(id, value) { await postSyncCustomer({ action: 'update', id, resq_facility_keywords: value }); }
-async function saveSfName(id, value) { await postSyncCustomer({ action: 'update', id, sf_customer_name: value }); }
-async function linkCandidate(qboId, qboName) {
-  const stem = String(qboName||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0] || '';
-  const kw = prompt(`Link “${qboName}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`, stem);
-  if (kw === null) return;
-  await postSyncCustomer({ action: 'link', qbo_customer_id: qboId, qbo_customer_name: qboName, resq_facility_keywords: kw });
-}
-async function postSyncCustomer(body) {
-  try {
-    const res = await fetch(`${API_BASE}/sync-customers`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.status);
-    loadSyncCustomers();
-  } catch (e) { alert('Failed: ' + e.message); }
-}
+// (Linked Customers management moved to public/control.html — Master Control.)
 
 // --- Load Status ---
 async function loadStatus() {
