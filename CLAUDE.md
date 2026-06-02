@@ -9,7 +9,7 @@
 This repo hosts **five surfaces** that share one Netlify deploy at `apbg-billing.netlify.app`, all fronted through the parent gateway at `alamedapointbg.com`:
 
 1. **3rd-Party Billing** — the original AI vendor-bill processing tool (AP)
-2. **BRIX Margin Control** — React/Vite SPA for sales / margin / customer analytics (`app/`, builds to `public/sales-next/`, surfaced at `/margin/` on the gateway)
+2. **BRIX Refractor** (formerly Margin Control / Margin & Product Control) — React/Vite SPA for sales / margin / customer analytics, planning, inventory, production (BOMs + work orders) and POs (`app/`, builds to `public/sales-next/`, surfaced at `/margin/` on the gateway)
 3. **Brixpense** — React/Vite SPA for internal expense + purchase requests; expenses auto-approve, PRs route to an approver (chosen by the submitter) who logs in to the same Supabase auth and approves in-app (`app-expense/`, builds to `public/expense/`, surfaced at `/expense/`)
 4. **Sync orchestration manifest** — cross-repo lint contract for the `ops.*` schema (`architecture/sync-manifest.json`)
 5. **Interactive user guide** — markdown source in `docs/`, viewer in `public/docs/`, surfaced at `/margin/docs/margin-control/`
@@ -24,7 +24,7 @@ Plus **two Supabase edge functions** whose source lives here but which deploy se
 | Surface | Lives in | URL |
 |---|---|---|
 | AP / 3rd-Party Billing | `public/*.html` + `netlify/functions/` | `alamedapointbg.com/billing/` |
-| BRIX Margin Control (v0.9.27) | `app/` → built into `public/sales-next/` | `alamedapointbg.com/margin/` |
+| BRIX Refractor (v0.9.32) | `app/` → built into `public/sales-next/` | `alamedapointbg.com/margin/` |
 | Brixpense (v0.1.0) | `app-expense/` → built into `public/expense/` | `alamedapointbg.com/expense/` |
 | User Guide | `docs/margin-control/` + viewer in `public/docs/margin-control/` | `alamedapointbg.com/margin/docs/margin-control/` |
 | Master Control admin panel | `public/control.html` | `alamedapointbg.com/control` |
@@ -43,10 +43,10 @@ Plus **two Supabase edge functions** whose source lives here but which deploy se
 ## Tech stack at a glance
 
 - **AP tool:** Vanilla HTML + JS in `public/`, served as-is by Netlify.
-- **BRIX Margin Control:** React 18 + Vite 5 + TypeScript 5 + MUI v6 + MUI X v7 Pro.
+- **BRIX Refractor:** React 18 + Vite 5 + TypeScript 5 + MUI v6 + MUI X v7 Pro.
 - **Brixpense:** React 18 + Vite 5 + TypeScript 5 + Radix UI + shadcn-style wrappers + Tailwind 3 (dark navy glass-morphism theme).
 - **Backend (Netlify Functions):** ESM `.mjs` files. Bill processing, ResQ-SF sync, OAuth callbacks, expense requests, OCR (Claude API), QBO bill creation.
-- **Backend (Supabase Edge Functions):** Deno runtime. `sync-qbo` and `push-qbo-item`.
+- **Backend (Supabase Edge Functions):** Deno runtime. `sync-qbo` (QBO→Supabase reads, v35), `sync-qbo-items`, `sync-qbo-customers`, `sync-qbo-expenses`, `sync-qbo-inventory-adjustments`, `geocode-customers`, `sync-fleetcomplete`. `push-qbo-item` (v9) is essentially inert — all QBO write actions return HTTP 410; only `syncVendors` (read-only) is active.
 - **Data:** Supabase `ops.*` schema. Brixpense uses `ops.expense_requests/_attachments/_approvals/_settings`.
 
 ## Build pipeline (`netlify.toml`)
@@ -87,11 +87,11 @@ No magic-link tokens. No anonymous approval path. The email is a notification, n
 
 ## What's actively being worked on
 
-As of 2026-05-12:
+As of 2026-06-02:
 
-- **BRIX Margin Control polish + features.** Sub-screens maturing: Customers master, Items master, Categories, P&L Alignment editor, Sales Reps.
+- **BRIX Refractor (v0.9.32).** Margin/Plans/Production/Inventory/Stock are the live focus. Production module ships BOMs + Work Orders + Purchase Orders (`OpenPOsTab` unified BRIX + QBO open POs). BOMs do SKU-aware ingredient-driven scaling with post-mix dilution ratio + theoretical $/case·can·oz, WO close emits actuals + yield loss. Plans use P&L-grouped Plan Lines with bottom-up build from history × split growth. Stock = OnHand/Movements/Adjustments/Transfers/Locations.
 - **Brixpense post-launch polish.** Approval model finalized: expense=auto, PR=in-app authed approval. Active gaps: mobile sidebar, admin settings UI for `ops.expense_settings`, entity → department → COGS cascade on the form, edit-flow data load on `/expense/edit/:id`.
-- **QBO writeback expansion.** `push-qbo-item` + Brixpense `expense-request-link-bill` cover Item.Active, Category ParentRef, and AccountBasedExpenseLineDetail bill creation.
+- **QBO writebacks: SHUT DOWN.** As of 2026-05-22, `push-qbo-item v9` returns HTTP 410 for `setActive`, `bulkSyncCategories`, `postInventoryAdjustment`, `postPurchaseOrder`, and `unparentAndInactivateCategories`. Nightly push crons (jobid 31, 32, 33) are all unscheduled. Only `syncVendors` (read-only pull QBO→Supabase) is active. The "Push to QBO" and "Cleanup QBO categories" buttons have been removed from `ItemsSettingsEditor`. Brixpense `expense-request-link-bill` still writes bills (manual operator-initiated flow, not automated). Nightly reads (`sync-qbo`, `sync-qbo-items`, etc.) continue normally.
 
 ## Business rules (preserved verbatim)
 
@@ -156,7 +156,7 @@ Originally framed as "build the PACER Ops Dashboard." Most of that agenda shippe
 
 | Original priority | Status |
 |---|---|
-| **P1 — Upgrade to a real app** | ✓ Shipped. `app/` is the v0.9.27 SPA. |
+| **P1 — Upgrade to a real app** | ✓ Shipped. `app/` is the v0.9.32 BRIX Refractor SPA. |
 | **P2 — Roster CRUD** | → Moved to `APBG-OPS`. |
 | **P3 — Sync gaps** | Partial. `sync-qbo` v35 + materialized view refresh; FleetComplete + HR moved to APBG-OPS. |
 | **P4 — Dashboard KPIs** | Split between BRIX and APBG-OPS. |
@@ -183,3 +183,14 @@ Full original brief: [`PACER-KPI-SPEC.md`](PACER-KPI-SPEC.md), [`FLEET-HR-INTEGR
 | 2026-05-12 | brixpense | **Migration reconciliation (20260512o + 20260512p).** Dropped orphan plural-named approvals table; finished `expense_settings` seed (cogs_accounts, manager_emails, tags); re-aligned departments to entity/COGS taxonomy. `sync-manifest.json` corrected to reference `ops.expense_approvals` (singular). |
 | 2026-05-12 | brixpense | **`expense-request-link-bill` now creates QBO bill end-to-end.** Modes: `create` (default, vendor match + POST /bill), `preview` (dry-run), `link` (legacy passive). Falls back to Service COGS (101). |
 | 2026-05-12 | brixpense | **Approval model finalized — in-app auth, no magic-link.** Sequence: migration `20260512q` (in-app), `20260512r` (reverted to magic-link), `20260512s` (final: drop anon RLS, install self/manager UPDATE pair, deprecate `approval_token`). Net effect: anon RLS gone, two UPDATE policies (self + manager-by-email). Final flow — expense auto-approves on submit; PR sends a notification email (via Resend/SendGrid) to the chosen approver from `manager_emails` and points at `/expense/queue`. Approver authenticates via Supabase, approves at `/expense/review/:id`. `expense-request-notify` validates the approver against the allowlist. `expense-request-decide` is Bearer-only; takes `{ requestId, action, notes?, signatureUrl? }`; guards self-approval + email match. Frontend route swap: `/approve/:token` (public) removed; `/review/:id` (auth-gated) added. ManagerQueue links to `/review/:id`. ApprovalPage rewired to use `:id` + session + Bearer. |
+| 2026-05-14 | — | **Stock module Phase 1** (`#62`-`#64`): locations, transfers (BOL), movement ledger, per-item flags, opening-balance + shrinkage Adjustments tab, freight-ready BOL (weights, pallets, freight class, signatures). |
+| 2026-05-14 | — | **Production module Phase 2** (`#65`): Bills of Materials + Work Orders for co-pack manufacturing. |
+| 2026-05-15 | — | **Inventory: WO→QBO InventoryAdjustment writeback** (`#73`), **Purchase Orders module + QBO writeback** (`#75`), reorder math fix + on-order column + create-PO bridge (`#79`). |
+| 2026-05-16 | — | **Items master**: Pull-from-QBO button + Stock/BOM toggles (`#72`), column-layout persistence via exportState (`#69`, `#71`), pass-2 auto-classification using name+description (`#70`). |
+| 2026-05-17 | — | Per-PO QBO picker (`#85`), BOM unit-of-measure + Scale-this-BOM calculator (`#86`), pg_net failure scanner cron, refresh-lines rolling cron. |
+| 2026-05-18 | — | qbo_invoices.txn_type, qbo_invoice_lines unique constraint, sales_pivot exclude params. |
+| 2026-05-19 | — | Stock → Inventory and Inventory → Inventory Planning rename. New `OpenPOsTab` (unified BRIX + QBO open POs), wired into Inventory page as Purchase Orders sub-tab. |
+| 2026-05-20 | — | Plans: P&L rollup + bottom-up build from history × split growth (`#106`-`#108`). Voids report polished (`#109`-`#110`): per-item filter chips, DataGrid Pro, no-name customers surfaced. |
+| 2026-05-21 | v0.9.30 | **Brand rename**: Margin Control → Margin & Product Control (`#101`) → **BriXRefractor** (`#103`, `#104`). Wordmark unified across surfaces (`#104`). Operations page removed, migrated to APBG-OPS (`#102`). |
+| 2026-05-22 | v0.9.31 | Items: drop category prefix in plans/sets, lock QBO sync on local edits (`#114`). BOM: SKU-aware ingredient-driven scaling with post-mix dilution ratio (`#117`). BOM/WO: theoretical $/case·can·oz on BOM, actual + yield-loss on WO close. |
+| 2026-05-22 | v0.9.32 | **QBO writebacks shut down.** `push-qbo-item v8` disabled `bulkSyncCategories` (HTTP 410); cron jobid 31 (`nightly-push-qbo-categories`) unscheduled. The cron had been silently re-creating QBO categories every night at 10:00 UTC, re-syncing 560 rows of `inventory_settings.category_override`. **`push-qbo-item v9`** disabled all remaining write actions (`setActive`, `postInventoryAdjustment`, `postPurchaseOrder`, `unparentAndInactivateCategories` → HTTP 410). Cron jobid 32 (`nightly-push-qbo-customer-types`) and 33 (`nightly-push-qbo-sales-rep`) also unscheduled. UI: removed `Push to QBO` + `Cleanup QBO categories` buttons, `PushCategoriesReviewModal`, `QboCategoryCleanupModal` and their state/handlers from `ItemsSettingsEditor`. Only `syncVendors` (read-only pull from QBO) remains active in `push-qbo-item`. |
