@@ -74,6 +74,7 @@
     "sf_token_cache",
     "staff",
     "staff_roles",
+    "sync_customers",
     "sync_log",
     "team_members",
     "third_party_crews"
