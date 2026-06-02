@@ -13,6 +13,7 @@
 // JWT + RLS (apbg-billing has no service-role key). Superadmin required (requireAuth).
 
 import { qboQuery, corsHeaders } from './qbo-helpers.mjs';
+import { sfRequest } from './sf-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
@@ -51,6 +52,16 @@ async function sbWrite(authHeader, method, body, query = '') {
   return text ? JSON.parse(text) : null;
 }
 
+// Live Service Fusion customer search — powers the Settings picker so a row
+// links to the ACTUAL SF record (by id) instead of a typed name that drifts.
+async function sfCustomerSearch(q) {
+  const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(q)}&per-page=25`);
+  const items = res.items || res.data || (Array.isArray(res) ? res : []);
+  return items
+    .map((c) => ({ id: String(c.id ?? c.customer_id ?? ''), name: c.customer_name || c.name || '' }))
+    .filter((c) => c.id && c.name);
+}
+
 // Normalize an incoming keyword list to lowercase, trimmed, de-duped.
 function normKeywords(v) {
   if (Array.isArray(v)) return [...new Set(v.map((k) => String(k || '').trim().toLowerCase()).filter(Boolean))];
@@ -67,6 +78,16 @@ export async function handler(event) {
 
   try {
     if (event.httpMethod === 'GET') {
+      const qs = event.queryStringParameters || {};
+      // SF customer search for the Settings picker: ?sfSearch=<query>
+      if (qs.sfSearch !== undefined) {
+        try {
+          const results = await sfCustomerSearch(qs.sfSearch);
+          return json({ results });
+        } catch (e) {
+          return json({ results: [], error: e.message.slice(0, 200) });
+        }
+      }
       const customers = await sbRead();
       const known = new Set(customers.map((c) => String(c.qbo_customer_id)));
       // Discover QBO customers with RESQ in the name that aren't linked yet.
@@ -94,6 +115,7 @@ export async function handler(event) {
         qbo_customer_id: String(body.qbo_customer_id),
         qbo_customer_name: body.qbo_customer_name,
         sf_customer_name: body.sf_customer_name || body.qbo_customer_name,
+        sf_customer_id: body.sf_customer_id ? String(body.sf_customer_id) : null,
         resq_facility_keywords: normKeywords(body.resq_facility_keywords),
         qbo_cogs_account_id: body.qbo_cogs_account_id || null,
         entity: body.entity || null,
@@ -109,6 +131,7 @@ export async function handler(event) {
       const patch = {};
       if (body.qbo_customer_name !== undefined) patch.qbo_customer_name = body.qbo_customer_name;
       if (body.sf_customer_name !== undefined) patch.sf_customer_name = body.sf_customer_name || null;
+      if (body.sf_customer_id !== undefined) patch.sf_customer_id = body.sf_customer_id || null;
       if (body.resq_facility_keywords !== undefined) patch.resq_facility_keywords = normKeywords(body.resq_facility_keywords);
       if (body.qbo_cogs_account_id !== undefined) patch.qbo_cogs_account_id = body.qbo_cogs_account_id || null;
       if (body.entity !== undefined) patch.entity = body.entity || null;
