@@ -329,7 +329,7 @@ function renderSyncCustomers(data) {
       : `<button class="upload-btn" onclick="setLinked(${c.id},true)">Re-link</button>`;
     return `<tr>
       <td style="padding:6px 8px"><strong>${esc(c.qbo_customer_name)}</strong><div style="color:#9CA3AF;font-size:0.72rem">QBO #${esc(c.qbo_customer_id)}</div></td>
-      <td style="padding:6px 8px;font-size:0.8rem">${esc(c.sf_customer_name || c.qbo_customer_name)}</td>
+      <td style="padding:6px 8px"><input value="${esc(c.sf_customer_name || c.qbo_customer_name)}" onchange="saveSfName(${c.id}, this.value)" placeholder="SF customer name" title="The Service Fusion customer name jobs are created under" style="width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px"></td>
       <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id}, this.value)" placeholder="facility keywords, comma-separated" style="width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px"></td>
       <td style="padding:6px 8px">${badge}</td>
       <td style="padding:6px 8px">${toggle}</td>
@@ -356,6 +356,7 @@ function renderSyncCustomers(data) {
 
 async function setLinked(id, linked) { await postSyncCustomer({ action: linked ? 'relink' : 'unlink', id }); }
 async function saveKeywords(id, value) { await postSyncCustomer({ action: 'update', id, resq_facility_keywords: value }); }
+async function saveSfName(id, value) { await postSyncCustomer({ action: 'update', id, sf_customer_name: value }); }
 async function linkCandidate(qboId, qboName) {
   const stem = String(qboName||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0] || '';
   const kw = prompt(`Link “${qboName}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`, stem);
