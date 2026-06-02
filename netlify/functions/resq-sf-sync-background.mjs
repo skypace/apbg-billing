@@ -324,13 +324,26 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // record) makes every create throw and the WO never maps — ResQ then drifts
     // away from SF. Self-heal small mismatches; otherwise fail loudly so the
     // operator can correct the SF record / the ops.sync_customers row.
-    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
-    if (!resolvedName) {
-      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Link the SF customer in the control panel (Linked Customers → search Service Fusion).`);
-      result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
-      return result;
+    // Prefer the linked SF customer id — create the job by id directly, which
+    // bypasses the /customers lookup that's been returning 401. Falls back to
+    // name resolution only when no id is linked.
+    let sfJob;
+    if (cust.sf_customer_id) {
+      let sfName = null;
+      try {
+        const c = await sfRequest('GET', `/customers/${encodeURIComponent(cust.sf_customer_id)}`);
+        sfName = (c?.customer || c?.data || c)?.customer_name || null;
+      } catch (e) { /* by-id lookup is best-effort; create by id alone */ }
+      sfJob = await createSfJob(wo, sfName, cust.sf_customer_id);
+    } else {
+      const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
+      if (!resolvedName) {
+        result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Paste the SF customer # in the control panel (Linked Customers → SF #).`);
+        result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
+        return result;
+      }
+      sfJob = await createSfJob(wo, resolvedName);
     }
-    const sfJob = await createSfJob(wo, resolvedName);
 
     // Determine initial SF status based on ResQ status
     const resqStatus = (wo.status || '').toUpperCase();
@@ -714,7 +727,7 @@ async function resolveSfCustomerName(configuredName, stem, sfCustomerId) {
 }
 
 // --- SF Helpers ---
-async function createSfJob(resqWO, customerName) {
+async function createSfJob(resqWO, customerName, customerId) {
   const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
   const description = [
     `ResQ WO: ${resqRef}`,
@@ -725,13 +738,17 @@ async function createSfJob(resqWO, customerName) {
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
-  return sfRequest('POST', '/jobs', {
-    customer_name: customerName,
+  const payload = {
     description,
     status: 'Unscheduled',
     priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
     po_number: resqRef,
-  });
+  };
+  // Prefer the SF customer id — creating by id avoids the /customers lookup
+  // entirely. Include the name too when we have it.
+  if (customerId) payload.customer_id = customerId;
+  if (customerName) payload.customer_name = customerName;
+  return sfRequest('POST', '/jobs', payload);
 }
 
 // --- Transfer SF Photos → ResQ ---
