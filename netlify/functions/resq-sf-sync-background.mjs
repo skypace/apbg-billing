@@ -221,7 +221,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
   const result = { steps: [], errors: [], created: 0, report: [] };
   const sfCustomerKey = classifyFacility(wo.facility);
   if (!sfCustomerKey) {
-    result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt`);
+    result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt/Brix`);
     return result;
   }
 
@@ -302,7 +302,19 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
 
   // Create new SF job
   try {
-    const sfJob = await createSfJob(wo, customerName);
+    // Resolve the configured SF customer name against a real SF customer record
+    // BEFORE creating. SF's POST /jobs requires customer_name to match exactly;
+    // a punctuation/spacing drift (e.g. "STARBIRD CHICKEN: RESQ" vs the actual
+    // record) makes every create throw and the WO never maps — ResQ then drifts
+    // away from SF. Self-heal small mismatches; otherwise fail loudly so the
+    // operator can correct the SF record / SF_CUSTOMERS entry.
+    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
+    if (!resolvedName) {
+      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Fix the SF customer record name or SF_CUSTOMERS.`);
+      result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
+      return result;
+    }
+    const sfJob = await createSfJob(wo, resolvedName);
 
     // Determine initial SF status based on ResQ status
     const resqStatus = (wo.status || '').toUpperCase();
@@ -513,7 +525,12 @@ async function fetchSyncableWOs(session) {
 
   return (data.data?.workOrders?.edges || [])
     .filter(e => {
-      const v = (e.node.vendor?.name || e.node.executingVendor?.name || '').toLowerCase();
+      // Brix can sit in EITHER the primary vendor slot or the executing-vendor
+      // slot. Starbird WOs are frequently held by a property-management vendor
+      // and dispatched to Brix as executingVendor — the old `||` short-circuit
+      // only checked executingVendor when vendor was absent, so those WOs were
+      // silently dropped and ResQ drifted out of sync with SF. Check both.
+      const v = `${e.node.vendor?.name || ''} ${e.node.executingVendor?.name || ''}`.toLowerCase();
       if (!BRIX_VENDOR_KEYWORDS.some(k => v.includes(k))) return false;
       const f = (e.node.facility?.name || '').toLowerCase();
       return FACILITY_MAP.some(fm => fm.keywords.some(k => f.includes(k)));
@@ -629,6 +646,41 @@ async function cancelSfJob(jobId) {
   } catch (e) {
     return { ok: false, error: (e.message || '').substring(0, 200) };
   }
+}
+
+// Resolve the configured SF customer name to a real SF customer record name.
+// Returns the exact SF `customer_name` to use, or null when no confident match
+// exists (caller then fails loudly instead of creating a job SF will reject).
+//   1. Exact match (case/whitespace-insensitive) on the configured name.
+//   2. Stem search — exactly one RESQ sync customer containing the brand stem
+//      (e.g. "starbird") self-heals punctuation/spacing drift.
+// Conservative on purpose: never guesses between multiple candidates.
+async function resolveSfCustomerName(configuredName, stem) {
+  const want = String(configuredName || '').trim().toLowerCase();
+  if (!want) return null;
+
+  // 1. Exact (case/space-insensitive) match on the configured name.
+  try {
+    const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(configuredName)}&per-page=25`);
+    const items = res.items || res.data || [];
+    const exact = items.find(c => String(c.customer_name || '').trim().toLowerCase() === want);
+    if (exact) return exact.customer_name;
+  } catch (e) { /* fall through to stem search */ }
+
+  // 2. Stem search — find the single RESQ sync customer for this brand.
+  const s = String(stem || '').trim().toLowerCase();
+  if (s) {
+    try {
+      const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(stem)}&per-page=50`);
+      const items = res.items || res.data || [];
+      const resq = items.filter(c => {
+        const n = String(c.customer_name || '').toLowerCase();
+        return n.includes(s) && n.includes('resq');
+      });
+      if (resq.length === 1) return resq[0].customer_name;
+    } catch (e) { /* fall through */ }
+  }
+  return null;
 }
 
 // --- SF Helpers ---
