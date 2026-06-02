@@ -435,6 +435,10 @@ function renderSyncCustomers(data){
           <input id="sfq-${c.id}" placeholder="search Service Fusion…" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchSf(${c.id});}">
           <button onclick="searchSf(${c.id})" style="${btnCss('#1F4E79')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Find</button>
         </div>
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <input id="sfid-${c.id}" value="${esc(c.sf_customer_id||'')}" placeholder="or paste SF customer # directly" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();linkSfId(${c.id});}">
+          <button onclick="linkSfId(${c.id})" style="${btnCss('#059669')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Save #</button>
+        </div>
         <div id="sfres-${c.id}"></div>
       </td>
       <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id},this.value)" placeholder="facility keywords, comma-separated" style="${inp}"></td>
@@ -474,6 +478,11 @@ async function searchSf(id){
   }catch(e){ box.innerHTML=`<div style="color:#EF4444;font-size:0.72rem;padding:4px">Search failed: ${esc(e.message)}</div>`; }
 }
 async function linkSf(id,sfId,sfName){ await postSyncCustomer({action:'update',id,sf_customer_id:sfId,sf_customer_name:sfName}); }
+// Manual SF customer number entry (bypasses the SF search entirely).
+async function linkSfId(id){
+  const v=(document.getElementById('sfid-'+id).value||'').trim();
+  await postSyncCustomer({action:'update',id,sf_customer_id:v||null});
+}
 async function linkCandidate(id,name){
   const stem=String(name||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0]||'';
   const kw=prompt(`Link “${name}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`,stem);
