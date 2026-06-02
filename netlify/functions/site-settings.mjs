@@ -11,7 +11,6 @@ import { requireAuth } from './lib/auth.mjs';
 import { corsHeaders } from './qbo-helpers.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TABLE = `${SUPABASE_URL}/rest/v1/site_settings`;
 
 function json(body, status = 200) {
@@ -46,7 +45,9 @@ export async function handler(event) {
 
   const auth = await requireAuth(event);
   if (!auth.ok) return auth.response;
-  if (!SERVICE_KEY) return json({ error: 'SUPABASE_SERVICE_ROLE_KEY not configured' }, 500);
+  // apbg-billing has no service-role key — write with the caller's superadmin
+  // JWT and let RLS authorize (requireAuth already gated to superadmin).
+  const authHeader = event.headers?.authorization || event.headers?.Authorization;
 
   try {
     const body = JSON.parse(event.body || '{}');
@@ -59,8 +60,8 @@ export async function handler(event) {
     const res = await fetch(`${TABLE}?on_conflict=key`, {
       method: 'POST',
       headers: {
-        apikey: SERVICE_KEY,
-        Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: authHeader,
         'Content-Type': 'application/json',
         'Accept-Profile': 'ops',
         'Content-Profile': 'ops',

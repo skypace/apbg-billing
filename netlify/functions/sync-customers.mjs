@@ -9,14 +9,13 @@
 //   POST { action: 'unlink', id }            -> soft-unlink (linked=false)
 //   POST { action: 'relink', id }            -> set linked=true
 //
-// Reads use the anon key (RLS allows SELECT). Writes use the service-role key.
-// Superadmin JWT required (requireAuth).
+// Reads use the anon key (RLS allows SELECT). Writes use the caller's superadmin
+// JWT + RLS (apbg-billing has no service-role key). Superadmin required (requireAuth).
 
 import { qboQuery, corsHeaders } from './qbo-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TABLE = `${SUPABASE_URL}/rest/v1/sync_customers`;
 
 function json(body, status = 200) {
@@ -32,13 +31,14 @@ async function sbRead() {
   return res.json();
 }
 
-async function sbWrite(method, body, query = '') {
-  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY not configured');
+// Writes use the caller's superadmin JWT + RLS (apbg-billing has no service
+// role key). requireAuth already gated to superadmin; RLS double-checks.
+async function sbWrite(authHeader, method, body, query = '') {
   const res = await fetch(`${TABLE}${query}`, {
     method,
     headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeader,
       'Content-Type': 'application/json',
       'Accept-Profile': 'ops',
       'Content-Profile': 'ops',
@@ -63,6 +63,7 @@ export async function handler(event) {
 
   const auth = await requireAuth(event);
   if (!auth.ok) return auth.response;
+  const authHeader = event.headers?.authorization || event.headers?.Authorization;
 
   try {
     if (event.httpMethod === 'GET') {
@@ -99,7 +100,7 @@ export async function handler(event) {
         linked: true,
         notes: body.notes || null,
       };
-      const result = await sbWrite('POST', [row], '?on_conflict=qbo_customer_id');
+      const result = await sbWrite(authHeader, 'POST', [row], '?on_conflict=qbo_customer_id');
       return json({ ok: true, customer: Array.isArray(result) ? result[0] : result });
     }
 
@@ -114,13 +115,13 @@ export async function handler(event) {
       if (body.notes !== undefined) patch.notes = body.notes || null;
       if (body.linked !== undefined) patch.linked = !!body.linked;
       if (Object.keys(patch).length === 0) return json({ error: 'no fields to update' }, 400);
-      const result = await sbWrite('PATCH', patch, `?id=eq.${encodeURIComponent(body.id)}`);
+      const result = await sbWrite(authHeader, 'PATCH', patch, `?id=eq.${encodeURIComponent(body.id)}`);
       return json({ ok: true, customer: Array.isArray(result) ? result[0] : result });
     }
 
     if (action === 'unlink' || action === 'relink') {
       if (!body.id) return json({ error: 'id required' }, 400);
-      const result = await sbWrite('PATCH', { linked: action === 'relink' }, `?id=eq.${encodeURIComponent(body.id)}`);
+      const result = await sbWrite(authHeader, 'PATCH', { linked: action === 'relink' }, `?id=eq.${encodeURIComponent(body.id)}`);
       return json({ ok: true, customer: Array.isArray(result) ? result[0] : result });
     }
 
