@@ -12,6 +12,7 @@
 import { sfRequest } from './sf-helpers.mjs';
 import { qboRequest, qboQuery, corsHeaders } from './qbo-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
+import { loadSyncCustomers, classifySyncCustomer } from './lib/sync-customers.mjs';
 
 const ACCOUNT_MAP = {
   equipment: { id: '42', name: 'Equipment Sales COGS' },
@@ -19,14 +20,11 @@ const ACCOUNT_MAP = {
 };
 const DEFAULT_ACCOUNT = ACCOUNT_MAP.service;
 
-// QBO customer name to attach to bills coming from each ResQ facility.
-// Only facilities listed here trigger the customer attachment; bills for
-// other facilities (e.g. Brix warehouse) are still created but without
-// a CustomerRef, matching pre-feature behavior.
-const RESQ_CUSTOMER_MAP = {
-  starbird: 'STARBIRD CHICKEN RESQ',
-  melt:     'THE MELT RESQ',
-};
+// The ResQ-facility ↔ QBO-customer mapping is no longer hardcoded here — it
+// lives in ops.sync_customers (single source of truth, managed in sync.html →
+// Settings). Bills for facilities that match a linked customer get a
+// CustomerRef (using the row's qbo_customer_id directly — no fuzzy name
+// lookup); bills for anything else are still created without one.
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -336,13 +334,21 @@ async function findQBOVendor(name) {
 }
 
 // ── Resolve which ResQ customer a bill belongs to ──
-// Strategy: look up the wo-mapping blob first (most reliable — it stores
-// the customer key set by classifyFacility). Fall back to inspecting the
-// SF job's customer_name.
+// Uses the ops.sync_customers identity map (single source of truth). We resolve
+// to a linked customer via, in order:
+//   1. the wo-mapping blob (customerQboId, set by the sync worker) — exact id;
+//   2. the wo-mapping blob's facility / legacy customer keyword — classify;
+//   3. the SF job's customer_name — match against linked names/keywords.
+// Because the map stores qbo_customer_id, we build the CustomerRef directly —
+// no fuzzy QBO name search.
 async function resolveResqCustomer({ sfJobId, resqCode }) {
-  let key = null;
+  const customers = await loadSyncCustomers().catch(() => []);
+  const byId = (id) => customers.find(c => String(c.qbo_customer_id) === String(id));
 
-  // 1. wo-mapping blob keyed by ResQ code
+  let cust = null;
+  let facilityHint = null;
+
+  // 1 + 2. wo-mapping blob keyed by ResQ code
   if (resqCode) {
     try {
       const { getStore } = await import('@netlify/blobs');
@@ -355,57 +361,44 @@ async function resolveResqCustomer({ sfJobId, resqCode }) {
       if (raw) {
         const mapping = JSON.parse(raw);
         for (const v of Object.values(mapping)) {
-          if (v.resqCode === resqCode && v.customer) { key = v.customer; break; }
+          if (v.resqCode !== resqCode) continue;
+          facilityHint = v.facility || null;
+          if (v.customerQboId) cust = byId(v.customerQboId);
+          if (!cust && v.facility) cust = classifySyncCustomer(v.facility, customers);
+          // legacy: v.customer was a facility keyword ('starbird'/'melt')
+          if (!cust && v.customer) cust = classifySyncCustomer(String(v.customer), customers);
+          break;
         }
       }
     } catch (e) { /* fall through */ }
   }
 
-  // 2. Inspect the SF job's customer_name
-  if (!key && sfJobId) {
+  // 3. Inspect the SF job's customer_name + match against linked customers
+  if (!cust && sfJobId) {
     try {
       const sfJob = await sfRequest('GET', `/jobs/${sfJobId}`);
       const sfName = (sfJob.customer_name || '').toLowerCase();
-      if (sfName.includes('starbird') || sfName.includes('star bird')) key = 'starbird';
-      else if (sfName.includes('melt') || sfName.includes('homeroom')) key = 'melt';
-      else if (sfName.includes('brix')) key = 'brix';
+      cust = customers.find(c => {
+        const names = [c.qbo_customer_name, c.sf_customer_name].filter(Boolean).map(n => n.toLowerCase());
+        if (names.some(n => sfName.includes(n) || n.includes(sfName))) return true;
+        return (c.resq_facility_keywords || []).some(k => k && sfName.includes(String(k).toLowerCase()));
+      }) || null;
     } catch (e) { /* fall through */ }
   }
 
-  // Facility not in the auto-attach list (or unknown) — return a "no attachment"
-  // result. The handler will create the bill without a CustomerRef.
-  if (!key || !RESQ_CUSTOMER_MAP[key]) {
-    return { key, qboName: null, qboCustomer: null };
+  if (!cust) {
+    // No linked customer — create the bill without a CustomerRef (as before).
+    return { key: null, qboName: null, qboCustomer: null, facilityHint };
   }
 
-  const qboName = RESQ_CUSTOMER_MAP[key];
-  const qboCustomer = await findQBOCustomer(qboName);
-  return { key, qboName, qboCustomer };
-}
-
-// ── Find QBO customer by exact DisplayName, then fuzzy fallback ──
-async function findQBOCustomer(name) {
-  if (!name) return null;
-  // Exact match first (fast path)
-  try {
-    const exact = await qboQuery(`SELECT * FROM Customer WHERE DisplayName = '${name.replace(/'/g, "\\'")}'`);
-    const customers = exact.QueryResponse?.Customer || [];
-    if (customers.length > 0) return customers[0];
-  } catch (e) {}
-  // Fuzzy: try the most distinctive word (skip "RESQ", "THE", short words)
-  try {
-    const words = name.split(/[\s:]+/).filter(w => w.length > 2 && !/^(resq|the)$/i.test(w));
-    for (const word of words) {
-      const clean = word.replace(/[^a-zA-Z0-9]/g, '');
-      if (!clean) continue;
-      const like = await qboQuery(`SELECT * FROM Customer WHERE DisplayName LIKE '%${clean}%'`);
-      const customers = like.QueryResponse?.Customer || [];
-      // Only return if it's the resq variant (must contain RESQ)
-      const resqMatch = customers.find(c => /resq/i.test(c.DisplayName || ''));
-      if (resqMatch) return resqMatch;
-    }
-  } catch (e) {}
-  return null;
+  // We have the QBO id from the map — build the CustomerRef directly.
+  return {
+    key: cust.qbo_customer_id,
+    qboName: cust.qbo_customer_name,
+    qboCustomer: { Id: String(cust.qbo_customer_id), DisplayName: cust.qbo_customer_name },
+    cogsAccountId: cust.qbo_cogs_account_id || null,
+    facilityHint,
+  };
 }
 
 function round(n) { return Math.round(n * 100) / 100; }

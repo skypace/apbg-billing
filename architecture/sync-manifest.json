@@ -297,6 +297,18 @@
       ],
       "notes": "Mirrors QBO-direct PurchaseOrders into shadow tables so the inventory On Order column (fn_items_master.on_order CTE) counts POs that were never created through BRIX. Per-PO picker modal in app/src/pages/production/QboPosPickerModal.tsx. Bearer-only auth (any logged-in @brixbev.com employee can preview + import). Upserts headers by qbo_id; lines are replaced wholesale on each import. De-dup with ops.purchase_orders.qbo_purchase_order_id so a BRIX-native PO pushed to QBO isn't counted twice. Migration: 20260516b_qbo_purchase_orders_shadow.sql.",
       "last_verified": "2026-05-16"
+    },
+    {
+      "name": "sync-customers",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (operator manages linked customers in the sync.html Settings section)",
+      "writes": [
+        "ops.sync_customers"
+      ],
+      "external_inputs": ["QuickBooks Online API: Customer (discovers RESQ-named candidates)"],
+      "notes": "Phase 1 of resq-sf-sync v2. Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). Replaces the drifted string literals in resq-sf-sync-background.mjs (SF_CUSTOMERS/FACILITY_MAP) and expense-to-bill.mjs (RESQ_CUSTOMER_MAP). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945). Read at runtime by resq-sf-sync-background and expense-to-bill via netlify/functions/lib/sync-customers.mjs.",
+      "last_verified": "2026-06-02"
     }
   ],
 

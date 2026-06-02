@@ -18,20 +18,13 @@
 import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
+import { loadSyncCustomers, classifySyncCustomer, allFacilityKeywords, sfNameFor, stemFor } from './lib/sync-customers.mjs';
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
-const SF_CUSTOMERS = {
-  starbird: { name: 'STARBIRD CHICKEN: RESQ' },
-  melt: { name: 'THE MELT RESQ' },
-  brix: { name: 'BRIX BEVERAGE: RESQ' },
-};
-
-const FACILITY_MAP = [
-  { keywords: ['starbird', 'star bird'], sfCustomer: 'starbird' },
-  { keywords: ['melt', 'homeroom'], sfCustomer: 'melt' },
-  { keywords: ['brix', 'equipment storage'], sfCustomer: 'brix' },
-];
+// Customer identity (ResQ facility <-> SF customer <-> QBO customer) now lives
+// in ops.sync_customers, loaded once per run and threaded through the worker.
+// See netlify/functions/lib/sync-customers.mjs + migration 20260602a.
 
 // ResQ statuses that mean "done" — don't create new SF jobs for these
 const RESQ_DONE_STATUSES = ['AWAITING_PAYMENT', 'CLOSED', 'CANCELLED'];
@@ -90,17 +83,18 @@ export async function handler(event) {
       throw new Error('SF not connected: ' + e.message);
     }
 
-    // 3. Load mapping + fetch WOs
+    // 3. Load mapping + the linked-customer identity map + fetch WOs
     const mapping = await loadMapping();
     log.steps.push(`Loaded ${Object.keys(mapping).length} mappings`);
 
+    const syncCustomers = await loadSyncCustomers();
+    log.steps.push(`Loaded ${syncCustomers.length} linked customers: ${syncCustomers.map(c => c.qbo_customer_name).join(', ') || '(none)'}`);
+
     log.steps.push('Fetching ResQ WOs...');
     await saveProgress();
-    const resqWOs = await fetchSyncableWOs(session);
+    const resqWOs = await fetchSyncableWOs(session, syncCustomers);
     log.steps.push(`Found ${resqWOs.length} syncable WOs`);
     await saveProgress();
-
-    const sfCustomerNames = { melt: SF_CUSTOMERS.melt.name, starbird: SF_CUSTOMERS.starbird.name, brix: SF_CUSTOMERS.brix.name };
 
     // 4. Process each WO
     log.steps.push('Processing WOs...');
@@ -130,7 +124,7 @@ export async function handler(event) {
             continue;
           }
 
-          const r = await withTimeout(processNewWO(wo, mapping, sfCustomerNames), 15000, `process ${wo.code}`);
+          const r = await withTimeout(processNewWO(wo, mapping, syncCustomers), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           if (r.report?.length) dedupeReport.push(...r.report);
@@ -217,17 +211,19 @@ function withTimeout(promise, ms, label) {
 }
 
 // --- Process new unmapped WO ---
-async function processNewWO(wo, mapping, sfCustomerNames) {
+async function processNewWO(wo, mapping, syncCustomers) {
   const result = { steps: [], errors: [], created: 0, report: [] };
-  const sfCustomerKey = classifyFacility(wo.facility);
-  if (!sfCustomerKey) {
-    result.steps.push(`Skip ${wo.code}: "${wo.facility}" not Starbird/Melt/Brix`);
+  const cust = classifySyncCustomer(wo.facility, syncCustomers);
+  if (!cust) {
+    const names = syncCustomers.map(c => c.qbo_customer_name).join(' / ') || 'no linked customers';
+    result.steps.push(`Skip ${wo.code}: "${wo.facility}" matches no linked customer (${names})`);
     return result;
   }
 
-  const customerName = sfCustomerNames[sfCustomerKey];
+  const sfCustomerKey = stemFor(cust) || cust.qbo_customer_id;
+  const customerName = sfNameFor(cust);
   if (!customerName) {
-    result.errors.push(`No SF customer name for "${sfCustomerKey}".`);
+    result.errors.push(`No SF/QBO customer name on linked customer ${cust.qbo_customer_id}.`);
     return result;
   }
 
@@ -261,7 +257,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
           sfJobNumber: best.number || best.job_number || best.id,
           resqCode: wo.code, resqStatus: wo.status,
           sfStatus: best.status || 'Unscheduled',
-          facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+          facility: wo.facility, customer: sfCustomerKey, customerQboId: cust.qbo_customer_id, customerName, title: wo.title,
           createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
           linkedExisting: true, reconciled: true,
         };
@@ -278,7 +274,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
         sfJobNumber: fallback.number || fallback.job_number || fallback.id,
         resqCode: wo.code, resqStatus: wo.status,
         sfStatus: fallback.status || 'Unscheduled',
-        facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+        facility: wo.facility, customer: sfCustomerKey, customerQboId: cust.qbo_customer_id, customerName, title: wo.title,
         createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
         linkedExisting: true, reconciled: true,
       };
@@ -307,10 +303,10 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
     // a punctuation/spacing drift (e.g. "STARBIRD CHICKEN: RESQ" vs the actual
     // record) makes every create throw and the WO never maps — ResQ then drifts
     // away from SF. Self-heal small mismatches; otherwise fail loudly so the
-    // operator can correct the SF record / SF_CUSTOMERS entry.
+    // operator can correct the SF record / the ops.sync_customers row.
     const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
     if (!resolvedName) {
-      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Fix the SF customer record name or SF_CUSTOMERS.`);
+      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Fix the SF customer record name or the ops.sync_customers row (sync.html → Settings).`);
       result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
       return result;
     }
@@ -324,7 +320,7 @@ async function processNewWO(wo, mapping, sfCustomerNames) {
       sfJobId: sfJob.id,
       sfJobNumber: sfJob.number || sfJob.job_number || sfJob.id,
       resqCode: wo.code, resqStatus: wo.status, sfStatus: targetSfStatus,
-      facility: wo.facility, customer: sfCustomerKey, title: wo.title,
+      facility: wo.facility, customer: sfCustomerKey, customerQboId: cust.qbo_customer_id, customerName, title: wo.title,
       createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
       reconciled: true,
     };
@@ -508,7 +504,8 @@ async function syncBidirectional(session, resqWO, mapEntry) {
 }
 
 // --- Fetch syncable ResQ WOs ---
-async function fetchSyncableWOs(session) {
+async function fetchSyncableWOs(session, syncCustomers) {
+  const facilityKeywords = allFacilityKeywords(syncCustomers);
   const data = await resqGql(session, `{
     workOrders(first: 500, orderBy: "-raised_on") {
       edges { node {
@@ -533,7 +530,7 @@ async function fetchSyncableWOs(session) {
       const v = `${e.node.vendor?.name || ''} ${e.node.executingVendor?.name || ''}`.toLowerCase();
       if (!BRIX_VENDOR_KEYWORDS.some(k => v.includes(k))) return false;
       const f = (e.node.facility?.name || '').toLowerCase();
-      return FACILITY_MAP.some(fm => fm.keywords.some(k => f.includes(k)));
+      return facilityKeywords.some(k => f.includes(k));
     })
     .map(e => {
       const n = e.node;
@@ -702,14 +699,6 @@ async function createSfJob(resqWO, customerName) {
     priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
     po_number: resqRef,
   });
-}
-
-function classifyFacility(facilityName) {
-  const f = (facilityName || '').toLowerCase();
-  for (const fm of FACILITY_MAP) {
-    if (fm.keywords.some(k => f.includes(k))) return fm.sfCustomer;
-  }
-  return null;
 }
 
 // --- Transfer SF Photos → ResQ ---
