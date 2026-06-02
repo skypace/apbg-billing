@@ -324,9 +324,9 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // record) makes every create throw and the WO never maps — ResQ then drifts
     // away from SF. Self-heal small mismatches; otherwise fail loudly so the
     // operator can correct the SF record / the ops.sync_customers row.
-    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
+    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
     if (!resolvedName) {
-      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Fix the SF customer record name or the ops.sync_customers row (sync.html → Settings).`);
+      result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Link the SF customer in the control panel (Linked Customers → search Service Fusion).`);
       result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
       return result;
     }
@@ -668,18 +668,31 @@ async function cancelSfJob(jobId) {
 // Resolve the configured SF customer name to a real SF customer record name.
 // Returns the exact SF `customer_name` to use, or null when no confident match
 // exists (caller then fails loudly instead of creating a job SF will reject).
+//   0. Linked SF id (rename-proof) — when ops.sync_customers.sf_customer_id is
+//      set, resolve the live name straight from that SF record. This is the
+//      durable path: a rename in SF can't break the sync.
 //   1. Exact match (case/whitespace-insensitive) on the configured name.
 //   2. Stem search — exactly one RESQ sync customer containing the brand stem
 //      (e.g. "starbird") self-heals punctuation/spacing drift.
 // Conservative on purpose: never guesses between multiple candidates.
-async function resolveSfCustomerName(configuredName, stem) {
+async function resolveSfCustomerName(configuredName, stem, sfCustomerId) {
+  // 0. Linked SF id — resolve the current name straight from the record.
+  if (sfCustomerId) {
+    try {
+      const res = await sfRequest('GET', `/customers/${encodeURIComponent(sfCustomerId)}`);
+      const c = res?.customer || res?.data || res;
+      const name = c?.customer_name || c?.name;
+      if (name) return name;
+    } catch (e) { /* fall through to name search */ }
+  }
+
   const want = String(configuredName || '').trim().toLowerCase();
   if (!want) return null;
 
   // 1. Exact (case/space-insensitive) match on the configured name.
   try {
     const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(configuredName)}&per-page=25`);
-    const items = res.items || res.data || [];
+    const items = res.items || res.data || (Array.isArray(res) ? res : []);
     const exact = items.find(c => String(c.customer_name || '').trim().toLowerCase() === want);
     if (exact) return exact.customer_name;
   } catch (e) { /* fall through to stem search */ }
@@ -689,7 +702,7 @@ async function resolveSfCustomerName(configuredName, stem) {
   if (s) {
     try {
       const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(stem)}&per-page=50`);
-      const items = res.items || res.data || [];
+      const items = res.items || res.data || (Array.isArray(res) ? res : []);
       const resq = items.filter(c => {
         const n = String(c.customer_name || '').toLowerCase();
         return n.includes(s) && n.includes('resq');

@@ -429,7 +429,14 @@ function renderSyncCustomers(data){
     const toggle=c.linked?`<button onclick="setLinked(${c.id},false)" style="${btnCss('#DC2626')};padding:4px 10px;font-size:0.72rem">Unlink</button>`:`<button onclick="setLinked(${c.id},true)" style="${btnCss('#059669')};padding:4px 10px;font-size:0.72rem">Re-link</button>`;
     return `<tr style="border-top:1px solid #F1F3F5">
       <td style="padding:6px 8px"><strong>${esc(c.qbo_customer_name)}</strong><div style="color:#9CA3AF;font-size:0.7rem">QBO #${esc(c.qbo_customer_id)}</div></td>
-      <td style="padding:6px 8px"><input value="${esc(c.sf_customer_name||c.qbo_customer_name)}" onchange="saveSfName(${c.id},this.value)" title="Service Fusion customer name jobs are created under" style="${inp}"></td>
+      <td style="padding:6px 8px">
+        <div style="font-size:0.78rem;margin-bottom:4px">${c.sf_customer_id?`<span style="color:#065F46">✓ ${esc(c.sf_customer_name||'')}</span> <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(c.sf_customer_id)}</span>`:`<span style="color:#B45309">⚠ ${esc(c.sf_customer_name||c.qbo_customer_name)}</span> <span style="color:#9CA3AF;font-size:0.68rem">(not linked to an SF record)</span>`}</div>
+        <div style="display:flex;gap:4px">
+          <input id="sfq-${c.id}" placeholder="search Service Fusion…" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchSf(${c.id});}">
+          <button onclick="searchSf(${c.id})" style="${btnCss('#1F4E79')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Find</button>
+        </div>
+        <div id="sfres-${c.id}"></div>
+      </td>
       <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id},this.value)" placeholder="facility keywords, comma-separated" style="${inp}"></td>
       <td style="padding:6px 8px">${badge}</td>
       <td style="padding:6px 8px">${toggle}</td></tr>`;
@@ -448,6 +455,25 @@ function renderSyncCustomers(data){
 async function setLinked(id,linked){ await postSyncCustomer({action:linked?'relink':'unlink',id}); }
 async function saveKeywords(id,v){ await postSyncCustomer({action:'update',id,resq_facility_keywords:v}); }
 async function saveSfName(id,v){ await postSyncCustomer({action:'update',id,sf_customer_name:v}); }
+// Live SF customer search → link by id (so name drift can't break the sync).
+async function searchSf(id){
+  const q=(document.getElementById('sfq-'+id).value||'').trim();
+  const box=document.getElementById('sfres-'+id);
+  if(!q){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="color:#9CA3AF;font-size:0.72rem;padding:4px">Searching Service Fusion…</div>';
+  try{
+    const res=await fetch(`${APBG_FN}/sync-customers?sfSearch=${encodeURIComponent(q)}`);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    const results=data.results||[];
+    if(!results.length){ box.innerHTML=`<div style="color:#B45309;font-size:0.72rem;padding:4px">No SF customers match “${esc(q)}”${data.error?` — ${esc(data.error)}`:''}</div>`; return; }
+    box.innerHTML=results.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px;border-top:1px solid #F1F3F5;font-size:0.76rem">
+      <span>${esc(r.name)} <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(r.id)}</span></span>
+      <button onclick="linkSf(${id},'${esc(r.id)}','${esc(r.name).replace(/'/g,'&#39;')}')" style="${btnCss('#059669')};padding:3px 8px;font-size:0.68rem">Use</button>
+    </div>`).join('');
+  }catch(e){ box.innerHTML=`<div style="color:#EF4444;font-size:0.72rem;padding:4px">Search failed: ${esc(e.message)}</div>`; }
+}
+async function linkSf(id,sfId,sfName){ await postSyncCustomer({action:'update',id,sf_customer_id:sfId,sf_customer_name:sfName}); }
 async function linkCandidate(id,name){
   const stem=String(name||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0]||'';
   const kw=prompt(`Link “${name}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`,stem);
