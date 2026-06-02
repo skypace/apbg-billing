@@ -215,6 +215,13 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
       <button class="secondary" id="clearErrBtn" onclick="clearErrors()">🧹 Clear Errors</button>
     </div>
 
+    <div class="actions" style="margin-top:-12px">
+      <input id="syncOneCode" placeholder="ResQ WO code (e.g. R12345)" style="padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:0.9rem;min-width:220px">
+      <button class="secondary" id="syncOneBtn" onclick="syncOneWO()">⚡ Sync this WO now</button>
+      <button class="secondary" id="pullPhotosBtn" onclick="pullPhotos()">📷 Pull SF photos → ResQ</button>
+      <span id="syncOneResult" style="align-self:center;font-size:0.82rem;color:#6B7280"></span>
+    </div>
+
     <!-- Linked Customers moved to Master Control -->
     <div class="section">
       <h2>⚙️ Linked Customers</h2>
@@ -411,6 +418,44 @@ async function loadStatus() {
     document.getElementById('lastSyncSub').textContent = e.message;
     document.getElementById('cardLastSync').className = 'stat-card err';
   }
+}
+
+// --- Sync one WO now (force-sync a single work order) ---
+async function syncOneWO() {
+  const code = (document.getElementById('syncOneCode').value || '').trim();
+  const out = document.getElementById('syncOneResult');
+  if (!code) { out.textContent = 'Enter a ResQ WO code first.'; return; }
+  const btn = document.getElementById('syncOneBtn');
+  btn.disabled = true; out.textContent = 'Syncing ' + code + '…';
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?syncOne=${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const msg = (data.steps && data.steps.length) ? data.steps[data.steps.length - 1] : 'No change';
+    out.textContent = `${code}: ${msg}` + (data.errors && data.errors.length ? ` — ${data.errors.length} error(s)` : '');
+    loadStatus(); loadSyncEvents();
+  } catch (e) {
+    out.textContent = `${code}: failed — ${e.message}`;
+  } finally { btn.disabled = false; }
+}
+
+// --- Pull SF photos → ResQ visit (auto-pull, no manual upload) ---
+async function pullPhotos() {
+  const code = (document.getElementById('syncOneCode').value || '').trim();
+  const out = document.getElementById('syncOneResult');
+  if (!code) { out.textContent = 'Enter a ResQ WO code first.'; return; }
+  const btn = document.getElementById('pullPhotosBtn');
+  btn.disabled = true; out.textContent = 'Pulling SF photos for ' + code + '…';
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?autoPhotos=${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    let msg = `${code}: ${data.imagesUploaded || 0}/${data.picturesFound || 0} photo(s) → ResQ`;
+    if (data.fetchErrors && data.fetchErrors.length) msg += ` (${data.fetchErrors.length} fetch error[s])`;
+    out.textContent = msg;
+  } catch (e) {
+    out.textContent = `${code}: photo pull failed — ${e.message}`;
+  } finally { btn.disabled = false; }
 }
 
 // --- Run Sync ---

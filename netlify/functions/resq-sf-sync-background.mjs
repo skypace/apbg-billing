@@ -1244,3 +1244,65 @@ async function saveBlob(key, value) {
     if (store) await store.set(key, value);
   } catch (e) {}
 }
+
+// --- Single work-order sync (Phase 3: on-demand / webhook target) ---
+// Runs the same bidirectional sync as the cron, but for exactly one ResQ WO,
+// identified by its code. Reuses the proven create/dedup + status/invoice
+// logic. Returns { steps, errors, created, updated }.
+export async function syncSingleByCode(resqCode) {
+  const out = { steps: [], errors: [], created: 0, updated: 0, resqCode };
+  const code = String(resqCode || '').replace(/^R/i, '').trim();
+  if (!code) { out.errors.push('resqCode required'); return out; }
+
+  let session;
+  try { session = await resqLogin(); }
+  catch (e) { out.errors.push(`ResQ login: ${e.message}`); return out; }
+
+  // Fetch this one WO with the same node shape fetchSyncableWOs uses.
+  let n;
+  try {
+    const data = await resqGql(session, `query($code:String){ workOrders(first:5, code:$code){ edges { node {
+      id code title description status statusDescription
+      raisedOn completedOn scheduledForStart scheduledForEnd
+      spend vendorTotal isUrgent isCallback onHold serviceCategory
+      facility { id name } equipment { id name } vendor { id name } executingVendor { id name }
+    } } } }`, { code });
+    const edges = data.data?.workOrders?.edges || [];
+    n = (edges.find(e => e.node.code === code) || edges[0])?.node;
+  } catch (e) { out.errors.push(`ResQ lookup ${code}: ${e.message}`); return out; }
+  if (!n) { out.errors.push(`ResQ WO ${code} not found`); return out; }
+
+  const wo = {
+    id: n.id, code: n.code, title: n.title || '', description: n.description || '',
+    status: n.status, statusDescription: n.statusDescription || '',
+    raisedOn: n.raisedOn, completedOn: n.completedOn,
+    scheduledStart: n.scheduledForStart, scheduledEnd: n.scheduledForEnd,
+    spend: n.spend ? parseFloat(n.spend) : null, vendorTotal: n.vendorTotal ? parseFloat(n.vendorTotal) : null,
+    isUrgent: n.isUrgent, isCallback: n.isCallback, onHold: n.onHold, serviceCategory: n.serviceCategory,
+    facility: n.facility?.name || '', facilityId: n.facility?.id || '', equipment: n.equipment?.name || '',
+  };
+
+  const mapping = await loadMapping();
+  const syncCustomers = await loadSyncCustomers();
+
+  try {
+    let r;
+    if (mapping[wo.id]) {
+      if (mapping[wo.id].sfDeleted) { out.steps.push(`${wo.code}: linked SF job was deleted — skipped`); return out; }
+      r = await syncBidirectional(session, wo, mapping[wo.id]);
+      out.updated += r.updated || 0;
+    } else {
+      const st = (wo.status || '').toUpperCase();
+      if (RESQ_DONE_STATUSES.includes(st)) { out.steps.push(`${wo.code}: already ${wo.status} — no SF job created`); return out; }
+      r = await processNewWO(wo, mapping, syncCustomers);
+      out.created += r.created || 0;
+    }
+    if (r.steps?.length) out.steps.push(...r.steps);
+    if (r.errors?.length) out.errors.push(...r.errors);
+    await saveMapping(mapping);
+  } catch (e) {
+    out.errors.push(`${wo.code}: ${e.message}`);
+  }
+  return out;
+}
+

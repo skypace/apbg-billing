@@ -18,15 +18,28 @@ export async function handler(event) {
   if (qs.deleteMapping) return handleDeleteMapping(qs.deleteMapping);
   if (qs.uploadPhoto) return handleUploadPhoto(event, qs.uploadPhoto);
   if (qs.visitPhotos) return handleVisitPhotos(event, qs.visitPhotos);
+  if (qs.autoPhotos) return handleAutoPhotos(event, qs.autoPhotos);
   if (qs.introspect) return handleIntrospect(qs.introspect);
   if (qs.dedupeReport) return handleDedupeReport();
   if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
+  if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost(event);
   return { statusCode: 405, body: 'GET or POST only' };
+}
+
+// --- Sync one WO now (authed; powers the dashboard "force sync" button) ---
+async function handleSyncOne(code) {
+  try {
+    const { syncSingleByCode } = await import('./resq-sf-sync-background.mjs');
+    const result = await syncSingleByCode(code);
+    return json(result, result.errors.length ? 207 : 200);
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
 }
 
 // --- Lookup: Query ResQ for a specific WO code ---
@@ -282,75 +295,122 @@ async function handleUploadPhoto(event, resqWoId) {
 async function handleVisitPhotos(event, resqWoId) {
   if (event.httpMethod !== 'POST') return json({ error: 'POST required' }, 405);
   try {
-    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
     const body = JSON.parse(event.body || '{}');
     const files = body.files || [];
     const photoType = body.type || 'after'; // 'before' or 'after'
     if (!files.length) return json({ error: 'No files. Send { type: "before"|"after", files: [{ name, base64, contentType }] }' }, 400);
-
-    const session = await resqLogin();
-
-    // Get the visit ID from the WO — try by code first, then scan
-    // resqWoId could be a base64 WO ID or a code like R0960134
-    const isCode = /^R?\d+$/.test(resqWoId);
-    let visitId;
-    if (isCode) {
-      const code = resqWoId.startsWith('R') ? resqWoId : `R${resqWoId}`;
-      const woData = await resqGql(session, `{
-        workOrders(first: 1, code: "${code}") {
-          edges { node { latestVisit { id outcome } inProgressVisit { id outcome } } }
-        }
-      }`);
-      const woNode = woData.data?.workOrders?.edges?.[0]?.node;
-      visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
-    } else {
-      // Try to find by scanning recent WOs
-      const woData = await resqGql(session, `{
-        workOrders(first: 100, orderBy: "-raised_on") {
-          edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } } }
-        }
-      }`);
-      const match = woData.data?.workOrders?.edges?.find(e => e.node.id === resqWoId);
-      visitId = match?.node?.inProgressVisit?.id || match?.node?.latestVisit?.id;
-    }
-    if (!visitId) return json({ error: 'No visit found on this work order' }, 404);
-
-    // Build image array — ResQ expects data URLs
-    const images = files.map(f => {
-      const ct = f.contentType || 'image/jpeg';
-      return `data:${ct};base64,${f.base64}`;
-    });
-
-    const mutation = photoType === 'before' ? 'addBeforeImagesToVisit' : 'addAfterImagesToVisit';
-    const inputType = photoType === 'before' ? 'AddBeforeImagesToVisitInput' : 'AddAfterImagesToVisitInput';
-
-    const result = await resqGql(session, `mutation($input: ${inputType}!) {
-      ${mutation}(input: $input) { __typename }
-    }`, { input: {
-      visit: visitId,
-      images,
-    }});
-
-    // Mark photosSent in mapping
-    try {
-      const store = await getStore();
-      if (store) {
-        const raw = await store.get('wo-mapping');
-        const mapping = raw ? JSON.parse(raw) : {};
-        for (const [k, v] of Object.entries(mapping)) {
-          if (k === resqWoId || v.resqCode === resqWoId) {
-            v.photosSent = true;
-            v.lastSyncAt = new Date().toISOString();
-          }
-        }
-        await store.set('wo-mapping', JSON.stringify(mapping));
-      }
-    } catch (e) {}
-
-    return json({ ok: true, mutation, visitId, imagesUploaded: files.length });
+    const result = await pushFilesToVisit(resqWoId, photoType, files);
+    return json(result, result.ok ? 200 : (result.status || 500));
   } catch (e) {
     return json({ error: e.message }, 500);
   }
+}
+
+// --- Auto Photos: pull a SF job's pictures from SF and push to the ResQ visit ---
+// GET or POST ?autoPhotos=<resqWoIdOrCode>[&sfJob=<id>][&type=before|after]
+// Replaces the manual "upload pictures into the sync program" step: the bytes
+// come straight from Service Fusion (public S3, cookie fallback for portal-hosted
+// assets). If sfJob is omitted we resolve it from the wo-mapping blob by code/id.
+async function handleAutoPhotos(event, resqWoId) {
+  try {
+    const qs = event.queryStringParameters || {};
+    const photoType = qs.type || 'after';
+    let sfJobId = qs.sfJob || null;
+
+    if (!sfJobId) {
+      try {
+        const store = await getStore();
+        const raw = store ? await store.get('wo-mapping') : null;
+        const mapping = raw ? JSON.parse(raw) : {};
+        for (const [k, v] of Object.entries(mapping)) {
+          if (k === resqWoId || v.resqCode === resqWoId) { sfJobId = v.sfJobId; break; }
+        }
+      } catch (e) { /* fall through */ }
+    }
+    if (!sfJobId) return json({ error: 'No SF job id — pass ?sfJob=<id> or ensure the WO is mapped' }, 400);
+
+    const { listJobPictures, pictureToBase64 } = await import('./lib/sf-assets.mjs');
+    const pics = await listJobPictures(sfJobId);
+    if (!pics.length) return json({ ok: true, imagesUploaded: 0, picturesFound: 0, message: 'No pictures on SF job' });
+
+    const files = [];
+    const fetchErrors = [];
+    for (const p of pics) {
+      const r = await pictureToBase64(p);
+      if (r.ok) files.push({ name: r.name, base64: r.base64, contentType: r.contentType });
+      else fetchErrors.push(r.error);
+    }
+    if (!files.length) return json({ ok: false, error: 'Could not fetch any pictures from SF', picturesFound: pics.length, fetchErrors }, 502);
+
+    const result = await pushFilesToVisit(resqWoId, photoType, files);
+    return json({ ...result, sfJobId, picturesFound: pics.length, fetchErrors }, result.ok ? 200 : (result.status || 500));
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// Core: resolve the ResQ visit for a WO and upload before/after images.
+// files: [{ base64, contentType }]. Returns { ok, mutation, visitId, imagesUploaded }
+// or { ok:false, status, error }. Shared by the manual upload + auto-pull paths.
+async function pushFilesToVisit(resqWoId, photoType, files) {
+  const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+  const session = await resqLogin();
+
+  // Get the visit ID from the WO — try by code first, then scan
+  // resqWoId could be a base64 WO ID or a code like R0960134
+  const isCode = /^R?\d+$/.test(resqWoId);
+  let visitId;
+  if (isCode) {
+    const code = resqWoId.startsWith('R') ? resqWoId : `R${resqWoId}`;
+    const woData = await resqGql(session, `{
+      workOrders(first: 1, code: "${code}") {
+        edges { node { latestVisit { id outcome } inProgressVisit { id outcome } } }
+      }
+    }`);
+    const woNode = woData.data?.workOrders?.edges?.[0]?.node;
+    visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
+  } else {
+    // Try to find by scanning recent WOs
+    const woData = await resqGql(session, `{
+      workOrders(first: 100, orderBy: "-raised_on") {
+        edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } } }
+      }
+    }`);
+    const match = woData.data?.workOrders?.edges?.find(e => e.node.id === resqWoId);
+    visitId = match?.node?.inProgressVisit?.id || match?.node?.latestVisit?.id;
+  }
+  if (!visitId) return { ok: false, status: 404, error: 'No visit found on this work order' };
+
+  // Build image array — ResQ expects data URLs
+  const images = files.map(f => {
+    const ct = f.contentType || 'image/jpeg';
+    return `data:${ct};base64,${f.base64}`;
+  });
+
+  const mutation = photoType === 'before' ? 'addBeforeImagesToVisit' : 'addAfterImagesToVisit';
+  const inputType = photoType === 'before' ? 'AddBeforeImagesToVisitInput' : 'AddAfterImagesToVisitInput';
+
+  await resqGql(session, `mutation($input: ${inputType}!) {
+    ${mutation}(input: $input) { __typename }
+  }`, { input: { visit: visitId, images } });
+
+  // Mark photosSent in mapping
+  try {
+    const store = await getStore();
+    if (store) {
+      const raw = await store.get('wo-mapping');
+      const mapping = raw ? JSON.parse(raw) : {};
+      for (const [k, v] of Object.entries(mapping)) {
+        if (k === resqWoId || v.resqCode === resqWoId) {
+          v.photosSent = true;
+          v.lastSyncAt = new Date().toISOString();
+        }
+      }
+      await store.set('wo-mapping', JSON.stringify(mapping));
+    }
+  } catch (e) {}
+
+  return { ok: true, mutation, visitId, imagesUploaded: files.length };
 }
 
 // --- Reset Flags: Clear photosSent/invoiceSubmitted for a WO code ---
