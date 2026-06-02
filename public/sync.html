@@ -241,6 +241,12 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
       <div class="log" id="syncLog">No sync data yet. Click "Run Sync Now" to start.</div>
     </div>
 
+    <!-- Recent Sync Events (Phase 2 audit trail from ops.sync_events) -->
+    <div class="section">
+      <h2>🧾 Recent Sync Events <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— audit trail (newest first)</span></h2>
+      <div id="syncEventsBox" style="padding:12px 20px"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- Health Status -->
     <div class="section">
       <h2>🩺 Integration Health <span id="healthAge" style="font-weight:400;font-size:0.75rem;color:#9CA3AF"></span></h2>
@@ -300,7 +306,34 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('mainApp').style.display = 'block';
   loadStatus();
   loadSyncCustomers();
+  loadSyncEvents();
 });
+
+// --- Recent Sync Events (Phase 2) ---
+async function loadSyncEvents() {
+  const box = document.getElementById('syncEventsBox');
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-links?events=1&limit=50`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.status);
+    const evs = data.events || [];
+    if (!evs.length) { box.innerHTML = '<div class="empty">No events yet — they appear after the next sync run.</div>'; return; }
+    const color = a => a==='error' ? '#991B1B' : a==='created' ? '#065F46' : '#1F4E79';
+    box.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:4px 8px">When</th><th style="padding:4px 8px">ResQ</th><th style="padding:4px 8px">SF Job</th>
+        <th style="padding:4px 8px">Dir</th><th style="padding:4px 8px">Action</th><th style="padding:4px 8px">Message</th></tr></thead>
+      <tbody>${evs.map(e => `<tr style="border-top:1px solid #F1F3F5">
+        <td style="padding:4px 8px;color:#9CA3AF;white-space:nowrap">${timeAgo(e.created_at)}</td>
+        <td style="padding:4px 8px">${esc(e.resq_code||'—')}</td>
+        <td style="padding:4px 8px">${esc(e.sf_job_id||'—')}</td>
+        <td style="padding:4px 8px;color:#9CA3AF">${esc(e.direction||'')}</td>
+        <td style="padding:4px 8px;font-weight:600;color:${color(e.action)}">${esc(e.action)}</td>
+        <td style="padding:4px 8px;color:#4B5563">${esc(e.message||'')}</td></tr>`).join('')}</tbody></table>`;
+  } catch (e) {
+    box.innerHTML = `<div class="upload-result err" style="display:block">Failed to load events: ${esc(e.message)}</div>`;
+  }
+}
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 

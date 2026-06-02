@@ -64,6 +64,7 @@
     "qbo_pto_cache",
     "qbo_token_cache",
     "reman_jobs",
+    "resq_sf_links",
     "revenue_categories",
     "role_types",
     "sales_plan_lines",
@@ -75,6 +76,7 @@
     "staff",
     "staff_roles",
     "sync_customers",
+    "sync_events",
     "sync_log",
     "team_members",
     "third_party_crews"

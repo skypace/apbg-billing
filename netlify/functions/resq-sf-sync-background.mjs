@@ -19,6 +19,7 @@ import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sfRequest } from './sf-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
 import { loadSyncCustomers, classifySyncCustomer, allFacilityKeywords, sfNameFor, stemFor } from './lib/sync-customers.mjs';
+import { mapEntryToLinkRow, bulkUpsertLinks, bulkInsertEvents, eventFromResult } from './lib/resq-sf-links.mjs';
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
@@ -50,6 +51,7 @@ export async function handler(event) {
 
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
   const dedupeReport = [];
+  const syncEvents = []; // Phase 2: audit trail dual-written to ops.sync_events
 
   const saveProgress = async () => {
     try { await saveBlob('last-sync', JSON.stringify(log)); } catch (x) {}
@@ -116,6 +118,8 @@ export async function handler(event) {
           if (r.errors.length) log.errors.push(...r.errors);
           if (r.report?.length) dedupeReport.push(...r.report);
           log.updated += r.updated || 0;
+          const ev = eventFromResult(wo, mapping[wo.id], r, 'sf->resq');
+          if (ev) syncEvents.push(ev);
         } else {
           // New WO — skip if already done (awaiting payment, closed, etc.)
           const resqStatus = (wo.status || '').toUpperCase();
@@ -129,9 +133,12 @@ export async function handler(event) {
           if (r.errors.length) log.errors.push(...r.errors);
           if (r.report?.length) dedupeReport.push(...r.report);
           log.created += r.created || 0;
+          const ev = eventFromResult(wo, mapping[wo.id], r, 'resq->sf');
+          if (ev) syncEvents.push(ev);
         }
       } catch (e) {
         log.errors.push(`WO ${wo.code} failed: ${e.message}`);
+        syncEvents.push({ resq_wo_id: String(wo.id), resq_code: wo.code || null, sf_job_id: mapping[wo.id]?.sfJobId != null ? String(mapping[wo.id].sfJobId) : null, direction: 'system', action: 'error', ok: false, message: String(e.message || '').slice(0, 300) });
       }
 
       // Persist mapping after every WO so concurrent runs (and crash recovery)
@@ -155,6 +162,19 @@ export async function handler(event) {
       byReason: dedupeReport.reduce((acc, r) => { acc[r.reason] = (acc[r.reason] || 0) + 1; return acc; }, {}),
       items: dedupeReport,
     };
+
+    // Phase 2 dual-write: mirror the full mapping into ops.resq_sf_links and
+    // append this run's events to ops.sync_events. The Blob above stays the
+    // authoritative read source; this is additive and strictly non-fatal so a
+    // Supabase blip can never break the live sync.
+    try {
+      const linkRows = Object.entries(mapping).map(([id, e]) => mapEntryToLinkRow(id, e));
+      const linkCount = await bulkUpsertLinks(linkRows);
+      const evCount = await bulkInsertEvents(syncEvents);
+      log.steps.push(`Dual-write → ops: ${linkCount} links, ${evCount} events`);
+    } catch (e) {
+      log.errors.push(`Dual-write to ops failed (non-fatal): ${e.message.substring(0, 200)}`);
+    }
 
     await Promise.all([
       saveMapping(mapping),
