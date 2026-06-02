@@ -24,9 +24,21 @@ export async function handler(event) {
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
+  if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost(event);
   return { statusCode: 405, body: 'GET or POST only' };
+}
+
+// --- Sync one WO now (authed; powers the dashboard "force sync" button) ---
+async function handleSyncOne(code) {
+  try {
+    const { syncSingleByCode } = await import('./resq-sf-sync-background.mjs');
+    const result = await syncSingleByCode(code);
+    return json(result, result.errors.length ? 207 : 200);
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
 }
 
 // --- Lookup: Query ResQ for a specific WO code ---
