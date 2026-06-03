@@ -112,11 +112,13 @@ export default async function handler(req) {
     }
 
     // Live QBO query of every active Bank + Credit Card account.
+    // NOTE: no ORDER BY — QBO rejects a multi-column sort
+    // (`ORDER BY AccountType, Name`) with a 400, which surfaced here as a 502.
+    // We sort client-side below instead.
     const res = await qboQuery(
       `SELECT Id, Name, AccountType, AccountSubType, Active ` +
         `FROM Account ` +
-        `WHERE Active = true AND AccountType IN ('Bank','Credit Card') ` +
-        `ORDER BY AccountType, Name`
+        `WHERE Active = true AND AccountType IN ('Bank','Credit Card')`
     );
     const rows = res?.QueryResponse?.Account || [];
     const accounts = rows.map((a) => ({
@@ -126,6 +128,9 @@ export default async function handler(req) {
       account_sub_type: a.AccountSubType,
       payment_type: paymentTypeFor(a.AccountType),
     }));
+    accounts.sort(
+      (a, b) => a.account_type.localeCompare(b.account_type) || a.name.localeCompare(b.name),
+    );
     return json({
       accounts: allMode ? accounts : [...accounts, BILL_OPTION],
       source: 'qbo',
