@@ -12,7 +12,7 @@
 // service-role key — so the cookie path is a no-op until SUPABASE_SERVICE_ROLE_KEY
 // is set on this site; the public-S3 path works without it.
 
-import { sfRequest } from '../sf-helpers.mjs';
+import { sfRequest, getSFAccessToken } from '../sf-helpers.mjs';
 
 const SF_S3_BASE = 'https://servicefusion.s3.amazonaws.com';
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
@@ -69,19 +69,28 @@ function isBinaryOk(res, ct) {
   return res.ok && !/text\/html|application\/xml/i.test(ct);
 }
 
-// Fetch asset bytes. For SF portal hosts (admin/api.servicefusion.com) the
-// cookie is required, so try it FIRST; for the public S3 prefix, anonymous.
+// Fetch asset bytes, host-aware — mirrors brix-order's get-sf-job-asset:
+//   api.servicefusion.com   → Bearer first, then Cookie
+//   admin.servicefusion.com → Cookie first, then Bearer
+//   public S3 prefix        → anonymous
 export async function fetchSfAssetBytes(url) {
   const baseHeaders = { Accept: 'image/*,application/pdf,*/*', 'User-Agent': 'apbg-billing-sync/1.0' };
   let host = '';
   try { host = new URL(url).hostname; } catch { /* malformed */ }
-  const isCookieHost = ALLOWED_COOKIE_HOSTS.has(host);
-  const cookie = isCookieHost ? await getPortalCookies() : null;
+  const isApi = host === 'api.servicefusion.com';
+  const isAdmin = host === 'admin.servicefusion.com';
 
-  // Attempt order: cookie first for portal hosts, then anonymous (S3 / fallback).
   const attempts = [];
-  if (cookie) attempts.push({ Cookie: cookie });
-  attempts.push(null);
+  if (isApi || isAdmin) {
+    let bearer = null;
+    try { bearer = await getSFAccessToken(); } catch { /* token optional */ }
+    const cookie = await getPortalCookies();
+    const bearerHdr = bearer ? { Authorization: `Bearer ${bearer}` } : null;
+    const cookieHdr = cookie ? { Cookie: cookie } : null;
+    if (isApi) { if (bearerHdr) attempts.push(bearerHdr); if (cookieHdr) attempts.push(cookieHdr); }
+    else { if (cookieHdr) attempts.push(cookieHdr); if (bearerHdr) attempts.push(bearerHdr); }
+  }
+  attempts.push(null); // anonymous (public S3 / last resort)
 
   let lastErr = `${url} not fetchable`;
   for (const extra of attempts) {
@@ -89,12 +98,13 @@ export async function fetchSfAssetBytes(url) {
       const res = await fetch(url, { headers: { ...baseHeaders, ...(extra || {}) }, redirect: 'follow' });
       const ct = res.headers.get('content-type') || 'application/octet-stream';
       if (isBinaryOk(res, ct)) return { ok: true, bytes: await res.arrayBuffer(), contentType: ct };
-      lastErr = `${url} -> ${res.status} ${ct}${extra ? ' (cookie)' : ' (anon)'}`;
+      const mode = extra?.Authorization ? 'bearer' : extra?.Cookie ? 'cookie' : 'anon';
+      lastErr = `${url} -> ${res.status} ${ct} (${mode})`;
     } catch (e) {
       lastErr = `${url} threw ${e.message}`;
     }
   }
-  if (isCookieHost && !cookie) lastErr += ' — needs portal cookie (no sf_portal_session loaded)';
+  if ((isApi || isAdmin) && !(await getPortalCookies())) lastErr += ' — portal cookie unavailable (sf_portal_session)';
   return { ok: false, error: lastErr };
 }
 
