@@ -457,7 +457,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // What actions are needed based on current SF status?
     const sfIsCompleted = sfLower.includes('complet') || sfLower.includes('invoic'); // invoiced implies completed
     const sfIsInvoiced = sfLower.includes('invoic');
-    const needsPhotoTransfer = sfIsCompleted && !mapEntry.photosSent;
+    // Re-check photos every pass while the job is completed-but-not-invoiced,
+    // so photos added after the first push still flow (dedup is by file_location).
+    const needsPhotoTransfer = sfIsCompleted && !mapEntry.invoiceSubmitted;
     const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
     // "Provide Update" — complete the visit in ResQ when SF is completed
     // Also trigger if WO is COMPLETED (visit done but needs to transition to NEEDS_INVOICE)
@@ -491,19 +493,17 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // --- Transfer photos from SF → ResQ (on Completed or Invoiced) ---
     if (needsPhotoTransfer) {
       try {
-        const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO);
+        const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO, mapEntry.photosSentKeys || []);
         if (photoResult.count > 0) {
-          result.steps.push(`📸 ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
+          result.steps.push(`📸 ${photoResult.count} new photo(s) → ResQ ${resqWO.code}`);
+          mapEntry.photosSentKeys = [...(mapEntry.photosSentKeys || []), ...photoResult.sentKeys];
           mapEntry.photosSent = true;
           result.updated++;
         } else if (photoResult.errors.length) {
-          // Relay/push failed — surface it; leave photosSent false so it retries.
+          // Relay/push failed — surface it; keys not recorded so it retries.
           result.errors.push(`📸 ${resqWO.code} photo push: ${photoResult.errors[0]}`);
-        } else {
-          // No photos on the SF job at all
-          result.steps.push(`No photos on SF job for ${resqWO.code}`);
-          mapEntry.photosSent = true; // nothing to send
         }
+        // else: no NEW photos since last pass — no-op, no log spam.
       } catch (e) {
         result.errors.push(`Photos ${resqWO.code}: ${e.message.substring(0, 200)}`);
       }
@@ -750,8 +750,8 @@ async function createSfJob(resqWO, customerName) {
 // Lists the SF job's pictures, relays each through the public resq-photo-relay
 // bucket (short URL — ResQ stores the ref in varchar(100)), and attaches them
 // as after-images to the WO's visit. Runs after visit-complete, before invoice.
-async function transferSfPhotosToResq(session, sfJobId, resqWO) {
-  const result = { count: 0, errors: [] };
+async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []) {
+  const result = { count: 0, sentKeys: [], errors: [] };
 
   const { listJobPictures, pictureToPublicUrl } = await import('./lib/sf-assets.mjs');
 
@@ -764,11 +764,18 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO) {
   }
   if (!pics.length) return result; // nothing to send
 
-  // Relay each pic to a short public URL.
+  // Incremental: only push pictures we haven't already sent (keyed by SF
+  // file_location). Lets photos added later flow without duplicating earlier ones.
+  const sentSet = new Set(alreadySent);
+  const newPics = pics.filter((p) => p.file_location && !sentSet.has(p.file_location));
+  if (!newPics.length) return result; // all current photos already sent
+
+  // Relay each NEW pic to a short public URL; remember its file_location.
   const imageUrls = [];
-  for (let i = 0; i < pics.length; i++) {
-    const r = await pictureToPublicUrl(pics[i], sfJobId, i);
-    if (r.ok) imageUrls.push(r.url);
+  const relayedKeys = [];
+  for (let i = 0; i < newPics.length; i++) {
+    const r = await pictureToPublicUrl(newPics[i], sfJobId, `${Date.now()}-${i}`);
+    if (r.ok) { imageUrls.push(r.url); relayedKeys.push(newPics[i].file_location); }
     else result.errors.push(r.error);
   }
   if (!imageUrls.length) return result;
@@ -797,6 +804,7 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO) {
       addAfterImagesToVisit(input: $input) { __typename }
     }`, { input: { visit: visitId, images: imageUrls } });
     result.count = imageUrls.length;
+    result.sentKeys = relayedKeys;
   } catch (e) {
     result.errors.push(`addAfterImages ${resqWO.code}: ${e.message.substring(0, 200)}`);
   }
