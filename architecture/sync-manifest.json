@@ -269,8 +269,8 @@
         "ops.expense_settings"
       ],
       "multi_writer": true,
-      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments). Tier-1 payout (20260603a): expense-request-pay marks a bill paid (payment_method/reference/account, paid_at/paid_by, status='paid') and optionally writes a QBO BillPayment (qbo_billpayment_id) — superadmin/admin only, service-role write.",
-      "last_verified": "2026-06-03"
+      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments).",
+      "last_verified": "2026-05-12"
     },
     {
       "name": "brix-stock:app-and-rpcs",
