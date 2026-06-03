@@ -329,12 +329,19 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // name resolution only when no id is linked.
     let sfJob;
     if (cust.sf_customer_id) {
+      // Look up the real SF customer NAME by id (SF /jobs needs customer_name,
+      // not customer_id), then create with the exact name.
       let sfName = null;
       try {
         const c = await sfRequest('GET', `/customers/${encodeURIComponent(cust.sf_customer_id)}`);
         sfName = (c?.customer || c?.data || c)?.customer_name || null;
-      } catch (e) { /* by-id lookup is best-effort; create by id alone */ }
-      sfJob = await createSfJob(wo, sfName, cust.sf_customer_id);
+      } catch (e) { /* fall through to the error below */ }
+      if (!sfName) {
+        result.errors.push(`Linked SF customer #${cust.sf_customer_id} for ${wo.code} couldn't be read from Service Fusion — can't resolve its name to create the job.`);
+        result.report?.push({ resqCode: wo.code, reason: 'sf_customer_lookup_failed', message: `GET /customers/${cust.sf_customer_id} returned no name`, facility: wo.facility });
+        return result;
+      }
+      sfJob = await createSfJob(wo, sfName);
     } else {
       const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
       if (!resolvedName) {
@@ -727,7 +734,7 @@ async function resolveSfCustomerName(configuredName, stem, sfCustomerId) {
 }
 
 // --- SF Helpers ---
-async function createSfJob(resqWO, customerName, customerId) {
+async function createSfJob(resqWO, customerName) {
   const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
   const description = [
     `ResQ WO: ${resqRef}`,
@@ -738,17 +745,14 @@ async function createSfJob(resqWO, customerName, customerId) {
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
-  const payload = {
+  // SF's POST /jobs only accepts customer_name (customer_id is rejected 422).
+  return sfRequest('POST', '/jobs', {
+    customer_name: customerName,
     description,
     status: 'Unscheduled',
     priority: resqWO.isUrgent ? 'Urgent' : 'Normal',
     po_number: resqRef,
-  };
-  // Prefer the SF customer id — creating by id avoids the /customers lookup
-  // entirely. Include the name too when we have it.
-  if (customerId) payload.customer_id = customerId;
-  if (customerName) payload.customer_name = customerName;
-  return sfRequest('POST', '/jobs', payload);
+  });
 }
 
 // --- Transfer SF Photos → ResQ ---
