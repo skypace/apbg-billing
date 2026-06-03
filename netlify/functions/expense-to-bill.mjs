@@ -13,6 +13,7 @@ import { sfRequest } from './sf-helpers.mjs';
 import { qboRequest, qboQuery, corsHeaders } from './qbo-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
 import { loadSyncCustomers, classifySyncCustomer } from './lib/sync-customers.mjs';
+import { SUPABASE_URL } from './supabase-helpers.mjs';
 
 const ACCOUNT_MAP = {
   equipment: { id: '42', name: 'Equipment Sales COGS' },
@@ -188,6 +189,18 @@ Rules:
       resqCode,
     });
 
+    // ── 3b. Land the expense + bill in Brixpense (ops.expense_requests) ──
+    // Non-fatal: a landing failure must not undo a successfully-created QBO bill.
+    const landed = await landInBrixpense({
+      extracted,
+      vendor: qboVendor,
+      customer: customerResult.qboCustomer || null,
+      sfJobId,
+      resqCode,
+      bill: billResult,
+      submitter: auth.user,
+    }).catch((e) => ({ ok: false, error: e.message }));
+
     return {
       statusCode: 200,
       headers: corsHeaders(),
@@ -199,9 +212,11 @@ Rules:
           ? { id: customerResult.qboCustomer.Id, name: customerResult.qboCustomer.DisplayName }
           : null,
         bill: billResult,
+        brixpense: landed,
         message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName}` +
           (customerResult.qboCustomer ? ` → ${customerResult.qboCustomer.DisplayName}` : '') +
-          ` — $${billResult.total.toFixed(2)}`,
+          ` — $${billResult.total.toFixed(2)}` +
+          (landed?.ok ? ' · landed in Brixpense' : ''),
       }),
     };
 
@@ -399,6 +414,55 @@ async function resolveResqCustomer({ sfJobId, resqCode }) {
     cogsAccountId: cust.qbo_cogs_account_id || null,
     facilityHint,
   };
+}
+
+// Land the SF expense + QBO bill as an ops.expense_requests row so it shows up
+// in Brixpense. System insert via the service-role key; submitted_by is the
+// operator who posted the bill (NOT NULL fk). Non-fatal — never blocks the bill.
+async function landInBrixpense({ extracted, vendor, customer, sfJobId, resqCode, bill, submitter }) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) return { ok: false, error: 'SUPABASE_SERVICE_ROLE_KEY not set' };
+  if (!submitter?.id) return { ok: false, error: 'no submitter id' };
+
+  const row = {
+    request_type: 'expense',
+    status: 'posted',
+    as_bill: true,
+    auto_approved: true,
+    tag: 'Service Fusion',
+    submitted_by: submitter.id,
+    submitter_name: submitter.user_metadata?.name || submitter.email || 'Service Fusion',
+    submitter_email: submitter.email || null,
+    vendor_name: vendor?.DisplayName || extracted.vendorName || null,
+    vendor_id: vendor?.Id ? String(vendor.Id) : null,
+    total_amount: bill?.total ?? extracted.total ?? null,
+    currency: 'USD',
+    receipt_date: extracted.billDate || null,
+    line_items: extracted.lineItems || [],
+    customer_name: customer?.DisplayName || null,
+    job_number: sfJobId ? String(sfJobId) : null,
+    memo: [resqCode ? `ResQ ${resqCode}` : null, sfJobId ? `SF Job #${sfJobId}` : null, extracted.notes]
+      .filter(Boolean).join(' | ') || null,
+    description: `Service Fusion job #${sfJobId} expense bill`,
+    qbo_bill_id: bill?.id ? String(bill.id) : null,
+    posted_at: new Date().toISOString(),
+  };
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Accept-Profile': 'ops',
+      'Content-Profile': 'ops',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify([row]),
+  });
+  if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 200)}` };
+  const out = await res.json();
+  return { ok: true, id: Array.isArray(out) ? out[0]?.id : out?.id };
 }
 
 function round(n) { return Math.round(n * 100) / 100; }
