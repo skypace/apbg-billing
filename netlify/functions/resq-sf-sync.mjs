@@ -416,9 +416,20 @@ async function pushImagesToVisit(resqWoId, photoType, images) {
   const mutation = photoType === 'before' ? 'addBeforeImagesToVisit' : 'addAfterImagesToVisit';
   const inputType = photoType === 'before' ? 'AddBeforeImagesToVisitInput' : 'AddAfterImagesToVisitInput';
 
-  await resqGql(session, `mutation($input: ${inputType}!) {
+  // Vendor session first, then the facility account — the Brix vendor identity
+  // isn't authorized to add images to the visit (ResQ AuthorizationError), same
+  // vendor-auth gap that submitRecordOfWork / createOriginalVendorInvoice handle
+  // with a facility fallback.
+  const imgMutation = `mutation($input: ${inputType}!) {
     ${mutation}(input: $input) { __typename }
-  }`, { input: { visit: visitId, images } });
+  }`;
+  const imgVars = { input: { visit: visitId, images } };
+  try {
+    await resqGql(session, imgMutation, imgVars);
+  } catch (e) {
+    const facSession = await resqLogin({ facility: true });
+    await resqGql(facSession, imgMutation, imgVars);
+  }
 
   // Mark photosSent in mapping
   try {
