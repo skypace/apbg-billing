@@ -330,12 +330,13 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // Resolve the SF customer by NAME (auth works now; SF's by-id GET proved
     // unreliable). Exact match on the configured name, then a stem search
     // (e.g. "melt"/"starbird" + "resq") that self-heals punctuation drift.
-    // HARD-CODED SF customer names — the exact values that worked before SF
-    // auth broke. Bypasses all lookup for the two live RESQ customers. (Note
-    // Starbird's colon, which the seeded sync_customers row was missing.)
+    // HARD-CODED SF customer names — the exact values that match the live
+    // Service Fusion records. Bypasses all lookup for the two live RESQ
+    // customers. (Starbird's SF record has NO colon — "STARBIRD CHICKEN RESQ";
+    // the colon variant 422'd on POST /jobs as "Customer Name can not be found".)
     const HARDCODED_SF_CUSTOMER = {
       melt: 'THE MELT RESQ',
-      starbird: 'STARBIRD CHICKEN: RESQ',
+      starbird: 'STARBIRD CHICKEN RESQ',
     };
     const resolvedName = HARDCODED_SF_CUSTOMER[String(sfCustomerKey).toLowerCase()]
       || await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
