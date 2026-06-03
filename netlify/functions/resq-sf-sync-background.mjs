@@ -491,17 +491,14 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // --- Transfer photos from SF → ResQ (on Completed or Invoiced) ---
     if (needsPhotoTransfer) {
       try {
-        const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO.id);
+        const photoResult = await transferSfPhotosToResq(session, mapEntry.sfJobId, resqWO);
         if (photoResult.count > 0) {
           result.steps.push(`📸 ${photoResult.count} photos sent to ResQ ${resqWO.code}`);
           mapEntry.photosSent = true;
           result.updated++;
         } else if (photoResult.errors.length) {
-          // Photos exist but couldn't be auto-downloaded — don't mark as sent.
-          // Surface as a step (informational), NOT an error: SF doesn't expose
-          // photo download endpoints, so this is a known limitation, not a
-          // sync failure. The user uploads via the dashboard.
-          result.steps.push(`📸 ${resqWO.code}: manual upload needed via sync.html (${photoResult.errors[0]})`);
+          // Relay/push failed — surface it; leave photosSent false so it retries.
+          result.errors.push(`📸 ${resqWO.code} photo push: ${photoResult.errors[0]}`);
         } else {
           // No photos on the SF job at all
           result.steps.push(`No photos on SF job for ${resqWO.code}`);
@@ -750,26 +747,59 @@ async function createSfJob(resqWO, customerName) {
 }
 
 // --- Transfer SF Photos → ResQ ---
-// NOTE: SF API does not expose file download endpoints. S3 bucket (sf-uploads)
-// is private. Photos must be uploaded manually via sync.html upload widget.
-// This function checks if photos exist on the SF job and logs accordingly.
-async function transferSfPhotosToResq(session, sfJobId, resqWoId) {
+// Lists the SF job's pictures, relays each through the public resq-photo-relay
+// bucket (short URL — ResQ stores the ref in varchar(100)), and attaches them
+// as after-images to the WO's visit. Runs after visit-complete, before invoice.
+async function transferSfPhotosToResq(session, sfJobId, resqWO) {
   const result = { count: 0, errors: [] };
 
-  // Fetch SF job with pictures AND documents expanded
-  let sfJob;
+  const { listJobPictures, pictureToPublicUrl } = await import('./lib/sf-assets.mjs');
+
+  let pics;
   try {
-    sfJob = await sfRequest('GET', `/jobs/${sfJobId}?expand=pictures,documents`);
+    pics = await listJobPictures(sfJobId);
   } catch (e) {
-    result.errors.push(`Fetch SF photos for ${sfJobId}: ${e.message.substring(0, 200)}`);
+    result.errors.push(`List SF photos ${sfJobId}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+  if (!pics.length) return result; // nothing to send
+
+  // Relay each pic to a short public URL.
+  const imageUrls = [];
+  for (let i = 0; i < pics.length; i++) {
+    const r = await pictureToPublicUrl(pics[i], sfJobId, i);
+    if (r.ok) imageUrls.push(r.url);
+    else result.errors.push(r.error);
+  }
+  if (!imageUrls.length) return result;
+
+  // Resolve the WO's visit (completed by provideUpdateToResq just before).
+  let visitId;
+  try {
+    const woData = await resqGql(session, `{
+      workOrders(first: 1, code: "${resqWO.code}") {
+        edges { node { latestVisit { id } inProgressVisit { id } } }
+      }
+    }`);
+    const node = woData.data?.workOrders?.edges?.[0]?.node;
+    visitId = node?.inProgressVisit?.id || node?.latestVisit?.id;
+  } catch (e) {
+    result.errors.push(`Get visit for photos ${resqWO.code}: ${e.message.substring(0, 200)}`);
+    return result;
+  }
+  if (!visitId) {
+    result.errors.push(`No ResQ visit on ${resqWO.code} to attach ${imageUrls.length} photo(s)`);
     return result;
   }
 
-  const allFiles = [...(sfJob.pictures || []), ...(sfJob.documents || [])];
-  if (allFiles.length === 0) return result;
-
-  // Photos exist but can't be auto-downloaded — flag for manual upload
-  result.errors.push(`SF job ${sfJobId} has ${allFiles.length} photo(s) — use sync.html to upload manually to ResQ`);
+  try {
+    await resqGql(session, `mutation($input: AddAfterImagesToVisitInput!) {
+      addAfterImagesToVisit(input: $input) { __typename }
+    }`, { input: { visit: visitId, images: imageUrls } });
+    result.count = imageUrls.length;
+  } catch (e) {
+    result.errors.push(`addAfterImages ${resqWO.code}: ${e.message.substring(0, 200)}`);
+  }
   return result;
 }
 
