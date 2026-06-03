@@ -134,4 +134,10 @@ export interface ExpenseSettings {
   /** Optional department → default COGS account id. Drives the form cascade:
    *  picking a department pre-selects (but never locks) the COGS account. */
   department_cogs_map: Record<string, string>;
+  /** Auto-routing for approvals: a default approver + per-department overrides.
+   *  The form pre-selects the approver (still overridable by the submitter). */
+  approval_routing: {
+    default_approver: string;
+    by_department: Record<string, string>;
+  };
 }

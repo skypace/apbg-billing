@@ -122,6 +122,9 @@ export default function SettingsPage() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [cogsAccounts, setCogsAccounts] = useState<CogsAccount[]>([]);
   const [deptCogsMap, setDeptCogsMap] = useState<Record<string, string>>({});
+  // Auto-routing for approvals: a default approver + per-department overrides.
+  const [routingDefault, setRoutingDefault] = useState('');
+  const [routingByDept, setRoutingByDept] = useState<Record<string, string>>({});
   // Live QBO chart of accounts (COGS / Expense / Other Expense / Fixed Asset)
   // backing the checkbox picker that builds the curated cogs_accounts list.
   const [glAccounts, setGlAccounts] = useState<
@@ -173,6 +176,7 @@ export default function SettingsPage() {
             'departments',
             'cogs_accounts',
             'department_cogs_map',
+            'approval_routing',
           ]);
         const map = Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]));
         setThreshold(String(map.approval_threshold ?? 500));
@@ -181,6 +185,12 @@ export default function SettingsPage() {
         setDepartments((map.departments ?? []) as string[]);
         setCogsAccounts((map.cogs_accounts ?? []) as CogsAccount[]);
         setDeptCogsMap((map.department_cogs_map ?? {}) as Record<string, string>);
+        const routing = (map.approval_routing ?? {}) as {
+          default_approver?: string;
+          by_department?: Record<string, string>;
+        };
+        setRoutingDefault(routing.default_approver ?? '');
+        setRoutingByDept(routing.by_department ?? {});
 
         // Live QBO accounts for the COGS/Expense checkbox picker.
         setGlErr(null);
@@ -245,6 +255,16 @@ export default function SettingsPage() {
         const v = deptCogsMap[d];
         if (v && validIds.has(v)) cleanMap[d] = v;
       }
+      const validApprovers = new Set(managerEmails.map((s) => s.trim().toLowerCase()).filter(Boolean));
+      const cleanByDept: Record<string, string> = {};
+      for (const d of cleanDepts) {
+        const a = routingByDept[d];
+        if (a && validApprovers.has(a.toLowerCase())) cleanByDept[d] = a;
+      }
+      const cleanRouting = {
+        default_approver: validApprovers.has(routingDefault.toLowerCase()) ? routingDefault : '',
+        by_department: cleanByDept,
+      };
       const writes: [string, unknown][] = [
         ['approval_threshold', Number(threshold) || 0],
         ['manager_emails', managerEmails.map((s) => s.trim()).filter(Boolean)],
@@ -252,6 +272,7 @@ export default function SettingsPage() {
         ['departments', cleanDepts],
         ['cogs_accounts', cleanCogs],
         ['department_cogs_map', cleanMap],
+        ['approval_routing', cleanRouting],
       ];
       for (const [k, v] of writes) {
         const { error } = await supabase
@@ -462,6 +483,53 @@ export default function SettingsPage() {
                 onChange={setManagerEmails}
                 placeholder="approver@brixbev.com"
               />
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                Approval routing
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Auto-pick the approver when a request needs sign-off. The submitter
+                can still override. Department routing wins; otherwise the default
+                approver is used.
+              </p>
+
+              <div className="mb-4">
+                <div className="text-[11px] uppercase tracking-wider text-slate-600 mb-1">Default approver</div>
+                <select
+                  className={`w-full ${inputCls}`}
+                  value={routingDefault}
+                  onChange={(e) => setRoutingDefault(e.target.value)}
+                >
+                  <option value="">— none —</option>
+                  {managerEmails.filter((m) => m.trim()).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="text-[11px] uppercase tracking-wider text-slate-600 mb-1">By department</div>
+              <div className="space-y-2">
+                {departments.filter((d) => d.trim()).map((d) => (
+                  <div key={d} className="flex items-center gap-3">
+                    <span className="w-32 text-sm text-slate-300 truncate" title={d}>{d}</span>
+                    <select
+                      className={`flex-1 ${inputCls}`}
+                      value={routingByDept[d] || ''}
+                      onChange={(e) => setRoutingByDept({ ...routingByDept, [d]: e.target.value })}
+                    >
+                      <option value="">— use default —</option>
+                      {managerEmails.filter((m) => m.trim()).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                {departments.filter((d) => d.trim()).length === 0 && (
+                  <p className="text-xs text-slate-600">Add departments above to route by department.</p>
+                )}
+              </div>
             </section>
 
             <section>
