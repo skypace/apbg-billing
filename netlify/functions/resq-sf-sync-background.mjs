@@ -900,37 +900,50 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
     }
   }
 
-  // 4. End the visit with outcome = RESOLVED
-  try {
-    await resqGql(session, `mutation($input: EndVisitInput!) {
-      endVisit(input: $input) { __typename }
-    }`, { input: {
-      visit: visitId,
-      outcome: 'COMPLETED',
-      notes: completionNotes.substring(0, 2000),
-      recommendations: '',
-      images: [], // Photos uploaded separately via sync.html
-    }});
-    result.steps.push(`✓ ${resqWO.code} visit completed (RESOLVED)`);
-    result.completed = true;
-  } catch (e) {
-    // If endVisit fails, try captureVisitNotes as fallback
-    const errMsg = e.message.substring(0, 200);
-    result.steps.push(`endVisit failed for ${resqWO.code}: ${errMsg}`);
+  // 4. End the visit. Normal path uses outcome COMPLETED (the value ResQ has
+  //    accepted for every WO that already has a started visit). ResQ rejects
+  //    that outcome on some visits (e.g. one we just started this pass) with a
+  //    "malformed/unprocessable arguments" ValidationError, so retry once with
+  //    RESOLVED before falling back to captureVisitNotes. The retry only runs
+  //    after the normal attempt fails, so it can't regress the happy path.
+  const cleanNotes = completionNotes.substring(0, 2000);
+  const endErrors = [];
+  for (const outcome of ['COMPLETED', 'RESOLVED']) {
     try {
-      await resqGql(session, `mutation($input: CaptureVisitNotesInput!) {
-        captureVisitNotes(input: $input) { __typename }
+      await resqGql(session, `mutation($input: EndVisitInput!) {
+        endVisit(input: $input) { __typename }
       }`, { input: {
         visit: visitId,
-        notes: completionNotes.substring(0, 2000),
+        outcome,
+        notes: cleanNotes,
         recommendations: '',
-        images: [],
+        images: [], // Photos uploaded separately via sync.html
       }});
-      result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
+      result.steps.push(`✓ ${resqWO.code} visit completed (${outcome})`);
       result.completed = true;
-    } catch (e2) {
-      result.errors.push(`Complete visit ${resqWO.code}: endVisit (${errMsg}), captureVisitNotes (${e2.message.substring(0, 200)})`);
+      return result;
+    } catch (e) {
+      // Keep the full ResQ error (incl. extensions.fields.__all__) — the old
+      // substring(0,200) cut it off right before the actual reason.
+      endErrors.push(`outcome=${outcome}: ${e.message.substring(0, 600)}`);
+      result.steps.push(`endVisit (${outcome}) failed for ${resqWO.code}`);
     }
+  }
+
+  // Fallback: capture notes without ending the visit.
+  try {
+    await resqGql(session, `mutation($input: CaptureVisitNotesInput!) {
+      captureVisitNotes(input: $input) { __typename }
+    }`, { input: {
+      visit: visitId,
+      notes: cleanNotes,
+      recommendations: '',
+      images: [],
+    }});
+    result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
+    result.completed = true;
+  } catch (e2) {
+    result.errors.push(`Complete visit ${resqWO.code}: endVisit [${endErrors.join(' | ')}], captureVisitNotes (${e2.message.substring(0, 600)})`);
   }
 
   return result;
