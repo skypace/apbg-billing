@@ -299,7 +299,18 @@ async function handleVisitPhotos(event, resqWoId) {
     const files = body.files || [];
     const photoType = body.type || 'after'; // 'before' or 'after'
     if (!files.length) return json({ error: 'No files. Send { type: "before"|"after", files: [{ name, base64, contentType }] }' }, 400);
-    const result = await pushFilesToVisit(resqWoId, photoType, files);
+    // Relay manually-uploaded files through the public bucket → short URLs.
+    const { uploadToRelay } = await import('./lib/sf-assets.mjs');
+    const imageUrls = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const ct = f.contentType || 'image/jpeg';
+      const ext = (ct.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const url = await uploadToRelay(`manual/${resqWoId}/${Date.now()}-${i}.${ext}`, Buffer.from(f.base64, 'base64'), ct);
+      if (url) imageUrls.push(url);
+    }
+    if (!imageUrls.length) return json({ error: 'Could not relay uploaded files (SUPABASE_SERVICE_ROLE_KEY set?)' }, 502);
+    const result = await pushImagesToVisit(resqWoId, photoType, imageUrls);
     return json(result, result.ok ? 200 : (result.status || 500));
   } catch (e) {
     return json({ error: e.message }, 500);
@@ -329,20 +340,21 @@ async function handleAutoPhotos(event, resqWoId) {
     }
     if (!sfJobId) return json({ error: 'No SF job id — pass ?sfJob=<id> or ensure the WO is mapped' }, 400);
 
-    const { listJobPictures, pictureToBase64 } = await import('./lib/sf-assets.mjs');
+    const { listJobPictures, pictureToPublicUrl } = await import('./lib/sf-assets.mjs');
     const pics = await listJobPictures(sfJobId);
     if (!pics.length) return json({ ok: true, imagesUploaded: 0, picturesFound: 0, message: 'No pictures on SF job' });
 
-    const files = [];
+    // Fetch each pic from SF and relay it to the public bucket → short URL.
+    const imageUrls = [];
     const fetchErrors = [];
-    for (const p of pics) {
-      const r = await pictureToBase64(p);
-      if (r.ok) files.push({ name: r.name, base64: r.base64, contentType: r.contentType });
+    for (let i = 0; i < pics.length; i++) {
+      const r = await pictureToPublicUrl(pics[i], sfJobId, i);
+      if (r.ok) imageUrls.push(r.url);
       else fetchErrors.push(r.error);
     }
-    if (!files.length) return json({ ok: false, error: 'Could not fetch any pictures from SF', picturesFound: pics.length, fetchErrors }, 502);
+    if (!imageUrls.length) return json({ ok: false, error: 'Could not relay any pictures', picturesFound: pics.length, fetchErrors }, 502);
 
-    const result = await pushFilesToVisit(resqWoId, photoType, files);
+    const result = await pushImagesToVisit(resqWoId, photoType, imageUrls);
     return json({ ...result, sfJobId, picturesFound: pics.length, fetchErrors }, result.ok ? 200 : (result.status || 500));
   } catch (e) {
     return json({ error: e.message }, 500);
@@ -352,7 +364,7 @@ async function handleAutoPhotos(event, resqWoId) {
 // Core: resolve the ResQ visit for a WO and upload before/after images.
 // files: [{ base64, contentType }]. Returns { ok, mutation, visitId, imagesUploaded }
 // or { ok:false, status, error }. Shared by the manual upload + auto-pull paths.
-async function pushFilesToVisit(resqWoId, photoType, files) {
+async function pushImagesToVisit(resqWoId, photoType, images) {
   const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
   const session = await resqLogin();
 
@@ -398,12 +410,8 @@ async function pushFilesToVisit(resqWoId, photoType, files) {
     startedVisit = true;
   }
 
-  // Build image array — ResQ expects data URLs
-  const images = files.map(f => {
-    const ct = f.contentType || 'image/jpeg';
-    return `data:${ct};base64,${f.base64}`;
-  });
-
+  // `images` is an array of short public URLs (ResQ stores the reference in a
+  // varchar(100) column — inline base64 data URLs overflow it).
   const mutation = photoType === 'before' ? 'addBeforeImagesToVisit' : 'addAfterImagesToVisit';
   const inputType = photoType === 'before' ? 'AddBeforeImagesToVisitInput' : 'AddAfterImagesToVisitInput';
 
@@ -427,7 +435,7 @@ async function pushFilesToVisit(resqWoId, photoType, files) {
     }
   } catch (e) {}
 
-  return { ok: true, mutation, visitId, imagesUploaded: files.length, startedVisit };
+  return { ok: true, mutation, visitId, imagesUploaded: images.length, startedVisit };
 }
 
 // --- Reset Flags: Clear photosSent/invoiceSubmitted for a WO code ---
