@@ -42,6 +42,7 @@ export function useExpenseSettings() {
           'cogs_accounts',
           'tags',
           'departments',
+          'department_cogs_map',
         ]);
 
       if (error) {
@@ -60,6 +61,7 @@ export function useExpenseSettings() {
         cogs_accounts: (map.cogs_accounts ?? []) as CogsAccount[],
         tags: (map.tags ?? []) as string[],
         departments: (map.departments ?? []) as string[],
+        department_cogs_map: (map.department_cogs_map ?? {}) as Record<string, string>,
       });
       setLoading(false);
     }

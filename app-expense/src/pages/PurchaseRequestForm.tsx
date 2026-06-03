@@ -36,7 +36,7 @@ export default function PurchaseRequestForm() {
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
-  const entity: 'brix' | 'freeflow' | 'shared' = 'brix';
+  const [entity, setEntity] = useState<'brix' | 'freeflow' | 'shared'>('brix');
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -51,6 +51,21 @@ export default function PurchaseRequestForm() {
     setCogsAccountLabel(label);
     const match = settings?.cogs_accounts.find((a) => a.label === label);
     setCogsAccountId(match?.id ?? '');
+  };
+
+  // Cascade: entity → department → COGS. Picking a department pre-selects its
+  // mapped default COGS account (configured in Settings → Organization); the
+  // user can still override it afterward.
+  const handleDepartmentChange = (dept: string) => {
+    setDepartment(dept);
+    const mappedId = settings?.department_cogs_map?.[dept];
+    if (mappedId) {
+      const match = settings?.cogs_accounts.find((a) => a.id === mappedId);
+      if (match) {
+        setCogsAccountId(match.id);
+        setCogsAccountLabel(match.label);
+      }
+    }
   };
 
   const updateLineItem = (idx: number, field: keyof LineItem, val: string) => {
@@ -188,22 +203,47 @@ export default function PurchaseRequestForm() {
 
         <Badge variant="warning">Manager approval required</Badge>
 
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Entity</Label>
+            <SelectField
+              value={entity}
+              onChange={(e) => setEntity(e.target.value as 'brix' | 'freeflow' | 'shared')}
+              options={[
+                { value: 'brix', label: 'Brix / Alameda Soda' },
+                { value: 'freeflow', label: 'FreeFlow' },
+                { value: 'shared', label: 'Shared (split)' },
+              ]}
+            />
+          </div>
+          <div>
+            <Label>Department</Label>
+            <SelectField
+              value={department}
+              onChange={(e) => handleDepartmentChange(e.target.value)}
+              placeholder="Select department"
+              options={[
+                { value: '', label: 'None' },
+                ...(settings?.departments ?? []).map((d) => ({ value: d, label: d })),
+              ]}
+            />
+          </div>
+        </div>
+
         <div>
           <Label>COGS / Expense Account</Label>
           <SelectField value={cogsAccountLabel} onChange={(e) => handleCogsChange(e.target.value)} placeholder="Select account" options={(settings?.cogs_accounts ?? []).map((a) => ({ value: a.label, label: a.label }))} />
+          {department && settings?.department_cogs_map?.[department] && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Defaulted from the <span className="font-medium">{department}</span> department — change it if needed.
+            </p>
+          )}
         </div>
 
         <div>
           <Label>Tag</Label>
           <SelectField value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Optional" options={[{ value: '', label: 'None' }, ...(settings?.tags ?? []).map((t) => ({ value: t, label: t }))]} />
         </div>
-
-        {tag && (
-          <div>
-            <Label>Department</Label>
-            <SelectField value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Select department" options={(settings?.departments ?? []).map((d) => ({ value: d, label: d }))} />
-          </div>
-        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>

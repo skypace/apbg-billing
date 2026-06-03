@@ -60,7 +60,7 @@ export default function ExpenseForm() {
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
-  const [entity] = useState('brix');
+  const [entity, setEntity] = useState('brix');
   const [cogsAccountLabel, setCogsAccountLabel] = useState('');
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
@@ -122,6 +122,7 @@ export default function ExpenseForm() {
         return;
       }
       setExistingStatus(data.status);
+      setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
@@ -322,6 +323,22 @@ export default function ExpenseForm() {
     setCogsAccountLabel(label);
     const match = settings?.cogs_accounts.find((a) => a.label === label);
     setCogsAccountId(match?.id ?? '');
+  };
+
+  // Cascade: entity → department → COGS. Picking a department pre-selects its
+  // mapped default COGS account (configured in Settings → Organization). The
+  // user can still override the COGS account afterward; switching department
+  // re-applies the mapping.
+  const handleDepartmentChange = (dept: string) => {
+    setDepartment(dept);
+    const mappedId = settings?.department_cogs_map?.[dept];
+    if (mappedId) {
+      const match = settings?.cogs_accounts.find((a) => a.id === mappedId);
+      if (match) {
+        setCogsAccountId(match.id);
+        setCogsAccountLabel(match.label);
+      }
+    }
   };
 
   const updateLineItem = (idx: number, field: keyof LineItem, val: string) => {
@@ -661,6 +678,35 @@ export default function ExpenseForm() {
           </div>
         )}
 
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Entity</Label>
+            <SelectField
+              disabled={readOnly}
+              value={entity}
+              onChange={(e) => setEntity(e.target.value)}
+              options={[
+                { value: 'brix', label: 'Brix / Alameda Soda' },
+                { value: 'freeflow', label: 'FreeFlow' },
+                { value: 'shared', label: 'Shared (split)' },
+              ]}
+            />
+          </div>
+          <div>
+            <Label>Department</Label>
+            <SelectField
+              disabled={readOnly}
+              value={department}
+              onChange={(e) => handleDepartmentChange(e.target.value)}
+              placeholder="Select department"
+              options={[
+                { value: '', label: 'None' },
+                ...(settings?.departments ?? []).map((d) => ({ value: d, label: d })),
+              ]}
+            />
+          </div>
+        </div>
+
         <div>
           <Label>COGS / Expense Account</Label>
           <SelectField
@@ -673,6 +719,11 @@ export default function ExpenseForm() {
               label: a.label,
             }))}
           />
+          {department && settings?.department_cogs_map?.[department] && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Defaulted from the <span className="font-medium">{department}</span> department — change it if this expense belongs elsewhere.
+            </p>
+          )}
         </div>
 
         <div>
@@ -721,22 +772,6 @@ export default function ExpenseForm() {
             ]}
           />
         </div>
-
-        {tag && (
-          <div>
-            <Label>Department</Label>
-            <SelectField
-              disabled={readOnly}
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="Select department"
-              options={(settings?.departments ?? []).map((d) => ({
-                value: d,
-                label: d,
-              }))}
-            />
-          </div>
-        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>

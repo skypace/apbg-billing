@@ -1,13 +1,17 @@
-// Brixpense → Settings → My Payment Accounts.
+// Brixpense → Settings.
 //
-// Pick which QBO Bank / Credit Card accounts show up in *your* "Paid with"
-// dropdown on the expense form. The list is per-user (stored under your
-// email in ops.expense_settings.payment_accounts_by_user) — your selections
-// don't affect anyone else. When you have zero selections saved, the form
-// falls back to the full QBO list.
+// Two sections:
+//   1. My Payment Accounts (everyone) — pick which QBO Bank / Credit Card
+//      accounts show in *your* "Paid with" dropdown. Stored per-user under your
+//      email in ops.expense_settings.payment_accounts_by_user.
+//   2. Organization (superadmin/admin only) — edit the shared lists that drive
+//      every form: approval threshold, approver emails, tags, departments,
+//      COGS accounts, and the department→COGS cascade map. Written via the
+//      role-gated ops.fn_set_expense_setting RPC (expense_settings is otherwise
+//      read-only to clients).
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, RefreshCw, Save } from 'lucide-react';
+import { Check, RefreshCw, Save, Plus, Trash2 } from 'lucide-react';
 import { getAccessToken, supabase } from '@/lib/supabase';
 
 interface QboAccount {
@@ -18,7 +22,80 @@ interface QboAccount {
   payment_type: string;
 }
 
+interface CogsAccount {
+  id: string;
+  label: string;
+}
+
+const inputCls =
+  'rounded border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none';
+
+/** Editable list of free-text strings (emails / tags / departments). */
+function StringListEditor({
+  items,
+  onChange,
+  placeholder,
+}: {
+  items: string[];
+  onChange: (next: string[]) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim();
+    if (!v || items.includes(v)) return;
+    onChange([...items, v]);
+    setDraft('');
+  };
+  return (
+    <div className="space-y-2">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            className={`flex-1 ${inputCls}`}
+            value={it}
+            onChange={(e) => {
+              const next = [...items];
+              next[i] = e.target.value;
+              onChange(next);
+            }}
+          />
+          <button
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
+            className="p-1.5 text-slate-500 hover:text-red-400 transition"
+            title="Remove"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <input
+          className={`flex-1 ${inputCls} border-slate-800 bg-slate-950 text-slate-300`}
+          placeholder={placeholder || 'Add…'}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button
+          onClick={add}
+          className="p-1.5 text-emerald-400 hover:text-emerald-300 transition"
+          title="Add"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
+  // ── Personal payment accounts ──
   const [allAccounts, setAllAccounts] = useState<QboAccount[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -26,6 +103,18 @@ export default function SettingsPage() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // ── Organization settings (admin only) ──
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [threshold, setThreshold] = useState('500');
+  const [managerEmails, setManagerEmails] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [cogsAccounts, setCogsAccounts] = useState<CogsAccount[]>([]);
+  const [deptCogsMap, setDeptCogsMap] = useState<Record<string, string>>({});
+  const [orgSaving, setOrgSaving] = useState(false);
+  const [orgSavedAt, setOrgSavedAt] = useState<string | null>(null);
+  const [orgErr, setOrgErr] = useState<string | null>(null);
 
   async function loadAll() {
     setLoading(true);
@@ -46,7 +135,36 @@ export default function SettingsPage() {
 
       const current = (currRes.data as QboAccount[] | null) ?? [];
       setSelectedIds(new Set(current.map((a) => String(a.id))));
-      setUserEmail(userRes.data?.user?.email ?? null);
+
+      const user = userRes.data?.user;
+      setUserEmail(user?.email ?? null);
+      const role =
+        (user?.app_metadata as any)?.role ||
+        (user?.user_metadata as any)?.role ||
+        '';
+      const admin = ['superadmin', 'admin'].includes(role);
+      setIsAdmin(admin);
+
+      if (admin) {
+        const { data: rows } = await supabase
+          .from('expense_settings')
+          .select('key, value')
+          .in('key', [
+            'approval_threshold',
+            'manager_emails',
+            'tags',
+            'departments',
+            'cogs_accounts',
+            'department_cogs_map',
+          ]);
+        const map = Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]));
+        setThreshold(String(map.approval_threshold ?? 500));
+        setManagerEmails((map.manager_emails ?? []) as string[]);
+        setTags((map.tags ?? []) as string[]);
+        setDepartments((map.departments ?? []) as string[]);
+        setCogsAccounts((map.cogs_accounts ?? []) as CogsAccount[]);
+        setDeptCogsMap((map.department_cogs_map ?? {}) as Record<string, string>);
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -82,7 +200,44 @@ export default function SettingsPage() {
     }
   }
 
-  // Group accounts by type so the page reads as: Bank section, Credit Card section
+  async function saveOrg() {
+    setOrgSaving(true);
+    setOrgErr(null);
+    setOrgSavedAt(null);
+    try {
+      const cleanCogs = cogsAccounts
+        .map((a) => ({ id: a.id.trim(), label: a.label.trim() }))
+        .filter((a) => a.id && a.label);
+      const validIds = new Set(cleanCogs.map((a) => a.id));
+      const cleanDepts = departments.map((d) => d.trim()).filter(Boolean);
+      const cleanMap: Record<string, string> = {};
+      for (const d of cleanDepts) {
+        const v = deptCogsMap[d];
+        if (v && validIds.has(v)) cleanMap[d] = v;
+      }
+      const writes: [string, unknown][] = [
+        ['approval_threshold', Number(threshold) || 0],
+        ['manager_emails', managerEmails.map((s) => s.trim()).filter(Boolean)],
+        ['tags', tags.map((s) => s.trim()).filter(Boolean)],
+        ['departments', cleanDepts],
+        ['cogs_accounts', cleanCogs],
+        ['department_cogs_map', cleanMap],
+      ];
+      for (const [k, v] of writes) {
+        const { error } = await supabase
+          .schema('ops')
+          .rpc('fn_set_expense_setting', { p_key: k, p_value: v });
+        if (error) throw new Error(`${k}: ${error.message}`);
+      }
+      setOrgSavedAt(new Date().toLocaleTimeString());
+    } catch (e) {
+      setOrgErr((e as Error).message);
+    } finally {
+      setOrgSaving(false);
+    }
+  }
+
+  // Group payment accounts by type: Bank section, Credit Card section
   const groups = useMemo(() => {
     if (!allAccounts) return [] as { type: string; items: QboAccount[] }[];
     const map = new Map<string, QboAccount[]>();
@@ -187,6 +342,159 @@ export default function SettingsPage() {
           {saving ? 'Saving…' : 'Save my list'}
         </button>
       </div>
+
+      {/* ── Organization settings (admin only) ── */}
+      {isAdmin && !loading && (
+        <div className="mt-12 border-t border-slate-800 pt-8">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-slate-100">Organization settings</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Shared lists that drive every Brixpense form for everyone. Changes
+              take effect on the next form load. Superadmin / admin only.
+            </p>
+          </div>
+
+          {orgErr && (
+            <div className="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-sm text-red-300 mb-4">
+              {orgErr}
+            </div>
+          )}
+
+          <div className="space-y-8">
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                Approval threshold ($)
+              </div>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                value={threshold}
+                onChange={(e) => setThreshold(e.target.value)}
+                className={`w-40 ${inputCls}`}
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Expenses over this amount require a manager approval; at or under auto-approve.
+              </p>
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                Approver emails
+              </div>
+              <StringListEditor
+                items={managerEmails}
+                onChange={setManagerEmails}
+                placeholder="approver@brixbev.com"
+              />
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Tags</div>
+              <StringListEditor items={tags} onChange={setTags} placeholder="Add a tag…" />
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Departments</div>
+              <StringListEditor
+                items={departments}
+                onChange={setDepartments}
+                placeholder="Add a department…"
+              />
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                COGS / Expense accounts
+              </div>
+              <div className="space-y-2">
+                {cogsAccounts.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      className={`w-28 font-mono ${inputCls}`}
+                      placeholder="QBO id"
+                      value={a.id}
+                      onChange={(e) => {
+                        const n = [...cogsAccounts];
+                        n[i] = { ...n[i], id: e.target.value };
+                        setCogsAccounts(n);
+                      }}
+                    />
+                    <input
+                      className={`flex-1 ${inputCls}`}
+                      placeholder="Label"
+                      value={a.label}
+                      onChange={(e) => {
+                        const n = [...cogsAccounts];
+                        n[i] = { ...n[i], label: e.target.value };
+                        setCogsAccounts(n);
+                      }}
+                    />
+                    <button
+                      onClick={() => setCogsAccounts(cogsAccounts.filter((_, j) => j !== i))}
+                      className="p-1.5 text-slate-500 hover:text-red-400 transition"
+                      title="Remove"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setCogsAccounts([...cogsAccounts, { id: '', label: '' }])}
+                  className="inline-flex items-center gap-1 text-sm text-emerald-400 hover:text-emerald-300 transition"
+                >
+                  <Plus size={14} /> Add account
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                Department → default COGS
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                When a submitter picks a department on the form, this COGS account is pre-selected (they can still override it).
+              </p>
+              <div className="space-y-2">
+                {departments.filter((d) => d.trim()).map((d) => (
+                  <div key={d} className="flex items-center gap-3">
+                    <span className="w-32 text-sm text-slate-300 truncate" title={d}>{d}</span>
+                    <select
+                      className={`flex-1 ${inputCls}`}
+                      value={deptCogsMap[d] || ''}
+                      onChange={(e) => setDeptCogsMap({ ...deptCogsMap, [d]: e.target.value })}
+                    >
+                      <option value="">— none —</option>
+                      {cogsAccounts
+                        .filter((a) => a.id.trim() && a.label.trim())
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                ))}
+                {departments.filter((d) => d.trim()).length === 0 && (
+                  <div className="text-xs text-slate-500">Add a department above to map it.</div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <div className="mt-8 flex items-center justify-end gap-4">
+            {orgSavedAt && <span className="text-xs text-emerald-400">Saved at {orgSavedAt}</span>}
+            <button
+              onClick={saveOrg}
+              disabled={orgSaving}
+              className="inline-flex items-center gap-2 rounded bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 text-sm font-semibold text-emerald-950 transition"
+            >
+              <Save size={14} />
+              {orgSaving ? 'Saving…' : 'Save organization settings'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
