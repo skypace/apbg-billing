@@ -127,3 +127,42 @@ export async function pictureToBase64(p) {
     contentType: r.contentType || inferMime(name),
   };
 }
+
+const RELAY_BUCKET = 'resq-photo-relay';
+
+function extFor(contentType, name) {
+  const m = (contentType || '').split('/')[1] || (name || '').split('.').pop() || 'jpg';
+  return m.toLowerCase().replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '') || 'jpg';
+}
+
+// Upload bytes to the PUBLIC relay bucket and return a public URL with a short
+// filename. ResQ stores the image reference in a varchar(100) column, so it
+// needs a short fetchable URL — not an inline base64 data URL.
+export async function uploadToRelay(path, bytes, contentType) {
+  if (!SERVICE_KEY) return null;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${RELAY_BUCKET}/${encodeURI(path)}`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': contentType || 'application/octet-stream',
+      'x-upsert': 'true',
+    },
+    body: Buffer.from(bytes),
+  });
+  if (!res.ok) return null;
+  return `${SUPABASE_URL}/storage/v1/object/public/${RELAY_BUCKET}/${encodeURI(path)}`;
+}
+
+// Fetch a SF picture and relay it to the public bucket; returns a short public URL.
+export async function pictureToPublicUrl(p, sfJobId, index) {
+  const name = (p.name && p.name.trim()) || String(p.file_location).split('/').pop() || `pic${index}`;
+  const srcUrl = resolveSfAssetUrl('picture', p.file_location);
+  const r = await fetchSfAssetBytes(srcUrl);
+  if (!r.ok) return { ok: false, error: `${name}: ${r.error}` };
+  const ext = extFor(r.contentType, name);
+  const path = `${sfJobId}/${index}.${ext}`; // short last-segment filename
+  const publicUrl = await uploadToRelay(path, r.bytes, r.contentType || inferMime(name));
+  if (!publicUrl) return { ok: false, error: `${name}: relay upload failed (SUPABASE_SERVICE_ROLE_KEY set?)` };
+  return { ok: true, url: publicUrl };
+}
