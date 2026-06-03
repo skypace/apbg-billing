@@ -356,30 +356,47 @@ async function pushFilesToVisit(resqWoId, photoType, files) {
   const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
   const session = await resqLogin();
 
-  // Get the visit ID from the WO — try by code first, then scan
-  // resqWoId could be a base64 WO ID or a code like R0960134
+  // Resolve the WO node (visit + appointment). ResQ images attach to a VISIT;
+  // if the WO has no visit yet, start one via its appointment — the same
+  // pattern the Record-of-Work completion flow uses.
   const isCode = /^R?\d+$/.test(resqWoId);
-  let visitId;
+  let node = null;
   if (isCode) {
     const code = resqWoId.startsWith('R') ? resqWoId : `R${resqWoId}`;
     const woData = await resqGql(session, `{
       workOrders(first: 1, code: "${code}") {
-        edges { node { latestVisit { id outcome } inProgressVisit { id outcome } } }
+        edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } appointment { id } upcomingAppointment { id } } }
       }
     }`);
-    const woNode = woData.data?.workOrders?.edges?.[0]?.node;
-    visitId = woNode?.inProgressVisit?.id || woNode?.latestVisit?.id;
+    node = woData.data?.workOrders?.edges?.[0]?.node || null;
   } else {
-    // Try to find by scanning recent WOs
     const woData = await resqGql(session, `{
       workOrders(first: 100, orderBy: "-raised_on") {
-        edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } } }
+        edges { node { id latestVisit { id outcome } inProgressVisit { id outcome } appointment { id } upcomingAppointment { id } } }
       }
     }`);
-    const match = woData.data?.workOrders?.edges?.find(e => e.node.id === resqWoId);
-    visitId = match?.node?.inProgressVisit?.id || match?.node?.latestVisit?.id;
+    node = woData.data?.workOrders?.edges?.find(e => e.node.id === resqWoId)?.node || null;
   }
-  if (!visitId) return { ok: false, status: 404, error: 'No visit found on this work order' };
+  if (!node) return { ok: false, status: 404, error: 'Work order not found in ResQ' };
+
+  let visitId = node.inProgressVisit?.id || node.latestVisit?.id;
+  let startedVisit = false;
+  if (!visitId) {
+    const appointmentId = node.appointment?.id || node.upcomingAppointment?.id;
+    if (!appointmentId) {
+      return { ok: false, status: 409, error: 'No visit on this WO yet, and no appointment to start one — ResQ has nowhere to attach photos until the WO is scheduled/dispatched.' };
+    }
+    try {
+      const startRes = await resqGql(session, `mutation($input: StartVisitMutationInput!) {
+        startVisit(input: $input) { visit { id } }
+      }`, { input: { appointmentId, facilityManagerName: 'On-site Manager', images: [] } });
+      visitId = startRes.data?.startVisit?.visit?.id;
+    } catch (e) {
+      return { ok: false, status: 502, error: `Couldn't start a ResQ visit: ${e.message}` };
+    }
+    if (!visitId) return { ok: false, status: 502, error: 'startVisit returned no visit id' };
+    startedVisit = true;
+  }
 
   // Build image array — ResQ expects data URLs
   const images = files.map(f => {
@@ -410,7 +427,7 @@ async function pushFilesToVisit(resqWoId, photoType, files) {
     }
   } catch (e) {}
 
-  return { ok: true, mutation, visitId, imagesUploaded: files.length };
+  return { ok: true, mutation, visitId, imagesUploaded: files.length, startedVisit };
 }
 
 // --- Reset Flags: Clear photosSent/invoiceSubmitted for a WO code ---
