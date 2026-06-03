@@ -472,6 +472,23 @@ async function clearErrors() {
 }
 
 // --- Clear (delete) a mapping entry ---
+// Close a SF job: set it to Invoiced (after the 3rd-party bill is entered).
+async function closeSfJob(sfJobId, code) {
+  if (!sfJobId) return;
+  if (!confirm(`Close SF job #${sfJobId}?\nSets the Service Fusion status to "Invoiced" — the next sync then submits the ResQ invoice.`)) return;
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?closeJob=${encodeURIComponent(sfJobId)}&resqCode=${encodeURIComponent(code || '')}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    loadStatus();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '🔒 Close'; }
+    alert('Close failed: ' + e.message);
+  }
+}
+
 async function clearMapping(code) {
   if (!code) return;
   if (!confirm(`Remove ${code} from sync? This deletes the local mapping only — it does NOT touch ResQ or SF.`)) return;
@@ -525,8 +542,10 @@ function renderMappings(mappings) {
     const sfBadge = statusBadge(m.sfStatus);
     const synced = m.lastSyncAt ? timeAgo(new Date(m.lastSyncAt)) : '—';
     const sfJob = m.sfJobId || '';
+    const sfInvoiced = (m.sfStatus || '').toLowerCase().includes('invoic');
     const expenseBtn = sfJob
       ? `<button class="expense-btn" onclick="openExpense('${sfJob}','${m.resqCode || ''}')">💰 Bill</button>`
+        + (sfInvoiced ? '' : ` <button class="clear-btn" onclick="closeSfJob('${sfJob}','${m.resqCode || ''}')" title="Set SF job to Invoiced (closes it out)">🔒 Close</button>`)
       : '—';
 
     const resqLink = resqLinkHtml(resqId, m.resqCode);
