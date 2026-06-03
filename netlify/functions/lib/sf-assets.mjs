@@ -46,7 +46,7 @@ export async function getPortalCookies() {
   if (!SERVICE_KEY) return _cookieCache;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/sf_portal_session?id=eq.1&select=*`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Accept-Profile': 'orders' },
     });
     if (!res.ok) return _cookieCache;
     const rows = await res.json();
@@ -69,35 +69,33 @@ function isBinaryOk(res, ct) {
   return res.ok && !/text\/html|application\/xml/i.test(ct);
 }
 
-// Fetch asset bytes: anonymous first, cookie fallback for SF portal hosts.
+// Fetch asset bytes. For SF portal hosts (admin/api.servicefusion.com) the
+// cookie is required, so try it FIRST; for the public S3 prefix, anonymous.
 export async function fetchSfAssetBytes(url) {
   const baseHeaders = { Accept: 'image/*,application/pdf,*/*', 'User-Agent': 'apbg-billing-sync/1.0' };
-
-  // 1. Anonymous (works for the public S3 prefix).
-  try {
-    const res = await fetch(url, { headers: baseHeaders, redirect: 'follow' });
-    const ct = res.headers.get('content-type') || 'application/octet-stream';
-    if (isBinaryOk(res, ct)) return { ok: true, bytes: await res.arrayBuffer(), contentType: ct };
-  } catch { /* fall through to cookie */ }
-
-  // 2. Cookie fallback (only for SF portal hosts, only if a cookie is loaded).
   let host = '';
   try { host = new URL(url).hostname; } catch { /* malformed */ }
-  if (ALLOWED_COOKIE_HOSTS.has(host)) {
-    const cookie = await getPortalCookies();
-    if (cookie) {
-      try {
-        const res = await fetch(url, { headers: { ...baseHeaders, Cookie: cookie }, redirect: 'follow' });
-        const ct = res.headers.get('content-type') || 'application/octet-stream';
-        if (isBinaryOk(res, ct)) return { ok: true, bytes: await res.arrayBuffer(), contentType: ct };
-        return { ok: false, error: `${url} -> ${res.status} ${ct} (cookie)` };
-      } catch (e) {
-        return { ok: false, error: `${url} threw ${e.message} (cookie)` };
-      }
+  const isCookieHost = ALLOWED_COOKIE_HOSTS.has(host);
+  const cookie = isCookieHost ? await getPortalCookies() : null;
+
+  // Attempt order: cookie first for portal hosts, then anonymous (S3 / fallback).
+  const attempts = [];
+  if (cookie) attempts.push({ Cookie: cookie });
+  attempts.push(null);
+
+  let lastErr = `${url} not fetchable`;
+  for (const extra of attempts) {
+    try {
+      const res = await fetch(url, { headers: { ...baseHeaders, ...(extra || {}) }, redirect: 'follow' });
+      const ct = res.headers.get('content-type') || 'application/octet-stream';
+      if (isBinaryOk(res, ct)) return { ok: true, bytes: await res.arrayBuffer(), contentType: ct };
+      lastErr = `${url} -> ${res.status} ${ct}${extra ? ' (cookie)' : ' (anon)'}`;
+    } catch (e) {
+      lastErr = `${url} threw ${e.message}`;
     }
-    return { ok: false, error: `${url} needs portal cookie but none available (set SUPABASE_SERVICE_ROLE_KEY)` };
   }
-  return { ok: false, error: `${url} not fetchable anonymously` };
+  if (isCookieHost && !cookie) lastErr += ' — needs portal cookie (no sf_portal_session loaded)';
+  return { ok: false, error: lastErr };
 }
 
 // List a SF job's non-private pictures (metadata only).
