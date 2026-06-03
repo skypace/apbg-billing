@@ -2,11 +2,12 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
   ChevronLeft, ChevronRight,
-  Menu, X, BookOpen,
+  Menu, X, BookOpen, Sun, Moon,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
+import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 
 const navItems = [
   { path: '',            icon: Receipt,      label: 'Dashboard' },
@@ -22,6 +23,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   const currentPath = location.pathname.replace(/^\/expense\/?/, '');
 
@@ -149,6 +151,15 @@ export function AppShell() {
             <BookOpen size={18} />
             <span>User Guide</span>
           </a>
+          <button
+            type="button"
+            onClick={() => setTheme(toggleTheme())}
+            className="nav-item"
+            title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
           <button
             type="button"
             onClick={handleLogout}
