@@ -477,14 +477,24 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     }
 
     // --- Provide Update: Complete the visit in ResQ ---
+    // Relay the SF photos FIRST and attach them as part of completing the visit.
+    // ResQ rejects after-images on an already-closed visit (AuthorizationError),
+    // so the endVisit call itself is the only reliable moment to attach them.
     if (needsVisitComplete) {
       try {
-        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId);
+        const relayed = await relaySfPhotos(mapEntry.sfJobId, mapEntry.photosSentKeys || []);
+        if (relayed.errors.length) result.errors.push(`📸 ${resqWO.code} relay: ${relayed.errors[0]}`);
+        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId, relayed.imageUrls);
         if (updateResult.steps.length) result.steps.push(...updateResult.steps);
         if (updateResult.errors.length) result.errors.push(...updateResult.errors);
         if (updateResult.completed) {
           mapEntry.visitCompleted = true;
           result.updated++;
+          if (updateResult.imagesAttached > 0) {
+            result.steps.push(`📸 ${updateResult.imagesAttached} photo(s) attached at completion → ResQ ${resqWO.code}`);
+            mapEntry.photosSentKeys = [...(mapEntry.photosSentKeys || []), ...relayed.relayedKeys];
+            mapEntry.photosSent = true;
+          }
         }
       } catch (e) {
         result.errors.push(`Visit complete ${resqWO.code}: ${e.message.substring(0, 200)}`);
@@ -751,35 +761,40 @@ async function createSfJob(resqWO, customerName) {
 // Lists the SF job's pictures, relays each through the public resq-photo-relay
 // bucket (short URL — ResQ stores the ref in varchar(100)), and attaches them
 // as after-images to the WO's visit. Runs after visit-complete, before invoice.
-async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []) {
-  const result = { count: 0, sentKeys: [], errors: [] };
-
+// Lists a SF job's pictures and relays the NEW ones (not already sent, keyed by
+// SF file_location) to short public URLs. Returns { imageUrls, relayedKeys,
+// errors }. Used both to attach photos during visit completion (the authorized
+// path — ResQ rejects after-images on an already-closed visit) and for the
+// post-completion after-image fallback below.
+async function relaySfPhotos(sfJobId, alreadySent = []) {
+  const out = { imageUrls: [], relayedKeys: [], errors: [] };
   const { listJobPictures, pictureToPublicUrl } = await import('./lib/sf-assets.mjs');
-
   let pics;
   try {
     pics = await listJobPictures(sfJobId);
   } catch (e) {
-    result.errors.push(`List SF photos ${sfJobId}: ${e.message.substring(0, 200)}`);
-    return result;
+    out.errors.push(`List SF photos ${sfJobId}: ${e.message.substring(0, 200)}`);
+    return out;
   }
-  if (!pics.length) return result; // nothing to send
-
-  // Incremental: only push pictures we haven't already sent (keyed by SF
-  // file_location). Lets photos added later flow without duplicating earlier ones.
+  if (!pics.length) return out;
   const sentSet = new Set(alreadySent);
   const newPics = pics.filter((p) => p.file_location && !sentSet.has(p.file_location));
-  if (!newPics.length) return result; // all current photos already sent
-
-  // Relay each NEW pic to a short public URL; remember its file_location.
-  const imageUrls = [];
-  const relayedKeys = [];
   for (let i = 0; i < newPics.length; i++) {
     const r = await pictureToPublicUrl(newPics[i], sfJobId, `${Date.now()}-${i}`);
-    if (r.ok) { imageUrls.push(r.url); relayedKeys.push(newPics[i].file_location); }
-    else result.errors.push(r.error);
+    if (r.ok) { out.imageUrls.push(r.url); out.relayedKeys.push(newPics[i].file_location); }
+    else out.errors.push(r.error);
   }
-  if (!imageUrls.length) return result;
+  return out;
+}
+
+async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []) {
+  const result = { count: 0, sentKeys: [], errors: [] };
+
+  const relay = await relaySfPhotos(sfJobId, alreadySent);
+  result.errors.push(...relay.errors);
+  if (!relay.imageUrls.length) return result;
+  const imageUrls = relay.imageUrls;
+  const relayedKeys = relay.relayedKeys;
 
   // Resolve the WO's visit (completed by provideUpdateToResq just before).
   let visitId;
@@ -829,8 +844,8 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []
 // When SF marks a job "Completed-Service", we end the visit in ResQ
 // so it transitions to NEEDS_INVOICE.
 // Flow: query WO for appointment + visit → startVisit (if needed) → endVisit
-async function provideUpdateToResq(session, resqWO, sfJobId) {
-  const result = { steps: [], errors: [], completed: false };
+async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
+  const result = { steps: [], errors: [], completed: false, imagesAttached: 0 };
 
   // 1. Fetch the SF job for completion notes
   let sfJob;
@@ -931,9 +946,11 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
         outcome,
         notes: cleanNotes,
         recommendations: '',
-        images: [], // Photos uploaded separately via sync.html
+        images, // attach SF photos AS PART OF completion — ResQ blocks
+                // after-images on an already-closed visit, so they go in here
       }});
-      result.steps.push(`✓ ${resqWO.code} visit completed (${outcome})`);
+      if (images.length) result.imagesAttached = images.length;
+      result.steps.push(`✓ ${resqWO.code} visit completed (${outcome})${images.length ? ` +${images.length} photo(s)` : ''}`);
       result.completed = true;
       return result;
     } catch (e) {
@@ -952,8 +969,9 @@ async function provideUpdateToResq(session, resqWO, sfJobId) {
       visit: visitId,
       notes: cleanNotes,
       recommendations: '',
-      images: [],
+      images,
     }});
+    if (images.length) result.imagesAttached = images.length;
     result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
     result.completed = true;
   } catch (e2) {
