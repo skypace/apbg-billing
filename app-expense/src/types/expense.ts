@@ -44,6 +44,10 @@ export interface ExpenseRequest {
   tag: string | null;
   department: string | null;
 
+  /** QBO Department (Location tracking) → posted as DepartmentRef. */
+  qbo_department_id: string | null;
+  qbo_department_name: string | null;
+
   customer_name: string | null;
   job_number: string | null;
   memo: string | null;

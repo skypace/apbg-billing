@@ -65,6 +65,13 @@ export default function ExpenseForm() {
   const [cogsAccountId, setCogsAccountId] = useState('');
   const [tag, setTag] = useState('');
   const [department, setDepartment] = useState('');
+  // QBO Department (Location tracking) — dropdown sourced from QBO + add-new.
+  const [qboDepartmentId, setQboDepartmentId] = useState('');
+  const [qboDepartmentName, setQboDepartmentName] = useState('');
+  const [qboDepartments, setQboDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [addingDept, setAddingDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [deptSaving, setDeptSaving] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [jobNumber, setJobNumber] = useState('');
   const [memo, setMemo] = useState('');
@@ -130,6 +137,8 @@ export default function ExpenseForm() {
       setCogsAccountId(data.cogs_account_id || '');
       setTag(data.tag || '');
       setDepartment(data.department || '');
+      setQboDepartmentId(data.qbo_department_id || '');
+      setQboDepartmentName(data.qbo_department_name || '');
       setCustomerName(data.customer_name || '');
       setJobNumber(data.job_number || '');
       setMemo(data.memo || '');
@@ -222,6 +231,63 @@ export default function ExpenseForm() {
       cancelled = true;
     };
   }, []);
+
+  // Load QBO Departments (Location tracking) for the Location picker.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/expense/api/expense-departments', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled) return;
+        setQboDepartments(Array.isArray(body.departments) ? body.departments : []);
+      } catch {
+        /* non-fatal — Location picker just stays empty */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleQboDepartmentChange = (val: string) => {
+    if (val === '__add__') {
+      setAddingDept(true);
+      return;
+    }
+    setQboDepartmentId(val);
+    setQboDepartmentName(qboDepartments.find((d) => d.id === val)?.name ?? '');
+  };
+
+  const createQboDepartment = async () => {
+    const name = newDeptName.trim();
+    if (!name) return;
+    setDeptSaving(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch('/expense/api/expense-departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ name }),
+      });
+      const body = await res.json();
+      if (res.ok && body.id) {
+        setQboDepartments((prev) =>
+          [...prev, { id: body.id, name: body.name }].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setQboDepartmentId(body.id);
+        setQboDepartmentName(body.name);
+        setAddingDept(false);
+        setNewDeptName('');
+      }
+    } finally {
+      setDeptSaving(false);
+    }
+  };
 
   /** Match the OCR's free-form account guess against the configured COGS list. */
   const pickCogsAccount = useCallback(
@@ -395,6 +461,8 @@ export default function ExpenseForm() {
           cogs_account_label: cogsAccountLabel || null,
           tag: tag || null,
           department: department || null,
+          qbo_department_id: qboDepartmentId || null,
+          qbo_department_name: qboDepartmentName || null,
           customer_name: customerName || null,
           job_number: jobNumber || null,
           memo: memo || null,
@@ -724,6 +792,55 @@ export default function ExpenseForm() {
               Defaulted from the <span className="font-medium">{department}</span> department — change it if this expense belongs elsewhere.
             </p>
           )}
+        </div>
+
+        <div>
+          <Label>Location (QBO Department)</Label>
+          {addingDept ? (
+            <div className="flex items-center gap-2">
+              <Input
+                autoFocus
+                placeholder="New location name"
+                value={newDeptName}
+                onChange={(e) => setNewDeptName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    createQboDepartment();
+                  }
+                }}
+              />
+              <Button type="button" onClick={createQboDepartment} disabled={!newDeptName.trim() || deptSaving}>
+                {deptSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setAddingDept(false);
+                  setNewDeptName('');
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <SelectField
+              disabled={readOnly}
+              value={qboDepartmentId}
+              onChange={(e) => handleQboDepartmentChange(e.target.value)}
+              placeholder="Select location"
+              options={[
+                { value: '', label: 'None' },
+                ...qboDepartments.map((d) => ({ value: d.id, label: d.name })),
+                { value: '__add__', label: '+ Add new location…' },
+              ]}
+            />
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Tags this expense to a QBO Department (Location) — posted as the
+            DEPARTMENT on the bill.
+          </p>
         </div>
 
         <div>
