@@ -22,6 +22,7 @@ export async function handler(event) {
   if (qs.introspect) return handleIntrospect(qs.introspect);
   if (qs.dedupeReport) return handleDedupeReport();
   if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
+  if (qs.closeJob) return handleCloseJob(qs.closeJob, qs.resqCode);
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
@@ -563,6 +564,36 @@ async function handleCancelSfJob(jobId, resqCode) {
     }
 
     return json({ ok: true, jobId, status: 'Cancelled', resqCode });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Close SF Job: set status to Invoiced (closes it out after the 3rd-party
+// bill is entered). The next sync sees "Invoiced" and submits the ResQ invoice. ---
+async function handleCloseJob(jobId, resqCode) {
+  if (!jobId) return json({ error: 'jobId required' }, 400);
+  try {
+    const { sfRequest } = await import('./sf-helpers.mjs');
+    await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Invoiced' });
+
+    // Reflect immediately in the mapping blob so the dashboard shows Invoiced.
+    try {
+      const store = await getStore();
+      if (store) {
+        const raw = await store.get('wo-mapping');
+        const mapping = raw ? JSON.parse(raw) : {};
+        for (const v of Object.values(mapping)) {
+          if (String(v.sfJobId) === String(jobId) || (resqCode && v.resqCode === resqCode)) {
+            v.sfStatus = 'Invoiced';
+            v.lastSyncAt = new Date().toISOString();
+          }
+        }
+        await store.set('wo-mapping', JSON.stringify(mapping));
+      }
+    } catch (e) { /* non-fatal */ }
+
+    return json({ ok: true, jobId, status: 'Invoiced', resqCode });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
