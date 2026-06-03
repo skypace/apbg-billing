@@ -161,7 +161,15 @@ export async function pictureToPublicUrl(p, sfJobId, index) {
   const r = await fetchSfAssetBytes(srcUrl);
   if (!r.ok) return { ok: false, error: `${name}: ${r.error}` };
   const ext = extFor(r.contentType, name);
-  const path = `${sfJobId}/${index}.${ext}`; // short last-segment filename
+  // ResQ stores the image reference in a varchar(100) column, and the public
+  // URL prefix (host + /storage/v1/object/public/<bucket>/) already eats ~83 of
+  // those chars — so the path must stay tiny. The old
+  // `${sfJobId}/${Date.now()}-${i}.${ext}` ran ~113 chars and ResQ rejected the
+  // push with "value too long for character varying(100)". A 6-char token + ext
+  // keeps the whole URL under 100. The relay bucket is transient, so the path
+  // doesn't need the job id — the WO↔job link lives in resq_sf_links.
+  const token = Math.random().toString(36).slice(2, 8); // 6 chars
+  const path = `${token}.${ext}`;
   const publicUrl = await uploadToRelay(path, r.bytes, r.contentType || inferMime(name));
   if (!publicUrl) return { ok: false, error: `${name}: relay upload failed (SUPABASE_SERVICE_ROLE_KEY set?)` };
   return { ok: true, url: publicUrl };

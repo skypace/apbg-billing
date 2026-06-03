@@ -88,6 +88,9 @@ export function eventFromResult(wo, mapEntry, r, defaultDirection) {
     direction: action === 'created' ? 'resq->sf' : defaultDirection,
     action,
     ok: action !== 'error',
-    message: String((r.errors && r.errors[0]) || (r.steps && r.steps[r.steps.length - 1]) || '').slice(0, 300),
+    // Keep enough of the message to carry a full ResQ/SF validation error
+    // (incl. extensions.fields.__all__) into the audit trail — 300 chars cut
+    // the actual reason off mid-JSON.
+    message: String((r.errors && r.errors[0]) || (r.steps && r.steps[r.steps.length - 1]) || '').slice(0, 2000),
   };
 }
