@@ -121,6 +121,8 @@ function buildBillPayload(r, vendor, fallback, prApproval) {
     Line: lines,
     PrivateNote: memo.substring(0, 4000),
   };
+  // QBO Location tracking — "Department" line on the bill.
+  if (r.qbo_department_id) payload.DepartmentRef = { value: String(r.qbo_department_id) };
   if (r.receipt_date) payload.TxnDate = r.receipt_date;
   return payload;
 }
@@ -182,6 +184,8 @@ function buildPurchasePayload(r, paymentAccount, optionalVendor, fallback, prApp
   if (optionalVendor?.Id) {
     payload.EntityRef = { value: optionalVendor.Id, type: 'Vendor' };
   }
+  // QBO Location tracking — "Department" line on the purchase.
+  if (r.qbo_department_id) payload.DepartmentRef = { value: String(r.qbo_department_id) };
   if (r.receipt_date) payload.TxnDate = r.receipt_date;
   return payload;
 }
