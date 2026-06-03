@@ -112,6 +112,13 @@ export default function SettingsPage() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [cogsAccounts, setCogsAccounts] = useState<CogsAccount[]>([]);
   const [deptCogsMap, setDeptCogsMap] = useState<Record<string, string>>({});
+  // Live QBO chart of accounts (COGS / Expense / Other Expense / Fixed Asset)
+  // backing the checkbox picker that builds the curated cogs_accounts list.
+  const [glAccounts, setGlAccounts] = useState<
+    { id: string; name: string; account_type: string; account_sub_type: string | null }[]
+  >([]);
+  const [glErr, setGlErr] = useState<string | null>(null);
+  const [cogsFilter, setCogsFilter] = useState('');
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgSavedAt, setOrgSavedAt] = useState<string | null>(null);
   const [orgErr, setOrgErr] = useState<string | null>(null);
@@ -164,6 +171,19 @@ export default function SettingsPage() {
         setDepartments((map.departments ?? []) as string[]);
         setCogsAccounts((map.cogs_accounts ?? []) as CogsAccount[]);
         setDeptCogsMap((map.department_cogs_map ?? {}) as Record<string, string>);
+
+        // Live QBO accounts for the COGS/Expense checkbox picker.
+        setGlErr(null);
+        try {
+          const r = await fetch('/expense/api/expense-gl-accounts', {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (!r.ok) throw new Error(`Accounts ${r.status}`);
+          const b = await r.json();
+          setGlAccounts(Array.isArray(b.accounts) ? b.accounts : []);
+        } catch (e) {
+          setGlErr((e as Error).message);
+        }
       }
     } catch (e) {
       setErr((e as Error).message);
@@ -236,6 +256,39 @@ export default function SettingsPage() {
       setOrgSaving(false);
     }
   }
+
+  const cogsIds = useMemo(() => new Set(cogsAccounts.map((a) => a.id)), [cogsAccounts]);
+
+  function toggleCogs(acct: { id: string; name: string }) {
+    setCogsAccounts((prev) =>
+      prev.some((a) => a.id === acct.id)
+        ? prev.filter((a) => a.id !== acct.id)
+        : [...prev, { id: acct.id, label: acct.name }],
+    );
+  }
+
+  // QBO accounts grouped by AccountType, filtered by the search box.
+  const cogsGroups = useMemo(() => {
+    const q = cogsFilter.trim().toLowerCase();
+    const filtered = q
+      ? glAccounts.filter((a) => a.name.toLowerCase().includes(q) || a.id.includes(q))
+      : glAccounts;
+    const map = new Map<string, typeof glAccounts>();
+    for (const a of filtered) {
+      if (!map.has(a.account_type)) map.set(a.account_type, []);
+      map.get(a.account_type)!.push(a);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([type, items]) => ({ type, items }));
+  }, [glAccounts, cogsFilter]);
+
+  // Selected accounts that aren't in the live active chart (legacy / inactive) —
+  // surfaced so the admin can still see + remove them rather than losing them.
+  const selectedNotInChart = useMemo(() => {
+    const live = new Set(glAccounts.map((a) => a.id));
+    return cogsAccounts.filter((a) => !live.has(a.id));
+  }, [glAccounts, cogsAccounts]);
 
   // Group payment accounts by type: Bank section, Credit Card section
   const groups = useMemo(() => {
@@ -405,47 +458,89 @@ export default function SettingsPage() {
 
             <section>
               <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-                COGS / Expense accounts
+                COGS / Expense accounts ({cogsAccounts.length} selected)
               </div>
-              <div className="space-y-2">
-                {cogsAccounts.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input
-                      className={`w-28 font-mono ${inputCls}`}
-                      placeholder="QBO id"
-                      value={a.id}
-                      onChange={(e) => {
-                        const n = [...cogsAccounts];
-                        n[i] = { ...n[i], id: e.target.value };
-                        setCogsAccounts(n);
-                      }}
-                    />
-                    <input
-                      className={`flex-1 ${inputCls}`}
-                      placeholder="Label"
-                      value={a.label}
-                      onChange={(e) => {
-                        const n = [...cogsAccounts];
-                        n[i] = { ...n[i], label: e.target.value };
-                        setCogsAccounts(n);
-                      }}
-                    />
-                    <button
-                      onClick={() => setCogsAccounts(cogsAccounts.filter((_, j) => j !== i))}
-                      className="p-1.5 text-slate-500 hover:text-red-400 transition"
-                      title="Remove"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+              <p className="text-xs text-slate-500 mb-3">
+                Check the QBO accounts that should appear in the expense form's account dropdown for everyone. Pulled live from the chart of accounts (COGS, Expense, Other Expense, Fixed Asset).
+              </p>
+
+              {glErr && (
+                <div className="rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200 mb-3">
+                  Couldn't load the QBO chart of accounts ({glErr}). Your saved list is preserved below; reconnect QBO or Refresh to edit it.
+                </div>
+              )}
+
+              {glAccounts.length > 0 && (
+                <input
+                  className={`w-full mb-3 ${inputCls}`}
+                  placeholder="Filter accounts…"
+                  value={cogsFilter}
+                  onChange={(e) => setCogsFilter(e.target.value)}
+                />
+              )}
+
+              <div className="space-y-4">
+                {cogsGroups.map((g) => (
+                  <div key={g.type}>
+                    <div className="text-[11px] uppercase tracking-wider text-slate-600 mb-1">{g.type}</div>
+                    <div className="rounded border border-slate-800 bg-slate-950/50 overflow-hidden">
+                      {g.items.map((a, idx) => {
+                        const checked = cogsIds.has(a.id);
+                        return (
+                          <label
+                            key={a.id}
+                            className={
+                              'flex items-center gap-3 px-3 py-2 cursor-pointer transition ' +
+                              (checked ? 'bg-emerald-950/30' : 'hover:bg-slate-900/60') +
+                              (idx > 0 ? ' border-t border-slate-800' : '')
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleCogs(a)}
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-emerald-400 focus:ring-emerald-400"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm text-slate-100">{a.name}</div>
+                              {a.account_sub_type && (
+                                <div className="text-xs text-slate-500">{a.account_sub_type}</div>
+                              )}
+                            </div>
+                            <span className="text-xs font-mono text-slate-600">#{a.id}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
-                <button
-                  onClick={() => setCogsAccounts([...cogsAccounts, { id: '', label: '' }])}
-                  className="inline-flex items-center gap-1 text-sm text-emerald-400 hover:text-emerald-300 transition"
-                >
-                  <Plus size={14} /> Add account
-                </button>
               </div>
+
+              {selectedNotInChart.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-[11px] uppercase tracking-wider text-slate-600 mb-1">
+                    Selected but not in active chart
+                  </div>
+                  <div className="rounded border border-slate-800 bg-slate-950/50 overflow-hidden">
+                    {selectedNotInChart.map((a, idx) => (
+                      <div
+                        key={a.id}
+                        className={'flex items-center gap-3 px-3 py-2 ' + (idx > 0 ? 'border-t border-slate-800' : '')}
+                      >
+                        <div className="flex-1 text-sm text-slate-300">{a.label}</div>
+                        <span className="text-xs font-mono text-slate-600">#{a.id}</span>
+                        <button
+                          onClick={() => setCogsAccounts(cogsAccounts.filter((x) => x.id !== a.id))}
+                          className="p-1 text-slate-500 hover:text-red-400 transition"
+                          title="Remove"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
 
             <section>
