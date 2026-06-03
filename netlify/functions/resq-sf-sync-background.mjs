@@ -327,30 +327,16 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // Prefer the linked SF customer id — create the job by id directly, which
     // bypasses the /customers lookup that's been returning 401. Falls back to
     // name resolution only when no id is linked.
-    let sfJob;
-    if (cust.sf_customer_id) {
-      // Look up the real SF customer NAME by id (SF /jobs needs customer_name,
-      // not customer_id), then create with the exact name.
-      let sfName = null;
-      try {
-        const c = await sfRequest('GET', `/customers/${encodeURIComponent(cust.sf_customer_id)}`);
-        sfName = (c?.customer || c?.data || c)?.customer_name || null;
-      } catch (e) { /* fall through to the error below */ }
-      if (!sfName) {
-        result.errors.push(`Linked SF customer #${cust.sf_customer_id} for ${wo.code} couldn't be read from Service Fusion — can't resolve its name to create the job.`);
-        result.report?.push({ resqCode: wo.code, reason: 'sf_customer_lookup_failed', message: `GET /customers/${cust.sf_customer_id} returned no name`, facility: wo.facility });
-        return result;
-      }
-      sfJob = await createSfJob(wo, sfName);
-    } else {
-      const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey);
-      if (!resolvedName) {
-        result.errors.push(`SF customer not found for ${wo.code}: configured "${customerName}" (${sfCustomerKey}) matched no SF customer. Paste the SF customer # in the control panel (Linked Customers → SF #).`);
-        result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
-        return result;
-      }
-      sfJob = await createSfJob(wo, resolvedName);
+    // Resolve the SF customer by NAME (auth works now; SF's by-id GET proved
+    // unreliable). Exact match on the configured name, then a stem search
+    // (e.g. "melt"/"starbird" + "resq") that self-heals punctuation drift.
+    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
+    if (!resolvedName) {
+      result.errors.push(`SF customer not found for ${wo.code}: "${customerName}" (stem "${sfCustomerKey}", id ${cust.sf_customer_id || 'none'}) didn't match a Service Fusion customer. In the control panel, use Find to search SF and click Use on the right customer.`);
+      result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
+      return result;
     }
+    const sfJob = await createSfJob(wo, resolvedName);
 
     // Determine initial SF status based on ResQ status
     const resqStatus = (wo.status || '').toUpperCase();
@@ -688,22 +674,22 @@ async function cancelSfJob(jobId) {
 // Resolve the configured SF customer name to a real SF customer record name.
 // Returns the exact SF `customer_name` to use, or null when no confident match
 // exists (caller then fails loudly instead of creating a job SF will reject).
-//   0. Linked SF id (rename-proof) — when ops.sync_customers.sf_customer_id is
-//      set, resolve the live name straight from that SF record. This is the
-//      durable path: a rename in SF can't break the sync.
 //   1. Exact match (case/whitespace-insensitive) on the configured name.
 //   2. Stem search — exactly one RESQ sync customer containing the brand stem
 //      (e.g. "starbird") self-heals punctuation/spacing drift.
 // Conservative on purpose: never guesses between multiple candidates.
 async function resolveSfCustomerName(configuredName, stem, sfCustomerId) {
-  // 0. Linked SF id — resolve the current name straight from the record.
+  // 0. Linked SF id — match it inside a name/stem search. The list search
+  //    returns customer ids and works; the by-id GET endpoint does not.
   if (sfCustomerId) {
-    try {
-      const res = await sfRequest('GET', `/customers/${encodeURIComponent(sfCustomerId)}`);
-      const c = res?.customer || res?.data || res;
-      const name = c?.customer_name || c?.name;
-      if (name) return name;
-    } catch (e) { /* fall through to name search */ }
+    for (const q of [stem, configuredName].filter(Boolean)) {
+      try {
+        const res = await sfRequest('GET', `/customers?filters[customer_name]=${encodeURIComponent(q)}&per-page=50`);
+        const items = res.items || res.data || (Array.isArray(res) ? res : []);
+        const hit = items.find(c => String(c.id ?? c.customer_id ?? '') === String(sfCustomerId));
+        if (hit && hit.customer_name) return hit.customer_name;
+      } catch (e) { /* fall through to name search */ }
+    }
   }
 
   const want = String(configuredName || '').trim().toLowerCase();
