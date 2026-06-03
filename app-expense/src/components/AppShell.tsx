@@ -9,12 +9,26 @@ import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 
-const navItems = [
-  { path: '',            icon: Receipt,      label: 'Dashboard' },
-  { path: 'pending',     icon: Clock,        label: 'My Pending' },
-  { path: 'queue',       icon: Users,        label: 'Approvals' },
-  { path: 'third-party', icon: Inbox,        label: '3rd Party Bills' },
-  { path: 'settings',    icon: SettingsIcon, label: 'Settings' },
+const navGroups: {
+  label?: string;
+  items: { path: string; icon: typeof Receipt; label: string }[];
+}[] = [
+  { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
+  {
+    label: 'Expenses',
+    items: [{ path: 'pending', icon: Clock, label: 'Previous Expenses' }],
+  },
+  {
+    label: 'Approvals',
+    items: [
+      { path: 'queue', icon: Users, label: 'Approvals' },
+      { path: 'third-party', icon: Inbox, label: '3rd Party Bills' },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [{ path: 'settings', icon: SettingsIcon, label: 'Settings' }],
+  },
 ];
 
 export function AppShell() {
@@ -114,24 +128,31 @@ export function AppShell() {
         </div>
 
         <nav className="nav">
-          {navItems.map((item) => {
-            const isActive =
-              item.path === ''
-                ? currentPath === '' || currentPath === '/'
-                : currentPath.startsWith(item.path);
-            return (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => goTo(item.path)}
-                className={`nav-item${isActive ? ' active' : ''}`}
-                title={collapsed ? item.label : undefined}
-              >
-                <item.icon size={18} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
+          {navGroups.map((group, gi) => (
+            <div key={group.label ?? `g${gi}`}>
+              {group.label && !collapsed && (
+                <div className="nav-section">{group.label}</div>
+              )}
+              {group.items.map((item) => {
+                const isActive =
+                  item.path === ''
+                    ? currentPath === '' || currentPath === '/'
+                    : currentPath.startsWith(item.path);
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => goTo(item.path)}
+                    className={`nav-item${isActive ? ' active' : ''}`}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <item.icon size={18} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-footer">
