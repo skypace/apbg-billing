@@ -330,9 +330,17 @@ async function processNewWO(wo, mapping, syncCustomers) {
     // Resolve the SF customer by NAME (auth works now; SF's by-id GET proved
     // unreliable). Exact match on the configured name, then a stem search
     // (e.g. "melt"/"starbird" + "resq") that self-heals punctuation drift.
-    const resolvedName = await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
+    // HARD-CODED SF customer names — the exact values that worked before SF
+    // auth broke. Bypasses all lookup for the two live RESQ customers. (Note
+    // Starbird's colon, which the seeded sync_customers row was missing.)
+    const HARDCODED_SF_CUSTOMER = {
+      melt: 'THE MELT RESQ',
+      starbird: 'STARBIRD CHICKEN: RESQ',
+    };
+    const resolvedName = HARDCODED_SF_CUSTOMER[String(sfCustomerKey).toLowerCase()]
+      || await resolveSfCustomerName(customerName, sfCustomerKey, cust.sf_customer_id);
     if (!resolvedName) {
-      result.errors.push(`SF customer not found for ${wo.code}: "${customerName}" (stem "${sfCustomerKey}", id ${cust.sf_customer_id || 'none'}) didn't match a Service Fusion customer. In the control panel, use Find to search SF and click Use on the right customer.`);
+      result.errors.push(`SF customer not found for ${wo.code}: "${customerName}" (stem "${sfCustomerKey}", id ${cust.sf_customer_id || 'none'}) didn't match a Service Fusion customer.`);
       result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
       return result;
     }
