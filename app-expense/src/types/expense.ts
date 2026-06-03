@@ -127,4 +127,7 @@ export interface ExpenseSettings {
   cogs_accounts: CogsAccount[];
   tags: string[];
   departments: string[];
+  /** Optional department → default COGS account id. Drives the form cascade:
+   *  picking a department pre-selects (but never locks) the COGS account. */
+  department_cogs_map: Record<string, string>;
 }

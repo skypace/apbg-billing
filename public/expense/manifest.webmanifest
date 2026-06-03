@@ -1,0 +1,17 @@
+{
+  "name": "Brixpense",
+  "short_name": "Brixpense",
+  "description": "Brix Beverage — expenses, purchase requests & approvals",
+  "id": "/expense/",
+  "start_url": "/expense/",
+  "scope": "/expense/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#06121F",
+  "theme_color": "#06121F",
+  "icons": [
+    { "src": "/expense/Brix-Round-Logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/expense/Brix-Round-Logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/expense/Brix-Round-Logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
