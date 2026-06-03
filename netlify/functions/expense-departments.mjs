@@ -36,7 +36,7 @@ export default async function handler(req) {
   if (req.method === 'GET') {
     try {
       const result = await qboQuery(
-        `SELECT Id, Name, Active FROM Department WHERE Active = true ORDERBY Name MAXRESULTS 1000`,
+        `SELECT Id, Name, Active FROM Department WHERE Active = true ORDER BY Name MAXRESULTS 1000`,
       );
       const departments = (result?.QueryResponse?.Department || []).map((d) => ({
         id: String(d.Id),
@@ -71,3 +71,6 @@ export default async function handler(req) {
 
   return json({ error: 'GET or POST only' }, 405);
 }
+
+// Reachable only at this path (see netlify.toml /expense/api/* rewrite).
+export const config = { path: '/api/expense-departments' };

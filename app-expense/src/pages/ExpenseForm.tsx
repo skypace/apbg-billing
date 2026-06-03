@@ -405,7 +405,27 @@ export default function ExpenseForm() {
         setCogsAccountLabel(match.label);
       }
     }
+    // Auto-route the approver: per-department override, else the default.
+    const routed =
+      settings?.approval_routing?.by_department?.[dept] ||
+      settings?.approval_routing?.default_approver;
+    if (routed) setManagerEmail(routed);
   };
+
+  // Pre-fill the approver from the default routing once settings load, unless
+  // one is already set (edit-load, fromPR, or a department already picked).
+  useEffect(() => {
+    if (!settings) return;
+    setManagerEmail((cur) => {
+      if (cur) return cur;
+      return (
+        settings.approval_routing?.by_department?.[department] ||
+        settings.approval_routing?.default_approver ||
+        ''
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
 
   const updateLineItem = (idx: number, field: keyof LineItem, val: string) => {
     setLineItems((prev) => {

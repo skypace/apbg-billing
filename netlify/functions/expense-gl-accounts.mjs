@@ -43,7 +43,7 @@ export default async function handler(req) {
         `SELECT Id, Name, FullyQualifiedName, AccountType, AccountSubType, Active ` +
           `FROM Account ` +
           `WHERE Active = true AND AccountType IN (${inList}) ` +
-          `ORDERBY AccountType, Name STARTPOSITION ${start} MAXRESULTS 1000`
+          `ORDER BY AccountType, Name STARTPOSITION ${start} MAXRESULTS 1000`
       );
       const page = result?.QueryResponse?.Account || [];
       for (const a of page) {
@@ -61,3 +61,8 @@ export default async function handler(req) {
     return json({ error: `QBO account query failed: ${e.message?.substring(0, 300) || e}` }, 502);
   }
 }
+
+// config.path is required: with it set, the function is reachable ONLY here
+// (not at /.netlify/functions/<name>). The Brixpense SPA hits /expense/api/<name>,
+// which netlify.toml rewrites to /api/<name>.
+export const config = { path: '/api/expense-gl-accounts' };

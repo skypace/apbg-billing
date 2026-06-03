@@ -43,6 +43,7 @@ export function useExpenseSettings() {
           'tags',
           'departments',
           'department_cogs_map',
+          'approval_routing',
         ]);
 
       if (error) {
@@ -62,6 +63,10 @@ export function useExpenseSettings() {
         tags: (map.tags ?? []) as string[],
         departments: (map.departments ?? []) as string[],
         department_cogs_map: (map.department_cogs_map ?? {}) as Record<string, string>,
+        approval_routing: (map.approval_routing ?? { default_approver: '', by_department: {} }) as {
+          default_approver: string;
+          by_department: Record<string, string>;
+        },
       });
       setLoading(false);
     }
