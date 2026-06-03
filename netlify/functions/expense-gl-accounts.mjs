@@ -38,12 +38,15 @@ export default async function handler(req) {
     const inList = TYPES.map((t) => `'${t}'`).join(',');
     const accounts = [];
     // Page through in case the chart of accounts exceeds one QBO page (1000).
+    // NOTE: no ORDER BY — QBO's parser is unreliable with a multi-column
+    // ORDER BY + STARTPOSITION/MAXRESULTS together (that combo 502'd the
+    // Settings picker). We sort client-side below instead.
     for (let start = 1; ; start += 1000) {
       const result = await qboQuery(
         `SELECT Id, Name, FullyQualifiedName, AccountType, AccountSubType, Active ` +
           `FROM Account ` +
           `WHERE Active = true AND AccountType IN (${inList}) ` +
-          `ORDER BY AccountType, Name STARTPOSITION ${start} MAXRESULTS 1000`
+          `STARTPOSITION ${start} MAXRESULTS 1000`
       );
       const page = result?.QueryResponse?.Account || [];
       for (const a of page) {
@@ -56,6 +59,9 @@ export default async function handler(req) {
       }
       if (page.length < 1000) break;
     }
+    accounts.sort(
+      (a, b) => a.account_type.localeCompare(b.account_type) || a.name.localeCompare(b.name),
+    );
     return json({ accounts });
   } catch (e) {
     return json({ error: `QBO account query failed: ${e.message?.substring(0, 300) || e}` }, 502);

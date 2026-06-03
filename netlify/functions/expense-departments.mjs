@@ -36,12 +36,11 @@ export default async function handler(req) {
   if (req.method === 'GET') {
     try {
       const result = await qboQuery(
-        `SELECT Id, Name, Active FROM Department WHERE Active = true ORDER BY Name MAXRESULTS 1000`,
+        `SELECT Id, Name, Active FROM Department WHERE Active = true MAXRESULTS 1000`,
       );
-      const departments = (result?.QueryResponse?.Department || []).map((d) => ({
-        id: String(d.Id),
-        name: d.Name,
-      }));
+      const departments = (result?.QueryResponse?.Department || [])
+        .map((d) => ({ id: String(d.Id), name: d.Name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       return json({ departments });
     } catch (e) {
       // Location tracking may be off, or QBO hiccup — degrade to empty.
