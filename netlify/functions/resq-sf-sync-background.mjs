@@ -800,15 +800,28 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []
     return result;
   }
 
-  try {
-    await resqGql(session, `mutation($input: AddAfterImagesToVisitInput!) {
-      addAfterImagesToVisit(input: $input) { __typename }
-    }`, { input: { visit: visitId, images: imageUrls } });
-    result.count = imageUrls.length;
-    result.sentKeys = relayedKeys;
-  } catch (e) {
-    result.errors.push(`addAfterImages ${resqWO.code}: ${e.message.substring(0, 200)}`);
+  // Vendor session first, then the facility account. The Brix vendor identity
+  // isn't authorized to add after-images (ResQ returns AuthorizationError —
+  // every push since the feature launched failed this way), so fall back to the
+  // facility login, exactly as submitRecordOfWork / createOriginalVendorInvoice
+  // already do for the same vendor-authorization gap.
+  const addImagesMutation = `mutation($input: AddAfterImagesToVisitInput!) {
+    addAfterImagesToVisit(input: $input) { __typename }
+  }`;
+  const addImagesVars = { input: { visit: visitId, images: imageUrls } };
+  const pushErrors = [];
+  for (const label of ['vendor', 'facility']) {
+    try {
+      const sess = label === 'vendor' ? session : await resqLogin({ facility: true });
+      await resqGql(sess, addImagesMutation, addImagesVars);
+      result.count = imageUrls.length;
+      result.sentKeys = relayedKeys;
+      return result;
+    } catch (e) {
+      pushErrors.push(`${label}: ${e.message.substring(0, 300)}`);
+    }
   }
+  result.errors.push(`addAfterImages ${resqWO.code}: ${pushErrors.join(' | ')}`);
   return result;
 }
 
