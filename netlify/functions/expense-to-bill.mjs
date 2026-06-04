@@ -189,17 +189,41 @@ Rules:
       resqCode,
     });
 
-    // ── 3b. Land the expense + bill in Brixpense (ops.expense_requests) ──
-    // Non-fatal: a landing failure must not undo a successfully-created QBO bill.
-    const landed = await landInBrixpense({
-      extracted,
-      vendor: qboVendor,
-      customer: customerResult.qboCustomer || null,
-      sfJobId,
-      resqCode,
-      bill: billResult,
-      submitter: auth.user,
-    }).catch((e) => ({ ok: false, error: e.message }));
+    // ── 3b. Stash the Brixpense expense to land on invoice (🔒 Close) ──
+    // Deferred: the ops.expense_requests insert now happens when the WO is
+    // invoiced (handleCloseJob posts v.pendingExpense), so the expense appears
+    // in Brixpense on close, not on bill. Stash it on the WO's mapping entry;
+    // if the SF job isn't mapped, fall back to posting now. Non-fatal — never
+    // undoes a successfully-created QBO bill.
+    let landed = { ok: false, deferred: false };
+    try {
+      const expenseRow = buildExpenseRow({
+        extracted, vendor: qboVendor, customer: customerResult.qboCustomer || null,
+        sfJobId, resqCode, bill: billResult, submitter: auth.user,
+      });
+      const store = await getStore();
+      let stashed = false;
+      if (store && expenseRow) {
+        const raw = await store.get('wo-mapping');
+        const mapping = raw ? JSON.parse(raw) : {};
+        for (const v of Object.values(mapping)) {
+          if (String(v.sfJobId) === String(sfJobId) || (resqCode && v.resqCode === resqCode)) {
+            v.pendingExpense = expenseRow;
+            v.lastSyncAt = new Date().toISOString();
+            stashed = true;
+          }
+        }
+        if (stashed) {
+          await store.set('wo-mapping', JSON.stringify(mapping));
+          landed = { ok: true, deferred: true };
+        }
+      }
+      if (!stashed && expenseRow) {
+        landed = await postExpenseRow(expenseRow); // unmapped SF job — can't defer
+      }
+    } catch (e) {
+      landed = { ok: false, error: e.message };
+    }
 
     return {
       statusCode: 200,
@@ -216,7 +240,8 @@ Rules:
         message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName}` +
           (customerResult.qboCustomer ? ` → ${customerResult.qboCustomer.DisplayName}` : '') +
           ` — $${billResult.total.toFixed(2)}` +
-          (landed?.ok ? ' · landed in Brixpense' : ''),
+          (landed?.deferred ? ' · expense will post to Brixpense on invoice'
+            : landed?.ok ? ' · landed in Brixpense' : ''),
       }),
     };
 
@@ -419,12 +444,11 @@ async function resolveResqCustomer({ sfJobId, resqCode }) {
 // Land the SF expense + QBO bill as an ops.expense_requests row so it shows up
 // in Brixpense. System insert via the service-role key; submitted_by is the
 // operator who posted the bill (NOT NULL fk). Non-fatal — never blocks the bill.
-async function landInBrixpense({ extracted, vendor, customer, sfJobId, resqCode, bill, submitter }) {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) return { ok: false, error: 'SUPABASE_SERVICE_ROLE_KEY not set' };
-  if (!submitter?.id) return { ok: false, error: 'no submitter id' };
-
-  const row = {
+// Build the ops.expense_requests row for a SF expense/bill (no DB write).
+// Exported so the close/invoice step can land it later (deferred landing).
+export function buildExpenseRow({ extracted, vendor, customer, sfJobId, resqCode, bill, submitter }) {
+  if (!submitter?.id) return null;
+  return {
     request_type: 'expense',
     status: 'posted',
     as_bill: true,
@@ -445,9 +469,17 @@ async function landInBrixpense({ extracted, vendor, customer, sfJobId, resqCode,
       .filter(Boolean).join(' | ') || null,
     description: `Service Fusion job #${sfJobId} expense bill`,
     qbo_bill_id: bill?.id ? String(bill.id) : null,
-    posted_at: new Date().toISOString(),
   };
+}
 
+// Insert a prebuilt expense row into ops.expense_requests via the service-role
+// key. posted_at is stamped here so it reflects when it actually landed
+// (deferred landing happens at invoice/close time).
+export async function postExpenseRow(row) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) return { ok: false, error: 'SUPABASE_SERVICE_ROLE_KEY not set' };
+  if (!row?.submitted_by) return { ok: false, error: 'no submitter id' };
+  const finalRow = { ...row, posted_at: new Date().toISOString() };
   const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests`, {
     method: 'POST',
     headers: {
@@ -458,11 +490,27 @@ async function landInBrixpense({ extracted, vendor, customer, sfJobId, resqCode,
       'Content-Profile': 'ops',
       Prefer: 'return=representation',
     },
-    body: JSON.stringify([row]),
+    body: JSON.stringify([finalRow]),
   });
   if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 200)}` };
   const out = await res.json();
   return { ok: true, id: Array.isArray(out) ? out[0]?.id : out?.id };
+}
+
+// Netlify Blobs store — same store + 'wo-mapping' blob the sync uses, so the
+// Bill step can stash the expense onto the WO and Close can land it.
+let blobStore;
+async function getStore() {
+  if (blobStore) return blobStore;
+  try {
+    const { getStore: createStore } = await import('@netlify/blobs');
+    blobStore = createStore({
+      name: 'resq-sf-sync',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+    });
+    return blobStore;
+  } catch { return null; }
 }
 
 function round(n) { return Math.round(n * 100) / 100; }

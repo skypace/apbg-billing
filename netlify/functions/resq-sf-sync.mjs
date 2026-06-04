@@ -584,11 +584,13 @@ async function handleCancelSfJob(jobId, resqCode) {
 // bill is entered). The next sync sees "Invoiced" and submits the ResQ invoice. ---
 async function handleCloseJob(jobId, resqCode) {
   if (!jobId) return json({ error: 'jobId required' }, 400);
+  let expenseLanded = null, expenseError = null;
   try {
     const { sfRequest } = await import('./sf-helpers.mjs');
     await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Invoiced' });
 
-    // Reflect immediately in the mapping blob so the dashboard shows Invoiced.
+    // Reflect immediately in the mapping blob so the dashboard shows Invoiced,
+    // and land the deferred SF expense in Brixpense now that it's invoiced.
     try {
       const store = await getStore();
       if (store) {
@@ -598,13 +600,21 @@ async function handleCloseJob(jobId, resqCode) {
           if (String(v.sfJobId) === String(jobId) || (resqCode && v.resqCode === resqCode)) {
             v.sfStatus = 'Invoiced';
             v.lastSyncAt = new Date().toISOString();
+            if (v.pendingExpense) {
+              try {
+                const { postExpenseRow } = await import('./expense-to-bill.mjs');
+                const r = await postExpenseRow(v.pendingExpense);
+                if (r.ok) { delete v.pendingExpense; expenseLanded = r.id || true; }
+                else expenseError = r.error;
+              } catch (e) { expenseError = e.message; }
+            }
           }
         }
         await store.set('wo-mapping', JSON.stringify(mapping));
       }
     } catch (e) { /* non-fatal */ }
 
-    return json({ ok: true, jobId, status: 'Invoiced', resqCode });
+    return json({ ok: true, jobId, status: 'Invoiced', resqCode, expenseLanded, expenseError });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
