@@ -273,6 +273,20 @@
       "last_verified": "2026-05-12"
     },
     {
+      "name": "sf-expense-sweep",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "every 6 hours (cron 0 */6 * * *)",
+      "writes": [
+        "ops.expense_requests",
+        "ops.expense_request_attachments",
+        "ops.sync_log"
+      ],
+      "multi_writer": true,
+      "notes": "Scheduled sweep of ALL Service Fusion completed/invoiced jobs (not just ResQ-linked) — lands each SF expense + receipt image as a Brixpense review-draft (status='draft', as_bill, tag='Service Fusion') via the service-role key. Deduped by ops.expense_requests.sf_expense_id (migration 20260603d). No QBO post here — Brixpense posts the bill on submit. Idempotent + capped; reuses postExpenseRow from expense-to-bill.",
+      "last_verified": "2026-06-03"
+    },
+    {
       "name": "brix-stock:app-and-rpcs",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
