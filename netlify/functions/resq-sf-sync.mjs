@@ -423,7 +423,8 @@ async function pushImagesToVisit(resqWoId, photoType, images) {
   const imgMutation = `mutation($input: ${inputType}!) {
     ${mutation}(input: $input) { __typename }
   }`;
-  const imgVars = { input: { visit: visitId, images } };
+  // ResQ Image input is { url: String } — wrap each relayed URL string.
+  const imgVars = { input: { visit: visitId, images: images.map((u) => ({ url: u })) } };
   try {
     await resqGql(session, imgMutation, imgVars);
   } catch (e) {
