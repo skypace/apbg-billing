@@ -489,8 +489,8 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // for the completion + photo steps below. Non-fatal: log and move on.
     if (resqNeedsSchedule) {
       let scheduled = false;
+      const schedErrors = [];
       for (const ts of ['SCHEDULING', 'APPOINTMENT', 'SITE_VISIT', 'DISPATCH']) {
-        if (scheduled) break;
         try {
           await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
             vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
@@ -498,11 +498,15 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           result.steps.push(`→ ResQ ${resqWO.code} scheduled (${ts})`);
           result.updated++;
           scheduled = true;
+          break;
         } catch (e) {
-          result.steps.push(`schedule ${ts} failed for ${resqWO.code}: ${e.message.substring(0, 100)}`);
+          // Keep the FULL ResQ error per target state (incl. extensions.fields
+          // with the valid enum values, if ResQ returns them) so we can see
+          // exactly what it wants instead of a swallowed "all failed".
+          schedErrors.push(`${ts}: ${e.message.substring(0, 300)}`);
         }
       }
-      if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: all targetStates failed`);
+      if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: ${schedErrors.join(' | ')}`);
     }
 
     // --- Provide Update: Complete the visit in ResQ ---
