@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
   ChevronLeft, ChevronRight,
-  Menu, X, BookOpen, Sun, Moon,
+  Menu, X, BookOpen, Sun, Moon, Wrench,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
@@ -16,7 +16,10 @@ const navGroups: {
   { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
   {
     label: 'Expenses',
-    items: [{ path: 'pending', icon: Clock, label: 'Previous Expenses' }],
+    items: [
+      { path: 'pending', icon: Clock, label: 'Previous Expenses' },
+      { path: 'sf-expenses', icon: Wrench, label: 'SF Expenses' },
+    ],
   },
   {
     label: 'Approvals',
