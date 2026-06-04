@@ -55,7 +55,7 @@ export default function PendingList() {
         <Button variant="ghost" size="icon" onClick={() => navigate('')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-lg font-semibold">My Submissions</h1>
+        <h1 className="text-xl font-bold tracking-tight">My Submissions</h1>
       </div>
 
       {loading ? (
@@ -89,23 +89,23 @@ export default function PendingList() {
                 className="cursor-pointer hover:shadow-sm transition-shadow"
                 onClick={() => navigate(`/expense/edit/${req.id}`)}
               >
-                <CardContent className="flex items-center gap-3 p-3">
+                <CardContent className="flex items-center gap-3 p-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">
+                      <p className="text-[15px] font-semibold truncate">
                         {req.vendor_name || 'No vendor'}
                       </p>
                       <Badge variant={statusVariant[req.status] ?? 'secondary'}>
                         {statusLabel[req.status] ?? req.status}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="text-[13px] text-muted-foreground mt-1">
                       {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                       {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                       {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                     </p>
                   </div>
-                  <span className="text-sm font-semibold tabular-nums">
+                  <span className="text-[15px] font-bold tabular-nums shrink-0">
                     {req.total_amount ? formatCurrency(req.total_amount) : '—'}
                   </span>
                   {isReadyForReceipt && (
