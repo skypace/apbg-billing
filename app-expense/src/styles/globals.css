@@ -284,7 +284,7 @@
 .login-form .field input:focus { border-color: var(--teal); outline: none; box-shadow: var(--focus-ring); }
 .login-form .field input::placeholder { color: var(--mt); }
 .login-error { color: var(--danger); font-size: 13px; text-align: center; margin: 0; }
-.login-btn { background: var(--glass-btn); border: none; color: #fff; border-radius: 12px; padding: 14px 16px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: var(--glow-teal); display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.login-btn { background: var(--glass-btn); border: none; color: #fff; border-radius: 12px; padding: 14px 16px; font-size: 16px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: var(--glow-teal); display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
 .login-btn:hover:not(:disabled) { background: var(--glass-btn-h); box-shadow: var(--glow-teal-h); transform: translateY(-1px); }
 .login-btn:disabled { opacity: 0.6; cursor: wait; }
 .spin { animation: spin 0.8s linear infinite; }
@@ -335,8 +335,34 @@
   .sidebar.collapsed .nav-item { padding: 12px 14px; justify-content: flex-start; }
   .drawer-backdrop.open { display: block; opacity: 1; }
   .drawer-close-btn { display: inline-flex; }
-  .main-content { padding: 20px 16px 60px; }
+  .main-content { padding: 20px 16px calc(78px + env(safe-area-inset-bottom)); }
   .collapse-toggle { display: none; }
+}
+
+/* iOS-style bottom tab bar — mobile only */
+.mobile-tabbar { display: none; }
+@media (max-width: 768px) {
+  .mobile-tabbar {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 36;
+    background: var(--glass-side);
+    backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-top: 1px solid var(--bd-light);
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom));
+    justify-content: space-around; align-items: stretch;
+  }
+  .mobile-tab {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    padding: 7px 0 5px; background: none; border: none; cursor: pointer;
+    color: var(--mt); font-size: 11px; font-weight: 700; line-height: 1;
+    border-radius: 12px;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .mobile-tab > span { line-height: 1; }
+  .mobile-tab.active { color: var(--teal); }
+  /* Lift the form submit bar above the tab bar so they don't overlap */
+  .form-submit-bar { bottom: calc(62px + env(safe-area-inset-bottom)); }
 }
 
 /* Glass card */
@@ -409,8 +435,8 @@
   color: var(--amber);
 }
 .cta-body { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.cta-title { font-size: 19px; font-weight: 800; color: var(--tx); letter-spacing: -0.01em; }
-.cta-desc { font-size: 13px; color: var(--tx2); line-height: 1.45; max-width: 28ch; }
+.cta-title { font-size: 19px; font-weight: 800; color: var(--tx); letter-spacing: -0.01em; line-height: 1.1; }
+.cta-desc { font-size: 13px; font-weight: 500; color: var(--tx2); line-height: 1.4; max-width: 28ch; }
 
 /* Sidebar section label */
 .nav-section { padding: 16px 14px 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mt); }
@@ -495,7 +521,7 @@ button[class*="hover:bg-secondary"], [data-slot="button"][class*="hover:bg-secon
   align-items: center !important;
   justify-content: center !important;
   gap: 8px;
-  line-height: 1.2;
+  line-height: 1 !important;
   white-space: nowrap;
 }
 button[class*="bg-primary"] > svg, [data-slot="button"][class*="bg-primary"] > svg,
@@ -508,7 +534,7 @@ button.bg-primary, [data-slot="button"].bg-primary {
   border: none !important;
   color: #ffffff !important;
   border-radius: 12px !important;
-  font-weight: 600;
+  font-weight: 700;
   box-shadow: var(--glow-teal);
   transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
