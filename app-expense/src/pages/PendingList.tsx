@@ -87,7 +87,7 @@ export default function PendingList() {
               <Card
                 key={req.id}
                 className="cursor-pointer hover:shadow-sm transition-shadow"
-                onClick={() => navigate(`/expense/edit/${req.id}`)}
+                onClick={() => navigate(`/edit/${req.id}`)}
               >
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className="flex-1 min-w-0">
@@ -113,7 +113,7 @@ export default function PendingList() {
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/expense/new?fromPR=${req.id}`);
+                        navigate(`/new?fromPR=${req.id}`);
                       }}
                       title="Log the receipt for this approved purchase"
                     >

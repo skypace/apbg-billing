@@ -58,7 +58,7 @@ export default function ManagerQueue() {
             <Card
               key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/expense/review/${req.id}`)}
+              onClick={() => navigate(`/review/${req.id}`)}
             >
               <CardContent className="flex items-center gap-3 p-4">
                 <div className="flex-1 min-w-0">

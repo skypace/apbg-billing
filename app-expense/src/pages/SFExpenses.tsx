@@ -77,7 +77,7 @@ export default function SFExpenses() {
             <Card
               key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/expense/edit/${req.id}`)}
+              onClick={() => navigate(`/edit/${req.id}`)}
             >
               <CardContent className="flex items-center gap-3 p-4">
                 <div className="flex-1 min-w-0">
