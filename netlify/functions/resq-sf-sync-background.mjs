@@ -61,8 +61,16 @@ const SYNC_LOCK_KEY = 'sync-lock';
 const SYNC_LOCK_TTL_MS = 10 * 60 * 1000; // 10 min
 
 export async function handler(event) {
-  const auth = await requireAuth(event);
-  if (!auth.ok) return auth.response;
+  // Auth: a superadmin JWT, the in-process cron flag (_internalCron, honored by
+  // requireAuth), OR a matching CRON_SECRET — the latter lets Supabase pg_cron
+  // POST this endpoint directly (a more reliable scheduler than Netlify's, which
+  // silently stopped firing resq-sf-sync-cron). Set CRON_SECRET in Netlify env.
+  const qs = event.queryStringParameters || {};
+  const cronOk = !!(qs.cronKey && process.env.CRON_SECRET && qs.cronKey === process.env.CRON_SECRET);
+  if (!cronOk) {
+    const auth = await requireAuth(event);
+    if (!auth.ok) return auth.response;
+  }
 
   const log = { started: new Date().toISOString(), steps: [], errors: [], created: 0, updated: 0 };
   const dedupeReport = [];
