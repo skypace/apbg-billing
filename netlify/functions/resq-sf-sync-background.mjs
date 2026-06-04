@@ -510,24 +510,19 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     }
 
     // --- Provide Update: Complete the visit in ResQ ---
-    // Relay the SF photos FIRST and attach them as part of completing the visit.
-    // ResQ rejects after-images on an already-closed visit (AuthorizationError),
-    // so the endVisit call itself is the only reliable moment to attach them.
+    // NOTE: photos are NOT attached here. Passing image URLs into endVisit's
+    // `images` field made ResQ reject it ("Expected type 'Image' to be a
+    // mapping") — that field wants image objects, not URL strings, and the
+    // correct shape is still TBD. So complete the visit cleanly (images=[]);
+    // photo attachment stays in the after-image path below as an open item.
     if (needsVisitComplete) {
       try {
-        const relayed = await relaySfPhotos(mapEntry.sfJobId, mapEntry.photosSentKeys || []);
-        if (relayed.errors.length) result.errors.push(`📸 ${resqWO.code} relay: ${relayed.errors[0]}`);
-        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId, relayed.imageUrls);
+        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId);
         if (updateResult.steps.length) result.steps.push(...updateResult.steps);
         if (updateResult.errors.length) result.errors.push(...updateResult.errors);
         if (updateResult.completed) {
           mapEntry.visitCompleted = true;
           result.updated++;
-          if (updateResult.imagesAttached > 0) {
-            result.steps.push(`📸 ${updateResult.imagesAttached} photo(s) attached at completion → ResQ ${resqWO.code}`);
-            mapEntry.photosSentKeys = [...(mapEntry.photosSentKeys || []), ...relayed.relayedKeys];
-            mapEntry.photosSent = true;
-          }
         }
       } catch (e) {
         result.errors.push(`Visit complete ${resqWO.code}: ${e.message.substring(0, 200)}`);

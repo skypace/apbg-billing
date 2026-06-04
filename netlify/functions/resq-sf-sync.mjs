@@ -22,7 +22,7 @@ export async function handler(event) {
   if (qs.introspect) return handleIntrospect(qs.introspect);
   if (qs.dedupeReport) return handleDedupeReport();
   if (qs.cancelSfJob) return handleCancelSfJob(qs.cancelSfJob, qs.resqCode);
-  if (qs.closeJob) return handleCloseJob(qs.closeJob, qs.resqCode);
+  if (qs.closeJob) return handleCloseJob(qs.closeJob, qs.resqCode, auth.user);
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
@@ -582,7 +582,7 @@ async function handleCancelSfJob(jobId, resqCode) {
 
 // --- Close SF Job: set status to Invoiced (closes it out after the 3rd-party
 // bill is entered). The next sync sees "Invoiced" and submits the ResQ invoice. ---
-async function handleCloseJob(jobId, resqCode) {
+async function handleCloseJob(jobId, resqCode, operator) {
   if (!jobId) return json({ error: 'jobId required' }, 400);
   let expenseLanded = null, expenseError = null;
   try {
@@ -590,7 +590,7 @@ async function handleCloseJob(jobId, resqCode) {
     await sfRequest('PUT', `/jobs/${jobId}`, { status: 'Invoiced' });
 
     // Reflect immediately in the mapping blob so the dashboard shows Invoiced,
-    // and land the deferred SF expense in Brixpense now that it's invoiced.
+    // and land the SF job's expenses in Brixpense now that it's invoiced.
     try {
       const store = await getStore();
       if (store) {
@@ -600,13 +600,26 @@ async function handleCloseJob(jobId, resqCode) {
           if (String(v.sfJobId) === String(jobId) || (resqCode && v.resqCode === resqCode)) {
             v.sfStatus = 'Invoiced';
             v.lastSyncAt = new Date().toISOString();
-            if (v.pendingExpense) {
-              try {
-                const { postExpenseRow } = await import('./expense-to-bill.mjs');
-                const r = await postExpenseRow(v.pendingExpense);
-                if (r.ok) { delete v.pendingExpense; expenseLanded = r.id || true; }
-                else expenseError = r.error;
-              } catch (e) { expenseError = e.message; }
+
+            // Idempotent: only land once per WO.
+            if (!v.expenseLandedId && operator?.id) {
+              // Prefer the deferred 💰 Bill expense if one was stashed; otherwise
+              // pull the SF job's native expense lines.
+              if (v.pendingExpense) {
+                try {
+                  const { postExpenseRow } = await import('./expense-to-bill.mjs');
+                  const r = await postExpenseRow(v.pendingExpense);
+                  if (r.ok) { delete v.pendingExpense; v.expenseLandedId = r.id || true; expenseLanded = r.id || true; }
+                  else expenseError = r.error;
+                } catch (e) { expenseError = e.message; }
+              } else {
+                try {
+                  const { landSfJobExpense } = await import('./lib/sf-expense.mjs');
+                  const r = await landSfJobExpense({ sfJobId: jobId, resqCode: resqCode || v.resqCode, submitter: operator });
+                  if (r.ok) { v.expenseLandedId = r.id; expenseLanded = { id: r.id, lines: r.lines, total: r.total, attached: r.attached, attachErrors: r.attachErrors }; }
+                  else if (!r.empty) expenseError = r.error;
+                } catch (e) { expenseError = e.message; }
+              }
             }
           }
         }
