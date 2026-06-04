@@ -89,28 +89,6 @@ export async function handler(event) {
     const session = await resqLogin();
     log.steps.push('ResQ OK');
 
-    // One-shot schema probe: photos have never attached because we don't know
-    // ResQ's image input shape ("Expected type 'Image' to be a mapping" on
-    // endVisit; AuthorizationError on addAfterImages). Introspect the relevant
-    // input types ONCE and log the field shapes to ops.sync_events so we can
-    // build the correct payload. Gated by a blob flag; remove after we have it.
-    try {
-      const probed = await loadBlob('image-schema-probed-v1');
-      if (!probed) {
-        const types = ['AddAfterImagesToVisitInput', 'AddBeforeImagesToVisitInput', 'EndVisitInput', 'Image', 'ImageInput', 'StartVisitMutationInput'];
-        const out = {};
-        for (const t of types) {
-          try {
-            const d = await resqGql(session, `{ __type(name: "${t}") { name kind inputFields { name type { name kind ofType { name kind ofType { name kind } } } } } }`);
-            out[t] = d.data?.__type || null;
-          } catch (e) { out[t] = { error: String(e.message).substring(0, 150) }; }
-        }
-        syncEvents.push({ resq_wo_id: 'schema-probe', resq_code: null, sf_job_id: null, direction: 'system', action: 'introspect', ok: true, message: ('IMAGE-SCHEMA ' + JSON.stringify(out)).slice(0, 8000) });
-        await saveBlob('image-schema-probed-v1', new Date().toISOString());
-        log.steps.push('Probed ResQ image schema (one-shot)');
-      }
-    } catch (e) { log.errors.push('image probe: ' + String(e.message).substring(0, 150)); }
-
     // 2. Verify SF
     log.steps.push('Checking SF...');
     await saveProgress();
@@ -553,20 +531,25 @@ async function syncBidirectional(session, resqWO, mapEntry) {
       if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: ${schedErrors.join(' | ')}`);
     }
 
-    // --- Provide Update: Complete the visit in ResQ ---
-    // NOTE: photos are NOT attached here. Passing image URLs into endVisit's
-    // `images` field made ResQ reject it ("Expected type 'Image' to be a
-    // mapping") — that field wants image objects, not URL strings, and the
-    // correct shape is still TBD. So complete the visit cleanly (images=[]);
-    // photo attachment stays in the after-image path below as an open item.
+    // --- Provide Update: Complete the visit in ResQ (+ attach photos) ---
+    // Now that we know ResQ's Image input shape ({ url }), attach the SF photos
+    // AS PART OF completing the visit (endVisit images) — the authorized moment,
+    // since ResQ blocks after-image edits once a visit is closed. Relay first.
     if (needsVisitComplete) {
       try {
-        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId);
+        const relayed = await relaySfPhotos(mapEntry.sfJobId, mapEntry.photosSentKeys || []);
+        if (relayed.errors.length) result.errors.push(`📸 ${resqWO.code} relay: ${relayed.errors[0]}`);
+        const updateResult = await provideUpdateToResq(session, resqWO, mapEntry.sfJobId, relayed.imageUrls);
         if (updateResult.steps.length) result.steps.push(...updateResult.steps);
         if (updateResult.errors.length) result.errors.push(...updateResult.errors);
         if (updateResult.completed) {
           mapEntry.visitCompleted = true;
           result.updated++;
+          if (updateResult.imagesAttached > 0) {
+            result.steps.push(`📸 ${updateResult.imagesAttached} photo(s) attached at completion → ResQ ${resqWO.code}`);
+            mapEntry.photosSentKeys = [...(mapEntry.photosSentKeys || []), ...relayed.relayedKeys];
+            mapEntry.photosSent = true;
+          }
         }
       } catch (e) {
         result.errors.push(`Visit complete ${resqWO.code}: ${e.message.substring(0, 200)}`);
@@ -915,7 +898,9 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []
   const addImagesMutation = `mutation($input: AddAfterImagesToVisitInput!) {
     addAfterImagesToVisit(input: $input) { __typename }
   }`;
-  const addImagesVars = { input: { visit: visitId, images: imageUrls } };
+  // ResQ's Image input is { url: String } (confirmed via schema introspection) —
+  // wrap each relayed URL; bare strings gave "Expected type 'Image' to be a mapping".
+  const addImagesVars = { input: { visit: visitId, images: imageUrls.map((u) => ({ url: u })) } };
   const pushErrors = [];
   for (const label of ['vendor', 'facility']) {
     try {
@@ -1028,6 +1013,10 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
   //    RESOLVED before falling back to captureVisitNotes. The retry only runs
   //    after the normal attempt fails, so it can't regress the happy path.
   const cleanNotes = completionNotes.substring(0, 2000);
+  // ResQ Image input is { url: String } — wrap the relayed URL strings. Attach
+  // photos AS PART OF completing the visit (we're authorized to endVisit; ResQ
+  // blocks after-image edits on an already-closed visit).
+  const imageObjs = (images || []).map((u) => ({ url: u }));
   const endErrors = [];
   for (const outcome of ['COMPLETED', 'RESOLVED']) {
     try {
@@ -1038,8 +1027,7 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
         outcome,
         notes: cleanNotes,
         recommendations: '',
-        images, // attach SF photos AS PART OF completion — ResQ blocks
-                // after-images on an already-closed visit, so they go in here
+        images: imageObjs,
       }});
       if (images.length) result.imagesAttached = images.length;
       result.steps.push(`✓ ${resqWO.code} visit completed (${outcome})${images.length ? ` +${images.length} photo(s)` : ''}`);
@@ -1061,7 +1049,7 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
       visit: visitId,
       notes: cleanNotes,
       recommendations: '',
-      images,
+      images: imageObjs,
     }});
     if (images.length) result.imagesAttached = images.length;
     result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
