@@ -34,6 +34,14 @@ const navGroups: {
   },
 ];
 
+// Primary destinations for the mobile bottom tab bar.
+const tabItems = [
+  { path: '', icon: Receipt, label: 'Home' },
+  { path: 'pending', icon: Clock, label: 'Expenses' },
+  { path: 'queue', icon: Users, label: 'Approvals' },
+  { path: 'settings', icon: SettingsIcon, label: 'Settings' },
+];
+
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -208,6 +216,30 @@ export function AppShell() {
       <main className="main-content">
         <Outlet />
       </main>
+
+      {/* iOS-style bottom tab bar (mobile only). Hidden on full-screen
+          form/review flows so it doesn't compete with the submit bar. */}
+      {!['new', 'new-pr', 'edit', 'review'].some((p) => currentPath.startsWith(p)) && (
+        <nav className="mobile-tabbar">
+          {tabItems.map((item) => {
+            const isActive =
+              item.path === ''
+                ? currentPath === '' || currentPath === '/'
+                : currentPath.startsWith(item.path);
+            return (
+              <button
+                key={item.path}
+                type="button"
+                onClick={() => goTo(item.path)}
+                className={`mobile-tab${isActive ? ' active' : ''}`}
+              >
+                <item.icon size={22} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }
