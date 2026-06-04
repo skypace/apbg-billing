@@ -143,7 +143,9 @@ export default function ExpenseForm() {
       setJobNumber(data.job_number || '');
       setMemo(data.memo || '');
       setManagerEmail(data.manager_email || '');
-      setPaymentAccountId(data.payment_account_id || '');
+      // SF-staged drafts are unpaid bills (as_bill) with no payment account —
+      // default the picker to "create bill" so submit posts a QBO Bill.
+      setPaymentAccountId(data.payment_account_id || (data.as_bill ? '__bill__' : ''));
       // Restore the cached name + type too. Without these, a fast resubmit
       // of an edited draft (before the paymentAccounts mount-effect resolves)
       // would write nulls back over them, breaking reporting and the
@@ -465,46 +467,61 @@ export default function ExpenseForm() {
       // as_bill instead.
       const asBill = paymentAccountId === '__bill__';
 
-      const { data: req, error: insertErr } = await supabase
-        .from('expense_requests')
-        .insert({
-          request_type: 'expense',
-          status: 'draft',
-          submitted_by: user.id,
-          submitter_name: userName,
-          submitter_email: user.email || '',
-          entity,
-          vendor_name: vendorName || null,
-          total_amount: totalNum || 0,
-          receipt_date: receiptDate || null,
-          cogs_account_id: cogsAccountId || null,
-          cogs_account_label: cogsAccountLabel || null,
-          tag: tag || null,
-          department: department || null,
-          qbo_department_id: qboDepartmentId || null,
-          qbo_department_name: qboDepartmentName || null,
-          customer_name: customerName || null,
-          job_number: jobNumber || null,
-          memo: memo || null,
-          manager_email: needsApproval ? managerEmail : null,
-          payment_account_id: asBill ? null : paymentAccountId,
-          // Prefer the freshly-picked account, but fall back to the cached
-          // values from loadExisting so re-submitting an edited draft before
-          // the dropdown list resolves doesn't blank these columns.
-          payment_account_name: asBill ? null : (pickedAcct?.name ?? paymentAccountName ?? null),
-          payment_account_type: asBill ? null : (pickedAcct?.account_type ?? paymentAccountType ?? null),
-          as_bill: asBill,
-          line_items: nonEmptyLines,
-          // Carries back to the approved PR this expense fulfills, if any.
-          // expense-request-notify reads this server-side, posts the QBO
-          // Purchase with the PR's approval audit in PrivateNote, and flips
-          // the PR row to status='fulfilled'.
-          linked_pr_id: linkedPRId,
-        })
-        .select()
-        .single();
+      // Fields written on both insert and update so the two paths can't drift.
+      const fields = {
+        entity,
+        vendor_name: vendorName || null,
+        total_amount: totalNum || 0,
+        receipt_date: receiptDate || null,
+        cogs_account_id: cogsAccountId || null,
+        cogs_account_label: cogsAccountLabel || null,
+        tag: tag || null,
+        department: department || null,
+        qbo_department_id: qboDepartmentId || null,
+        qbo_department_name: qboDepartmentName || null,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        memo: memo || null,
+        manager_email: needsApproval ? managerEmail : null,
+        payment_account_id: asBill ? null : paymentAccountId,
+        payment_account_name: asBill ? null : (pickedAcct?.name ?? paymentAccountName ?? null),
+        payment_account_type: asBill ? null : (pickedAcct?.account_type ?? paymentAccountType ?? null),
+        as_bill: asBill,
+        line_items: nonEmptyLines,
+      };
 
-      if (insertErr || !req) throw new Error(insertErr?.message ?? 'Insert failed');
+      // Editing an existing row (e.g. a Service Fusion draft) UPDATEs in place
+      // so we never leave a duplicate; otherwise INSERT a fresh draft. Either
+      // way expense-request-notify (below) is what posts it to QBO.
+      let req: { id: string } | null = null;
+      if (isEditing && id) {
+        const { data, error } = await supabase
+          .from('expense_requests')
+          .update(fields)
+          .eq('id', id)
+          .select()
+          .single();
+        if (error || !data) throw new Error(error?.message ?? 'Update failed');
+        req = data;
+      } else {
+        const { data, error } = await supabase
+          .from('expense_requests')
+          .insert({
+            request_type: 'expense',
+            status: 'draft',
+            submitted_by: user.id,
+            submitter_name: userName,
+            submitter_email: user.email || '',
+            ...fields,
+            // Carries back to the approved PR this expense fulfills, if any.
+            linked_pr_id: linkedPRId,
+          })
+          .select()
+          .single();
+        if (error || !data) throw new Error(error?.message ?? 'Insert failed');
+        req = data;
+      }
+      if (!req) throw new Error('Save failed');
 
       if (receiptFile) {
         const storagePath = `${user.id}/${req.id}/${receiptFile.name}`;

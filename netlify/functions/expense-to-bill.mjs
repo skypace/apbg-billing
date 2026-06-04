@@ -136,70 +136,33 @@ Rules:
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const extracted = JSON.parse(cleaned);
 
-    // ── 2. Match vendor in QBO ──
+    // ── 2. Best-effort vendor match (a SUGGESTION only — we no longer create
+    //       the QBO bill here, so a miss is fine; the operator confirms the
+    //       vendor in Brixpense and the bill posts on submit). ──
     let qboVendor = null;
-    // Try hint name first (manual override from UI), then extracted name
     const vendorNames = [vendorNameHint, extracted.vendorName].filter(Boolean);
     for (const vn of vendorNames) {
       qboVendor = await findQBOVendor(vn);
       if (qboVendor) break;
     }
 
-    if (!qboVendor) {
-      // Return extracted data but don't create bill — need vendor match
-      return {
-        statusCode: 200,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          needsVendor: true,
-          extracted,
-          message: `Could not match vendor "${extracted.vendorName}" in QuickBooks. Select a vendor manually.`,
-        }),
-      };
-    }
-
-    // ── 2b. Resolve QBO customer the bill should attach to ──
-    // Only Starbird and Melt jobs auto-attach a QBO customer. Bills for any
-    // other facility (Brix warehouse, unmapped receipts, etc.) are still
-    // created — just without a CustomerRef.
+    // ── 2b. Best-effort customer + suggested COGS account (also suggestions). ──
     const customerResult = await resolveResqCustomer({ sfJobId, resqCode });
-    if (customerResult.qboName && !customerResult.qboCustomer) {
-      // We identified a facility we DO want to attach (Starbird or Melt) but
-      // the QBO customer doesn't exist. Block bill creation so the user fixes it.
-      return {
-        statusCode: 200,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          needsCustomer: true,
-          extracted,
-          vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
-          message: `Identified facility "${customerResult.key}" but could not find QBO customer "${customerResult.qboName}". Create that customer in QuickBooks first, then retry.`,
-        }),
-      };
-    }
+    const suggestedCogs = customerResult.cogsAccountId
+      ? { id: String(customerResult.cogsAccountId), name: customerResult.qboName ? `${customerResult.qboName} COGS` : 'COGS' }
+      : (ACCOUNT_MAP[(extracted.lineItems?.[0]?.category) || ''] || DEFAULT_ACCOUNT);
 
-    // ── 3. Create QBO bill ──
-    const billResult = await createQBOBill({
-      vendor: qboVendor,
-      customer: customerResult.qboCustomer || null,
-      extracted,
-      sfJobId,
-      resqCode,
-    });
+    // ── 3. Upload the receipt image so it can ride into Brixpense on landing. ──
+    const attachment = await uploadReceiptImage(fileData, mType, sfJobId);
 
-    // ── 3b. Stash the Brixpense expense to land on invoice (🔒 Close) ──
-    // Deferred: the ops.expense_requests insert now happens when the WO is
-    // invoiced (handleCloseJob posts v.pendingExpense), so the expense appears
-    // in Brixpense on close, not on bill. Stash it on the WO's mapping entry;
-    // if the SF job isn't mapped, fall back to posting now. Non-fatal — never
-    // undoes a successfully-created QBO bill.
+    // ── 4. Build a DRAFT expense (no QBO post) and stash it to land in
+    //       Brixpense when the SF job is invoiced (🔒 Close / cron). If the SF
+    //       job isn't mapped, land it now. Brixpense posts to QBO on submit. ──
     let landed = { ok: false, deferred: false };
     try {
       const expenseRow = buildExpenseRow({
         extracted, vendor: qboVendor, customer: customerResult.qboCustomer || null,
-        sfJobId, resqCode, bill: billResult, submitter: auth.user,
+        sfJobId, resqCode, submitter: auth.user, cogsAccount: suggestedCogs, attachment,
       });
       const store = await getStore();
       let stashed = false;
@@ -219,7 +182,7 @@ Rules:
         }
       }
       if (!stashed && expenseRow) {
-        landed = await postExpenseRow(expenseRow); // unmapped SF job — can't defer
+        landed = await postExpenseRow(expenseRow); // unmapped SF job — land now
       }
     } catch (e) {
       landed = { ok: false, error: e.message };
@@ -230,18 +193,18 @@ Rules:
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
+        staged: true,
         extracted,
-        vendor: { id: qboVendor.Id, name: qboVendor.DisplayName },
+        vendor: qboVendor ? { id: qboVendor.Id, name: qboVendor.DisplayName } : null,
         customer: customerResult.qboCustomer
           ? { id: customerResult.qboCustomer.Id, name: customerResult.qboCustomer.DisplayName }
           : null,
-        bill: billResult,
         brixpense: landed,
-        message: `Bill #${billResult.number || billResult.id} created for ${qboVendor.DisplayName}` +
-          (customerResult.qboCustomer ? ` → ${customerResult.qboCustomer.DisplayName}` : '') +
-          ` — $${billResult.total.toFixed(2)}` +
-          (landed?.deferred ? ' · expense will post to Brixpense on invoice'
-            : landed?.ok ? ' · landed in Brixpense' : ''),
+        message: landed?.deferred
+          ? 'Receipt scanned — expense + image will land in Brixpense for review when the job is invoiced.'
+          : landed?.ok
+            ? 'Receipt scanned — expense + image staged in Brixpense for review.'
+            : 'Receipt scanned, but staging to Brixpense failed (see brixpense.error).',
       }),
     };
 
@@ -441,60 +404,110 @@ async function resolveResqCustomer({ sfJobId, resqCode }) {
   };
 }
 
-// Land the SF expense + QBO bill as an ops.expense_requests row so it shows up
-// in Brixpense. System insert via the service-role key; submitted_by is the
-// operator who posted the bill (NOT NULL fk). Non-fatal — never blocks the bill.
-// Build the ops.expense_requests row for a SF expense/bill (no DB write).
-// Exported so the close/invoice step can land it later (deferred landing).
-export function buildExpenseRow({ extracted, vendor, customer, sfJobId, resqCode, bill, submitter }) {
+// Build the ops.expense_requests row for a SF expense (no DB write, no QBO post).
+// Lands as a *draft* so it appears in Brixpense for review — the operator picks
+// the account / location / misc and SUBMITS in Brixpense, which is what posts
+// the QBO bill. `_attachment` (if present) is the receipt image to attach on
+// landing. Exported so the close/invoice step can land it later.
+export function buildExpenseRow({ extracted, vendor, customer, sfJobId, resqCode, submitter, cogsAccount, attachment }) {
   if (!submitter?.id) return null;
   return {
     request_type: 'expense',
-    status: 'posted',
-    as_bill: true,
-    auto_approved: true,
+    status: 'draft',          // reviewable in Brixpense; QBO post happens on submit
+    as_bill: true,            // submit creates an unpaid QBO Bill (not a Purchase)
     tag: 'Service Fusion',
     submitted_by: submitter.id,
     submitter_name: submitter.user_metadata?.name || submitter.email || 'Service Fusion',
     submitter_email: submitter.email || null,
     vendor_name: vendor?.DisplayName || extracted.vendorName || null,
     vendor_id: vendor?.Id ? String(vendor.Id) : null,
-    total_amount: bill?.total ?? extracted.total ?? null,
+    total_amount: extracted.total ?? null,
     currency: 'USD',
     receipt_date: extracted.billDate || null,
     line_items: extracted.lineItems || [],
     customer_name: customer?.DisplayName || null,
+    cogs_account_id: cogsAccount?.id || null,
+    cogs_account_label: cogsAccount?.name || null,
     job_number: sfJobId ? String(sfJobId) : null,
     memo: [resqCode ? `ResQ ${resqCode}` : null, sfJobId ? `SF Job #${sfJobId}` : null, extracted.notes]
       .filter(Boolean).join(' | ') || null,
-    description: `Service Fusion job #${sfJobId} expense bill`,
-    qbo_bill_id: bill?.id ? String(bill.id) : null,
+    description: `Service Fusion job #${sfJobId} expense — review & submit`,
+    qbo_bill_id: null,
+    _attachment: attachment || null,
   };
 }
 
 // Insert a prebuilt expense row into ops.expense_requests via the service-role
-// key. posted_at is stamped here so it reflects when it actually landed
-// (deferred landing happens at invoice/close time).
+// key, then attach the receipt image (if stashed). Lands as a draft —
+// posted_at stays null until Brixpense posts it to QBO on submit.
 export async function postExpenseRow(row) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) return { ok: false, error: 'SUPABASE_SERVICE_ROLE_KEY not set' };
   if (!row?.submitted_by) return { ok: false, error: 'no submitter id' };
-  const finalRow = { ...row, posted_at: new Date().toISOString() };
+  const { _attachment, ...finalRow } = row;
+  const sbHeaders = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+    'Accept-Profile': 'ops',
+    'Content-Profile': 'ops',
+    Prefer: 'return=representation',
+  };
   const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests`, {
     method: 'POST',
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-      'Accept-Profile': 'ops',
-      'Content-Profile': 'ops',
-      Prefer: 'return=representation',
-    },
+    headers: sbHeaders,
     body: JSON.stringify([finalRow]),
   });
   if (!res.ok) return { ok: false, error: `${res.status} ${(await res.text()).slice(0, 200)}` };
   const out = await res.json();
-  return { ok: true, id: Array.isArray(out) ? out[0]?.id : out?.id };
+  const id = Array.isArray(out) ? out[0]?.id : out?.id;
+
+  // Attach the receipt image so it rides along into Brixpense.
+  if (id && _attachment?.storage_path) {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/expense_request_attachments`, {
+        method: 'POST',
+        headers: sbHeaders,
+        body: JSON.stringify([{
+          request_id: id,
+          file_name: _attachment.file_name || 'receipt',
+          file_type: _attachment.file_type || null,
+          file_size: _attachment.file_size || null,
+          storage_path: _attachment.storage_path,
+        }]),
+      });
+    } catch { /* non-fatal — the expense still landed */ }
+  }
+  return { ok: true, id };
+}
+
+// Upload a scanned receipt (base64) to the expense-attachments bucket via the
+// service-role key, returning attachment metadata to stash on the WO.
+async function uploadReceiptImage(fileData, mediaType, sfJobId) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey || !fileData) return null;
+  try {
+    const bytes = Buffer.from(fileData, 'base64');
+    const ext = mediaType === 'application/pdf' ? 'pdf'
+      : mediaType?.includes('png') ? 'png'
+      : mediaType?.includes('webp') ? 'webp' : 'jpg';
+    const fileName = `receipt-${Date.now()}.${ext}`;
+    const path = `service-fusion/${sfJobId || 'misc'}/${fileName}`;
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/expense-attachments/${path}`, {
+      method: 'POST',
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        'Content-Type': mediaType || 'application/octet-stream',
+        'x-upsert': 'true',
+      },
+      body: bytes,
+    });
+    if (!res.ok) return null;
+    return { storage_path: path, file_name: fileName, file_type: mediaType, file_size: bytes.length };
+  } catch {
+    return null;
+  }
 }
 
 // Netlify Blobs store — same store + 'wo-mapping' blob the sync uses, so the
