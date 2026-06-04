@@ -174,3 +174,12 @@ export async function pictureToPublicUrl(p, sfJobId, index) {
   if (!publicUrl) return { ok: false, error: `${name}: relay upload failed (SUPABASE_SERVICE_ROLE_KEY set?)` };
   return { ok: true, url: publicUrl };
 }
+
+// Fetch any SF asset (e.g. an expense receipt) to bytes, host-aware (public S3
+// anon / api→Bearer / admin→Cookie). Returns { ok, bytes, contentType } or
+// { ok:false, error }. Used to pull SF expense receipts for Brixpense.
+export async function fetchSfAssetToBytes(fileLocationOrUrl) {
+  if (!fileLocationOrUrl) return { ok: false, error: 'no file location' };
+  const url = resolveSfAssetUrl('receipt', fileLocationOrUrl);
+  return fetchSfAssetBytes(url);
+}
