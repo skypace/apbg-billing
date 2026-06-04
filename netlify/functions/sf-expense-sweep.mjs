@@ -20,7 +20,9 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MAX_PAGES = 6;            // up to 600 most-recent jobs examined per run
 const MAX_DETAIL_FETCHES = 120; // cap per-job expense fetches when the list omits them
 const MAX_LANDINGS = 150;       // cap rows landed per run (idempotent — next run continues)
-const MAX_AGE_DAYS = 180;       // ignore jobs older than this
+// Only land expenses dated on/after this — start fresh, no historical backlog.
+// Override with the SF_SWEEP_START_DATE env var (YYYY-MM-DD).
+const SWEEP_START_DATE = process.env.SF_SWEEP_START_DATE || '2026-06-03';
 
 const ACCOUNT_MAP = {
   equipment: { id: '42', name: 'Equipment Sales COGS' },
@@ -107,7 +109,8 @@ async function sweep() {
   if (!submitter) return { ok: false, error: 'could not resolve a submitter user id' };
   const landedIds = await loadLandedExpenseIds();
 
-  const cutoff = Date.now() - MAX_AGE_DAYS * 86400000;
+  const startMs = Date.parse(`${SWEEP_START_DATE}T00:00:00Z`) || 0;
+  const scanFloor = startMs - 7 * 86400000; // buffer: a recently-touched older job may carry a fresh expense
   let scanned = 0, examined = 0, detailFetches = 0, landed = 0;
 
   for (let page = 1; page <= MAX_PAGES && landed < MAX_LANDINGS; page++) {
@@ -119,11 +122,11 @@ async function sweep() {
     if (!jobs.length) break;
     scanned += jobs.length;
 
-    const allTooOld = jobs.every((j) => j.created_at && new Date(j.created_at).getTime() < cutoff);
+    const allTooOld = jobs.every((j) => j.created_at && new Date(j.created_at).getTime() < scanFloor);
 
     for (const job of jobs) {
       if (landed >= MAX_LANDINGS) break;
-      if (job.created_at && new Date(job.created_at).getTime() < cutoff) continue;
+      if (job.created_at && new Date(job.created_at).getTime() < scanFloor) continue;
       if (!isDoneStatus(job.status)) continue;
       examined++;
 
@@ -144,6 +147,9 @@ async function sweep() {
         if (!exId || landedIds.has(exId)) continue;
         const amount = Number(ex.amount) || 0;
         if (amount <= 0) continue;
+        // Start date floor — only pull expenses dated on/after SWEEP_START_DATE.
+        const exDate = ex.expense_date || ex.created_at || null;
+        if (exDate && Date.parse(exDate) < startMs) continue;
 
         const acct = ACCOUNT_MAP[String(ex.category || '').toLowerCase()] || DEFAULT_ACCOUNT;
         const receiptUrl = ex.receipt_url || ex.receipt || null;
