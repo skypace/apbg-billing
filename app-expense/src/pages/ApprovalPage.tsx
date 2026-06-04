@@ -187,7 +187,7 @@ export default function ApprovalPage() {
           <AlertTriangle size={36} />
           <h1>Request not found</h1>
           <p>This request doesn't exist or isn't visible to you.</p>
-          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
       </div>
     );
@@ -200,7 +200,7 @@ export default function ApprovalPage() {
           <XCircle size={36} />
           <h1>Not your request</h1>
           <p>This purchase request is routed to {request?.manager_email || 'someone else'}.</p>
-          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+          <button className="ap-btn ap-btn-decline" onClick={() => navigate('/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
       </div>
     );
@@ -215,7 +215,7 @@ export default function ApprovalPage() {
           <h1>{approved ? '✓ Request Approved' : '✗ Request Declined'}</h1>
           <p>{request?.vendor_name ? `${request.vendor_name} · ` : ''}{request?.total_amount ? formatCurrency(request.total_amount) : ''}</p>
           {decided?.signer_name && <p className="ap-banner-sub">Signed by <strong>{decided.signer_name}</strong></p>}
-          <button className="ap-btn ap-btn-approve" onClick={() => navigate('/expense/queue')} style={{ marginTop: 20 }}>Back to queue</button>
+          <button className="ap-btn ap-btn-approve" onClick={() => navigate('/queue')} style={{ marginTop: 20 }}>Back to queue</button>
         </div>
       </div>
     );
@@ -240,7 +240,7 @@ export default function ApprovalPage() {
     <div className="ap-wrap">
       <div className="ap-card">
         <div className="ap-header">
-          <button type="button" onClick={() => navigate('/expense/queue')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
+          <button type="button" onClick={() => navigate('/queue')} style={{ background: 'transparent', border: 'none', color: 'var(--tx2)', cursor: 'pointer', padding: 0, marginRight: 4 }} aria-label="Back">
             <ArrowLeft size={20} />
           </button>
           <ClipboardList className="ap-header-icon" size={28} />
