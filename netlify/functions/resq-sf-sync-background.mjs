@@ -458,6 +458,13 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // What actions are needed based on current SF status?
     const sfIsCompleted = sfLower.includes('complet') || sfLower.includes('invoic'); // invoiced implies completed
     const sfIsInvoiced = sfLower.includes('invoic');
+    // SF scheduled (but NOT "unscheduled") while ResQ is still NOT_YET_SCHEDULED:
+    // advance the ResQ WO so it leaves NOT_YET_SCHEDULED (lands at
+    // NOT_YET_COMPLETED). Restored from the pre-2026-04-05 status push (removed
+    // in d23c9d3) — without it a WO scheduled in SF never gets an
+    // appointment/visit, so the completion + photo steps have nothing to attach.
+    const sfIsScheduled = sfLower.includes('scheduled') && !sfLower.includes('un');
+    const resqNeedsSchedule = sfIsScheduled && resqStatus === 'NOT_YET_SCHEDULED';
     // Re-check photos every pass while the job is completed-but-not-invoiced,
     // so photos added after the first push still flow (dedup is by file_location).
     const needsPhotoTransfer = sfIsCompleted && !mapEntry.invoiceSubmitted;
@@ -467,13 +474,35 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
       && ['SCHEDULED', 'VISIT_SCHEDULED', 'NOT_YET_COMPLETED', 'COMPLETED'].includes(resqStatus);
 
-    if (!sfChanged && !resqChanged && !needsPhotoTransfer && !needsInvoiceSubmit && !needsVisitComplete) return result;
+    if (!sfChanged && !resqChanged && !resqNeedsSchedule && !needsPhotoTransfer && !needsInvoiceSubmit && !needsVisitComplete) return result;
 
     if (sfChanged) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
     }
     if (resqChanged) {
       result.steps.push(`ResQ ${resqWO.code}: "${prevResqStatus}" → "${resqStatus}"`);
+    }
+
+    // --- SF Scheduled → advance the ResQ WO out of NOT_YET_SCHEDULED ---
+    // Try the ResQ state machine's scheduling target states in order; the first
+    // that takes moves the WO to NOT_YET_COMPLETED so it has an appointment/visit
+    // for the completion + photo steps below. Non-fatal: log and move on.
+    if (resqNeedsSchedule) {
+      let scheduled = false;
+      for (const ts of ['SCHEDULING', 'APPOINTMENT', 'SITE_VISIT', 'DISPATCH']) {
+        if (scheduled) break;
+        try {
+          await resqGql(session, `mutation($input: VendorChangeWorkOrderStateInput!) {
+            vendorChangeWorkOrderState(input: $input) { workOrder { id status } }
+          }`, { input: { workOrderId: resqWO.id, targetState: ts } });
+          result.steps.push(`→ ResQ ${resqWO.code} scheduled (${ts})`);
+          result.updated++;
+          scheduled = true;
+        } catch (e) {
+          result.steps.push(`schedule ${ts} failed for ${resqWO.code}: ${e.message.substring(0, 100)}`);
+        }
+      }
+      if (!scheduled) result.errors.push(`ResQ schedule ${resqWO.code}: all targetStates failed`);
     }
 
     // --- Provide Update: Complete the visit in ResQ ---
