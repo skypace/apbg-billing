@@ -74,6 +74,28 @@ export async function handler(event) {
     const session = await resqLogin();
     log.steps.push('ResQ OK');
 
+    // One-shot schema probe: photos have never attached because we don't know
+    // ResQ's image input shape ("Expected type 'Image' to be a mapping" on
+    // endVisit; AuthorizationError on addAfterImages). Introspect the relevant
+    // input types ONCE and log the field shapes to ops.sync_events so we can
+    // build the correct payload. Gated by a blob flag; remove after we have it.
+    try {
+      const probed = await loadBlob('image-schema-probed-v1');
+      if (!probed) {
+        const types = ['AddAfterImagesToVisitInput', 'AddBeforeImagesToVisitInput', 'EndVisitInput', 'Image', 'ImageInput', 'StartVisitMutationInput'];
+        const out = {};
+        for (const t of types) {
+          try {
+            const d = await resqGql(session, `{ __type(name: "${t}") { name kind inputFields { name type { name kind ofType { name kind ofType { name kind } } } } } }`);
+            out[t] = d.data?.__type || null;
+          } catch (e) { out[t] = { error: String(e.message).substring(0, 150) }; }
+        }
+        syncEvents.push({ resq_wo_id: 'schema-probe', resq_code: null, sf_job_id: null, direction: 'system', action: 'introspect', ok: true, message: ('IMAGE-SCHEMA ' + JSON.stringify(out)).slice(0, 8000) });
+        await saveBlob('image-schema-probed-v1', new Date().toISOString());
+        log.steps.push('Probed ResQ image schema (one-shot)');
+      }
+    } catch (e) { log.errors.push('image probe: ' + String(e.message).substring(0, 150)); }
+
     // 2. Verify SF
     log.steps.push('Checking SF...');
     await saveProgress();
