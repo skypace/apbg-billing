@@ -66,6 +66,13 @@
 
   --brand-glow: none;
 
+  /* Status-pill tints — explicit per-theme (not the inverting ramp). */
+  --badge-success-bg: rgba(26, 157, 84, 0.14);  --badge-success-fg: #137a3e;
+  --badge-warning-bg: rgba(184, 134, 11, 0.16); --badge-warning-fg: #8a6300;
+  --badge-info-bg:    rgba(0, 113, 227, 0.12);  --badge-info-fg:    #0058bf;
+  --badge-danger-bg:  rgba(217, 58, 63, 0.12);  --badge-danger-fg:  #c01f24;
+  --badge-neutral-bg: rgba(0, 0, 0, 0.06);      --badge-neutral-fg: #4d4d55;
+
   --ff-display: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --ff-body:    'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --ff-mono:    'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
@@ -174,6 +181,12 @@
   --shadow-lg:  0 20px 48px rgba(0, 0, 0, 0.7), 0 8px 20px rgba(0, 0, 0, 0.5);
 
   --brand-glow: 0 0 18px rgba(48, 209, 88, 0.55);
+
+  --badge-success-bg: rgba(48, 209, 88, 0.18);  --badge-success-fg: #5fe08a;
+  --badge-warning-bg: rgba(255, 159, 10, 0.20); --badge-warning-fg: #ffc04d;
+  --badge-info-bg:    rgba(10, 132, 255, 0.22); --badge-info-fg:    #6db3ff;
+  --badge-danger-bg:  rgba(255, 69, 58, 0.20);  --badge-danger-fg:  #ff8077;
+  --badge-neutral-bg: rgba(255, 255, 255, 0.10);--badge-neutral-fg: #b6b6bd;
 
   /* Neutral ramp (dark) — bg shades dark, text shades light */
   --c-slate-50:  250 250 252;
@@ -438,7 +451,7 @@ input, textarea,
 [data-slot="input"], [data-slot="textarea"] {
   background: var(--glass-input) !important;
   border: 1px solid var(--bd) !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
   color: var(--tx) !important;
   padding: 12px 14px !important;
   height: auto !important; min-height: 46px;
@@ -457,7 +470,7 @@ select {
   background-repeat: no-repeat !important;
   background-size: 18px 18px !important;
   border: 1px solid var(--bd) !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
   color: var(--tx) !important;
   padding: 12px 40px 12px 14px !important;
   height: auto !important; min-height: 46px;
@@ -494,7 +507,7 @@ button.bg-primary, [data-slot="button"].bg-primary {
   background: var(--glass-btn) !important;
   border: none !important;
   color: #ffffff !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
   font-weight: 600;
   box-shadow: var(--glow-teal);
   transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
@@ -510,7 +523,7 @@ button.border-input, [data-slot="button"].border-input {
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--bd2) !important;
   color: var(--tx) !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
 }
 button.border-input:hover, [data-slot="button"].border-input:hover {
   background: rgb(var(--ac) / 0.10) !important;
@@ -521,7 +534,7 @@ button.bg-destructive, [data-slot="button"].bg-destructive {
   background: var(--glass-red) !important;
   border: none !important;
   color: #ffffff !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
   box-shadow: var(--shadow-sm);
 }
 button.bg-destructive:hover, [data-slot="button"].bg-destructive:hover {
@@ -533,7 +546,7 @@ button[class*="bg-emerald"], [data-slot="button"][class*="bg-emerald"] {
   background: var(--glass-green) !important;
   border: none !important;
   color: #ffffff !important;
-  border-radius: 11px !important;
+  border-radius: 12px !important;
   box-shadow: var(--shadow-sm);
 }
 button[class*="bg-emerald"]:hover, [data-slot="button"][class*="bg-emerald"]:hover {
@@ -544,15 +557,23 @@ button[class*="bg-emerald"]:hover, [data-slot="button"][class*="bg-emerald"]:hov
 button.hover\:bg-secondary, [data-slot="button"].hover\:bg-secondary { color: var(--tx2); border-radius: 11px !important; }
 button.hover\:bg-secondary:hover, [data-slot="button"].hover\:bg-secondary:hover { background: rgb(var(--ac) / 0.08) !important; color: var(--tx) !important; }
 
-/* Badge */
+/* Badge — Apple-style status pill: sentence case, rounded, readable. */
 [data-slot="badge"] {
-  font-size: 11px !important; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 5px 10px !important;
+  font-size: 12.5px !important; font-weight: 700;
+  letter-spacing: 0 !important; text-transform: none !important;
+  line-height: 1 !important;
+  padding: 5px 11px !important;
   border-radius: 999px !important;
-  border: 1px solid var(--bd-light) !important;
+  border: 1px solid transparent !important;
   display: inline-flex !important; align-items: center !important;
+  gap: 5px; white-space: nowrap;
 }
+[data-slot="badge"].b-default  { background: var(--teal) !important;            color: #fff !important; }
+[data-slot="badge"].b-success  { background: var(--badge-success-bg) !important; color: var(--badge-success-fg) !important; }
+[data-slot="badge"].b-warning  { background: var(--badge-warning-bg) !important; color: var(--badge-warning-fg) !important; }
+[data-slot="badge"].b-info     { background: var(--badge-info-bg) !important;    color: var(--badge-info-fg) !important; }
+[data-slot="badge"].b-danger   { background: var(--badge-danger-bg) !important;  color: var(--badge-danger-fg) !important; }
+[data-slot="badge"].b-neutral  { background: var(--badge-neutral-bg) !important; color: var(--badge-neutral-fg) !important; }
 
 .sig-canvas { border: 2px dashed var(--bd2); border-radius: 12px; background: var(--glass-input); touch-action: none; width: 100%; }
 .sig-canvas:focus, .sig-canvas.active { border-color: var(--teal); box-shadow: var(--focus-ring); }
