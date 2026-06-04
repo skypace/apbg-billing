@@ -601,6 +601,9 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           mapEntry.expenseLandedId = r.id;
           result.updated++;
           result.steps.push(`💵 SF expense → Brixpense ${resqWO.code} (${r.lines} line(s), $${r.total}, ${r.attached} receipt(s))`);
+          if (r.attached === 0 && (r.attachErrors?.length || r.diag)) {
+            result.steps.push(`📎 ${resqWO.code} no receipt: ${(r.attachErrors || []).join(' | ').slice(0, 200) || 'expense keys=' + r.diag}`);
+          }
         } else if (r.empty) {
           mapEntry.expenseLandedId = 'none'; // no SF expenses on the job — don't retry every run
         } else {

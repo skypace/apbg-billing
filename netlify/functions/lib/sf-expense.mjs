@@ -77,48 +77,70 @@ export async function landSfJobExpense({ sfJobId, resqCode, submitter }) {
   const requestId = Array.isArray(out) ? out[0]?.id : out?.id;
   if (!requestId) return { ok: false, error: 'insert returned no id' };
 
-  // 4. Attach receipts (best-effort — the row already landed).
+  // 4. Attach receipts (best-effort — the row already landed). The SF expense
+  //    receipt is referenced like a WO picture: a file_location fetched
+  //    host-aware (S3 anon / api Bearer / admin cookie). The field is often an
+  //    object, so pull the ref robustly from strings, objects, and arrays.
+  const { fetchSfAssetToBytes } = await import('./sf-assets.mjs');
+  const refOf = (v) => {
+    if (!v) return null;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'object') return v.file_location || v.url || v.receipt_url || v.path || v.location || null;
+    return null;
+  };
+  const receiptRefs = (ex) => {
+    const out = [];
+    for (const k of ['receipt', 'receipt_url', 'file_location', 'picture', 'image', 'photo']) {
+      const r = refOf(ex[k]); if (r) out.push(r);
+    }
+    for (const k of ['receipts', 'pictures', 'images', 'attachments', 'documents', 'files']) {
+      if (Array.isArray(ex[k])) for (const item of ex[k]) { const r = refOf(item); if (r) out.push(r); }
+    }
+    return [...new Set(out)];
+  };
   const attached = [];
   const attachErrors = [];
+  let diag = null; // keys of an expense with no resolvable receipt — to find the field
   for (let i = 0; i < expenses.length; i++) {
     const ex = expenses[i];
-    const recRef = ex.receipt_url || ex.receipt || ex.file_location || null;
-    if (!recRef) continue;
-    try {
-      const { fetchSfAssetToBytes } = await import('./sf-assets.mjs');
-      const r = await fetchSfAssetToBytes(recRef);
-      if (!r.ok) { attachErrors.push(`exp ${ex.id || i}: ${r.error}`); continue; }
-      const ct = r.contentType || 'application/octet-stream';
-      const ext = (ct.split('/')[1] || 'pdf').replace(/[^a-z0-9]/gi, '') || 'pdf';
-      const fileName = `sf-expense-${ex.id || i}.${ext}`;
-      const storagePath = `${submitter.id}/${requestId}/${fileName}`;
-      const up = await fetch(`${SUPABASE_URL}/storage/v1/object/${ATTACH_BUCKET}/${encodeURI(storagePath)}`, {
-        method: 'POST',
-        headers: srHeaders({ 'Content-Type': ct, 'x-upsert': 'true' }),
-        body: Buffer.from(r.bytes),
-      });
-      if (!up.ok) { attachErrors.push(`exp ${ex.id || i} upload: ${up.status}`); continue; }
-      await fetch(`${SUPABASE_URL}/rest/v1/expense_request_attachments`, {
-        method: 'POST',
-        headers: srHeaders({
-          'Content-Type': 'application/json',
-          'Accept-Profile': 'ops',
-          'Content-Profile': 'ops',
-          Prefer: 'return=minimal',
-        }),
-        body: JSON.stringify([{
-          request_id: requestId,
-          file_name: fileName,
-          file_type: ct,
-          file_size: r.bytes.byteLength ?? null,
-          storage_path: storagePath,
-        }]),
-      });
-      attached.push(fileName);
-    } catch (e) {
-      attachErrors.push(`exp ${ex.id || i}: ${String(e.message).slice(0, 150)}`);
+    const refs = receiptRefs(ex);
+    if (!refs.length) { if (!diag) diag = Object.keys(ex).join(','); continue; }
+    for (let j = 0; j < refs.length; j++) {
+      try {
+        const r = await fetchSfAssetToBytes(refs[j]);
+        if (!r.ok) { attachErrors.push(`exp ${ex.id || i}: ${r.error}`); continue; }
+        const ct = r.contentType || 'application/octet-stream';
+        const ext = (ct.split('/')[1] || 'pdf').replace(/[^a-z0-9]/gi, '') || 'pdf';
+        const fileName = `sf-expense-${ex.id || i}-${j}.${ext}`;
+        const storagePath = `${submitter.id}/${requestId}/${fileName}`;
+        const up = await fetch(`${SUPABASE_URL}/storage/v1/object/${ATTACH_BUCKET}/${encodeURI(storagePath)}`, {
+          method: 'POST',
+          headers: srHeaders({ 'Content-Type': ct, 'x-upsert': 'true' }),
+          body: Buffer.from(r.bytes),
+        });
+        if (!up.ok) { attachErrors.push(`exp ${ex.id || i} upload: ${up.status}`); continue; }
+        await fetch(`${SUPABASE_URL}/rest/v1/expense_request_attachments`, {
+          method: 'POST',
+          headers: srHeaders({
+            'Content-Type': 'application/json',
+            'Accept-Profile': 'ops',
+            'Content-Profile': 'ops',
+            Prefer: 'return=minimal',
+          }),
+          body: JSON.stringify([{
+            request_id: requestId,
+            file_name: fileName,
+            file_type: ct,
+            file_size: r.bytes.byteLength ?? null,
+            storage_path: storagePath,
+          }]),
+        });
+        attached.push(fileName);
+      } catch (e) {
+        attachErrors.push(`exp ${ex.id || i}: ${String(e.message).slice(0, 150)}`);
+      }
     }
   }
 
-  return { ok: true, id: requestId, lines: lineItems.length, total, attached: attached.length, attachErrors };
+  return { ok: true, id: requestId, lines: lineItems.length, total, attached: attached.length, attachErrors, diag };
 }
