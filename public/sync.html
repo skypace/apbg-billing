@@ -271,7 +271,21 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('mainApp').style.display = 'block';
   loadStatus();
   loadSyncEvents();
+  autoSyncOnLoad();
 });
+
+// Event-driven freshness: kick a background sync whenever someone opens the
+// dashboard (throttled to once / 5 min per browser), so data is current when
+// you're actually working — independent of the scheduled reconciler.
+async function autoSyncOnLoad() {
+  try {
+    const last = +(localStorage.getItem('apbg_last_autosync') || 0);
+    if (Date.now() - last < 5 * 60 * 1000) return;
+    localStorage.setItem('apbg_last_autosync', String(Date.now()));
+    await fetch(`${API_BASE}/resq-sf-sync`, { method: 'POST' });
+    setTimeout(() => { loadStatus(); loadSyncEvents(); }, 8000);
+  } catch (e) { /* non-fatal */ }
+}
 
 // --- Recent Sync Events (Phase 2) ---
 async function loadSyncEvents() {
