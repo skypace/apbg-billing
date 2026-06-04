@@ -66,7 +66,9 @@ export async function handler(event) {
   // POST this endpoint directly (a more reliable scheduler than Netlify's, which
   // silently stopped firing resq-sf-sync-cron). Set CRON_SECRET in Netlify env.
   const qs = event.queryStringParameters || {};
-  const cronOk = !!(qs.cronKey && process.env.CRON_SECRET && qs.cronKey === process.env.CRON_SECRET);
+  const hdrs = event.headers || {};
+  const providedKey = qs.cronKey || hdrs['x-cron-key'] || hdrs['X-Cron-Key'] || '';
+  const cronOk = !!(providedKey && process.env.CRON_SECRET && providedKey === process.env.CRON_SECRET);
   if (!cronOk) {
     const auth = await requireAuth(event);
     if (!auth.ok) return auth.response;
