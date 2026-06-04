@@ -23,6 +23,21 @@ import { mapEntryToLinkRow, bulkUpsertLinks, bulkInsertEvents, eventFromResult }
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
+// System submitter for SF-sourced expenses landed by the cron (no operator in
+// scope). ops.expense_requests.submitted_by is NOT NULL → attribute to the ops
+// owner's auth user (skypace@brixbev.com). The 🔒 Close button still attributes
+// to whoever clicked it.
+const SF_EXPENSE_SUBMITTER = {
+  id: '2da634b7-623d-4f73-b667-cf87975fcdb6',
+  email: 'skypace@brixbev.com',
+  user_metadata: { name: 'Service Fusion (system)' },
+};
+
+// One-off backfill allowlist: SF job ids that were invoiced before the
+// expense-on-invoice landing existed and whose expense we still want pulled in.
+// (Going-forward jobs land automatically at the invoice transition.)
+const SF_EXPENSE_BACKFILL = new Set(['1086695007']);
+
 // Customer identity (ResQ facility <-> SF customer <-> QBO customer) now lives
 // in ops.sync_customers, loaded once per run and threaded through the worker.
 // See netlify/functions/lib/sync-customers.mjs + migration 20260602a.
@@ -491,12 +506,19 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // so photos added after the first push still flow (dedup is by file_location).
     const needsPhotoTransfer = sfIsCompleted && !mapEntry.invoiceSubmitted;
     const needsInvoiceSubmit = sfIsInvoiced && !mapEntry.invoiceSubmitted;
+    // Land the SF job's expenses in Brixpense at the invoice transition
+    // (needsInvoiceSubmit) — NOT for every already-invoiced WO, which would
+    // mass-backfill historical jobs. SF_EXPENSE_BACKFILL is an explicit one-off
+    // allowlist for specific jobs that were invoiced before this landed (e.g.
+    // 1086695007, whose expense was lost). Idempotent via expenseLandedId.
+    const needsExpenseLanding = sfIsInvoiced && !mapEntry.expenseLandedId
+      && (needsInvoiceSubmit || SF_EXPENSE_BACKFILL.has(String(mapEntry.sfJobId)));
     // "Provide Update" — complete the visit in ResQ when SF is completed
     // Also trigger if WO is COMPLETED (visit done but needs to transition to NEEDS_INVOICE)
     const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
       && ['SCHEDULED', 'VISIT_SCHEDULED', 'NOT_YET_COMPLETED', 'COMPLETED'].includes(resqStatus);
 
-    if (!sfChanged && !resqChanged && !resqNeedsSchedule && !needsPhotoTransfer && !needsInvoiceSubmit && !needsVisitComplete) return result;
+    if (!sfChanged && !resqChanged && !resqNeedsSchedule && !needsPhotoTransfer && !needsInvoiceSubmit && !needsExpenseLanding && !needsVisitComplete) return result;
 
     if (sfChanged) {
       result.steps.push(`SF ${mapEntry.sfJobId}: "${mapEntry.sfStatus}" → "${sfStatus}"`);
@@ -582,6 +604,26 @@ async function syncBidirectional(session, resqWO, mapEntry) {
           mapEntry.invoiceSubmitted = true;
         }
       } catch (e) { result.errors.push(`ResQ invoice ${resqWO.code}: ${e.message.substring(0, 200)}`); }
+    }
+
+    // --- Land the SF job's expenses in Brixpense (once invoiced, idempotent) ---
+    // Cron-context landing uses the system submitter (no operator in scope).
+    // The 🔒 Close button still lands with the actual operator; whichever runs
+    // first sets expenseLandedId and the other skips.
+    if (needsExpenseLanding) {
+      try {
+        const { landSfJobExpense } = await import('./lib/sf-expense.mjs');
+        const r = await landSfJobExpense({ sfJobId: mapEntry.sfJobId, resqCode: resqWO.code, submitter: SF_EXPENSE_SUBMITTER });
+        if (r.ok) {
+          mapEntry.expenseLandedId = r.id;
+          result.updated++;
+          result.steps.push(`💵 SF expense → Brixpense ${resqWO.code} (${r.lines} line(s), $${r.total}, ${r.attached} receipt(s))`);
+        } else if (r.empty) {
+          mapEntry.expenseLandedId = 'none'; // no SF expenses on the job — don't retry every run
+        } else {
+          result.errors.push(`SF expense land ${resqWO.code}: ${r.error}`);
+        }
+      } catch (e) { result.errors.push(`SF expense land ${resqWO.code}: ${e.message.substring(0, 200)}`); }
     }
 
     // Update mapping with current states
