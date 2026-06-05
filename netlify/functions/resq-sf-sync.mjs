@@ -26,6 +26,7 @@ export async function handler(event) {
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
+  if (qs.bulkCleanup !== undefined) return handleBulkCleanup();
   if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
   if (event.httpMethod === 'POST') return handlePost(event);
@@ -739,6 +740,58 @@ async function handleDismissIssue(resqCode) {
     } catch (e) { /* non-fatal */ }
 
     return json({ ok: true, dismissed: before - r.totalIssues });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Bulk cleanup: clear stuck flags on non-open WOs, remove ghosts ---
+async function handleBulkCleanup() {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+
+    const CLOSED_SF = ['invoiced', 'cancelled'];
+    const DONE_RESQ = ['AWAITING_PAYMENT', 'CLOSED', 'CANCELLED'];
+    const GHOST_CODES = ['R1022870'];
+
+    const flagsCleared = [];
+    const ghostsRemoved = [];
+    const kept = [];
+
+    for (const [k, v] of Object.entries(mapping)) {
+      if (GHOST_CODES.includes(v.resqCode)) {
+        ghostsRemoved.push({ key: k, resqCode: v.resqCode, sfJobId: v.sfJobId });
+        delete mapping[k];
+        continue;
+      }
+
+      const sfClosed = CLOSED_SF.includes((v.sfStatus || '').toLowerCase());
+      const resqDone = DONE_RESQ.includes((v.resqStatus || '').toUpperCase());
+
+      if ((sfClosed || resqDone) && (v.invoiceSubmitted || v.visitCompleted || v.photosSent)) {
+        const cleared = {};
+        if (v.invoiceSubmitted) { cleared.invoiceSubmitted = true; delete v.invoiceSubmitted; }
+        if (v.visitCompleted) { cleared.visitCompleted = true; delete v.visitCompleted; }
+        if (v.photosSent) { cleared.photosSent = true; delete v.photosSent; }
+        v.lastSyncAt = new Date().toISOString();
+        flagsCleared.push({ resqCode: v.resqCode, sfJobId: v.sfJobId, sfStatus: v.sfStatus, resqStatus: v.resqStatus, cleared });
+      } else {
+        kept.push({ resqCode: v.resqCode, sfStatus: v.sfStatus, resqStatus: v.resqStatus });
+      }
+    }
+
+    await store.set('wo-mapping', JSON.stringify(mapping));
+
+    return json({
+      ok: true,
+      flagsCleared: flagsCleared.length,
+      ghostsRemoved: ghostsRemoved.length,
+      keptOpen: kept.length,
+      details: { flagsCleared, ghostsRemoved },
+    });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
