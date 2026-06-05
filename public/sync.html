@@ -190,6 +190,7 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
       <button class="primary" id="syncBtn" onclick="runSync()">▶ Run Sync Now</button>
       <button class="secondary" onclick="loadStatus()">↻ Refresh Status</button>
       <button class="secondary" id="clearErrBtn" onclick="clearErrors()">🧹 Clear Errors</button>
+      <button class="secondary" id="cleanupBtn" onclick="bulkCleanup()">🧹 Cleanup Closed WOs</button>
     </div>
 
     <div class="actions" style="margin-top:-12px">
@@ -483,6 +484,25 @@ async function clearErrors() {
   }
   btn.disabled = false;
   btn.innerHTML = '🧹 Clear Errors';
+}
+
+// --- Bulk cleanup: clear stuck flags on closed WOs + remove ghosts ---
+async function bulkCleanup() {
+  if (!confirm('Clear invoiceSubmitted/visitCompleted/photosSent flags on all closed/invoiced WOs and remove ghost entries? Open jobs are untouched.')) return;
+  const btn = document.getElementById('cleanupBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Cleaning...';
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?bulkCleanup`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    alert(`Cleanup done: ${data.flagsCleared} flags cleared, ${data.ghostsRemoved} ghosts removed, ${data.keptOpen} open WOs untouched.`);
+    await loadStatus();
+  } catch (e) {
+    alert(`Cleanup failed: ${e.message}`);
+  }
+  btn.disabled = false;
+  btn.innerHTML = '🧹 Cleanup Closed WOs';
 }
 
 // --- Clear (delete) a mapping entry ---
