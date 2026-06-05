@@ -1362,6 +1362,34 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     return result;
   }
 
+  // Step 4b: VERIFY a vendor invoice actually exists on the WO before claiming
+  // success. createOriginalVendorInvoice returns cleanly (no GraphQL error) even
+  // when the WO is still WAITING_FOR_COORDINATOR_APPROVAL — the record of work
+  // hasn't been approved yet, so ResQ accepts the mutation as a no-op and NO
+  // invoice is created. Marking invoice_submitted=true on that false success
+  // permanently blocked the real submission once the coordinator approved and the
+  // WO moved to "awaiting invoice" (R1023748, R1020568, R0875542 — all Starbird
+  // coordinator-gated). Re-query and only proceed if a vendorInvoice is present;
+  // otherwise leave the WO retryable so the next sync invoices it post-approval.
+  try {
+    const verifyData = await resqGql(session, `{
+      workOrders(first: 1, code: "${resqWO.code}") {
+        edges { node { status invoiceSets { id vendorInvoices { id } } } }
+      }
+    }`);
+    const vNode = verifyData.data?.workOrders?.edges?.[0]?.node;
+    const vendorInvoices = (vNode?.invoiceSets || []).flatMap(s => s.vendorInvoices || []);
+    if (vendorInvoices.length === 0) {
+      result.errors.push(`Invoice not present on ${resqWO.code} after create (WO status: ${vNode?.status || 'unknown'}) — likely awaiting coordinator approval; left retryable`);
+      return result; // do NOT mark invoice_submitted — retry next run
+    }
+    result.steps.push(`→ ${resqWO.code} vendor invoice verified (${vendorInvoices.length})`);
+  } catch (e) {
+    // Verification call failed — be conservative and don't claim success.
+    result.errors.push(`Verify invoice ${resqWO.code}: ${e.message.substring(0, 150)} — left retryable`);
+    return result;
+  }
+
   // Step 5: Set payout offer (Standard)
   if (vendorId) {
     try {
