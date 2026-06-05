@@ -499,8 +499,12 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // mass-backfill historical jobs. SF_EXPENSE_BACKFILL is an explicit one-off
     // allowlist for specific jobs that were invoiced before this landed (e.g.
     // 1086695007, whose expense was lost). Idempotent via expenseLandedId.
-    const needsExpenseLanding = sfIsInvoiced && !mapEntry.expenseLandedId
-      && (needsInvoiceSubmit || SF_EXPENSE_BACKFILL.has(String(mapEntry.sfJobId)));
+    // DISABLED 2026-06: this path auto-landed SF expenses as status='posted'
+    // (no review, no vendor), which is not what we want. SF expenses now flow
+    // through sf-expense-sweep, which lands them as reviewable DRAFTS and lets
+    // Brixpense post the QBO bill on submit. Kept as a no-op so the rest of the
+    // lifecycle logic is untouched.
+    const needsExpenseLanding = false;
     // "Provide Update" — complete the visit in ResQ when SF is completed
     // Also trigger if WO is COMPLETED (visit done but needs to transition to NEEDS_INVOICE)
     const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
