@@ -1095,6 +1095,16 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
   const invoiceNumber = sfInvoice?.number ? String(sfInvoice.number) : '';
   const refNumber = invoiceNumber || (resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`);
 
+  // The authoritative billed amount is the Service Fusion INVOICE total — NOT a
+  // re-sum of the job's products/services/labor/expenses below, which can wildly
+  // overstate the bill (R0875542: a $25 SF invoice was pushed to ResQ as $110,400
+  // because every job line item got summed). SF invoice payloads vary, so coalesce
+  // the common total fields; stays NaN when there's no invoice total to trust.
+  const sfInvoiceTotal = sfInvoice ? Number(
+    sfInvoice.total ?? sfInvoice.total_amount ?? sfInvoice.grand_total ??
+    sfInvoice.total_due ?? sfInvoice.amount ?? NaN
+  ) : NaN;
+
   // Build ResQ line items from SF data (using correct ResQ field names)
   const lineItems = [];
   let order = 0;
@@ -1181,7 +1191,26 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
     });
   }
 
-  const totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.rate) * parseFloat(li.quantity)), 0);
+  let totalAmount = lineItems.reduce((sum, li) => sum + (parseFloat(li.rate) * parseFloat(li.quantity)), 0);
+
+  // Authoritative override: when the SF invoice carries a total and it disagrees
+  // with the re-summed line items, bill ResQ the SF invoice total as a single
+  // service line. This is the guard against the line-item re-sum overstating the
+  // invoice (the R0875542 $25 → $110,400 bug). Only engages when an SF invoice
+  // total is actually present, so jobs without one keep the itemized build.
+  if (Number.isFinite(sfInvoiceTotal) && sfInvoiceTotal > 0 && sfInvoiceTotal.toFixed(2) !== totalAmount.toFixed(2)) {
+    lineItems.length = 0;
+    lineItems.push({
+      order: 0, itemType: 'ITEM_TYPE_SERVICE_CHARGE',
+      quantity: '1', rate: String(sfInvoiceTotal),
+      description: invoiceNumber ? `Service per SF Invoice #${invoiceNumber}` : 'Service',
+      partName: null, partManufacturer: null, partNumber: null,
+      promotionType: null, ratePercentage: null,
+      discount: '0.0', revShare: '0.0000',
+      warranty: false, overtime: false, taxRateIds: [],
+    });
+    totalAmount = sfInvoiceTotal;
+  }
   const notes = `SF Job #${sfJobId}${invoiceNumber ? ', Invoice #' + invoiceNumber : ''}`;
 
   // Step 0: Get the invoiceSet ID + check for existing records of work
@@ -1315,9 +1344,22 @@ async function buildAndSubmitInvoice(session, sfJobId, resqWO) {
         createOriginalVendorInvoice(input: $input) { __typename }
       }`, { input: { invoiceSetId } });
       result.steps.push(`→ ${resqWO.code} vendor invoice created (facility)`);
+      invoiceCreated = true;
     } catch (e) {
       result.steps.push(`Create invoice failed both accounts ${resqWO.code}: ${e.message.substring(0, 100)}`);
     }
+  }
+
+  // Do NOT report success unless the vendor invoice actually got created on ResQ.
+  // Previously execution fell through to the "✓ invoice complete" log and set
+  // invoice_submitted=true even when createOriginalVendorInvoice failed on BOTH
+  // accounts — a silent false-success that masked un-pushed invoices and then
+  // permanently blocked retries (root cause of R0875542 showing "invoiced" in
+  // our system while nothing ever reached ResQ). Surface the real error and
+  // leave the WO retryable instead.
+  if (!invoiceCreated) {
+    result.errors.push(`Create vendor invoice ${resqWO.code}: failed on vendor + facility — invoice NOT created on ResQ (record of work submitted, invoice step failed)`);
+    return result;
   }
 
   // Step 5: Set payout offer (Standard)
