@@ -200,7 +200,21 @@ export default function SettingsPage() {
           });
           if (!r.ok) throw new Error(`Accounts ${r.status}`);
           const b = await r.json();
-          setGlAccounts(Array.isArray(b.accounts) ? b.accounts : []);
+          const live = Array.isArray(b.accounts) ? b.accounts : [];
+          setGlAccounts(live);
+          // Reconcile saved COGS labels against the live QBO chart by id. The
+          // expense form renders cogs_accounts verbatim, so stale labels make
+          // Setup (live QBO names) and the form (saved labels) disagree. Refresh
+          // each saved label to QBO's current name; the next Save persists them.
+          const liveById = new Map<string, string>(
+            live.map((a: { id: string; name: string }) => [String(a.id), a.name] as [string, string]),
+          );
+          setCogsAccounts((prev) =>
+            prev.map((a) => {
+              const name = liveById.get(String(a.id));
+              return name && name !== a.label ? { ...a, label: name } : a;
+            }),
+          );
         } catch (e) {
           setGlErr((e as Error).message);
         }
