@@ -49,18 +49,21 @@ export async function handler(event) {
     // filters[number]) and dump its RAW expense objects + field names.
     if (qs.find) {
       const target = String(qs.find).trim().toLowerCase();
+      const sortParam = qs.sort || '-last_modified'; // invoiced jobs are recently MODIFIED, not created
       let match = null;
+      let firstJobSample = null;
       for (let page = 1; page <= 8 && !match; page++) {
         let jobs;
         try {
-          const res = await sfRequest('GET', `/jobs?per-page=100&sort=-created_at&page=${page}`);
+          const res = await sfRequest('GET', `/jobs?per-page=100&sort=${encodeURIComponent(sortParam)}&page=${page}`);
           jobs = res.items || res.data || [];
-        } catch (e) { return { statusCode: 200, body: JSON.stringify({ find: qs.find, error: String(e.message).slice(0, 200) }) }; }
+        } catch (e) { return { statusCode: 200, body: JSON.stringify({ find: qs.find, sortParam, error: String(e.message).slice(0, 200) }) }; }
         if (!jobs.length) break;
+        if (page === 1) firstJobSample = jobs[0];
         match = jobs.find((j) => String(j.number || '').toLowerCase() === target)
           || jobs.find((j) => String(j.number || '').toLowerCase().includes(target));
       }
-      if (!match) return { statusCode: 200, body: JSON.stringify({ find: qs.find, found: false }) };
+      if (!match) return { statusCode: 200, body: JSON.stringify({ find: qs.find, sortParam, found: false, firstJobSample }, null, 2) };
       let full = match;
       try { full = await sfRequest('GET', `/jobs/${match.id}?expand=expenses`); } catch { /* keep match */ }
       const exps = Array.isArray(full.expenses) ? full.expenses : [];
