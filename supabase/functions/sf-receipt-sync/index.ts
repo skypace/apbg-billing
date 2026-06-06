@@ -1,22 +1,27 @@
-// sf-receipt-sync — pull Service Fusion expense RECEIPTS into Brixpense as
-// reviewable DRAFTS. Edge function (reliable + visible via ops.sync_log),
-// driven by Supabase pg_cron. Reuses sync-sf's SF auth (ops.sf_token_cache —
-// no token-rotation conflict). NOTHING posts to QBO; Brixpense posts on submit.
+// sf-receipt-sync — pull Service Fusion expense lines + RECEIPTS into Brixpense
+// as reviewable DRAFTS. Edge function (reliable pg_cron + visible ops.sync_log).
+// Reuses sync-sf's SF auth (ops.sf_token_cache). NOTHING posts to QBO; Brixpense
+// posts on submit.
 //
-// SF has no "recently invoiced" query (no modified sort), so we page through
-// status=Invoiced jobs (newest pages first), resuming via sync_log, and dedup
-// by ops.expense_requests.sf_expense_id. Only jobs that actually have an
-// expense with a receipt produce a draft.
+// Receipt images: SF's REST API exposes the expense LINE but not the receipt
+// file. The receipt URL is only on the admin.servicefusion.com job page. So we:
+//   1. resolve job number -> encrypted admin id via /serviceSpot/loadGlobalSearchResults
+//   2. GET /jobs/jobView?id=<enc> and scrape the userdocs/.../jobexpense/... S3 URL
+//   3. fetch the receipt from public S3 (anon) and attach it to the draft
+// The admin portal needs the orders.sf_portal_session cookie; when it's stale we
+// auto-refresh it by calling the Make login hook (SF_PORTAL_REFRESH_HOOK) and
+// writing the fresh cookie back to the DB.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SF_API = "https://api.servicefusion.com/v1";
 const SF_TOKEN_URL = "https://api.servicefusion.com/oauth/access_token";
+const ADMIN_BASE = "https://admin.servicefusion.com";
+const PORTAL_HOOK = Deno.env.get("SF_PORTAL_REFRESH_HOOK") || "https://hook.us1.make.celonis.com/l9jobjd5bx7gob8icc06ncv981anl4ki";
 const ATTACH_BUCKET = "expense-attachments";
 const SUBMITTER_ID = "2da634b7-623d-4f73-b667-cf87975fcdb6"; // skypace@brixbev.com (system)
 const START_DATE = Deno.env.get("SF_SWEEP_START_DATE") || "2026-06-03";
 const PAGES_PER_RUN = 8;
-const MAX_DETAIL = 80;
 const ACCOUNT_MAP: Record<string, { id: string; name: string }> = {
   equipment: { id: "42", name: "Equipment Sales COGS" },
   service: { id: "101", name: "Service COGS" },
@@ -50,21 +55,101 @@ async function sfGet(s: any, ep: string): Promise<any> {
   const txt = await r.text(); return txt.trim() ? JSON.parse(txt) : {};
 }
 
+// ── SF admin portal (cookie) — for receipt URL discovery ──────────────────────
+let cookieCache = "";
+function buildCookie(r: any): string {
+  const p: string[] = [];
+  if (r.xsrf_token) p.push(`XSRF-TOKEN=${r.xsrf_token}`);
+  if (r.servicefusion_session) p.push(`servicefusion_session=${r.servicefusion_session}`);
+  if (r.session_token) p.push(`session_token=${r.session_token}`);
+  if (r.phpsessid) p.push(`PHPSESSID=${r.phpsessid}`);
+  if (r.remember_me_company) p.push(`remember_me_company=${r.remember_me_company}`);
+  if (r.remember_me_user) p.push(`remember_me_user=${r.remember_me_user}`);
+  if (r.remember_me_company_id) p.push(`remember_me_company_id=${r.remember_me_company_id}`);
+  return p.join("; ");
+}
+async function refreshPortalCookie(s: any): Promise<string> {
+  // The Make hook logs into SF and returns the cookie as "k=v;k=v;..." — it does
+  // NOT write the DB, so we parse + persist it here.
+  const res = await fetch(PORTAL_HOOK, { method: "GET" });
+  const raw = (await res.text()).trim();
+  const pairs: Record<string, string> = {};
+  for (const part of raw.split(";")) { const seg = part.trim(); const i = seg.indexOf("="); if (i > 0) { const k = seg.slice(0, i).trim(); if (!(k in pairs)) pairs[k] = seg.slice(i + 1).trim(); } }
+  if (!pairs["servicefusion_session"] && !pairs["session_token"]) return cookieCache; // hook gave nothing usable
+  const row: any = { id: 1, xsrf_token: pairs["XSRF-TOKEN"] || null, servicefusion_session: pairs["servicefusion_session"] || null, session_token: pairs["session_token"] || null, phpsessid: pairs["PHPSESSID"] || null, remember_me_company: pairs["remember_me_company"] || null, remember_me_user: pairs["remember_me_user"] || null, remember_me_company_id: pairs["remember_me_company_id"] || null, updated_at: new Date().toISOString() };
+  try { await s.schema("orders").from("sf_portal_session").upsert(row); } catch (_e) { /* keep in-memory */ }
+  cookieCache = buildCookie(row);
+  return cookieCache;
+}
+async function getPortalCookie(s: any, force = false): Promise<string> {
+  if (cookieCache && !force) return cookieCache;
+  if (!force) {
+    try { const { data } = await s.schema("orders").from("sf_portal_session").select("*").eq("id", 1).single(); if (data) { cookieCache = buildCookie(data); if (cookieCache) return cookieCache; } } catch (_e) { /* fall through */ }
+  }
+  return await refreshPortalCookie(s);
+}
+function looksLoggedOut(status: number, body: string): boolean {
+  return status === 302 || status === 401 || status === 403 || /auth\.servicefusion\.com|name="password"/i.test(body);
+}
+// Admin request with one auto-refresh retry on a logged-out response.
+async function adminReq(s: any, path: string, init?: RequestInit): Promise<{ status: number; body: string }> {
+  let cookie = await getPortalCookie(s);
+  const doFetch = (c: string) => fetch(ADMIN_BASE + path, { ...init, headers: { ...(init?.headers || {}), Cookie: c }, redirect: "manual" });
+  let r = await doFetch(cookie);
+  let body = await r.text();
+  if (looksLoggedOut(r.status, body)) { cookie = await getPortalCookie(s, true); r = await doFetch(cookie); body = await r.text(); }
+  return { status: r.status, body };
+}
+
+// Resolve a SF job number to the receipt S3 URLs on its admin job page.
+async function findReceiptUrls(s: any, jobNumber: string): Promise<string[]> {
+  const tryQueries = [jobNumber, (jobNumber.match(/\d{3,}/) || [""])[0]].filter(Boolean);
+  let enc = "";
+  for (const q of tryQueries) {
+    const gr = await adminReq(s, "/serviceSpot/loadGlobalSearchResults", { method: "POST", headers: { "X-Requested-With": "XMLHttpRequest", "Content-Type": "application/x-www-form-urlencoded" }, body: "string=" + encodeURIComponent(q) });
+    if (gr.status !== 200) continue;
+    let obj: any = {}; try { obj = JSON.parse(gr.body); } catch { continue; }
+    const wantDigits = jobNumber.replace(/[^0-9]/g, "");
+    const results = (obj.results || []).filter((x: any) => String(x.type || "").toLowerCase() === "jobs" || x.id);
+    const hit = results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "") === wantDigits) || results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "").includes(wantDigits)) || results[0];
+    if (hit?.id) { enc = hit.id; break; }
+  }
+  if (!enc) return [];
+  const jr = await adminReq(s, "/jobs/jobView?id=" + encodeURIComponent(enc));
+  if (jr.status !== 200) return [];
+  const urls = [...new Set([...jr.body.matchAll(/https?:\/\/servicefusion\.s3\.amazonaws\.com\/userdocs\/\d+\/jobexpense\/[^\s"'<>\\)]+/gi)].map((m) => m[0]))];
+  return urls;
+}
+
 function receiptRefs(ex: any): string[] {
   const refOf = (v: any) => { if (!v) return null; if (typeof v === "string") return v; if (typeof v === "object") return v.file_location || v.url || v.receipt_url || v.path || v.location || null; return null; };
   const out: string[] = [];
   for (const k of ["receipt", "receipt_url", "file_location", "picture", "image", "photo"]) { const r = refOf(ex[k]); if (r) out.push(r); }
-  for (const k of ["receipts", "pictures", "images", "attachments", "documents", "files"]) { if (Array.isArray(ex[k])) for (const it of ex[k]) { const r = refOf(it); if (r) out.push(r); } }
   return [...new Set(out)];
 }
-
-// Synthetic stable key for an expense that has no SF id (SF's jobs API does not
-// expose an expense id). job + vendor + amount + created_at is stable per WO.
 function expenseKey(jobId: string | number, ex: any): string {
   if (ex.id) return String(ex.id);
   const v = (ex.purchased_from || ex.vendor_name || ex.vendor || "").toString().trim().toLowerCase();
   const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
   return `sfjob:${jobId}:${v}:${amt}:${ex.created_at || ex.date || ""}`;
+}
+
+// Download a receipt (public S3 anon; portal cookie fallback) and attach it to a draft.
+async function attachReceipt(s: any, reqId: string, url: string, idx: number): Promise<boolean> {
+  let bytes: Uint8Array | null = null; let ct = "application/octet-stream";
+  try {
+    let rr = await fetch(url);
+    if ((rr.status === 401 || rr.status === 403) && /servicefusion/i.test(url)) { const ck = await getPortalCookie(s); rr = await fetch(url, { headers: { Cookie: ck } }); }
+    if (rr.ok) { ct = rr.headers.get("content-type") || ct; bytes = new Uint8Array(await rr.arrayBuffer()); }
+  } catch (_e) { /* skip */ }
+  if (!bytes || !bytes.length) return false;
+  const base = (url.split("/").pop() || `sf-receipt-${idx}`).split("?")[0];
+  const ext = (base.includes(".") ? base.split(".").pop() : (ct.split("/")[1] || "pdf"))!.replace(/[^a-z0-9]/gi, "") || "pdf";
+  const path = `${SUBMITTER_ID}/${reqId}/sf-receipt-${idx}.${ext}`;
+  const up = await s.storage.from(ATTACH_BUCKET).upload(path, bytes, { contentType: ct, upsert: true });
+  if (up.error) return false;
+  await s.from("expense_request_attachments").insert({ request_id: reqId, file_name: base, file_type: ct, file_size: bytes.length, storage_path: path });
+  return true;
 }
 
 async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boolean } = {}): Promise<{ landed: number; attached: number; skipped?: string }> {
@@ -73,68 +158,57 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
   const expenses = Array.isArray(full.expenses) ? full.expenses : [];
   if (!expenses.length) return { landed: 0, attached: 0, skipped: "no expenses" };
   const startMs = Date.parse(START_DATE + "T00:00:00Z") || 0;
+  const jobNumber = String(full.number || job.id);
   let landed = 0, attached = 0;
+  let jobReceiptUrls: string[] | null = null; // resolved once per job, lazily
+
   for (const ex of expenses) {
     const exKey = expenseKey(full.id || job.id, ex);
-    // Gate (sweep mode only): an expense first seen/updated after START_DATE.
-    // SF's "date" is often epoch 1970; updated_at reflects the invoiced touch.
     if (opts.gateByDate) {
       const exDate = ex.updated_at || ex.created_at || null;
       if (exDate && Date.parse(exDate) < startMs) continue;
     }
     const { data: dup } = await s.from("expense_requests").select("id").eq("sf_expense_id", exKey).limit(1);
-    if (dup && dup.length) continue;
 
-    // Receipt bytes: the expense object carries no file ref, so try any explicit
-    // ref (rare), then fall back to a job picture/document (public-S3 fetchable).
-    let bytes: Uint8Array | null = null; let ct = "application/octet-stream"; let recName = "";
-    const refs = receiptRefs(ex);
-    let url = refs[0] || null;
-    if (!url) {
-      try {
-        const withPics = Array.isArray(full.pictures) ? full : await sfGet(s, `/jobs/${full.id || job.id}?expand=pictures,documents`);
-        const cand = (withPics.documents || []).concat(withPics.pictures || [])
-          .find((p: any) => !p?.is_private && (p?.file_location || p?.url));
-        if (cand) { url = cand.file_location || cand.url; recName = cand.name || ""; }
-      } catch (_e) { /* none */ }
+    let reqId: string | null = null;
+    if (dup && dup.length) {
+      reqId = dup[0].id; // already landed — we may still backfill the receipt
+    } else {
+      const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
+      const acct = ACCOUNT_MAP[String(ex.category || "").toLowerCase()] || null;
+      const vendor = ex.purchased_from || ex.vendor_name || ex.vendor || null;
+      const rdate = (ex.date && ex.date !== "1970-01-01") ? ex.date : (ex.created_at ? String(ex.created_at).slice(0, 10) : null);
+      const { data: ins, error } = await s.from("expense_requests").insert({
+        request_type: "expense", status: "draft", as_bill: true, tag: "Service Fusion",
+        sf_expense_id: exKey, submitted_by: SUBMITTER_ID, submitter_name: "Service Fusion (system)",
+        submitter_email: "skypace@brixbev.com",
+        vendor_name: vendor, total_amount: amt || null, currency: "USD",
+        receipt_date: rdate,
+        line_items: [{ description: ex.notes || ex.category || "Service Fusion expense", qty: 1, unit_price: amt, amount: amt }],
+        customer_name: full.customer_name || null,
+        cogs_account_id: acct?.id || null, cogs_account_label: acct?.name || null,
+        job_number: jobNumber,
+        memo: `SF Job #${jobNumber}` + (vendor ? ` | ${vendor}` : "") + (ex.category ? ` | ${ex.category}` : ""),
+        description: `Service Fusion job #${jobNumber} expense — review & submit`,
+        qbo_bill_id: null,
+      }).select("id").single();
+      if (error) { log.push(`ins ${exKey}: ${error.message.slice(0, 120)}`); continue; }
+      reqId = ins.id; landed++;
     }
-    if (url) {
-      try {
-        let rr = await fetch(url);
-        if ((rr.status === 401 || rr.status === 403) && /servicefusion/i.test(url)) { const t = await sfToken(s); rr = await fetch(url, { headers: { Authorization: "Bearer " + t } }); }
-        if (rr.ok) { ct = rr.headers.get("content-type") || ct; bytes = new Uint8Array(await rr.arrayBuffer()); }
-      } catch (_e) { /* land without image */ }
-    }
+    if (!reqId) continue;
 
-    const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
-    const acct = ACCOUNT_MAP[String(ex.category || "").toLowerCase()] || null;
-    const vendor = ex.purchased_from || ex.vendor_name || ex.vendor || null;
-    const rdate = (ex.date && ex.date !== "1970-01-01") ? ex.date : (ex.created_at ? String(ex.created_at).slice(0, 10) : null);
-    const { data: ins, error } = await s.from("expense_requests").insert({
-      request_type: "expense", status: "draft", as_bill: true, tag: "Service Fusion",
-      sf_expense_id: exKey, submitted_by: SUBMITTER_ID, submitter_name: "Service Fusion (system)",
-      submitter_email: "skypace@brixbev.com",
-      vendor_name: vendor, total_amount: amt || null, currency: "USD",
-      receipt_date: rdate,
-      line_items: [{ description: ex.notes || ex.category || "Service Fusion expense", qty: 1, unit_price: amt, amount: amt }],
-      customer_name: full.customer_name || null,
-      cogs_account_id: acct?.id || null, cogs_account_label: acct?.name || null,
-      job_number: String(full.number || job.id),
-      memo: `SF Job #${full.number || job.id}` + (vendor ? ` | ${vendor}` : "") + (ex.category ? ` | ${ex.category}` : ""),
-      description: `Service Fusion job #${full.number || job.id} expense — review & submit`,
-      qbo_bill_id: null,
-    }).select("id").single();
-    if (error) { log.push(`ins ${exKey}: ${error.message.slice(0, 120)}`); continue; }
-    landed++;
-    const reqId = ins.id;
-    if (bytes && reqId) {
-      try {
-        const ext = ((ct.split("/")[1] || (recName.split(".").pop() || "pdf"))).replace(/[^a-z0-9]/gi, "") || "pdf";
-        const path = `${SUBMITTER_ID}/${reqId}/sf-receipt.${ext}`;
-        const up = await s.storage.from(ATTACH_BUCKET).upload(path, bytes, { contentType: ct, upsert: true });
-        if (!up.error) { await s.from("expense_request_attachments").insert({ request_id: reqId, file_name: recName || `sf-receipt.${ext}`, file_type: ct, file_size: bytes.length, storage_path: path }); attached++; }
-      } catch (_e) { /* draft already landed */ }
+    // Attach the receipt if this draft has none yet.
+    const { data: have } = await s.from("expense_request_attachments").select("id").eq("request_id", reqId).limit(1);
+    if (have && have.length) continue;
+
+    // 1) explicit ref on the expense (rare); 2) admin-portal jobexpense S3 URLs.
+    let urls = receiptRefs(ex);
+    if (!urls.length) {
+      if (jobReceiptUrls === null) { try { jobReceiptUrls = await findReceiptUrls(s, jobNumber); } catch (e: any) { jobReceiptUrls = []; log.push(`recv ${jobNumber}: ${String(e.message).slice(0, 80)}`); } }
+      urls = jobReceiptUrls;
     }
+    let i = 0;
+    for (const u of urls) { if (await attachReceipt(s, reqId, u, i++)) attached++; }
   }
   return { landed, attached };
 }
@@ -144,46 +218,46 @@ Deno.serve(async (req: Request) => {
   const s = sb();
   const log: string[] = [];
 
-  // ?raw=<id> — dump a job's raw expenses (expand) + the /jobs/<id>/expenses
-  // sub-resource, to find where SF actually stores the expense/receipt.
+  // ?raw=<id>&expand=... — dump a job's expand data (diagnostics).
   if (u.searchParams.get("raw")) {
     const id = u.searchParams.get("raw");
     const expand = u.searchParams.get("expand") || "expenses";
     const out: any = { id, expand };
-    try {
-      const full = await sfGet(s, `/jobs/${id}?expand=${encodeURIComponent(expand)}`);
-      out.expandable = full._expandable ?? null;
-      out.data = {};
-      for (const k of expand.split(",")) out.data[k] = full[k] ?? null;
-    } catch (e: any) { out.err = e.message; }
+    try { const full = await sfGet(s, `/jobs/${id}?expand=${encodeURIComponent(expand)}`); out.expandable = full._expandable ?? null; out.data = {}; for (const k of expand.split(",")) out.data[k] = full[k] ?? null; } catch (e: any) { out.err = e.message; }
     return json(out);
   }
 
-  // ?job=<number> — find & process one invoiced job by number (pages the
-  // invoiced list; for diagnosing a specific WO like M-57240-PMS).
+  // ?receipts=<jobNumber> — diagnostics: resolve a job number to its receipt URLs.
+  if (u.searchParams.get("receipts")) {
+    const num = u.searchParams.get("receipts")!;
+    try { const urls = await findReceiptUrls(s, num); return json({ job: num, urls }); } catch (e: any) { return json({ job: num, error: e.message }, 500); }
+  }
+
+  // ?refreshCookie=1 — force a portal-cookie refresh via the Make hook.
+  if (u.searchParams.get("refreshCookie")) {
+    try { const c = await getPortalCookie(s, true); return json({ refreshed: !!c, len: c.length }); } catch (e: any) { return json({ error: e.message }, 500); }
+  }
+
+  // ?job=<number> — find & process one invoiced job by number (lands + attaches).
   if (u.searchParams.get("job")) {
     const target = u.searchParams.get("job")!.trim().toLowerCase();
     try {
       const meta = (await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=1`))._meta || {};
       const pageCount = meta.pageCount || 1;
-      let found = null; const scan: number[] = [];
-      // scan from newest invoiced (last page) backward a bounded number of pages
+      let found = null; let scanned = 0;
       for (let p = pageCount; p >= Math.max(1, pageCount - 40) && !found; p--) {
         const d = await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=50&page=${p}`);
-        const jobs = d.items || [];
-        scan.push(p);
-        found = jobs.find((j: any) => String(j.number || "").toLowerCase() === target) || null;
+        scanned++;
+        found = (d.items || []).find((j: any) => String(j.number || "").toLowerCase() === target) || null;
       }
-      if (!found) return json({ job: target, found: false, pagesScanned: scan.length, pageCount });
+      if (!found) return json({ job: target, found: false, pagesScanned: scanned, pageCount });
       const r = await landJob(s, found, log, { gateByDate: false });
       return json({ job: target, id: found.id, number: found.number, status: found.status, result: r, log });
     } catch (e: any) { return json({ job: target, error: e.message }, 500); }
   }
 
-  // Sweep modes:
-  //   ?fresh=N  → always scan the NEWEST N pages (default 3), full detail,
-  //               no resume cursor. For go-forward: new invoices land fast.
-  //   (default) → resume-crawl newest→oldest via sync_log (history backfill).
+  // Sweep modes: ?fresh=N (newest N pages, fast) or default crawl (time-bounded,
+  // cursor only advances past fully-processed pages — no silent skips).
   const started = new Date().toISOString();
   const freshParam = u.searchParams.get("fresh");
   const fresh = freshParam !== null;
@@ -193,23 +267,19 @@ Deno.serve(async (req: Request) => {
 
   let page = parseInt(u.searchParams.get("page") || "0");
   if (fresh) {
-    page = pageCount; // newest invoiced jobs live on the last page
+    page = pageCount;
   } else if (page === 0) {
     const { data: last } = await s.from("sync_log").select("metadata").eq("source", "sf-receipt-sync").eq("status", "ok").order("completed_at", { ascending: false }).limit(1);
     const lp = last?.[0]?.metadata?.next_page;
-    page = (lp && lp >= 1) ? lp : pageCount; // start newest, walk down
+    page = (lp && lp >= 1) ? lp : pageCount;
   }
-  // fresh: bounded N-page window. crawl: time-bounded — walk down until budget.
   const span = fresh ? Math.max(1, parseInt(freshParam || "3") || 3) : page;
   let drafts = 0, attached = 0, jobsSeen = 0, detail = 0;
   const lo = Math.max(1, page - span + 1);
   const budgetMs = 110000; const t0 = Date.now();
-  let lastCompleted = page + 1; // pages strictly above `page` are "done" already
-  let budgetHit = false;
+  let lastCompleted = page + 1; let budgetHit = false;
   try {
     for (let p = page; p >= lo; p--) {
-      // Stop BEFORE a page we can't be sure to finish, so the cursor never
-      // advances past jobs we didn't detail-check (no silent skips).
       if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push("time budget"); break; }
       const d = await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=50&page=${p}`);
       const jobs = d.items || [];
@@ -219,11 +289,9 @@ Deno.serve(async (req: Request) => {
         const r = await landJob(s, j, log, { gateByDate: true });
         drafts += r.landed; attached += r.attached;
       }
-      lastCompleted = p; // this page fully processed
+      lastCompleted = p;
     }
   } catch (e: any) { log.push("FATAL " + e.message); }
-  // Cursor (crawl only): resume just below the last fully-processed page; wrap to
-  // the top once page 1 is done. fresh mode never moves the cursor.
   const nextPage = fresh ? null : (lastCompleted <= 1 ? pageCount : lastCompleted - 1);
   const result: any = { ok: true, mode: fresh ? "fresh" : "crawl", pageCount, fromPage: page, lastCompleted, budgetHit, jobsSeen, detail, drafts, attached };
   if (nextPage !== null) result.next_page = nextPage;
