@@ -1,14 +1,17 @@
-// Scheduled sweep: land expense RECEIPTS from ALL Service Fusion
-// completed/invoiced jobs into Brixpense as reviewable drafts — not just the
-// ResQ-linked ones. Delegates the per-job work to landSfJobExpense (the same
-// helper the ResQ sync uses), which scans each receipt, lands a DRAFT
-// pre-filled from the scan, attaches the image, dedups by sf_expense_id, and
-// gates to the start date. NOTHING posts to QBO — Brixpense posts on submit.
-// Idempotent + capped; a truncated run simply continues next time. Every 6h.
+// Background sweep: land expense RECEIPTS from ALL Service Fusion
+// completed/invoiced jobs into Brixpense as reviewable drafts — including
+// regular (non-ResQ) jobs. Driven by Supabase pg_cron (net.http_post with
+// ?cronKey=CRON_SECRET), the same scheduler the ResQ sync uses — Netlify's own
+// scheduled-function trigger does NOT fire on this site.
+//
+// Delegates per-job work to landSfJobExpense: scans each receipt, lands a DRAFT
+// pre-filled from the scan, attaches the image, dedups by sf_expense_id, gates
+// to the start date. NOTHING posts to QBO — Brixpense posts on submit.
+// Idempotent + capped; a truncated run continues next time.
 
 import { sfRequest } from './sf-helpers.mjs';
 import { landSfJobExpense } from './lib/sf-expense.mjs';
-import { requireScheduled } from './lib/auth.mjs';
+import { requireAuth } from './lib/auth.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -56,7 +59,7 @@ async function sweep() {
   if (!submitter) return { ok: false, error: 'could not resolve a submitter user id' };
 
   const startMs = Date.parse(`${SWEEP_START_DATE}T00:00:00Z`) || 0;
-  const scanFloor = startMs - 7 * 86400000; // buffer: a recently-touched older job may carry a fresh expense
+  const scanFloor = startMs - 7 * 86400000; // buffer for a recently-touched older job
   let scanned = 0, jobsProcessed = 0, drafts = 0, attached = 0;
 
   for (let page = 1; page <= MAX_PAGES && jobsProcessed < MAX_JOBS; page++) {
@@ -102,17 +105,20 @@ async function logRun(result) {
   } catch { /* non-fatal */ }
 }
 
-export default async (req, context) => {
-  const gate = requireScheduled(req, context);
-  if (!gate.ok) return gate.response;
+export async function handler(event) {
+  // Auth: matching CRON_SECRET (pg_cron) OR a superadmin JWT.
+  const qs = event.queryStringParameters || {};
+  const hdrs = event.headers || {};
+  const providedKey = qs.cronKey || hdrs['x-cron-key'] || hdrs['X-Cron-Key'] || '';
+  const cronOk = !!(providedKey && process.env.CRON_SECRET && providedKey === process.env.CRON_SECRET);
+  if (!cronOk) {
+    const auth = await requireAuth(event);
+    if (!auth.ok) return auth.response;
+  }
+
   console.log('[CRON] SF expense sweep starting…');
   const result = await sweep();
   await logRun(result);
   console.log('[CRON] SF expense sweep:', JSON.stringify(result));
-  return new Response(JSON.stringify(result), {
-    status: result.ok ? 200 : 500,
-    headers: { 'Content-Type': 'application/json' },
-  });
-};
-
-export const config = { schedule: '0 */6 * * *' };
+  return { statusCode: result.ok ? 200 : 500, body: JSON.stringify(result) };
+}

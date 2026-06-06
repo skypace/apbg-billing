@@ -39,9 +39,8 @@
   timeout = 900
   schedule = "*/5 * * * *"
 
-[functions."sf-expense-sweep"]
+[functions."sf-expense-sweep-background"]
   timeout = 900
-  schedule = "0 */6 * * *"
 
 [functions."health-watchdog"]
   timeout = 60

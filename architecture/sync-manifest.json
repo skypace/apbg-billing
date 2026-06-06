@@ -273,18 +273,18 @@
       "last_verified": "2026-05-12"
     },
     {
-      "name": "sf-expense-sweep",
+      "name": "sf-expense-sweep-background",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "every 6 hours (cron 0 */6 * * *)",
+      "schedule": "every 30 min via Supabase pg_cron (net.http_post + cronKey)",
       "writes": [
         "ops.expense_requests",
         "ops.expense_request_attachments",
         "ops.sync_log"
       ],
       "multi_writer": true,
-      "notes": "Scheduled sweep of ALL Service Fusion completed/invoiced jobs (not just ResQ-linked) — lands each SF expense + receipt image as a Brixpense review-draft (status='draft', as_bill, tag='Service Fusion') via the service-role key. Deduped by ops.expense_requests.sf_expense_id (migration 20260603d). No QBO post here — Brixpense posts the bill on submit. Idempotent + capped; reuses postExpenseRow from expense-to-bill.",
-      "last_verified": "2026-06-03"
+      "notes": "Background sweep of ALL Service Fusion completed/invoiced jobs (incl. regular non-ResQ jobs) — delegates to lib/sf-expense.landSfJobExpense, which scans each receipt and lands a Brixpense review-DRAFT (status='draft', as_bill, tag='Service Fusion') with the image attached, via the service-role key. Deduped by ops.expense_requests.sf_expense_id (migration 20260603d); gated to SF_SWEEP_START_DATE. No QBO post — Brixpense posts on submit. Driven by pg_cron (cronKey==CRON_SECRET) because Netlify's scheduled-function trigger does not fire on this site.",
+      "last_verified": "2026-06-06"
     },
     {
       "name": "brix-stock:app-and-rpcs",
