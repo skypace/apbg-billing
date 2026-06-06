@@ -45,6 +45,27 @@ export async function handler(event) {
   const out = { ok: true, scanned: 0, doneJobs: 0, drafts: 0, attached: 0, perJob: [], errors: [] };
 
   try {
+    // Debug: find a job by its SF number and dump its RAW expense objects so
+    // we can see exactly where (and whether) the receipt is stored.
+    if (qs.find) {
+      try {
+        const res = await sfRequest('GET', `/jobs?filters[number]=${encodeURIComponent(qs.find)}&per-page=5&expand=expenses`);
+        const jobs = res.items || res.data || [];
+        const dump = [];
+        for (const j of jobs) {
+          let exps = Array.isArray(j.expenses) ? j.expenses : null;
+          if (exps === null) {
+            try { const full = await sfRequest('GET', `/jobs/${j.id}?expand=expenses`); exps = Array.isArray(full.expenses) ? full.expenses : []; }
+            catch { exps = []; }
+          }
+          dump.push({ id: j.id, number: j.number, status: j.status, expenseCount: exps.length, expenses: exps });
+        }
+        return { statusCode: 200, body: JSON.stringify({ find: qs.find, jobs: dump }, null, 2) };
+      } catch (e) {
+        return { statusCode: 200, body: JSON.stringify({ find: qs.find, error: String(e.message).slice(0, 300) }) };
+      }
+    }
+
     // Single-job debug path.
     if (qs.sfJob) {
       const r = await landSfJobExpense({ sfJobId: qs.sfJob, resqCode: qs.resqCode || null, submitter: SUBMITTER });
