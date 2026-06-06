@@ -1041,19 +1041,20 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
     }
   }
 
-  // 4. End the visit. Normal path uses outcome COMPLETED (the value ResQ has
-  //    accepted for every WO that already has a started visit). ResQ rejects
-  //    that outcome on some visits (e.g. one we just started this pass) with a
-  //    "malformed/unprocessable arguments" ValidationError, so retry once with
-  //    RESOLVED before falling back to captureVisitNotes. The retry only runs
-  //    after the normal attempt fails, so it can't regress the happy path.
+  // 4. End the visit with outcome COMPLETED (the only valid VisitOutcome ResQ
+  //    accepts here — the old 'RESOLVED' retry was dead code: ResQ rejects it
+  //    with "Value 'RESOLVED' does not exist in 'VisitOutcome' enum"). If ResQ
+  //    reports the visit is already ended, that IS the desired end state — treat
+  //    it as completed rather than erroring every run (R0994830 / R1014524 were
+  //    stuck here: visit ended, but we kept re-ending it and never advanced to
+  //    the invoice step).
   const cleanNotes = completionNotes.substring(0, 2000);
   // ResQ Image input is { url: String } — wrap the relayed URL strings. Attach
   // photos AS PART OF completing the visit (we're authorized to endVisit; ResQ
   // blocks after-image edits on an already-closed visit).
   const imageObjs = (images || []).map((u) => ({ url: u }));
   const endErrors = [];
-  for (const outcome of ['COMPLETED', 'RESOLVED']) {
+  for (const outcome of ['COMPLETED']) {
     try {
       await resqGql(session, `mutation($input: EndVisitInput!) {
         endVisit(input: $input) { __typename }
@@ -1069,6 +1070,14 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
       result.completed = true;
       return result;
     } catch (e) {
+      // ResQ says the visit is already ended → that's the state we wanted.
+      // Mark completed so the WO advances to the invoice step instead of
+      // looping on this error forever.
+      if (/already (been )?ended/i.test(e.message)) {
+        result.steps.push(`${resqWO.code} visit already ended — treating as completed`);
+        result.completed = true;
+        return result;
+      }
       // Keep the full ResQ error (incl. extensions.fields.__all__) — the old
       // substring(0,200) cut it off right before the actual reason.
       endErrors.push(`outcome=${outcome}: ${e.message.substring(0, 600)}`);
@@ -1090,6 +1099,12 @@ async function provideUpdateToResq(session, resqWO, sfJobId, images = []) {
     result.steps.push(`→ ${resqWO.code} visit notes captured (fallback)`);
     result.completed = true;
   } catch (e2) {
+    // Same already-ended short-circuit on the fallback path.
+    if (/already (been )?ended/i.test(e2.message)) {
+      result.steps.push(`${resqWO.code} visit already ended — treating as completed`);
+      result.completed = true;
+      return result;
+    }
     result.errors.push(`Complete visit ${resqWO.code}: endVisit [${endErrors.join(' | ')}], captureVisitNotes (${e2.message.substring(0, 600)})`);
   }
 
