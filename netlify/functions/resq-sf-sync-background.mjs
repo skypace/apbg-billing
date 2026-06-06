@@ -136,6 +136,16 @@ export async function handler(event) {
           if (mapping[wo.id].sfDeleted) {
             continue;
           }
+          // Done in ResQ (awaiting payment / closed / cancelled) — the vendor
+          // invoice has already been accepted; there is nothing left for the
+          // sync to do. Skip so we stop re-hammering 45+ finished WOs every run
+          // (they were piling up photo/invoice-retry errors — 315 in 24h on the
+          // worst offenders). New (unmapped) done WOs are already skipped below;
+          // this applies the same rule to mapped ones.
+          const mappedDone = (wo.status || '').toUpperCase();
+          if (RESQ_DONE_STATUSES.includes(mappedDone)) {
+            continue;
+          }
           // Already mapped — bidirectional status sync
           // 30s timeout — photo/invoice transfers can take longer
           const r = await withTimeout(syncBidirectional(session, wo, mapping[wo.id]), 30000, `sync ${wo.code}`);
@@ -911,19 +921,29 @@ async function transferSfPhotosToResq(session, sfJobId, resqWO, alreadySent = []
   const addImagesMutation = `mutation($input: AddAfterImagesToVisitInput!) {
     addAfterImagesToVisit(input: $input) { __typename }
   }`;
-  // ResQ's Image input is { url: String } (confirmed via schema introspection) —
-  // wrap each relayed URL; bare strings gave "Expected type 'Image' to be a mapping".
-  const addImagesVars = { input: { visit: visitId, images: imageUrls.map((u) => ({ url: u })) } };
+  // ResQ's `images` arg shape has been inconsistent: bare strings once gave
+  // "Expected type 'Image' to be a mapping", but the { url } object shape now
+  // fails with "String cannot represent a non string value: {'url': ...}" — i.e.
+  // the field currently expects [String]. Try plain string URLs first, then fall
+  // back to { url } objects, across both the vendor and facility logins, so a
+  // schema flip on either side can't silently kill every photo push again.
+  const shapes = [
+    (u) => u,            // [String] — current schema
+    (u) => ({ url: u }), // [{ url }] — legacy shape, kept as fallback
+  ];
   const pushErrors = [];
   for (const label of ['vendor', 'facility']) {
-    try {
-      const sess = label === 'vendor' ? session : await resqLogin({ facility: true });
-      await resqGql(sess, addImagesMutation, addImagesVars);
-      result.count = imageUrls.length;
-      result.sentKeys = relayedKeys;
-      return result;
-    } catch (e) {
-      pushErrors.push(`${label}: ${e.message.substring(0, 300)}`);
+    const sess = label === 'vendor' ? session : await resqLogin({ facility: true });
+    for (const shape of shapes) {
+      const addImagesVars = { input: { visit: visitId, images: imageUrls.map(shape) } };
+      try {
+        await resqGql(sess, addImagesMutation, addImagesVars);
+        result.count = imageUrls.length;
+        result.sentKeys = relayedKeys;
+        return result;
+      } catch (e) {
+        pushErrors.push(`${label}: ${e.message.substring(0, 200)}`);
+      }
     }
   }
   result.errors.push(`addAfterImages ${resqWO.code}: ${pushErrors.join(' | ')}`);
