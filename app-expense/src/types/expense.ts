@@ -50,6 +50,8 @@ export interface ExpenseRequest {
 
   customer_name: string | null;
   job_number: string | null;
+  /** SF admin-portal encrypted job id → deep link to the SF job page. */
+  sf_admin_job_id: string | null;
   memo: string | null;
 
   line_items: LineItem[];

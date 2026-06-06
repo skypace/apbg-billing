@@ -283,6 +283,16 @@
       "last_verified": "2026-06-06"
     },
     {
+      "name": "sf-receipt-sync",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "Supabase pg_cron: crawl every 10 min + fresh (newest 5 pages) every 15 min",
+      "writes": ["ops.expense_requests", "ops.expense_request_attachments", "ops.sync_log"],
+      "multi_writer": true,
+      "notes": "Edge-function replacement for the Netlify sf-receipt-pull/sf-expense-sweep pair (chosen for reliable scheduling + visible ops.sync_log). Pages SF status=Invoiced jobs and lands each expense as a Brixpense review-DRAFT (status='draft', as_bill, tag='Service Fusion', qbo_bill_id NULL — NOTHING posts to QBO; Brixpense posts on submit). Vendor = SF expense.purchased_from. RECEIPT IMAGE: SF's REST API exposes the expense LINE but not the receipt file; the receipt S3 URL lives only on the admin.servicefusion.com job page, so we resolve the job number -> encrypted admin id via POST /serviceSpot/loadGlobalSearchResults, GET /jobs/jobView?id=<enc>, scrape the servicefusion.s3.amazonaws.com/userdocs/<co>/jobexpense/... URL, and fetch it from public S3 (anon). The admin portal uses the orders.sf_portal_session cookie; when stale the function auto-refreshes it by GETting SF_PORTAL_REFRESH_HOOK (the Make login hook) and upserting the parsed cookie back into orders.sf_portal_session. Dedup by sf_expense_id (synthetic key when SF gives no expense id); receipts backfill onto existing drafts that have no attachment. gateByDate on SF_SWEEP_START_DATE in sweep mode. Reuses sync-sf's SF auth via ops.sf_token_cache. createClient { db:{schema:'ops'} }; reads/writes orders.sf_portal_session via .schema('orders'). Shares the table with the Brixpense surface + resq-sf-sync (all multi_writer).",
+      "last_verified": "2026-06-06"
+    },
+    {
       "name": "sf-expense-sweep-background",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
