@@ -85,11 +85,31 @@ export default function SFExpenses() {
                     <p className="text-[15px] font-semibold truncate">
                       {req.vendor_name || 'No vendor'}
                     </p>
-                    <Badge variant="success">Posted</Badge>
+                    <Badge variant={req.status === 'posted' ? 'success' : 'secondary'}>
+                      {req.status === 'posted' ? 'Posted' : 'Draft'}
+                    </Badge>
                   </div>
                   <p className="text-[13px] text-muted-foreground mt-1 truncate">
                     {req.customer_name || 'No customer'}
-                    {req.job_number ? ` · SF #${req.job_number}` : ''}
+                    {req.job_number ? (
+                      <>
+                        {' · '}
+                        {req.sf_admin_job_id ? (
+                          <a
+                            href={`https://admin.servicefusion.com/jobs/jobView?id=${req.sf_admin_job_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-primary hover:underline font-medium"
+                            title="Open this job in Service Fusion (must be logged in)"
+                          >
+                            SF #{req.job_number} ↗
+                          </a>
+                        ) : (
+                          `SF #${req.job_number}`
+                        )}
+                      </>
+                    ) : ''}
                     {req.posted_at ? ` · ${formatDate(req.posted_at)}` : (req.created_at ? ` · ${formatDate(req.created_at)}` : '')}
                   </p>
                 </div>

@@ -101,8 +101,10 @@ async function adminReq(s: any, path: string, init?: RequestInit): Promise<{ sta
   return { status: r.status, body };
 }
 
-// Resolve a SF job number to the receipt S3 URLs on its admin job page.
-async function findReceiptUrls(s: any, jobNumber: string): Promise<string[]> {
+// Resolve a SF job number to its admin-portal encrypted id (for deep links) and
+// the receipt S3 URLs on its job page. encId is stable per job — store it so the
+// UI can link straight to admin.servicefusion.com/jobs/jobView?id=<encId>.
+async function resolveJobAssets(s: any, jobNumber: string): Promise<{ encId: string; urls: string[] }> {
   const tryQueries = [jobNumber, (jobNumber.match(/\d{3,}/) || [""])[0]].filter(Boolean);
   let enc = "";
   for (const q of tryQueries) {
@@ -114,11 +116,11 @@ async function findReceiptUrls(s: any, jobNumber: string): Promise<string[]> {
     const hit = results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "") === wantDigits) || results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "").includes(wantDigits)) || results[0];
     if (hit?.id) { enc = hit.id; break; }
   }
-  if (!enc) return [];
+  if (!enc) return { encId: "", urls: [] };
   const jr = await adminReq(s, "/jobs/jobView?id=" + encodeURIComponent(enc));
-  if (jr.status !== 200) return [];
+  if (jr.status !== 200) return { encId: enc, urls: [] };
   const urls = [...new Set([...jr.body.matchAll(/https?:\/\/servicefusion\.s3\.amazonaws\.com\/userdocs\/\d+\/jobexpense\/[^\s"'<>\\)]+/gi)].map((m) => m[0]))];
-  return urls;
+  return { encId: enc, urls };
 }
 
 function receiptRefs(ex: any): string[] {
@@ -160,7 +162,9 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
   const startMs = Date.parse(START_DATE + "T00:00:00Z") || 0;
   const jobNumber = String(full.number || job.id);
   let landed = 0, attached = 0;
-  let jobReceiptUrls: string[] | null = null; // resolved once per job, lazily
+  // Resolve the admin encId + receipt URLs once per job, lazily (only when needed).
+  let resolved: { encId: string; urls: string[] } | null = null;
+  const resolve = async () => { if (resolved === null) { try { resolved = await resolveJobAssets(s, jobNumber); } catch (e: any) { resolved = { encId: "", urls: [] }; log.push(`recv ${jobNumber}: ${String(e.message).slice(0, 80)}`); } } return resolved; };
 
   for (const ex of expenses) {
     const exKey = expenseKey(full.id || job.id, ex);
@@ -168,11 +172,12 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
       const exDate = ex.updated_at || ex.created_at || null;
       if (exDate && Date.parse(exDate) < startMs) continue;
     }
-    const { data: dup } = await s.from("expense_requests").select("id").eq("sf_expense_id", exKey).limit(1);
+    const { data: dup } = await s.from("expense_requests").select("id, sf_admin_job_id").eq("sf_expense_id", exKey).limit(1);
 
     let reqId: string | null = null;
+    let hasEnc = false;
     if (dup && dup.length) {
-      reqId = dup[0].id; // already landed — we may still backfill the receipt
+      reqId = dup[0].id; hasEnc = !!dup[0].sf_admin_job_id; // already landed — backfill receipt/encId
     } else {
       const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
       const acct = ACCOUNT_MAP[String(ex.category || "").toLowerCase()] || null;
@@ -197,18 +202,22 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
     }
     if (!reqId) continue;
 
-    // Attach the receipt if this draft has none yet.
     const { data: have } = await s.from("expense_request_attachments").select("id").eq("request_id", reqId).limit(1);
-    if (have && have.length) continue;
+    const needReceipt = !(have && have.length);
+    if (!needReceipt && hasEnc) continue; // nothing left to do for this draft
 
-    // 1) explicit ref on the expense (rare); 2) admin-portal jobexpense S3 URLs.
-    let urls = receiptRefs(ex);
-    if (!urls.length) {
-      if (jobReceiptUrls === null) { try { jobReceiptUrls = await findReceiptUrls(s, jobNumber); } catch (e: any) { jobReceiptUrls = []; log.push(`recv ${jobNumber}: ${String(e.message).slice(0, 80)}`); } }
-      urls = jobReceiptUrls;
+    // Resolve once: gives encId (for the deep link) + receipt URLs.
+    const { encId, urls: portalUrls } = await resolve();
+
+    // Stamp the admin encId so the UI can deep-link to the SF job page.
+    if (!hasEnc && encId) { try { await s.from("expense_requests").update({ sf_admin_job_id: encId }).eq("id", reqId); } catch (_e) { /* non-fatal */ } }
+
+    if (needReceipt) {
+      let urls = receiptRefs(ex);
+      if (!urls.length) urls = portalUrls;
+      let i = 0;
+      for (const u of urls) { if (await attachReceipt(s, reqId, u, i++)) attached++; }
     }
-    let i = 0;
-    for (const u of urls) { if (await attachReceipt(s, reqId, u, i++)) attached++; }
   }
   return { landed, attached };
 }
@@ -227,10 +236,10 @@ Deno.serve(async (req: Request) => {
     return json(out);
   }
 
-  // ?receipts=<jobNumber> — diagnostics: resolve a job number to its receipt URLs.
+  // ?receipts=<jobNumber> — diagnostics: resolve a job number to its admin encId + receipt URLs.
   if (u.searchParams.get("receipts")) {
     const num = u.searchParams.get("receipts")!;
-    try { const urls = await findReceiptUrls(s, num); return json({ job: num, urls }); } catch (e: any) { return json({ job: num, error: e.message }, 500); }
+    try { const { encId, urls } = await resolveJobAssets(s, num); return json({ job: num, encId, jobView: encId ? `${ADMIN_BASE}/jobs/jobView?id=${encId}` : null, urls }); } catch (e: any) { return json({ job: num, error: e.message }, 500); }
   }
 
   // ?refreshCookie=1 — force a portal-cookie refresh via the Make hook.
