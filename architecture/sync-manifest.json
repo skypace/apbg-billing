@@ -273,17 +273,27 @@
       "last_verified": "2026-05-12"
     },
     {
+      "name": "sf-receipt-pull",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "every 30 min via Supabase pg_cron (synchronous; cronKey)",
+      "writes": ["ops.expense_requests", "ops.expense_request_attachments"],
+      "multi_writer": true,
+      "notes": "Synchronous SF receipt puller — scans recent completed/invoiced SF jobs, lands each receipt as a Brixpense review-DRAFT via lib/sf-expense.landSfJobExpense (scan + attach, no QBO post). Reuses the in-runtime SF auth (single token owner). Returns full diagnostics to the caller. Deduped by sf_expense_id; gated to SF_SWEEP_START_DATE. Replaces the invisible background sweep.",
+      "last_verified": "2026-06-06"
+    },
+    {
       "name": "sf-expense-sweep-background",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "every 30 min via Supabase pg_cron (net.http_post + cronKey)",
+      "schedule": "deprecated (invisible background fn — superseded by sf-receipt-pull)",
       "writes": [
         "ops.expense_requests",
         "ops.expense_request_attachments",
         "ops.sync_log"
       ],
       "multi_writer": true,
-      "notes": "Background sweep of ALL Service Fusion completed/invoiced jobs (incl. regular non-ResQ jobs) — delegates to lib/sf-expense.landSfJobExpense, which scans each receipt and lands a Brixpense review-DRAFT (status='draft', as_bill, tag='Service Fusion') with the image attached, via the service-role key. Deduped by ops.expense_requests.sf_expense_id (migration 20260603d); gated to SF_SWEEP_START_DATE. No QBO post — Brixpense posts on submit. Driven by pg_cron (cronKey==CRON_SECRET) because Netlify's scheduled-function trigger does not fire on this site.",
+      "notes": "Deprecated in favor of the synchronous sf-receipt-pull. Same landSfJobExpense delegation; kept declared while the file exists.",
       "last_verified": "2026-06-06"
     },
     {
