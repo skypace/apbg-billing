@@ -49,21 +49,31 @@ export async function handler(event) {
     // filters[number]) and dump its RAW expense objects + field names.
     if (qs.find) {
       const target = String(qs.find).trim().toLowerCase();
-      const sortParam = qs.sort || '-last_modified'; // invoiced jobs are recently MODIFIED, not created
-      let match = null;
-      let firstJobSample = null;
-      for (let page = 1; page <= 8 && !match; page++) {
-        let jobs;
-        try {
-          const res = await sfRequest('GET', `/jobs?per-page=100&sort=${encodeURIComponent(sortParam)}&page=${page}`);
-          jobs = res.items || res.data || [];
-        } catch (e) { return { statusCode: 200, body: JSON.stringify({ find: qs.find, sortParam, error: String(e.message).slice(0, 200) }) }; }
-        if (!jobs.length) break;
-        if (page === 1) firstJobSample = jobs[0];
-        match = jobs.find((j) => String(j.number || '').toLowerCase() === target)
-          || jobs.find((j) => String(j.number || '').toLowerCase().includes(target));
-      }
-      if (!match) return { statusCode: 200, body: JSON.stringify({ find: qs.find, sortParam, found: false, firstJobSample }, null, 2) };
+      // Try SF's number filter directly (no expand → fast). If SF honors it we
+      // get the exact job regardless of age; if it ignores it we at least get a
+      // sample job so we can see the available field names (incl. date fields).
+      let sample = null, filterReturned = null, filterErr = null;
+      try {
+        const res = await sfRequest('GET', `/jobs?filters[number]=${encodeURIComponent(qs.find)}&per-page=10`);
+        const jobs = res.items || res.data || [];
+        filterReturned = jobs.length;
+        sample = jobs[0] || null;
+        const m = jobs.find((j) => String(j.number || '').toLowerCase() === target)
+          || (jobs.length === 1 ? jobs[0] : null);
+        if (m) {
+          let full = m;
+          try { full = await sfRequest('GET', `/jobs/${m.id}?expand=expenses`); } catch { /* keep m */ }
+          const exps = Array.isArray(full.expenses) ? full.expenses : [];
+          return { statusCode: 200, body: JSON.stringify({
+            find: qs.find, id: m.id, number: m.number, status: m.status,
+            jobKeys: Object.keys(full),
+            expenseCount: exps.length,
+            firstExpenseKeys: exps[0] ? Object.keys(exps[0]) : [],
+            expenses: exps,
+          }, null, 2) };
+        }
+      } catch (e) { filterErr = String(e.message).slice(0, 300); }
+      return { statusCode: 200, body: JSON.stringify({ find: qs.find, found: false, filterReturned, filterErr, sampleKeys: sample ? Object.keys(sample) : [], sample }, null, 2) };
       let full = match;
       try { full = await sfRequest('GET', `/jobs/${match.id}?expand=expenses`); } catch { /* keep match */ }
       const exps = Array.isArray(full.expenses) ? full.expenses : [];
