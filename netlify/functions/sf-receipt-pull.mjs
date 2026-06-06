@@ -45,6 +45,23 @@ export async function handler(event) {
   const out = { ok: true, scanned: 0, doneJobs: 0, drafts: 0, attached: 0, perJob: [], errors: [] };
 
   try {
+    // Probe: does SF support a status filter? (filters[po_number] works
+    // elsewhere; if filters[status] works we can query invoiced jobs directly.)
+    if (qs.probeStatus) {
+      try {
+        const res = await sfRequest('GET', `/jobs?filters[status]=${encodeURIComponent(qs.probeStatus)}&per-page=10`);
+        const jobs = res.items || res.data || [];
+        return { statusCode: 200, body: JSON.stringify({
+          probeStatus: qs.probeStatus,
+          meta: res._meta || null,
+          count: jobs.length,
+          sample: jobs.slice(0, 10).map((j) => ({ number: j.number, status: j.status })),
+        }, null, 2) };
+      } catch (e) {
+        return { statusCode: 200, body: JSON.stringify({ probeStatus: qs.probeStatus, error: String(e.message).slice(0, 300) }) };
+      }
+    }
+
     // Debug: locate a job by its SF number (scan pages — SF ignores
     // filters[number]) and dump its RAW expense objects + field names.
     if (qs.find) {
