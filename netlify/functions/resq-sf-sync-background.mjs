@@ -499,12 +499,12 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     // mass-backfill historical jobs. SF_EXPENSE_BACKFILL is an explicit one-off
     // allowlist for specific jobs that were invoiced before this landed (e.g.
     // 1086695007, whose expense was lost). Idempotent via expenseLandedId.
-    // DISABLED 2026-06: this path auto-landed SF expenses as status='posted'
-    // (no review, no vendor), which is not what we want. SF expenses now flow
-    // through sf-expense-sweep, which lands them as reviewable DRAFTS and lets
-    // Brixpense post the QBO bill on submit. Kept as a no-op so the rest of the
-    // lifecycle logic is untouched.
-    const needsExpenseLanding = false;
+    // When a WO is done (completed or invoiced), land its SF expense RECEIPTS
+    // into Brixpense as reviewable DRAFTS — scanned (vendor/amount from the
+    // receipt image), receipt attached, NOTHING posted to QBO. landSfJobExpense
+    // dedups by sf_expense_id + gates to the start date, so this is idempotent
+    // and won't mass-backfill ancient jobs. expenseLandedId guards re-runs.
+    const needsExpenseLanding = (sfIsInvoiced || sfIsCompleted) && !mapEntry.expenseLandedId;
     // "Provide Update" — complete the visit in ResQ when SF is completed
     // Also trigger if WO is COMPLETED (visit done but needs to transition to NEEDS_INVOICE)
     const needsVisitComplete = sfIsCompleted && !mapEntry.visitCompleted
@@ -612,14 +612,12 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         const { landSfJobExpense } = await import('./lib/sf-expense.mjs');
         const r = await landSfJobExpense({ sfJobId: mapEntry.sfJobId, resqCode: resqWO.code, submitter: SF_EXPENSE_SUBMITTER });
         if (r.ok) {
-          mapEntry.expenseLandedId = r.id;
+          mapEntry.expenseLandedId = true;
           result.updated++;
-          result.steps.push(`💵 SF expense → Brixpense ${resqWO.code} (${r.lines} line(s), $${r.total}, ${r.attached} receipt(s))`);
-          if (r.attached === 0 && (r.attachErrors?.length || r.diag)) {
-            result.steps.push(`📎 ${resqWO.code} no receipt: ${(r.attachErrors || []).join(' | ').slice(0, 200) || 'expense keys=' + r.diag}`);
-          }
+          result.steps.push(`💵 SF receipts → Brixpense ${resqWO.code} (${r.landed} draft(s), ${r.attached} receipt(s))`);
         } else if (r.empty) {
-          mapEntry.expenseLandedId = 'none'; // no SF expenses on the job — don't retry every run
+          mapEntry.expenseLandedId = 'none'; // no receipts to land — don't retry every run
+          if (r.error) result.steps.push(`📎 ${resqWO.code}: ${String(r.error).slice(0, 160)}`);
         } else {
           result.errors.push(`SF expense land ${resqWO.code}: ${r.error}`);
         }
