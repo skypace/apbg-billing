@@ -45,25 +45,31 @@ export async function handler(event) {
   const out = { ok: true, scanned: 0, doneJobs: 0, drafts: 0, attached: 0, perJob: [], errors: [] };
 
   try {
-    // Debug: find a job by its SF number and dump its RAW expense objects so
-    // we can see exactly where (and whether) the receipt is stored.
+    // Debug: locate a job by its SF number (scan pages — SF ignores
+    // filters[number]) and dump its RAW expense objects + field names.
     if (qs.find) {
-      try {
-        const res = await sfRequest('GET', `/jobs?filters[number]=${encodeURIComponent(qs.find)}&per-page=5&expand=expenses`);
-        const jobs = res.items || res.data || [];
-        const dump = [];
-        for (const j of jobs) {
-          let exps = Array.isArray(j.expenses) ? j.expenses : null;
-          if (exps === null) {
-            try { const full = await sfRequest('GET', `/jobs/${j.id}?expand=expenses`); exps = Array.isArray(full.expenses) ? full.expenses : []; }
-            catch { exps = []; }
-          }
-          dump.push({ id: j.id, number: j.number, status: j.status, expenseCount: exps.length, expenses: exps });
-        }
-        return { statusCode: 200, body: JSON.stringify({ find: qs.find, jobs: dump }, null, 2) };
-      } catch (e) {
-        return { statusCode: 200, body: JSON.stringify({ find: qs.find, error: String(e.message).slice(0, 300) }) };
+      const target = String(qs.find).trim().toLowerCase();
+      let match = null;
+      for (let page = 1; page <= 8 && !match; page++) {
+        let jobs;
+        try {
+          const res = await sfRequest('GET', `/jobs?per-page=100&sort=-created_at&page=${page}`);
+          jobs = res.items || res.data || [];
+        } catch (e) { return { statusCode: 200, body: JSON.stringify({ find: qs.find, error: String(e.message).slice(0, 200) }) }; }
+        if (!jobs.length) break;
+        match = jobs.find((j) => String(j.number || '').toLowerCase() === target)
+          || jobs.find((j) => String(j.number || '').toLowerCase().includes(target));
       }
+      if (!match) return { statusCode: 200, body: JSON.stringify({ find: qs.find, found: false }) };
+      let full = match;
+      try { full = await sfRequest('GET', `/jobs/${match.id}?expand=expenses`); } catch { /* keep match */ }
+      const exps = Array.isArray(full.expenses) ? full.expenses : [];
+      return { statusCode: 200, body: JSON.stringify({
+        find: qs.find, id: match.id, number: match.number, status: match.status,
+        expenseCount: exps.length,
+        firstExpenseKeys: exps[0] ? Object.keys(exps[0]) : [],
+        expenses: exps,
+      }, null, 2) };
     }
 
     // Single-job debug path.
