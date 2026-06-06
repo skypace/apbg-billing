@@ -97,7 +97,7 @@ async function logRun(result) {
       method: 'POST',
       headers: { ...sbHeaders(), Prefer: 'return=minimal' },
       body: JSON.stringify([{
-        source: 'sf-expense-sweep', sync_type: 'expense-sweep',
+        source: 'sf-expense-sweep', sync_type: result.sync_type || 'expense-sweep',
         status: result.ok ? 'ok' : 'error', started_at: now, completed_at: now,
         records_synced: result.drafts || 0, metadata: result,
       }]),
@@ -116,8 +116,20 @@ export async function handler(event) {
     if (!auth.ok) return auth.response;
   }
 
+  // Heartbeat so we can confirm the handler actually executes (background fn
+  // logs aren't visible via the MCP). Reports which env pieces are present.
+  await logRun({
+    ok: true, sync_type: 'heartbeat',
+    env: { svc: !!SERVICE_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY, cronOk },
+  });
+
   console.log('[CRON] SF expense sweep starting…');
-  const result = await sweep();
+  let result;
+  try {
+    result = await sweep();
+  } catch (e) {
+    result = { ok: false, sync_type: 'crash', error: String(e && e.message ? e.message : e).slice(0, 400) };
+  }
   await logRun(result);
   console.log('[CRON] SF expense sweep:', JSON.stringify(result));
   return { statusCode: result.ok ? 200 : 500, body: JSON.stringify(result) };
