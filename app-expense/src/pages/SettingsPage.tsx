@@ -132,6 +132,11 @@ export default function SettingsPage() {
   >([]);
   const [glErr, setGlErr] = useState<string | null>(null);
   const [cogsFilter, setCogsFilter] = useState('');
+  // Manual fallback entry — lets an admin add an account by id + label even when
+  // the live QBO chart can't load (token expired / QBO down), so the picker is
+  // never a dead end.
+  const [manualId, setManualId] = useState('');
+  const [manualLabel, setManualLabel] = useState('');
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgSavedAt, setOrgSavedAt] = useState<string | null>(null);
   const [orgErr, setOrgErr] = useState<string | null>(null);
@@ -322,6 +327,15 @@ export default function SettingsPage() {
   function clearCogsGroup(items: { id: string }[]) {
     const rm = new Set(items.map((i) => i.id));
     setCogsAccounts((prev) => prev.filter((a) => !rm.has(a.id)));
+  }
+
+  function addManualCogs() {
+    const id = manualId.trim();
+    if (!id) return;
+    const label = manualLabel.trim() || `Account #${id}`;
+    setCogsAccounts((prev) => (prev.some((a) => a.id === id) ? prev : [...prev, { id, label }]));
+    setManualId('');
+    setManualLabel('');
   }
 
   // QBO accounts grouped by AccountType, filtered by the search box.
@@ -583,7 +597,42 @@ export default function SettingsPage() {
 
               {glErr && (
                 <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200 mb-3">
-                  Couldn't load the QBO chart of accounts ({glErr}). Your saved list is preserved below; reconnect QBO or Refresh to edit it.
+                  Couldn't load the QBO chart of accounts ({glErr}). Your saved list is preserved below; reconnect QBO or Refresh to retry — or add an account by id manually below.
+                </div>
+              )}
+
+              {/* Manual fallback: when the live chart is empty (fetch failed / QBO
+                  down), the checkbox picker can't render, so offer a direct
+                  id + label entry. Find the id in QBO under Accounting → Chart
+                  of Accounts (or via Settings → Refresh once QBO is back). */}
+              {glAccounts.length === 0 && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 mb-3">
+                  <div className="text-xs text-slate-400 mb-2">
+                    Add an account manually (QBO account id + the label to show on the form):
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      className="w-full sm:w-40 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                      placeholder="Account id (e.g. 101)"
+                      value={manualId}
+                      onChange={(e) => setManualId(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addManualCogs()}
+                    />
+                    <input
+                      className="w-full flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                      placeholder="Label (e.g. Melt Service COGS)"
+                      value={manualLabel}
+                      onChange={(e) => setManualLabel(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addManualCogs()}
+                    />
+                    <button
+                      onClick={addManualCogs}
+                      disabled={!manualId.trim()}
+                      className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      <Plus size={14} /> Add
+                    </button>
+                  </div>
                 </div>
               )}
 
