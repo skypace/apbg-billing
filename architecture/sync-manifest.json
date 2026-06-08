@@ -1,10 +1,21 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-05-13",
+  "last_updated": "2026-06-08",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
+    {
+      "name": "qbo-webhook",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "event-driven (Intuit QBO webhook)",
+      "writes": ["ops.qbo_invoices", "ops.qbo_token_cache", "ops.sync_log"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online webhook (Invoice/Payment change events)"],
+      "notes": "Source at supabase/functions/qbo-webhook/. verify_jwt=false; auth is Intuit's HMAC signature (QBO_WEBHOOK_VERIFIER_TOKEN). On an Invoice/Payment change, re-reads the affected invoice(s) from QBO and updates qbo_invoices balance/status in real time so brix-order flips to Paid within seconds. Writes qbo_token_cache via lease RPC. Requires Intuit dashboard webhook config to fire.",
+      "last_verified": "2026-06-08"
+    },
     {
       "name": "sync-qbo",
       "kind": "supabase-edge-function",
