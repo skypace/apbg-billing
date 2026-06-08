@@ -11,11 +11,18 @@
 //                   404 → authorized (scope present, id just not found)
 //                   401/403 → token lacks the payment scope / merchant access
 //                 No internal secret required (reveals only a boolean).
+//   "vault"     — turn a single-use Intuit token into a REUSABLE card-on-file
+//                 (or bank-on-file) under the QBO customer, returning the stored
+//                 method id + display-safe brand/last4. Used by brix-order's
+//                 payments-add-method so autopay can charge later with no
+//                 customer present. No PAN/bank number ever leaves QBO.
 //   "dry_run"   — read the requested invoices from QBO, verify they belong to
 //                 the customer + are open, compute the total. No charge.
 //   "charge"    — dry_run + POST a Payments v4 echeck (ACH) or charge (card)
-//                 using a single-use token or stored method, THEN record an
-//                 Accounting Payment linking the invoice(s) so QBO reconciles.
+//                 using EITHER a single-use token (customer present, e.g. /pay)
+//                 OR a stored method id (card_on_file / bank_account_on_file —
+//                 autopay, no customer present), THEN record an Accounting
+//                 Payment linking the invoice(s) so QBO reconciles.
 //
 // "dry_run" and "charge" require header x-internal-secret == INTERNAL_PAY_SECRET
 // so only brix-order's pay-invoices function (server-side) can move money.
@@ -157,6 +164,20 @@ async function paymentsPost(token: string, path: string, body: any): Promise<any
   if (!res.ok) throw new Error("QBO Payments POST " + path + " (" + res.status + "): " + JSON.stringify(data));
   return data;
 }
+// Customer-scoped Payments endpoints (card/bank vaulting lives under /customers).
+async function customersPost(token: string, path: string, body: any): Promise<any> {
+  const res = await fetch(paymentsBase() + "/quickbooks/v4/customers" + path, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + token, Accept: "application/json",
+      "Content-Type": "application/json", "Request-Id": reqId(),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error("QBO Payments customers POST " + path + " (" + res.status + "): " + JSON.stringify(data));
+  return data;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -191,6 +212,37 @@ Deno.serve(async (req: Request) => {
     const provided = req.headers.get("x-internal-secret") || "";
     if (!secret || provided !== secret) return jsonRes({ ok: false, error: "unauthorized" }, 401);
 
+    // ---- vault: turn a single-use token into a reusable card/bank-on-file ----
+    // Used by brix-order's payments-add-method so autopay can charge a saved
+    // method later with no customer present. Returns the stored method id +
+    // display-safe brand/last4 (no PAN ever leaves QBO).
+    if (mode === "vault") {
+      const custId = String(body?.customer_qbo_id || "").trim();
+      if (!/^[0-9]+$/.test(custId)) throw new Error("bad customer_qbo_id");
+      const vaultToken = String(body?.token || "").trim();
+      if (!vaultToken) throw new Error("token (single-use) required for vault");
+      const vtype = body?.type === "ach" ? "ach" : "card";
+      const vtoken = await getAccessToken(sb);
+      if (vtype === "card") {
+        const card = await customersPost(vtoken, "/" + custId + "/cards/createFromToken", { value: vaultToken });
+        const num = String(card?.number ?? "").replace(/[^0-9]/g, "");
+        return jsonRes({
+          ok: true, mode, qbo_method_id: String(card?.id || ""),
+          brand: card?.cardType ?? null, last4: num ? num.slice(-4) : null,
+          exp_month: card?.expMonth != null ? Number(card.expMonth) : null,
+          exp_year: card?.expYear != null ? Number(card.expYear) : null,
+          duration_ms: Date.now() - startedAt,
+        });
+      }
+      const ba = await customersPost(vtoken, "/" + custId + "/bank-accounts/createFromToken", { value: vaultToken });
+      const num = String(ba?.accountNumber ?? "").replace(/[^0-9]/g, "");
+      return jsonRes({
+        ok: true, mode, qbo_method_id: String(ba?.id || ""),
+        brand: ba?.name ?? "Bank account", last4: num ? num.slice(-4) : null,
+        exp_month: null, exp_year: null, duration_ms: Date.now() - startedAt,
+      });
+    }
+
     const customerQboId = String(body?.customer_qbo_id || "").trim();
     const invoiceIds: string[] = Array.isArray(body?.invoice_ids) ? body.invoice_ids.map((x: any) => String(x)) : [];
     const type = body?.type === "card" ? "card" : "ach";
@@ -219,23 +271,30 @@ Deno.serve(async (req: Request) => {
     }
 
     if (mode === "charge") {
-      const payToken = String(body?.token || "").trim(); // single-use Intuit token from the client
-      if (!payToken) throw new Error("token (single-use payment token) required for charge");
+      // Either a single-use token (customer present, e.g. /pay) OR a stored
+      // method id (autopay: card_on_file / bank_account_on_file, no customer present).
+      const payToken = String(body?.token || "").trim();
+      const cardOnFile = String(body?.card_on_file || "").trim();
+      const bankOnFile = String(body?.bank_account_on_file || "").trim();
+      if (!payToken && !cardOnFile && !bankOnFile) {
+        throw new Error("a single-use token or a stored method (card_on_file / bank_account_on_file) is required for charge");
+      }
       const amountStr = total.toFixed(2);
 
       // 1. Move the money via Payments v4.
       let chargeId: string;
       if (type === "card") {
-        const charged = await paymentsPost(token, "/charges", {
-          amount: amountStr, currency: "USD", token: payToken,
-          context: { mobile: "false", isEcommerce: "true" },
-        });
+        const chargeBody: any = payToken
+          ? { amount: amountStr, currency: "USD", token: payToken, context: { mobile: "false", isEcommerce: "true" } }
+          : { amount: amountStr, currency: "USD", cardOnFile, context: { mobile: "false", isEcommerce: "true" } };
+        const charged = await paymentsPost(token, "/charges", chargeBody);
         chargeId = String(charged?.id || "");
         if (!chargeId || charged?.status === "DECLINED") throw new Error("card charge not approved: " + JSON.stringify(charged).slice(0, 300));
       } else {
-        const ec = await paymentsPost(token, "/echecks", {
-          amount: amountStr, token: payToken, paymentMode: "WEB",
-        });
+        const echeckBody: any = payToken
+          ? { amount: amountStr, token: payToken, paymentMode: "WEB" }
+          : { amount: amountStr, bankAccountOnFile: bankOnFile, paymentMode: "WEB" };
+        const ec = await paymentsPost(token, "/echecks", echeckBody);
         chargeId = String(ec?.id || "");
         if (!chargeId) throw new Error("echeck not accepted: " + JSON.stringify(ec).slice(0, 300));
       }
