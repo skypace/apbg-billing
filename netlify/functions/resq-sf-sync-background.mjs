@@ -42,8 +42,22 @@ const SF_EXPENSE_BACKFILL = new Set(['1086695007']);
 // in ops.sync_customers, loaded once per run and threaded through the worker.
 // See netlify/functions/lib/sync-customers.mjs + migration 20260602a.
 
-// ResQ statuses that mean "done" — don't create new SF jobs for these
+// ResQ statuses that mean "done" — skip bidirectional sync on MAPPED WOs in
+// these states (vendor invoice already accepted; nothing left to do).
 const RESQ_DONE_STATUSES = ['AWAITING_PAYMENT', 'CLOSED', 'CANCELLED'];
+
+// Statuses where we must NOT create a NEW SF job for an UNMAPPED WO. Once a WO
+// has reached completion (or beyond) in ResQ, spinning up a fresh SF job is a
+// phantom — the work is already done. Broader than RESQ_DONE_STATUSES (which
+// only governs skipping sync on already-mapped WOs). This also makes a manual
+// "Clear" of such a WO STICK: after the mapping is deleted, the next reconcile
+// sees an unmapped COMPLETED WO and skips it instead of recreating a duplicate
+// SF job (root cause for R1021540 — COMPLETED in ResQ, Cancelled in SF: the
+// dedup ignores the cancelled job and would otherwise create a brand-new one).
+const RESQ_NO_NEW_JOB_STATUSES = [
+  'COMPLETED', 'NEEDS_INVOICE', 'WAITING_FOR_COORDINATOR_APPROVAL',
+  ...RESQ_DONE_STATUSES,
+];
 
 // ResQ status → SF status mapping (for ResQ→SF direction)
 const RESQ_TO_SF_STATUS = {
@@ -156,10 +170,12 @@ export async function handler(event) {
           const ev = eventFromResult(wo, mapping[wo.id], r, 'sf->resq');
           if (ev) syncEvents.push(ev);
         } else {
-          // New WO — skip if already done (awaiting payment, closed, etc.)
+          // New WO — don't create an SF job if ResQ already considers it
+          // completed/terminal (a fresh job would be a phantom; also keeps a
+          // manual "Clear" of such a WO from boomeranging back as a new job).
           const resqStatus = (wo.status || '').toUpperCase();
-          if (RESQ_DONE_STATUSES.includes(resqStatus)) {
-            log.steps.push(`Skip ${wo.code}: already ${wo.status}`);
+          if (RESQ_NO_NEW_JOB_STATUSES.includes(resqStatus)) {
+            log.steps.push(`Skip ${wo.code}: ${wo.status} — no new SF job created`);
             continue;
           }
 
@@ -1602,7 +1618,7 @@ export async function syncSingleByCode(resqCode) {
       out.updated += r.updated || 0;
     } else {
       const st = (wo.status || '').toUpperCase();
-      if (RESQ_DONE_STATUSES.includes(st)) { out.steps.push(`${wo.code}: already ${wo.status} — no SF job created`); return out; }
+      if (RESQ_NO_NEW_JOB_STATUSES.includes(st)) { out.steps.push(`${wo.code}: ${wo.status} — no new SF job created`); return out; }
       r = await processNewWO(wo, mapping, syncCustomers);
       out.created += r.created || 0;
     }
