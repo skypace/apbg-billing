@@ -241,86 +241,29 @@ export async function notifyNewResqJob(session, wo, enrichment = null) {
 // via the authed dashboard endpoint ?probeJob=<resqCode>. Read-only except it
 // sends one test email to the configured recipients.
 export async function probeResqJob(session, code) {
-  const out = { code, recipients: NOTIFY_TO, note: 'introspection disabled on ResQ — probing fields directly (ok = field exists)' };
+  const out = { code, recipients: NOTIFY_TO, note: 'slim probe — actual values + the few remaining field-name unknowns' };
 
-  // Run a WO query with a given inner selection; 'ok' if ResQ accepts it,
-  // otherwise the (compacted) error — which usually names the real field.
-  const tryQ = async (innerSelection) => {
+  // Actual values via the vendor→facility fallback. Shows the real equipment
+  // name/manufacturer/serialNo/code/description, facility address, and image
+  // URLs — so we can see where the model lives and confirm data flows.
+  try { out.sampleValues = await fetchWoEnrichment(session, code); }
+  catch (e) { out.sampleValuesError = String(e?.message || e).slice(0, 200); }
+
+  // Only the still-unknown fields (serialNo + code already confirmed + wired).
+  // Kept tiny on purpose — the old probe fired ~75 sequential ResQ queries and
+  // could run for 30+ minutes when ResQ was slow.
+  const tryQ = async (sel) => {
     try {
-      await resqGql(session, `{ workOrders(first:1, code:"${code}") { edges { node { ${innerSelection} } } } }`);
+      await resqGql(session, `{ workOrders(first:1, code:"${code}") { edges { node { ${sel} } } } }`);
       return 'ok';
     } catch (e) {
-      return 'ERR: ' + String(e?.message || e).replace(/\s+/g, ' ').slice(0, 150);
+      return 'ERR: ' + String(e?.message || e).replace(/\s+/g, ' ').slice(0, 120);
     }
   };
-
-  // Actual values of the fields we now pull (so we can see what `address`,
-  // equipment name/description, and images really contain).
-  out.sampleValues = await fetchWoEnrichment(session, code);
-
-  // Equipment scalar candidates — serialNo + code already confirmed; hunt the
-  // model + warranty fields (ResQ uses camel-abbreviated names like serialNo).
-  out.equipment = {};
-  for (const f of ['name', 'manufacturer', 'description', 'serialNo', 'code', 'modelNo', 'model', 'modelNumber', 'warrantyExpiry', 'warrantyExpiryDate', 'warrantyExpiresAt', 'warrantyNotes', 'warranty', 'make', 'partNo', 'assetNo']) {
-    out.equipment[f] = await tryQ(`equipment { ${f} }`);
+  out.fieldCheck = {};
+  for (const f of ['modelNo', 'model', 'warrantyExpiry', 'warrantyNotes']) {
+    out.fieldCheck[`equipment.${f}`] = await tryQ(`equipment { ${f} }`);
   }
-
-  // Model/serial/warranty live under a nested "Manufacturer Details"-style
-  // object on the asset (per the ResQ asset page: Manufacturer / Model Number /
-  // Serial Number / Warranty Expiry / Warranty Notes). Probe likely containers
-  // (on equipment + the WO node) and the full field shape. 'ok' = path exists.
-  out.nested = {};
-  const nestedTests = [
-    // Best guess: the whole shape in one query
-    ['equipment.manufacturerDetails.full', `equipment { manufacturerDetails { manufacturer modelNumber serialNumber warrantyExpiry warrantyNotes } }`],
-    // Container existence
-    ['equipment.manufacturerDetails', `equipment { manufacturerDetails { __typename } }`],
-    ['equipment.assetDetails', `equipment { assetDetails { __typename } }`],
-    ['equipment.details', `equipment { details { __typename } }`],
-    ['equipment.specifications', `equipment { specifications { __typename } }`],
-    ['equipment.nameplate', `equipment { nameplate { __typename } }`],
-    ['equipment.dataPlate', `equipment { dataPlate { __typename } }`],
-    ['equipment.manufacturerInfo', `equipment { manufacturerInfo { __typename } }`],
-    ['equipment.asset', `equipment { asset { __typename } }`],
-    ['node.asset', `asset { __typename }`],
-    ['node.assets', `assets { __typename }`],
-    // Individual manufacturerDetails subfields (fallback if the full shape fails)
-    ['equipment.manufacturerDetails.modelNumber', `equipment { manufacturerDetails { modelNumber } }`],
-    ['equipment.manufacturerDetails.serialNumber', `equipment { manufacturerDetails { serialNumber } }`],
-    ['equipment.manufacturerDetails.manufacturer', `equipment { manufacturerDetails { manufacturer } }`],
-    ['equipment.manufacturerDetails.warrantyExpiry', `equipment { manufacturerDetails { warrantyExpiry } }`],
-    ['equipment.manufacturerDetails.warrantyNotes', `equipment { manufacturerDetails { warrantyNotes } }`],
-    // Same fields directly on equipment under alternate camelCase
-    ['equipment.modelNumber', `equipment { modelNumber } `],
-    ['equipment.model', `equipment { model }`],
-  ];
-  for (const [label, q] of nestedTests) out.nested[label] = await tryQ(q);
-
-  // Facility / location address candidates
-  out.facility = {};
-  for (const f of ['name', 'id', 'address', 'addressLine1', 'addressLine2', 'line1', 'line2', 'street', 'streetAddress', 'city', 'state', 'region', 'zip', 'zipCode', 'postalCode', 'postcode', 'country', 'fullAddress', 'formattedAddress']) {
-    out.facility[f] = await tryQ(`facility { ${f} }`);
-  }
-
-  // WO-level photo/attachment collections. Probed bare (no subfields): an
-  // existing collection errors with "must have a selection of subfields"
-  // (= EXISTS); an absent one errors "Cannot query field" (= absent).
-  out.photoFields = {};
-  for (const f of ['attachments', 'images', 'beforeImages', 'afterImages', 'photos', 'media', 'files', 'documents', 'pictures']) {
-    out.photoFields[f] = await tryQ(`${f}`);
-  }
-  // For whichever collections look present, probe a node-shape + url subfield.
-  out.photoShapes = {};
-  for (const f of ['attachments', 'images', 'beforeImages', 'photos']) {
-    out.photoShapes[`${f}.list.url`] = await tryQ(`${f} { url }`);
-    out.photoShapes[`${f}.list.file`] = await tryQ(`${f} { file }`);
-    out.photoShapes[`${f}.conn.url`] = await tryQ(`${f} { edges { node { url } } }`);
-  }
-
-  try {
-    const r = await sendEmail({ to: NOTIFY_TO, subject: `TEST — ResQ probe ${code}`, html: `<p>Test email from the ResQ new-job notifier (probe for ${code}). If you got this, delivery works.</p>` });
-    out.emailResult = r === false ? 'NO PROVIDER CONFIGURED (sendEmail returned false)' : (r && r.id ? `sent (id=${r.id})` : `sent (${JSON.stringify(r).slice(0, 120)})`);
-  } catch (e) { out.emailError = String(e?.message || e).slice(0, 400); }
   return out;
 }
 
