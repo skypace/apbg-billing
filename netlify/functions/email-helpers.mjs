@@ -97,7 +97,7 @@ async function sendViaSendGrid({ to, subject, html, replyTo, from, sendgridKey }
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
+      personalizations: [{ to: (Array.isArray(to) ? to : [to]).map(e => ({ email: e })) }],
       from: { email: fromAddr, name: fromName },
       reply_to: replyTo ? { email: replyTo } : undefined,
       subject,

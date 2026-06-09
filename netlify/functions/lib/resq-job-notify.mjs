@@ -12,7 +12,10 @@
 import { resqGql } from '../resq-helpers.mjs';
 import { sendEmail } from '../email-helpers.mjs';
 
-const NOTIFY_TO = process.env.RESQ_JOB_NOTIFY_TO || 'skypace@brixbev.com';
+// Recipients for the new-job alert. Defaults to both ops owners; override with
+// a comma-separated RESQ_JOB_NOTIFY_TO env var.
+const NOTIFY_TO = (process.env.RESQ_JOB_NOTIFY_TO || 'skypace@brixbev.com,whitney@alamedasoda.com')
+  .split(',').map(s => s.trim()).filter(Boolean);
 
 // --- Schema introspection (cached per cold start) ---
 const _typeCache = new Map();
