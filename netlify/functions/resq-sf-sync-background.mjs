@@ -20,6 +20,7 @@ import { sfRequest } from './sf-helpers.mjs';
 import { requireAuth } from './lib/auth.mjs';
 import { loadSyncCustomers, classifySyncCustomer, allFacilityKeywords, sfNameFor, stemFor } from './lib/sync-customers.mjs';
 import { mapEntryToLinkRow, bulkUpsertLinks, bulkInsertEvents, eventFromResult } from './lib/resq-sf-links.mjs';
+import { fetchWoEnrichment, assetNotesBlock, notifyNewResqJob } from './lib/resq-job-notify.mjs';
 
 const BRIX_VENDOR_KEYWORDS = ['brix'];
 
@@ -179,7 +180,7 @@ export async function handler(event) {
             continue;
           }
 
-          const r = await withTimeout(processNewWO(wo, mapping, syncCustomers), 15000, `process ${wo.code}`);
+          const r = await withTimeout(processNewWO(wo, mapping, syncCustomers, session), 15000, `process ${wo.code}`);
           if (r.steps.length) log.steps.push(...r.steps);
           if (r.errors.length) log.errors.push(...r.errors);
           if (r.report?.length) dedupeReport.push(...r.report);
@@ -282,7 +283,7 @@ function withTimeout(promise, ms, label) {
 }
 
 // --- Process new unmapped WO ---
-async function processNewWO(wo, mapping, syncCustomers) {
+async function processNewWO(wo, mapping, syncCustomers, session = null) {
   const result = { steps: [], errors: [], created: 0, report: [] };
   const cust = classifySyncCustomer(wo.facility, syncCustomers);
   if (!cust) {
@@ -396,7 +397,14 @@ async function processNewWO(wo, mapping, syncCustomers) {
       result.report?.push({ resqCode: wo.code, reason: 'sf_customer_not_found', message: `No SF customer matches "${customerName}" (stem "${sfCustomerKey}").`, facility: wo.facility });
       return result;
     }
-    const sfJob = await createSfJob(wo, resolvedName);
+    // Pull ResQ asset/location/photo detail once — used for BOTH the SF job
+    // notes and the notification email. Best-effort; never blocks job creation.
+    let enrichment = null;
+    if (session) {
+      try { enrichment = await fetchWoEnrichment(session, wo.code); } catch { /* ignore */ }
+    }
+
+    const sfJob = await createSfJob(wo, resolvedName, enrichment);
 
     // Determine initial SF status based on ResQ status
     const resqStatus = (wo.status || '').toUpperCase();
@@ -412,6 +420,21 @@ async function processNewWO(wo, mapping, syncCustomers) {
     };
     result.created++;
     result.steps.push(`✓ Created SF #${sfJob.id} (${resqRef}) for ${wo.code} (${wo.facility})`);
+
+    // Notify: email the new-job details (location, asset, what's wrong, photos)
+    // via Resend through alamedapointbg.com. Idempotent — only fires here, on
+    // first creation, and the mapping persists so it won't re-send. Non-fatal.
+    if (session && !mapping[wo.id].notified) {
+      try {
+        const n = await notifyNewResqJob(session, wo, enrichment);
+        if (n.ok) {
+          mapping[wo.id].notified = true;
+          result.steps.push(`📧 New-job email sent for ${wo.code} (${n.photos} photo(s))`);
+        } else {
+          result.errors.push(`Notify ${wo.code}: ${n.error}`);
+        }
+      } catch (e) { result.errors.push(`Notify ${wo.code}: ${e.message.substring(0, 150)}`); }
+    }
   } catch (e) {
     result.errors.push(`Create SF job for ${wo.code}: ${e.message.substring(0, 300)}`);
   }
@@ -852,14 +875,22 @@ async function resolveSfCustomerName(configuredName, stem, sfCustomerId) {
 }
 
 // --- SF Helpers ---
-async function createSfJob(resqWO, customerName) {
+async function createSfJob(resqWO, customerName, enrichment = null) {
   const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
+  // Asset/location detail pulled from ResQ (equipment make/model/serial,
+  // facility address, service category, photo count). Best-effort — empty
+  // string when ResQ exposes nothing extra.
+  let assetBlock = '';
+  if (enrichment) {
+    try { assetBlock = assetNotesBlock(resqWO, enrichment); } catch { /* ignore */ }
+  }
   const description = [
     `ResQ WO: ${resqRef}`,
     resqWO.title,
     resqWO.description,
     `Facility: ${resqWO.facility}`,
     resqWO.equipment ? `Equipment: ${resqWO.equipment}` : '',
+    assetBlock,
     resqWO.isUrgent ? 'URGENT' : '',
   ].filter(Boolean).join('\n');
 
@@ -1621,7 +1652,7 @@ export async function syncSingleByCode(resqCode) {
     } else {
       const st = (wo.status || '').toUpperCase();
       if (RESQ_NO_NEW_JOB_STATUSES.includes(st)) { out.steps.push(`${wo.code}: ${wo.status} — no new SF job created`); return out; }
-      r = await processNewWO(wo, mapping, syncCustomers);
+      r = await processNewWO(wo, mapping, syncCustomers, session);
       out.created += r.created || 0;
     }
     if (r.steps?.length) out.steps.push(...r.steps);
