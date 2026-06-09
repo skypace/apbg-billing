@@ -773,7 +773,7 @@ async function handleNotifyJob(code) {
     const SCAN = `{ workOrders(first: 500, orderBy: "-raised_on") { edges { node {
       code title description status isUrgent serviceCategory
       facility { id name address addressLine2 zipCode }
-      equipment { id name manufacturer modelNo description serialNo code warrantyNotes }
+      equipment { id name manufacturer modelNo description serialNo code warrantyNotes image photos { url } }
       images { url }
     } } } }`;
     const findNode = async (sess) => {
@@ -793,12 +793,18 @@ async function handleNotifyJob(code) {
       status: node.status, isUrgent: !!node.isUrgent, serviceCategory: node.serviceCategory || '',
       facility: node.facility?.name || '', equipment: node.equipment?.name || '',
     };
-    // Build enrichment straight from the scanned node and pass it in (skips the
-    // code-filtered re-fetch inside notifyNewResqJob).
+    // Build enrichment straight from the scanned node — asset/equipment photos
+    // (data plate) first, then WO-level photos.
+    const isHttp = (u) => u && /^https?:\/\//i.test(String(u));
+    const asset = [];
+    if (isHttp(node.equipment?.image)) asset.push({ url: node.equipment.image, label: 'Asset' });
+    for (const p of (node.equipment?.photos || [])) if (isHttp(p?.url)) asset.push({ url: p.url, label: 'Asset' });
+    const woPhotos = (node.images || []).filter(p => isHttp(p?.url)).map(p => ({ url: p.url, label: null }));
     const enrichment = {
       equipment: node.equipment || {},
       facility: node.facility || {},
-      photos: (node.images || []).map(it => ({ url: it?.url, label: null })).filter(p => p.url && /^https?:\/\//i.test(String(p.url))),
+      assetPhotos: asset,
+      photos: [...asset, ...woPhotos],
     };
     const r = await notifyNewResqJob(session, wo, enrichment);
     return json(r, r.ok ? 200 : 500);

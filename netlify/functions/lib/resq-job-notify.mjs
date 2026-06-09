@@ -103,47 +103,52 @@ function discoverPlan(session) {
   return _planPromise;
 }
 
-// Build + run the enrichment query for one WO code, using only fields ResQ
-// confirmed it has. Returns { photos:[{url,label}], equipment:{}, facility:{} }.
-// Fields confirmed to exist by direct probing (ResQ introspection is disabled).
-// Equipment: name, manufacturer (= make), description, serialNo, code. Facility:
-// address (street), addressLine2, zipCode. Photos: images { url } (plain list).
-// Model lives in name/description (no discrete model field is exposed).
-const WO_ENRICH_QUERY = (code) => `{
-  workOrders(first: 1, code: "${code}") {
+// Enrichment fields confirmed by direct probing (ResQ introspection is off):
+//   equipment: name, manufacturer (=make), modelNo, description, serialNo, code,
+//              warrantyNotes, photos { url } (asset data-plate images), image
+//   facility:  address (street), addressLine2, zipCode
+//   WO images: images { url }
+// We SCAN the recent WO list (no code filter — ResQ's code filter is unreliable
+// and returns empty even for visible WOs; that's why the old code-filter lookup
+// produced empty enrichment) and match the WO by code.
+const WO_ENRICH_SCAN = `{
+  workOrders(first: 500, orderBy: "-raised_on") {
     edges { node {
-      equipment { id name manufacturer modelNo description serialNo code warrantyNotes }
+      code
+      equipment { id name manufacturer modelNo description serialNo code warrantyNotes image photos { url } }
       facility { id name address addressLine2 zipCode }
       images { url }
     } }
   }
 }`;
 
+const isHttpUrl = (u) => u && /^https?:\/\//i.test(String(u));
+
 export async function fetchWoEnrichment(session, code) {
-  const out = { photos: [], equipment: {}, facility: {} };
+  const out = { photos: [], assetPhotos: [], equipment: {}, facility: {} };
+  const want = String(code).replace(/^R/i, '').trim();
   const run = async (sess) => {
-    const d = await resqGql(sess, WO_ENRICH_QUERY(code));
-    return d.data?.workOrders?.edges?.[0]?.node || null;
+    const d = await resqGql(sess, WO_ENRICH_SCAN);
+    const edges = d.data?.workOrders?.edges || [];
+    return edges.find(e => String(e.node.code || '').replace(/^R/i, '') === want)?.node || null;
   };
   let node = null;
   try { node = await run(session); } catch { /* ignore */ }
-  // The WO/asset detail may not be visible to the Brix VENDOR login (WO not
-  // assigned to Brix, or asset specs are facility-private). Fall back to the
-  // FACILITY login, which can see the facility's assets.
-  const lacks = !node || (!node.equipment?.manufacturer && !node.equipment?.serialNo);
-  if (lacks) {
-    try {
-      const fac = await resqLogin({ facility: true });
-      const fnode = await run(fac);
-      if (fnode && (fnode.equipment?.manufacturer || fnode.equipment?.serialNo || !node)) node = fnode;
-    } catch { /* keep whatever the vendor login returned */ }
+  // Fall back to the FACILITY login if the vendor login can't see the WO/asset.
+  if (!node) {
+    try { const fac = await resqLogin({ facility: true }); node = await run(fac); } catch { /* keep null */ }
   }
   if (node) {
     out.equipment = node.equipment || {};
     out.facility = node.facility || {};
-    out.photos = (node.images || [])
-      .map(it => ({ url: it?.url, label: null }))
-      .filter(p => p.url && /^https?:\/\//i.test(String(p.url)));
+    // Asset/equipment photos (the data-plate / serial images) first, then any
+    // WO-level photos. `image` is a single primary thumbnail.
+    const asset = [];
+    if (isHttpUrl(node.equipment?.image)) asset.push({ url: node.equipment.image, label: 'Asset' });
+    for (const p of (node.equipment?.photos || [])) if (isHttpUrl(p?.url)) asset.push({ url: p.url, label: 'Asset' });
+    const woPhotos = (node.images || []).filter(p => isHttpUrl(p?.url)).map(p => ({ url: p.url, label: null }));
+    out.assetPhotos = asset;
+    out.photos = [...asset, ...woPhotos];
   }
   return out;
 }
