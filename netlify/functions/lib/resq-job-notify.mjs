@@ -264,8 +264,15 @@ export async function probeResqJob(session, code) {
     }
   };
   out.fieldCheck = {};
-  for (const f of ['modelNo', 'model', 'warrantyExpiry', 'warrantyNotes']) {
-    out.fieldCheck[`equipment.${f}`] = await tryQ(`equipment { ${f} }`);
+  // Hunt the EQUIPMENT/asset photo field (the data-plate / serial photo lives on
+  // the asset, not the WO — R0994830's WO images were empty). 'ok' = field valid.
+  const photoSels = [
+    'images { url }', 'photos { url }', 'pictures { url }', 'attachments { url }',
+    'media { url }', 'image', 'imageUrl', 'photoUrl', 'photoUrls', 'imageUrls',
+    'thumbnailUrl', 'avatarUrl', 'attachments { edges { node { url } } }',
+  ];
+  for (const sel of photoSels) {
+    out.fieldCheck[`equipment{${sel}}`] = await tryQ(`equipment { ${sel} }`);
   }
   return out;
 }
