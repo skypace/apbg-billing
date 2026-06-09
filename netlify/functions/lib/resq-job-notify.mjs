@@ -230,15 +230,46 @@ export async function notifyNewResqJob(session, wo, enrichment = null) {
 // via the authed dashboard endpoint ?probeJob=<resqCode>. Read-only except it
 // sends one test email to the configured recipients.
 export async function probeResqJob(session, code) {
-  const out = { code, recipients: NOTIFY_TO };
-  try {
-    out.workOrderFields = (await typeFields(session, 'WorkOrder')).map(f => f.name);
-    out.equipmentFields = (await typeFields(session, 'Equipment')).map(f => f.name);
-    out.facilityFields = (await typeFields(session, 'Facility')).map(f => f.name);
-    out.discoveredPlan = await discoverPlan(session);
-  } catch (e) { out.introspectError = String(e?.message || e).slice(0, 300); }
-  try { out.enrichment = await fetchWoEnrichment(session, code); }
-  catch (e) { out.enrichmentError = String(e?.message || e).slice(0, 300); }
+  const out = { code, recipients: NOTIFY_TO, note: 'introspection disabled on ResQ — probing fields directly (ok = field exists)' };
+
+  // Run a WO query with a given inner selection; 'ok' if ResQ accepts it,
+  // otherwise the (compacted) error — which usually names the real field.
+  const tryQ = async (innerSelection) => {
+    try {
+      await resqGql(session, `{ workOrders(first:1, code:"${code}") { edges { node { ${innerSelection} } } } }`);
+      return 'ok';
+    } catch (e) {
+      return 'ERR: ' + String(e?.message || e).replace(/\s+/g, ' ').slice(0, 150);
+    }
+  };
+
+  // Equipment scalar candidates (make/model/serial/asset #, etc.)
+  out.equipment = {};
+  for (const f of ['name', 'id', 'make', 'model', 'modelNumber', 'serialNumber', 'serial', 'assetTag', 'assetNumber', 'assetId', 'asset', 'manufacturer', 'category', 'type', 'description']) {
+    out.equipment[f] = await tryQ(`equipment { ${f} }`);
+  }
+
+  // Facility / location address candidates
+  out.facility = {};
+  for (const f of ['name', 'id', 'address', 'addressLine1', 'addressLine2', 'line1', 'line2', 'street', 'streetAddress', 'city', 'state', 'region', 'zip', 'zipCode', 'postalCode', 'postcode', 'country', 'fullAddress', 'formattedAddress']) {
+    out.facility[f] = await tryQ(`facility { ${f} }`);
+  }
+
+  // WO-level photo/attachment collections. Probed bare (no subfields): an
+  // existing collection errors with "must have a selection of subfields"
+  // (= EXISTS); an absent one errors "Cannot query field" (= absent).
+  out.photoFields = {};
+  for (const f of ['attachments', 'images', 'beforeImages', 'afterImages', 'photos', 'media', 'files', 'documents', 'pictures']) {
+    out.photoFields[f] = await tryQ(`${f}`);
+  }
+  // For whichever collections look present, probe a node-shape + url subfield.
+  out.photoShapes = {};
+  for (const f of ['attachments', 'images', 'beforeImages', 'photos']) {
+    out.photoShapes[`${f}.list.url`] = await tryQ(`${f} { url }`);
+    out.photoShapes[`${f}.list.file`] = await tryQ(`${f} { file }`);
+    out.photoShapes[`${f}.conn.url`] = await tryQ(`${f} { edges { node { url } } }`);
+  }
+
   try {
     const r = await sendEmail({ to: NOTIFY_TO, subject: `TEST — ResQ probe ${code}`, html: `<p>Test email from the ResQ new-job notifier (probe for ${code}). If you got this, delivery works.</p>` });
     out.emailResult = r === false ? 'NO PROVIDER CONFIGURED (sendEmail returned false)' : (r && r.id ? `sent (id=${r.id})` : `sent (${JSON.stringify(r).slice(0, 120)})`);
