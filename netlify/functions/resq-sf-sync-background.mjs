@@ -179,8 +179,10 @@ export async function handler(event) {
           // Auto-heal: the WO's only SF job was Cancelled and no live one
           // exists — drop the dead link and create a fresh SF job this pass.
           if (mapping[wo.id]?.needsRecreate) {
+            const priorNotified = !!mapping[wo.id].notified;
+            const recreateCount = (mapping[wo.id].recreateCount || 0) + 1;
             delete mapping[wo.id];
-            const rc = await withTimeout(processNewWO(wo, mapping, syncCustomers, session), 15000, `recreate ${wo.code}`);
+            const rc = await withTimeout(processNewWO(wo, mapping, syncCustomers, session, { priorNotified, recreateCount }), 15000, `recreate ${wo.code}`);
             if (rc.steps.length) log.steps.push(...rc.steps);
             if (rc.errors.length) log.errors.push(...rc.errors);
             if (rc.report?.length) dedupeReport.push(...rc.report);
@@ -301,7 +303,7 @@ function withTimeout(promise, ms, label) {
 }
 
 // --- Process new unmapped WO ---
-async function processNewWO(wo, mapping, syncCustomers, session = null) {
+async function processNewWO(wo, mapping, syncCustomers, session = null, opts = {}) {
   const result = { steps: [], errors: [], created: 0, report: [] };
   const cust = classifySyncCustomer(wo.facility, syncCustomers);
   if (!cust) {
@@ -435,13 +437,18 @@ async function processNewWO(wo, mapping, syncCustomers, session = null) {
       facility: wo.facility, customer: sfCustomerKey, customerQboId: cust.qbo_customer_id, customerName, title: wo.title,
       createdAt: new Date().toISOString(), lastSyncAt: new Date().toISOString(),
       reconciled: true,
+      // Carry the notified flag across an auto-heal recreate so we don't email
+      // the same WO again every time its SF job is replaced; carry the recreate
+      // count so the heal can cap runaway re-creation.
+      notified: !!opts.priorNotified,
+      ...(opts.recreateCount ? { recreateCount: opts.recreateCount } : {}),
     };
     result.created++;
     result.steps.push(`✓ Created SF #${sfJob.id} (${resqRef}) for ${wo.code} (${wo.facility})`);
 
     // Notify: email the new-job details (location, asset, what's wrong, photos)
-    // via Resend through alamedapointbg.com. Idempotent — only fires here, on
-    // first creation, and the mapping persists so it won't re-send. Non-fatal.
+    // via Resend through alamedapointbg.com. Idempotent — only fires on a
+    // genuine first creation (notified carried across recreates). Non-fatal.
     if (session && !mapping[wo.id].notified) {
       try {
         const n = await notifyNewResqJob(session, wo, enrichment);
@@ -568,8 +575,20 @@ async function syncBidirectional(session, resqWO, mapEntry) {
         result.updated++;
         return result; // next pass syncs the freshly-linked job normally
       }
-      // No live SF job for this PO — the only one is cancelled. Mark for
-      // recreation; the reconciler loop handles the actual re-create.
+      // No live SF job for this PO — the only one is cancelled. Recreate, but
+      // CAP it: if we've already recreated twice and the job keeps getting
+      // cancelled, stop churning duplicate SF jobs and flag for manual review.
+      if ((mapEntry.recreateCount || 0) >= 2) {
+        mapEntry.lastSyncAt = new Date().toISOString();
+        result.report?.push({
+          resqCode: resqWO.code,
+          reason: 'recreate_capped',
+          message: `Auto-heal recreated the SF job ${mapEntry.recreateCount}× and it keeps getting cancelled — manual review needed.`,
+          currentlyLinked: mapEntry.sfJobId,
+        });
+        result.steps.push(`⚠ ${resqWO.code}: SF job repeatedly cancelled — auto-recreate capped, flagged for review`);
+        return result;
+      }
       mapEntry.needsRecreate = true;
       mapEntry.lastSyncAt = new Date().toISOString();
       result.steps.push(`♻ ${resqWO.code}: only SF job is Cancelled — flagged for fresh SF job creation`);
