@@ -26,6 +26,7 @@ export async function handler(event) {
   if (qs.relink) return handleRelink(qs.relink, qs.toSfJobId);
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
+  if (qs.ignoreWo) return handleIgnoreWo(qs.ignoreWo, qs.ignore);
   if (qs.bulkCleanup !== undefined) return handleBulkCleanup();
   if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
@@ -740,6 +741,33 @@ async function handleDismissIssue(resqCode) {
     } catch (e) { /* non-fatal */ }
 
     return json({ ok: true, dismissed: before - r.totalIssues });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Ignore toggle: flag a WO so the sync skips it entirely ---
+// ?ignoreWo=<resqCode>&ignore=true|false  (ignore defaults to true)
+// Sets/clears mapEntry.ignored in the blob. The reconciler + syncOne both
+// skip ignored WOs (no create, no status sync, no invoice, no email).
+async function handleIgnoreWo(code, ignoreParam) {
+  try {
+    const store = await getStore();
+    if (!store) return json({ error: 'Blob store not available' }, 500);
+    const raw = await store.get('wo-mapping');
+    const mapping = raw ? JSON.parse(raw) : {};
+    const ignore = !(ignoreParam === 'false' || ignoreParam === '0'); // default true
+    let found = false;
+    for (const [k, v] of Object.entries(mapping)) {
+      if (v.resqCode === code || k === code) {
+        if (ignore) v.ignored = true; else delete v.ignored;
+        v.lastSyncAt = new Date().toISOString();
+        found = true;
+      }
+    }
+    if (!found) return json({ deleted: false, code, message: 'Not found in mapping' }, 404);
+    await store.set('wo-mapping', JSON.stringify(mapping));
+    return json({ ok: true, code, ignored: ignore });
   } catch (e) {
     return json({ error: e.message }, 500);
   }

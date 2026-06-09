@@ -147,6 +147,11 @@ export async function handler(event) {
 
       try {
         if (mapping[wo.id]) {
+          // User-flagged IGNORE (dashboard toggle) — skip entirely: no status
+          // sync, no photos, no invoice, no email. Cleared by un-ignoring.
+          if (mapping[wo.id].ignored) {
+            continue;
+          }
           // Skip deleted SF jobs — they 404 every time and bloat errors
           if (mapping[wo.id].sfDeleted) {
             continue;
@@ -1646,6 +1651,7 @@ export async function syncSingleByCode(resqCode) {
   try {
     let r;
     if (mapping[wo.id]) {
+      if (mapping[wo.id].ignored) { out.steps.push(`${wo.code}: ignored (dashboard toggle) — skipped`); return out; }
       if (mapping[wo.id].sfDeleted) { out.steps.push(`${wo.code}: linked SF job was deleted — skipped`); return out; }
       r = await syncBidirectional(session, wo, mapping[wo.id]);
       out.updated += r.updated || 0;
