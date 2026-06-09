@@ -246,6 +246,37 @@ export async function probeResqJob(session, code) {
     out.equipment[f] = await tryQ(`equipment { ${f} }`);
   }
 
+  // Model/serial/warranty live under a nested "Manufacturer Details"-style
+  // object on the asset (per the ResQ asset page: Manufacturer / Model Number /
+  // Serial Number / Warranty Expiry / Warranty Notes). Probe likely containers
+  // (on equipment + the WO node) and the full field shape. 'ok' = path exists.
+  out.nested = {};
+  const nestedTests = [
+    // Best guess: the whole shape in one query
+    ['equipment.manufacturerDetails.full', `equipment { manufacturerDetails { manufacturer modelNumber serialNumber warrantyExpiry warrantyNotes } }`],
+    // Container existence
+    ['equipment.manufacturerDetails', `equipment { manufacturerDetails { __typename } }`],
+    ['equipment.assetDetails', `equipment { assetDetails { __typename } }`],
+    ['equipment.details', `equipment { details { __typename } }`],
+    ['equipment.specifications', `equipment { specifications { __typename } }`],
+    ['equipment.nameplate', `equipment { nameplate { __typename } }`],
+    ['equipment.dataPlate', `equipment { dataPlate { __typename } }`],
+    ['equipment.manufacturerInfo', `equipment { manufacturerInfo { __typename } }`],
+    ['equipment.asset', `equipment { asset { __typename } }`],
+    ['node.asset', `asset { __typename }`],
+    ['node.assets', `assets { __typename }`],
+    // Individual manufacturerDetails subfields (fallback if the full shape fails)
+    ['equipment.manufacturerDetails.modelNumber', `equipment { manufacturerDetails { modelNumber } }`],
+    ['equipment.manufacturerDetails.serialNumber', `equipment { manufacturerDetails { serialNumber } }`],
+    ['equipment.manufacturerDetails.manufacturer', `equipment { manufacturerDetails { manufacturer } }`],
+    ['equipment.manufacturerDetails.warrantyExpiry', `equipment { manufacturerDetails { warrantyExpiry } }`],
+    ['equipment.manufacturerDetails.warrantyNotes', `equipment { manufacturerDetails { warrantyNotes } }`],
+    // Same fields directly on equipment under alternate camelCase
+    ['equipment.modelNumber', `equipment { modelNumber } `],
+    ['equipment.model', `equipment { model }`],
+  ];
+  for (const [label, q] of nestedTests) out.nested[label] = await tryQ(q);
+
   // Facility / location address candidates
   out.facility = {};
   for (const f of ['name', 'id', 'address', 'addressLine1', 'addressLine2', 'line1', 'line2', 'street', 'streetAddress', 'city', 'state', 'region', 'zip', 'zipCode', 'postalCode', 'postcode', 'country', 'fullAddress', 'formattedAddress']) {
