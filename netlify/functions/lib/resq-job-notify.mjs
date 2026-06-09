@@ -107,43 +107,34 @@ function discoverPlan(session) {
 // confirmed it has. Returns { photos:[{url,label}], equipment:{}, facility:{} }.
 export async function fetchWoEnrichment(session, code) {
   const out = { photos: [], equipment: {}, facility: {} };
-  let plan;
-  try { plan = await discoverPlan(session); } catch { return out; }
-
-  const equipSel = ['id', 'name', ...plan.equipExtra].join(' ');
-  const facSel = ['id', 'name', ...plan.facilityAddr].join(' ');
-  let photoSel = '';
-  if (plan.photo) {
-    const inner = plan.photo.labelSub
-      ? `${plan.photo.urlSub} ${plan.photo.labelSub}`
-      : plan.photo.urlSub;
-    photoSel = plan.photo.isConnection
-      ? `${plan.photo.field} { edges { node { ${inner} } } }`
-      : `${plan.photo.field} { ${inner} }`;
-  }
-
+  // ResQ has introspection disabled; these are the fields confirmed to exist by
+  // direct probing (probeResqJob). Equipment exposes name/manufacturer/
+  // description (no discrete model/serial/asset fields — those live in the
+  // name/description text). Facility exposes address/addressLine2/zipCode. WO
+  // photos are a plain list under `images { url }`.
   try {
     const d = await resqGql(session, `{
       workOrders(first: 1, code: "${code}") {
         edges { node {
-          equipment { ${equipSel} }
-          facility { ${facSel} }
-          ${photoSel}
+          equipment { id name manufacturer description }
+          facility { id name address addressLine2 zipCode }
+          images { url }
         } }
       }
     }`);
     const node = d.data?.workOrders?.edges?.[0]?.node || {};
     out.equipment = node.equipment || {};
     out.facility = node.facility || {};
-    if (plan.photo) {
-      const raw = node[plan.photo.field];
-      const items = plan.photo.isConnection ? (raw?.edges || []).map(e => e.node) : (raw || []);
-      out.photos = items
-        .map(it => ({ url: it?.[plan.photo.urlSub], label: plan.photo.labelSub ? it?.[plan.photo.labelSub] : null }))
-        .filter(p => p.url && /^https?:\/\//i.test(String(p.url)));
-    }
-  } catch { /* degrade */ }
+    out.photos = (node.images || [])
+      .map(it => ({ url: it?.url, label: null }))
+      .filter(p => p.url && /^https?:\/\//i.test(String(p.url)));
+  } catch { /* degrade — email still sends with the WO-level fields */ }
   return out;
+}
+
+// Street address from ResQ's facility fields (address = street line).
+function facilityAddress(f = {}) {
+  return [f.address, f.addressLine2, f.zipCode || f.postalCode].filter(Boolean).join(', ');
 }
 
 // Compact multi-line asset/location summary for the SF job notes.
@@ -151,9 +142,10 @@ export function assetNotesBlock(wo, enrichment) {
   const e = enrichment?.equipment || {};
   const f = enrichment?.facility || {};
   const lines = [];
-  const assetBits = [e.name, e.make, e.model, e.serialNumber || e.serial, e.assetTag].filter(Boolean);
+  const assetBits = [e.name, e.manufacturer && `Make: ${e.manufacturer}`].filter(Boolean);
   if (assetBits.length) lines.push(`Asset: ${assetBits.join(' / ')}`);
-  const addr = [f.line1 || f.street || f.address, f.city, f.state, f.zip || f.postal].filter(Boolean).join(', ');
+  if (e.description) lines.push(`Equipment notes: ${e.description}`);
+  const addr = facilityAddress(f);
   if (addr) lines.push(`Location: ${f.name || wo.facility}${addr ? ' — ' + addr : ''}`);
   if (wo.serviceCategory) lines.push(`Service: ${wo.serviceCategory}`);
   if (enrichment?.photos?.length) lines.push(`Photos on ResQ: ${enrichment.photos.length}`);
@@ -167,8 +159,7 @@ function esc(s) {
 function buildEmailHtml(wo, enrichment) {
   const e = enrichment.equipment || {};
   const f = enrichment.facility || {};
-  const addr = [f.line1 || f.street || f.address, f.city, f.state, f.zip || f.postal].filter(Boolean).join(', ');
-  const assetBits = [e.name, e.make, e.model, e.serialNumber || e.serial, e.assetTag].filter(Boolean);
+  const addr = facilityAddress(f);
   const photos = enrichment.photos || [];
 
   const row = (label, val) => val
@@ -191,7 +182,9 @@ function buildEmailHtml(wo, enrichment) {
       <table style="width:100%;border-collapse:collapse;">
         ${row('Work Order', `<span style="font-family:monospace;">${esc(wo.code)}</span>`)}
         ${row('Location', `${esc(f.name || wo.facility || '—')}${addr ? `<br><span style="color:#6b7280;font-size:13px;">${esc(addr)}</span>` : ''}`)}
-        ${row('Asset', assetBits.length ? esc(assetBits.join(' / ')) : (wo.equipment ? esc(wo.equipment) : '—'))}
+        ${row('Asset', esc(e.name || wo.equipment || '—'))}
+        ${row('Make', e.manufacturer ? esc(e.manufacturer) : '')}
+        ${row('Equipment notes', e.description ? esc(e.description) : '')}
         ${row('Service', wo.serviceCategory ? esc(wo.serviceCategory) : '')}
         ${row('Priority', wo.isUrgent ? '<strong style="color:#991B1B;">URGENT</strong>' : 'Normal')}
         ${row('Title', wo.title ? esc(wo.title) : '')}
@@ -243,9 +236,13 @@ export async function probeResqJob(session, code) {
     }
   };
 
-  // Equipment scalar candidates (make/model/serial/asset #, etc.)
+  // Actual values of the fields we now pull (so we can see what `address`,
+  // equipment name/description, and images really contain).
+  out.sampleValues = await fetchWoEnrichment(session, code);
+
+  // Equipment scalar candidates (extra model/serial/asset name hunt)
   out.equipment = {};
-  for (const f of ['name', 'id', 'make', 'model', 'modelNumber', 'serialNumber', 'serial', 'assetTag', 'assetNumber', 'assetId', 'asset', 'manufacturer', 'category', 'type', 'description']) {
+  for (const f of ['name', 'manufacturer', 'description', 'serialNo', 'assetNo', 'assetCode', 'tag', 'brand', 'modelName', 'nickname', 'equipmentType', 'reference', 'label', 'externalId', 'code', 'number']) {
     out.equipment[f] = await tryQ(`equipment { ${f} }`);
   }
 
