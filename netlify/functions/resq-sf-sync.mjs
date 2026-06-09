@@ -28,6 +28,7 @@ export async function handler(event) {
   if (qs.clearErrors) return handleClearErrors();
   if (qs.ignoreWo) return handleIgnoreWo(qs.ignoreWo, qs.ignore);
   if (qs.probeJob) return handleProbeJob(qs.probeJob);
+  if (qs.notifyJob) return handleNotifyJob(qs.notifyJob);
   if (qs.bulkCleanup !== undefined) return handleBulkCleanup();
   if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
@@ -755,6 +756,38 @@ async function handleProbeJob(code) {
     const session = await resqLogin();
     const result = await probeResqJob(session, String(code).replace(/^R/i, '').trim() || code);
     return json(result);
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Send the new-job notification email for one WO on demand (re-send) ---
+async function handleNotifyJob(code) {
+  try {
+    const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
+    const { notifyNewResqJob } = await import('./lib/resq-job-notify.mjs');
+    const c = String(code).replace(/^R/i, '').trim() || code;
+    // Pull the WO's base fields (vendor login; fall back to facility for
+    // WOs not assigned to Brix). Build the `wo` shape notifyNewResqJob expects.
+    const Q = `{ workOrders(first:1, code:"${c}") { edges { node {
+      code title description status isUrgent serviceCategory
+      facility { name } equipment { name }
+    } } } }`;
+    const grab = async (sess) => (await resqGql(sess, Q)).data?.workOrders?.edges?.[0]?.node || null;
+    const vendor = await resqLogin();
+    let node = await grab(vendor);
+    let session = vendor;
+    if (!node) {
+      try { const fac = await resqLogin({ facility: true }); const fnode = await grab(fac); if (fnode) { node = fnode; session = fac; } } catch {}
+    }
+    if (!node) return json({ error: `WO ${code} not found (vendor or facility login)` }, 404);
+    const wo = {
+      code: node.code, title: node.title || '', description: node.description || '',
+      status: node.status, isUrgent: !!node.isUrgent, serviceCategory: node.serviceCategory || '',
+      facility: node.facility?.name || '', equipment: node.equipment?.name || '',
+    };
+    const r = await notifyNewResqJob(session, wo);
+    return json(r, r.ok ? 200 : 500);
   } catch (e) {
     return json({ error: e.message }, 500);
   }
