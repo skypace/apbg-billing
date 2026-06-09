@@ -766,27 +766,41 @@ async function handleNotifyJob(code) {
   try {
     const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
     const { notifyNewResqJob } = await import('./lib/resq-job-notify.mjs');
-    const c = String(code).replace(/^R/i, '').trim() || code;
-    // Pull the WO's base fields (vendor login; fall back to facility for
-    // WOs not assigned to Brix). Build the `wo` shape notifyNewResqJob expects.
-    const Q = `{ workOrders(first:1, code:"${c}") { edges { node {
+    const want = String(code).replace(/^R/i, '').trim(); // match R-insensitively
+    // Scan recent WOs (NO code filter — ResQ's code filter is unreliable, which
+    // is why the main sync scans). Pull the full asset/facility/image fields so
+    // we build the email straight from this node — no second flaky lookup.
+    const SCAN = `{ workOrders(first: 500, orderBy: "-raised_on") { edges { node {
       code title description status isUrgent serviceCategory
-      facility { name } equipment { name }
+      facility { id name address addressLine2 zipCode }
+      equipment { id name manufacturer modelNo description serialNo code warrantyNotes }
+      images { url }
     } } } }`;
-    const grab = async (sess) => (await resqGql(sess, Q)).data?.workOrders?.edges?.[0]?.node || null;
+    const findNode = async (sess) => {
+      const d = await resqGql(sess, SCAN);
+      const edges = d.data?.workOrders?.edges || [];
+      return edges.find(e => String(e.node.code || '').replace(/^R/i, '') === want)?.node || null;
+    };
     const vendor = await resqLogin();
-    let node = await grab(vendor);
+    let node = await findNode(vendor);
     let session = vendor;
     if (!node) {
-      try { const fac = await resqLogin({ facility: true }); const fnode = await grab(fac); if (fnode) { node = fnode; session = fac; } } catch {}
+      try { const fac = await resqLogin({ facility: true }); const fnode = await findNode(fac); if (fnode) { node = fnode; session = fac; } } catch {}
     }
-    if (!node) return json({ error: `WO ${code} not found (vendor or facility login)` }, 404);
+    if (!node) return json({ error: `WO ${code} not found in recent ResQ work orders (vendor or facility login)` }, 404);
     const wo = {
       code: node.code, title: node.title || '', description: node.description || '',
       status: node.status, isUrgent: !!node.isUrgent, serviceCategory: node.serviceCategory || '',
       facility: node.facility?.name || '', equipment: node.equipment?.name || '',
     };
-    const r = await notifyNewResqJob(session, wo);
+    // Build enrichment straight from the scanned node and pass it in (skips the
+    // code-filtered re-fetch inside notifyNewResqJob).
+    const enrichment = {
+      equipment: node.equipment || {},
+      facility: node.facility || {},
+      photos: (node.images || []).map(it => ({ url: it?.url, label: null })).filter(p => p.url && /^https?:\/\//i.test(String(p.url))),
+    };
+    const r = await notifyNewResqJob(session, wo, enrichment);
     return json(r, r.ok ? 200 : 500);
   } catch (e) {
     return json({ error: e.message }, 500);
