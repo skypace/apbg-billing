@@ -175,6 +175,19 @@ export async function handler(event) {
           log.updated += r.updated || 0;
           const ev = eventFromResult(wo, mapping[wo.id], r, 'sf->resq');
           if (ev) syncEvents.push(ev);
+
+          // Auto-heal: the WO's only SF job was Cancelled and no live one
+          // exists — drop the dead link and create a fresh SF job this pass.
+          if (mapping[wo.id]?.needsRecreate) {
+            delete mapping[wo.id];
+            const rc = await withTimeout(processNewWO(wo, mapping, syncCustomers, session), 15000, `recreate ${wo.code}`);
+            if (rc.steps.length) log.steps.push(...rc.steps);
+            if (rc.errors.length) log.errors.push(...rc.errors);
+            if (rc.report?.length) dedupeReport.push(...rc.report);
+            log.created += rc.created || 0;
+            const ev2 = eventFromResult(wo, mapping[wo.id], rc, 'resq->sf');
+            if (ev2) syncEvents.push(ev2);
+          }
         } else {
           // New WO — don't create an SF job if ResQ already considers it
           // completed/terminal (a fresh job would be a phantom; also keeps a
@@ -529,6 +542,39 @@ async function syncBidirectional(session, resqWO, mapEntry) {
     const resqStatus = (resqWO.status || '').toUpperCase();
     const prevSfStatus = (mapEntry.sfStatus || '').toLowerCase();
     const prevResqStatus = (mapEntry.resqStatus || '').toUpperCase();
+
+    // Auto-heal a Cancelled link. If the SF job we're mapped to reads Cancelled
+    // but the WO is still active in ResQ, the WO is stranded — the sync just
+    // no-ops on it forever (R1027590: SF job cancelled, then un-cancelled, but
+    // the mapping never re-evaluated and the board stayed stuck). Re-link to a
+    // live SF job for this PO if one exists (e.g. the one you un-cancelled, or a
+    // replacement). If none exists, flag for recreation — the main loop drops
+    // the dead link and processNewWO creates a fresh SF job next.
+    if (isSfCancelled(sfStatus) && !RESQ_DONE_STATUSES.includes(resqStatus)) {
+      const resqRef = resqWO.code.startsWith('R') ? resqWO.code : `R${resqWO.code}`;
+      let live = [];
+      try {
+        const all = await findSfJobsByPoNumber(resqRef);
+        live = all.filter(j => !isSfCancelled(j.status));
+      } catch (e) { result.errors.push(`Heal ${resqWO.code}: ${e.message.substring(0, 150)}`); }
+      if (live.length) {
+        const best = pickBestSfJob(live, null) || live[0];
+        result.steps.push(`♻ ${resqWO.code}: linked SF #${mapEntry.sfJobId} is Cancelled → re-linked to live SF #${best.id} (${best.status})`);
+        mapEntry.replacedSfJobId = mapEntry.sfJobId;
+        mapEntry.sfJobId = best.id;
+        mapEntry.sfJobNumber = best.number || best.job_number || best.id;
+        mapEntry.sfStatus = best.status;
+        mapEntry.lastSyncAt = new Date().toISOString();
+        result.updated++;
+        return result; // next pass syncs the freshly-linked job normally
+      }
+      // No live SF job for this PO — the only one is cancelled. Mark for
+      // recreation; the reconciler loop handles the actual re-create.
+      mapEntry.needsRecreate = true;
+      mapEntry.lastSyncAt = new Date().toISOString();
+      result.steps.push(`♻ ${resqWO.code}: only SF job is Cancelled — flagged for fresh SF job creation`);
+      return result;
+    }
 
     const sfChanged = sfStatus !== mapEntry.sfStatus;
     const resqChanged = resqStatus !== prevResqStatus;
