@@ -112,7 +112,7 @@ function discoverPlan(session) {
 const WO_ENRICH_QUERY = (code) => `{
   workOrders(first: 1, code: "${code}") {
     edges { node {
-      equipment { id name manufacturer description serialNo code }
+      equipment { id name manufacturer modelNo description serialNo code warrantyNotes }
       facility { id name address addressLine2 zipCode }
       images { url }
     } }
@@ -158,8 +158,9 @@ export function assetNotesBlock(wo, enrichment) {
   const e = enrichment?.equipment || {};
   const f = enrichment?.facility || {};
   const lines = [];
-  const assetBits = [e.name, e.manufacturer && `Make: ${e.manufacturer}`, e.serialNo && `S/N: ${e.serialNo}`, e.code && `Asset: ${e.code}`].filter(Boolean);
+  const assetBits = [e.name, e.manufacturer && `Make: ${e.manufacturer}`, e.modelNo && `Model: ${e.modelNo}`, e.serialNo && `S/N: ${e.serialNo}`, e.code && `Asset: ${e.code}`].filter(Boolean);
   if (assetBits.length) lines.push(`Asset: ${assetBits.join(' / ')}`);
+  if (e.warrantyNotes) lines.push(`Warranty: ${e.warrantyNotes}`);
   if (e.description) lines.push(`Equipment notes: ${e.description}`);
   const addr = facilityAddress(f);
   if (addr) lines.push(`Location: ${f.name || wo.facility}${addr ? ' — ' + addr : ''}`);
@@ -200,8 +201,10 @@ function buildEmailHtml(wo, enrichment) {
         ${row('Location', `${esc(f.name || wo.facility || '—')}${addr ? `<br><span style="color:#6b7280;font-size:13px;">${esc(addr)}</span>` : ''}`)}
         ${row('Asset', esc(e.name || wo.equipment || '—'))}
         ${row('Make', e.manufacturer ? esc(e.manufacturer) : '')}
+        ${row('Model', e.modelNo ? esc(e.modelNo) : '')}
         ${row('Serial #', e.serialNo ? esc(e.serialNo) : '')}
         ${row('Asset #', e.code ? esc(e.code) : '')}
+        ${row('Warranty', e.warrantyNotes ? esc(e.warrantyNotes) : '')}
         ${row('Equipment notes', e.description ? esc(e.description) : '')}
         ${row('Service', wo.serviceCategory ? esc(wo.serviceCategory) : '')}
         ${row('Priority', wo.isUrgent ? '<strong style="color:#991B1B;">URGENT</strong>' : 'Normal')}
