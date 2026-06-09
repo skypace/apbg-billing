@@ -197,6 +197,7 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
       <input id="syncOneCode" placeholder="ResQ WO code (e.g. R12345)" style="padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:0.9rem;min-width:220px">
       <button class="secondary" id="syncOneBtn" onclick="syncOneWO()">⚡ Sync this WO now</button>
       <button class="secondary" id="probeBtn" onclick="probeSchema()" title="Dump ResQ fields + send a test email for this WO">🔎 Probe schema</button>
+      <button class="secondary" id="emailWoBtn" onclick="emailWo()" title="Send the new-job notification email for this WO now">📧 Email this WO</button>
       <span id="syncOneResult" style="align-self:center;font-size:0.82rem;color:#6B7280"></span>
     </div>
     <textarea id="probeResult" readonly placeholder="Probe output appears here — click into it, select all, and copy." style="display:none;width:100%;height:220px;margin-top:8px;font-family:monospace;font-size:0.78rem;padding:10px;border:1px solid #D1D5DB;border-radius:8px"></textarea>
@@ -430,6 +431,23 @@ async function probeSchema() {
     out.textContent = `${code}: probe done — copy the box below and send it over. Email: ${data.emailResult || data.emailError || '?'}`;
   } catch (e) {
     out.textContent = `${code}: probe failed — ${e.message}`;
+  } finally { btn.disabled = false; }
+}
+
+// --- Email this WO: re-send the new-job notification email now ---
+async function emailWo() {
+  const code = (document.getElementById('syncOneCode').value || '').trim();
+  const out = document.getElementById('syncOneResult');
+  if (!code) { out.textContent = 'Enter a ResQ WO code first.'; return; }
+  const btn = document.getElementById('emailWoBtn');
+  btn.disabled = true; out.textContent = 'Emailing ' + code + '…';
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?notifyJob=${encodeURIComponent(code)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    out.textContent = `${code}: email sent (${data.photos || 0} photo(s))${data.emailId ? ' id=' + data.emailId : ''}`;
+  } catch (e) {
+    out.textContent = `${code}: email failed — ${e.message}`;
   } finally { btn.disabled = false; }
 }
 
