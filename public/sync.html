@@ -543,6 +543,28 @@ async function clearMapping(code) {
   }
 }
 
+// --- Ignore toggle: flag a WO so the sync skips it (or resume it) ---
+async function toggleIgnore(code, ignore) {
+  if (!code) return;
+  const verb = ignore ? 'ignore' : 'resume syncing';
+  if (!confirm(`${ignore ? 'Ignore' : 'Resume'} ${code}? ${ignore ? 'The sync will skip this WO entirely (no status sync, no invoice, no email) until you un-ignore it.' : 'The sync will start processing this WO again.'}`)) return;
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await fetch(`${API_BASE}/resq-sf-sync?ignoreWo=${encodeURIComponent(code)}&ignore=${ignore}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      alert(`Could not ${verb} ${code}: ${data.message || data.error || res.status}`);
+      if (btn) { btn.disabled = false; }
+      return;
+    }
+    await loadStatus();
+  } catch (e) {
+    alert(`Toggle failed: ${e.message}`);
+    if (btn) { btn.disabled = false; }
+  }
+}
+
 // --- Render Helpers ---
 function renderMappings(mappings) {
   const entries = Object.entries(mappings);
@@ -568,7 +590,7 @@ function renderMappings(mappings) {
   let html = `<table>
     <thead><tr>
       <th>ResQ Code</th><th>Title</th><th>Facility</th><th>SF Job #</th>
-      <th>ResQ Status</th><th>SF Status</th><th>Expenses</th><th>Last Synced</th><th>Clear</th>
+      <th>ResQ Status</th><th>SF Status</th><th>Expenses</th><th>Last Synced</th><th>Ignore</th><th>Clear</th>
     </tr></thead><tbody>`;
 
   for (const [resqId, m] of active) {
@@ -584,8 +606,13 @@ function renderMappings(mappings) {
 
     const resqLink = resqLinkHtml(resqId, m.resqCode);
     const sfLink = sfLinkHtml(m.sfJobId, m.sfJobNumber);
-    html += `<tr>
-      <td>${resqLink}</td>
+    const code = m.resqCode || resqId;
+    const ignored = !!m.ignored;
+    const ignoreBtn = ignored
+      ? `<button class="clear-btn" style="background:#059669;color:#fff;border-color:#059669" onclick="toggleIgnore('${code}', false)" title="Resume syncing this WO">↩ Unignore</button>`
+      : `<button class="clear-btn" onclick="toggleIgnore('${code}', true)" title="Skip this WO in the sync entirely">🚫 Ignore</button>`;
+    html += `<tr${ignored ? ' style="opacity:0.5"' : ''}>
+      <td>${resqLink}${ignored ? ' <span style="font-size:0.7rem;background:#6B7280;color:#fff;padding:1px 6px;border-radius:4px;">IGNORED</span>' : ''}</td>
       <td>${(m.title || '').substring(0, 50)}</td>
       <td>${m.facility || '—'}</td>
       <td>${sfLink}</td>
@@ -593,7 +620,8 @@ function renderMappings(mappings) {
       <td>${sfBadge}</td>
       <td>${expenseBtn}</td>
       <td>${synced}</td>
-      <td><button class="clear-btn" onclick="clearMapping('${m.resqCode || resqId}')">✕ Clear</button></td>
+      <td>${ignoreBtn}</td>
+      <td><button class="clear-btn" onclick="clearMapping('${code}')">✕ Clear</button></td>
     </tr>`;
   }
 
