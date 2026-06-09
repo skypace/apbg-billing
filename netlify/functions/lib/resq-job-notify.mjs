@@ -211,9 +211,38 @@ export async function notifyNewResqJob(session, wo, enrichment = null) {
     if (!enrichment) enrichment = await fetchWoEnrichment(session, wo.code);
     const subject = `New ResQ WO ${wo.code}${wo.isUrgent ? ' (URGENT)' : ''} — ${wo.facility || enrichment.facility?.name || ''}`.trim();
     const html = buildEmailHtml(wo, enrichment);
-    await sendEmail({ to: NOTIFY_TO, subject, html });
-    return { ok: true, photos: enrichment.photos.length, enrichment };
+    const sent = await sendEmail({ to: NOTIFY_TO, subject, html });
+    // sendEmail returns false when NO provider is configured, the Resend JSON
+    // (with an id) on success, or true for SendGrid. Don't claim success on a
+    // no-op — that masked a non-delivering pipeline as "sent".
+    if (sent === false) {
+      return { ok: false, error: 'email NOT sent — no email provider configured (RESEND_API_KEY / SENDGRID_API_KEY)' };
+    }
+    const id = (sent && typeof sent === 'object' && sent.id) ? sent.id : null;
+    return { ok: true, photos: enrichment.photos.length, enrichment, emailId: id };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
 }
+
+// One-shot diagnostic: dump ResQ's real WorkOrder/Equipment/Facility schema, the
+// enrichment we'd pull for a given WO, and the live result of a test email. Hit
+// via the authed dashboard endpoint ?probeJob=<resqCode>. Read-only except it
+// sends one test email to the configured recipients.
+export async function probeResqJob(session, code) {
+  const out = { code, recipients: NOTIFY_TO };
+  try {
+    out.workOrderFields = (await typeFields(session, 'WorkOrder')).map(f => f.name);
+    out.equipmentFields = (await typeFields(session, 'Equipment')).map(f => f.name);
+    out.facilityFields = (await typeFields(session, 'Facility')).map(f => f.name);
+    out.discoveredPlan = await discoverPlan(session);
+  } catch (e) { out.introspectError = String(e?.message || e).slice(0, 300); }
+  try { out.enrichment = await fetchWoEnrichment(session, code); }
+  catch (e) { out.enrichmentError = String(e?.message || e).slice(0, 300); }
+  try {
+    const r = await sendEmail({ to: NOTIFY_TO, subject: `TEST — ResQ probe ${code}`, html: `<p>Test email from the ResQ new-job notifier (probe for ${code}). If you got this, delivery works.</p>` });
+    out.emailResult = r === false ? 'NO PROVIDER CONFIGURED (sendEmail returned false)' : (r && r.id ? `sent (id=${r.id})` : `sent (${JSON.stringify(r).slice(0, 120)})`);
+  } catch (e) { out.emailError = String(e?.message || e).slice(0, 400); }
+  return out;
+}
+

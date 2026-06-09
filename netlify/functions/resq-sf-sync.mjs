@@ -27,6 +27,7 @@ export async function handler(event) {
   if (qs.dismissIssue) return handleDismissIssue(qs.dismissIssue);
   if (qs.clearErrors) return handleClearErrors();
   if (qs.ignoreWo) return handleIgnoreWo(qs.ignoreWo, qs.ignore);
+  if (qs.probeJob) return handleProbeJob(qs.probeJob);
   if (qs.bulkCleanup !== undefined) return handleBulkCleanup();
   if (qs.syncOne) return handleSyncOne(qs.syncOne);
   if (event.httpMethod === 'GET') return handleGet();
@@ -741,6 +742,19 @@ async function handleDismissIssue(resqCode) {
     } catch (e) { /* non-fatal */ }
 
     return json({ ok: true, dismissed: before - r.totalIssues });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+// --- Probe: dump ResQ schema + enrichment + test-email result for one WO ---
+async function handleProbeJob(code) {
+  try {
+    const { resqLogin } = await import('./resq-helpers.mjs');
+    const { probeResqJob } = await import('./lib/resq-job-notify.mjs');
+    const session = await resqLogin();
+    const result = await probeResqJob(session, String(code).replace(/^R/i, '').trim() || code);
+    return json(result);
   } catch (e) {
     return json({ error: e.message }, 500);
   }
