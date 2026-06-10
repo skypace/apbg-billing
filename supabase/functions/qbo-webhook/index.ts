@@ -159,15 +159,19 @@ Deno.serve(async (req: Request) => {
     // to changed Payments.
     const invoiceIds = new Set<string>();
     const paymentIds = new Set<string>();
+    const deleteInvoiceIds = new Set<string>();
     for (const n of notifications) {
       if (getRealm() && String(n?.realmId) !== getRealm()) continue;
       for (const e of n?.dataChangeEvent?.entities ?? []) {
-        if (e?.name === "Invoice" && e?.id) invoiceIds.add(String(e.id));
-        else if (e?.name === "Payment" && e?.id) paymentIds.add(String(e.id));
+        const op = String(e?.operation || "");
+        if (e?.name === "Invoice" && e?.id) {
+          if (op === "Delete" || op === "Merge") deleteInvoiceIds.add(String(e.id));
+          else invoiceIds.add(String(e.id));
+        } else if (e?.name === "Payment" && e?.id) paymentIds.add(String(e.id));
       }
     }
 
-    if (invoiceIds.size === 0 && paymentIds.size === 0) {
+    if (invoiceIds.size === 0 && paymentIds.size === 0 && deleteInvoiceIds.size === 0) {
       return jsonRes({ ok: true, refreshed: 0, note: "no invoice/payment entities", duration_ms: Date.now() - startedAt });
     }
 
@@ -191,13 +195,26 @@ Deno.serve(async (req: Request) => {
       catch (e) { console.error("refresh invoice " + id + ": " + (e as Error).message); }
     }
 
+    // Deleted/merged in QBO → prune the mirror row so it stops ghosting in the portal.
+    let deleted = 0;
+    if (deleteInvoiceIds.size > 0) {
+      const ids = [...deleteInvoiceIds];
+      const { data: rows } = await sb.from("qbo_invoices").select("id").in("qbo_invoice_id", ids);
+      const bigints = (rows ?? []).map((r: any) => r.id);
+      if (bigints.length > 0) {
+        await sb.from("qbo_invoice_lines").delete().in("invoice_id", bigints);
+        const { count } = await sb.from("qbo_invoices").delete({ count: "exact" }).in("id", bigints);
+        deleted = count ?? bigints.length;
+      }
+    }
+
     await sb.from("sync_log").insert({
       source: "qbo", sync_type: "webhook", status: "success",
-      records_synced: refreshed, completed_at: new Date().toISOString(),
-      metadata: { invoices: invoiceIds.size, payments: paymentIds.size },
+      records_synced: refreshed + deleted, completed_at: new Date().toISOString(),
+      metadata: { invoices: invoiceIds.size, payments: paymentIds.size, deleted },
     });
 
-    return jsonRes({ ok: true, refreshed, invoices: invoiceIds.size, payments: paymentIds.size, duration_ms: Date.now() - startedAt });
+    return jsonRes({ ok: true, refreshed, deleted, invoices: invoiceIds.size, payments: paymentIds.size, duration_ms: Date.now() - startedAt });
   } catch (err) {
     console.error("qbo-webhook FATAL:", err);
     await sb.from("sync_log").insert({
