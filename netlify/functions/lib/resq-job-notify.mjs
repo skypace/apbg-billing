@@ -11,6 +11,31 @@
 
 import { resqGql, resqLogin } from '../resq-helpers.mjs';
 import { sendEmail } from '../email-helpers.mjs';
+import { uploadToRelay } from './sf-assets.mjs';
+
+// ResQ photo URLs are short-lived signed S3 links (temporary AWS token, fast
+// expiry) — so inline <img> often fails to render once the email is opened
+// (Gmail proxies images and the signed URL has expired). Re-host each photo in
+// our public Storage bucket at send time and embed the stable public URL.
+// Best-effort: on any failure, fall back to the original signed URL.
+async function relayPhotosForEmail(photos) {
+  const out = [];
+  for (const p of (photos || [])) {
+    let publicUrl = null;
+    try {
+      const res = await fetch(p.url);
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || 'image/jpeg';
+        const buf = Buffer.from(await res.arrayBuffer());
+        const ext = (ct.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg';
+        const token = Math.random().toString(36).slice(2, 10);
+        publicUrl = await uploadToRelay(`email/${token}.${ext}`, buf, ct);
+      }
+    } catch { /* keep original */ }
+    out.push({ url: publicUrl || p.url, label: p.label });
+  }
+  return out;
+}
 
 // Recipients for the new-job alert. Defaults to both ops owners; override with
 // a comma-separated RESQ_JOB_NOTIFY_TO env var.
@@ -190,8 +215,11 @@ function buildEmailHtml(wo, enrichment) {
 
   const photoHtml = photos.length
     ? `<p style="font-size:13px;font-weight:600;color:#1F4E79;margin:20px 0 8px;">PHOTOS (${photos.length})</p>
-       <div>${photos.map(p => `<a href="${esc(p.url)}" style="text-decoration:none;"><img src="${esc(p.url)}" alt="${esc(p.label || 'photo')}" style="max-width:260px;max-height:200px;border-radius:6px;border:1px solid #e2e6ed;margin:0 8px 8px 0;display:inline-block;"></a>`).join('')}</div>
-       <p style="font-size:11px;color:#9ca3af;">If images don't load, click one to open it in ResQ.</p>`
+       <div>${photos.map((p, i) => `<div style="display:inline-block;margin:0 10px 12px 0;vertical-align:top;text-align:center;">
+         <a href="${esc(p.url)}" style="text-decoration:none;"><img src="${esc(p.url)}" alt="${esc(p.label || 'photo')}" style="max-width:260px;max-height:200px;border-radius:6px;border:1px solid #e2e6ed;display:block;"></a>
+         <a href="${esc(p.url)}" style="font-size:11px;color:#1F4E79;">${esc(p.label || 'Photo')} ${i + 1} — open ↗</a>
+       </div>`).join('')}</div>
+       <p style="font-size:11px;color:#9ca3af;">If an image doesn't show, click the link beneath it to open the full photo.</p>`
     : `<p style="font-size:12px;color:#9ca3af;margin:16px 0 0;">No photos attached to this ResQ WO.</p>`;
 
   return `
@@ -228,6 +256,10 @@ function buildEmailHtml(wo, enrichment) {
 export async function notifyNewResqJob(session, wo, enrichment = null) {
   try {
     if (!enrichment) enrichment = await fetchWoEnrichment(session, wo.code);
+    // Re-host photos to stable public URLs so they render inline in the email.
+    if (enrichment.photos?.length) {
+      enrichment = { ...enrichment, photos: await relayPhotosForEmail(enrichment.photos) };
+    }
     const subject = `New ResQ WO ${wo.code}${wo.isUrgent ? ' (URGENT)' : ''} — ${wo.facility || enrichment.facility?.name || ''}`.trim();
     const html = buildEmailHtml(wo, enrichment);
     const sent = await sendEmail({ to: NOTIFY_TO, subject, html });
