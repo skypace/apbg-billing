@@ -557,19 +557,30 @@ export default async function handler(req, context) {
   const timestamp = new Date().toISOString();
   console.log(`[health-watchdog] Starting checks at ${timestamp}`);
 
+  // ResQ asked us to keep usage at ticket volume — so health checks must NOT
+  // auto-login to ResQ (the control panel auto-refreshes every 60s and the
+  // gateway probes on load; that was a ResQ login every minute, and a FAILED
+  // one while the account is deactivated). Skip ResQ unless explicitly asked
+  // with ?resq=1.
+  let includeResq = false;
+  try { includeResq = new URL(req.url).searchParams.get('resq') === '1'; } catch { /* default off */ }
+  const resqSkipped = { status: 'skipped', detail: 'ResQ health check disabled to avoid auto-login (append ?resq=1 to run it)', session: null };
+
   // Run all checks concurrently (ResQ schema depends on ResQ login)
   const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness, pgNetFailures] = await Promise.all([
     checkQBO(),
     checkSF(),
-    checkResQ(),
+    includeResq ? checkResQ() : Promise.resolve(resqSkipped),
     checkSyncFreshness(),
     checkOpsSyncFreshness(),
     checkCacheTableFreshness(),
     checkPgNetFailures(),
   ]);
 
-  // Schema check uses the ResQ session from the login check
-  const resqSchema = await checkResqSchema(resq.session || null);
+  // Schema check uses the ResQ session from the login check (skipped unless asked)
+  const resqSchema = includeResq
+    ? await checkResqSchema(resq.session || null)
+    : { status: 'skipped', detail: 'skipped (ResQ check disabled)' };
 
   // Strip session from result before storing
   const { session: _, ...resqClean } = resq;
