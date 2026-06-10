@@ -6,6 +6,17 @@
 
   "writers": [
     {
+      "name": "qbo-reconcile",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "daily (cron) + on-demand",
+      "writes": ["ops.qbo_invoices", "ops.qbo_invoice_lines", "ops.qbo_token_cache", "ops.sync_log"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API (active invoice IDs by window)"],
+      "notes": "Source at supabase/functions/qbo-reconcile/. PRUNES mirror invoices QBO no longer returns (deleted in QBO) so they stop ghosting in brix-order. Guarded: dry-run by default (mode=prune to delete), requires INTERNAL_PAY_SECRET, per-type 0-result guard, and a global max_prune cap. Complements qbo-webhook's Delete-event branch for instant pruning.",
+      "last_verified": "2026-06-10"
+    },
+    {
       "name": "qbo-webhook",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
