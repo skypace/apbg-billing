@@ -813,7 +813,7 @@ export default function ExpenseForm() {
         </div>
 
         <div>
-          <Label>COGS / Expense Account</Label>
+          <Label>Expense Account</Label>
           <SelectField
             disabled={readOnly}
             value={cogsAccountLabel}
