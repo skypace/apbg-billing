@@ -576,7 +576,7 @@ export default function SettingsPage() {
 
             <section>
               <div className="flex items-center justify-between gap-3 mb-1">
-                <div className="text-xs uppercase tracking-wider text-slate-500">COGS / Expense accounts</div>
+                <div className="text-xs uppercase tracking-wider text-slate-500">Expense accounts</div>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
                     {cogsAccounts.length} selected
@@ -756,10 +756,10 @@ export default function SettingsPage() {
 
             <section>
               <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-                Department → default COGS
+                Department → default account
               </div>
               <p className="text-xs text-slate-500 mb-3">
-                When a submitter picks a department on the form, this COGS account is pre-selected (they can still override it).
+                When a submitter picks a department on the form, this expense account is pre-selected (they can still override it).
               </p>
               <div className="space-y-2">
                 {departments.filter((d) => d.trim()).map((d) => (

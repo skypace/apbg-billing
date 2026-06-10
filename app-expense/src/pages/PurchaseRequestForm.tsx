@@ -243,7 +243,7 @@ export default function PurchaseRequestForm() {
         </div>
 
         <div>
-          <Label>COGS / Expense Account</Label>
+          <Label>Expense Account</Label>
           <SelectField value={cogsAccountLabel} onChange={(e) => handleCogsChange(e.target.value)} placeholder="Select account" options={(settings?.cogs_accounts ?? []).map((a) => ({ value: a.label, label: a.label }))} />
           {department && settings?.department_cogs_map?.[department] && (
             <p className="text-xs text-muted-foreground mt-1">
