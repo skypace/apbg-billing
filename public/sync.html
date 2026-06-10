@@ -275,7 +275,10 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('mainApp').style.display = 'block';
   loadStatus();
   loadSyncEvents();
-  autoSyncOnLoad();
+  // MANUAL-ONLY: do not auto-sync on page load. ResQ throttled us for too much
+  // automated traffic and asked for usage that matches our ticket volume
+  // (~10/wk). The sync now runs ONLY when someone clicks "Run Sync Now"
+  // (or "⚡ Sync this WO now"). autoSyncOnLoad is intentionally NOT called.
 });
 
 // Event-driven freshness: kick a background sync whenever someone opens the
