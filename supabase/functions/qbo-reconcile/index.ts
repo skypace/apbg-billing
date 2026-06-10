@@ -53,6 +53,22 @@ function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 function reqId(): string { return crypto.randomUUID().replace(/-/g, "").slice(0, 32); }
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
+// Email a report via Resend (only called "if needed" — on prune or abort).
+async function sendReport(subject: string, html: string) {
+  const key = Deno.env.get("RESEND_API_KEY") || "";
+  if (!key) return;
+  const to = (Deno.env.get("RECONCILE_REPORT_TO") || "skypace@brixbev.com").split(",").map((s) => s.trim()).filter(Boolean);
+  const from = Deno.env.get("RECONCILE_REPORT_FROM") || "Brix Alerts <alerts@alamedapointbg.com>";
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+    if (!res.ok) console.error("reconcile email " + res.status + ": " + (await res.text()).slice(0, 200));
+  } catch (e) { console.error("reconcile email failed: " + (e as Error).message); }
+}
+
 async function claimRefresh(sb: SupabaseClient): Promise<any> {
   const { data, error } = await sb.rpc("qbo_token_claim_refresh", {
     p_realm_id: getRealm(), p_min_ttl_seconds: REFRESH_MIN_REMAINING_SECONDS, p_lease_seconds: LEASE_SECONDS,
@@ -139,9 +155,10 @@ Deno.serve(async (req: Request) => {
     // Read-only dry-run is open; the destructive prune requires the secret.
     if (prune) {
       const secret = Deno.env.get("INTERNAL_PAY_SECRET") || "";
-      if (!secret || req.headers.get("x-internal-secret") !== secret) {
-        return jsonRes({ ok: false, error: "unauthorized (prune requires x-internal-secret)" }, 401);
-      }
+      const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+      const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      const authed = (secret && req.headers.get("x-internal-secret") === secret) || (svc && bearer === svc);
+      if (!authed) return jsonRes({ ok: false, error: "unauthorized (prune requires x-internal-secret or service-role bearer)" }, 401);
     }
     const now = new Date();
     const defStart = new Date(now.getTime() - 120 * 24 * 3600 * 1000);
@@ -184,6 +201,14 @@ Deno.serve(async (req: Request) => {
     const totalGhosts = ghostBigintIds.length;
     // Global safety cap — a real delete batch is tiny; a huge count means a bug.
     if (totalGhosts > maxPrune) {
+      if (prune) {
+        await sendReport(
+          "⚠ Brix reconcile ABORTED — " + totalGhosts + " ghosts exceed cap (" + maxPrune + ")",
+          `<p>The mirror reconcile found <b>${totalGhosts}</b> invoices in the portal mirror that QBO no longer returns for ${start} → ${end}, exceeding the safety cap of ${maxPrune}.</p>` +
+          `<p><b>Nothing was pruned.</b> A batch this large usually means a QBO read problem, not real deletions — please investigate before pruning manually.</p>` +
+          `<p>Sample: ${ghostDocs.slice(0, 20).join(", ")}</p>`,
+        );
+      }
       return jsonRes({
         ok: false, aborted: true, reason: "ghost count " + totalGhosts + " exceeds max_prune " + maxPrune + " — not pruning",
         window: { start, end }, per_type: perType, sample: ghostDocs.slice(0, 20), duration_ms: Date.now() - startedAt,
@@ -200,6 +225,13 @@ Deno.serve(async (req: Request) => {
         source: "qbo", sync_type: "reconcile", status: "success", records_synced: pruned,
         completed_at: new Date().toISOString(), metadata: { window: { start, end }, per_type: perType, docs: ghostDocs.slice(0, 50) },
       });
+      // Report only when something was actually pruned ("if needed").
+      await sendReport(
+        "Brix mirror reconcile — pruned " + pruned + " ghost invoice(s)",
+        `<p>Removed <b>${pruned}</b> invoice(s) that were deleted in QuickBooks but still showed in the customer portal (window ${start} → ${end}).</p>` +
+        `<p>Per type: ${Object.entries(perType).map(([t, v]: any) => `${t} ${v.ghosts}/${v.mirror}`).join(", ")}</p>` +
+        `<ul>${ghostDocs.slice(0, 50).map((d) => "<li>" + d + "</li>").join("")}</ul>`,
+      );
     }
 
     return jsonRes({
