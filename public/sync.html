@@ -186,7 +186,6 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
 
     <!-- Actions -->
     <div class="actions">
-      <button class="primary" id="syncBtn" onclick="runSync()">▶ Run Sync Now</button>
       <button class="secondary" onclick="loadStatus()">↻ Refresh Status</button>
       <button class="secondary" id="clearErrBtn" onclick="clearErrors()">🧹 Clear Errors</button>
       <button class="secondary" id="cleanupBtn" onclick="bulkCleanup()">🧹 Cleanup Closed WOs</button>
@@ -194,12 +193,10 @@ td a:hover,.review-head .code a:hover,.review-job .meta a:hover{color:#2E75B6;bo
 
     <div class="actions" style="margin-top:-12px">
       <input id="syncOneCode" placeholder="ResQ WO code (e.g. R12345)" style="padding:10px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:0.9rem;min-width:220px">
-      <button class="secondary" id="syncOneBtn" onclick="syncOneWO()">⚡ Sync this WO now</button>
-      <button class="secondary" id="probeBtn" onclick="probeSchema()" title="Dump ResQ fields + send a test email for this WO">🔎 Probe schema</button>
-      <button class="secondary" id="emailWoBtn" onclick="emailWo()" title="Send the new-job notification email for this WO now">📧 Email this WO</button>
+      <button class="primary" id="syncOneBtn" onclick="syncOneWO()">⚡ Sync this WO</button>
+      <button class="secondary" id="emailWoBtn" onclick="emailWo()" title="Send the new-job notification email for this WO only">📧 Email this WO</button>
       <span id="syncOneResult" style="align-self:center;font-size:0.82rem;color:#6B7280"></span>
     </div>
-    <textarea id="probeResult" readonly placeholder="Probe output appears here — click into it, select all, and copy." style="display:none;width:100%;height:220px;margin-top:8px;font-family:monospace;font-size:0.78rem;padding:10px;border:1px solid #D1D5DB;border-radius:8px"></textarea>
 
     <!-- Linked Customers moved to Master Control -->
     <div class="section">
