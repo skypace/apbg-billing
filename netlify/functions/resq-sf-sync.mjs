@@ -767,17 +767,16 @@ async function handleNotifyJob(code) {
     const { resqLogin, resqGql } = await import('./resq-helpers.mjs');
     const { notifyNewResqJob } = await import('./lib/resq-job-notify.mjs');
     const want = String(code).replace(/^R/i, '').trim(); // match R-insensitively
-    // Scan recent WOs (NO code filter — ResQ's code filter is unreliable, which
-    // is why the main sync scans). Pull the full asset/facility/image fields so
-    // we build the email straight from this node — no second flaky lookup.
-    const SCAN = `{ workOrders(first: 500, orderBy: "-raised_on") { edges { node {
+    // Target the SINGLE WO by code (R stripped — the form ResQ's filter accepts).
+    // No 500-WO scan: we only ever query the one WO you entered.
+    const ONE = `{ workOrders(first: 8, code: "${want}") { edges { node {
       code title description status isUrgent serviceCategory
       facility { id name address addressLine2 zipCode }
       equipment { id name manufacturer modelNo description serialNo code warrantyNotes image photos { url } }
       images { url }
     } } } }`;
     const findNode = async (sess) => {
-      const d = await resqGql(sess, SCAN);
+      const d = await resqGql(sess, ONE);
       const edges = d.data?.workOrders?.edges || [];
       return edges.find(e => String(e.node.code || '').replace(/^R/i, '') === want)?.node || null;
     };
