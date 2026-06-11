@@ -133,11 +133,12 @@ function discoverPlan(session) {
 //              warrantyNotes, photos { url } (asset data-plate images), image
 //   facility:  address (street), addressLine2, zipCode
 //   WO images: images { url }
-// We SCAN the recent WO list (no code filter — ResQ's code filter is unreliable
-// and returns empty even for visible WOs; that's why the old code-filter lookup
-// produced empty enrichment) and match the WO by code.
-const WO_ENRICH_SCAN = `{
-  workOrders(first: 500, orderBy: "-raised_on") {
+// Target the SINGLE WO by code (R prefix stripped — that's the form ResQ's
+// `code:` filter accepts; passing it with the "R" returns empty, which is why
+// an earlier version fell back to a 500-WO scan). first:8 is a tiny safety
+// margin in case the filter returns a few; we match the exact code below.
+const WO_ENRICH_BY_CODE = (codeStripped) => `{
+  workOrders(first: 8, code: "${codeStripped}") {
     edges { node {
       code
       equipment { id name manufacturer modelNo description serialNo code warrantyNotes image photos { url } }
@@ -153,8 +154,10 @@ export async function fetchWoEnrichment(session, code) {
   const out = { photos: [], assetPhotos: [], equipment: {}, facility: {} };
   const want = String(code).replace(/^R/i, '').trim();
   const run = async (sess) => {
-    const d = await resqGql(sess, WO_ENRICH_SCAN);
+    const d = await resqGql(sess, WO_ENRICH_BY_CODE(want));
     const edges = d.data?.workOrders?.edges || [];
+    // Strict code match only — never guess from edges[0], so we can't email the
+    // wrong WO's data if the filter returns neighbors.
     return edges.find(e => String(e.node.code || '').replace(/^R/i, '') === want)?.node || null;
   };
   let node = null;
