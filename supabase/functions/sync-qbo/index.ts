@@ -1,4 +1,21 @@
 // sync-qbo edge function — APBG-BILLING Supabase project
+// version 44 (2026-06-15): FIX line-sync regression. `mode=fast` no longer
+//   force-skips invoice lines. Previously the nightly cron (jobid 2) ran
+//   `?mode=fast`, which set skipLines=true, so the scheduled sync upserted
+//   HEADERS into ops.qbo_invoices but never fetched the per-invoice LINE
+//   detail. Lines for the rolling window were only ever filled by the
+//   `refresh-lines-rolling` cron — which has been returning 401 on every run
+//   (it called the function with no Authorization header) — and by the
+//   `backfill-invoice-lines` cron whose offset had marched past the end of the
+//   table. Net effect: invoices from ~Apr 2026 onward accumulated headers with
+//   no lines. The nightly incremental run now fetches + upserts lines for every
+//   invoice it touches (header + lines together). Cost stays bounded because
+//   syncOneType only reads an invoice when its lines are missing (or its
+//   payment URL is missing) — repeat runs skip already-lined invoices. Line
+//   skipping is now an explicit opt-in via `?skip_lines=true` only; the
+//   historical `mode=full` header-sweep already passes that flag explicitly so
+//   its behavior is unchanged. (Companion migration repairs the two broken
+//   line crons.)
 // version 42 (2026-05-28): extend SF job-id extraction beyond memo/CustomerMemo
 //   to also scan the FIRST 5 description-only lines on the invoice. Brix's
 //   FreeFlow invoicing automation places the Service Fusion job id (and order
@@ -421,7 +438,7 @@ Deno.serve(async (req: Request) => {
     const r = await refreshSalesLines(sb);
     return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
   }
-  if (mode === "whoami") return jsonRes({ version: 42, txn_types_supported: ALL_TXN_TYPES });
+  if (mode === "whoami") return jsonRes({ version: 44, txn_types_supported: ALL_TXN_TYPES });
 
   // === refresh-lines mode ===
   // Reads a slice of qbo_invoices by date+offset and refetches their lines via
@@ -521,7 +538,15 @@ Deno.serve(async (req: Request) => {
   let startDate = url.searchParams.get("start") || (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-01");
   let endDate = url.searchParams.get("end") || now.toISOString().split("T")[0];
   if (mode === "full") startDate = "2025-01-01";
-  const skipLines = url.searchParams.get("skip_lines") === "true" || mode === "fast";
+  // Line skipping is an explicit opt-in only. `mode=fast` used to imply
+  // skip_lines=true, which left the nightly scheduled sync header-only and is
+  // the root cause of the missing-lines regression (recent invoices got
+  // headers but no line detail). The current-month window is small and
+  // syncOneType only issues a per-invoice read when lines (or the payment URL)
+  // are missing, so fetching lines here is cheap on repeat runs. Historical
+  // header-only sweeps must now pass `?skip_lines=true` explicitly (the
+  // `mode=full` cron/manual invocations already do).
+  const skipLines = url.searchParams.get("skip_lines") === "true";
   const refetchExistingLines = url.searchParams.get("refetch_lines") === "true";
   const requestedTypes = (url.searchParams.get("types") || ALL_TXN_TYPES.join(","))
     .split(",").map(s => s.trim()).filter(s => ALL_TXN_TYPES.includes(s));
