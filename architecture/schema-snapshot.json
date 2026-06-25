@@ -4,6 +4,12 @@
   "schema": "ops",
   "tables": [
     "alert_settings",
+    "price_books",
+    "price_book_items",
+    "customer_price_book",
+    "pricing_contracts",
+    "pricing_contract_items",
+    "pricing_contract_customers",
     "balance_sheet_snapshots",
     "category_segments",
     "channels",

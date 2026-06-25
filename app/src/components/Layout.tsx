@@ -3,7 +3,7 @@ import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
   GitCompareArrows, Package, Warehouse, Factory, Settings as SettingsIcon, LogOut,
-  BookOpen,
+  BookOpen, Tags,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
   { id: 'stock',      label: 'Inventory',         icon: Warehouse         },
   { id: 'inventory',  label: 'Inventory Planning', icon: Package          },
   { id: 'production', label: 'Production',        icon: Factory           },
+  { id: 'pricing',    label: 'Pricing',           icon: Tags              },
   { id: 'settings',   label: 'Settings',          icon: SettingsIcon      },
 ];
 

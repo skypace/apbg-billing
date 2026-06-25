@@ -19,6 +19,7 @@ const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ defa
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const StockPage = lazy(() => import('./pages/stock/StockPage').then((m) => ({ default: m.StockPage })));
 const ProductionPage = lazy(() => import('./pages/production/ProductionPage').then((m) => ({ default: m.ProductionPage })));
+const PricingPage = lazy(() => import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
 
@@ -91,6 +92,9 @@ export function App() {
     case 'fleet':
       // Fleet was always in apbg-ops; the placeholder preserves deep links.
       body = <PlaceholderPage title="Fleet" legacyHash="operations" />;
+      break;
+    case 'pricing':
+      body = <PricingPage />;
       break;
     case 'settings':
       body = <SettingsPage />;
