@@ -5,7 +5,7 @@
 -- → Pricing) and read by brix-order + billing. Keyed by QBO ids (the shared
 -- identity across apps). Layers (highest precedence first):
 --   1 contract (BX-3)        → pricing_contracts + pricing_contract_items (named, dated)
---   2 price book (BX-1/BX-2) → price_books + price_book_items (per item, dated)
+--   2 price book (BX-1 standard) → price_books + price_book_items (per item, dated)
 --   3 list price (fallback)  → ops.qbo_items / catalog list price
 -- A price increase = insert rows with a future effective_from (no overwrite).
 -- See brix-order docs/PRICING.md for the cross-repo design + decision log.
@@ -21,8 +21,10 @@ create table if not exists ops.price_books (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- One standard price book (BX-1). Everyone defaults to it; customer-specific
+-- pricing is handled by contracts below (no second universal tier).
 insert into ops.price_books (code, name) values
-  ('BX-1', 'BX-1 Pricing'), ('BX-2', 'BX-2 Pricing')
+  ('BX-1', 'BX-1 Standard Pricing')
   on conflict (code) do nothing;
 
 create table if not exists ops.price_book_items (
