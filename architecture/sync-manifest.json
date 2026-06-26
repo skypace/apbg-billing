@@ -6,6 +6,24 @@
 
   "writers": [
     {
+      "name": "pricing-admin",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (BRIX Refractor → Pricing)",
+      "writes": [
+        "ops.price_books",
+        "ops.price_book_items",
+        "ops.customer_price_book",
+        "ops.pricing_contracts",
+        "ops.pricing_contract_items",
+        "ops.pricing_contract_customers"
+      ],
+      "multi_writer": false,
+      "external_inputs": [],
+      "notes": "Pricing Control Center editor (superadmin). Service-role REST against the ops pricing model: BX-1 standard book (effective-dated price_book_items), customer price-book assignment, and named/dated chain contracts. Read by brix-order via ops.resolve_price / ops.resolve_prices_for_customer (contract -> BX-1 -> list). Source: netlify/functions/pricing-admin.mjs.",
+      "last_verified": "2026-06-25"
+    },
+    {
       "name": "qbo-reconcile",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
