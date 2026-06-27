@@ -105,11 +105,14 @@ export async function handler(event) {
         return json(400, { ok: false, error: 'qbo_item_id + non-negative unit_price required' });
       }
       const book = await bookIdByCode(code);
-      await op('PATCH', `price_book_items?price_book_id=eq.${book}&qbo_item_id=eq.${encodeURIComponent(qbo_item_id)}&effective_to=is.null`,
+      // Insert-first: open the new row BEFORE closing the prior one, so a failed
+      // insert can never leave the item with no open price. The resolver picks the
+      // newest effective_from, so a momentary pair of open rows still resolves.
+      const row = first(await op('POST', 'price_book_items',
+        { price_book_id: book, qbo_item_id, item_name: item_name ?? null, unit_price: round2(unit_price), effective_from: eff }));
+      await op('PATCH', `price_book_items?price_book_id=eq.${book}&qbo_item_id=eq.${encodeURIComponent(qbo_item_id)}&effective_to=is.null&id=neq.${row.id}`,
         { effective_to: dayBefore(eff) }, 'return=minimal');
-      const row = await op('POST', 'price_book_items',
-        { price_book_id: book, qbo_item_id, item_name: item_name ?? null, unit_price: round2(unit_price), effective_from: eff });
-      return json(200, { ok: true, row: first(row) });
+      return json(200, { ok: true, row });
     }
 
     if (action === 'bulkIncrease') {
@@ -117,12 +120,20 @@ export async function handler(event) {
       const eff = body.effective_from || today();
       const code = body.book_code || 'BX-1';
       if (!Number.isFinite(pct)) return json(400, { ok: false, error: 'pct (number) required' });
+      // Sanity cap: a price change beyond ±100% is almost certainly a fat-finger
+      // (e.g. 1000 meant as 10). Refuse rather than rewrite the whole book.
+      if (pct < -100 || pct > 100) return json(400, { ok: false, error: 'pct must be between -100 and 100' });
       const book = await bookIdByCode(code);
       const open = await og(`price_book_items?price_book_id=eq.${book}&effective_to=is.null&select=qbo_item_id,item_name,unit_price`);
       if (open.length === 0) return json(200, { ok: true, updated: 0 });
-      await op('PATCH', `price_book_items?price_book_id=eq.${book}&effective_to=is.null`, { effective_to: dayBefore(eff) }, 'return=minimal');
+      // Insert-first: write the new open rows, capture their ids, then close every
+      // OTHER open row. A crash mid-flight leaves duplicate open rows (resolver
+      // tolerates) rather than a book with no open prices.
       const rows = open.map((r) => ({ price_book_id: book, qbo_item_id: r.qbo_item_id, item_name: r.item_name, unit_price: round2(Number(r.unit_price) * (1 + pct / 100)), effective_from: eff }));
-      await op('POST', 'price_book_items', rows, 'return=minimal');
+      const inserted = await op('POST', 'price_book_items', rows, 'return=representation');
+      const newIds = (Array.isArray(inserted) ? inserted : [inserted]).map((r) => r.id);
+      await op('PATCH', `price_book_items?price_book_id=eq.${book}&effective_to=is.null&id=not.in.(${newIds.join(',')})`,
+        { effective_to: dayBefore(eff) }, 'return=minimal');
       return json(200, { ok: true, updated: rows.length });
     }
 
@@ -202,6 +213,8 @@ export async function handler(event) {
       const safe = String(filename).replace(/[^\w.\-]+/g, '_');
       const path = `${contract_id}/${Date.now()}-${safe}`;
       const bytes = Buffer.from(content_base64, 'base64');
+      const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB — a contract PDF, not a media dump
+      if (bytes.length > MAX_FILE_BYTES) return json(413, { ok: false, error: `file too large (${(bytes.length / 1048576).toFixed(1)} MB > 25 MB)` });
       const up = await fetch(`${SUPABASE_URL}/storage/v1/object/pricing-contracts/${encodeURI(path)}`, {
         method: 'POST',
         headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': content_type || 'application/octet-stream', 'x-upsert': 'true' },
