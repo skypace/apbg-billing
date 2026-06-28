@@ -14,18 +14,41 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Brixpense" />
     <title>BRIX · Expense</title>
-    <!-- Pre-paint theme so there's no light/dark flash before React mounts. -->
+    <!-- Pre-paint theme so there's no light/dark flash before React mounts.
+         The universal APBG switch (localStorage.apbg_theme, written by the
+         gateway waffle launcher) wins over this app's own brixpense-theme; when
+         set we mirror it into brixpense-theme so React mounts in agreement.
+         Brixpense keeps its own dark/light look — the switch just picks one. -->
     <script>
       (function () {
-        try {
-          var s = localStorage.getItem('brixpense-theme');
-          var dark = s ? s === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        function apply(dark) {
           var e = document.documentElement;
           e.classList.toggle('dark', dark);
           e.classList.toggle('light', !dark);
           var m = document.querySelector('meta[name="theme-color"]');
           if (m) m.setAttribute('content', dark ? '#0b0b0e' : '#f5f5f7');
+        }
+        try {
+          var u = localStorage.getItem('apbg_theme');
+          if (u === 'dark' || u === 'light') {
+            try { localStorage.setItem('brixpense-theme', u); } catch (e) {}
+            apply(u === 'dark');
+          } else {
+            var s = localStorage.getItem('brixpense-theme');
+            apply(s ? s === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
+          }
         } catch (e) {}
+        function follow(t) {
+          if (t !== 'dark' && t !== 'light') return;
+          try { localStorage.setItem('brixpense-theme', t); } catch (e) {}
+          apply(t === 'dark');
+        }
+        window.addEventListener('apbg:themechange', function (e) {
+          follow(e && e.detail && e.detail.theme);
+        });
+        window.addEventListener('storage', function (e) {
+          if (e && e.key === 'apbg_theme') follow(e.newValue);
+        });
       })();
     </script>
     <!-- Nunito — a clean, rounded sans for a friendly Apple-app feel. -->
