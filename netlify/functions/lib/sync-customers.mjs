@@ -4,7 +4,7 @@
 // Read by resq-sf-sync-background.mjs and expense-to-bill.mjs so the
 // ResQ-facility / SF-customer / QBO-customer names live in ONE place instead
 // of drifting across hardcoded literals. Managed via the sync-customers
-// Netlify function + the Settings section in sync.html.
+// Netlify function + the Linked Customers section in control.html.
 //
 // Reads use the public anon key (RLS allows SELECT). Writes happen only in
 // the sync-customers endpoint via the service-role key.

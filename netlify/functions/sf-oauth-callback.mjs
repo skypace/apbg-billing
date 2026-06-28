@@ -98,7 +98,7 @@ h1{color:#065F46;font-size:1.4rem;margin-bottom:12px}p{color:#6B7280;font-size:0
 a{display:inline-block;margin-top:20px;background:#1F4E79;color:#fff;text-decoration:none;padding:12px 32px;border-radius:8px;font-weight:600}</style></head><body>
 <div class="card"><h1>✓ Service Fusion Connected</h1><p>Tokens saved to both blob storage and environment variables.</p>
 <p style="font-size:0.78rem;color:#991B1B;">Backup — copy this token if needed:</p>
-<div class="token">${data}</div><a href="/sync.html">→ Go to Sync Dashboard</a></div></body></html>`;
+<div class="token">${data}</div><a href="/control">→ Go to Master Control</a></div></body></html>`;
   }
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SF Error</title>
 <style>body{font-family:'DM Sans',sans-serif;background:#F4F6F9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}

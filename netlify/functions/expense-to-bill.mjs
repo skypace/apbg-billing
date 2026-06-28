@@ -22,7 +22,7 @@ const ACCOUNT_MAP = {
 const DEFAULT_ACCOUNT = ACCOUNT_MAP.service;
 
 // The ResQ-facility ↔ QBO-customer mapping is no longer hardcoded here — it
-// lives in ops.sync_customers (single source of truth, managed in sync.html →
+// lives in ops.sync_customers (single source of truth, managed in control.html →
 // Settings). Bills for facilities that match a linked customer get a
 // CustomerRef (using the row's qbo_customer_id directly — no fuzzy name
 // lookup); bills for anything else are still created without one.
