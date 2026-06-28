@@ -16,6 +16,26 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
+// ── SSO with apbg-gateway ──
+// The gateway (alamedapointbg.com) writes localStorage.apbg_session on login,
+// holding a Supabase access_token + refresh_token from THIS same project.
+// Adopt it so a user who signed in at the hub flows straight into Brixpense
+// without a second login. No-op if already signed in or no gateway session.
+export async function adoptGatewaySession(): Promise<void> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return;
+    const raw = localStorage.getItem('apbg_session');
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s?.token && s?.refreshToken) {
+      await supabase.auth.setSession({ access_token: s.token, refresh_token: s.refreshToken });
+    }
+  } catch {
+    /* ignore — fall back to the in-app LoginPage */
+  }
+}
+
 /** Get the current bearer token for Netlify function calls */
 export async function getAccessToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();

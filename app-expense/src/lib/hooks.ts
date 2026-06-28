@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from './supabase';
+import { supabase, adoptGatewaySession } from './supabase';
 import type { ExpenseSettings, CogsAccount } from '@/types/expense';
 import type { Session } from '@supabase/supabase-js';
 
@@ -9,7 +9,8 @@ export function useSession() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    // Adopt the apbg-gateway SSO session first, then read the session.
+    adoptGatewaySession().then(() => supabase.auth.getSession()).then(({ data }) => {
       setSession(data.session);
       setLoading(false);
     });
