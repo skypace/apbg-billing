@@ -115,16 +115,6 @@ header .links a:hover{color:#fff}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
-    <h2>🛠️ Maintenance Mode</h2>
-    <div id="maintBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
-  </div>
-
-  <div class="keepalive-section" style="margin-top:24px">
-    <h2>⚙️ Linked Customers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— RESQ customers that sync ResQ ↔ Service Fusion</span></h2>
-    <div id="syncCustomersBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
-  </div>
-
-  <div class="keepalive-section" style="margin-top:24px">
     <h2>🔁 ResQ Sync <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— ResQ ↔ Service Fusion ↔ QBO sync engine (runs on Supabase, apbg-resq-sync)</span></h2>
     <div id="resqSyncBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
   </div>
@@ -221,8 +211,6 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   refreshAll();
-  loadMaintenance();
-  loadSyncCustomers();
   loadResqSync();
   setInterval(refreshAll, 60000); // auto-refresh every 60s
   setInterval(loadResqSync, 60000);
@@ -388,134 +376,11 @@ function renderKeepalive() {
   grid.innerHTML = items;
 }
 
-// ═══ SETTINGS: Maintenance + Linked Customers ═══
+// ═══ SHARED HELPERS (used by the ResQ Sync panel) ═══
 const APBG_FN = 'https://apbg-billing.netlify.app/.netlify/functions';
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const btnCss = (bg)=>`padding:8px 16px;border:0;border-radius:6px;font-weight:600;cursor:pointer;color:#fff;background:${bg}`;
 
-// --- Maintenance ---
-let maintCfg = { enabled:false, title:'', message:'' };
-async function loadMaintenance(){
-  const box=document.getElementById('maintBox');
-  try{
-    const res=await fetch(`${APBG_FN}/site-settings?key=maintenance`);
-    const data=await res.json();
-    maintCfg=(data&&data.value)||{};
-    renderMaintenance();
-  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
-}
-function renderMaintenance(){
-  const on=!!maintCfg.enabled;
-  document.getElementById('maintBox').innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-      <button onclick="toggleMaintenance()" style="${btnCss(on?'#DC2626':'#059669')}">${on?'🔴 Maintenance is ON — click to turn OFF':'🟢 Maintenance is OFF — click to turn ON'}</button>
-      <span style="font-size:0.82rem;color:#6B7280">${on?'A banner is showing on the billing tools.':'No banner is showing.'}</span>
-    </div>
-    <label style="display:block;font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:4px">Banner title</label>
-    <input id="maintTitle" value="${esc(maintCfg.title||'')}" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:6px;margin-bottom:10px">
-    <label style="display:block;font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:4px">Banner message</label>
-    <textarea id="maintMsg" rows="3" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:6px;margin-bottom:10px;font-family:inherit">${esc(maintCfg.message||'')}</textarea>
-    <button onclick="saveMaintenanceText()" style="${btnCss('#1F4E79')}">Save message</button>`;
-}
-async function toggleMaintenance(){ await saveMaintenance({ ...maintCfg, enabled: !maintCfg.enabled }); }
-async function saveMaintenanceText(){ await saveMaintenance({ ...maintCfg, title:document.getElementById('maintTitle').value, message:document.getElementById('maintMsg').value }); }
-async function saveMaintenance(value){
-  try{
-    const res=await fetch(`${APBG_FN}/site-settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'maintenance',value})});
-    const data=await res.json();
-    if(!res.ok) throw new Error(data.error||res.status);
-    maintCfg=(data.setting&&data.setting.value)||value;
-    renderMaintenance();
-    log(`Maintenance ${maintCfg.enabled?'ON':'OFF'} saved`, maintCfg.enabled?'warn':'ok');
-  }catch(e){ log('Maintenance save failed: '+e.message,'error'); alert('Failed: '+e.message); }
-}
-
-// --- Linked Customers ---
-async function loadSyncCustomers(){
-  const box=document.getElementById('syncCustomersBox');
-  try{
-    const res=await fetch(`${APBG_FN}/sync-customers`);
-    const data=await res.json();
-    if(!res.ok) throw new Error(data.error||res.status);
-    renderSyncCustomers(data);
-  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
-}
-function renderSyncCustomers(data){
-  const inp='width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px';
-  const rows=(data.customers||[]).map(c=>{
-    const kws=(c.resq_facility_keywords||[]).join(', ');
-    const badge=c.linked?'<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700">LINKED</span>':'<span style="background:#F3F4F6;color:#6B7280;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700">OFF</span>';
-    const toggle=c.linked?`<button onclick="setLinked(${c.id},false)" style="${btnCss('#DC2626')};padding:4px 10px;font-size:0.72rem">Unlink</button>`:`<button onclick="setLinked(${c.id},true)" style="${btnCss('#059669')};padding:4px 10px;font-size:0.72rem">Re-link</button>`;
-    return `<tr style="border-top:1px solid #F1F3F5">
-      <td style="padding:6px 8px"><strong>${esc(c.qbo_customer_name)}</strong><div style="color:#9CA3AF;font-size:0.7rem">QBO #${esc(c.qbo_customer_id)}</div></td>
-      <td style="padding:6px 8px">
-        <div style="font-size:0.78rem;margin-bottom:4px">${c.sf_customer_id?`<span style="color:#065F46">✓ ${esc(c.sf_customer_name||'')}</span> <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(c.sf_customer_id)}</span>`:`<span style="color:#B45309">⚠ ${esc(c.sf_customer_name||c.qbo_customer_name)}</span> <span style="color:#9CA3AF;font-size:0.68rem">(not linked to an SF record)</span>`}</div>
-        <div style="display:flex;gap:4px">
-          <input id="sfq-${c.id}" placeholder="search Service Fusion…" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchSf(${c.id});}">
-          <button onclick="searchSf(${c.id})" style="${btnCss('#1F4E79')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Find</button>
-        </div>
-        <div style="display:flex;gap:4px;margin-top:4px">
-          <input id="sfid-${c.id}" value="${esc(c.sf_customer_id||'')}" placeholder="or paste SF customer # directly" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();linkSfId(${c.id});}">
-          <button onclick="linkSfId(${c.id})" style="${btnCss('#059669')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Save #</button>
-        </div>
-        <div id="sfres-${c.id}"></div>
-      </td>
-      <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id},this.value)" placeholder="facility keywords, comma-separated" style="${inp}"></td>
-      <td style="padding:6px 8px">${badge}</td>
-      <td style="padding:6px 8px">${toggle}</td></tr>`;
-  }).join('');
-  const candidates=(data.candidates||[]).map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#F9FAFB;border-radius:6px;margin-bottom:6px;font-size:0.82rem">
-      <span><strong>${esc(c.qbo_customer_name)}</strong> <span style="color:#9CA3AF;font-size:0.72rem">QBO #${esc(c.qbo_customer_id)}</span></span>
-      <button onclick="linkCandidate('${esc(c.qbo_customer_id)}','${esc(c.qbo_customer_name).replace(/'/g,'&#39;')}')" style="${btnCss('#1F4E79')};padding:4px 10px;font-size:0.72rem">+ Link</button></div>`).join('');
-  document.getElementById('syncCustomersBox').innerHTML=`
-    <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
-      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
-        <th style="padding:6px 8px">QBO Customer</th><th style="padding:6px 8px">SF Name</th><th style="padding:6px 8px">ResQ Facility Keywords</th><th style="padding:6px 8px">Status</th><th></th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="5" style="padding:14px;color:#9CA3AF">No linked customers yet.</td></tr>'}</tbody></table>
-    ${data.candidatesError?`<div style="color:#B45309;font-size:0.75rem;margin-top:10px">Couldn't list RESQ candidates from QBO: ${esc(data.candidatesError)}</div>`:''}
-    ${candidates?`<div style="margin-top:14px"><div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Available “RESQ” customers to link</div>${candidates}</div>`:''}`;
-}
-async function setLinked(id,linked){ await postSyncCustomer({action:linked?'relink':'unlink',id}); }
-async function saveKeywords(id,v){ await postSyncCustomer({action:'update',id,resq_facility_keywords:v}); }
-async function saveSfName(id,v){ await postSyncCustomer({action:'update',id,sf_customer_name:v}); }
-// Live SF customer search → link by id (so name drift can't break the sync).
-async function searchSf(id){
-  const q=(document.getElementById('sfq-'+id).value||'').trim();
-  const box=document.getElementById('sfres-'+id);
-  if(!q){ box.innerHTML=''; return; }
-  box.innerHTML='<div style="color:#9CA3AF;font-size:0.72rem;padding:4px">Searching Service Fusion…</div>';
-  try{
-    const res=await fetch(`${APBG_FN}/sync-customers?sfSearch=${encodeURIComponent(q)}`);
-    const data=await res.json();
-    if(!res.ok) throw new Error(data.error||res.status);
-    const results=data.results||[];
-    if(!results.length){ box.innerHTML=`<div style="color:#B45309;font-size:0.72rem;padding:4px">No SF customers match “${esc(q)}”${data.error?` — ${esc(data.error)}`:''}</div>`; return; }
-    box.innerHTML=results.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px;border-top:1px solid #F1F3F5;font-size:0.76rem">
-      <span>${esc(r.name)} <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(r.id)}</span></span>
-      <button onclick="linkSf(${id},'${esc(r.id)}','${esc(r.name).replace(/'/g,'&#39;')}')" style="${btnCss('#059669')};padding:3px 8px;font-size:0.68rem">Use</button>
-    </div>`).join('');
-  }catch(e){ box.innerHTML=`<div style="color:#EF4444;font-size:0.72rem;padding:4px">Search failed: ${esc(e.message)}</div>`; }
-}
-async function linkSf(id,sfId,sfName){ await postSyncCustomer({action:'update',id,sf_customer_id:sfId,sf_customer_name:sfName}); }
-// Manual SF customer number entry (bypasses the SF search entirely).
-async function linkSfId(id){
-  const v=(document.getElementById('sfid-'+id).value||'').trim();
-  await postSyncCustomer({action:'update',id,sf_customer_id:v||null});
-}
-async function linkCandidate(id,name){
-  const stem=String(name||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0]||'';
-  const kw=prompt(`Link “${name}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`,stem);
-  if(kw===null) return;
-  await postSyncCustomer({action:'link',qbo_customer_id:id,qbo_customer_name:name,resq_facility_keywords:kw});
-}
-async function postSyncCustomer(body){
-  try{
-    const res=await fetch(`${APBG_FN}/sync-customers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const data=await res.json();
-    if(!res.ok) throw new Error(data.error||res.status);
-    loadSyncCustomers();
-  }catch(e){ alert('Failed: '+e.message); }
-}
 
 // --- ResQ Sync (edge-function engine in apbg-resq-sync) ---
 function ageStr(iso){
@@ -617,5 +482,6 @@ async function driveResqWo(){
   await postResqControl({action:'drive',codes:[code]}, `Drove ${code}`);
 }
 </script>
+  <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
 </body>
 </html>
