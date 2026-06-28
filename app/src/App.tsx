@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { sbAuth } from './lib/supabase';
+import { sbAuth, adoptGatewaySession } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
@@ -41,7 +41,8 @@ export function App() {
   const [route, navTo] = useRoute();
 
   useEffect(() => {
-    sbAuth.auth.getSession().then(({ data }) => setSession(data.session));
+    // Adopt the apbg-gateway SSO session first, then read the session.
+    adoptGatewaySession().then(() => sbAuth.auth.getSession()).then(({ data }) => setSession(data.session));
     const { data: sub } = sbAuth.auth.onAuthStateChange((_event, s) => {
       setSession(s);
     });
