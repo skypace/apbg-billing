@@ -155,7 +155,7 @@ const SITES = {
     name: 'APBG 3rd Party Billing',
     icon: '📋',
     url: 'https://apbg-billing.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog?refresh=1',
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
     checks: ['qbo', 'serviceFusion', 'resq'],
     labels: { qbo: 'QuickBooks', serviceFusion: 'Service Fusion', resq: 'ResQ' },
     reconnect: {
@@ -229,6 +229,19 @@ APBG.auth.requireSuperadmin().then(() => {
 });
 
 // ═══ HEALTH FETCHER ═══
+// health-watchdog + pacer-health are superadmin-gated (requireAuth). Pull the
+// gateway session token so the probe authenticates — without it both endpoints
+// 401 and their cards falsely show "Unreachable / down" while the service is
+// actually fine. (melt's /api/health is open, which is why only those two
+// cards were red.)
+function authHeaders() {
+  try {
+    const raw = localStorage.getItem('apbg_session') || localStorage.getItem('apbg_dashboard_session');
+    if (raw) { const s = JSON.parse(raw); if (s && s.token) return { Authorization: 'Bearer ' + s.token }; }
+  } catch {}
+  return {};
+}
+
 async function fetchSiteHealth(key, site) {
   try {
     log(`Checking ${site.name}...`, 'info');
@@ -257,11 +270,18 @@ async function fetchSiteHealth(key, site) {
       return;
     }
 
-    // Standard mode: fetch health endpoint
+    // Standard mode: fetch health endpoint (authenticated where required)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
-    const r = await fetch(site.healthUrl, { signal: controller.signal });
+    const r = await fetch(site.healthUrl, { signal: controller.signal, headers: authHeaders() });
     clearTimeout(timeout);
+    // 401/403 = not signed in as superadmin, NOT a service outage. Show a
+    // neutral "auth" state instead of an alarming red "down".
+    if (r.status === 401 || r.status === 403) {
+      siteData[key] = { status: 'auth', fetchedAt: new Date() };
+      log(`${site.name}: health check needs superadmin sign-in`, 'warn');
+      return;
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     siteData[key] = { status: 'ok', data, fetchedAt: new Date() };
@@ -291,6 +311,7 @@ async function refreshAll() {
 // ═══ RENDER ═══
 function getCheckStatus(siteKey, checkName) {
   const site = siteData[siteKey];
+  if (site && site.status === 'auth') return { ok: false, status: 'unknown', message: 'Sign in as superadmin to view' };
   if (!site || site.status === 'error') return { ok: false, status: 'unknown', message: 'Unreachable' };
   const d = site.data;
 
@@ -311,6 +332,7 @@ function getCheckStatus(siteKey, checkName) {
 function getOverall(siteKey) {
   const site = siteData[siteKey];
   if (!site) return 'unknown';
+  if (site.status === 'auth') return 'auth';
   if (site.status === 'error') return 'down';
   const d = site.data;
   if (d.overall) return d.overall === 'ok' ? 'healthy' : d.overall;
