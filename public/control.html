@@ -125,6 +125,11 @@ header .links a:hover{color:#fff}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔁 ResQ Sync <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— ResQ ↔ Service Fusion ↔ QBO sync engine (runs on Supabase, apbg-resq-sync)</span></h2>
+    <div id="resqSyncBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
     <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books &amp; Service Fusion for the PACER MCP servers</span></h2>
     <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
       <div style="font-size:0.85rem;color:#374151;max-width:560px">
@@ -218,7 +223,9 @@ APBG.auth.requireSuperadmin().then(() => {
   refreshAll();
   loadMaintenance();
   loadSyncCustomers();
+  loadResqSync();
   setInterval(refreshAll, 60000); // auto-refresh every 60s
+  setInterval(loadResqSync, 60000);
 });
 
 // ═══ HEALTH FETCHER ═══
@@ -508,6 +515,106 @@ async function postSyncCustomer(body){
     if(!res.ok) throw new Error(data.error||res.status);
     loadSyncCustomers();
   }catch(e){ alert('Failed: '+e.message); }
+}
+
+// --- ResQ Sync (edge-function engine in apbg-resq-sync) ---
+function ageStr(iso){
+  if(!iso) return '—';
+  const mins=Math.round((Date.now()-new Date(iso).getTime())/60000);
+  if(mins<1) return 'just now';
+  if(mins<60) return mins+'m ago';
+  const h=Math.round(mins/60); return h<48?h+'h ago':Math.round(h/24)+'d ago';
+}
+async function loadResqSync(){
+  const box=document.getElementById('resqSyncBox');
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    renderResqSync(data.status||{});
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function renderResqSync(s){
+  const write=!!s.write_enabled;
+  const crons=Array.isArray(s.crons)?s.crons:[];
+  const cronsOn=crons.length>0 && crons.every(c=>c.active);
+  const tickStale=s.last_tick_at?((Date.now()-new Date(s.last_tick_at).getTime())/60000>30):true;
+  const tickColor=(!cronsOn)?'#6B7280':(s.last_tick_status==='success'&&!tickStale)?'#059669':tickStale?'#B45309':'#DC2626';
+  const stat=(label,val,color)=>`<div class="keepalive-item" style="background:#F9FAFB;border-color:#E5E7EB"><div class="label" style="color:#6B7280">${label}</div><div class="value" style="color:${color||'#111827'}">${val}</div></div>`;
+  const errBadge=s.errored_wos>0?`<span style="color:#DC2626;font-weight:700">${s.errored_wos}</span>`:'0';
+  const qBadge=s.quarantined_wos>0?`<span style="color:#DC2626;font-weight:700">${s.quarantined_wos}</span>`:'0';
+
+  const recent=(s.recent||[]).map(r=>`<tr style="border-top:1px solid #F1F3F5">
+    <td style="padding:5px 8px;font-family:monospace">${esc(r.resq_code)}</td>
+    <td style="padding:5px 8px">${r.sf_job_id?esc(r.sf_job_id):'<span style="color:#9CA3AF">—</span>'}</td>
+    <td style="padding:5px 8px">${r.quarantined_at?'🔒 ':''}${esc(r.last_action||'—')}</td>
+    <td style="padding:5px 8px;color:${r.last_error?'#DC2626':'#9CA3AF'}">${esc(r.last_error||'')}</td>
+    <td style="padding:5px 8px;color:#9CA3AF;white-space:nowrap">${ageStr(r.updated_at)}</td></tr>`).join('');
+
+  document.getElementById('resqSyncBox').innerHTML=`
+    <!-- Two switches -->
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+      <div>
+        <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Sync engine</div>
+        <button onclick="toggleResqCrons(${cronsOn})" style="${btnCss(cronsOn?'#059669':'#DC2626')}">${cronsOn?'🟢 Running (every 15 min) — click to PAUSE':'⏸ Paused — click to RESUME'}</button>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px">${esc(crons.map(c=>c.name+(c.active?'':' (off)')).join(' · ')||'no crons found')}</div>
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Mode</div>
+        <button onclick="toggleResqWrite(${write})" style="${btnCss(write?'#D97706':'#475569')}">${write?'✍️ WRITE mode — click for Observe':'👁 Observe only — click to enable WRITE'}</button>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px">${write?'Mutating ResQ &amp; Service Fusion.':'Reads only; records what it would do.'}</div>
+      </div>
+    </div>
+
+    <!-- Status tiles -->
+    <div class="keepalive-grid" style="margin-bottom:16px">
+      ${stat('Last tick', ageStr(s.last_tick_at)+(s.last_tick_status?` · ${esc(s.last_tick_status)}`:''), tickColor)}
+      ${stat('Last watchdog', ageStr(s.last_watch_at))}
+      ${stat('Open WOs', s.open_wos??'—')}
+      ${stat('Errored', errBadge, s.errored_wos>0?'#DC2626':'#111827')}
+      ${stat('Quarantined', qBadge, s.quarantined_wos>0?'#DC2626':'#111827')}
+    </div>
+
+    <!-- Controls -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <button onclick="runResqTick()" style="${btnCss('#1F4E79')}">▶ Run a tick now</button>
+      <input id="resqDriveCode" placeholder="ResQ code e.g. R1046442" style="font-size:0.82rem;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;width:200px" onkeydown="if(event.key==='Enter'){event.preventDefault();driveResqWo();}">
+      <button onclick="driveResqWo()" style="${btnCss('#1F4E79')}">⚡ Drive this WO</button>
+      <button onclick="loadResqSync()" style="${btnCss('#475569')}">↻ Refresh</button>
+    </div>
+
+    <!-- Recent WOs -->
+    <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:5px 8px">ResQ code</th><th style="padding:5px 8px">SF job</th><th style="padding:5px 8px">Last action</th><th style="padding:5px 8px">Error</th><th style="padding:5px 8px">Updated</th></tr></thead>
+      <tbody>${recent||'<tr><td colspan="5" style="padding:12px;color:#9CA3AF">No work orders tracked yet.</td></tr>'}</tbody>
+    </table>`;
+}
+async function postResqControl(body, okMsg){
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    if(okMsg) log(okMsg,'ok');
+    if(data.tick) log('Tick: '+JSON.stringify(data.tick.results||data.tick).slice(0,300),'info');
+    renderResqSync(data.status||{});
+    return data;
+  }catch(e){ log('ResQ sync control failed: '+e.message,'error'); alert('Failed: '+e.message); }
+}
+async function toggleResqCrons(isOn){
+  if(isOn && !confirm('Pause the ResQ sync engine? It will stop polling ResQ/SF every 15 minutes until resumed.')) return;
+  await postResqControl({action:'set_active',enabled:!isOn}, `Sync engine ${!isOn?'RESUMED':'PAUSED'}`);
+}
+async function toggleResqWrite(isOn){
+  const msg=isOn?'Switch to Observe mode? The sync will stop writing to ResQ/SF (reads only).':'Enable WRITE mode? The sync will start creating SF jobs, pushing photos, and submitting ResQ invoices for real.';
+  if(!confirm(msg)) return;
+  await postResqControl({action:'set_write',enabled:!isOn}, `Mode → ${!isOn?'WRITE':'OBSERVE'}`);
+}
+async function runResqTick(){ await postResqControl({action:'run_tick'}, 'Triggered a full sync tick'); }
+async function driveResqWo(){
+  const code=(document.getElementById('resqDriveCode').value||'').trim().toUpperCase();
+  if(!code){ alert('Enter a ResQ code'); return; }
+  await postResqControl({action:'drive',codes:[code]}, `Drove ${code}`);
 }
 </script>
 </body>

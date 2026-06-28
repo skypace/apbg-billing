@@ -1,7 +1,7 @@
 // sync-customers — manage which customers are linked to the ResQ <-> SF sync.
 //
 // A "linked customer" is a QBO/SF customer with RESQ in its name. This endpoint
-// backs the Settings section in sync.html.
+// backs the Linked Customers section in control.html.
 //
 //   GET                          -> { customers: [...all rows], candidates: [...QBO RESQ customers not yet linked] }
 //   POST { action: 'link', ... } -> upsert a row (linked=true)

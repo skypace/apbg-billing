@@ -27,9 +27,10 @@ Plus **two Supabase edge functions** whose source lives here but which deploy se
 | BRIX Margin Control (v0.9.27) | `app/` → built into `public/sales-next/` | `alamedapointbg.com/margin/` |
 | Brixpense (v0.1.0) | `app-expense/` → built into `public/expense/` | `alamedapointbg.com/expense/` |
 | User Guide | `docs/margin-control/` + viewer in `public/docs/margin-control/` | `alamedapointbg.com/margin/docs/margin-control/` |
-| Master Control admin panel | `public/control.html` | `alamedapointbg.com/control` |
-| ResQ ↔ Service Fusion sync dashboard | `public/sync.html` + `netlify/functions/resq-sf-sync*.mjs` | `alamedapointbg.com/billing/sync.html` |
+| Master Control admin panel (incl. ResQ Sync controls) | `public/control.html` | `alamedapointbg.com/control` |
 | QBO + Service Fusion OAuth setup | `public/setup.html` | `alamedapointbg.com/billing/setup.html` |
+
+> **ResQ ↔ Service Fusion sync moved out (2026-06-28).** The old in-repo sync (`public/sync.html` + `resq-sf-sync*.mjs` + the 5-min cron) was decommissioned and replaced by the focused edge-function sync in **`skypace/apbg-resq-sync`** (Supabase, 15-min pg_cron, state-machine idempotency). Operators now manage it from **Master Control → ResQ Sync** (`control.html`), which calls `netlify/functions/resq-sync-control.mjs` → `ops.resq_sync_*` RPCs. Linked-customer mapping (`ops.sync_customers`) stays here (shared by both repos + `expense-to-bill`).
 
 ## Where to look first
 
@@ -45,7 +46,7 @@ Plus **two Supabase edge functions** whose source lives here but which deploy se
 - **AP tool:** Vanilla HTML + JS in `public/`, served as-is by Netlify.
 - **BRIX Margin Control:** React 18 + Vite 5 + TypeScript 5 + MUI v6 + MUI X v7 Pro.
 - **Brixpense:** React 18 + Vite 5 + TypeScript 5 + Radix UI + shadcn-style wrappers + Tailwind 3 (dark navy glass-morphism theme).
-- **Backend (Netlify Functions):** ESM `.mjs` files. Bill processing, ResQ-SF sync, OAuth callbacks, expense requests, OCR (Claude API), QBO bill creation.
+- **Backend (Netlify Functions):** ESM `.mjs` files. Bill processing, OAuth callbacks, expense requests, OCR (Claude API), QBO bill creation, ResQ-sync control proxy (`resq-sync-control.mjs`). (The ResQ↔SF sync engine itself moved to `skypace/apbg-resq-sync`.)
 - **Backend (Supabase Edge Functions):** Deno runtime. `sync-qbo` and `push-qbo-item`.
 - **Data:** Supabase `ops.*` schema. Brixpense uses `ops.expense_requests/_attachments/_approvals/_settings`.
 
@@ -131,6 +132,7 @@ Legacy AP-tool mappings (Service COGS 101, Equipment Sales COGS 42) are the defa
 
 - **`activespacescience/Skilliosis_Mytosis_Architecture`** — master architecture handbook.
 - **`skypace/apbg-gateway`** (alamedapointbg.com) — parent gateway. Proxies `/billing/*`, `/margin/*`, and `/expense/*` here.
+- **`skypace/apbg-resq-sync`** — the ResQ ↔ Service Fusion ↔ QBO sync engine (Supabase edge functions; 15-min pg_cron). Replaced the old in-repo `resq-sf-sync*` (decommissioned here 2026-06-28). Managed from this repo's Master Control → ResQ Sync.
 - **`skypace/melt-dashboard`** (`/melt/`) — Melt equipment portal.
 - **`skypace/APBG-OPS`** (`/operations/`) — PACER operational KPI dashboard.
 - **`skypace/APBG-Leasing-Rental`** — separate Railway-backed equipment leasing stack.
@@ -188,3 +190,4 @@ Full original brief: [`PACER-KPI-SPEC.md`](PACER-KPI-SPEC.md), [`FLEET-HR-INTEGR
 | 2026-06-03 | sync v2 P4 | **SF job photos auto-push to ResQ.** New `lib/sf-assets.mjs`: lists a SF job's pictures, fetches bytes host-aware (public S3 anon / `api`→Bearer / `admin`→Cookie via the `orders.sf_portal_session` cookie that Make refreshes), and **relays each through the new public Storage bucket `resq-photo-relay`** (short filename) because ResQ stores the image ref in a `varchar(100)` — inline base64 data-URLs overflow it. Pushed as after-images to the WO's ResQ **visit** (`addAfterImagesToVisit`); starts a visit via the WO appointment when none exists. Wired into the sync lifecycle in the existing `needsPhotoTransfer` slot — **after** visit-complete, **before** invoice-submit. Manual photo UI removed from `sync.html` (button + upload modal + Photos column). (PRs #134–#139) |
 | 2026-06-03 | SF→Brixpense | **SF expense + QBO bill lands in Brixpense.** `expense-to-bill` (the sync.html 💰 Bill action), after creating the QBO bill, inserts an `ops.expense_requests` row (`request_type=expense`, `status=posted`, `as_bill`, `tag='Service Fusion'`, `qbo_bill_id`, `job_number`, vendor, amount, `line_items`, customer; `submitted_by`=the operator). Non-fatal — never undoes the bill. New separate **🔒 Close** button (per WO row) sets the SF job to **`Invoiced`** (`resq-sf-sync?closeJob=`) — the close-out step once the 3rd-party bill is entered, which then triggers the existing ResQ invoice submission. SF workflow: *Completed - Service* (→ ResQ visit + photos) → 💰 Bill (→ QBO bill + Brixpense landing) → 🔒 Close (→ Invoiced → ResQ invoice). Payment features on `expense_requests` (`payment_account_*`) are the next step. (PRs #140, #141) |
 | 2026-06-03 | infra | **`SUPABASE_SERVICE_ROLE_KEY` now used by apbg-billing functions** (previously anon-only): reads the `orders.sf_portal_session` cookie, uploads to the `resq-photo-relay` public bucket, and writes the Brixpense expense-landing row. New public Storage bucket **`resq-photo-relay`**. ResQ is no longer read-only — we now write back via GraphQL mutations (`startVisit`, `addAfterImagesToVisit`). |
+| 2026-06-28 | resq-sync decommission | **Legacy ResQ↔SF sync removed from this repo.** Deleted `public/sync.html` + 8 functions/libs (`resq-sf-sync`, `-background`, `-cron`, `resq-sf-links`, `sf-webhook`, `lib/resq-sf-links`, `lib/resq-job-notify`) and the 5-min `resq-sf-sync-cron` from `netlify.toml`. Replaced by the edge-function sync in **`skypace/apbg-resq-sync`** (already live). New **Master Control → ResQ Sync** panel (`control.html`) with two switches (Write mode, Sync enabled) + controls (drive a WO, run a tick, live status), backed by new `netlify/functions/resq-sync-control.mjs` → `ops.resq_sync_set_write/_set_active/_status` RPCs. Kept (still used elsewhere): `sf-helpers`, `sync-customers` + `ops.sync_customers` (now shared with apbg-resq-sync), `sf-oauth-callback`, `lib/sf-assets` (Brixpense receipts via `lib/sf-expense`), `resq-helpers` (health-watchdog), the Brixpense `sf-receipt-*`/`sf-expense-sweep` Phase-3 expense landing. Manifest: `resq-sf-sync` writer removed; `ops.resq_sf_links` + `ops.sync_events` moved to orphans (retained read-only). |

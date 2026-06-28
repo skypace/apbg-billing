@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-06-08",
+  "last_updated": "2026-06-28",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
@@ -376,28 +376,12 @@
       "name": "sync-customers",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (operator manages linked customers in the sync.html Settings section)",
+      "schedule": "on-demand (operator manages linked customers in control.html → Linked Customers)",
       "writes": [
         "ops.sync_customers"
       ],
       "external_inputs": ["QuickBooks Online API: Customer (discovers RESQ-named candidates)"],
-      "notes": "Phase 1 of resq-sf-sync v2. Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). Replaces the drifted string literals in resq-sf-sync-background.mjs (SF_CUSTOMERS/FACILITY_MAP) and expense-to-bill.mjs (RESQ_CUSTOMER_MAP). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945) + 20260602b (BRIX WAREHOUSE EQUIPMENT 1412). Read at runtime by resq-sf-sync-background and expense-to-bill via netlify/functions/lib/sync-customers.mjs.",
-      "last_verified": "2026-06-02"
-    },
-    {
-      "name": "resq-sf-sync",
-      "kind": "netlify-function",
-      "source_repo": "skypace/apbg-billing",
-      "schedule": "every 5 min (resq-sf-sync-cron) + on-demand from sync.html",
-      "writes": [
-        "ops.resq_sf_links",
-        "ops.sync_events",
-        "ops.expense_requests",
-        "ops.expense_request_attachments"
-      ],
-      "multi_writer": true,
-      "external_inputs": ["ResQ GraphQL API", "Service Fusion API"],
-      "notes": "Phase 2 of resq-sf-sync v2. The background worker (resq-sf-sync-background.mjs) dual-writes its state into ops.resq_sf_links (one row per ResQ WO <-> SF job link, replacing the wo-mapping Netlify Blob) and appends an audit trail to ops.sync_events at the end of every run. The Netlify Blob remains the authoritative read source for now; these tables mirror it (additive, non-fatal on failure). Writes via service-role through netlify/functions/lib/resq-sf-links.mjs. sync_events is append-only (multi_writer for future writers). Migration 20260602c_resq_sf_links.sql. ALSO: on 🔒 Close (handleCloseJob → lib/sf-expense.mjs), lands the SF job's expenses into ops.expense_requests (one combined row per job, tag 'Service Fusion') + uploads each SF receipt to the expense-attachments bucket with an ops.expense_request_attachments row. Idempotent via the wo-mapping entry's expenseLandedId. Shares the table with the Brixpense surface (both multi_writer).",
+      "notes": "Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945) + 20260602b (BRIX WAREHOUSE EQUIPMENT 1412). Managed in control.html → Linked Customers. Read at runtime by expense-to-bill via netlify/functions/lib/sync-customers.mjs, AND by the new edge-function sync (skypace/apbg-resq-sync, _shared/customers.ts) — this table is now SHARED across both repos, so do not drop it.",
       "last_verified": "2026-06-02"
     },
     {
@@ -415,6 +399,14 @@
   ],
 
   "orphans": [
+    {
+      "table": "ops.resq_sf_links",
+      "reason": "Legacy ResQ↔SF sync decommissioned 2026-06-28 (resq-sf-sync* functions + public/sync.html deleted; 5-min cron removed). Replaced by the focused edge-function sync in skypace/apbg-resq-sync, which keeps its own state in ops.resq_sync_state (registered in that repo, not here). This mirror table is retained read-only for historical audit; drop in a future cleanup."
+    },
+    {
+      "table": "ops.sync_events",
+      "reason": "Legacy ResQ↔SF sync audit trail. Decommissioned 2026-06-28 with resq-sf-sync (see ops.resq_sf_links). Append-only history retained read-only; no live writer. Drop in a future cleanup."
+    },
     {
       "table": "ops.qbo_pto_cache",
       "reason": "Table exists, 0 rows in prod. No sync function on schedule. Decision (Sky 2026-05-05): keep as dead-but-acceptable schema; either wire a syncer or drop in a future cleanup."

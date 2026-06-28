@@ -29,15 +29,10 @@
 [functions]
   node_bundler = "esbuild"
 
-[functions."resq-sf-sync"]
-  timeout = 60
-
-[functions."resq-sf-sync-background"]
-  timeout = 900
-
-[functions."resq-sf-sync-cron"]
-  timeout = 900
-  schedule = "*/5 * * * *"
+# The legacy ResQ ↔ Service Fusion sync (resq-sf-sync / -background / -cron, the
+# 5-min cron) was decommissioned 2026-06-28. It is replaced by the focused
+# edge-function sync in skypace/apbg-resq-sync (Supabase, 15-min pg_cron). Do
+# not re-add a ResQ sync cron here — that would double-process work orders.
 
 [functions."sf-expense-sweep-background"]
   timeout = 900
