@@ -17,6 +17,8 @@ export default async function handler(req, context) {
   });
 }
 
-export const config = {
-  schedule: '0 */12 * * *',
-};
+// Scheduled run RETIRED 2026-06-30 — cross-site health alerting consolidated
+// into the single Supabase `health-alert` edge function (pg_cron, every 15 min).
+// runMasterHealthChecks() stays importable / on-demand (master-health.mjs API)
+// but no longer self-schedules.
+// (no `export const config = { schedule }`)
