@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { KPICard } from '../../components/KPICard';
 import { fm } from '../../lib/formatters';
 import { PlanForecastRow, SalesPlan, fetchPlanForecast } from '../../lib/plans';
+import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 
 interface Props { plan: SalesPlan }
 
@@ -12,6 +14,55 @@ const STATUS_COLOR: Record<string, string> = {
   critical: 'var(--rd)',
   no_data: 'var(--mt)',
 };
+
+const num = (v: unknown) => Number(v ?? 0);
+
+const FORECAST_COLUMNS: GridColDef<PlanForecastRow>[] = [
+  {
+    field: 'item_name', headerName: 'Item', flex: 1, minWidth: 200,
+    renderCell: (p) => <span style={{ fontWeight: 600 }} title={p.row.item_name ?? ''}>{p.row.item_name ?? '—'}</span>,
+  },
+  {
+    field: 'account_name', headerName: 'Account', width: 160,
+    renderCell: (p) => <span style={{ fontSize: 11, color: 'var(--mt)' }}>{p.row.account_name ?? '—'}</span>,
+  },
+  {
+    field: 'ytd_actual', headerName: 'YTD Actual', type: 'number', width: 120, cellClassName: 'mn',
+    valueGetter: (_v, row) => num(row.ytd_actual), renderCell: (p) => fm(p.row.ytd_actual),
+  },
+  {
+    field: 'ytd_plan', headerName: 'YTD Plan', type: 'number', width: 110, cellClassName: 'mn',
+    valueGetter: (_v, row) => num(row.ytd_plan), renderCell: (p) => <span style={{ color: 'var(--mt)' }}>{fm(p.row.ytd_plan)}</span>,
+  },
+  {
+    field: 'projected_full_year', headerName: 'Projected FY', type: 'number', width: 130, cellClassName: 'mn',
+    valueGetter: (_v, row) => num(row.projected_full_year), renderCell: (p) => <span style={{ fontWeight: 600 }}>{fm(p.row.projected_full_year)}</span>,
+  },
+  {
+    field: 'full_year_plan', headerName: 'Plan FY', type: 'number', width: 120, cellClassName: 'mn',
+    valueGetter: (_v, row) => num(row.full_year_plan), renderCell: (p) => <span style={{ color: 'var(--mt)' }}>{fm(p.row.full_year_plan)}</span>,
+  },
+  {
+    field: 'projected_vs_plan_pct', headerName: 'Δ vs Plan', type: 'number', width: 110, cellClassName: 'mn',
+    valueGetter: (_v, row) => Number(row.projected_vs_plan_pct),
+    renderCell: (p) => {
+      const dPct = Number(p.row.projected_vs_plan_pct);
+      const color = STATUS_COLOR[p.row.status] ?? 'var(--mt)';
+      return <span style={{ color, fontWeight: 600 }}>{isFinite(dPct) ? (dPct >= 0 ? '+' : '') + (dPct * 100).toFixed(0) + '%' : '—'}</span>;
+    },
+  },
+  {
+    field: 'status', headerName: 'Status', width: 120,
+    renderCell: (p) => {
+      const color = STATUS_COLOR[p.row.status] ?? 'var(--mt)';
+      return (
+        <span style={{ background: 'rgba(255,255,255,0.04)', color, border: '1px solid ' + color, padding: '1px 7px', borderRadius: 12, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+          {p.row.status.toUpperCase().replace('_', ' ')}
+        </span>
+      );
+    },
+  },
+];
 
 export function PlanForecast({ plan }: Props) {
   const [rows, setRows] = useState<PlanForecastRow[] | null>(null);
@@ -55,74 +106,21 @@ export function PlanForecast({ plan }: Props) {
       </div>
 
       <div className="cd" style={{ padding: 0 }}>
-        {rows.length === 0 ? (
-          <div className="ld">No plan lines.</div>
-        ) : (
-          <div style={{ maxHeight: '58vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Item</th>
-                  <th>Account</th>
-                  <th style={{ textAlign: 'right' }}>YTD Actual</th>
-                  <th style={{ textAlign: 'right' }}>YTD Plan</th>
-                  <th style={{ textAlign: 'right' }}>Projected FY</th>
-                  <th style={{ textAlign: 'right' }}>Plan FY</th>
-                  <th style={{ textAlign: 'right' }}>Δ vs Plan</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const dPct = Number(r.projected_vs_plan_pct);
-                  const color = STATUS_COLOR[r.status] ?? 'var(--mt)';
-                  return (
-                    <tr key={r.line_id}>
-                      <td
-                        style={{
-                          maxWidth: 240,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          fontWeight: 600,
-                        }}
-                        title={r.item_name ?? ''}
-                      >
-                        {r.item_name ?? '—'}
-                      </td>
-                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{r.account_name ?? '—'}</td>
-                      <td className="mn" style={{ textAlign: 'right' }}>{fm(r.ytd_actual)}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fm(r.ytd_plan)}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {fm(r.projected_full_year)}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fm(r.full_year_plan)}</td>
-                      <td className="mn" style={{ textAlign: 'right', color, fontWeight: 600 }}>
-                        {isFinite(dPct) ? (dPct >= 0 ? '+' : '') + (dPct * 100).toFixed(0) + '%' : '—'}
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            background: 'rgba(255,255,255,0.04)',
-                            color,
-                            border: '1px solid ' + color,
-                            padding: '1px 7px',
-                            borderRadius: 12,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            letterSpacing: 0.5,
-                          }}
-                        >
-                          {r.status.toUpperCase().replace('_', ' ')}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <DataGridPro
+          rows={rows}
+          columns={FORECAST_COLUMNS}
+          getRowId={(r) => r.line_id}
+          density="compact"
+          pagination
+          disableRowSelectionOnClick
+          {...GRID_DEFAULTS}
+          pageSizeOptions={[25, 50, 100, { value: -1, label: 'All' }]}
+          initialState={{
+            pagination: { paginationModel: { pageSize: 50, page: 0 } },
+            sorting: { sortModel: [{ field: 'full_year_plan', sort: 'desc' }] },
+          }}
+          sx={{ ...GRID_SX, height: '58vh' }}
+        />
       </div>
     </div>
   );

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { btnSecondary, inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
 import { useToast } from '../../lib/toast';
+import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 
 // Read-only audit view of ops.qbo_writeback_log. Every Active toggle
 // (and any future writeback) lands here with before/after state, so the
@@ -31,6 +33,66 @@ function fmtField(v: unknown): string {
   if (typeof v === 'boolean') return v ? 'Active' : 'Inactive';
   return String(v);
 }
+
+// Before/After cell — a key: value list of the union of changed fields.
+function DiffCell({ state, other, color }: {
+  state: Record<string, unknown> | null;
+  other: Record<string, unknown> | null;
+  color: string;
+}) {
+  const keys = Array.from(new Set([...Object.keys(state ?? {}), ...Object.keys(other ?? {})]));
+  if (keys.length === 0) return <span style={{ color: 'var(--mt)' }}>—</span>;
+  return (
+    <div style={{ fontSize: 10, fontFamily: 'var(--ff-mono)', color, lineHeight: 1.35, paddingTop: 4, paddingBottom: 4 }}>
+      {keys.map((k) => (
+        <div key={k}><span style={{ color: 'var(--mt)' }}>{k}:</span> {fmtField((state ?? {})[k])}</div>
+      ))}
+    </div>
+  );
+}
+
+const LOG_COLUMNS: GridColDef<LogRow>[] = [
+  {
+    field: 'performed_at', headerName: 'When', width: 155,
+    renderCell: (p) => <span style={{ fontSize: 10, color: 'var(--tx2)', whiteSpace: 'nowrap' }}>{new Date(p.row.performed_at).toLocaleString()}</span>,
+  },
+  {
+    field: 'action', headerName: 'Action', width: 160,
+    renderCell: (p) => <span style={{ fontSize: 11, fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>{p.row.action}</span>,
+  },
+  {
+    field: 'item_name', headerName: 'Item', width: 210,
+    renderCell: (p) => (
+      <div style={{ lineHeight: 1.3 }}>
+        <div style={{ fontSize: 11 }}>{p.row.item_name ?? '—'}</div>
+        {p.row.qbo_item_id && <div style={{ fontSize: 9, color: 'var(--mt)', fontFamily: 'var(--ff-mono)' }}>id: {p.row.qbo_item_id}</div>}
+      </div>
+    ),
+  },
+  {
+    field: 'before_state', headerName: 'Before', width: 200, sortable: false,
+    renderCell: (p) => <DiffCell state={p.row.before_state} other={p.row.after_state} color="var(--tx2)" />,
+  },
+  {
+    field: 'after_state', headerName: 'After', width: 200, sortable: false,
+    renderCell: (p) => <DiffCell state={p.row.after_state} other={p.row.before_state} color="var(--ac)" />,
+  },
+  {
+    field: 'result_status', headerName: 'Result', width: 130, align: 'center', headerAlign: 'center',
+    renderCell: (p) => (
+      <div style={{ textAlign: 'center' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: RESULT_COLOR[p.row.result_status] ?? 'var(--mt)', textTransform: 'uppercase' }}>{p.row.result_status}</span>
+        {p.row.error_message && (
+          <div style={{ fontSize: 9, color: 'var(--rd)', marginTop: 2 }} title={p.row.error_message}>{p.row.error_message.slice(0, 40)}…</div>
+        )}
+      </div>
+    ),
+  },
+  {
+    field: 'performed_by', headerName: 'By', width: 140,
+    renderCell: (p) => <span style={{ fontSize: 10, color: 'var(--mt)' }}>{p.row.performed_by ?? '—'}</span>,
+  },
+];
 
 export function QboWritebackLogEditor() {
   const [rows, setRows] = useState<LogRow[] | null>(null);
@@ -95,69 +157,21 @@ export function QboWritebackLogEditor() {
       </div>
 
       <div className="cd" style={{ padding: 0 }}>
-        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-              <tr>
-                <th>When</th>
-                <th>Action</th>
-                <th>Item</th>
-                <th>Before</th>
-                <th>After</th>
-                <th style={{ textAlign: 'center', width: 90 }}>Result</th>
-                <th>By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: 14, color: 'var(--mt)' }}>No writebacks in this window.</td></tr>
-              ) : (
-                rows.map((r) => {
-                  const before = r.before_state ?? {};
-                  const after  = r.after_state ?? {};
-                  const diffKeys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
-                  return (
-                    <tr key={r.id}>
-                      <td style={{ fontSize: 10, color: 'var(--tx2)', whiteSpace: 'nowrap' }}>
-                        {new Date(r.performed_at).toLocaleString()}
-                      </td>
-                      <td style={{ fontSize: 11, fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>{r.action}</td>
-                      <td style={{ fontSize: 11 }}>
-                        <div>{r.item_name ?? '—'}</div>
-                        {r.qbo_item_id && (
-                          <div style={{ fontSize: 9, color: 'var(--mt)', fontFamily: 'var(--ff-mono)' }}>id: {r.qbo_item_id}</div>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 10, fontFamily: 'var(--ff-mono)', color: 'var(--tx2)' }}>
-                        {diffKeys.map((k) => (
-                          <div key={k}><span style={{ color: 'var(--mt)' }}>{k}:</span> {fmtField(before[k])}</div>
-                        ))}
-                      </td>
-                      <td style={{ fontSize: 10, fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>
-                        {diffKeys.map((k) => (
-                          <div key={k}><span style={{ color: 'var(--mt)' }}>{k}:</span> {fmtField(after[k])}</div>
-                        ))}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
-                          color: RESULT_COLOR[r.result_status] ?? 'var(--mt)',
-                          textTransform: 'uppercase',
-                        }}>{r.result_status}</span>
-                        {r.error_message && (
-                          <div style={{ fontSize: 9, color: 'var(--rd)', marginTop: 2 }} title={r.error_message}>
-                            {r.error_message.slice(0, 40)}…
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.performed_by ?? '—'}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataGridPro
+          rows={rows}
+          columns={LOG_COLUMNS}
+          density="compact"
+          pagination
+          disableRowSelectionOnClick
+          {...GRID_DEFAULTS}
+          pageSizeOptions={[25, 50, 100, { value: -1, label: 'All' }]}
+          getRowHeight={() => 'auto'}
+          initialState={{
+            pagination: { paginationModel: { pageSize: 50, page: 0 } },
+            sorting: { sortModel: [{ field: 'performed_at', sort: 'desc' }] },
+          }}
+          sx={{ ...GRID_SX, height: '60vh' }}
+        />
       </div>
     </div>
   );
