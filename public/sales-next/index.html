@@ -8,16 +8,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#06121F" />
     <title>BRIX Refractor</title>
+    <!-- Pre-paint: honor the universal APBG theme switch (gateway waffle writes
+         localStorage.apbg_theme) before React mounts, so there's no flash.
+         theme.css overrides + the MUI theme both key off data-apbg-theme. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('apbg_theme') === 'light' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-apbg-theme', t);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', t === 'light' ? '#EEF3F8' : '#06121F');
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Unified type system: SF Pro / system sans on Apple, Inter Tight as the
+         cross-platform fallback (loaded below), JetBrains Mono for numerics.
+         Bricolage Grotesque was dropped — the app now uses one sans family for
+         a consistent, Apple-grade feel. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script type="module" crossorigin src="/sales-next/assets/index-BRNfzUFG.js"></script>
-    <link rel="stylesheet" crossorigin href="/sales-next/assets/index-CY1OAOTj.css">
+    <script type="module" crossorigin src="/sales-next/assets/index-CuH6Xi65.js"></script>
+    <link rel="stylesheet" crossorigin href="/sales-next/assets/index-CHPrgN0O.css">
   </head>
   <body>
     <div id="root"></div>
-  </body>
+    <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
+</body>
 </html>

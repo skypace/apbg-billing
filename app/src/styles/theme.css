@@ -46,16 +46,16 @@
   --glass-blur-lg:    blur(28px) saturate(200%);
   --glass-edge-line:  linear-gradient(90deg, transparent 0%, rgba(91, 181, 240, 0.45) 50%, transparent 100%);
 
-  /* Shadows */
-  --shadow:    0 4px 14px rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 0 0 1px rgba(91, 181, 240, 0.20), 0 8px 24px rgba(91, 181, 240, 0.10);
-  --shadow-bar:  0 4px 12px rgba(91, 181, 240, 0.22);
+  /* Shadows — softer, layered (ambient + key) for calm Apple-style depth. */
+  --shadow:    0 1px 2px rgba(0, 0, 0, 0.20), 0 6px 18px rgba(0, 0, 0, 0.26);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.24), 0 18px 44px rgba(0, 0, 0, 0.40);
+  --shadow-glow: 0 0 0 1px rgba(91, 181, 240, 0.16), 0 8px 24px rgba(91, 181, 240, 0.08);
+  --shadow-bar:  0 4px 14px rgba(91, 181, 240, 0.16);
 
-  /* Radii */
-  --r-sm: 4px;
-  --r-md: 8px;
-  --r-lg: 12px;
+  /* Radii — consistent, slightly softer steps. */
+  --r-sm:  6px;
+  --r-md: 10px;
+  --r-lg: 14px;
 
   /* Brand gradients */
   --grad-acc:    linear-gradient(135deg, #5BB5F0 0%, #3A8FCC 100%);
@@ -64,9 +64,12 @@
   --grad-card:   linear-gradient(180deg, rgba(91, 181, 240, 0.04) 0%, rgba(91, 181, 240, 0) 100%);
   --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(91, 181, 240, 0.14) 50%, transparent 100%);
 
-  /* Fonts — Apple system stack (SF Pro), for crisp, high-clarity text. */
-  --ff-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Fonts — ONE unified sans family across CSS *and* MUI: SF Pro on Apple,
+     Inter Tight as the cross-platform webfont fallback. Display + body share
+     the same stack (only the optical SF size differs) so headings, KPI values,
+     grids, buttons and forms all read as one typeface. */
+  --ff-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter Tight', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Tight', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --ff-mono:    'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
   --sidebar-w:           224px;
@@ -82,10 +85,12 @@ html, body, #root {
   color: var(--tx);
   font-family: var(--ff-body);
   font-size: 13px;
+  line-height: 1.5;
   font-feature-settings: 'cv11', 'ss03';
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body::before {
@@ -136,7 +141,7 @@ th {
   font-size: 10px;
   color: var(--tx2);
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  letter-spacing: 0.6px;
   font-weight: 600;
   background: rgba(20, 57, 102, 0.32);
   backdrop-filter: var(--glass-blur-sm);
@@ -246,7 +251,7 @@ td.mn, th.mn {
   font-size: 10px;
   font-weight: 500;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   margin-top: 4px;
   display: flex;
@@ -309,7 +314,7 @@ td.mn, th.mn {
   width: 3px;
   background: var(--ac);
   border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 12px rgba(91, 181, 240, 0.7);
+  box-shadow: 0 0 8px rgba(91, 181, 240, 0.40);
 }
 .nav-item svg { flex: none; opacity: 0.85; transition: opacity 120ms ease }
 .nav-item:hover svg, .nav-item--active svg { opacity: 1 }
@@ -351,6 +356,14 @@ td.mn, th.mn {
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* Theme toggle — same footer-button shell, accent-tinted on hover. */
+.theme-toggle:hover {
+  border-color: rgba(91, 181, 240, 0.30);
+  color: var(--ac);
+}
+.theme-toggle svg { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1) }
+.theme-toggle:hover svg { transform: rotate(15deg) }
+
 /* ─────────── Main content ─────────── */
 
 .main {
@@ -373,7 +386,7 @@ td.mn, th.mn {
   font-family: var(--ff-display);
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   background: var(--grad-acc);
   -webkit-background-clip: text;
   background-clip: text;
@@ -407,7 +420,7 @@ td.mn, th.mn {
 .hero-eyebrow {
   font-size: 10px;
   color: var(--ac);
-  letter-spacing: 2px;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
   font-weight: 600;
   margin-bottom: 6px;
@@ -527,7 +540,7 @@ td.mn, th.mn {
 .ct {
   font-size: 10px;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   margin: 14px 16px 6px;
   font-weight: 600;
@@ -560,9 +573,9 @@ td.mn, th.mn {
   margin-bottom: 6px;
 }
 .kpi-title {
-  font-size: 9px;
+  font-size: 9.5px;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -642,10 +655,10 @@ td.mn, th.mn {
   flex: none;
 }
 .toolbar-label {
-  font-size: 9px;
+  font-size: 9.5px;
   color: var(--mt);
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   font-weight: 600;
   user-select: none;
 }

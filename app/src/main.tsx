@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from '@mui/material/styles';
 import { LicenseInfo } from '@mui/x-license';
@@ -9,6 +9,7 @@ import './styles/hero.css';
 import './styles/print.css';
 import { App } from './App';
 import { makeBrixTheme, type ThemeMode } from './lib/muiTheme';
+import { ThemeModeContext } from './lib/themeMode';
 import { ToastProvider } from './lib/toast';
 
 // MUI X Pro license — read VITE_MUI_LICENSE_KEY at build time.
@@ -27,7 +28,18 @@ function readMode(): ThemeMode {
 }
 
 function Root() {
-  const [mode, setMode] = useState<ThemeMode>(readMode);
+  const [mode, setModeState] = useState<ThemeMode>(readMode);
+
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    try { localStorage.setItem('apbg_theme', next); } catch { /* no-op */ }
+    // Notify the gateway waffle + any other embedded surface on the page.
+    try { window.dispatchEvent(new CustomEvent('apbg:themechange', { detail: { theme: next } })); } catch { /* no-op */ }
+  }, []);
+
+  const toggleMode = useCallback(() => {
+    setMode(readMode() === 'light' ? 'dark' : 'light');
+  }, [setMode]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-apbg-theme', mode);
@@ -38,10 +50,10 @@ function Root() {
   useEffect(() => {
     const onTheme = (e: Event) => {
       const t = (e as CustomEvent).detail?.theme;
-      if (t === 'light' || t === 'dark') setMode(t);
+      if (t === 'light' || t === 'dark') setModeState(t);
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'apbg_theme') setMode(e.newValue === 'light' ? 'light' : 'dark');
+      if (e.key === 'apbg_theme') setModeState(e.newValue === 'light' ? 'light' : 'dark');
     };
     window.addEventListener('apbg:themechange', onTheme as EventListener);
     window.addEventListener('storage', onStorage);
@@ -52,13 +64,15 @@ function Root() {
   }, []);
 
   return (
-    <ThemeProvider theme={makeBrixTheme(mode)}>
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
-      </LocalizationProvider>
-    </ThemeProvider>
+    <ThemeModeContext.Provider value={{ mode, setMode, toggleMode }}>
+      <ThemeProvider theme={makeBrixTheme(mode)}>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </LocalizationProvider>
+      </ThemeProvider>
+    </ThemeModeContext.Provider>
   );
 }
 

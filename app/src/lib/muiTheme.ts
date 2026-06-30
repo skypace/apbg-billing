@@ -19,6 +19,12 @@ import { createTheme, type Theme } from '@mui/material/styles';
 
 export type ThemeMode = 'light' | 'dark';
 
+// Unified type stack — kept in lockstep with theme.css --ff-body / --ff-display.
+const SANS =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Tight", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const DISPLAY =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Tight", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
 export function makeBrixTheme(mode: ThemeMode): Theme {
   const dark = mode !== 'light';
 
@@ -55,14 +61,17 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
     },
     shape: { borderRadius: 12 },
     typography: {
-      fontFamily:
-        '"Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      // One unified stack shared with theme.css (--ff-body/--ff-display):
+      // SF Pro on Apple, Inter Tight as the cross-platform fallback. Headings
+      // use the same family (SF Pro Display optical size) — Bricolage dropped so
+      // MUI surfaces and CSS surfaces read as a single typeface.
+      fontFamily: SANS,
       fontSize: 12,
       htmlFontSize: 14,
       button: { textTransform: 'none', fontWeight: 600, letterSpacing: 0 },
-      h1: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
-      h2: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
-      h3: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
+      h1: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.02em' },
+      h2: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.015em' },
+      h3: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.01em' },
     },
     components: {
       MuiPaper: {

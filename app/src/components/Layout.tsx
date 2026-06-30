@@ -3,11 +3,12 @@ import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
   GitCompareArrows, Package, Warehouse, Factory, Settings as SettingsIcon, LogOut,
-  BookOpen, Tags,
+  BookOpen, Tags, Sun, Moon,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { AlamedaMark, BrixMark } from './BrixMark';
+import { useThemeMode } from '../lib/themeMode';
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
@@ -54,6 +55,7 @@ const COLLAPSE_KEY = 'brix.sidebar.collapsed';
 
 export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const { mode, toggleMode } = useThemeMode();
 
   useEffect(() => {
     try { setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1'); } catch { /* no-op */ }
@@ -117,6 +119,18 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
             </div>
           )}
           {userEmail && <div className="user-email" title={userEmail}>{userEmail}</div>}
+          <button
+            type="button"
+            onClick={toggleMode}
+            className="sign-out theme-toggle"
+            title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {mode === 'dark'
+              ? <Sun size={13} strokeWidth={2} aria-hidden="true" />
+              : <Moon size={13} strokeWidth={2} aria-hidden="true" />}
+            <span>{mode === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          </button>
           <a
             href={USER_GUIDE_URL}
             target="_blank"
