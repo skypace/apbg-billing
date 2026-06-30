@@ -4,9 +4,9 @@ import type { CSSProperties } from 'react';
 // declared in src/styles/theme.css.
 
 export const inp = (): CSSProperties => ({
-  background: 'var(--sf2)',
+  background: 'var(--ctl-bg)',
   color: 'var(--tx)',
-  border: '1px solid var(--bd)',
+  border: '1px solid var(--ctl-bd)',
   padding: '4px 8px',
   borderRadius: 4,
   fontSize: 11,

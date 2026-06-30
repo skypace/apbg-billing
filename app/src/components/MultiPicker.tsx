@@ -67,7 +67,7 @@ export function MultiPicker({
         minWidth: 220,
         maxWidth: 380,
         '& .MuiInputBase-root': {
-          background: 'var(--bg)',
+          background: 'var(--ctl-bg)',
           fontFamily: 'inherit',
           fontSize: 12,
           color: 'var(--tx)',
@@ -76,7 +76,7 @@ export function MultiPicker({
           paddingLeft: '8px !important',
         },
         '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: 'var(--bd)',
+          borderColor: 'var(--ctl-bd)',
           transition: 'border-color 120ms ease',
         },
         '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },

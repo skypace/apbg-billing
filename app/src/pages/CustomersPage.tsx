@@ -226,9 +226,9 @@ export function CustomersPage() {
               onChange={(_, v) => setChannel(v)}
               sx={{
                 minWidth: 200,
-                '& .MuiInputBase-root': { background: 'var(--bg)', fontSize: 12, color: 'var(--tx)', height: 30, paddingY: 0 },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
+                '& .MuiInputBase-root': { background: 'var(--ctl-bg)', fontSize: 12, color: 'var(--tx)', height: 30, paddingY: 0 },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ctl-bd)' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ac)' },
               }}
               renderInput={(params) => <TextField {...params} placeholder="All channels" />}
             />

@@ -7,7 +7,7 @@ import { SegmentChip } from '../components/SegmentChip';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { useToast } from '../lib/toast';
-import { KpiRowSkeleton, TableSkeleton, HeroSkeleton } from '../components/Skeletons';
+import { KpiRowSkeleton, HeroSkeleton } from '../components/Skeletons';
 import {
   CustomerDetail,
   CustomerHealth,
@@ -26,8 +26,37 @@ import {
   fetchSparkline,
   trailing12MonthKeys,
 } from '../lib/sales';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
+import { GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 interface Props { customerId: string }
+
+type InvoiceGridRow = DrillRow & { _gid: string };
+
+const ITEM_COLUMNS: GridColDef<SalesPivotRow>[] = [
+  { field: 'dim_label', headerName: 'Item', flex: 1, minWidth: 200, renderCell: (p) => <span style={{ fontSize: 11 }} title={p.row.dim_label}>{p.row.dim_label}</span> },
+  { field: 'qty', headerName: 'Qty', type: 'number', width: 90, cellClassName: 'mn', valueGetter: (_v, row) => row.qty != null ? Number(row.qty) : null, renderCell: (p) => <span style={{ fontSize: 11 }}>{p.row.qty != null ? fmtNum(p.row.qty) : '-'}</span> },
+  { field: 'revenue', headerName: 'Revenue', type: 'number', width: 120, cellClassName: 'mn', valueGetter: (_v, row) => Number(row.revenue ?? 0), renderCell: (p) => <span style={{ fontSize: 11, fontWeight: 600 }}>{fm(p.row.revenue)}</span> },
+  {
+    field: 'margin_pct', headerName: 'Margin %', type: 'number', width: 100, cellClassName: 'mn',
+    valueGetter: (_v, row) => row.margin_pct != null ? Number(row.margin_pct) : -Infinity,
+    renderCell: (p) => {
+      const mp = p.row.margin_pct != null ? Number(p.row.margin_pct) : null;
+      const c = mp == null ? 'var(--mt)' : mp >= 0.4 ? 'var(--gn)' : mp >= 0 ? 'var(--am)' : 'var(--rd)';
+      return <span style={{ fontSize: 11, color: c }}>{fp(p.row.margin_pct)}</span>;
+    },
+  },
+];
+
+const INVOICE_COLUMNS: GridColDef<InvoiceGridRow>[] = [
+  { field: 'txn_date', headerName: 'Date', width: 100, cellClassName: 'mn', renderCell: (p) => <span style={{ fontSize: 11 }}>{p.row.txn_date}</span> },
+  { field: 'doc_number', headerName: 'Doc#', width: 90, cellClassName: 'mn', renderCell: (p) => <span style={{ fontSize: 11, color: 'var(--mt)' }}>{p.row.doc_number ?? '—'}</span> },
+  { field: 'item_name', headerName: 'Item', flex: 1, minWidth: 200, renderCell: (p) => <span style={{ fontSize: 11 }} title={p.row.item_name ?? p.row.description ?? ''}>{p.row.item_name ?? p.row.description ?? '—'}</span> },
+  { field: 'quantity', headerName: 'Qty', type: 'number', width: 80, cellClassName: 'mn', valueGetter: (_v, row) => row.quantity != null ? Number(row.quantity) : null, renderCell: (p) => <span style={{ fontSize: 11 }}>{p.row.quantity != null ? fmtNum(p.row.quantity) : '-'}</span> },
+  { field: 'unit_price', headerName: 'Price', type: 'number', width: 100, cellClassName: 'mn', valueGetter: (_v, row) => row.unit_price != null ? Number(row.unit_price) : null, renderCell: (p) => <span style={{ fontSize: 11 }}>{p.row.unit_price != null ? fm(p.row.unit_price) : '-'}</span> },
+  { field: 'revenue', headerName: 'Revenue', type: 'number', width: 110, cellClassName: 'mn', valueGetter: (_v, row) => Number(row.revenue ?? 0), renderCell: (p) => <span style={{ fontSize: 11, fontWeight: 600 }}>{fm(p.row.revenue)}</span> },
+  { field: 'est_margin', headerName: 'Margin', type: 'number', width: 100, cellClassName: 'mn', valueGetter: (_v, row) => row.est_margin != null ? Number(row.est_margin) : null, renderCell: (p) => <span style={{ fontSize: 11 }}>{p.row.est_margin != null ? fm(p.row.est_margin) : '—'}</span> },
+];
 
 export function CustomerDetailPage({ customerId }: Props) {
   const today = new Date().toISOString().slice(0, 10);
@@ -416,11 +445,11 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
                   height: 30,
                   fontFamily: 'var(--ff-mono)',
                   fontSize: 12,
-                  background: 'var(--bg)',
+                  background: 'var(--ctl-bg)',
                   color: 'var(--tx)',
                 },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ctl-bd)' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ac)' },
               },
             },
             fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
@@ -458,61 +487,22 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
               TOP ITEMS — {items ? items.length : 0}
             </div>
           </div>
-          <div style={{ maxHeight: 240, overflow: 'auto' }}>
-            {!items ? (
-              <TableSkeleton rows={6} cols={4} />
-            ) : items.length === 0 ? (
-              <div className="ld">No purchases in this window.</div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th style={{ textAlign: 'right' }}>Qty</th>
-                    <th style={{ textAlign: 'right' }}>Revenue</th>
-                    <th style={{ textAlign: 'right' }}>Margin %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.slice(0, 100).map((r) => {
-                    const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
-                    const mpColor =
-                      mp == null
-                        ? 'var(--mt)'
-                        : mp >= 0.4
-                          ? 'var(--gn)'
-                          : mp >= 0
-                            ? 'var(--am)'
-                            : 'var(--rd)';
-                    return (
-                      <tr key={r.dim_label}>
-                        <td
-                          style={{
-                            maxWidth: 240,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            fontSize: 11,
-                          }}
-                        >
-                          {r.dim_label}
-                        </td>
-                        <td className="mn" style={{ textAlign: 'right', fontSize: 11 }}>
-                          {r.qty != null ? fmtNum(r.qty) : '-'}
-                        </td>
-                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600, fontSize: 11 }}>
-                          {fm(r.revenue)}
-                        </td>
-                        <td className="mn" style={{ textAlign: 'right', fontSize: 11, color: mpColor }}>
-                          {fp(r.margin_pct)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+          <DataGridPro
+            rows={items ?? []}
+            columns={ITEM_COLUMNS}
+            getRowId={(r) => r.dim_label}
+            loading={items === null}
+            density="compact"
+            pagination
+            disableRowSelectionOnClick
+            {...GRID_DEFAULTS}
+            pageSizeOptions={[10, 25, 50, { value: -1, label: 'All' }]}
+            initialState={{
+              pagination: { paginationModel: { pageSize: 10, page: 0 } },
+              sorting: { sortModel: [{ field: 'revenue', sort: 'desc' }] },
+            }}
+            sx={{ ...GRID_SX, height: 340 }}
+          />
         </div>
       </div>
 
@@ -538,58 +528,19 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           </button>
         </div>
         {err && <div className="cd" style={{ padding: 14, color: 'var(--rd)' }}>Error: {err}</div>}
-        {!invoices ? (
-          <TableSkeleton rows={8} cols={7} />
-        ) : invoices.length === 0 ? (
-          <div className="ld">No invoice lines.</div>
-        ) : (
-          <div style={{ maxHeight: 360, overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)' }}>
-                <tr>
-                  <th>Date</th>
-                  <th>Doc#</th>
-                  <th>Item</th>
-                  <th style={{ textAlign: 'right' }}>Qty</th>
-                  <th style={{ textAlign: 'right' }}>Price</th>
-                  <th style={{ textAlign: 'right' }}>Revenue</th>
-                  <th style={{ textAlign: 'right' }}>Margin</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((r, i) => (
-                  <tr key={`${r.qbo_invoice_id ?? ''}-${i}`}>
-                    <td className="mn" style={{ fontSize: 11 }}>{r.txn_date}</td>
-                    <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>{r.doc_number ?? '—'}</td>
-                    <td
-                      style={{
-                        maxWidth: 280,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontSize: 11,
-                      }}
-                    >
-                      {r.item_name ?? r.description ?? '—'}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', fontSize: 11 }}>
-                      {r.quantity != null ? fmtNum(r.quantity) : '-'}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', fontSize: 11 }}>
-                      {r.unit_price != null ? fm(r.unit_price) : '-'}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', fontSize: 11, fontWeight: 600 }}>
-                      {fm(r.revenue)}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', fontSize: 11 }}>
-                      {r.est_margin != null ? fm(r.est_margin) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <DataGridPro
+          rows={(invoices ?? []).map((r, i): InvoiceGridRow => ({ ...r, _gid: `${r.qbo_invoice_id ?? ''}-${i}` }))}
+          columns={INVOICE_COLUMNS}
+          getRowId={(r) => r._gid}
+          loading={invoices === null}
+          density="compact"
+          pagination
+          disableRowSelectionOnClick
+          {...GRID_DEFAULTS}
+          pageSizeOptions={[25, 50, 100, { value: -1, label: 'All' }]}
+          initialState={{ pagination: { paginationModel: { pageSize: 25, page: 0 } } }}
+          sx={{ ...GRID_SX, height: 420 }}
+        />
       </div>
     </div>
   );

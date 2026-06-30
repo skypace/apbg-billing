@@ -711,7 +711,7 @@ export function MarginPage() {
               onChange={onRangeChange} format="YYYY-MM-DD"
               localeText={{ start: 'From', end: 'To' }}
               slotProps={{
-                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' } } },
+                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--ctl-bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ctl-bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ac)' } } },
                 fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
               }}
             />
