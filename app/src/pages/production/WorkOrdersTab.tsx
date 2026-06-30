@@ -12,7 +12,7 @@ import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
-import { GRID_SX } from '../stock/stockStyles';
+import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 
 const STATUS_COLOR: Record<WorkOrderStatus, string> = {
@@ -140,6 +140,7 @@ export function WorkOrdersTab({
         <DataGridPro
           rows={enriched}
           columns={columns}
+          {...GRID_DEFAULTS}
           sx={GRID_SX}
           density="compact"
           loading={workOrders === null}

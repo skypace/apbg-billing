@@ -9,6 +9,7 @@ import { downloadCsv, toCsv } from '../lib/csv';
 import { SegmentChip } from '../components/SegmentChip';
 import { TableSkeleton } from '../components/Skeletons';
 import { useToast } from '../lib/toast';
+import { GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 interface CustomerGridRow extends CustomerListRow {
   id: string;
@@ -259,6 +260,7 @@ export function CustomersPage() {
             columns={columns}
             density="compact"
             pagination
+            {...GRID_DEFAULTS}
             pageSizeOptions={[10, 25, 50, 100, 250, { value: -1, label: 'All' }]}
             initialState={{
               pagination: { paginationModel: { pageSize: 25, page: 0 } },
@@ -269,39 +271,7 @@ export function CustomersPage() {
             onRowClick={(params: GridRowParams<CustomerGridRow>) => {
               window.location.hash = '#customer-' + params.row.qbo_customer_id;
             }}
-            sx={{
-              height: '64vh',
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--tx)',
-              fontFamily: 'inherit',
-              fontSize: 12,
-              '& .MuiDataGrid-row': { cursor: 'pointer' },
-              '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
-              '& .MuiDataGrid-columnHeader': {
-                fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
-                fontSize: 10.5, color: 'var(--mt)',
-              },
-              '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
-              '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
-              '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
-              '& .MuiDataGrid-row:hover': { background: 'rgba(91,181,240,0.06)' },
-              '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
-              '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
-              '& .MuiDataGrid-footerContainer': {
-                borderTop: '1px solid var(--bd)',
-                background: 'var(--sf)',
-                minHeight: 40,
-              },
-              '& .MuiTablePagination-root, & .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
-                color: 'var(--mt)',
-                fontFamily: 'inherit',
-                fontSize: 11,
-              },
-              '& .MuiTablePagination-select': { color: 'var(--ac)' },
-              '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
-              '& .MuiDataGrid-menuIconButton, & .MuiDataGrid-sortIcon': { color: 'var(--mt)' },
-            }}
+            sx={{ ...GRID_SX, '& .MuiDataGrid-row': { cursor: 'pointer' } }}
           />
         </div>
       )}

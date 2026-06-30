@@ -18,7 +18,7 @@ import {
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum } from '../../lib/formatters';
-import { GRID_SX, STATUS_COLOR } from './stockStyles';
+import { GRID_SX, GRID_DEFAULTS, STATUS_COLOR } from './stockStyles';
 import type { ItemLookup } from './StockPage';
 
 interface Props {
@@ -132,6 +132,7 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
         <DataGridPro
           rows={enriched}
           columns={columns}
+          {...GRID_DEFAULTS}
           sx={GRID_SX}
           density="compact"
           loading={transfers === null}

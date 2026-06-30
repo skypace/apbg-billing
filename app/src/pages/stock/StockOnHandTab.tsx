@@ -6,7 +6,7 @@ import { btnSecondary } from '../../lib/styles';
 import { downloadCsv, toCsv } from '../../lib/csv';
 import { InventoryLocation, OnHandRow } from '../../lib/inventoryControl';
 import type { ItemLookup } from './StockPage';
-import { GRID_SX } from './stockStyles';
+import { GRID_SX, GRID_DEFAULTS } from './stockStyles';
 
 interface Props {
   rows: OnHandRow[] | null;
@@ -147,6 +147,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         <DataGridPro
           rows={filtered}
           columns={columns}
+          {...GRID_DEFAULTS}
           sx={GRID_SX}
           density="compact"
           loading={rows === null}

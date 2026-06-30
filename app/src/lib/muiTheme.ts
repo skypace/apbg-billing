@@ -20,10 +20,10 @@ import { createTheme, type Theme } from '@mui/material/styles';
 export type ThemeMode = 'light' | 'dark';
 
 // Unified type stack — kept in lockstep with theme.css --ff-body / --ff-display.
+// Neutral grotesque (Helvetica Neue / Arial), no webfont, crisp everywhere.
 const SANS =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Tight", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-const DISPLAY =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Tight", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+  '"Helvetica Neue", Helvetica, Arial, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const DISPLAY = SANS;
 
 export function makeBrixTheme(mode: ThemeMode): Theme {
   const dark = mode !== 'light';
@@ -53,9 +53,9 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
         paper,
       },
       text: {
-        primary:   dark ? '#E6EEF7' : '#0E2447',
-        secondary: dark ? '#94A8BD' : '#436081',
-        disabled:  dark ? '#5A6F84' : '#8AA0B5',
+        primary:   dark ? '#E6EEF7' : '#14181F',
+        secondary: dark ? '#94A8BD' : '#36414E',
+        disabled:  dark ? '#5A6F84' : '#7C8B9B',
       },
       divider: dark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.10)',
     },

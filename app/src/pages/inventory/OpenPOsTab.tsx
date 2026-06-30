@@ -23,21 +23,7 @@ import { KPICard } from '../../components/KPICard';
 import { TableSkeleton } from '../../components/Skeletons';
 import { useToast } from '../../lib/toast';
 import { QboPosPickerModal } from '../production/QboPosPickerModal';
-
-const GRID_SX = {
-  height: '64vh', border: 'none', background: 'transparent', color: 'var(--ink)',
-  fontFamily: 'inherit', fontSize: 12,
-  '--DataGrid-rowBorderColor': 'rgba(255,255,255,0.04)',
-  '--DataGrid-containerBackground': 'var(--sf)',
-  '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
-  '& .MuiDataGrid-columnHeader': {
-    fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
-    fontSize: 10.5, color: 'var(--mt)',
-  },
-  '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
-  '& .MuiDataGrid-row:hover': { background: 'rgba(91, 181, 240, 0.05)' },
-  '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
-};
+import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 
 interface QboPoShadow {
   qbo_id: string;
@@ -383,6 +369,7 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
         <DataGridPro
           rows={rows}
           columns={columns}
+          {...GRID_DEFAULTS}
           sx={GRID_SX}
           density="compact"
           disableRowSelectionOnClick
