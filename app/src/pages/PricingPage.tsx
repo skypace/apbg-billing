@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, IconButton,
@@ -12,6 +12,9 @@ import {
   addContractCustomer, removeContractCustomer, setContractMeta, createPriceBook,
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
+import { classifyItem, ITEM_GROUP_ORDER } from '../lib/taxonomy';
+
+type BookSort = 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc';
 
 // This page inherits the app's MUI theme (makeBrixTheme) so it follows the
 // light/dark switch and the shared branding — no local ThemeProvider.
@@ -115,8 +118,51 @@ function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk,
   bulkBusy: boolean; setBulkBusy: (b: boolean) => void; onOk: (m: string) => void; onErr: (e: string) => void; onNewBook: () => void;
 }) {
   const [bookCode, setBookCode] = useState(data.books[0]?.code ?? 'BX-1');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<BookSort>('name_asc');
+  const [addItem, setAddItem] = useState<ItemOpt | null>(null);
+  const [addPrice, setAddPrice] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
+
   const book = data.books.find((b) => b.code === bookCode);
-  const items = data.standard.filter((s) => s.price_book_id === book?.id);
+  const label = (it: BookItem) => it.item_name ?? it.qbo_item_id;
+
+  // Filter → sort → group the book's items into item-taxonomy sections. Also
+  // compute the add-item options (every catalog item not already in the book).
+  const { sections, groups, total, addOptions } = useMemo(() => {
+    const bookItems = data.standard.filter((s) => s.price_book_id === book?.id);
+    const inBook = new Set(bookItems.map((b) => b.qbo_item_id));
+    const opts = data.items.filter((o) => !inBook.has(o.qbo_item_id));
+
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? bookItems.filter((it) => (it.item_name ?? '').toLowerCase().includes(q) || it.qbo_item_id.toLowerCase().includes(q))
+      : bookItems;
+
+    const cmp = (a: BookItem, b: BookItem) => {
+      const an = a.item_name ?? a.qbo_item_id;
+      const bn = b.item_name ?? b.qbo_item_id;
+      switch (sort) {
+        case 'price_asc':  return a.unit_price - b.unit_price;
+        case 'price_desc': return b.unit_price - a.unit_price;
+        case 'name_desc':  return bn.localeCompare(an);
+        default:           return an.localeCompare(bn);
+      }
+    };
+
+    const g = new Map<string, BookItem[]>();
+    for (const it of filtered) {
+      const key = classifyItem(it.item_name ?? it.qbo_item_id);
+      const arr = g.get(key);
+      if (arr) arr.push(it); else g.set(key, [it]);
+    }
+    for (const arr of g.values()) arr.sort(cmp);
+    const secs = [...g.keys()].sort(
+      (a, b) => (ITEM_GROUP_ORDER[a] ?? 999) - (ITEM_GROUP_ORDER[b] ?? 999) || a.localeCompare(b),
+    );
+    return { sections: secs, groups: g, total: filtered.length, addOptions: opts };
+  }, [data, book?.id, search, sort]);
+
   return (
     <Stack spacing={2}>
       <Paper variant="outlined" sx={{ p: 2 }}>
@@ -141,20 +187,70 @@ function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk,
           <Button variant="text" startIcon={<Download size={16} />} onClick={() => exportStandardCsv(data.standard)}>Export CSV</Button>
         </Stack>
       </Paper>
+
+      {/* Add an item to this book + search / sort */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
+          <Autocomplete size="small" sx={{ minWidth: 300, flex: 1 }} options={addOptions} value={addItem}
+            getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.qbo_item_id === b.qbo_item_id}
+            onChange={(_, v) => setAddItem(v)}
+            renderInput={(p) => <TextField {...p} label={`Add item to ${bookCode}`} />} />
+          <TextField label="Price" size="small" value={addPrice} onChange={(e) => setAddPrice(e.target.value)} sx={{ width: 120 }} />
+          <Button variant="contained" startIcon={<Plus size={16} />}
+            disabled={addBusy || !addItem || addPrice.trim() === '' || !Number.isFinite(Number(addPrice))}
+            onClick={async () => {
+              if (!addItem) return;
+              setAddBusy(true);
+              try {
+                await setBookItemPrice(addItem.qbo_item_id, addItem.name, Number(addPrice), todayStr(), bookCode);
+                setAddItem(null); setAddPrice(''); onOk(`Added ${addItem.name} to ${bookCode}`);
+              } catch (e) { onErr(e instanceof Error ? e.message : 'Add failed'); } finally { setAddBusy(false); }
+            }}>{addBusy ? 'Adding…' : 'Add'}</Button>
+        </Stack>
+        <Divider sx={{ my: 1.5 }} />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+          <TextField size="small" placeholder="Search items…" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 240 }} />
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Sort</InputLabel>
+            <Select label="Sort" value={sort} onChange={(e) => setSort(e.target.value as BookSort)}>
+              <MenuItem value="name_asc">Name A–Z</MenuItem>
+              <MenuItem value="name_desc">Name Z–A</MenuItem>
+              <MenuItem value="price_asc">Price low → high</MenuItem>
+              <MenuItem value="price_desc">Price high → low</MenuItem>
+            </Select>
+          </FormControl>
+          <Box sx={{ flex: 1 }} />
+          <Typography variant="body2" color="text.secondary">{total} item{total === 1 ? '' : 's'}</Typography>
+        </Stack>
+      </Paper>
+
       <Paper variant="outlined">
-        <Table size="small">
+        <Table size="small" stickyHeader>
           <TableHead><TableRow><TableCell>Item</TableCell><TableCell>QBO ID</TableCell><TableCell align="right">Price</TableCell></TableRow></TableHead>
           <TableBody>
-            {items.map((it: BookItem) => (
-              <TableRow key={it.id} hover>
-                <TableCell>{it.item_name ?? it.qbo_item_id}</TableCell>
-                <TableCell sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{it.qbo_item_id}</TableCell>
-                <TableCell align="right">
-                  <PriceCell value={it.unit_price} onSave={async (v) => { await setBookItemPrice(it.qbo_item_id, it.item_name, v, todayStr(), bookCode); onOk(`${it.item_name ?? it.qbo_item_id} → ${usd(v)}`); }} />
-                </TableCell>
-              </TableRow>
+            {sections.map((sec) => (
+              <Fragment key={sec}>
+                <TableRow>
+                  <TableCell colSpan={3} sx={{ bgcolor: 'action.hover', fontWeight: 700, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.8, color: 'text.secondary', py: 0.75 }}>
+                    {sec} · {groups.get(sec)!.length}
+                  </TableCell>
+                </TableRow>
+                {groups.get(sec)!.map((it) => (
+                  <TableRow key={it.id} hover>
+                    <TableCell>{label(it)}</TableCell>
+                    <TableCell sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{it.qbo_item_id}</TableCell>
+                    <TableCell align="right">
+                      <PriceCell value={it.unit_price} onSave={async (v) => { await setBookItemPrice(it.qbo_item_id, it.item_name, v, todayStr(), bookCode); onOk(`${label(it)} → ${usd(v)}`); }} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </Fragment>
             ))}
-            {items.length === 0 && <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>No items in this book yet.</TableCell></TableRow>}
+            {total === 0 && (
+              <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                {search ? 'No items match your search.' : 'No items in this book yet — add one above.'}
+              </TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
       </Paper>
