@@ -80,7 +80,11 @@ No magic-link tokens. No anonymous approval path. The email is a notification, n
 - **Supabase URL:** `https://gfsdpwiqzshhexkofiif.supabase.co`
 - **Supabase anon key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY`
 - **Schema:** `ops` (use `Accept-Profile: ops` header or Supabase client `{ db: { schema: 'ops' } }`)
-- **QBO Realm ID:** `9130352144155116` (APBG_Billing Intuit app)
+- **QBO Realm ID:** `9130352144155116` — **one shared QuickBooks company, but MULTIPLE distinct Intuit apps connect to it.** Each surface (apbg-billing, pacerfinance MCP, melt-dashboard's primary + secondary app, etc.) is its own Intuit Developer app with its **own `client_id`/app id and its own registered redirect URI**. Same realm ≠ same app. Do NOT assume a redirect URI you don't recognize is an orphan of "the" app — it likely belongs to another app pointed at this same realm. Known QBO redirect URIs in use:
+  - apbg-billing (AP tool): `https://apbg-billing.netlify.app/.netlify/functions/oauth-callback` (`public/setup.html`)
+  - pacerfinance QBO MCP: `https://pacerfinance.netlify.app/qbo-oauth-callback` (`pacerfinance/src/shared/oauth.ts`)
+  - melt-dashboard: `oauth-callback.mjs` on `melt-dashboard.netlify.app`
+  - `https://apbg-finance.netlify.app/callback` — a separate Intuit app's callback pointed at the same realm (a distinct app, not an orphaned billing redirect).
 - **MUI X Pro license:** required at build time via `VITE_MUI_X_LICENSE` env var on Netlify.
 - **Anthropic API key:** required for receipt OCR (`process-inbound`). Env var `ANTHROPIC_API_KEY`.
 - **Email provider:** `RESEND_API_KEY` or `SENDGRID_API_KEY` (Brixpense notification emails only).
