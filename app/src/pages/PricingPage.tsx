@@ -8,7 +8,7 @@ import {
 import { Plus, Trash2, Download, Upload } from 'lucide-react';
 import {
   type BookItem, type Contract, type ContractKind, type CustomerOpt, type ItemOpt, type PricingData,
-  getPricing, setBookItemPrice, bulkIncrease, addContractItem, removeContractItem,
+  getPricing, setBookItemPrice, removeBookItem, bulkIncrease, addContractItem, removeContractItem,
   addContractCustomer, removeContractCustomer, setContractMeta, createPriceBook,
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
@@ -249,12 +249,12 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
 
       <Paper variant="outlined">
         <Table size="small" stickyHeader>
-          <TableHead><TableRow><TableCell>Item</TableCell><TableCell>QBO ID</TableCell><TableCell align="right">Price</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Item</TableCell><TableCell>QBO ID</TableCell><TableCell align="right">Price</TableCell><TableCell width={48} /></TableRow></TableHead>
           <TableBody>
             {sections.map((sec) => (
               <Fragment key={sec}>
                 <TableRow>
-                  <TableCell colSpan={3} sx={{ bgcolor: 'action.hover', fontWeight: 700, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.8, color: 'text.secondary', py: 0.75 }}>
+                  <TableCell colSpan={4} sx={{ bgcolor: 'action.hover', fontWeight: 700, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.8, color: 'text.secondary', py: 0.75 }}>
                     {sec} · {groups.get(sec)!.length}
                   </TableCell>
                 </TableRow>
@@ -265,12 +265,20 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
                     <TableCell align="right">
                       <PriceCell value={it.unit_price} onSave={async (v) => { await setBookItemPrice(it.qbo_item_id, it.item_name, v, todayStr(), bookCode); onOk(`${label(it)} → ${usd(v)}`); }} />
                     </TableCell>
+                    <TableCell align="right">
+                      <IconButton size="small" title={`Remove ${label(it)} from ${bookCode}`}
+                        onClick={async () => {
+                          if (!window.confirm(`Remove "${label(it)}" from ${bookCode}? This drops it from the book (history included).`)) return;
+                          try { await removeBookItem(it.qbo_item_id, bookCode); onOk(`Removed ${label(it)} from ${bookCode}`); }
+                          catch (e) { onErr(e instanceof Error ? e.message : 'Remove failed'); }
+                        }}><Trash2 size={16} /></IconButton>
+                    </TableCell>
                   </TableRow>
                 ))}
               </Fragment>
             ))}
             {total === 0 && (
-              <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+              <TableRow><TableCell colSpan={4} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
                 {search ? 'No items match your search.' : 'No items in this book yet — add one above.'}
               </TableCell></TableRow>
             )}

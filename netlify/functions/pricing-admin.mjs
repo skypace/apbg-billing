@@ -8,7 +8,7 @@
 // contract (BX-3) → price book (BX-1 standard) → list. Increases are
 // effective-dated inserts on price_book_items (no destructive overwrite).
 //
-// Actions: get | createPriceBook | setBookItemPrice | bulkIncrease |
+// Actions: get | createPriceBook | setBookItemPrice | removeBookItem | bulkIncrease |
 //          createContract | setContractDates | addContractItem |
 //          removeContractItem | addContractCustomer | removeContractCustomer |
 //          uploadContractFile | contractFileUrl
@@ -113,6 +113,17 @@ export async function handler(event) {
       await op('PATCH', `price_book_items?price_book_id=eq.${book}&qbo_item_id=eq.${encodeURIComponent(qbo_item_id)}&effective_to=is.null&id=neq.${row.id}`,
         { effective_to: dayBefore(eff) }, 'return=minimal');
       return json(200, { ok: true, row });
+    }
+
+    if (action === 'removeBookItem') {
+      const { qbo_item_id } = body;
+      const code = body.book_code || 'BX-1';
+      if (!qbo_item_id) return json(400, { ok: false, error: 'qbo_item_id required' });
+      const book = await bookIdByCode(code);
+      // Hard-delete every effective-dated row for this book/item (mirrors
+      // removeContractItem). The item drops out of the book entirely.
+      await op('DELETE', `price_book_items?price_book_id=eq.${book}&qbo_item_id=eq.${encodeURIComponent(qbo_item_id)}`, null, 'return=minimal');
+      return json(200, { ok: true });
     }
 
     if (action === 'bulkIncrease') {

@@ -82,6 +82,9 @@ export const setBookItemPrice = (
   book_code?: string,
 ) => post({ action: 'setBookItemPrice', qbo_item_id, item_name, unit_price, effective_from, book_code });
 
+export const removeBookItem = (qbo_item_id: string, book_code?: string) =>
+  post({ action: 'removeBookItem', qbo_item_id, book_code });
+
 export const bulkIncrease = (pct: number, effective_from: string, book_code?: string) =>
   post({ action: 'bulkIncrease', pct, effective_from, book_code });
 
