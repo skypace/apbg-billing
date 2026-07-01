@@ -46,16 +46,27 @@
   --glass-blur-lg:    blur(28px) saturate(200%);
   --glass-edge-line:  linear-gradient(90deg, transparent 0%, rgba(91, 181, 240, 0.45) 50%, transparent 100%);
 
-  /* Shadows */
-  --shadow:    0 4px 14px rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 0 0 1px rgba(91, 181, 240, 0.20), 0 8px 24px rgba(91, 181, 240, 0.10);
-  --shadow-bar:  0 4px 12px rgba(91, 181, 240, 0.22);
+  /* Shadows — softer, layered (ambient + key) for calm Apple-style depth. */
+  --shadow:    0 1px 2px rgba(0, 0, 0, 0.20), 0 6px 18px rgba(0, 0, 0, 0.26);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.24), 0 18px 44px rgba(0, 0, 0, 0.40);
+  --shadow-glow: 0 0 0 1px rgba(91, 181, 240, 0.16), 0 8px 24px rgba(91, 181, 240, 0.08);
+  --shadow-bar:  0 4px 14px rgba(91, 181, 240, 0.16);
 
-  /* Radii */
-  --r-sm: 4px;
-  --r-md: 8px;
-  --r-lg: 12px;
+  /* Radii — consistent, slightly softer steps. */
+  --r-sm:  6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Form/control surfaces — toolbar buttons, selects, date inputs, segmented
+     + preset bars, modifier buttons, the hero status pill. Token-driven so they
+     flip with the theme instead of staying navy ("grey on blue") on a light
+     canvas. */
+  --ctl-bg:    rgba(11, 28, 57, 0.55);
+  --ctl-bg-h:  rgba(20, 57, 102, 0.65);
+  --ctl-bd:    rgba(255, 255, 255, 0.10);
+  --ctl-tx:    var(--tx);
+  /* Faint column separator line for tables/grids — present but near-invisible. */
+  --col-line:  rgba(255, 255, 255, 0.07);
 
   /* Brand gradients */
   --grad-acc:    linear-gradient(135deg, #5BB5F0 0%, #3A8FCC 100%);
@@ -64,9 +75,12 @@
   --grad-card:   linear-gradient(180deg, rgba(91, 181, 240, 0.04) 0%, rgba(91, 181, 240, 0) 100%);
   --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(91, 181, 240, 0.14) 50%, transparent 100%);
 
-  /* Fonts — Apple system stack (SF Pro), for crisp, high-clarity text. */
-  --ff-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Fonts — ONE unified, neutral grotesque (Helvetica/Arial-leaning) across CSS
+     *and* MUI: Helvetica Neue on Apple, Arial on Windows. No webfont needed, so
+     it renders crisp + identical everywhere. Display + body share the stack so
+     headings, KPI values, grids, buttons and forms all read as one typeface. */
+  --ff-display: 'Helvetica Neue', Helvetica, Arial, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ff-body:    'Helvetica Neue', Helvetica, Arial, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --ff-mono:    'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
   --sidebar-w:           224px;
@@ -82,10 +96,11 @@ html, body, #root {
   color: var(--tx);
   font-family: var(--ff-body);
   font-size: 13px;
-  font-feature-settings: 'cv11', 'ss03';
+  line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body::before {
@@ -136,7 +151,7 @@ th {
   font-size: 10px;
   color: var(--tx2);
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  letter-spacing: 0.6px;
   font-weight: 600;
   background: rgba(20, 57, 102, 0.32);
   backdrop-filter: var(--glass-blur-sm);
@@ -146,6 +161,9 @@ th {
 }
 tbody tr { transition: background 120ms ease }
 tbody tr:hover { background: rgba(91, 181, 240, 0.06) }
+/* Subtle vertical column separators on plain HTML data tables — light-grey,
+   nearly invisible but present. (DataGridPro grids get theirs from gridStyles.) */
+th:not(:first-child), td:not(:first-child) { border-left: 1px solid var(--col-line) }
 td.mn, th.mn {
   font-family: var(--ff-mono);
   font-size: 12px;
@@ -199,8 +217,8 @@ td.mn, th.mn {
   width: 22px;
   height: 22px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(20, 57, 102, 0.40);
+  border: 1px solid var(--ctl-bd);
+  background: var(--ctl-bg);
   color: var(--tx2);
   display: grid;
   place-items: center;
@@ -246,7 +264,7 @@ td.mn, th.mn {
   font-size: 10px;
   font-weight: 500;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   margin-top: 4px;
   display: flex;
@@ -309,7 +327,7 @@ td.mn, th.mn {
   width: 3px;
   background: var(--ac);
   border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 12px rgba(91, 181, 240, 0.7);
+  box-shadow: 0 0 8px rgba(91, 181, 240, 0.40);
 }
 .nav-item svg { flex: none; opacity: 0.85; transition: opacity 120ms ease }
 .nav-item:hover svg, .nav-item--active svg { opacity: 1 }
@@ -351,6 +369,14 @@ td.mn, th.mn {
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* Theme toggle — same footer-button shell, accent-tinted on hover. */
+.theme-toggle:hover {
+  border-color: rgba(91, 181, 240, 0.30);
+  color: var(--ac);
+}
+.theme-toggle svg { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1) }
+.theme-toggle:hover svg { transform: rotate(15deg) }
+
 /* ─────────── Main content ─────────── */
 
 .main {
@@ -373,7 +399,7 @@ td.mn, th.mn {
   font-family: var(--ff-display);
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   background: var(--grad-acc);
   -webkit-background-clip: text;
   background-clip: text;
@@ -407,7 +433,7 @@ td.mn, th.mn {
 .hero-eyebrow {
   font-size: 10px;
   color: var(--ac);
-  letter-spacing: 2px;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
   font-weight: 600;
   margin-bottom: 6px;
@@ -446,15 +472,12 @@ td.mn, th.mn {
   letter-spacing: 0.4px;
   font-weight: 500;
   padding: 9px 14px;
-  border: 1px solid rgba(91, 181, 240, 0.18);
+  border: 1px solid var(--ctl-bd);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(20, 57, 102, 0.55) 0%, rgba(14, 36, 71, 0.50) 100%);
+  background: var(--ctl-bg);
   backdrop-filter: var(--glass-blur-sm);
   -webkit-backdrop-filter: var(--glass-blur-sm);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
 }
 .hero-stamp .hero-stamp-label {
   color: var(--gn);
@@ -527,7 +550,7 @@ td.mn, th.mn {
 .ct {
   font-size: 10px;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   margin: 14px 16px 6px;
   font-weight: 600;
@@ -560,9 +583,9 @@ td.mn, th.mn {
   margin-bottom: 6px;
 }
 .kpi-title {
-  font-size: 9px;
+  font-size: 9.5px;
   color: var(--mt);
-  letter-spacing: 1.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   font-weight: 600;
 }
@@ -642,10 +665,10 @@ td.mn, th.mn {
   flex: none;
 }
 .toolbar-label {
-  font-size: 9px;
+  font-size: 9.5px;
   color: var(--mt);
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   font-weight: 600;
   user-select: none;
 }
@@ -653,10 +676,10 @@ td.mn, th.mn {
 
 .preset-bar {
   display: inline-flex;
-  border: var(--glass-bord);
+  border: 1px solid var(--ctl-bd);
   border-radius: var(--r-sm);
   overflow: hidden;
-  background: rgba(11, 28, 57, 0.50);
+  background: var(--ctl-bg);
   backdrop-filter: var(--glass-blur-sm);
   -webkit-backdrop-filter: var(--glass-blur-sm);
 }
@@ -668,7 +691,7 @@ td.mn, th.mn {
   background: transparent;
   color: var(--tx2);
   border: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid var(--ctl-bd);
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
   font-family: inherit;
@@ -681,9 +704,9 @@ td.mn, th.mn {
 }
 
 .date-input {
-  background: rgba(11, 28, 57, 0.60);
+  background: var(--ctl-bg);
   color: var(--tx);
-  border: var(--glass-bord);
+  border: 1px solid var(--ctl-bd);
   border-radius: var(--r-sm);
   padding: 6px 10px;
   font-family: var(--ff-mono);
@@ -701,10 +724,10 @@ td.mn, th.mn {
 
 .seg {
   display: inline-flex;
-  border: var(--glass-bord);
+  border: 1px solid var(--ctl-bd);
   border-radius: var(--r-sm);
   overflow: hidden;
-  background: rgba(11, 28, 57, 0.50);
+  background: var(--ctl-bg);
   backdrop-filter: var(--glass-blur-sm);
 }
 .seg-btn {
@@ -715,7 +738,7 @@ td.mn, th.mn {
   background: transparent;
   color: var(--tx2);
   border: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid var(--ctl-bd);
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
   font-family: inherit;
@@ -728,9 +751,9 @@ td.mn, th.mn {
 }
 
 .tb-select {
-  background: rgba(11, 28, 57, 0.60);
+  background: var(--ctl-bg);
   color: var(--tx);
-  border: var(--glass-bord);
+  border: 1px solid var(--ctl-bd);
   border-radius: var(--r-sm);
   padding: 6px 10px;
   font-size: 12px;
@@ -749,16 +772,16 @@ td.mn, th.mn {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  background: rgba(11, 28, 57, 0.50);
+  background: var(--ctl-bg);
   color: var(--tx2);
-  border: var(--glass-bord);
+  border: 1px solid var(--ctl-bd);
   border-radius: var(--r-sm);
   cursor: pointer;
   font-family: inherit;
   transition: all 120ms ease;
   backdrop-filter: var(--glass-blur-sm);
 }
-.tb-btn:hover { border-color: rgba(91, 181, 240, 0.40); color: var(--tx) }
+.tb-btn:hover { border-color: rgba(91, 181, 240, 0.40); color: var(--tx); background: var(--ctl-bg-h) }
 .tb-btn:disabled { opacity: 0.5; cursor: not-allowed }
 .tb-btn--primary {
   background: var(--grad-acc);
@@ -1020,9 +1043,9 @@ html[data-apbg-theme="light"] {
   --sf3: #E4ECF4;
   --bd:  #D2DEEA;
   --bd2: #B9CBDD;
-  --tx:  #0E2447;
-  --tx2: #436081;
-  --mt:  #647D96;
+  --tx:  #14181F;
+  --tx2: #36414E;
+  --mt:  #5A6675;
   --ac:        #1F76C2;
   --ac2:       #15568F;
   --ac3:       #2A7FBF;
@@ -1050,6 +1073,11 @@ html[data-apbg-theme="light"] {
   /* Card/shine gradients to light */
   --grad-card:   linear-gradient(180deg, rgba(31,118,194,0.05) 0%, rgba(31,118,194,0) 100%);
   --grad-shine:  linear-gradient(90deg, transparent 0%, rgba(31,118,194,0.10) 50%, transparent 100%);
+  /* Controls flip to a clean white field with a hairline border. */
+  --ctl-bg:    #FFFFFF;
+  --ctl-bg-h:  #EAF1F9;
+  --ctl-bd:    rgba(15, 23, 42, 0.16);
+  --col-line:  rgba(15, 23, 42, 0.08);
 }
 
 /* Ambient page glow — recolor for a light canvas (the navy radial muddies it). */

@@ -5,6 +5,7 @@ import type { ComparisonRow, Dim, SalesPivotRow } from '../lib/sales';
 import type { MarginColumnDef } from '../lib/marginColumns';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { Sparkline } from './Sparkline';
+import { GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 const DIM_HEADER: Record<Dim, string> = {
   category: 'Category', item: 'Item', customer: 'Customer', month: 'Month',
@@ -207,6 +208,7 @@ export function MarginGrid({
       density="compact"
       disableRowSelectionOnClick
       pagination
+      {...GRID_DEFAULTS}
       pageSizeOptions={[10, 20, 40, 60, 100, { value: -1, label: 'All' }]}
       onRowClick={onRowClick ? (params) => { if (!params.row.__isTotal) onRowClick(params.row); } : undefined}
       initialState={{
@@ -215,32 +217,11 @@ export function MarginGrid({
         sorting: { sortModel: [{ field: 'revenue', sort: 'desc' }] },
       }}
       sx={{
-        height: '62vh', border: 'none', background: 'transparent', color: 'var(--ink)',
-        fontFamily: 'inherit', fontSize: 12,
-        '--DataGrid-rowBorderColor': 'rgba(255,255,255,0.04)',
-        '--DataGrid-containerBackground': 'var(--sf)',
-        '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
-        '& .MuiDataGrid-columnHeader': { fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', fontSize: 10.5, color: 'var(--mt)' },
-        '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
-        '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
-        '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
-        '& .MuiDataGrid-row:hover': { background: 'rgba(91, 181, 240, 0.05)' },
+        ...GRID_SX,
+        height: '62vh',
+        // Bottom totals row — bold, divided from the body.
         '& .MuiDataGrid-row.MuiDataGrid-row--pinned, & .MuiDataGrid-pinnedRows': { background: 'var(--sf)', fontWeight: 700, borderTop: '2px solid var(--bd)' },
-        '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
-        '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
         '& .MuiDataGrid-footerContainer': { borderTop: '1px solid var(--bd)', background: 'var(--sf)', minHeight: 44 },
-        '& .MuiTablePagination-root': { color: 'var(--tx)', fontFamily: 'inherit', fontSize: 12 },
-        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: 'var(--mt)', fontSize: 11, fontFamily: 'inherit', letterSpacing: 0.3 },
-        '& .MuiTablePagination-select': { color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', fontSize: 12 },
-        '& .MuiTablePagination-actions .MuiIconButton-root': { color: 'var(--tx2)', '&:hover': { background: 'rgba(91, 181, 240, 0.08)', color: 'var(--ac)' }, '&.Mui-disabled': { color: 'var(--mt)', opacity: 0.4 } },
-        '& .MuiDataGrid-overlay': { background: 'var(--sf)', color: 'var(--mt)' },
-        '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
-        '& .MuiDataGrid-iconSeparator': { color: 'rgba(255,255,255,0.10)' },
-        '& .MuiDataGrid-menuIconButton, & .MuiDataGrid-sortIcon': { color: 'var(--mt)' },
-        '& .MuiDataGrid-columnSeparator': { color: 'rgba(255,255,255,0.06)' },
-        '& .MuiDataGrid-scrollbar': { background: 'transparent' },
-        '& .MuiDataGrid-scrollbar::-webkit-scrollbar': { width: 10, height: 10 },
-        '& .MuiDataGrid-scrollbar::-webkit-scrollbar-thumb': { background: 'rgba(91, 181, 240, 0.20)', borderRadius: 6 },
       }}
     />
   );

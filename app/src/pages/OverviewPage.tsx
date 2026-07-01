@@ -4,6 +4,8 @@ import { ChevronDown, Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { CustomerLink } from '../components/CustomerLink';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
+import { GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 import { AreaChart } from '../components/charts/AreaChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CHART_COLORS } from '../components/charts/util';
@@ -131,7 +133,6 @@ export function OverviewPage() {
   const scopeRef = useRef<HTMLSpanElement>(null);
 
   const [topCount, setTopCount] = useState(10);
-  const [topSort, setTopSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
 
   const [priorFetchErr, setPriorFetchErr] = useState<string | null>(null);
   const [priorRawSample, setPriorRawSample] = useState<MonthRow[] | null>(null);
@@ -332,36 +333,38 @@ export function OverviewPage() {
     };
   }, [totals, priorTotals]);
 
+  // Initial order is revenue-desc; the grid handles re-sorting on header click.
   const sortedTopCustomers = useMemo(() => {
     if (!topCustomers) return null;
-    const arr = [...topCustomers];
-    arr.sort((a, b) => {
-      let av: string | number | null;
-      let bv: string | number | null;
-      if (topSort.key === 'dim_label') { av = a.dim_label; bv = b.dim_label; }
-      else if (topSort.key === 'revenue') { av = Number(a.revenue ?? 0); bv = Number(b.revenue ?? 0); }
-      else { av = a.margin_pct != null ? Number(a.margin_pct) : null; bv = b.margin_pct != null ? Number(b.margin_pct) : null; }
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return topSort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      }
-      return topSort.dir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
-    });
-    return arr;
-  }, [topCustomers, topSort]);
+    return [...topCustomers].sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0));
+  }, [topCustomers]);
 
-  function sortHeader(key: SortKey, label: string, align: 'left' | 'right' = 'left') {
-    const on = topSort.key === key;
-    const arrow = on ? (topSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return (
-      <th onClick={() => setTopSort((s) => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })}
-        style={{ textAlign: align, cursor: 'pointer', userSelect: 'none', color: on ? 'var(--ac)' : undefined }}>
-        {label}{arrow}
-      </th>
-    );
-  }
+  const topColumns = useMemo<GridColDef[]>(() => [
+    {
+      field: 'dim_label', headerName: 'Customer', flex: 1, minWidth: 220,
+      renderCell: (p) => <span style={{ fontWeight: 600 }} title={p.row.dim_label}><CustomerLink qboCustomerId={null} name={p.row.dim_label} /></span>,
+    },
+    {
+      field: 'revenue', headerName: 'Revenue', type: 'number', width: 130, cellClassName: 'mn',
+      valueGetter: (_v, row) => Number(row.revenue ?? 0), renderCell: (p) => <span style={{ fontWeight: 600 }}>{fm(p.row.revenue)}</span>,
+    },
+    {
+      field: 'margin_pct', headerName: 'Margin %', type: 'number', width: 110, cellClassName: 'mn',
+      valueGetter: (_v, row) => row.margin_pct != null ? Number(row.margin_pct) : -Infinity,
+      renderCell: (p) => {
+        const mp = p.row.margin_pct != null ? Number(p.row.margin_pct) : null;
+        const c = mp == null ? 'var(--mt)' : mp >= 0.4 ? 'var(--success)' : mp >= 0 ? 'var(--warning)' : 'var(--danger)';
+        return <span style={{ color: c }}>{fp(p.row.margin_pct)}</span>;
+      },
+    },
+    {
+      field: 'trend', headerName: 'Trend (12mo)', width: 160, sortable: false,
+      renderCell: (p) => {
+        const spark = customerSparks[p.row.dim_label];
+        return spark && spark.length > 0 ? <RowSpark values={spark} /> : <span style={{ color: 'var(--mt)' }}>—</span>;
+      },
+    },
+  ], [customerSparks]);
 
   const aov = totals && totals.invoice_count > 0 ? Number(totals.revenue) / Number(totals.invoice_count) : 0;
   const compareLabel = compareMode === 'prior_period' ? 'vs prior period' : compareMode === 'prior_year' ? 'vs same period last year' : '';
@@ -462,7 +465,7 @@ export function OverviewPage() {
               format="YYYY-MM-DD"
               localeText={{ start: 'From', end: 'To' }}
               slotProps={{
-                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--bd2)' } } },
+                textField: { size: 'small', sx: { width: 130, '& .MuiInputBase-root': { height: 30, fontFamily: 'var(--ff-mono)', fontSize: 12, background: 'var(--ctl-bg)', color: 'var(--tx)' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ctl-bd)' }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--ac)' } } },
                 fieldSeparator: { sx: { color: 'var(--mt)', mx: 0.5 } },
               }}
             />
@@ -630,8 +633,7 @@ export function OverviewPage() {
           <div>
             <div className="ct" style={{ margin: 0 }}>Top Sales Customers</div>
             <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
-              by {topSort.key === 'revenue' ? 'revenue' : topSort.key === 'margin_pct' ? 'margin %' : 'name'} ·
-              {' '}{topSort.dir === 'desc' ? 'descending' : 'ascending'} · click any header to re-sort
+              Sort, reorder, or hide columns from each header.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -642,39 +644,19 @@ export function OverviewPage() {
             <a href="#customers" className="tb-btn">All customers →</a>
           </div>
         </div>
-        {!sortedTopCustomers ? (
-          <div className="ld">Loading</div>
-        ) : sortedTopCustomers.length === 0 ? (
-          <div className="ld">No customers in this period.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                {sortHeader('dim_label', 'Customer')}
-                {sortHeader('revenue', 'Revenue', 'right')}
-                {sortHeader('margin_pct', 'Margin %', 'right')}
-                <th>Trend (12mo)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTopCustomers.map((r) => {
-                const mp = r.margin_pct != null ? Number(r.margin_pct) : null;
-                const mpColor = mp == null ? 'var(--mt)' : mp >= 0.4 ? 'var(--success)' : mp >= 0 ? 'var(--warning)' : 'var(--danger)';
-                const spark = customerSparks[r.dim_label];
-                return (
-                  <tr key={r.dim_label}>
-                    <td style={{ fontWeight: 600, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.dim_label}>
-                      <CustomerLink qboCustomerId={null} name={r.dim_label} />
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(r.revenue)}</td>
-                    <td className="mn" style={{ textAlign: 'right', color: mpColor }}>{fp(r.margin_pct)}</td>
-                    <td style={{ width: 140 }}>{spark && spark.length > 0 ? <RowSpark values={spark} /> : '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+        <DataGridPro
+          rows={sortedTopCustomers ?? []}
+          columns={topColumns}
+          getRowId={(r) => r.dim_label}
+          loading={sortedTopCustomers === null}
+          density="compact"
+          autoHeight
+          hideFooter
+          disableRowSelectionOnClick
+          {...GRID_DEFAULTS}
+          initialState={{ sorting: { sortModel: [{ field: 'revenue', sort: 'desc' }] } }}
+          sx={{ ...GRID_SX, height: 'auto' }}
+        />
       </div>
     </div>
   );

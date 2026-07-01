@@ -19,6 +19,12 @@ import { createTheme, type Theme } from '@mui/material/styles';
 
 export type ThemeMode = 'light' | 'dark';
 
+// Unified type stack — kept in lockstep with theme.css --ff-body / --ff-display.
+// Neutral grotesque (Helvetica Neue / Arial), no webfont, crisp everywhere.
+const SANS =
+  '"Helvetica Neue", Helvetica, Arial, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const DISPLAY = SANS;
+
 export function makeBrixTheme(mode: ThemeMode): Theme {
   const dark = mode !== 'light';
 
@@ -47,22 +53,25 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
         paper,
       },
       text: {
-        primary:   dark ? '#E6EEF7' : '#0E2447',
-        secondary: dark ? '#94A8BD' : '#436081',
-        disabled:  dark ? '#5A6F84' : '#8AA0B5',
+        primary:   dark ? '#E6EEF7' : '#14181F',
+        secondary: dark ? '#94A8BD' : '#36414E',
+        disabled:  dark ? '#5A6F84' : '#7C8B9B',
       },
       divider: dark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.10)',
     },
     shape: { borderRadius: 12 },
     typography: {
-      fontFamily:
-        '"Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      // One unified stack shared with theme.css (--ff-body/--ff-display):
+      // SF Pro on Apple, Inter Tight as the cross-platform fallback. Headings
+      // use the same family (SF Pro Display optical size) — Bricolage dropped so
+      // MUI surfaces and CSS surfaces read as a single typeface.
+      fontFamily: SANS,
       fontSize: 12,
       htmlFontSize: 14,
       button: { textTransform: 'none', fontWeight: 600, letterSpacing: 0 },
-      h1: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
-      h2: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
-      h3: { fontFamily: '"Bricolage Grotesque", "Inter Tight", sans-serif', fontWeight: 600 },
+      h1: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.02em' },
+      h2: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.015em' },
+      h3: { fontFamily: DISPLAY, fontWeight: 600, letterSpacing: '-0.01em' },
     },
     components: {
       MuiPaper: {

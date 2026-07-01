@@ -1,11 +1,44 @@
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { fm, fp } from '../../lib/formatters';
 import { MONTHS_SHORT, SalesPlan, SalesPlanLine } from '../../lib/plans';
+import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 
 interface Props {
   plan: SalesPlan;
   lines: SalesPlanLine[];
   actualsByItem: Record<string, { amounts: number[]; total: number }> | null;
 }
+
+interface VsRow {
+  id: string | number;
+  item_name: string | null;
+  ytdPlan: number; ytdAct: number; ytdVar: number | null;
+  totalPlan: number; totalAct: number; fyVar: number | null;
+}
+
+const varColor = (v: number | null) =>
+  v == null ? 'var(--mt)' : v >= 0 ? 'var(--gn)' : v <= -0.1 ? 'var(--rd)' : 'var(--am)';
+
+const VS_COLUMNS: GridColDef<VsRow>[] = [
+  {
+    field: 'item_name', headerName: 'Item', flex: 1, minWidth: 200,
+    renderCell: (p) => <span style={{ fontWeight: 600 }} title={p.row.item_name ?? ''}>{p.row.item_name ?? '—'}</span>,
+  },
+  { field: 'ytdPlan', headerName: 'YTD Plan', type: 'number', width: 120, cellClassName: 'mn', renderCell: (p) => fm(p.row.ytdPlan) },
+  { field: 'ytdAct', headerName: 'YTD Actual', type: 'number', width: 120, cellClassName: 'mn', renderCell: (p) => fm(p.row.ytdAct) },
+  {
+    field: 'ytdVar', headerName: 'YTD Δ%', type: 'number', width: 100, cellClassName: 'mn',
+    valueGetter: (_v, row) => row.ytdVar ?? -Infinity,
+    renderCell: (p) => <span style={{ color: varColor(p.row.ytdVar), fontWeight: 600 }}>{fp(p.row.ytdVar)}</span>,
+  },
+  { field: 'totalPlan', headerName: 'FY Plan', type: 'number', width: 120, cellClassName: 'mn', renderCell: (p) => <span style={{ color: 'var(--mt)' }}>{fm(p.row.totalPlan)}</span> },
+  { field: 'totalAct', headerName: 'FY Actual', type: 'number', width: 120, cellClassName: 'mn', renderCell: (p) => fm(p.row.totalAct) },
+  {
+    field: 'fyVar', headerName: 'FY Δ%', type: 'number', width: 100, cellClassName: 'mn',
+    valueGetter: (_v, row) => row.fyVar ?? -Infinity,
+    renderCell: (p) => <span style={{ color: varColor(p.row.fyVar), fontWeight: 600 }}>{fp(p.row.fyVar)}</span>,
+  },
+];
 
 export function PlanVsActuals({ plan, lines, actualsByItem }: Props) {
   if (!actualsByItem) {
@@ -35,6 +68,15 @@ export function PlanVsActuals({ plan, lines, actualsByItem }: Props) {
     return { totalPlan, totalAct, ytdPlan, ytdAct, ytdVar, fyVar, amts, act };
   }
 
+  const gridRows: VsRow[] = lines.map((l) => {
+    const s = summarize(l);
+    return {
+      id: l.id, item_name: l.item_name ?? null,
+      ytdPlan: s.ytdPlan, ytdAct: s.ytdAct, ytdVar: s.ytdVar,
+      totalPlan: s.totalPlan, totalAct: s.totalAct, fyVar: s.fyVar,
+    };
+  });
+
   return (
     <div className="cd" style={{ padding: 0 }}>
       <div
@@ -48,68 +90,20 @@ export function PlanVsActuals({ plan, lines, actualsByItem }: Props) {
         <div className="ct" style={{ margin: 0 }}>VS ACTUALS — through {MONTHS_SHORT[Math.max(0, elapsedIdx - 1)]} {plan.fiscal_year}</div>
         <div style={{ fontSize: 10, color: 'var(--mt)' }}>{elapsedIdx} months elapsed</div>
       </div>
-      <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-        <table>
-          <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-            <tr>
-              <th>Item</th>
-              <th style={{ textAlign: 'right' }}>YTD Plan</th>
-              <th style={{ textAlign: 'right' }}>YTD Actual</th>
-              <th style={{ textAlign: 'right' }}>YTD Δ%</th>
-              <th style={{ textAlign: 'right' }}>FY Plan</th>
-              <th style={{ textAlign: 'right' }}>FY Actual</th>
-              <th style={{ textAlign: 'right' }}>FY Δ%</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 ? (
-              <tr><td colSpan={7} className="ld">No lines yet.</td></tr>
-            ) : (
-              lines.map((l) => {
-                const s = summarize(l);
-                const ytdColor =
-                  s.ytdVar == null
-                    ? 'var(--mt)'
-                    : s.ytdVar >= 0
-                      ? 'var(--gn)'
-                      : s.ytdVar <= -0.1
-                        ? 'var(--rd)'
-                        : 'var(--am)';
-                const fyColor =
-                  s.fyVar == null
-                    ? 'var(--mt)'
-                    : s.fyVar >= 0
-                      ? 'var(--gn)'
-                      : s.fyVar <= -0.1
-                        ? 'var(--rd)'
-                        : 'var(--am)';
-                return (
-                  <tr key={l.id}>
-                    <td
-                      style={{
-                        maxWidth: 240,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 600,
-                      }}
-                      title={l.item_name ?? ''}
-                    >
-                      {l.item_name ?? '—'}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{fm(s.ytdPlan)}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{fm(s.ytdAct)}</td>
-                    <td className="mn" style={{ textAlign: 'right', color: ytdColor, fontWeight: 600 }}>{fp(s.ytdVar)}</td>
-                    <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fm(s.totalPlan)}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{fm(s.totalAct)}</td>
-                    <td className="mn" style={{ textAlign: 'right', color: fyColor, fontWeight: 600 }}>{fp(s.fyVar)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataGridPro
+        rows={gridRows}
+        columns={VS_COLUMNS}
+        density="compact"
+        pagination
+        disableRowSelectionOnClick
+        {...GRID_DEFAULTS}
+        pageSizeOptions={[25, 50, 100, { value: -1, label: 'All' }]}
+        initialState={{
+          pagination: { paginationModel: { pageSize: 50, page: 0 } },
+          sorting: { sortModel: [{ field: 'totalPlan', sort: 'desc' }] },
+        }}
+        sx={{ ...GRID_SX, height: '60vh', border: 'none' }}
+      />
     </div>
   );
 }

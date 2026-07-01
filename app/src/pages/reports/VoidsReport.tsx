@@ -6,6 +6,7 @@ import { fm, fp } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbq } from '../../lib/rpc';
 import { ItemSet, VoidRow, fetchProductVoids } from '../../lib/reports';
+import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 
 interface CustomerCell {
   id: string;
@@ -401,6 +402,7 @@ function VoidsGrid({ customers, itemCols }: { customers: CustomerCell[]; itemCol
       columns={columns}
       density="compact"
       pagination
+      {...GRID_DEFAULTS}
       pageSizeOptions={[10, 25, 50, 100, 250, { value: -1, label: 'All' }]}
       initialState={{
         pagination: { paginationModel: { pageSize: 25, page: 0 } },
@@ -409,32 +411,7 @@ function VoidsGrid({ customers, itemCols }: { customers: CustomerCell[]; itemCol
         columns: { columnVisibilityModel: { set_total: false } },
       }}
       disableRowSelectionOnClick
-      sx={{
-        height: '64vh',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--tx)',
-        fontFamily: 'inherit',
-        fontSize: 12,
-        '& .MuiDataGrid-columnHeaders': { background: 'var(--sf)', borderBottom: '1px solid var(--bd)' },
-        '& .MuiDataGrid-columnHeader': {
-          fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase',
-          fontSize: 10.5, color: 'var(--mt)',
-        },
-        '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': { outline: 'none' },
-        '& .MuiDataGrid-cell': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 0.5 },
-        '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': { outline: 'none' },
-        '& .MuiDataGrid-row:hover': { background: 'rgba(91,181,240,0.06)' },
-        '& .MuiDataGrid-pinnedColumns': { background: 'var(--sf)', boxShadow: '4px 0 12px rgba(0,0,0,0.35)' },
-        '& .MuiDataGrid-pinnedColumnHeaders': { background: 'var(--sf)' },
-        '& .MuiDataGrid-footerContainer': {
-          borderTop: '1px solid var(--bd)',
-          background: 'var(--sf)',
-          minHeight: 40,
-        },
-        '& .mn': { fontFeatureSettings: '"tnum" on, "lnum" on' },
-        '& .MuiDataGrid-menuIconButton, & .MuiDataGrid-sortIcon': { color: 'var(--mt)' },
-      }}
+      sx={GRID_SX}
     />
   );
 }
