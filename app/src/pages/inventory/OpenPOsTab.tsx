@@ -334,7 +334,7 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'open_only' | 'all')}
           style={{
             padding: '4px 8px', height: 28, fontSize: 11, borderRadius: 4,
-            background: 'var(--bg)', color: 'var(--tx)', border: '1px solid var(--bd)', width: 160,
+            background: 'var(--ctl-bg)', color: 'var(--tx)', border: '1px solid var(--ctl-bd)', width: 160,
           }}>
           <option value="open_only">Open + partial + draft</option>
           <option value="all">All statuses</option>

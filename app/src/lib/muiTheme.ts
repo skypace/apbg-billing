@@ -34,16 +34,17 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
   const accentDark = dark ? '#3A8FCC' : '#15568F';
   const accentLight = dark ? '#7ACBF5' : '#2A7FBF';
 
-  const paper = dark ? '#0E2240' : '#FFFFFF';
-  const canvas = dark ? '#06121F' : '#EEF3F8';
+  const paper = dark ? '#121316' : '#FFFFFF';
+  const canvas = dark ? '#000000' : '#EEF3F8';
+  const darkInk = '#0A0A0B';
   const fieldBorder = dark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.16)';
   const paperBorder = dark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)';
 
   return createTheme({
     palette: {
       mode,
-      primary:   { main: accent, dark: accentDark, light: accentLight, contrastText: '#06121F' },
-      secondary: { main: '#F4B400', contrastText: '#06121F' },
+      primary:   { main: accent, dark: accentDark, light: accentLight, contrastText: darkInk },
+      secondary: { main: '#F4B400', contrastText: darkInk },
       success:   { main: '#2EB872' },
       error:     { main: '#FF5A5F' },
       warning:   { main: '#F4B400' },
@@ -53,9 +54,9 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
         paper,
       },
       text: {
-        primary:   dark ? '#E6EEF7' : '#14181F',
-        secondary: dark ? '#94A8BD' : '#36414E',
-        disabled:  dark ? '#5A6F84' : '#7C8B9B',
+        primary:   dark ? '#EDEDF0' : '#14181F',
+        secondary: dark ? '#A2A3AB' : '#36414E',
+        disabled:  dark ? '#6E6F77' : '#7C8B9B',
       },
       divider: dark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.10)',
     },
@@ -88,7 +89,7 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
           root: { borderRadius: 10, fontWeight: 600 },
           containedPrimary: {
             background: `linear-gradient(135deg, ${accent} 0%, ${accentDark} 100%)`,
-            color: dark ? '#06121F' : '#FFFFFF',
+            color: dark ? darkInk : '#FFFFFF',
           },
         },
       },
@@ -115,8 +116,8 @@ export function makeBrixTheme(mode: ThemeMode): Theme {
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
-            backgroundColor: dark ? '#163052' : '#143052',
-            color: '#E6EEF7',
+            backgroundColor: dark ? '#24252A' : '#143052',
+            color: '#EDEDF0',
             border: '1px solid rgba(255,255,255,0.08)',
             fontSize: 11,
           },

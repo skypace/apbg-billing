@@ -466,7 +466,7 @@ export function CustomersSettingsEditor() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           padding: '4px 10px', height: 30, borderRadius: 4,
-          background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 280,
+          background: 'var(--ctl-bg)', border: '1px solid var(--ctl-bd)', minWidth: 280,
         }}>
           <Search size={13} strokeWidth={2.2} color="var(--mt)" aria-hidden="true" />
           <input type="text" value={search} placeholder="Search name, parent, entity, channel, city, address, notes…"

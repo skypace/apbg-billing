@@ -93,7 +93,7 @@ function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
       padding: '4px 10px', height: 30, borderRadius: 4,
-      background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 240,
+      background: 'var(--ctl-bg)', border: '1px solid var(--ctl-bd)', minWidth: 240,
     }}>
       <Search size={13} strokeWidth={2.2} color="var(--mt)" aria-hidden="true" />
       <input type="text" value={value} placeholder={placeholder}

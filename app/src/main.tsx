@@ -44,7 +44,7 @@ function Root() {
   useEffect(() => {
     document.documentElement.setAttribute('data-apbg-theme', mode);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', mode === 'light' ? '#EEF3F8' : '#06121F');
+    if (meta) meta.setAttribute('content', mode === 'light' ? '#EEF3F8' : '#000000');
   }, [mode]);
 
   useEffect(() => {

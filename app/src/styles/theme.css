@@ -1,20 +1,21 @@
 /* BRIX · Margin Control — design tokens + global system. */
 
 :root {
-  /* Backgrounds — navy-tinted dark, not pure black */
-  --bg:  #06121F;
-  --sf:  #0E2240;
-  --sf2: #163052;
-  --sf3: #1E4068;
+  /* Backgrounds — true black canvas with neutral-grey elevated surfaces
+     (not navy). The bubble-blue accent still carries the brand. */
+  --bg:  #000000;
+  --sf:  #121316;
+  --sf2: #1A1B1F;
+  --sf3: #24252A;
 
-  /* Borders — cool navy tones */
-  --bd:  #1B3A5E;
-  --bd2: #2A5285;
+  /* Borders — neutral grey */
+  --bd:  #2C2D33;
+  --bd2: #3C3D44;
 
-  /* Text — slightly blue-tinted whites */
-  --tx:  #E6EEF7;
-  --tx2: #94A8BD;
-  --mt:  #6B8499;
+  /* Text — neutral whites (blue tint removed) */
+  --tx:  #EDEDF0;
+  --tx2: #A2A3AB;
+  --mt:  #6E6F77;
 
   /* Brand */
   --ac:        #5BB5F0;
@@ -34,11 +35,12 @@
   --danger:  #FF5A5F;
   --info:    #5BB5F0;
 
-  /* Glass tokens — used across .cd / .toolbar / .sidebar */
-  --glass-bg-card:    linear-gradient(180deg, rgba(20, 57, 102, 0.32) 0%, rgba(14, 36, 71, 0.22) 100%);
-  --glass-bg-card-h:  linear-gradient(180deg, rgba(28, 75, 130, 0.42) 0%, rgba(20, 50, 95, 0.28) 100%);
-  --glass-bg-bar:     linear-gradient(180deg, rgba(20, 57, 102, 0.42) 0%, rgba(14, 36, 71, 0.32) 100%);
-  --glass-bg-side:    linear-gradient(180deg, rgba(14, 36, 71, 0.85) 0%, rgba(11, 28, 57, 0.92) 100%);
+  /* Glass tokens — used across .cd / .toolbar / .sidebar. Neutral frosted
+     white over the black canvas (was navy). */
+  --glass-bg-card:    linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --glass-bg-card-h:  linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --glass-bg-bar:     linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
+  --glass-bg-side:    linear-gradient(180deg, #0C0D0F 0%, #060607 100%);
   --glass-bord:       1px solid rgba(255, 255, 255, 0.08);
   --glass-bord-h:     1px solid rgba(91, 181, 240, 0.30);
   --glass-blur:       blur(20px) saturate(180%);
@@ -61,9 +63,9 @@
      + preset bars, modifier buttons, the hero status pill. Token-driven so they
      flip with the theme instead of staying navy ("grey on blue") on a light
      canvas. */
-  --ctl-bg:    rgba(11, 28, 57, 0.55);
-  --ctl-bg-h:  rgba(20, 57, 102, 0.65);
-  --ctl-bd:    rgba(255, 255, 255, 0.10);
+  --ctl-bg:    rgba(255, 255, 255, 0.05);
+  --ctl-bg-h:  rgba(255, 255, 255, 0.10);
+  --ctl-bd:    rgba(255, 255, 255, 0.12);
   --ctl-tx:    var(--tx);
   /* Faint column separator line for tables/grids — present but near-invisible. */
   --col-line:  rgba(255, 255, 255, 0.07);
@@ -108,9 +110,9 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 90% 60% at 18% -10%, rgba(91, 181, 240, 0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 80% 50% at 85% 0%,  rgba(244, 180, 0,  0.05) 0%, transparent 55%),
-    radial-gradient(circle at 50% 110%, rgba(20, 57, 102, 0.40) 0%, transparent 70%);
+    radial-gradient(ellipse 90% 60% at 18% -10%, rgba(91, 181, 240, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 50% at 85% 0%,  rgba(244, 180, 0,  0.04) 0%, transparent 55%),
+    radial-gradient(circle at 50% 110%, rgba(255, 255, 255, 0.02) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -153,7 +155,7 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.6px;
   font-weight: 600;
-  background: rgba(20, 57, 102, 0.32);
+  background: rgba(255, 255, 255, 0.04);
   backdrop-filter: var(--glass-blur-sm);
   -webkit-backdrop-filter: var(--glass-blur-sm);
   position: sticky;

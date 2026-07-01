@@ -115,9 +115,9 @@ const CAT_AC_SX = {
   width: '100%',
   '& .MuiOutlinedInput-root': {
     height: 26, minHeight: 26, fontFamily: 'inherit', fontSize: 11,
-    background: 'var(--bg)', color: 'var(--tx)', padding: '0 6px',
-    '& fieldset': { borderColor: 'var(--bd)' },
-    '&:hover fieldset': { borderColor: 'var(--bd2)' },
+    background: 'var(--ctl-bg)', color: 'var(--tx)', padding: '0 6px',
+    '& fieldset': { borderColor: 'var(--ctl-bd)' },
+    '&:hover fieldset': { borderColor: 'var(--ac)' },
     '&.Mui-focused fieldset': { borderColor: 'var(--ac)' },
   },
   '& .MuiAutocomplete-input': { padding: '2px 0 !important', fontSize: 11, color: 'var(--tx)' },
@@ -1243,7 +1243,7 @@ export function ItemsSettingsEditor() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           padding: '4px 10px', height: 30, borderRadius: 4,
-          background: 'var(--bg)', border: '1px solid var(--bd)', minWidth: 260,
+          background: 'var(--ctl-bg)', border: '1px solid var(--ctl-bd)', minWidth: 260,
         }}>
           <Search size={13} strokeWidth={2.2} color="var(--mt)" aria-hidden="true" />
           <input type="text" value={search} placeholder="Search name, category, account, notes…"

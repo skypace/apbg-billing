@@ -3,7 +3,7 @@ import {
   Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, IconButton,
   InputLabel, MenuItem, Paper, Select, Snackbar, Stack, Switch, Tab, Table, TableBody,
-  TableCell, TableHead, TableRow, Tabs, TextField, ThemeProvider, Typography, createTheme,
+  TableCell, TableHead, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
 import { Plus, Trash2, Download, Upload } from 'lucide-react';
 import {
@@ -13,12 +13,8 @@ import {
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
 
-// Apple system font + darker, higher-contrast text for this surface.
-const APPLE = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-const theme = createTheme({
-  typography: { fontFamily: APPLE, fontSize: 14, h5: { fontWeight: 700, letterSpacing: '-0.02em' } },
-  palette: { mode: 'light', text: { primary: '#1d1d1f', secondary: '#3a3a3c' }, background: { paper: '#ffffff' } },
-});
+// This page inherits the app's MUI theme (makeBrixTheme) so it follows the
+// light/dark switch and the shared branding — no local ThemeProvider.
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const usd = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -68,12 +64,11 @@ export function PricingPage() {
     return m;
   }, [data]);
 
-  if (err) return <ThemeProvider theme={theme}><Box sx={{ p: 3 }}><Alert severity="error">{err}</Alert></Box></ThemeProvider>;
+  if (err) return <Box sx={{ p: 3 }}><Alert severity="error">{err}</Alert></Box>;
   if (!data) return <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress /></Box>;
   const ok = (msg: string) => { setToast(msg); void reload(); };
 
   return (
-    <ThemeProvider theme={theme}>
       <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1040, mx: 'auto', color: 'text.primary' }}>
         <Typography variant="h5" sx={{ mb: 0.5 }}>Pricing</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -112,7 +107,6 @@ export function PricingPage() {
 
         <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast ?? ''} />
       </Box>
-    </ThemeProvider>
   );
 }
 
