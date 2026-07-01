@@ -96,7 +96,7 @@ function RuleTable({ kind }: { kind: 'item' | 'customer' }) {
       </div>
 
       {/* Live test row */}
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(20, 57, 102, 0.20)' }}>
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--sf2)' }}>
         <FlaskConical size={14} strokeWidth={2.2} style={{ color: 'var(--ac)' }} />
         <span className="toolbar-label">Test</span>
         <input type="text" value={testInput}

@@ -151,9 +151,9 @@ export function FleetDriversEditor() {
                         onChange={(e) => setLink(d.fc_person_id, e.target.value ? Number(e.target.value) : null)}
                         disabled={isSaving}
                         style={{
-                          background: 'var(--sf2)',
+                          background: 'var(--ctl-bg)',
                           color: 'var(--tx)',
-                          border: '1px solid var(--bd)',
+                          border: '1px solid var(--ctl-bd)',
                           borderRadius: 3,
                           padding: '3px 6px',
                           fontSize: 11,

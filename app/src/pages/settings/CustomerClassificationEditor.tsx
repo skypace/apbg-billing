@@ -140,9 +140,9 @@ export function CustomerClassificationEditor() {
                 key={p.value || 'all'}
                 onClick={() => setChannelFilter(p.value)}
                 style={{
-                  background: on ? 'var(--ac)' : 'var(--sf2)',
-                  color: on ? 'var(--bg)' : 'var(--tx)',
-                  border: '1px solid var(--bd)',
+                  background: on ? 'var(--ac)' : 'var(--ctl-bg)',
+                  color: on ? '#fff' : 'var(--tx)',
+                  border: '1px solid var(--ctl-bd)',
                   padding: '4px 9px',
                   borderRadius: 4,
                   fontSize: 11,
