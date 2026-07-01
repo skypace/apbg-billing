@@ -12,9 +12,11 @@ import {
   addContractCustomer, removeContractCustomer, setContractMeta, createPriceBook,
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
-import { classifyItem, ITEM_GROUP_ORDER } from '../lib/taxonomy';
+import { fetchInventoryHealth } from '../lib/inventory';
 
 type BookSort = 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc';
+type GroupField = 'family' | 'type';
+type ItemMeta = Map<string, { family: string | null; type: string | null }>;
 
 // This page inherits the app's MUI theme (makeBrixTheme) so it follows the
 // light/dark switch and the shared branding — no local ThemeProvider.
@@ -49,12 +51,21 @@ export function PricingPage() {
   const [contractId, setContractId] = useState<string>('');
   const [newContractOpen, setNewContractOpen] = useState(false);
   const [newBookOpen, setNewBookOpen] = useState(false);
+  const [itemMeta, setItemMeta] = useState<ItemMeta>(new Map());
 
   async function reload() {
     setErr(null);
     try {
-      const d = await getPricing();
+      // Pull the item master alongside pricing so books can be sectioned by
+      // the same product Family / Type the Margin screen groups by.
+      const [d, health] = await Promise.all([
+        getPricing(),
+        fetchInventoryHealth({}).catch(() => []),
+      ]);
       setData(d);
+      const m: ItemMeta = new Map();
+      for (const h of health) m.set(h.qbo_item_id, { family: h.product_family_label, type: h.product_type_label });
+      setItemMeta(m);
       if (!contractId && d.contracts.length) setContractId(d.contracts[0]!.id);
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to load pricing'); }
   }
@@ -84,7 +95,7 @@ export function PricingPage() {
           <Tab label={`Contracts (${data.contracts.length})`} />
         </Tabs>
 
-        {tab === 0 && <BooksTab data={data} pct={pct} setPct={setPct} eff={eff} setEff={setEff}
+        {tab === 0 && <BooksTab data={data} itemMeta={itemMeta} pct={pct} setPct={setPct} eff={eff} setEff={setEff}
           bulkBusy={bulkBusy} setBulkBusy={setBulkBusy} onOk={ok} onErr={setErr} onNewBook={() => setNewBookOpen(true)} />}
 
         {tab === 1 && (
@@ -113,13 +124,14 @@ export function PricingPage() {
   );
 }
 
-function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk, onErr, onNewBook }: {
-  data: PricingData; pct: string; setPct: (s: string) => void; eff: string; setEff: (s: string) => void;
+function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk, onErr, onNewBook }: {
+  data: PricingData; itemMeta: ItemMeta; pct: string; setPct: (s: string) => void; eff: string; setEff: (s: string) => void;
   bulkBusy: boolean; setBulkBusy: (b: boolean) => void; onOk: (m: string) => void; onErr: (e: string) => void; onNewBook: () => void;
 }) {
   const [bookCode, setBookCode] = useState(data.books[0]?.code ?? 'BX-1');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<BookSort>('name_asc');
+  const [groupBy, setGroupBy] = useState<GroupField>('family');
   const [addItem, setAddItem] = useState<ItemOpt | null>(null);
   const [addPrice, setAddPrice] = useState('');
   const [addBusy, setAddBusy] = useState(false);
@@ -127,8 +139,9 @@ function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk,
   const book = data.books.find((b) => b.code === bookCode);
   const label = (it: BookItem) => it.item_name ?? it.qbo_item_id;
 
-  // Filter → sort → group the book's items into item-taxonomy sections. Also
-  // compute the add-item options (every catalog item not already in the book).
+  // Filter → sort → group into sections by the item's product Family / Type
+  // (the same categorization the Margin screen uses; sourced from fn_items_master).
+  // Also compute add-item options (every catalog item not already in the book).
   const { sections, groups, total, addOptions } = useMemo(() => {
     const bookItems = data.standard.filter((s) => s.price_book_id === book?.id);
     const inBook = new Set(bookItems.map((b) => b.qbo_item_id));
@@ -150,18 +163,21 @@ function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk,
       }
     };
 
+    const UNASSIGNED = 'Unassigned';
     const g = new Map<string, BookItem[]>();
     for (const it of filtered) {
-      const key = classifyItem(it.item_name ?? it.qbo_item_id);
+      const meta = itemMeta.get(it.qbo_item_id);
+      const key = (groupBy === 'type' ? meta?.type : meta?.family) || UNASSIGNED;
       const arr = g.get(key);
       if (arr) arr.push(it); else g.set(key, [it]);
     }
     for (const arr of g.values()) arr.sort(cmp);
-    const secs = [...g.keys()].sort(
-      (a, b) => (ITEM_GROUP_ORDER[a] ?? 999) - (ITEM_GROUP_ORDER[b] ?? 999) || a.localeCompare(b),
+    // Alphabetical sections, "Unassigned" always last.
+    const secs = [...g.keys()].sort((a, b) =>
+      (a === UNASSIGNED ? 1 : 0) - (b === UNASSIGNED ? 1 : 0) || a.localeCompare(b),
     );
     return { sections: secs, groups: g, total: filtered.length, addOptions: opts };
-  }, [data, book?.id, search, sort]);
+  }, [data, itemMeta, book?.id, search, sort, groupBy]);
 
   return (
     <Stack spacing={2}>
@@ -217,6 +233,13 @@ function BooksTab({ data, pct, setPct, eff, setEff, bulkBusy, setBulkBusy, onOk,
               <MenuItem value="name_desc">Name Z–A</MenuItem>
               <MenuItem value="price_asc">Price low → high</MenuItem>
               <MenuItem value="price_desc">Price high → low</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Group by</InputLabel>
+            <Select label="Group by" value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupField)}>
+              <MenuItem value="family">Family</MenuItem>
+              <MenuItem value="type">Type</MenuItem>
             </Select>
           </FormControl>
           <Box sx={{ flex: 1 }} />
