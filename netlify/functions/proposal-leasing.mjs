@@ -38,14 +38,11 @@ export async function handler(event) {
   if (event.httpMethod !== route.method) return json({ error: `${route.method} only for ${resource}` }, 405);
 
   const token = process.env.BRIX_LEASING_API_TOKEN || '';
-  const inboundAuth = event.headers?.authorization || event.headers?.Authorization || '';
   const headers = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
   };
-  if (inboundAuth) {
-    headers.Authorization = inboundAuth;
-  } else if (token && token.split('.').length === 3) {
+  if (token && token.split('.').length === 3) {
     headers.Authorization = `Bearer ${token}`;
   }
   if (token) {
