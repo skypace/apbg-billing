@@ -43,11 +43,13 @@ export async function handler(event) {
     Accept: 'application/json',
     'Content-Type': 'application/json',
   };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-    headers['X-API-Key'] = token;
-  } else if (inboundAuth) {
+  if (inboundAuth) {
     headers.Authorization = inboundAuth;
+  } else if (token && token.split('.').length === 3) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (token) {
+    headers['X-API-Key'] = token;
   }
 
   try {
