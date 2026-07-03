@@ -1,6 +1,9 @@
-// Health Watchdog — scheduled every 30 minutes
-// Checks QBO, Service Fusion, ResQ, sync freshness, and ResQ schema drift
-// Sends alert email only when something is wrong
+// Health Watchdog — on-demand health ENDPOINT (no longer self-scheduled).
+// Checks QBO, Service Fusion, ResQ, sync freshness, and ResQ schema drift.
+// Scheduled run RETIRED 2026-06-30 — alerting consolidated into the single
+// Supabase `health-alert` edge function (pg_cron, every 15 min), whose
+// ops.sync_health() + qbo_token_diagnostics() cover the same freshness/token
+// signals. This stays a live endpoint (the gateway status dots probe it).
 
 import { qboQuery } from './qbo-helpers.mjs';
 import { requireScheduledOrAuth } from './lib/auth.mjs';
@@ -9,7 +12,7 @@ import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sendEmail, APPROVAL_EMAIL } from './email-helpers.mjs';
 import { createClient } from '@supabase/supabase-js';
 
-export const config = { schedule: '*/30 * * * *' };
+// (no `export const config = { schedule }` — endpoint only, runs on request)
 
 // ── Mutations and enum values the sync depends on ──
 const REQUIRED_MUTATIONS = [

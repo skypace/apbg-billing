@@ -203,6 +203,25 @@ async function qboReport(sb: SupabaseClient, n: string, p: Record<string, string
   return res.json();
 }
 
+// Change Data Capture: GET /cdc returns every entity of the requested types
+// changed since `changedSince` — in ONE call, with full Line detail — so we can
+// upsert headers + lines without per-invoice reads. The cheap replacement for
+// the brute-force line-sweep crons.
+async function cdcGet(sb: SupabaseClient, entities: string, changedSince: string): Promise<any> {
+  const realm = getRealm();
+  let token = await getAccessToken(sb);
+  const u = QBO_BASE + "/" + realm + "/cdc?entities=" + encodeURIComponent(entities)
+    + "&changedSince=" + encodeURIComponent(changedSince) + "&minorversion=70";
+  let res = await fetch(u, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
+  if (res.status === 401) {
+    await sb.rpc("qbo_token_release_failed", { p_realm_id: realm, p_error: "401 cdc" });
+    token = await getAccessToken(sb);
+    res = await fetch(u, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
+  }
+  if (!res.ok) throw new Error("QBO CDC (" + res.status + "): " + (await res.text()).slice(0, 300));
+  return res.json();
+}
+
 // readSalesTxn — wraps qboRead with the right include/minorversion combo per
 // txn type. Invoice gets ?include=invoiceLink so the response carries the
 // hosted payment URL; other txn types use the plain read path.
@@ -438,7 +457,7 @@ Deno.serve(async (req: Request) => {
     const r = await refreshSalesLines(sb);
     return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
   }
-  if (mode === "whoami") return jsonRes({ version: 44, txn_types_supported: ALL_TXN_TYPES });
+  if (mode === "whoami") return jsonRes({ version: 45, txn_types_supported: ALL_TXN_TYPES, modes: ["incremental","full","fast","lines","refresh-lines","cdc","refresh-mv"] });
 
   // === refresh-lines mode ===
   // Reads a slice of qbo_invoices by date+offset and refetches their lines via
@@ -531,6 +550,97 @@ Deno.serve(async (req: Request) => {
       invoices_checked: allInvs?.length || 0, invoices_processed: processed,
       lines_added: linesAdded, next_offset: offset + batchSize, mv_refresh: mvResult,
     });
+  }
+
+  // === cdc mode (Change Data Capture backstop) ===
+  // Pull ONLY the sales txns changed since the last run — one CDC call returns
+  // them WITH line detail — and upsert header + lines from that payload (no
+  // per-invoice reads). Catches new invoices + any change the webhook missed,
+  // at a handful of API calls per run. Replaces the line-sweep polling crons.
+  if (mode === "cdc") {
+    const lookbackMin = parseInt(url.searchParams.get("lookback_min") || "45");
+    // changedSince = last successful cdc run minus a 5-min overlap; else lookback.
+    const { data: lastRows } = await sb.from("sync_log")
+      .select("completed_at").eq("sync_type", "cdc").eq("status", "success")
+      .order("completed_at", { ascending: false }).limit(1);
+    const lastTs = (lastRows as any[])?.[0]?.completed_at;
+    let since = lastTs
+      ? new Date(new Date(lastTs).getTime() - 5 * 60 * 1000)
+      : new Date(Date.now() - lookbackMin * 60 * 1000);
+    const minSince = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000); // CDC max 30d
+    if (since < minSince) since = minSince;
+    const sinceIso = since.toISOString();
+
+    try {
+      const revMap = await loadRevenueMap(sb);
+      const entities = ["Invoice", "CreditMemo", "SalesReceipt", "RefundReceipt"];
+      const cdc = await cdcGet(sb, entities.join(","), sinceIso);
+      const qrs: any[] = cdc?.CDCResponse?.[0]?.QueryResponse || [];
+      const perType: Record<string, any> = {};
+      let totalHeaders = 0, totalLines = 0, totalErrors = 0, totalDeleted = 0;
+
+      for (const qr of qrs) {
+        for (const txnType of entities) {
+          const list = qr[txnType];
+          if (!Array.isArray(list) || list.length === 0) continue;
+          const cfg = TXN_CONFIGS[txnType];
+
+          // Deleted entities come back flagged; prune them, upsert the rest.
+          const live = list.filter((t: any) => !(t.status === "Deleted" || t.Deleted));
+          const dead = list.filter((t: any) => (t.status === "Deleted" || t.Deleted));
+
+          if (live.length > 0) {
+            const headerRows = live.map((txn: any) => headerRow(txn, txnType, cfg.sign));
+            await sb.from("qbo_invoices").upsert(headerRows, { onConflict: "qbo_invoice_id,txn_type" });
+          }
+          const ids = list.map((t: any) => String(t.Id));
+          const { data: invRows } = await sb.from("qbo_invoices")
+            .select("id, qbo_invoice_id").in("qbo_invoice_id", ids).eq("txn_type", txnType);
+          const idMap = new Map<string, number>();
+          for (const r of (invRows as any[]) || []) idMap.set(r.qbo_invoice_id, r.id);
+
+          let h = 0, ln = 0, err = 0, del = 0;
+          for (const txn of live) {
+            try {
+              const rid = idMap.get(String(txn.Id));
+              if (!rid) continue;
+              // CDC payload already carries Line detail — no extra read.
+              const lineRows = lineRowsFromTxn(txn, rid, cfg.sign, revMap);
+              ln += await writeLines(sb, rid, lineRows);
+              await updateInvoiceSfJobId(sb, rid, extractSfJobId(txn));
+              h++;
+            } catch (e: any) { err++; console.error(`cdc ${txnType} ${txn.Id}: ${e.message}`); }
+          }
+          for (const txn of dead) {
+            const rid = idMap.get(String(txn.Id));
+            if (!rid) continue;
+            await sb.from("qbo_invoice_lines").delete().eq("invoice_id", rid);
+            await sb.from("qbo_invoices").delete().eq("id", rid);
+            del++;
+          }
+          perType[txnType] = { changed: list.length, processed: h, lines: ln, deleted: del, errors: err };
+          totalHeaders += h; totalLines += ln; totalErrors += err; totalDeleted += del;
+        }
+      }
+
+      const mvResult = await refreshSalesLines(sb);
+      await sb.from("sync_log").insert({
+        source: "qbo", sync_type: "cdc", status: "success",
+        records_synced: totalHeaders, completed_at: new Date().toISOString(),
+        metadata: { changed_since: sinceIso, per_type: perType, lines: totalLines, deleted: totalDeleted, errors: totalErrors },
+      });
+      return jsonRes({
+        status: "success", mode: "cdc", changed_since: sinceIso,
+        per_type: perType, total_headers: totalHeaders, total_lines: totalLines,
+        deleted: totalDeleted, errors: totalErrors, mv_refresh: mvResult,
+      });
+    } catch (err: any) {
+      await sb.from("sync_log").insert({
+        source: "qbo", sync_type: "cdc", status: "error",
+        error_message: (err?.message || String(err)).slice(0, 500), completed_at: new Date().toISOString(),
+      }).then(() => {}, () => {});
+      return jsonRes({ status: "error", mode: "cdc", changed_since: sinceIso, message: err?.message || String(err) }, 500);
+    }
   }
 
   const now = new Date();
