@@ -30,6 +30,12 @@ export interface ProposalProduct {
   packageSize?: string;
   description?: string;
   imageUrl?: string;
+  specSheetUrl?: string;
+  sku?: string;
+  manufacturer?: string;
+  model?: string;
+  weightLbs?: number;
+  source?: 'qbo' | 'brix-order';
   active: boolean;
 }
 

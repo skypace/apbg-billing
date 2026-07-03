@@ -13,21 +13,30 @@ function json(body, status = 200) {
   };
 }
 
-function opsHeaders() {
+function restHeaders(profile = 'ops') {
   return {
     apikey: SERVICE_KEY,
     Authorization: `Bearer ${SERVICE_KEY}`,
     Accept: 'application/json',
     'Content-Type': 'application/json',
-    'Accept-Profile': 'ops',
-    'Content-Profile': 'ops',
+    'Accept-Profile': profile,
+    'Content-Profile': profile,
   };
 }
 
-async function supabaseGet(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: opsHeaders() });
+async function supabaseGet(path, profile = 'ops') {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: restHeaders(profile) });
   if (!res.ok) throw new Error(`Supabase read failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
   return res.json();
+}
+
+async function supabaseGetOptional(path, profile = 'ops') {
+  try {
+    return await supabaseGet(path, profile);
+  } catch (e) {
+    console.warn(`Optional Supabase read skipped (${profile}.${path.split('?')[0]}):`, e instanceof Error ? e.message : e);
+    return [];
+  }
 }
 
 function classifyProduct(name) {
@@ -48,10 +57,13 @@ function packageSize(name) {
   return match ? match[0] : undefined;
 }
 
-function descriptionFor(row, price) {
+function descriptionFor(row, price, orderItem) {
+  if (orderItem?.description) return orderItem.description;
   const parts = [row.name || row.item_name || row.qbo_item_id];
   const size = packageSize(parts[0]);
   if (size) parts.push(size);
+  if (orderItem?.sku || row.sku) parts.push(orderItem?.sku || row.sku);
+  if (orderItem?.model) parts.push(orderItem.model);
   if (price != null) parts.push(`BX-1 ${Number(price).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}`);
   return parts.filter(Boolean).join(' · ');
 }
@@ -67,6 +79,86 @@ function imageFor(name, category) {
   return undefined;
 }
 
+function normalizeKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function envList(...names) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value) {
+      return value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function storagePublicUrl(bucket, path) {
+  const cleanPath = String(path || '').replace(/^\/+/, '');
+  return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(bucket)}/${cleanPath.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function assetUrlFor(key, kind) {
+  const raw = String(key || '').trim();
+  if (!raw) return undefined;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/')) return raw;
+
+  const assetBase = process.env.BRIX_ORDER_ASSET_BASE_URL || '';
+  if (assetBase) return `${assetBase.replace(/\/+$/, '')}/${raw.replace(/^\/+/, '')}`;
+
+  const configuredBuckets = kind === 'spec'
+    ? envList('BRIX_ORDER_SPEC_BUCKETS', 'BRIX_ORDER_SPEC_BUCKET', 'BRIX_ORDER_ASSET_BUCKET')
+    : envList('BRIX_ORDER_IMAGE_BUCKETS', 'BRIX_ORDER_IMAGE_BUCKET', 'BRIX_ORDER_ASSET_BUCKET');
+  const colon = raw.match(/^([^:]+):(.+)$/);
+  if (colon) return storagePublicUrl(colon[1], colon[2]);
+
+  const [first, ...rest] = raw.replace(/^\/+/, '').split('/');
+  if (rest.length && configuredBuckets.includes(first)) return storagePublicUrl(first, rest.join('/'));
+  if (configuredBuckets[0]) return storagePublicUrl(configuredBuckets[0], raw);
+  return undefined;
+}
+
+function indexOrderItems(rows) {
+  const byQboId = new Map();
+  const byName = new Map();
+  for (const item of rows) {
+    if (item.qbo_item_id) byQboId.set(String(item.qbo_item_id), item);
+    for (const value of [item.qbo_item_name, item.name, item.sku].filter(Boolean)) {
+      const key = normalizeKey(value);
+      if (key && !byName.has(key)) byName.set(key, item);
+    }
+  }
+  return { byQboId, byName };
+}
+
+function findOrderItem(row, index) {
+  const byId = index.byQboId.get(String(row.qbo_item_id));
+  if (byId) return byId;
+  for (const value of [row.name, row.fully_qualified_name].filter(Boolean)) {
+    const direct = index.byName.get(normalizeKey(value));
+    if (direct) return direct;
+  }
+  const rowName = normalizeKey(row.name || row.fully_qualified_name || '');
+  if (!rowName) return undefined;
+  for (const [key, item] of index.byName) {
+    if (key && (key.includes(rowName) || rowName.includes(key))) return item;
+  }
+  return undefined;
+}
+
+function orderCategory(orderItem, fallbackName) {
+  const raw = orderItem?.category || orderItem?.item_type || fallbackName;
+  return classifyProduct(raw);
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders(), body: '' };
   if (event.httpMethod !== 'GET') return json({ error: 'GET only' }, 405);
@@ -78,29 +170,39 @@ export async function handler(event) {
     const today = new Date().toISOString().slice(0, 10);
     const books = await supabaseGet('price_books?code=eq.BX-1&select=id&limit=1');
     const bookId = books[0]?.id;
-    const [items, prices] = await Promise.all([
-      supabaseGet('qbo_items?active=eq.true&select=qbo_item_id,name,active&order=name'),
+    const [items, prices, orderItems] = await Promise.all([
+      supabaseGet('qbo_items?active=eq.true&select=qbo_item_id,name,fully_qualified_name,sku,type,active&order=name'),
       bookId
         ? supabaseGet(`price_book_items?price_book_id=eq.${bookId}&effective_from=lte.${today}&or=(effective_to.is.null,effective_to.gte.${today})&select=qbo_item_id,item_name,unit_price,effective_from&order=effective_from.desc`)
         : Promise.resolve([]),
+      supabaseGetOptional('contract_items?or=(active.is.null,active.eq.true)&select=id,name,category,description,image_key,item_type,manufacturer,model,qbo_item_id,qbo_item_name,sku,sales_price,spec_sheet_key,weight_lbs&order=sort_order,name', 'public'),
     ]);
 
     const priceByItem = new Map();
     for (const row of prices) {
       if (!priceByItem.has(row.qbo_item_id)) priceByItem.set(row.qbo_item_id, Number(row.unit_price));
     }
+    const orderIndex = indexOrderItems(orderItems);
 
     const products = items.map((row) => {
       const name = row.name || row.qbo_item_id;
+      const orderItem = findOrderItem(row, orderIndex);
       const price = priceByItem.get(row.qbo_item_id);
+      const category = orderItem ? orderCategory(orderItem, name) : classifyProduct(name);
       return {
         id: String(row.qbo_item_id),
         name,
-        category: classifyProduct(name),
-        price,
-        packageSize: packageSize(name),
-        description: descriptionFor(row, price),
-        imageUrl: imageFor(name, classifyProduct(name)),
+        category,
+        price: price ?? (orderItem?.sales_price != null ? Number(orderItem.sales_price) : undefined),
+        packageSize: packageSize([name, orderItem?.description, orderItem?.sku, row.sku].filter(Boolean).join(' ')),
+        description: descriptionFor(row, price, orderItem),
+        imageUrl: assetUrlFor(orderItem?.image_key, 'image') || imageFor(name, category),
+        specSheetUrl: assetUrlFor(orderItem?.spec_sheet_key, 'spec'),
+        sku: orderItem?.sku || row.sku || undefined,
+        manufacturer: orderItem?.manufacturer || undefined,
+        model: orderItem?.model || undefined,
+        weightLbs: orderItem?.weight_lbs != null ? Number(orderItem.weight_lbs) : undefined,
+        source: orderItem ? 'brix-order' : 'qbo',
         active: row.active !== false,
       };
     });

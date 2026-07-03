@@ -105,7 +105,7 @@ function render(row) {
       </section>
       <section>
         <h2>Beverage Lineup</h2>
-        ${list(products, (p) => `<li>${escapeHtml(p.name)}${p.packageSize ? ` <span class="muted">(${escapeHtml(p.packageSize)})</span>` : ''}</li>`)}
+        ${list(products, (p) => `<li>${escapeHtml(p.name)}${p.packageSize ? ` <span class="muted">(${escapeHtml(p.packageSize)})</span>` : ''}${p.sku ? ` <span class="muted">· ${escapeHtml(p.sku)}</span>` : ''}${p.specSheetUrl ? ` <a href="${escapeHtml(p.specSheetUrl)}">Spec sheet</a>` : ''}</li>`)}
       </section>
       <section>
         <h2>Equipment Package</h2>
@@ -128,7 +128,7 @@ function render(row) {
         <p><a href="${escapeHtml(terms.accountApplicationUrl || 'https://alamedapointbg.com/account-application')}">Open account application</a></p>
       </section>
     </div>
-    ${products.some((p) => p.imageUrl) ? `<section style="margin-top:18px"><h2>Product Visuals</h2><div class="thumb-list">${products.map((p) => `<div class="thumb">${image(p.imageUrl, p.name)}<strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><span class="muted">${escapeHtml(p.description)}</span>` : ''}</div>`).join('')}</div></section>` : ''}
+    ${products.some((p) => p.imageUrl || p.specSheetUrl) ? `<section style="margin-top:18px"><h2>Product Visuals & Specs</h2><div class="thumb-list">${products.map((p) => `<div class="thumb">${image(p.imageUrl, p.name)}<strong>${escapeHtml(p.name)}</strong>${p.description ? `<br><span class="muted">${escapeHtml(p.description)}</span>` : ''}${p.specSheetUrl ? `<br><a href="${escapeHtml(p.specSheetUrl)}">Spec sheet</a>` : ''}</div>`).join('')}</div></section>` : ''}
     ${equipment.some((e) => e.imageUrl || e.specSheetUrl) ? `<section style="margin-top:18px"><h2>Equipment Visuals</h2><div class="thumb-list">${equipment.map((e) => `<div class="thumb">${image(e.imageUrl, e.name)}<strong>${escapeHtml(e.name)}</strong>${e.specSheetUrl ? `<br><a href="${escapeHtml(e.specSheetUrl)}">Spec sheet</a>` : ''}</div>`).join('')}</div></section>` : ''}
   </main>
 </body>

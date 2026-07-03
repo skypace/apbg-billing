@@ -450,12 +450,13 @@ export function ProposalBuilderPage() {
                 ))}
                 renderOption={(props, option) => (
                   <Box component="li" {...props} sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
-                    <Thumb src={option.imageUrl} alt={option.name} />
+                    <Thumb src={option.imageUrl} alt={option.name} size={52} />
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body2" fontWeight={700}>{option.name}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {option.category.toUpperCase()}{option.price != null ? ` · ${currency(option.price)}` : ''}
+                        {productSubtitle(option)}
                       </Typography>
+                      <ProductSpecChips product={option} compact />
                     </Box>
                   </Box>
                 )}
@@ -814,13 +815,15 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   );
 }
 
-function Thumb({ src, alt }: { src?: string | null; alt: string }) {
+function Thumb({ src, alt, size = 44 }: { src?: string | null; alt: string; size?: number }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const activeSrc = src && failedSrc !== src ? src : null;
   return (
     <Box
       sx={{
-        width: 44,
-        height: 44,
-        flex: '0 0 44px',
+        width: size,
+        height: size,
+        flex: `0 0 ${size}px`,
         borderRadius: 1,
         border: '1px solid',
         borderColor: 'divider',
@@ -830,8 +833,16 @@ function Thumb({ src, alt }: { src?: string | null; alt: string }) {
         overflow: 'hidden',
       }}
     >
-      {src
-        ? <Box component="img" src={src} alt={alt} sx={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+      {activeSrc
+        ? (
+          <Box
+            component="img"
+            src={activeSrc}
+            alt={alt}
+            onError={() => setFailedSrc(activeSrc)}
+            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
+        )
         : <PackagePlus size={18} color="currentColor" />}
     </Box>
   );
@@ -850,16 +861,41 @@ function ProductSummary({ products }: { products: ProposalProduct[] }) {
           <Chip key={category} size="small" variant="outlined" label={`${category.toUpperCase()} · ${count}`} />
         ))}
       </Stack>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 1 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 1 }}>
         {products.slice(0, 8).map((product) => (
-          <Paper key={product.id} variant="outlined" sx={{ p: 1, borderRadius: 1 }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Thumb src={product.imageUrl} alt={product.name} />
+          <Paper key={product.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
+            <Stack direction="row" spacing={1.25} alignItems="flex-start">
+              <Thumb src={product.imageUrl} alt={product.name} size={68} />
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" fontWeight={700} noWrap>{product.name}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {product.price != null ? currency(product.price) : product.category.toUpperCase()}
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={700} noWrap title={product.name}>{product.name}</Typography>
+                  {product.specSheetUrl && (
+                    <Tooltip title="Open product spec sheet">
+                      <IconButton size="small" component="a" href={product.specSheetUrl} target="_blank" rel="noopener noreferrer">
+                        <FileText size={14} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  {productSubtitle(product)}
                 </Typography>
+                {product.description && product.description !== product.name && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      mt: 0.25,
+                    }}
+                  >
+                    {product.description}
+                  </Typography>
+                )}
+                <ProductSpecChips product={product} />
               </Box>
             </Stack>
           </Paper>
@@ -867,6 +903,36 @@ function ProductSummary({ products }: { products: ProposalProduct[] }) {
       </Box>
     </Stack>
   );
+}
+
+function ProductSpecChips({ product, compact = false }: { product: ProposalProduct; compact?: boolean }) {
+  const chips = [
+    product.packageSize ? { key: 'package', label: product.packageSize } : null,
+    product.sku ? { key: 'sku', label: product.sku } : null,
+    product.model ? { key: 'model', label: product.model } : null,
+    product.manufacturer ? { key: 'manufacturer', label: product.manufacturer } : null,
+    product.weightLbs ? { key: 'weight', label: `${product.weightLbs.toLocaleString()} lb` } : null,
+    product.source === 'brix-order' ? { key: 'source', label: 'Order catalog' } : null,
+    product.specSheetUrl && compact ? { key: 'spec', label: 'Spec sheet' } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string }>;
+  if (!chips.length) return null;
+  return (
+    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+      {chips.slice(0, compact ? 3 : 5).map((chip) => (
+        <Chip key={chip.key} size="small" variant="outlined" label={chip.label} />
+      ))}
+    </Stack>
+  );
+}
+
+function productSubtitle(product: ProposalProduct): string {
+  return [
+    product.category.toUpperCase(),
+    product.packageSize,
+    product.sku,
+    product.model,
+    product.price != null ? currency(product.price) : null,
+  ].filter(Boolean).join(' · ');
 }
 
 function SelectedEquipmentTable({ equipment, onPatch, onRemove }: {
