@@ -11,6 +11,7 @@ export type View =
   | 'stock'
   | 'production'
   | 'pricing'
+  | 'proposal-builder'
   | 'operations'
   | 'fleet'
   | 'settings'
@@ -22,7 +23,7 @@ export interface Route {
 }
 
 export function parseHash(): Route {
-  const h = (window.location.hash || '').replace(/^#/, '');
+  const h = (window.location.hash || '').replace(/^#/, '').replace(/^\//, '');
   if (h.startsWith('customer-')) {
     return { view: 'customer-detail', customerId: h.slice('customer-'.length) };
   }
@@ -37,6 +38,7 @@ export function parseHash(): Route {
     'stock',
     'production',
     'pricing',
+    'proposal-builder',
     'operations',
     'fleet',
     'settings',
@@ -55,8 +57,9 @@ export function useRoute(): [Route, (v: View) => void] {
   }, []);
 
   function navTo(v: View) {
-    if (window.location.hash !== '#' + v) {
-      window.history.replaceState(null, '', '#' + v);
+    const nextHash = v === 'proposal-builder' ? '#/proposal-builder' : '#' + v;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
     }
     setRoute({ view: v, customerId: null });
   }

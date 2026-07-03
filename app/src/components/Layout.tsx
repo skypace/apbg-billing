@@ -3,7 +3,7 @@ import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
   GitCompareArrows, Package, Warehouse, Factory, Settings as SettingsIcon, LogOut,
-  BookOpen, Tags, Sun, Moon,
+  BookOpen, Tags, Sun, Moon, Presentation,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +34,7 @@ const NAV: NavItem[] = [
   { id: 'inventory',  label: 'Inventory Planning', icon: Package          },
   { id: 'production', label: 'Production',        icon: Factory           },
   { id: 'pricing',    label: 'Pricing',           icon: Tags              },
+  { id: 'proposal-builder', label: 'Proposal Builder', icon: Presentation },
   { id: 'settings',   label: 'Settings',          icon: SettingsIcon      },
 ];
 
@@ -98,7 +99,7 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
             return (
               <a
                 key={n.id}
-                href={'#' + n.id}
+                href={n.id === 'proposal-builder' ? '#/proposal-builder' : '#' + n.id}
                 onClick={(e) => { e.preventDefault(); onNav(n.id); }}
                 className={'nav-item' + (on ? ' nav-item--active' : '')}
                 aria-current={on ? 'page' : undefined}

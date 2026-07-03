@@ -20,6 +20,7 @@ const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ 
 const StockPage = lazy(() => import('./pages/stock/StockPage').then((m) => ({ default: m.StockPage })));
 const ProductionPage = lazy(() => import('./pages/production/ProductionPage').then((m) => ({ default: m.ProductionPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })));
+const ProposalBuilderPage = lazy(() => import('./pages/ProposalBuilderPage').then((m) => ({ default: m.ProposalBuilderPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((m) => ({ default: m.PlaceholderPage })));
 
@@ -96,6 +97,9 @@ export function App() {
       break;
     case 'pricing':
       body = <PricingPage />;
+      break;
+    case 'proposal-builder':
+      body = <ProposalBuilderPage />;
       break;
     case 'settings':
       body = <SettingsPage />;
