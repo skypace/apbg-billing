@@ -4,6 +4,26 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 const ALLOWED_ROLES = ['superadmin', 'admin', 'sales'];
+const COMMON_IMAGE_BUCKETS = [
+  'product-images',
+  'product-assets',
+  'contract-item-images',
+  'contract-item-assets',
+  'store-assets',
+  'order-assets',
+  'brix-order-assets',
+  'brix-order',
+];
+const COMMON_SPEC_BUCKETS = [
+  'product-specs',
+  'spec-sheets',
+  'contract-item-specs',
+  'contract-item-assets',
+  'store-assets',
+  'order-assets',
+  'brix-order-assets',
+  'brix-order',
+];
 
 function json(body, status = 200) {
   return {
@@ -49,6 +69,26 @@ function classifyProduct(name) {
   if (/\b(juice|orange|apple|cranberry|grapefruit|pineapple)\b/.test(value)) return 'juice';
   if (/\b(mixer|tonic|ginger beer|club soda|seltzer|bitters)\b/.test(value)) return 'mixer';
   return 'other';
+}
+
+function looksLikeEquipment(value) {
+  return /\b(equipment|dispenser|cooler|ice machine|refrigerator|refrigeration|walk[-\s]?in|lancer|avantco|beverage air|stainless|table|sink|shelving|kegerator|fountain unit)\b/i
+    .test(String(value || ''));
+}
+
+function isOrderProductCandidate(item) {
+  const value = [
+    item.name,
+    item.category,
+    item.description,
+    item.item_type,
+    item.qbo_item_name,
+    item.sku,
+  ].filter(Boolean).join(' ');
+  const category = classifyProduct(value);
+  if (category !== 'other' && !looksLikeEquipment(value)) return true;
+  return /\b(beverage|drink|soda|cola|root beer|syrup|bib|bag in box|can|cans|tea|lemonade|limeade|juice|mixer|tonic|ginger beer|club soda|seltzer|co2|flavor)\b/i
+    .test(value) && !looksLikeEquipment(value);
 }
 
 function packageSize(name) {
@@ -106,24 +146,29 @@ function storagePublicUrl(bucket, path) {
 }
 
 function assetUrlFor(key, kind) {
+  return assetUrlsFor(key, kind)[0];
+}
+
+function assetUrlsFor(key, kind) {
   const raw = String(key || '').trim();
-  if (!raw) return undefined;
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (raw.startsWith('/')) return raw;
+  if (!raw) return [];
+  if (/^https?:\/\//i.test(raw)) return [raw];
+  if (raw.startsWith('/')) return [raw];
 
   const assetBase = process.env.BRIX_ORDER_ASSET_BASE_URL || '';
-  if (assetBase) return `${assetBase.replace(/\/+$/, '')}/${raw.replace(/^\/+/, '')}`;
+  if (assetBase) return [`${assetBase.replace(/\/+$/, '')}/${raw.replace(/^\/+/, '')}`];
 
   const configuredBuckets = kind === 'spec'
     ? envList('BRIX_ORDER_SPEC_BUCKETS', 'BRIX_ORDER_SPEC_BUCKET', 'BRIX_ORDER_ASSET_BUCKET')
     : envList('BRIX_ORDER_IMAGE_BUCKETS', 'BRIX_ORDER_IMAGE_BUCKET', 'BRIX_ORDER_ASSET_BUCKET');
+  const fallbackBuckets = kind === 'spec' ? COMMON_SPEC_BUCKETS : COMMON_IMAGE_BUCKETS;
+  const buckets = [...new Set([...configuredBuckets, ...fallbackBuckets])];
   const colon = raw.match(/^([^:]+):(.+)$/);
-  if (colon) return storagePublicUrl(colon[1], colon[2]);
+  if (colon) return [storagePublicUrl(colon[1], colon[2])];
 
   const [first, ...rest] = raw.replace(/^\/+/, '').split('/');
-  if (rest.length && configuredBuckets.includes(first)) return storagePublicUrl(first, rest.join('/'));
-  if (configuredBuckets[0]) return storagePublicUrl(configuredBuckets[0], raw);
-  return undefined;
+  if (rest.length && buckets.includes(first)) return [storagePublicUrl(first, rest.join('/'))];
+  return buckets.map((bucket) => storagePublicUrl(bucket, raw));
 }
 
 function indexOrderItems(rows) {
@@ -159,6 +204,31 @@ function orderCategory(orderItem, fallbackName) {
   return classifyProduct(raw);
 }
 
+function orderItemToProduct(orderItem, priceByItem) {
+  const name = orderItem.name || orderItem.qbo_item_name || orderItem.sku || `Order item ${orderItem.id}`;
+  const qboId = orderItem.qbo_item_id ? String(orderItem.qbo_item_id) : '';
+  const price = qboId ? priceByItem.get(qboId) : undefined;
+  const category = orderCategory(orderItem, name);
+  const imageUrls = assetUrlsFor(orderItem.image_key, 'image');
+  return {
+    id: qboId || `order:${orderItem.id}`,
+    name,
+    category,
+    price: price ?? (orderItem.sales_price != null ? Number(orderItem.sales_price) : undefined),
+    packageSize: packageSize([name, orderItem.description, orderItem.sku].filter(Boolean).join(' ')),
+    description: orderItem.description || [name, orderItem.sku, orderItem.model].filter(Boolean).join(' · '),
+    imageUrl: imageUrls[0] || imageFor(name, category),
+    imageUrls,
+    specSheetUrl: assetUrlFor(orderItem.spec_sheet_key, 'spec'),
+    sku: orderItem.sku || undefined,
+    manufacturer: orderItem.manufacturer || undefined,
+    model: orderItem.model || undefined,
+    weightLbs: orderItem.weight_lbs != null ? Number(orderItem.weight_lbs) : undefined,
+    source: 'brix-order',
+    active: orderItem.active !== false,
+  };
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders(), body: '' };
   if (event.httpMethod !== 'GET') return json({ error: 'GET only' }, 405);
@@ -189,6 +259,7 @@ export async function handler(event) {
       const orderItem = findOrderItem(row, orderIndex);
       const price = priceByItem.get(row.qbo_item_id);
       const category = orderItem ? orderCategory(orderItem, name) : classifyProduct(name);
+      const imageUrls = assetUrlsFor(orderItem?.image_key, 'image');
       return {
         id: String(row.qbo_item_id),
         name,
@@ -196,7 +267,8 @@ export async function handler(event) {
         price: price ?? (orderItem?.sales_price != null ? Number(orderItem.sales_price) : undefined),
         packageSize: packageSize([name, orderItem?.description, orderItem?.sku, row.sku].filter(Boolean).join(' ')),
         description: descriptionFor(row, price, orderItem),
-        imageUrl: assetUrlFor(orderItem?.image_key, 'image') || imageFor(name, category),
+        imageUrl: imageUrls[0] || imageFor(name, category),
+        imageUrls,
         specSheetUrl: assetUrlFor(orderItem?.spec_sheet_key, 'spec'),
         sku: orderItem?.sku || row.sku || undefined,
         manufacturer: orderItem?.manufacturer || undefined,
@@ -205,6 +277,23 @@ export async function handler(event) {
         source: orderItem ? 'brix-order' : 'qbo',
         active: row.active !== false,
       };
+    });
+
+    const seen = new Set(products.map((product) => product.id));
+    const seenNames = new Set(products.map((product) => normalizeKey(product.name)));
+    for (const orderItem of orderItems) {
+      if (!isOrderProductCandidate(orderItem)) continue;
+      const product = orderItemToProduct(orderItem, priceByItem);
+      const nameKey = normalizeKey(product.name);
+      if (seen.has(product.id) || seenNames.has(nameKey)) continue;
+      products.push(product);
+      seen.add(product.id);
+      seenNames.add(nameKey);
+    }
+
+    products.sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'brix-order' ? -1 : 1;
+      return a.name.localeCompare(b.name);
     });
 
     return json({ products, count: products.length });

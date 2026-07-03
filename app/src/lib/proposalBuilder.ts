@@ -30,6 +30,7 @@ export interface ProposalProduct {
   packageSize?: string;
   description?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   specSheetUrl?: string;
   sku?: string;
   manufacturer?: string;

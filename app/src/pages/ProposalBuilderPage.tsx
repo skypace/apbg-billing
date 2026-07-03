@@ -84,6 +84,7 @@ export function ProposalBuilderPage() {
 
   const [products, setProducts] = useState<ProposalProduct[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productSearch, setProductSearch] = useState('');
   const [catalog, setCatalog] = useState<EquipmentCatalogItem[]>([]);
   const [equipmentSearch, setEquipmentSearch] = useState('');
   const [selectedEquipment, setSelectedEquipment] = useState<ProposalEquipment[]>([]);
@@ -170,6 +171,24 @@ export function ProposalBuilderPage() {
     [products, selectedProductIds],
   );
 
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    const rows = q
+      ? products.filter((product) =>
+          [
+            product.name,
+            product.category,
+            product.description || '',
+            product.sku || '',
+            product.manufacturer || '',
+            product.model || '',
+            product.packageSize || '',
+          ].join(' ').toLowerCase().includes(q),
+        )
+      : products;
+    return rows.slice(0, 80);
+  }, [productSearch, products]);
+
   const filteredCatalog = useMemo(() => {
     const q = equipmentSearch.trim().toLowerCase();
     const rows = q
@@ -220,6 +239,14 @@ export function ProposalBuilderPage() {
 
   function patchTerms<K extends keyof ProposalTerms>(field: K, value: ProposalTerms[K]) {
     setTerms((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleProduct(product: ProposalProduct) {
+    setSelectedProductIds((current) =>
+      current.includes(product.id)
+        ? current.filter((id) => id !== product.id)
+        : [...current, product.id],
+    );
   }
 
   function addEquipment(item: EquipmentCatalogItem) {
@@ -431,38 +458,51 @@ export function ProposalBuilderPage() {
             </Section>
 
             <Section title="Product Selection" icon={<Sparkles size={18} />}>
-              <Autocomplete
-                multiple
-                size="small"
-                options={products}
-                value={selectedProducts}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(a, b) => a.id === b.id}
-                groupBy={(option) => option.category.toUpperCase()}
-                onChange={(_, value) => setSelectedProductIds(value.map((product) => product.id))}
-                renderTags={(value, getTagProps) => value.map((option, index) => (
-                  <Chip
-                    {...getTagProps({ index })}
-                    key={option.id}
-                    label={option.price != null ? `${option.name} · ${currency(option.price)}` : option.name}
-                    size="small"
-                  />
-                ))}
-                renderOption={(props, option) => (
-                  <Box component="li" {...props} sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
-                    <Thumb src={option.imageUrl} alt={option.name} size={52} />
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography variant="body2" fontWeight={700}>{option.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {productSubtitle(option)}
-                      </Typography>
-                      <ProductSpecChips product={option} compact />
+              <Stack spacing={1.5}>
+                <Autocomplete
+                  multiple
+                  size="small"
+                  options={products}
+                  value={selectedProducts}
+                  getOptionLabel={(option) => option.name}
+                  isOptionEqualToValue={(a, b) => a.id === b.id}
+                  groupBy={(option) => option.category.toUpperCase()}
+                  onChange={(_, value) => setSelectedProductIds(value.map((product) => product.id))}
+                  renderTags={(value, getTagProps) => value.map((option, index) => (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={option.id}
+                      label={option.price != null ? `${option.name} · ${currency(option.price)}` : option.name}
+                      size="small"
+                    />
+                  ))}
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props} sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
+                      <Thumb src={option.imageUrl} fallbackSrcs={option.imageUrls} alt={option.name} size={52} />
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={700}>{option.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {productSubtitle(option)}
+                        </Typography>
+                        <ProductSpecChips product={option} compact />
+                      </Box>
                     </Box>
-                  </Box>
-                )}
-                renderInput={(params) => <TextField {...params} label="Products and flavors" />}
-              />
-              <ProductSummary products={selectedProducts} />
+                  )}
+                  renderInput={(params) => <TextField {...params} label="Products and flavors" />}
+                />
+                <TextField
+                  size="small"
+                  label="Search product catalog"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                />
+                <ProductCatalogBrowser
+                  products={filteredProducts}
+                  selectedIds={selectedProductIds}
+                  onToggle={toggleProduct}
+                />
+                <ProductSummary products={selectedProducts} />
+              </Stack>
             </Section>
 
             <Section title="Brandox Assets" icon={<Images size={18} />}>
@@ -815,9 +855,21 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   );
 }
 
-function Thumb({ src, alt, size = 44 }: { src?: string | null; alt: string; size?: number }) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const activeSrc = src && failedSrc !== src ? src : null;
+function Thumb({ src, fallbackSrcs = [], alt, size = 44 }: {
+  src?: string | null;
+  fallbackSrcs?: Array<string | null | undefined>;
+  alt: string;
+  size?: number;
+}) {
+  const sources = useMemo(
+    () => [...new Set([src, ...fallbackSrcs].filter(Boolean) as string[])],
+    [fallbackSrcs, src],
+  );
+  const [failedSrcs, setFailedSrcs] = useState<string[]>([]);
+  useEffect(() => {
+    setFailedSrcs([]);
+  }, [sources.join('|')]);
+  const activeSrc = sources.find((source) => !failedSrcs.includes(source)) || null;
   return (
     <Box
       sx={{
@@ -839,12 +891,98 @@ function Thumb({ src, alt, size = 44 }: { src?: string | null; alt: string; size
             component="img"
             src={activeSrc}
             alt={alt}
-            onError={() => setFailedSrc(activeSrc)}
+            onError={() => setFailedSrcs((current) => current.includes(activeSrc) ? current : [...current, activeSrc])}
             sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         )
         : <PackagePlus size={18} color="currentColor" />}
     </Box>
+  );
+}
+
+function ProductCatalogBrowser({ products, selectedIds, onToggle }: {
+  products: ProposalProduct[];
+  selectedIds: string[];
+  onToggle: (product: ProposalProduct) => void;
+}) {
+  if (!products.length) {
+    return (
+      <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+        No product catalog matches.
+      </Typography>
+    );
+  }
+  return (
+    <Paper variant="outlined" sx={{ maxHeight: 326, overflow: 'auto', borderRadius: 1 }}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell>Product</TableCell>
+            <TableCell>Specs</TableCell>
+            <TableCell align="right">Price</TableCell>
+            <TableCell width={88} />
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {products.map((product) => {
+            const selected = selectedIds.includes(product.id);
+            return (
+              <TableRow key={product.id} hover selected={selected}>
+                <TableCell sx={{ minWidth: 260 }}>
+                  <Stack direction="row" spacing={1.25} alignItems="center">
+                    <Thumb src={product.imageUrl} fallbackSrcs={product.imageUrls} alt={product.name} size={58} />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>{product.name}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {product.category.toUpperCase()}{product.source === 'brix-order' ? ' · Order catalog' : ''}
+                      </Typography>
+                      {product.description && product.description !== product.name && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            maxWidth: 360,
+                          }}
+                        >
+                          {product.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Stack>
+                </TableCell>
+                <TableCell sx={{ minWidth: 180 }}>
+                  <ProductSpecChips product={product} />
+                </TableCell>
+                <TableCell align="right">{product.price != null ? currency(product.price) : '-'}</TableCell>
+                <TableCell align="right">
+                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                    {product.specSheetUrl && (
+                      <Tooltip title="Open spec sheet">
+                        <IconButton size="small" component="a" href={product.specSheetUrl} target="_blank" rel="noopener noreferrer">
+                          <FileText size={15} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Button
+                      size="small"
+                      variant={selected ? 'contained' : 'outlined'}
+                      startIcon={selected ? <Check size={14} /> : undefined}
+                      onClick={() => onToggle(product)}
+                    >
+                      {selected ? 'Added' : 'Add'}
+                    </Button>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Paper>
   );
 }
 
@@ -865,7 +1003,7 @@ function ProductSummary({ products }: { products: ProposalProduct[] }) {
         {products.slice(0, 8).map((product) => (
           <Paper key={product.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
             <Stack direction="row" spacing={1.25} alignItems="flex-start">
-              <Thumb src={product.imageUrl} alt={product.name} size={68} />
+              <Thumb src={product.imageUrl} fallbackSrcs={product.imageUrls} alt={product.name} size={68} />
               <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
                   <Typography variant="body2" fontWeight={700} noWrap title={product.name}>{product.name}</Typography>
