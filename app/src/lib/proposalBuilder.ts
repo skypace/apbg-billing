@@ -5,7 +5,7 @@ const trimSlash = (value: string) => value.replace(/\/+$/, '');
 const LEASING_API_URL = trimSlash(import.meta.env.VITE_BRIX_LEASING_API_URL || '');
 const DIRECT_LEASING_API_ENABLED = import.meta.env.VITE_PROPOSAL_BUILDER_DIRECT_LEASING === '1';
 const LEASING_PROXY_URL = import.meta.env.VITE_BRIX_LEASING_PROXY_URL || '/margin/.netlify/functions/proposal-leasing';
-const GAMMA_PROXY_URL = import.meta.env.VITE_GAMMA_API_PROXY_URL || '/margin/.netlify/functions/proposal-gamma';
+const GAMMA_PROXY_URL = import.meta.env.VITE_GAMMA_PROXY_URL || '/margin/.netlify/functions/proposal-gamma';
 const BRANDOX_PROXY_URL = import.meta.env.VITE_BRANDOX_PROXY_URL || '/margin/.netlify/functions/proposal-brandox';
 const PRODUCTS_PROXY_URL = '/margin/.netlify/functions/proposal-products';
 const PROPOSAL_STORE_URL = import.meta.env.VITE_PROPOSAL_STORE_URL || '/margin/.netlify/functions/proposal-store';
