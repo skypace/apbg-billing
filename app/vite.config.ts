@@ -16,5 +16,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    proxy: {
+      '/margin/.netlify/functions': {
+        target: 'https://alamedapointbg.com',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
 });

@@ -1,4 +1,4 @@
-import { _sbToken } from './supabase';
+import { sbAuth } from './supabase';
 
 const trimSlash = (value: string) => value.replace(/\/+$/, '');
 const netlifyFunction = (name: string) => ['/', 'margin', '/.netlify', '/functions', '/', name].join('');
@@ -231,8 +231,11 @@ export interface GammaProposalResult {
 }
 
 async function bearer(): Promise<string> {
-  const token = await _sbToken();
-  if (!token) throw new Error('Not signed in');
+  const { data } = await sbAuth.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token || token.split('.').length !== 3) {
+    throw new Error('Please sign in again to load proposal integrations.');
+  }
   return `Bearer ${token}`;
 }
 
