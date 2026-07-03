@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
   Calculator, Check, Clipboard, Copy, ExternalLink, FileText, FolderOpen, Mail,
-  PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2,
+  Images, PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2,
 } from 'lucide-react';
 import {
   type BrandAsset,
@@ -90,6 +90,7 @@ export function ProposalBuilderPage() {
   const [servicePlans, setServicePlans] = useState<ServicePlan[]>([]);
   const [endOfLeaseOptions, setEndOfLeaseOptions] = useState<EndOfLeaseOption[]>([]);
   const [brandAssets, setBrandAssets] = useState<BrandAsset[]>([]);
+  const [brandAssetError, setBrandAssetError] = useState<string | null>(null);
 
   const [pricing, setPricing] = useState<PricingCalculateResponse | null>(null);
   const [quote, setQuote] = useState<EquipmentQuoteResponse | null>(null);
@@ -118,8 +119,13 @@ export function ProposalBuilderPage() {
     else nextErrors.push(`Equipment: ${messageFrom(catalogResult.reason)}`);
 
     const loadedAssets = assetResult.status === 'fulfilled' ? assetResult.value : [];
-    if (assetResult.status === 'fulfilled') setBrandAssets(loadedAssets);
-    else nextErrors.push(`Brandox: ${messageFrom(assetResult.reason)}`);
+    if (assetResult.status === 'fulfilled') {
+      setBrandAssets(loadedAssets);
+      setBrandAssetError(null);
+    } else {
+      setBrandAssets([]);
+      setBrandAssetError(messageFrom(assetResult.reason));
+    }
 
     if (productResult.status === 'fulfilled') setProducts(withProductImages(productResult.value, loadedAssets));
     else nextErrors.push(`Products: ${messageFrom(productResult.reason)}`);
@@ -458,6 +464,15 @@ export function ProposalBuilderPage() {
               <ProductSummary products={selectedProducts} />
             </Section>
 
+            <Section title="Brandox Assets" icon={<Images size={18} />}>
+              <BrandAssets
+                assets={brandAssets}
+                error={brandAssetError}
+                loading={loadState === 'loading'}
+                onRefresh={loadData}
+              />
+            </Section>
+
             <Section title="Equipment Selection" icon={<PackagePlus size={18} />}>
               <Stack spacing={1.5}>
                 <TextField
@@ -730,7 +745,9 @@ export function ProposalBuilderPage() {
 
             <Section title="Export to Gamma" icon={<Sparkles size={18} />}>
               <Stack spacing={1.5}>
-                <BrandAssets assets={brandAssets} />
+                <Typography variant="body2" color="text.secondary">
+                  Gamma uses the selected products, equipment, pricing, and the Brandox assets matched in the proposal preview.
+                </Typography>
                 <Button
                   variant="contained"
                   startIcon={busy === 'gamma' ? <CircularProgress size={16} /> : <Presentation size={16} />}
@@ -997,23 +1014,115 @@ function PreviewBlock({ label, value, sub }: { label: string; value: string; sub
   );
 }
 
-function BrandAssets({ assets }: { assets: BrandAsset[] }) {
-  if (!assets.length) return <Typography variant="body2" color="text.secondary">No Brandox assets loaded.</Typography>;
+function BrandAssets({ assets, error, loading, onRefresh }: {
+  assets: BrandAsset[];
+  error: string | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  if (error) {
+    return (
+      <Alert
+        severity="warning"
+        action={<Button size="small" onClick={onRefresh} disabled={loading}>Retry</Button>}
+      >
+        Brandox: {error}
+      </Alert>
+    );
+  }
+  if (!assets.length) {
+    return (
+      <Stack spacing={1.25}>
+        <Typography variant="body2" color="text.secondary">No Brandox assets loaded.</Typography>
+        <Box>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={loading ? <CircularProgress size={14} /> : <RefreshCw size={14} />}
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            Refresh Brandox
+          </Button>
+        </Box>
+      </Stack>
+    );
+  }
+  const grouped = assets.reduce<Record<string, number>>((acc, asset) => {
+    acc[asset.type] = (acc[asset.type] || 0) + 1;
+    return acc;
+  }, {});
   return (
-    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-      {assets.slice(0, 8).map((asset) => (
-        <Chip
-          key={asset.id}
-          size="small"
-          label={`${asset.type} · ${asset.name}`}
-          component="a"
-          href={asset.url}
-          target="_blank"
-          clickable
-          variant="outlined"
-        />
-      ))}
-      {assets.length > 8 && <Chip size="small" label={`+${assets.length - 8} more`} />}
+    <Stack spacing={1.5}>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+        <Chip size="small" label={`${assets.length} asset${assets.length === 1 ? '' : 's'}`} color="primary" variant="outlined" />
+        {Object.entries(grouped).map(([type, count]) => (
+          <Chip key={type} size="small" label={`${type} · ${count}`} variant="outlined" />
+        ))}
+        <Tooltip title="Refresh Brandox assets">
+          <span>
+            <IconButton size="small" onClick={onRefresh} disabled={loading}>
+              {loading ? <CircularProgress size={16} /> : <RefreshCw size={16} />}
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1 }}>
+        {assets.slice(0, 12).map((asset) => (
+          <Paper key={asset.id} variant="outlined" sx={{ p: 1, borderRadius: 1 }}>
+            <Stack spacing={1}>
+              {asset.thumbnailUrl ? (
+                <Box
+                  component="img"
+                  src={asset.thumbnailUrl}
+                  alt={asset.name}
+                  sx={{
+                    width: '100%',
+                    aspectRatio: '4 / 3',
+                    borderRadius: 1,
+                    bgcolor: 'action.hover',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    width: '100%',
+                    aspectRatio: '4 / 3',
+                    borderRadius: 1,
+                    bgcolor: 'action.hover',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  <Images size={24} color="currentColor" />
+                </Box>
+              )}
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" fontWeight={700} noWrap title={asset.name}>{asset.name}</Typography>
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Chip size="small" label={asset.type} variant="outlined" />
+                  <Tooltip title="Open asset">
+                    <IconButton size="small" component="a" href={asset.url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink size={14} />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Box>
+            </Stack>
+          </Paper>
+        ))}
+      </Box>
+      {assets.length > 12 && (
+        <Typography variant="caption" color="text.secondary">
+          {assets.length - 12} more asset{assets.length - 12 === 1 ? '' : 's'} available from Brandox.
+        </Typography>
+      )}
     </Stack>
   );
 }
@@ -1102,5 +1211,13 @@ function numeric(value: string, fallback: number): number {
 }
 
 function messageFrom(value: unknown): string {
-  return value instanceof Error ? value.message : String(value || 'Unknown error');
+  const raw = value instanceof Error ? value.message : String(value || 'Unknown error');
+  const normalized = raw
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/page not found/i.test(normalized)) return 'Function route returned page not found. Refresh the app and retry.';
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
 }
