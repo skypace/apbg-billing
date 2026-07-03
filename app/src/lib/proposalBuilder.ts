@@ -1,14 +1,15 @@
 import { _sbToken } from './supabase';
 
 const trimSlash = (value: string) => value.replace(/\/+$/, '');
+const netlifyFunction = (name: string) => ['/', 'margin', '/.netlify', '/functions', '/', name].join('');
 
 const LEASING_API_URL = trimSlash(import.meta.env.VITE_BRIX_LEASING_API_URL || '');
 const DIRECT_LEASING_API_ENABLED = import.meta.env.VITE_PROPOSAL_BUILDER_DIRECT_LEASING === '1';
-const LEASING_PROXY_URL = import.meta.env.VITE_BRIX_LEASING_PROXY_URL || '/margin/.netlify/functions/proposal-leasing';
-const GAMMA_PROXY_URL = import.meta.env.VITE_GAMMA_PROXY_URL || '/margin/.netlify/functions/proposal-gamma';
-const BRANDOX_PROXY_URL = import.meta.env.VITE_BRANDOX_PROXY_URL || '/margin/.netlify/functions/proposal-brandox';
-const PRODUCTS_PROXY_URL = '/margin/.netlify/functions/proposal-products';
-const PROPOSAL_STORE_URL = import.meta.env.VITE_PROPOSAL_STORE_URL || '/margin/.netlify/functions/proposal-store';
+const LEASING_PROXY_URL = import.meta.env.VITE_BRIX_LEASING_PROXY_URL || netlifyFunction('proposal-leasing');
+const GAMMA_PROXY_URL = import.meta.env.VITE_GAMMA_PROXY_URL || netlifyFunction('proposal-gamma');
+const BRANDOX_PROXY_URL = import.meta.env.VITE_BRANDOX_PROXY_URL || netlifyFunction('proposal-brandox');
+const PRODUCTS_PROXY_URL = netlifyFunction('proposal-products');
+const PROPOSAL_STORE_URL = import.meta.env.VITE_PROPOSAL_STORE_URL || netlifyFunction('proposal-store');
 const ACCOUNT_APPLICATION_URL = 'https://alamedapointbg.com/account-application';
 
 export type ProposalProductCategory =
