@@ -17,7 +17,7 @@ const LEASING_API_URL = trimSlash(import.meta.env.VITE_BRIX_LEASING_API_URL || '
 const DIRECT_LEASING_API_ENABLED = import.meta.env.VITE_PROPOSAL_BUILDER_DIRECT_LEASING === '1';
 const LEASING_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_BRIX_LEASING_PROXY_URL, netlifyFunction('proposal-leasing'));
 const GAMMA_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_GAMMA_PROXY_URL, netlifyFunction('proposal-gamma'));
-const BRANDOX_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_BRANDOX_PROXY_URL, netlifyFunction('proposal-brandox'));
+const BRAND_ASSETS_URL = normalizeFunctionOverride(import.meta.env.VITE_BRAND_ASSETS_URL, netlifyFunction('proposal-brand-assets'));
 const PRODUCTS_PROXY_URL = netlifyFunction('proposal-products');
 const PROPOSAL_STORE_URL = normalizeFunctionOverride(import.meta.env.VITE_PROPOSAL_STORE_URL, netlifyFunction('proposal-store'));
 const ACCOUNT_APPLICATION_URL = 'https://alamedapointbg.com/account-application';
@@ -165,13 +165,21 @@ export interface EndOfLeaseOption {
   needs_service_rate: boolean;
 }
 
+export type BrandAssetType = 'logo' | 'can' | 'equipment' | 'hero' | 'testimonial' | 'sell-sheet' | 'other';
+
+export const BRAND_ASSET_TYPES: BrandAssetType[] = ['logo', 'can', 'equipment', 'hero', 'testimonial', 'sell-sheet', 'other'];
+
 export interface BrandAsset {
   id: string;
   name: string;
-  type: 'logo' | 'can' | 'equipment' | 'hero' | 'testimonial' | 'sell-sheet' | 'other';
+  type: BrandAssetType;
   url: string;
   thumbnailUrl?: string;
   tags?: string[];
+  /** Storage path within the brand-assets bucket (present for uploaded assets). */
+  path?: string;
+  /** 'supabase' = in the brand library bucket, 'local' = built-in fallback art. */
+  source?: 'supabase' | 'local';
 }
 
 export interface ProposalCustomer {
@@ -315,8 +323,42 @@ export async function getBrixProducts(): Promise<ProposalProduct[]> {
 }
 
 export async function getBrandAssets(): Promise<BrandAsset[]> {
-  const result = await apiFetch<{ assets: BrandAsset[] } | BrandAsset[]>(BRANDOX_PROXY_URL);
+  const result = await apiFetch<{ assets: BrandAsset[] } | BrandAsset[]>(BRAND_ASSETS_URL);
   return Array.isArray(result) ? result : result.assets;
+}
+
+export interface BrandAssetUpload {
+  filename: string;
+  contentType: string;
+  dataBase64: string;
+  type?: BrandAssetType;
+}
+
+export async function uploadBrandAsset(upload: BrandAssetUpload): Promise<BrandAsset> {
+  const result = await apiFetch<{ asset: BrandAsset }>(BRAND_ASSETS_URL, {
+    method: 'POST',
+    body: JSON.stringify(upload),
+  });
+  return result.asset;
+}
+
+export async function deleteBrandAsset(path: string): Promise<void> {
+  await apiFetch<{ ok: boolean }>(`${BRAND_ASSETS_URL}?path=${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Read a File as a base64 payload for uploadBrandAsset. */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.slice(result.indexOf(',') + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export async function listSavedProposals(): Promise<SavedProposalSummary[]> {
