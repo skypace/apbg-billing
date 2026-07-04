@@ -232,7 +232,9 @@ export async function handler(event) {
   try {
     await fpPatch(`completed_pms?id=in.(${eligible.map(r => r.id).join(',')})`, jwt, {
       billed: true, bill_amount: rate, invoice_id: created.Id,
-      invoice_doc_number: created.DocNumber || null,
+      // Some invoices come back with no DocNumber (custom numbering off) — fall
+      // back to the QBO id so the portal never mislabels a billed visit.
+      invoice_doc_number: created.DocNumber || (created.Id != null ? String(created.Id) : null),
       invoice_pdf_path: invoicePdfPath,
       invoiced_at: new Date().toISOString(), invoiced_by: adminEmail,
     });
