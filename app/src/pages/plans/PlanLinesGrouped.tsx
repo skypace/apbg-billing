@@ -9,6 +9,7 @@ import { btnDanger, btnSecondary, inp } from '../../lib/styles';
 export type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
 
 type ActualsByItem = Record<string, { item_name?: string; amounts: number[]; total: number }>;
+type CompareByItem = Record<string, { item_name?: string | null; total: number }>;
 
 const ZEROS = (): number[] => [0,0,0,0,0,0,0,0,0,0,0,0];
 
@@ -25,6 +26,8 @@ interface Props {
   linesSections: PlanLineSection[] | null;
   viewMode: ViewMode;
   actualsByItem?: ActualsByItem | null;
+  compareByItem?: CompareByItem | null;
+  compareLabel?: string | null;
   planFiscalYear?: number;
   onSetCell: (line: SalesPlanLine, monthIdx: number, value: string) => void;
   onFillFlat: (line: SalesPlanLine, total: string) => void;
@@ -38,14 +41,16 @@ interface ItemGroup {
 }
 
 export function PlanLinesGrouped({
-  lines, linesSections, viewMode, actualsByItem, planFiscalYear, onSetCell, onFillFlat, onDelete,
+  lines, linesSections, viewMode, actualsByItem, compareByItem, compareLabel, planFiscalYear, onSetCell, onFillFlat, onDelete,
 }: Props) {
   const isMoney = viewMode !== 'qty';
   const showPace = viewMode === 'revenue';
-  const totalCols = showPace ? 18 : 15;
+  const showCompare = viewMode === 'revenue' && compareByItem != null;
+  const totalCols = 15 + (showPace ? 3 : 0) + (showCompare ? 2 : 0);
   const elapsedMonths = completedMonths(planFiscalYear);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   function toggle(key: string) {
     setCollapsed((s) => {
       const next = new Set(s);
@@ -54,6 +59,14 @@ export function PlanLinesGrouped({
     });
   }
   const isCollapsed = (key: string) => collapsed.has(key);
+  function toggleItem(key: string) {
+    setExpandedItems((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  const isItemExpanded = (key: string) => expandedItems.has(key);
 
   const grouped = useMemo(() => {
     const byLine = new Map<string, PlanLineSection>();
@@ -179,6 +192,33 @@ export function PlanLinesGrouped({
     );
   }
 
+  function compareForLines(group: SalesPlanLine[]): number | null {
+    if (!compareByItem) return null;
+    const seen = new Set<string>();
+    let total = 0;
+    for (const line of group) {
+      const key = line.qbo_item_id ?? line.item_name ?? line.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total += Number(compareByItem[key]?.total ?? 0);
+    }
+    return total;
+  }
+
+  function compareCells(group: SalesPlanLine[], strong = false) {
+    if (!showCompare) return null;
+    const current = revenueMonthly(group).total;
+    const compareTotal = compareForLines(group);
+    const delta = compareTotal == null ? null : current - compareTotal;
+    const color = delta == null ? 'var(--mt)' : delta >= 0 ? 'var(--gn)' : 'var(--rd)';
+    return (
+      <>
+        <td className="mn" style={paceCellStyle(strong)}>{compareTotal == null ? '—' : fm(compareTotal)}</td>
+        <td className="mn" style={{ ...paceCellStyle(strong), color }}>{delta == null ? '—' : fm(delta)}</td>
+      </>
+    );
+  }
+
   const sectionTotals: Record<string, { m: number[]; total: number }> = {};
   for (const sec of grouped) {
     const flat = sec.plGroups.flatMap((g) => g.lines);
@@ -222,6 +262,12 @@ export function PlanLinesGrouped({
               <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Δ</th>
             </>
           )}
+          {showCompare && (
+            <>
+              <th style={{ textAlign: 'right', color: 'var(--mt)' }} title={compareLabel ?? undefined}>Compare</th>
+              <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Plan Δ</th>
+            </>
+          )}
           <th />
         </tr>
       </thead>
@@ -261,56 +307,108 @@ export function PlanLinesGrouped({
                     const summary = groupMonthly(ig.lines);
                     const monthly = editable ? arrayFor(l) : summary.m;
                     const total = editable ? totalFor(l) : summary.total;
+                    const expanded = isItemExpanded(ig.key);
                     return (
-                      <tr key={ig.key}>
-                        <td style={itemCellStyle()} title={l.item_name ?? ''}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.item_name ?? '—'}</div>
-                          <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {editable ? (l.customer_name ?? '') : `${ig.lines.length} customer lines`}
-                          </div>
-                        </td>
-                        <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
-                        {monthly.map((v, idx) => (
-                          <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                      <Fragment key={ig.key}>
+                        <tr>
+                          <td style={itemCellStyle()} title={l.item_name ?? ''}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.item_name ?? '—'}</div>
+                            <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {editable ? (l.customer_name ?? '') : `${ig.lines.length} customer lines`}
+                            </div>
+                          </td>
+                          <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
+                          {monthly.map((v, idx) => (
+                            <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                              {editable ? (
+                                <input
+                                  type="number"
+                                  step={viewMode === 'qty' ? 1 : 0.01}
+                                  defaultValue={v ?? 0}
+                                  onBlur={(e) => {
+                                    if (Number(e.target.value) !== Number(v)) onSetCell(l, idx, e.target.value);
+                                  }}
+                                  style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
+                                />
+                              ) : (
+                                <span className="mn" style={{ fontSize: 11, color: 'var(--tx2)' }}>{fmt(v)}</span>
+                              )}
+                            </td>
+                          ))}
+                          <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(total)}</td>
+                          {paceCells(ig.lines, sectionActualsActive)}
+                          {compareCells(ig.lines)}
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {editable ? (
-                              <input
-                                type="number"
-                                step={viewMode === 'qty' ? 1 : 0.01}
-                                defaultValue={v ?? 0}
-                                onBlur={(e) => {
-                                  if (Number(e.target.value) !== Number(v)) onSetCell(l, idx, e.target.value);
-                                }}
-                                style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
-                              />
+                              <>
+                                <button
+                                  onClick={() => {
+                                    const annualRev = sum(l.amounts);
+                                    const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
+                                    if (v != null) onFillFlat(l, v);
+                                  }}
+                                  style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                                  title="Spread annual revenue across 12 months"
+                                >÷12</button>
+                                <button
+                                  onClick={() => onDelete(l.id)}
+                                  style={{ ...btnDanger(), marginLeft: 4 }}
+                                >×</button>
+                              </>
                             ) : (
-                              <span className="mn" style={{ fontSize: 11, color: 'var(--tx2)' }}>{fmt(v)}</span>
+                              <button
+                                onClick={() => toggleItem(ig.key)}
+                                style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                              >
+                                {expanded ? 'hide' : 'details'}
+                              </button>
                             )}
                           </td>
-                        ))}
-                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(total)}</td>
-                        {paceCells(ig.lines, sectionActualsActive)}
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {editable ? (
-                            <>
-                              <button
-                                onClick={() => {
-                                  const annualRev = sum(l.amounts);
-                                  const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
-                                  if (v != null) onFillFlat(l, v);
-                                }}
-                                style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
-                                title="Spread annual revenue across 12 months"
-                              >÷12</button>
-                              <button
-                                onClick={() => onDelete(l.id)}
-                                style={{ ...btnDanger(), marginLeft: 4 }}
-                              >×</button>
-                            </>
-                          ) : (
-                            <span style={{ color: 'var(--mt)', fontSize: 9 }}>rollup</span>
-                          )}
-                        </td>
-                      </tr>
+                        </tr>
+                        {!editable && expanded && ig.lines.map((child) => {
+                          const childArr = arrayFor(child);
+                          return (
+                            <tr key={child.id} style={{ background: 'rgba(255,255,255,0.015)' }}>
+                              <td style={{ ...itemCellStyle(), paddingLeft: 24 }} title={child.customer_name ?? ''}>
+                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--tx2)' }}>{child.customer_name ?? '(customer)'}</div>
+                                <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1 }}>{child.item_name ?? ''}</div>
+                              </td>
+                              <td style={{ fontSize: 10, color: 'var(--mt)' }}>{child.account_name ?? '—'}</td>
+                              {childArr.map((v, idx) => (
+                                <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                                  <input
+                                    type="number"
+                                    step={viewMode === 'qty' ? 1 : 0.01}
+                                    defaultValue={v ?? 0}
+                                    onBlur={(e) => {
+                                      if (Number(e.target.value) !== Number(v)) onSetCell(child, idx, e.target.value);
+                                    }}
+                                    style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
+                                  />
+                                </td>
+                              ))}
+                              <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(totalFor(child))}</td>
+                              {paceCells([child], false)}
+                              {showCompare && <><td /><td /></>}
+                              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <button
+                                  onClick={() => {
+                                    const annualRev = sum(child.amounts);
+                                    const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
+                                    if (v != null) onFillFlat(child, v);
+                                  }}
+                                  style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                                  title="Spread annual revenue across 12 months"
+                                >÷12</button>
+                                <button
+                                  onClick={() => onDelete(child.id)}
+                                  style={{ ...btnDanger(), marginLeft: 4 }}
+                                >×</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
                     );
                   })}
                   <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
@@ -320,6 +418,7 @@ export function PlanLinesGrouped({
                     ))}
                     <td className="mn" style={{ ...subtotalCellStyle('var(--tx)'), fontWeight: 700 }}>{fmt(groupSum.total)}</td>
                     {paceCells(g.lines, sectionActualsActive, true)}
+                    {compareCells(g.lines, true)}
                     <td />
                   </tr>
                 </Fragment>
@@ -334,6 +433,7 @@ export function PlanLinesGrouped({
               ))}
               <td className="mn" style={{ ...subtotalCellStyle('var(--ac)'), fontWeight: 800 }}>{fmt(sectionTotals[sec.name].total)}</td>
               {paceCells(sec.plGroups.flatMap((g) => g.lines), sectionActualsActive, true)}
+              {compareCells(sec.plGroups.flatMap((g) => g.lines), true)}
               <td />
             </tr>
             {showGmNet && sec.name === 'cogs' && (
@@ -346,6 +446,7 @@ export function PlanLinesGrouped({
                 ))}
                 <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(gm.total)}</td>
                 {showPace && <><td /><td /><td /></>}
+                {showCompare && <><td /><td /></>}
                 <td />
               </tr>
             )}
@@ -359,6 +460,7 @@ export function PlanLinesGrouped({
                 ))}
                 <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(net.total)}</td>
                 {showPace && <><td /><td /><td /></>}
+                {showCompare && <><td /><td /></>}
                 <td />
               </tr>
             )}

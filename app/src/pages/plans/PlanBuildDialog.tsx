@@ -33,6 +33,8 @@ interface ItemRow {
   price_pct: number;
 }
 
+type BuildStep = 'scope' | 'assumptions' | 'review';
+
 export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: Props) {
   const [sourceYear, setSourceYear] = useState<number>(planFiscalYear - 1);
   const [defaultQtyPct, setDefaultQtyPct]     = useState<number>(0);
@@ -43,6 +45,7 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
   const [loadingRows, setLoadingRows] = useState(false);
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [step, setStep] = useState<BuildStep>('scope');
 
   useEffect(() => {
     fetchItemsWithCategory().then(setAllItems).catch((e: Error) => setErr(e.message));
@@ -66,6 +69,7 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
     setCategory(cat);
     setRows(null);
     if (!cat || !allItems) return;
+    setStep('assumptions');
     const itemsInCat = allItems.filter(
       (it) => it.type !== 'Category' && (it.category_path || '(no category)') === cat,
     );
@@ -150,69 +154,117 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
     }
     return { ly_qty, ly_rev, plan_qty, plan_rev };
   }, [rows]);
+  const canContinue = !!rows && rows.length > 0 && !loadingRows;
 
   return (
     <div style={overlayStyle()} onClick={onClose}>
       <div style={panelStyle()} onClick={(e) => e.stopPropagation()}>
         <div style={headerRowStyle()}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Build plan from history × growth</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Build Plan</div>
           <button onClick={onClose} style={btnSecondary()}>Close</button>
         </div>
 
-        <div style={controlsRowStyle()}>
-          <label style={ctrl()}>
-            <span style={lbl()}>Source year</span>
-            <input
-              type="number"
-              value={sourceYear}
-              onChange={(e) => { setSourceYear(Number(e.target.value)); }}
-              onBlur={() => { if (category) loadCategory(category); }}
-              style={{ ...inp(), width: 80 }}
-            />
-          </label>
-          <label style={ctrl()}>
-            <span style={lbl()}>Category</span>
-            <select
-              value={category}
-              onChange={(e) => loadCategory(e.target.value)}
-              style={{ ...inp(), minWidth: 280 }}
+        <div style={stepRowStyle()}>
+          {(['scope', 'assumptions', 'review'] as BuildStep[]).map((s, idx) => (
+            <button
+              key={s}
+              onClick={() => {
+                if (s === 'scope' || canContinue) setStep(s);
+              }}
+              disabled={s !== 'scope' && !canContinue}
+              style={stepButtonStyle(step === s)}
             >
-              <option value="">{allItems ? '-- pick a category --' : 'loading items…'}</option>
-              {categories.map((c) => (
-                <option key={c.value} value={c.value}>{c.label} ({c.itemCount})</option>
-              ))}
-            </select>
-          </label>
-          <label style={ctrl()}>
-            <span style={lbl()}>Default qty %</span>
-            <input
-              type="number" step={0.5}
-              value={defaultQtyPct}
-              onChange={(e) => setDefaultQtyPct(Number(e.target.value))}
-              style={{ ...inp(), width: 70 }}
-            />
-          </label>
-          <label style={ctrl()}>
-            <span style={lbl()}>Default price %</span>
-            <input
-              type="number" step={0.5}
-              value={defaultPricePct}
-              onChange={(e) => setDefaultPricePct(Number(e.target.value))}
-              style={{ ...inp(), width: 70 }}
-            />
-          </label>
-          <button
-            onClick={applyDefaultsToAll}
-            disabled={!rows || rows.length === 0}
-            style={btnSecondary()}
-          >
-            Apply defaults to all
-          </button>
+              {idx + 1}. {s === 'scope' ? 'Scope' : s === 'assumptions' ? 'Assumptions' : 'Review'}
+            </button>
+          ))}
         </div>
 
+        {step === 'scope' && (
+          <div style={controlsRowStyle()}>
+            <label style={ctrl()}>
+              <span style={lbl()}>Source year</span>
+              <input
+                type="number"
+                value={sourceYear}
+                onChange={(e) => { setSourceYear(Number(e.target.value)); }}
+                onBlur={() => { if (category) loadCategory(category); }}
+                style={{ ...inp(), width: 90 }}
+              />
+            </label>
+            <label style={ctrl()}>
+              <span style={lbl()}>Category</span>
+              <select
+                value={category}
+                onChange={(e) => loadCategory(e.target.value)}
+                style={{ ...inp(), minWidth: 320 }}
+              >
+                <option value="">{allItems ? 'Pick a category' : 'Loading items...'}</option>
+                {categories.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label} ({c.itemCount})</option>
+                ))}
+              </select>
+            </label>
+            {rows && rows.length > 0 && (
+              <div style={summaryStripStyle()}>
+                <strong>{rows.length}</strong> items · {fm(totals.ly_rev)} history
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 'assumptions' && (
+          <div style={controlsRowStyle()}>
+            <label style={ctrl()}>
+              <span style={lbl()}>Default qty %</span>
+              <input
+                type="number" step={0.5}
+                value={defaultQtyPct}
+                onChange={(e) => setDefaultQtyPct(Number(e.target.value))}
+                style={{ ...inp(), width: 80 }}
+              />
+            </label>
+            <label style={ctrl()}>
+              <span style={lbl()}>Default price %</span>
+              <input
+                type="number" step={0.5}
+                value={defaultPricePct}
+                onChange={(e) => setDefaultPricePct(Number(e.target.value))}
+                style={{ ...inp(), width: 80 }}
+              />
+            </label>
+            <button
+              onClick={applyDefaultsToAll}
+              disabled={!rows || rows.length === 0}
+              style={btnSecondary()}
+            >
+              Apply Defaults
+            </button>
+            <span style={{ fontSize: 10, color: 'var(--mt)' }}>
+              {category || 'No category'} · {sourceYear}
+            </span>
+          </div>
+        )}
+
+        {step === 'review' && (
+          <div style={reviewBandStyle()}>
+            <div><span style={lbl()}>Items</span><strong>{rows?.length ?? 0}</strong></div>
+            <div><span style={lbl()}>History revenue</span><strong>{fm(totals.ly_rev)}</strong></div>
+            <div><span style={lbl()}>Planned revenue</span><strong>{fm(totals.plan_rev)}</strong></div>
+            <div><span style={lbl()}>Revenue change</span><strong>{totals.ly_rev > 0 ? (((totals.plan_rev - totals.ly_rev) / totals.ly_rev) * 100).toFixed(1) + '%' : '—'}</strong></div>
+          </div>
+        )}
+
         <div style={{ flex: 1, overflow: 'auto', borderTop: '1px solid var(--bd)' }}>
-          {!category ? (
-            <div className="ld">Pick a category to load its items with last year's qty and revenue.</div>
+          {step === 'scope' ? (
+            <div className="ld">Choose a source year and category.</div>
+          ) : step === 'review' ? (
+            <div className="ld">
+              {rows && rows.length > 0
+                ? `${rows.length} items will be written from ${sourceYear} history into FY${planFiscalYear}.`
+                : 'No rows ready to apply.'}
+            </div>
+          ) : !category ? (
+            <div className="ld">Pick a category to load its items.</div>
           ) : loadingRows ? (
             <div className="ld">Loading {sourceYear} history…</div>
           ) : !rows || rows.length === 0 ? (
@@ -293,14 +345,33 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
 
         <div style={footerRowStyle()}>
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-            Applying writes plan lines for every (item × customer) combo present in {sourceYear} actuals.
-            Existing lines for these items are overwritten with the new qty / price assumptions.
+            {step === 'scope'
+              ? 'Pick the history slice to start from.'
+              : step === 'assumptions'
+                ? 'Adjust growth assumptions before review.'
+                : `Ready to write item and customer plan lines from ${sourceYear} history.`}
           </span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={btnSecondary()} disabled={applying}>Cancel</button>
-            <button onClick={apply} style={btnPrimary()} disabled={applying || !rows || rows.length === 0}>
-              {applying ? 'Applying…' : 'Apply'}
-            </button>
+            {step === 'scope' && (
+              <>
+                <button onClick={onClose} style={btnSecondary()} disabled={applying}>Cancel</button>
+                <button onClick={() => setStep('assumptions')} style={btnPrimary()} disabled={!canContinue}>Next</button>
+              </>
+            )}
+            {step === 'assumptions' && (
+              <>
+                <button onClick={() => setStep('scope')} style={btnSecondary()} disabled={applying}>Back</button>
+                <button onClick={() => setStep('review')} style={btnPrimary()} disabled={!canContinue}>Review</button>
+              </>
+            )}
+            {step === 'review' && (
+              <>
+                <button onClick={() => setStep('assumptions')} style={btnSecondary()} disabled={applying}>Back</button>
+                <button onClick={apply} style={btnPrimary()} disabled={applying || !rows || rows.length === 0}>
+                  {applying ? 'Applying…' : 'Apply'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -334,9 +405,45 @@ function headerRowStyle(): React.CSSProperties {
     padding: '12px 16px', borderBottom: '1px solid var(--bd)',
   };
 }
+function stepRowStyle(): React.CSSProperties {
+  return {
+    display: 'flex', gap: 6, alignItems: 'center',
+    padding: '10px 16px', borderBottom: '1px solid var(--bd)',
+  };
+}
+function stepButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    border: '1px solid var(--bd)',
+    background: active ? 'rgba(91,181,240,0.18)' : 'var(--sf2)',
+    color: active ? 'var(--ac)' : 'var(--tx2)',
+    borderRadius: 4,
+    padding: '5px 10px',
+    fontSize: 10,
+    fontWeight: 700,
+    cursor: 'pointer',
+  };
+}
 function controlsRowStyle(): React.CSSProperties {
   return {
     display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap',
+    padding: '12px 16px',
+  };
+}
+function summaryStripStyle(): React.CSSProperties {
+  return {
+    border: '1px solid var(--bd)',
+    borderRadius: 4,
+    padding: '7px 10px',
+    fontSize: 11,
+    color: 'var(--tx2)',
+    background: 'var(--sf2)',
+  };
+}
+function reviewBandStyle(): React.CSSProperties {
+  return {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(130px, 1fr))',
+    gap: 10,
     padding: '12px 16px',
   };
 }

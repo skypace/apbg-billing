@@ -14,8 +14,9 @@ import {
   fetchPlanActualsByItem,
   fetchPlanLineSections,
   fetchPlanLines,
+  fetchPlans,
 } from '../../lib/plans';
-import { Dim, fetchPivot } from '../../lib/sales';
+import { Dim, fetchPivot, fetchQboSyncFreshness, type QboSyncFreshness } from '../../lib/sales';
 import { PlanVsActuals } from './PlanVsActuals';
 import { PlanForecast } from './PlanForecast';
 import { PlanPlView } from './PlanPlView';
@@ -25,6 +26,7 @@ import { PlanLinesGrouped } from './PlanLinesGrouped';
 type Mode = 'pl' | 'lines' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
 type ActualsByItem = Record<string, { item_name?: string; amounts: number[]; total: number }>;
+type CompareByItem = Record<string, { item_name?: string | null; total: number }>;
 
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
   { id: 'revenue', label: 'Revenue ($)' },
@@ -50,6 +52,10 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [mode, setMode] = useState<Mode>('lines');
   const [viewMode, setViewMode] = useState<ViewMode>('revenue');
   const [buildOpen, setBuildOpen] = useState(false);
+  const [comparePlans, setComparePlans] = useState<SalesPlan[]>([]);
+  const [comparePlanId, setComparePlanId] = useState('');
+  const [compareLines, setCompareLines] = useState<SalesPlanLine[] | null>(null);
+  const [qboFreshness, setQboFreshness] = useState<QboSyncFreshness | null>(null);
 
   function load() {
     Promise.all([
@@ -63,6 +69,26 @@ export function PlanEditor({ plan, onBack }: Props) {
 
   useEffect(() => {
     fetchItemOptions().then(setItemOpts).catch(() => setItemOpts([]));
+  }, []);
+
+  useEffect(() => {
+    fetchPlans()
+      .then((plans) => {
+        setComparePlans(plans.filter((p) => p.id !== plan.id && p.fiscal_year === plan.fiscal_year));
+      })
+      .catch(() => setComparePlans([]));
+  }, [plan.id, plan.fiscal_year]);
+
+  useEffect(() => {
+    if (!comparePlanId) {
+      setCompareLines(null);
+      return;
+    }
+    fetchPlanLines(comparePlanId).then(setCompareLines).catch(() => setCompareLines([]));
+  }, [comparePlanId]);
+
+  useEffect(() => {
+    fetchQboSyncFreshness().then(setQboFreshness).catch(() => setQboFreshness(null));
   }, []);
 
   // Pull actuals once for the plan year and key them by stable QBO item id.
@@ -240,6 +266,19 @@ export function PlanEditor({ plan, onBack }: Props) {
     () => (lines ?? []).reduce((s, l) => s + (l.amounts ?? []).reduce((a, v) => a + Number(v || 0), 0), 0),
     [lines],
   );
+  const compareByItem = useMemo<CompareByItem | null>(() => {
+    if (!compareLines) return null;
+    const byItem: CompareByItem = {};
+    for (const line of compareLines) {
+      const key = line.qbo_item_id ?? line.item_name ?? line.id;
+      if (!byItem[key]) byItem[key] = { item_name: line.item_name, total: 0 };
+      byItem[key].total += (line.amounts ?? []).reduce((s, v) => s + Number(v || 0), 0);
+    }
+    return byItem;
+  }, [compareLines]);
+  const comparePlan = comparePlans.find((p) => p.id === comparePlanId) ?? null;
+  const qboWarnings = qboFreshness?.warnings?.filter(Boolean) ?? [];
+  const showQboWarning = qboFreshness != null && (qboFreshness.status !== 'ok' || qboWarnings.length > 0);
 
   if (!lines) return <div className="ld">Loading plan…</div>;
 
@@ -306,6 +345,27 @@ export function PlanEditor({ plan, onBack }: Props) {
         </div>
       </div>
 
+      {showQboWarning && (
+        <div
+          className="cd"
+          style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            borderColor: 'rgba(242,184,75,0.55)',
+            color: 'var(--am)',
+            fontSize: 11,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <strong>QBO DATA WARNING</strong>
+          <span>{qboWarnings[0] ?? qboFreshness?.status ?? 'Freshness check needs attention'}</span>
+          {qboWarnings.length > 1 && <span style={{ color: 'var(--mt)' }}>+{qboWarnings.length - 1} more</span>}
+        </div>
+      )}
+
       {mode === 'pl' && <PlanPlView planId={plan.id} />}
 
       {buildOpen && (
@@ -313,7 +373,7 @@ export function PlanEditor({ plan, onBack }: Props) {
           planId={plan.id}
           planFiscalYear={plan.fiscal_year}
           onClose={() => setBuildOpen(false)}
-          onApplied={load}
+          onApplied={() => { load(); setMode('lines'); }}
         />
       )}
 
@@ -350,6 +410,16 @@ export function PlanEditor({ plan, onBack }: Props) {
                   >{v.label}</button>
                 ))}
               </div>
+              <select
+                value={comparePlanId}
+                onChange={(e) => setComparePlanId(e.target.value)}
+                style={{ ...inp(), width: 190, fontSize: 10, padding: '4px 8px' }}
+              >
+                <option value="">Compare plan</option>
+                {comparePlans.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
               <button onClick={() => setPickerOpen(!pickerOpen)} style={btnSecondary()}>+ ADD ITEM</button>
             </div>
           </div>
@@ -381,6 +451,8 @@ export function PlanEditor({ plan, onBack }: Props) {
               linesSections={linesSections}
               viewMode={viewMode}
               actualsByItem={actualsByItem}
+              compareByItem={compareByItem}
+              compareLabel={comparePlan?.name ?? null}
               planFiscalYear={plan.fiscal_year}
               onSetCell={(line, monthIdx, value) => setCell(line, monthIdx, value)}
               onFillFlat={(line, total) => fillFlat(line, total)}
