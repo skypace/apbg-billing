@@ -32,43 +32,52 @@ const FALLBACK_FROM  = 'APBG <alerts@alamedapointbg.com>';
 export const EMAIL_FROM = readEnv('EMAIL_FROM') || DEFAULT_FROM;
 export const SITE_URL   = readEnv('URL') || 'https://alamedapointbg.com';
 
-export async function sendEmail({ to, subject, html, replyTo, from }) {
+// `attachments` (optional): [{ filename, content }] where content is base64
+// (Resend format). Only wired through the Resend path.
+export async function sendEmail({ to, subject, html, text, replyTo, from, attachments }) {
   const sendgridKey = readEnv('SENDGRID_API_KEY');
   const resendKey   = readEnv('RESEND_API_KEY');
 
   // SendGrid first if its key exists (keeps AP-tool compat); else Resend.
-  if (sendgridKey) {
+  // NOTE: attachments are only supported on the Resend path today, so prefer
+  // Resend when a caller passes attachments even if a SendGrid key exists.
+  if (sendgridKey && !(attachments && attachments.length)) {
     return sendViaSendGrid({ to, subject, html, replyTo, from: from || EMAIL_FROM, sendgridKey });
   }
   if (resendKey) {
-    return sendViaResendWithFallback({ to, subject, html, replyTo, from: from || EMAIL_FROM, resendKey });
+    return sendViaResendWithFallback({ to, subject, html, text, replyTo, from: from || EMAIL_FROM, resendKey, attachments });
+  }
+  if (sendgridKey) {
+    return sendViaSendGrid({ to, subject, html, replyTo, from: from || EMAIL_FROM, sendgridKey });
   }
   console.warn('No email service configured — skipping email send');
   return false;
 }
 
-async function sendViaResendWithFallback({ to, subject, html, replyTo, from, resendKey }) {
+async function sendViaResendWithFallback({ to, subject, html, text, replyTo, from, resendKey, attachments }) {
   try {
-    return await sendViaResend({ to, subject, html, replyTo, from, resendKey });
+    return await sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments });
   } catch (e) {
     const msg = String(e?.message || '');
     if (/domain|from|verified|403|unauthorized/i.test(msg)) {
       // Caller-specified or env-specified domain isn't verified in Resend.
       // Retry with the known-good APBG sender.
       console.warn(`Resend rejected from="${from}" (${msg}); retrying with ${FALLBACK_FROM}`);
-      return await sendViaResend({ to, subject, html, replyTo, from: FALLBACK_FROM, resendKey });
+      return await sendViaResend({ to, subject, html, text, replyTo, from: FALLBACK_FROM, resendKey, attachments });
     }
     throw e;
   }
 }
 
-async function sendViaResend({ to, subject, html, replyTo, from, resendKey }) {
+async function sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments }) {
   const payload = {
     from,
     to: Array.isArray(to) ? to : [to],
     subject,
     html,
   };
+  if (text) payload.text = text;
+  if (attachments && attachments.length) payload.attachments = attachments;
   if (replyTo) payload.reply_to = replyTo;
 
   const res = await fetch('https://api.resend.com/emails', {
