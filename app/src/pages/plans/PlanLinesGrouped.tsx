@@ -9,7 +9,7 @@ import { btnDanger, btnSecondary, inp } from '../../lib/styles';
 export type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
 
 type ActualsByItem = Record<string, { item_name?: string; amounts: number[]; total: number }>;
-type CompareByItem = Record<string, { item_name?: string | null; total: number }>;
+type CompareByItem = Record<string, { item_name?: string | null; amounts: number[]; total: number }>;
 
 const ZEROS = (): number[] => [0,0,0,0,0,0,0,0,0,0,0,0];
 
@@ -192,28 +192,29 @@ export function PlanLinesGrouped({
     );
   }
 
-  function compareForLines(group: SalesPlanLine[]): number | null {
+  function compareForLines(group: SalesPlanLine[]): { m: number[]; total: number } | null {
     if (!compareByItem) return null;
     const seen = new Set<string>();
-    let total = 0;
+    const m = Array(12).fill(0) as number[];
     for (const line of group) {
       const key = line.qbo_item_id ?? line.item_name ?? line.id;
       if (seen.has(key)) continue;
       seen.add(key);
-      total += Number(compareByItem[key]?.total ?? 0);
+      const amounts = compareByItem[key]?.amounts ?? ZEROS();
+      for (let i = 0; i < 12; i++) m[i] += Number(amounts[i] || 0);
     }
-    return total;
+    return { m, total: m.reduce((s, v) => s + v, 0) };
   }
 
   function compareCells(group: SalesPlanLine[], strong = false) {
     if (!showCompare) return null;
     const current = revenueMonthly(group).total;
-    const compareTotal = compareForLines(group);
-    const delta = compareTotal == null ? null : current - compareTotal;
+    const compare = compareForLines(group);
+    const delta = compare == null ? null : current - compare.total;
     const color = delta == null ? 'var(--mt)' : delta >= 0 ? 'var(--gn)' : 'var(--rd)';
     return (
       <>
-        <td className="mn" style={paceCellStyle(strong)}>{compareTotal == null ? '—' : fm(compareTotal)}</td>
+        <td className="mn" style={paceCellStyle(strong)}>{compare == null ? '—' : fm(compare.total)}</td>
         <td className="mn" style={{ ...paceCellStyle(strong), color }}>{delta == null ? '—' : fm(delta)}</td>
       </>
     );

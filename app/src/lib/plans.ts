@@ -98,6 +98,13 @@ export function fetchPlanActualsByItem(plan_id: string) {
   return sbrpc<PlanActualsByItemRow[]>('fn_plan_actuals_by_item', { p_plan_id: plan_id });
 }
 
+export function fetchPlanActualsByItemYear(plan_id: string, source_year: number) {
+  return sbrpc<PlanActualsByItemRow[]>('fn_plan_actuals_by_item_year', {
+    p_plan_id: plan_id,
+    p_source_year: source_year,
+  });
+}
+
 export function fetchItemOptions() {
   return sbq<QboItemOption>(
     'qbo_items',
