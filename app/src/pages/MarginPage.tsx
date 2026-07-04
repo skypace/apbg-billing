@@ -35,7 +35,6 @@ import {
   fetchOverheadPools,
   buildOverheadBasisTotals,
   computeOverheadFields,
-  totalPoolAmount,
   type OverheadPoolTotal,
 } from '../lib/overhead';
 
@@ -47,8 +46,8 @@ import { sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
-  computePriorBounds, fetchDimValues, fetchMarginDataHealth, fetchPivot, fetchPlMarginSummary, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
-  mergeWithPrior, type MarginHealthIssue, type PlMarginSummary, type QboSyncFreshness, trailing12MonthKeys,
+  computePriorBounds, fetchDimValues, fetchMarginDataHealth, fetchPivot, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
+  mergeWithPrior, type MarginHealthIssue, type QboSyncFreshness, trailing12MonthKeys,
 } from '../lib/sales';
 
 const DIMS: { id: Dim; label: string }[] = [
@@ -361,7 +360,6 @@ export function MarginPage() {
   const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
-  const [plSummary, setPlSummary] = useState<PlMarginSummary | null>(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [enrichment, setEnrichment] = useState<Record<string, Record<string, unknown>>>({});
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
@@ -528,14 +526,6 @@ export function MarginPage() {
       .catch((e) => { if (!cancelled) setErr(e.message); });
     return () => { cancelled = true; };
   }, [dim, JSON.stringify(effectiveFilters)]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchPlMarginSummary(effectiveFilters.start, effectiveFilters.end)
-      .then((s) => { if (!cancelled) setPlSummary(s); })
-      .catch(() => { if (!cancelled) setPlSummary(null); });
-    return () => { cancelled = true; };
-  }, [effectiveFilters.start, effectiveFilters.end]);
 
   useEffect(() => {
     let cancelled = false;
@@ -731,6 +721,7 @@ export function MarginPage() {
     }
     return {
       revenue: pct(totals.revenue, priorTotals.revenue),
+      cost: pct(totals.est_cost, priorTotals.est_cost),
       margin: pct(totals.est_margin, priorTotals.est_margin),
       customers: pct(totals.customer_count, priorTotals.customer_count),
       cost_coverage: pct(totals.cost_coverage_pct, priorTotals.cost_coverage_pct),
@@ -743,36 +734,7 @@ export function MarginPage() {
     return v >= 0.8 ? 'var(--gn)' : v >= 0.5 ? 'var(--am)' : 'var(--rd)';
   }, [totals]);
 
-  const plCompatibleFilters = useMemo(() => {
-    const keys: Array<keyof SalesFilters> = [
-      'entities', 'categories', 'customers', 'items', 'channels', 'segments',
-      'product_families', 'product_types',
-      'exclude_customers', 'exclude_categories', 'exclude_items',
-    ];
-    return activeModifiers.length === 0 && keys.every((key) => {
-      const value = effectiveFilters[key] as string[] | null | undefined;
-      return !value || value.length === 0;
-    });
-  }, [activeModifiers.length, JSON.stringify(effectiveFilters)]);
-
-  const usePlNetMargin = plCompatibleFilters && plSummary != null;
   const effectiveOverheadPools = overheadPools;
-
-  const totalOverhead = useMemo(() => totalPoolAmount(effectiveOverheadPools), [effectiveOverheadPools]);
-  const showNetKpi = totals != null && (totalOverhead !== 0 || usePlNetMargin);
-  const netMargin = usePlNetMargin && plSummary
-    ? Number(plSummary.net_margin ?? 0)
-    : totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
-  const netMarginPct = usePlNetMargin && plSummary
-    ? (plSummary.net_margin_pct != null ? Number(plSummary.net_margin_pct) : null)
-    : totals && Number(totals.revenue ?? 0) > 0 && netMargin != null
-      ? netMargin / Number(totals.revenue) : null;
-  const netMarginSub = usePlNetMargin && plSummary
-    ? (netMarginPct != null ? fp(netMarginPct) + ' QBO P&L net' : 'QBO P&L net') + ' · ' + fm(plSummary.operating_expenses) + ' expenses'
-    : netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined;
-  const netMarginAccent = netMarginPct == null ? undefined
-    : netMarginPct >= 0.2 ? 'var(--gn)'
-    : netMarginPct >= 0   ? 'var(--am)' : 'var(--rd)';
 
   const pareto = useMemo(() => {
     if (!rows || rows.length < 5) return null;
@@ -839,7 +801,6 @@ export function MarginPage() {
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
-              {showNetKpi ? (usePlNetMargin ? ` · QBO P&L net ${netMargin != null ? fm(netMargin) : '—'}` : ` · ${effectiveOverheadPools.length} OH pool${effectiveOverheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})`) : ''}
               {qboWarnings.length > 0 ? ' · QBO warning: ' + qboWarnings[0] + (qboWarnings.length > 1 ? ` (+${qboWarnings.length - 1})` : '') : ''}
               {expandedRollup.perRollup.length > 0 && (
                 ' · excluding: ' + expandedRollup.perRollup.map((r) =>
@@ -874,33 +835,23 @@ export function MarginPage() {
         </div>
       </div>
 
-      {totals == null && rows == null ? (<KpiRowSkeleton count={showNetKpi ? 5 : 4} />) : (
+      {totals == null && rows == null ? (<KpiRowSkeleton count={5} />) : (
         <div className="gr" style={{
-          gridTemplateColumns: showNetKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
           marginBottom: 18,
         }}>
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
             sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined} />
-          <KPICard title="Est Margin" value={totals ? fm(totals.est_margin) : '…'} deltaPct={kpiDeltas?.margin ?? null}
-            sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined} />
-          {showNetKpi && (
-            <KPICard title="Net Margin" value={netMargin != null ? fm(netMargin) : '…'}
-              sub={netMarginSub} accent={netMarginAccent} />
-          )}
+          <KPICard title="Item Cost" value={totals ? fm(totals.est_cost) : '…'} deltaPct={kpiDeltas?.cost ?? null}
+            polarity="inverse" sub="summed invoice-line cost" />
+          <KPICard title="Item Gross Margin" value={totals ? fm(totals.est_margin) : '…'} deltaPct={kpiDeltas?.margin ?? null}
+            sub={totals ? fp(totals.margin_pct) + ' gross margin %' : undefined} />
           <KPICard title="Customers" value={totals ? fmtNum(totals.customer_count) : '…'} deltaPct={kpiDeltas?.customers ?? null}
             sub={totals ? fmtNum(totals.item_count) + ' items' : undefined} />
           <KPICard title="Cost Coverage" value={totals ? fp(totals.cost_coverage_pct) : '…'} deltaPct={kpiDeltas?.cost_coverage ?? null}
             sub="% of revenue with item-cost data" accent={accent} />
         </div>
       )}
-
-      <MarginHealthPanel
-        issues={marginHealth}
-        expanded={healthExpanded}
-        onToggle={() => setHealthExpanded((v) => !v)}
-        onSyncCosts={syncItemCosts}
-        syncing={syncing}
-      />
 
       <div className="toolbar">
         <div className="toolbar-row">
@@ -1115,6 +1066,16 @@ export function MarginPage() {
         start={effectiveFilters.start}
         end={effectiveFilters.end}
       />
+
+      <div style={{ marginTop: 14 }}>
+        <MarginHealthPanel
+          issues={marginHealth}
+          expanded={healthExpanded}
+          onToggle={() => setHealthExpanded((v) => !v)}
+          onSyncCosts={syncItemCosts}
+          syncing={syncing}
+        />
+      </div>
     </div>
   );
 }
