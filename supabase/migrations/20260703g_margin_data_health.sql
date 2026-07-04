@@ -4,14 +4,18 @@
 -- Keep receipt/blob sync progress visible. sf-receipt-sync reads its own last
 -- successful cursor from ops.sync_log, so rejecting this source makes the job
 -- look stateless and much harder to diagnose.
+--
+-- NOT VALID keeps historical sync_log rows from blocking deployment while this
+-- check still protects new writes going forward.
 ALTER TABLE ops.sync_log DROP CONSTRAINT IF EXISTS sync_log_source_check;
 ALTER TABLE ops.sync_log ADD CONSTRAINT sync_log_source_check
   CHECK (
     source IS NULL OR source = ANY (ARRAY[
       'qbo'::text, 'sf'::text, 'sf-receipt-sync'::text, 'fleet'::text,
-      'zoho_crm'::text, 'bambee'::text, 'fleetcomplete'::text, 'pg_net'::text
+      'sf-expense-sweep'::text, 'zoho_crm'::text, 'bambee'::text,
+      'fleetcomplete'::text, 'pg_net'::text
     ])
-  );
+  ) NOT VALID;
 
 CREATE OR REPLACE FUNCTION ops.fn_margin_data_health(
   p_start date DEFAULT '2025-01-01',

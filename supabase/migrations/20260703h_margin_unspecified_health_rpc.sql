@@ -6,15 +6,20 @@
 -- signature, backfill known revenue maps, and make v_sales_lines resolve a
 -- category from revenue_line, known Melt account names, item category_path,
 -- then account name as a last resort.
+--
+-- Keep the sync_log source check from blocking the margin repair on older
+-- operational log rows. NOT VALID preserves enforcement for new rows without
+-- forcing all historical rows to match this curated list during the migration.
 
 ALTER TABLE ops.sync_log DROP CONSTRAINT IF EXISTS sync_log_source_check;
 ALTER TABLE ops.sync_log ADD CONSTRAINT sync_log_source_check
   CHECK (
     source IS NULL OR source = ANY (ARRAY[
       'qbo'::text, 'sf'::text, 'sf-receipt-sync'::text, 'fleet'::text,
-      'zoho_crm'::text, 'bambee'::text, 'fleetcomplete'::text, 'pg_net'::text
+      'sf-expense-sweep'::text, 'zoho_crm'::text, 'bambee'::text,
+      'fleetcomplete'::text, 'pg_net'::text
     ])
-  );
+  ) NOT VALID;
 
 INSERT INTO ops.category_segments (category, segment_code, set_by) VALUES
   ('The Melt Equipment', 'foodservice_equipment', 'codex'),
