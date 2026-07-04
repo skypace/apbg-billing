@@ -90,6 +90,30 @@ function jsonRes(data: unknown, status = 200) {
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+async function logSync(
+  sb: SupabaseClient,
+  startedAt: string,
+  status: "success" | "error",
+  recordsSynced: number,
+  metadata: Record<string, unknown>,
+  errorMessage: string | null = null,
+): Promise<void> {
+  try {
+    await sb.schema("ops").from("sync_log").insert({
+      source: "qbo",
+      sync_type: "items",
+      status,
+      records_synced: recordsSynced,
+      error_message: errorMessage,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      metadata,
+    });
+  } catch (_e) {
+    // Logging should never turn a successful QBO item sync into a failed sync.
+  }
+}
+
 async function claimRefresh(sb: SupabaseClient): Promise<ClaimResult> {
   const { data, error } = await sb.rpc("qbo_token_claim_refresh", {
     p_realm_id: getRealm(),
@@ -289,6 +313,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const startedAt = Date.now();
+  const startedAtIso = new Date(startedAt).toISOString();
   const url = new URL(req.url);
   const mode = url.searchParams.get("mode") || "sync";
   const sb = getSB();
@@ -383,6 +408,18 @@ Deno.serve(async (req: Request) => {
       reconciled_inactive = stale.length;
     }
 
+    await logSync(sb, startedAtIso, "success", upserted, {
+      mode,
+      synced: items.length,
+      active_in_qbo: activeCount,
+      inactive_in_qbo: inactiveCount,
+      with_purchase_cost: withCost,
+      without_cost: items.length - withCost,
+      upserted,
+      skipped_locked,
+      reconciled_inactive,
+    });
+
     return jsonRes({
       ok: true,
       realm_id: realm,
@@ -399,6 +436,7 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err) {
     console.error("sync-qbo-items FATAL:", err);
+    await logSync(sb, startedAtIso, "error", 0, { mode }, err instanceof Error ? err.message : String(err));
     return jsonRes(
       {
         ok: false,

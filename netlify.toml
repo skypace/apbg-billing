@@ -49,6 +49,9 @@
 [functions."master-health-cron"]
   timeout = 60
 
+[functions."qbo-sync-runner"]
+  timeout = 900
+
 # ── BRIXpense API → underlying functions ──
 #
 # The Brixpense expense-* functions are all Netlify v2 ESM functions that
