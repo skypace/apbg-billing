@@ -140,8 +140,9 @@ export async function handler(event) {
   // ── re-read PMs authoritatively ──
   let rows;
   try {
+    // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,city,pm_date,tech_name,prev_comp,billed`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,assets(city)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -161,7 +162,7 @@ export async function handler(event) {
   const total = round(count * rate);
 
   const lines = eligible.map(r => ({
-    id: r.id, store: r.store, serial: r.serial, city: r.city, pm_date: r.pm_date,
+    id: r.id, store: r.store, serial: r.serial, city: r.assets?.city || '', pm_date: r.pm_date,
     tech: r.tech_name, amount: rate,
   }));
 
@@ -216,7 +217,7 @@ export async function handler(event) {
   // Build CSV visit report.
   const csvHeader = 'Store,City,Serial,PM Date,Technician,Amount';
   const csvBody = eligible.map(r =>
-    [csvCell(r.store), csvCell(r.city), csvCell(r.serial), csvCell(r.pm_date), csvCell(r.tech_name), rate.toFixed(2)].join(',')
+    [csvCell(r.store), csvCell(r.assets?.city || ''), csvCell(r.serial), csvCell(r.pm_date), csvCell(r.tech_name), rate.toFixed(2)].join(',')
   ).join('\n');
   const csvB64 = Buffer.from(`${csvHeader}\n${csvBody}\n`).toString('base64');
   const periodTag = (minDate || 'report').replace(/[^0-9]/g, '') || 'report';
