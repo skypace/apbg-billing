@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrandBox — APBG Brand Asset Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0F172A; --panel: #16233b; --panel-2: #1c2c48; --border: #26375a;
+    --ink: #E7ECF5; --muted: #93A2be; --accent: #3B82F6; --navy: #1F4E79;
+    --good: #22c55e; --bad: #ef4444; --warn: #f59e0b; --shadow: 0 10px 30px rgba(0,0,0,.35);
+    --radius: 14px;
+  }
+  html[data-apbg-theme="light"], body.light {
+    --bg: #f1f5f9; --panel: #ffffff; --panel-2: #f8fafc; --border: #dbe3ef;
+    --ink: #0f1e34; --muted: #5b6b86; --accent: #2563eb; --navy: #1F4E79;
+    --shadow: 0 10px 28px rgba(15,30,52,.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 80px; }
+  header.hero {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 22px 24px; border-radius: var(--radius); background:
+      radial-gradient(120% 140% at 0% 0%, rgba(59,130,246,.18), transparent 55%),
+      linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--border); box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .logo-badge {
+    width: 54px; height: 54px; border-radius: 14px; display: grid; place-items: center; flex: 0 0 54px;
+    background: linear-gradient(135deg, var(--navy), var(--accent)); color: #fff; font-weight: 800; font-size: 20px;
+    box-shadow: 0 6px 16px rgba(31,78,121,.5);
+  }
+  .logo-badge span { transform: translateY(-2px); }
+  .logo-badge sup { font-size: 11px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.3px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .spacer { flex: 1 1 auto; }
+  .pill { font-size: 12px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); padding: 6px 11px; border-radius: 999px; }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  input, select, button, textarea { font-family: inherit; font-size: 14px; }
+  .field {
+    background: var(--panel); border: 1px solid var(--border); color: var(--ink);
+    border-radius: 10px; padding: 9px 12px; outline: none;
+  }
+  .field:focus { border-color: var(--accent); }
+  #search { min-width: 220px; flex: 1 1 240px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--ink); padding: 9px 14px; border-radius: 10px; cursor: pointer;
+    font-weight: 600; transition: .12s;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), #2f6ad9); border-color: transparent; color: #fff; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn.ghost { background: transparent; }
+  .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .chip {
+    padding: 6px 13px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; text-transform: capitalize; transition: .12s;
+  }
+  .chip.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .chip .n { opacity: .7; font-weight: 500; margin-left: 4px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+    display: flex; flex-direction: column; transition: .14s; position: relative;
+  }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: var(--shadow); }
+  .thumb {
+    aspect-ratio: 4/3; background: repeating-conic-gradient(rgba(148,162,190,.08) 0% 25%, transparent 0% 50%) 50%/22px 22px, var(--panel-2);
+    display: grid; place-items: center; cursor: pointer; overflow: hidden;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .thumb .ic { font-size: 34px; opacity: .5; }
+  .card .meta { padding: 10px 12px; }
+  .card .nm { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .ty { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+  .card .row { display: flex; gap: 6px; margin-top: 9px; }
+  .iconbtn {
+    flex: 1; border: 1px solid var(--border); background: var(--panel-2); color: var(--ink); border-radius: 8px;
+    padding: 6px; cursor: pointer; display: grid; place-items: center; font-size: 13px; transition: .12s;
+  }
+  .iconbtn:hover { border-color: var(--accent); }
+  .iconbtn.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .badge-src { position: absolute; top: 8px; right: 8px; font-size: 10px; padding: 2px 7px; border-radius: 999px; background: rgba(15,23,42,.7); color: #cfe0ff; border: 1px solid var(--border); }
+  .badge-src.local { color: var(--muted); }
+
+  .empty, .loading { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .empty .big { font-size: 40px; margin-bottom: 10px; }
+
+  section.block { margin-top: 30px; }
+  section.block h2 { font-size: 15px; letter-spacing: .3px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .sw { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; background: var(--panel); }
+  .sw .col { height: 62px; }
+  .sw .lbl { padding: 8px 10px; }
+  .sw .lbl b { font-size: 12.5px; display: block; }
+  .sw .lbl code { font-size: 11px; color: var(--muted); }
+
+  /* drag overlay */
+  #drop { position: fixed; inset: 0; background: rgba(59,130,246,.16); backdrop-filter: blur(3px); z-index: 50; display: none; place-items: center; }
+  #drop.on { display: grid; }
+  #drop .box { border: 2px dashed var(--accent); border-radius: 18px; padding: 50px 70px; font-size: 18px; font-weight: 700; color: #fff; background: rgba(15,23,42,.6); }
+
+  /* modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(6,12,24,.72); z-index: 60; display: none; place-items: center; padding: 20px; }
+  .modal-bg.on { display: grid; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; box-shadow: var(--shadow); }
+  .modal .head { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  .modal .head b { font-size: 15px; }
+  .modal .body { padding: 18px; }
+  .modal .preview { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; display: grid; place-items: center; min-height: 240px; padding: 14px; margin-bottom: 16px; }
+  .modal .preview img { max-width: 100%; max-height: 420px; object-fit: contain; }
+  .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; font-size: 13px; margin-bottom: 16px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .kv code { word-break: break-all; }
+  .modal .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* login */
+  #login { max-width: 380px; margin: 60px auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; box-shadow: var(--shadow); }
+  #login h2 { margin: 0 0 4px; }
+  #login p { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  #login .field { width: 100%; margin-bottom: 10px; }
+  #login .btn { width: 100%; justify-content: center; }
+  #loginErr { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 8px; }
+
+  /* toast */
+  #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--navy); color: #fff; padding: 11px 18px; border-radius: 10px; box-shadow: var(--shadow); opacity: 0; transition: .2s; z-index: 80; font-weight: 600; font-size: 13.5px; }
+  #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .hidden { display: none !important; }
+  .import-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+  #importUrls { flex: 1 1 340px; min-height: 70px; resize: vertical; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="logo-badge"><span>°<b>bx</b></span></div>
+    <div>
+      <h1>BrandBox</h1>
+      <div class="sub">Alameda Point Beverage Group — brand asset library</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="pill" id="whoami"></div>
+    <button class="btn ghost hidden" id="signout">Sign out</button>
+  </header>
+
+  <!-- LOGIN -->
+  <div id="login" class="hidden">
+    <h2>Sign in</h2>
+    <p>Use your Alameda Point BG account. Superadmin, admin, or sales roles can manage the library.</p>
+    <input class="field" id="email" type="email" placeholder="you@brixbev.com" autocomplete="username" />
+    <input class="field" id="password" type="password" placeholder="Password" autocomplete="current-password" />
+    <button class="btn primary" id="loginBtn">Sign in</button>
+    <div id="loginErr"></div>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hidden">
+    <div class="toolbar">
+      <input class="field" id="search" placeholder="Search assets…" />
+      <select class="field" id="uploadType" title="Upload / import as this type">
+        <option value="logo">logo</option>
+        <option value="can">can</option>
+        <option value="equipment">equipment</option>
+        <option value="hero">hero</option>
+        <option value="testimonial">testimonial</option>
+        <option value="sell-sheet">sell-sheet</option>
+        <option value="other" selected>other</option>
+      </select>
+      <button class="btn primary" id="uploadBtn">⬆ Upload</button>
+      <input type="file" id="fileInput" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml,application/pdf" class="hidden" />
+      <button class="btn" id="importBtn">🌐 Import from URL</button>
+      <button class="btn ghost" id="refreshBtn" title="Refresh">↻</button>
+    </div>
+
+    <div id="importPanel" class="hidden" style="margin-bottom:16px">
+      <div class="import-row">
+        <textarea class="field" id="importUrls" placeholder="Paste one or more image/PDF URLs (one per line). Great for migrating off Brandox — copy each asset's link from the portal and drop them here."></textarea>
+        <button class="btn primary" id="importGo">Import</button>
+      </div>
+      <div class="sub" style="margin-top:6px">Imports are fetched and stored server-side into your Supabase brand library (up to 60 URLs at a time).</div>
+    </div>
+
+    <div class="chips" id="chips"></div>
+
+    <div id="gallery"><div class="loading">Loading brand library…</div></div>
+
+    <section class="block">
+      <h2>🎨 Brand palette <span class="sub" style="font-weight:400">click a swatch to copy the hex</span></h2>
+      <div class="palette" id="palette"></div>
+    </section>
+  </div>
+</div>
+
+<div id="drop"><div class="box">Drop files to upload to the brand library</div></div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modal"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+// When served under the gateway (alamedapointbg.com) call the billing origin directly;
+// same-origin on apbg-billing.netlify.app. GET/POST are CORS-allowed by the function.
+const API = /alamedapointbg\.com$/.test(location.hostname)
+  ? 'https://apbg-billing.netlify.app/.netlify/functions/proposal-brand-assets'
+  : '/.netlify/functions/proposal-brand-assets';
+
+const PALETTE = [
+  { name: 'Brix Navy (°bx)', hex: '#1F4E79' },
+  { name: 'Accent Blue', hex: '#3B82F6' },
+  { name: 'Slate 900', hex: '#0F172A' },
+  { name: 'Alameda Red', hex: '#C8102E' },
+  { name: 'Cloud', hex: '#F8FAFC' },
+  { name: 'Ink', hex: '#0f1e34' },
+];
+
+let ASSETS = [];
+let FILTER = 'all';
+const $ = (id) => document.getElementById(id);
+
+function session() {
+  try {
+    const raw = localStorage.getItem('apbg_session') || localStorage.getItem('apbg_dashboard_session');
+    if (raw) { const s = JSON.parse(raw); if (s && s.token) return s; }
+  } catch {}
+  return null;
+}
+function token() { return session()?.token || null; }
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 2600);
+}
+
+async function api(method, body) {
+  const headers = { Authorization: 'Bearer ' + token() };
+  let url = API;
+  const opts = { method, headers };
+  if (body) { headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (res.status === 401) { showLogin(); throw new Error('Session expired — sign in again.'); }
+  if (!res.ok) throw new Error((data && data.error) || ('Request failed (' + res.status + ')'));
+  return data;
+}
+
+/* ---------- auth ---------- */
+function showLogin() { $('login').classList.remove('hidden'); $('app').classList.add('hidden'); $('signout').classList.add('hidden'); $('whoami').textContent = ''; }
+function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); $('signout').classList.remove('hidden'); }
+
+async function doLogin() {
+  const email = $('email').value.trim(); const password = $('password').value;
+  $('loginErr').textContent = '';
+  if (!email || !password) { $('loginErr').textContent = 'Enter email and password.'; return; }
+  try {
+    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST', headers: { apikey: SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await res.json();
+    if (!res.ok) { $('loginErr').textContent = d.error_description || d.msg || 'Sign in failed.'; return; }
+    const sess = { token: d.access_token, refresh_token: d.refresh_token, email, role: d.user?.user_metadata?.role };
+    localStorage.setItem('apbg_session', JSON.stringify(sess));
+    boot();
+  } catch (e) { $('loginErr').textContent = String(e.message || e); }
+}
+
+function signOut() { localStorage.removeItem('apbg_session'); showLogin(); }
+
+/* ---------- assets ---------- */
+async function loadAssets() {
+  $('gallery').innerHTML = '<div class="loading">Loading brand library…</div>';
+  try {
+    const d = await api('GET');
+    ASSETS = (d && d.assets) || [];
+    renderChips(); renderGallery();
+    if (d && d.warning) toast('Library note: ' + d.warning);
+  } catch (e) { $('gallery').innerHTML = '<div class="empty"><div class="big">⚠️</div>' + esc(e.message) + '</div>'; }
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function isPdf(u) { return /\.pdf($|\?)/i.test(u); }
+
+function counts() {
+  const c = { all: ASSETS.length };
+  for (const a of ASSETS) c[a.type] = (c[a.type] || 0) + 1;
+  return c;
+}
+function renderChips() {
+  const c = counts();
+  const types = ['all', 'logo', 'can', 'equipment', 'hero', 'testimonial', 'sell-sheet', 'other'];
+  $('chips').innerHTML = types.filter((t) => t === 'all' || c[t]).map((t) =>
+    `<div class="chip ${FILTER === t ? 'active' : ''}" data-t="${t}">${t}<span class="n">${c[t] || 0}</span></div>`).join('');
+  document.querySelectorAll('#chips .chip').forEach((el) => el.onclick = () => { FILTER = el.dataset.t; renderChips(); renderGallery(); });
+}
+
+function filtered() {
+  const q = $('search').value.trim().toLowerCase();
+  return ASSETS.filter((a) => (FILTER === 'all' || a.type === FILTER)
+    && (!q || (a.name + ' ' + a.type + ' ' + (a.tags || []).join(' ')).toLowerCase().includes(q)));
+}
+
+function renderGallery() {
+  const rows = filtered();
+  if (!rows.length) { $('gallery').innerHTML = '<div class="empty"><div class="big">📦</div>No assets here yet. Upload logos, can art, equipment shots, hero images, or sell sheets.</div>'; return; }
+  $('gallery').innerHTML = '<div class="grid">' + rows.map((a, i) => {
+    const thumb = a.thumbnailUrl
+      ? `<img src="${esc(a.thumbnailUrl)}" alt="${esc(a.name)}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=&quot;ic&quot;>🖼️</div>'"/>`
+      : `<div class="ic">${isPdf(a.url) ? '📄' : '🖼️'}</div>`;
+    const srcBadge = a.source === 'supabase' ? '<span class="badge-src">library</span>' : '<span class="badge-src local">built-in</span>';
+    const canDelete = a.source === 'supabase' && a.path;
+    return `<div class="card">${srcBadge}
+      <div class="thumb" data-open="${i}">${thumb}</div>
+      <div class="meta">
+        <div class="nm" title="${esc(a.name)}">${esc(a.name)}</div>
+        <div class="ty">${esc(a.type)}</div>
+        <div class="row">
+          <button class="iconbtn" data-copy="${esc(a.url)}" title="Copy URL">🔗</button>
+          <button class="iconbtn" data-dl="${i}" title="Download">⬇</button>
+          ${canDelete ? `<button class="iconbtn danger" data-del="${i}" title="Delete">🗑</button>` : ''}
+        </div>
+      </div></div>`;
+  }).join('') + '</div>';
+
+  const rowsRef = rows;
+  document.querySelectorAll('[data-open]').forEach((el) => el.onclick = () => openDetail(rowsRef[+el.dataset.open]));
+  document.querySelectorAll('[data-copy]').forEach((el) => el.onclick = () => { copy(el.dataset.copy); });
+  document.querySelectorAll('[data-dl]').forEach((el) => el.onclick = () => download(rowsRef[+el.dataset.dl]));
+  document.querySelectorAll('[data-del]').forEach((el) => el.onclick = () => del(rowsRef[+el.dataset.del]));
+}
+
+function copy(text) { navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard')); }
+function download(a) { const el = document.createElement('a'); el.href = a.url; el.download = a.name || 'asset'; el.target = '_blank'; document.body.appendChild(el); el.click(); el.remove(); }
+
+async function del(a) {
+  if (!a.path || !confirm('Remove "' + a.name + '" from the brand library?')) return;
+  try { await api('POST', { action: 'delete', path: a.path }); ASSETS = ASSETS.filter((x) => x.id !== a.id); renderChips(); renderGallery(); toast('Removed'); }
+  catch (e) { toast(e.message); }
+}
+
+function openDetail(a) {
+  const preview = a.thumbnailUrl ? `<img src="${esc(a.thumbnailUrl)}" alt="${esc(a.name)}"/>` : `<div style="font-size:60px">${isPdf(a.url) ? '📄' : '🖼️'}</div>`;
+  $('modal').innerHTML = `
+    <div class="head"><b>${esc(a.name)}</b><div class="spacer" style="flex:1"></div><button class="btn ghost" id="mClose">✕</button></div>
+    <div class="body">
+      <div class="preview">${preview}</div>
+      <div class="kv">
+        <div>Type</div><div>${esc(a.type)}</div>
+        <div>Source</div><div>${a.source === 'supabase' ? 'Brand library' : 'Built-in fallback'}</div>
+        ${a.path ? `<div>Path</div><div><code>${esc(a.path)}</code></div>` : ''}
+        <div>URL</div><div><code>${esc(a.url)}</code></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="mCopyUrl">🔗 Copy URL</button>
+        <button class="btn" id="mCopyImg">&lt;img&gt; Embed</button>
+        <button class="btn" id="mCopyMd">Copy Markdown</button>
+        <a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">↗ Open</a>
+        <button class="btn" id="mDl">⬇ Download</button>
+        ${a.source === 'supabase' && a.path ? '<button class="btn danger" id="mDel">🗑 Delete</button>' : ''}
+      </div>
+    </div>`;
+  $('modalBg').classList.add('on');
+  $('mClose').onclick = closeModal;
+  $('mCopyUrl').onclick = () => copy(a.url);
+  $('mCopyImg').onclick = () => copy(`<img src="${a.url}" alt="${a.name}" />`);
+  $('mCopyMd').onclick = () => copy(`![${a.name}](${a.url})`);
+  $('mDl').onclick = () => download(a);
+  if ($('mDel')) $('mDel').onclick = () => { closeModal(); del(a); };
+}
+function closeModal() { $('modalBg').classList.remove('on'); }
+
+/* ---------- upload / import ---------- */
+function fileToB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result || ''); resolve(s.includes(',') ? s.slice(s.indexOf(',') + 1) : s); };
+    r.onerror = () => reject(r.error || new Error('read failed')); r.readAsDataURL(file);
+  });
+}
+async function uploadFiles(files) {
+  if (!files || !files.length) return;
+  const type = $('uploadType').value; let ok = 0;
+  toast('Uploading ' + files.length + ' file' + (files.length > 1 ? 's' : '') + '…');
+  for (const f of files) {
+    try { const dataBase64 = await fileToB64(f); await api('POST', { filename: f.name, contentType: f.type || 'application/octet-stream', dataBase64, type }); ok++; }
+    catch (e) { toast('“' + f.name + '”: ' + e.message); }
+  }
+  await loadAssets();
+  if (ok) toast('Uploaded ' + ok + ' asset' + (ok > 1 ? 's' : ''));
+}
+async function importUrls() {
+  const urls = $('importUrls').value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  if (!urls.length) { toast('Paste at least one URL.'); return; }
+  toast('Importing ' + urls.length + ' URL' + (urls.length > 1 ? 's' : '') + '…');
+  try {
+    const d = await api('POST', { action: 'import', urls, type: $('uploadType').value });
+    $('importUrls').value = ''; $('importPanel').classList.add('hidden');
+    await loadAssets();
+    toast('Imported ' + d.importedCount + (d.errorCount ? (' · ' + d.errorCount + ' failed') : ''));
+  } catch (e) { toast(e.message); }
+}
+
+/* ---------- palette ---------- */
+function renderPalette() {
+  $('palette').innerHTML = PALETTE.map((p) =>
+    `<div class="sw" data-hex="${p.hex}"><div class="col" style="background:${p.hex}"></div><div class="lbl"><b>${esc(p.name)}</b><code>${p.hex}</code></div></div>`).join('');
+  document.querySelectorAll('.sw').forEach((el) => el.onclick = () => copy(el.dataset.hex));
+}
+
+/* ---------- wire up ---------- */
+function bindOnce() {
+  $('loginBtn').onclick = doLogin;
+  $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  $('signout').onclick = signOut;
+  $('search').addEventListener('input', renderGallery);
+  $('refreshBtn').onclick = loadAssets;
+  $('uploadBtn').onclick = () => $('fileInput').click();
+  $('fileInput').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
+  $('importBtn').onclick = () => $('importPanel').classList.toggle('hidden');
+  $('importGo').onclick = importUrls;
+  $('modalBg').addEventListener('click', (e) => { if (e.target === $('modalBg')) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  // drag & drop
+  let dragc = 0;
+  window.addEventListener('dragenter', (e) => { e.preventDefault(); if (!$('app').classList.contains('hidden')) { dragc++; $('drop').classList.add('on'); } });
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragc <= 0) $('drop').classList.remove('on'); });
+  window.addEventListener('drop', (e) => { e.preventDefault(); dragc = 0; $('drop').classList.remove('on'); if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files); });
+}
+
+async function boot() {
+  if (!token()) { showLogin(); return; }
+  showApp();
+  const s = session();
+  $('whoami').textContent = s?.email ? ('Signed in · ' + s.email) : 'Signed in';
+  renderPalette();
+  await loadAssets();
+}
+
+bindOnce();
+boot();
+</script>
+<script src="https://alamedapointbg.com/appswitcher.js" defer data-app="brandbox"></script>
+</body>
+</html>

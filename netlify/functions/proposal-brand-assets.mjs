@@ -167,9 +167,67 @@ function extFromName(name, contentType) {
   return fromMime || 'png';
 }
 
+async function storeBytes(bytes, filename, contentType, type) {
+  const folder = ASSET_TYPES.includes(type) ? type : 'other';
+  const ext = extFromName(filename, contentType);
+  const mime = contentType && ALLOWED_MIME.has(contentType) ? contentType : MIME_BY_EXT[ext];
+  if (!ALLOWED_MIME.has(mime)) throw new Error(`Unsupported file type: ${mime}`);
+  const base = safeSegment(String(filename || '').replace(/\.[a-z0-9]+$/i, ''), 'asset');
+  const objectPath = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${base}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${objectPath}`, {
+    method: 'POST',
+    headers: storageHeaders({ 'Content-Type': mime, 'x-upsert': 'true', 'Cache-Control': '3600' }),
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`Upload failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
+  const url = publicUrl(objectPath);
+  return {
+    id: assetId(objectPath),
+    name: prettyName(objectPath),
+    type: folder,
+    url,
+    thumbnailUrl: isImagePath(objectPath) ? url : undefined,
+    tags: ['brand-library', folder],
+    path: objectPath,
+    source: 'supabase',
+  };
+}
+
+// Server-side import: fetch remote asset URLs and store them in the bucket.
+// The migration path off Brandox (or any web source) — no service key needed
+// client-side, and it dodges browser CORS since the fetch runs here.
+async function handleImport(payload) {
+  const urls = Array.isArray(payload.urls) ? payload.urls : [payload.url];
+  const cleanUrls = [...new Set(urls.map((u) => String(u || '').trim()).filter((u) => /^https?:\/\//i.test(u)))];
+  if (!cleanUrls.length) return json({ error: 'Provide one or more http(s) asset URLs.' }, 400);
+  if (cleanUrls.length > 60) return json({ error: 'Import is limited to 60 URLs at a time.' }, 400);
+
+  const imported = [];
+  const errors = [];
+  for (const url of cleanUrls) {
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 apbg-brandbox-import' } });
+      if (!res.ok) { errors.push({ url, error: `HTTP ${res.status}` }); continue; }
+      const contentType = (res.headers.get('content-type') || '').split(';')[0].trim();
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (!bytes.length) { errors.push({ url, error: 'empty response' }); continue; }
+      if (bytes.length > MAX_UPLOAD_BYTES) { errors.push({ url, error: 'exceeds 25MB' }); continue; }
+      const nameFromUrl = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || 'asset');
+      const asset = await storeBytes(bytes, nameFromUrl, contentType, payload.type);
+      imported.push(asset);
+    } catch (e) {
+      errors.push({ url, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return json({ imported, errors, importedCount: imported.length, errorCount: errors.length }, imported.length ? 201 : 502);
+}
+
 async function handleUpload(event) {
   let payload;
   try { payload = JSON.parse(event.body || '{}'); } catch { return json({ error: 'Invalid JSON body.' }, 400); }
+
+  if (payload.action === 'delete') return handleDeletePath(payload.path);
+  if (payload.action === 'import') return handleImport(payload);
 
   const { filename, dataBase64, type } = payload;
   if (!dataBase64) return json({ error: 'dataBase64 is required.' }, 400);
@@ -178,42 +236,17 @@ async function handleUpload(event) {
   if (!bytes.length) return json({ error: 'Upload is empty.' }, 400);
   if (bytes.length > MAX_UPLOAD_BYTES) return json({ error: 'File exceeds the 25MB limit.' }, 413);
 
-  const folder = ASSET_TYPES.includes(type) ? type : 'other';
-  const ext = extFromName(filename, payload.contentType);
-  const contentType = payload.contentType && ALLOWED_MIME.has(payload.contentType)
-    ? payload.contentType
-    : MIME_BY_EXT[ext];
-  if (!ALLOWED_MIME.has(contentType)) return json({ error: `Unsupported file type: ${contentType}.` }, 415);
-
-  const base = safeSegment(String(filename || '').replace(/\.[a-z0-9]+$/i, ''), 'asset');
-  const objectPath = `${folder}/${Date.now()}-${base}.${ext}`;
-
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${objectPath}`, {
-    method: 'POST',
-    headers: storageHeaders({ 'Content-Type': contentType, 'x-upsert': 'true', 'Cache-Control': '3600' }),
-    body: bytes,
-  });
-  if (!res.ok) return json({ error: `Upload failed (${res.status}): ${(await res.text()).slice(0, 200)}` }, 502);
-
-  const url = publicUrl(objectPath);
-  const name = prettyName(objectPath);
-  return json({
-    asset: {
-      id: assetId(objectPath),
-      name,
-      type: folder,
-      url,
-      thumbnailUrl: isImagePath(objectPath) ? url : undefined,
-      tags: ['brand-library', folder],
-      path: objectPath,
-      source: 'supabase',
-    },
-  }, 201);
+  try {
+    const asset = await storeBytes(bytes, filename, payload.contentType, type);
+    return json({ asset }, 201);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json({ error: message }, /unsupported file type/i.test(message) ? 415 : 502);
+  }
 }
 
-async function handleDelete(event) {
-  const path = event.queryStringParameters?.path;
-  if (!path) return json({ error: 'path query param is required.' }, 400);
+async function handleDeletePath(path) {
+  if (!path) return json({ error: 'path is required.' }, 400);
   const clean = String(path).replace(/^\/+/, '');
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${clean.split('/').map(encodeURIComponent).join('/')}`, {
     method: 'DELETE',
@@ -221,6 +254,10 @@ async function handleDelete(event) {
   });
   if (!res.ok) return json({ error: `Delete failed (${res.status}): ${(await res.text()).slice(0, 200)}` }, 502);
   return json({ ok: true, path: clean });
+}
+
+function handleDelete(event) {
+  return handleDeletePath(event.queryStringParameters?.path);
 }
 
 export async function handler(event) {
