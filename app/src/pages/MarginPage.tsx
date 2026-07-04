@@ -47,8 +47,8 @@ import { sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
-  computePriorBounds, fetchDimValues, fetchMarginDataHealth, fetchPivot, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
-  mergeWithPrior, type MarginHealthIssue, type QboSyncFreshness, trailing12MonthKeys,
+  computePriorBounds, fetchDimValues, fetchMarginDataHealth, fetchPivot, fetchPlMarginSummary, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
+  mergeWithPrior, type MarginHealthIssue, type PlMarginSummary, type QboSyncFreshness, trailing12MonthKeys,
 } from '../lib/sales';
 
 const DIMS: { id: Dim; label: string }[] = [
@@ -361,6 +361,7 @@ export function MarginPage() {
   const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
   const [totals, setTotals] = useState<SalesTotals | null>(null);
   const [priorTotals, setPriorTotals] = useState<SalesTotals | null>(null);
+  const [plSummary, setPlSummary] = useState<PlMarginSummary | null>(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [enrichment, setEnrichment] = useState<Record<string, Record<string, unknown>>>({});
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
@@ -530,6 +531,14 @@ export function MarginPage() {
 
   useEffect(() => {
     let cancelled = false;
+    fetchPlMarginSummary(effectiveFilters.start, effectiveFilters.end)
+      .then((s) => { if (!cancelled) setPlSummary(s); })
+      .catch(() => { if (!cancelled) setPlSummary(null); });
+    return () => { cancelled = true; };
+  }, [effectiveFilters.start, effectiveFilters.end]);
+
+  useEffect(() => {
+    let cancelled = false;
     setMarginHealth(null);
     fetchMarginDataHealth(effectiveFilters)
       .then((issues) => { if (!cancelled) setMarginHealth(issues ?? []); })
@@ -622,14 +631,14 @@ export function MarginPage() {
     const extraHeader = extraColumns.map((c) => c.label);
     const header = [...baseHeader, ...cmpHeader, ...extraHeader];
     const rowCount = display.length;
-    const overheadBasisTotals = overheadPools.length > 0 && totals
+    const overheadBasisTotals = effectiveOverheadPools.length > 0 && totals
       ? buildOverheadBasisTotals(display)
       : null;
     const data: (string | number | null)[][] = display.map((r) => {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
       const meta = enrichment[r.dim_label] ?? {};
-      const oh = overheadPools.length > 0 && totals
-        ? computeOverheadFields(r, totals, rowCount, overheadPools, overheadBasisTotals) : {};
+      const oh = effectiveOverheadPools.length > 0 && totals
+        ? computeOverheadFields(r, totals, rowCount, effectiveOverheadPools, overheadBasisTotals) : {};
       const spark = sparklines[r.dim_label];
       // Spread the typed row first so SalesPivotRow fields are preserved; meta/oh layer
       // in dynamic enrichment keys; double-cast through unknown to satisfy the strict
@@ -734,11 +743,54 @@ export function MarginPage() {
     return v >= 0.8 ? 'var(--gn)' : v >= 0.5 ? 'var(--am)' : 'var(--rd)';
   }, [totals]);
 
-  const totalOverhead = useMemo(() => totalPoolAmount(overheadPools), [overheadPools]);
-  const showOverheadKpi = totalOverhead > 0 && totals != null;
-  const netMargin = totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
-  const netMarginPct = totals && Number(totals.revenue ?? 0) > 0 && netMargin != null
-    ? netMargin / Number(totals.revenue) : null;
+  const plCompatibleFilters = useMemo(() => {
+    const keys: Array<keyof SalesFilters> = [
+      'entities', 'categories', 'customers', 'items', 'channels', 'segments',
+      'product_families', 'product_types',
+      'exclude_customers', 'exclude_categories', 'exclude_items',
+    ];
+    return activeModifiers.length === 0 && keys.every((key) => {
+      const value = effectiveFilters[key] as string[] | null | undefined;
+      return !value || value.length === 0;
+    });
+  }, [activeModifiers.length, JSON.stringify(effectiveFilters)]);
+
+  const usePlNetMargin = plCompatibleFilters && plSummary != null;
+  const effectiveOverheadPools = useMemo<OverheadPoolTotal[]>(() => {
+    if (!usePlNetMargin || !plSummary || !totals) return overheadPools;
+    const lineGrossMargin = Number(totals.est_margin ?? 0);
+    const targetNetMargin = Number(plSummary.net_margin ?? 0);
+    const targetAdjustment = lineGrossMargin - targetNetMargin;
+    const existingAdjustment = totalPoolAmount(overheadPools);
+    const trueUp = targetAdjustment - existingAdjustment;
+    if (!Number.isFinite(trueUp) || Math.abs(trueUp) < 0.5) return overheadPools;
+    const months = Math.max(Number(plSummary.months || 1), 1);
+    return [
+      ...overheadPools,
+      {
+        pool_id: -900001,
+        pool_name: 'P&L gross margin true-up',
+        basis: 'revenue',
+        entity: null,
+        monthly_amount: trueUp / months,
+        pool_total: trueUp,
+        months,
+      },
+    ];
+  }, [overheadPools, plSummary, totals, usePlNetMargin]);
+
+  const totalOverhead = useMemo(() => totalPoolAmount(effectiveOverheadPools), [effectiveOverheadPools]);
+  const showNetKpi = totals != null && (totalOverhead !== 0 || usePlNetMargin);
+  const netMargin = usePlNetMargin && plSummary
+    ? Number(plSummary.net_margin ?? 0)
+    : totals ? Number(totals.est_margin ?? 0) - totalOverhead : null;
+  const netMarginPct = usePlNetMargin && plSummary
+    ? (plSummary.net_margin_pct != null ? Number(plSummary.net_margin_pct) : null)
+    : totals && Number(totals.revenue ?? 0) > 0 && netMargin != null
+      ? netMargin / Number(totals.revenue) : null;
+  const netMarginSub = usePlNetMargin && plSummary
+    ? (netMarginPct != null ? fp(netMarginPct) + ' QBO P&L net' : 'QBO P&L net') + ' · ' + fm(plSummary.operating_expenses) + ' expenses'
+    : netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined;
   const netMarginAccent = netMarginPct == null ? undefined
     : netMarginPct >= 0.2 ? 'var(--gn)'
     : netMarginPct >= 0   ? 'var(--am)' : 'var(--rd)';
@@ -768,7 +820,7 @@ export function MarginPage() {
 
   const enrichedRows = useMemo(() => {
     const hasEnrichment = Object.keys(enrichment).length > 0;
-    const hasOverhead   = overheadPools.length > 0 && totals != null;
+    const hasOverhead   = effectiveOverheadPools.length > 0 && totals != null;
     const hasSparks     = Object.keys(sparklines).length > 0;
     if (!hasEnrichment && !hasOverhead && !hasSparks) return tableRows;
     const rowCount = tableRows.length;
@@ -777,11 +829,11 @@ export function MarginPage() {
       : null;
     return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => {
       const meta = hasEnrichment ? (enrichment[r.dim_label] ?? {}) : {};
-      const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, overheadPools, overheadBasisTotals) : {};
+      const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, effectiveOverheadPools, overheadBasisTotals) : {};
       const spark = hasSparks ? sparklines[r.dim_label] : undefined;
       return { ...r, ...meta, ...oh, _spark12: spark };
     }) as typeof tableRows;
-  }, [tableRows, enrichment, overheadPools, totals, sparklines]);
+  }, [tableRows, enrichment, effectiveOverheadPools, totals, sparklines]);
 
   const activePreset = detectActivePreset(filters.start, filters.end, today);
   const compareLabel =
@@ -808,7 +860,7 @@ export function MarginPage() {
             <div className="hero-meta">
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
-              {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
+              {showNetKpi ? (usePlNetMargin ? ` · QBO P&L net ${netMargin != null ? fm(netMargin) : '—'}` : ` · ${effectiveOverheadPools.length} OH pool${effectiveOverheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})`) : ''}
               {qboWarnings.length > 0 ? ' · QBO warning: ' + qboWarnings[0] + (qboWarnings.length > 1 ? ` (+${qboWarnings.length - 1})` : '') : ''}
               {expandedRollup.perRollup.length > 0 && (
                 ' · excluding: ' + expandedRollup.perRollup.map((r) =>
@@ -843,18 +895,18 @@ export function MarginPage() {
         </div>
       </div>
 
-      {totals == null && rows == null ? (<KpiRowSkeleton count={showOverheadKpi ? 5 : 4} />) : (
+      {totals == null && rows == null ? (<KpiRowSkeleton count={showNetKpi ? 5 : 4} />) : (
         <div className="gr" style={{
-          gridTemplateColumns: showOverheadKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+          gridTemplateColumns: showNetKpi ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
           marginBottom: 18,
         }}>
           <KPICard title="Revenue" value={totals ? fm(totals.revenue) : '…'} deltaPct={kpiDeltas?.revenue ?? null}
             sub={totals ? fmtNum(totals.invoice_count) + ' invoices' : undefined} />
           <KPICard title="Est Margin" value={totals ? fm(totals.est_margin) : '…'} deltaPct={kpiDeltas?.margin ?? null}
             sub={totals ? fp(totals.margin_pct) + ' margin %' : undefined} />
-          {showOverheadKpi && (
+          {showNetKpi && (
             <KPICard title="Net Margin" value={netMargin != null ? fm(netMargin) : '…'}
-              sub={netMarginPct != null ? fp(netMarginPct) + ' net margin %' : undefined} accent={netMarginAccent} />
+              sub={netMarginSub} accent={netMarginAccent} />
           )}
           <KPICard title="Customers" value={totals ? fmtNum(totals.customer_count) : '…'} deltaPct={kpiDeltas?.customers ?? null}
             sub={totals ? fmtNum(totals.item_count) + ' items' : undefined} />

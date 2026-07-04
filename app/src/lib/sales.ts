@@ -40,6 +40,20 @@ export interface SalesTotals {
   cost_coverage_pct: number | null;
 }
 
+export interface PlMarginSummary {
+  revenue: number;
+  cogs: number;
+  gross_margin: number;
+  operating_expenses: number;
+  net_margin: number;
+  gross_margin_pct: number | null;
+  net_margin_pct: number | null;
+  account_count: number;
+  period_start: string | null;
+  period_end: string | null;
+  months: number;
+}
+
 export interface DimValue {
   label: string;
   revenue: number;
@@ -93,6 +107,13 @@ export function fetchTotals(f: SalesFilters) {
   return sbrpc<SalesTotals[]>('fn_sales_totals', rpcArgs(f)).then(
     (rows) => rows[0] || null,
   );
+}
+
+export function fetchPlMarginSummary(start: string, end: string) {
+  return sbrpc<PlMarginSummary[]>('fn_pl_margin_summary', {
+    p_start: start,
+    p_end: end,
+  }).then((rows) => rows[0] || null);
 }
 
 export interface QboSyncFreshness {
