@@ -36,6 +36,12 @@ function marginColor(mp: number | null | undefined) {
   if (mp >= 0)   return 'var(--am)';
   return 'var(--rd)';
 }
+function coverageColor(v: number | null | undefined) {
+  if (v == null) return 'var(--mt)';
+  if (v >= 0.8) return 'var(--gn)';
+  if (v >= 0.5) return 'var(--am)';
+  return 'var(--rd)';
+}
 
 function evaluateAtRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
   const priorRev = row.prior_revenue != null ? Number(row.prior_revenue) : null;
@@ -72,22 +78,34 @@ export function MarginGrid({
   const totalsRow = useMemo(() => {
     let lineCount = 0, qty = 0, qtyHas = false, revenue = 0, estCost = 0, estCostHas = false;
     let estMargin = 0, estMarginHas = false, priorRevenue = 0, priorHas = false;
+    let costedRevenue = 0, costedRevenueHas = false, absRevenue = 0, coveredAbsRevenue = 0, coverageHas = false;
     for (const r of rows) {
       lineCount += Number(r.line_count || 0);
       if (r.qty != null) { qty += Number(r.qty); qtyHas = true; }
-      revenue += Number(r.revenue || 0);
+      const rowRevenue = Number(r.revenue || 0);
+      revenue += rowRevenue;
+      absRevenue += Math.abs(rowRevenue);
       if (r.est_cost != null) { estCost += Number(r.est_cost); estCostHas = true; }
       if (r.est_margin != null) { estMargin += Number(r.est_margin); estMarginHas = true; }
+      if (r.est_cost != null && r.est_margin != null) {
+        costedRevenue += Number(r.est_cost) + Number(r.est_margin);
+        costedRevenueHas = true;
+      }
+      if (r.cost_coverage_pct != null && Number.isFinite(Number(r.cost_coverage_pct))) {
+        coveredAbsRevenue += Math.abs(rowRevenue) * Number(r.cost_coverage_pct);
+        coverageHas = true;
+      }
       if (isComparison(r) && r.prior_revenue != null) { priorRevenue += Number(r.prior_revenue); priorHas = true; }
     }
-    const marginPct = estCostHas && revenue > 0 ? (revenue - estCost) / revenue : null;
+    const marginPct = estMarginHas && costedRevenueHas && costedRevenue !== 0 ? estMargin / costedRevenue : null;
+    const costCoveragePct = coverageHas && absRevenue > 0 ? coveredAbsRevenue / absRevenue : null;
     const deltaRev  = priorHas ? revenue - priorRevenue : null;
     const deltaPct  = priorHas && priorRevenue > 0 ? (revenue - priorRevenue) / priorRevenue : null;
     return {
       id: '__total__', __isTotal: true, dim_label: `TOTAL (${rows.length})`,
       line_count: lineCount, qty: qtyHas ? qty : null, revenue,
       est_cost: estCostHas ? estCost : null, est_margin: estMarginHas ? estMargin : null,
-      margin_pct: marginPct, prior_revenue: priorHas ? priorRevenue : null,
+      margin_pct: marginPct, cost_coverage_pct: costCoveragePct, prior_revenue: priorHas ? priorRevenue : null,
       delta_revenue: deltaRev, delta_pct: deltaPct,
     };
   }, [rows]);
@@ -184,6 +202,8 @@ export function MarginGrid({
         valueFormatter: (v) => (v != null ? fm(v) : '—') },
       { field: 'margin_pct', headerName: 'Margin %', type: 'number', width: 104, cellClassName: 'mn',
         renderCell: (p) => <span style={{ color: marginColor(p.value), fontWeight: 600 }}>{fp(p.value)}</span> },
+      { field: 'cost_coverage_pct', headerName: 'Cost Cov', type: 'number', width: 104, cellClassName: 'mn',
+        renderCell: (p) => <span style={{ color: coverageColor(p.value), fontWeight: 600 }}>{fp(p.value)}</span> },
     );
 
     for (const xc of extraColumns ?? []) {

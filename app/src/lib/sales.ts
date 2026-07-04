@@ -22,6 +22,7 @@ export interface SalesPivotRow {
   est_cost: number | null;
   est_margin: number | null;
   margin_pct: number | null;
+  cost_coverage_pct: number | null;
   avg_price: number | null;
   effective_segment: string | null;
 }
@@ -90,6 +91,24 @@ export function fetchPivot(dim: Dim, f: SalesFilters, limit = 250) {
 
 export function fetchTotals(f: SalesFilters) {
   return sbrpc<SalesTotals[]>('fn_sales_totals', rpcArgs(f)).then(
+    (rows) => rows[0] || null,
+  );
+}
+
+export interface QboSyncFreshness {
+  status: 'ok' | 'warn' | string;
+  warnings: string[] | null;
+  invoice_cache_at: string | null;
+  item_cache_at: string | null;
+  expense_line_cache_at: string | null;
+  last_invoice_sync_at: string | null;
+  last_line_backfill_at: string | null;
+  last_mv_refresh_at: string | null;
+  recent_qbo_errors: number;
+}
+
+export function fetchQboSyncFreshness() {
+  return sbrpc<QboSyncFreshness[]>('fn_qbo_sync_freshness').then(
     (rows) => rows[0] || null,
   );
 }

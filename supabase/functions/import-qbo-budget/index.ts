@@ -28,7 +28,7 @@ const REFRESH_TOKEN_TTL_SECONDS = 100 * 24 * 3600;
 const REFRESH_MIN_REMAINING_SECONDS = 300;
 const LEASE_SECONDS = 20;
 const LEASE_POLL_INTERVAL_MS = 750;
-const LEASE_POLL_MAX_ATTEMPTS = 20;
+const LEASE_POLL_MAX_ATTEMPTS = 40;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

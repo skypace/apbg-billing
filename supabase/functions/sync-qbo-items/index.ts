@@ -12,6 +12,9 @@
 // Mirrors sync-qbo-employees v2: lease-based token rotation through
 // ops.qbo_token_cache + qbo_token_claim_refresh / qbo_token_persist /
 // qbo_token_release_failed RPCs. No write-once env-var assumptions.
+// v8 (2026-07-03): wait longer than the QBO token lease TTL before timing out
+// so concurrent item/invoice syncs don't fail just because another worker is
+// legitimately holding the refresh lease.
 
 // deno-lint-ignore-file no-explicit-any
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -23,7 +26,7 @@ const REFRESH_TOKEN_TTL_SECONDS = 100 * 24 * 3600;
 const REFRESH_MIN_REMAINING_SECONDS = 300;
 const LEASE_SECONDS = 20;
 const LEASE_POLL_INTERVAL_MS = 750;
-const LEASE_POLL_MAX_ATTEMPTS = 20;
+const LEASE_POLL_MAX_ATTEMPTS = 40;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -116,7 +119,7 @@ async function persistTokens(
     p_access_expires: accessExpiry,
     p_refresh_token: refreshToken,
     p_refresh_expires: refreshExpiry,
-    p_refreshed_by: "sync-qbo-items@v7",
+    p_refreshed_by: "sync-qbo-items@v8",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
