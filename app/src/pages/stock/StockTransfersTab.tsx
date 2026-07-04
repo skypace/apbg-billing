@@ -455,15 +455,16 @@ function TransferDetailModal({
   const toast = useToast();
   const [lines, setLines] = useState<InventoryTransferLine[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const laneItemIds = useMemo(() => new Set(itemLookup.options.map((option) => option.id)), [itemLookup]);
 
   useEffect(() => {
     let alive = true;
     setLines(null);
     fetchTransferLines(transferId)
-      .then((ls) => { if (alive) setLines(ls); })
+      .then((ls) => { if (alive) setLines(ls.filter((line) => laneItemIds.has(line.qbo_item_id))); })
       .catch(() => { if (alive) setLines([]); });
     return () => { alive = false; };
-  }, [transferId]);
+  }, [transferId, laneItemIds]);
 
   if (!transfer) {
     return null;

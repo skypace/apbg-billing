@@ -13,6 +13,7 @@ import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
+import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -29,6 +30,8 @@ interface Props {
   locations: InventoryLocation[];
   locById: Map<string, InventoryLocation>;
   itemLookup: ProductionItemLookup;
+  lane: InventoryLane;
+  initialPoId?: string | null;
   onChanged: () => void;
 }
 
@@ -39,10 +42,12 @@ interface PoPrefillLine {
   item_name: string;
   qty_ordered: number;
   unit_cost: number;
+  default_receiving_location_id?: string | null;
 }
 interface PoPrefillState {
   source: string;
   generated_at: string;
+  inventory_lane?: InventoryLane;
   lines: PoPrefillLine[];
 }
 
@@ -58,13 +63,13 @@ function readPrefill(): PoPrefillState | null {
 }
 
 export function PurchaseOrdersTab({
-  vendors, purchaseOrders, locations, locById, itemLookup, onChanged,
+  vendors, purchaseOrders, locations, locById, itemLookup, lane, initialPoId = null, onChanged,
 }: Props) {
   // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
   // open the Create form on mount and seed its lines.
   const [prefill] = useState<PoPrefillState | null>(() => readPrefill());
   const [creating, setCreating] = useState(prefill !== null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialPoId);
   const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
 
   // One-shot: clear sessionStorage so refreshing doesn't keep opening the form.
@@ -73,6 +78,10 @@ export function PurchaseOrdersTab({
       sessionStorage.removeItem('brix.po.prefill');
     }
   }, [prefill]);
+
+  useEffect(() => {
+    if (initialPoId) setOpenId(initialPoId);
+  }, [initialPoId]);
 
   const physicalLocs = useMemo(
     () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment'),
@@ -155,7 +164,7 @@ export function PurchaseOrdersTab({
         }}>
           All Open Purchase Orders (BRIX-native + QBO imports)
         </div>
-        <OpenPOsTab onChanged={onChanged} />
+        <OpenPOsTab lane={lane} itemLookup={itemLookup} onChanged={onChanged} />
       </div>
 
       <div style={{
@@ -206,6 +215,7 @@ export function PurchaseOrdersTab({
           componentItems={componentItems}
           itemLookup={itemLookup}
           prefill={prefill}
+          lane={lane}
           onCancel={() => setCreating(false)}
           onCreated={() => { setCreating(false); onChanged(); }}
         />
@@ -229,6 +239,7 @@ export function PurchaseOrdersTab({
           poId={openId}
           po={(purchaseOrders ?? []).find((p) => p.id === openId) ?? null}
           itemLookup={itemLookup}
+          lane={lane}
           locById={locById}
           onClose={() => setOpenId(null)}
           onChanged={() => { setOpenId(null); onChanged(); }}
@@ -251,20 +262,31 @@ function newDraftLine(): DraftLine {
   return { qbo_item_id: '', qty_ordered: '', unit_cost: '', description: '' };
 }
 
+function prefillLocationId(prefill: PoPrefillState | null): string {
+  if (!prefill) return '';
+  const ids = Array.from(new Set(
+    prefill.lines
+      .map((line) => line.default_receiving_location_id)
+      .filter((id): id is string => !!id),
+  ));
+  return ids.length === 1 ? ids[0] : '';
+}
+
 function CreatePoForm({
-  vendors, locations, componentItems, itemLookup, prefill, onCancel, onCreated,
+  vendors, locations, componentItems, itemLookup, prefill, lane, onCancel, onCreated,
 }: {
   vendors: QboVendor[];
   locations: InventoryLocation[];
   componentItems: { id: string; label: string }[];
   itemLookup: ProductionItemLookup;
   prefill: PoPrefillState | null;
+  lane: InventoryLane;
   onCancel: () => void;
   onCreated: () => void;
 }) {
   const toast = useToast();
   const [vendorId, setVendorId] = useState('');
-  const [locId, setLocId] = useState('');
+  const [locId, setLocId] = useState(() => prefillLocationId(prefill));
   const [expected, setExpected] = useState('');
   const [notes, setNotes] = useState(prefill ? 'Generated from inventory reorder list' : '');
   const [lines, setLines] = useState<DraftLine[]>(
@@ -320,7 +342,7 @@ function CreatePoForm({
     <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          New Purchase Order
+          New Purchase Order · {INVENTORY_LANE_LABEL[prefill?.inventory_lane ?? lane]}
         </div>
         <button onClick={onCancel} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
           <XIcon size={14} />
@@ -440,11 +462,12 @@ function CreatePoForm({
 // ── Detail modal ───────────────────────────────────────────────────────
 
 function PoDetailModal({
-  poId, po, itemLookup, locById, onClose, onChanged,
+  poId, po, itemLookup, lane, locById, onClose, onChanged,
 }: {
   poId: string;
   po: PurchaseOrderRow | null;
   itemLookup: ProductionItemLookup;
+  lane: InventoryLane;
   locById: Map<string, InventoryLocation>;
   onClose: () => void;
   onChanged: () => void;
@@ -456,9 +479,11 @@ function PoDetailModal({
 
   useEffect(() => {
     let alive = true;
-    fetchPoLines(poId).then((ls) => alive && setLines(ls)).catch(() => alive && setLines([]));
+    fetchPoLines(poId)
+      .then((ls) => alive && setLines(ls.filter((line) => itemLookup.byId.get(line.qbo_item_id)?.inventory_lane === lane)))
+      .catch(() => alive && setLines([]));
     return () => { alive = false; };
-  }, [poId]);
+  }, [poId, itemLookup, lane]);
 
   if (!po) return null;
   const destLabel = locById.get(po.destination_location_id)?.name ?? po.location_label ?? '—';

@@ -1,5 +1,6 @@
 import { sbDelete, sbInsert, sbq, sbrpc } from './rpc';
 import { SB_KEY, SB_URL, _sbToken } from './supabase';
+import type { InventoryLaneDb, InventoryLaneSize } from './inventoryLane';
 
 // fetchInventoryHealth now calls fn_items_master under the hood so
 // Inventory + Settings → Items share one data source. category_override
@@ -48,6 +49,15 @@ export interface InventoryHealthRow {
   segment_source: 'item' | 'category' | null;
   track_locations: boolean;
   has_bom: boolean;
+  inventory_lane: InventoryLaneDb;
+  inventory_lane_size: InventoryLaneSize | null;
+  inventory_lane_source: 'auto' | 'manual';
+  inventory_lane_reviewed: boolean;
+  default_receiving_location_id: string | null;
+  qbo_on_hand: number | null;
+  brix_on_hand: number | null;
+  planning_on_hand: number | null;
+  on_hand_drift: number | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -207,6 +217,22 @@ export function setInventorySettings(opts: {
     p_dim_h_in:            opts.dim_h_in ?? null,
     p_unit_type:           opts.unit_type ?? null,
     p_nmfc_code:           opts.nmfc_code ?? null,
+  });
+}
+
+export function setInventoryLane(opts: {
+  qbo_item_id: string;
+  inventory_lane: InventoryLaneDb;
+  inventory_lane_size?: InventoryLaneSize | null;
+  default_receiving_location_id?: string | null;
+  inventory_lane_reviewed?: boolean | null;
+}) {
+  return sbrpc<void>('fn_set_inventory_lane', {
+    p_qbo_item_id: opts.qbo_item_id,
+    p_inventory_lane: opts.inventory_lane,
+    p_inventory_lane_size: opts.inventory_lane_size ?? null,
+    p_default_receiving_location_id: opts.default_receiving_location_id ?? null,
+    p_inventory_lane_reviewed: opts.inventory_lane_reviewed ?? true,
   });
 }
 

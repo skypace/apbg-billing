@@ -189,10 +189,10 @@ export function inferItemVolumeFlOz(name?: string | null, type?: string | null):
     if (Number.isFinite(n) && n > 0) return n * VOLUME.L;
   }
 
-  // Leading "NPK" + ... + "MOZ" (case-pack with N units of M ounces).
-  // "24P126481" / "8PK6481 (alt)" patterns vary; only commit when both
-  // counts are explicit.
-  const pkOz = s.match(/^(\d+)\s*PK(\d+)/i);
+  // Leading "NPK" / "NP" + "MOZ" (case-pack with N units of M ounces).
+  // APBG can SKUs include compact forms like "24P126481" where "24P12..."
+  // means 24-pack of 12 oz cans and the rest is SKU suffix.
+  const pkOz = s.match(/^(\d+)\s*P(?:K)?(\d+)/i);
   if (pkOz) {
     const n = Number(pkOz[1]);
     const m = Number(pkOz[2]);

@@ -80,6 +80,8 @@ export interface InventoryTransferLine {
   line_pallets: number | null;
 }
 
+export type InventoryTransferLineSummary = Pick<InventoryTransferLine, 'transfer_id' | 'qbo_item_id'>;
+
 export interface InventoryTransferLineInput {
   qbo_item_id: string;
   qty: number;
@@ -141,6 +143,13 @@ export async function fetchTransferLines(transferId: string): Promise<InventoryT
   return sbq<InventoryTransferLine>(
     'inventory_transfer_lines',
     `select=*&transfer_id=eq.${transferId}&order=created_at.asc`,
+  );
+}
+
+export async function fetchAllTransferLineSummaries(): Promise<InventoryTransferLineSummary[]> {
+  return sbq<InventoryTransferLineSummary>(
+    'inventory_transfer_lines',
+    'select=transfer_id,qbo_item_id',
   );
 }
 

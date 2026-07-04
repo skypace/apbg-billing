@@ -24,6 +24,7 @@ import { TableSkeleton } from '../../components/Skeletons';
 import { useToast } from '../../lib/toast';
 import { QboPosPickerModal } from '../production/QboPosPickerModal';
 import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
+import type { InventoryLane } from '../../lib/inventoryLane';
 
 interface QboPoShadow {
   qbo_id: string;
@@ -40,6 +41,7 @@ interface QboPoShadow {
 }
 
 interface QboPoLineShadow {
+  id?: string;
   qbo_po_id: string;
   line_num: number;
   qbo_item_id: string | null;
@@ -51,6 +53,17 @@ interface QboPoLineShadow {
 
 interface BrixQboLink {
   qbo_purchase_order_id: string;
+}
+
+interface BrixPoLineSummary {
+  po_id: string;
+  qbo_item_id: string;
+  qty_ordered: number | null;
+  qty_received: number | null;
+}
+
+interface LaneItemLookup {
+  byId: Map<string, { inventory_lane?: string | null }>;
 }
 
 type UnifiedSource = 'brix' | 'qbo';
@@ -79,16 +92,20 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 interface Props {
+  lane?: InventoryLane;
+  itemLookup?: LaneItemLookup;
   /** Parent can hook in so the Reorder/Velocity tabs also refetch
    *  fn_items_master after an import lands (qty_on_order refresh). */
   onChanged?: () => void;
 }
 
-export function OpenPOsTab({ onChanged }: Props = {}) {
+export function OpenPOsTab({ lane, itemLookup, onChanged }: Props = {}) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [brixPos, setBrixPos] = useState<PurchaseOrderRow[]>([]);
   const [qboPos, setQboPos] = useState<QboPoShadow[]>([]);
+  const [brixLines, setBrixLines] = useState<BrixPoLineSummary[]>([]);
+  const [qboLines, setQboLines] = useState<QboPoLineShadow[]>([]);
   const [brixLinkedIds, setBrixLinkedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<'open_only' | 'all'>('open_only');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -103,9 +120,17 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
   async function load() {
     setLoading(true);
     try {
-      const [brix, qbo, links] = await Promise.all([
+      const [brix, qbo, brixLineRows, qboLineRows, links] = await Promise.all([
         fetchPurchaseOrders(500),
         sbq<QboPoShadow>('qbo_purchase_orders', 'select=*&order=imported_at.desc&limit=500'),
+        sbq<BrixPoLineSummary>(
+          'purchase_order_lines',
+          'select=po_id,qbo_item_id,qty_ordered,qty_received',
+        ),
+        sbq<QboPoLineShadow>(
+          'qbo_purchase_order_lines',
+          'select=*',
+        ),
         sbq<BrixQboLink>(
           'purchase_orders',
           'select=qbo_purchase_order_id&qbo_purchase_order_id=not.is.null',
@@ -113,11 +138,44 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
       ]);
       setBrixPos(brix);
       setQboPos(qbo);
+      setBrixLines(brixLineRows);
+      setQboLines(qboLineRows);
       setBrixLinkedIds(new Set(links.map((l) => l.qbo_purchase_order_id)));
     } finally {
       setLoading(false);
     }
   }
+
+  function lineIsInLane(qboItemId: string | null | undefined): boolean {
+    if (!lane || !itemLookup) return true;
+    if (!qboItemId) return false;
+    return itemLookup.byId.get(qboItemId)?.inventory_lane === lane;
+  }
+
+  const brixLineTotals = useMemo(() => {
+    const totals = new Map<string, { line_count: number; qty_ordered: number; qty_received: number }>();
+    for (const line of brixLines) {
+      if (!lineIsInLane(line.qbo_item_id)) continue;
+      const cur = totals.get(line.po_id) ?? { line_count: 0, qty_ordered: 0, qty_received: 0 };
+      cur.line_count += 1;
+      cur.qty_ordered += Number(line.qty_ordered ?? 0);
+      cur.qty_received += Number(line.qty_received ?? 0);
+      totals.set(line.po_id, cur);
+    }
+    return totals;
+  }, [brixLines, lane, itemLookup]);
+
+  const qboLineTotals = useMemo(() => {
+    const totals = new Map<string, { line_count: number; qty_ordered: number }>();
+    for (const line of qboLines) {
+      if (!lineIsInLane(line.qbo_item_id)) continue;
+      const cur = totals.get(line.qbo_po_id) ?? { line_count: 0, qty_ordered: 0 };
+      cur.line_count += 1;
+      cur.qty_ordered += Number(line.qty ?? 0);
+      totals.set(line.qbo_po_id, cur);
+    }
+    return totals;
+  }, [qboLines, lane, itemLookup]);
   useEffect(() => { void load(); }, []);
 
   async function doSyncVendors() {
@@ -135,41 +193,47 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
 
   const rows = useMemo<UnifiedPoRow[]>(() => {
     const brixUnified: UnifiedPoRow[] = brixPos.map((p) => {
-      const ordered = Number(p.qty_ordered_total ?? 0);
-      const received = Number(p.qty_received_total ?? 0);
+      const laneTotals = brixLineTotals.get(p.id);
+      const ordered = laneTotals ? laneTotals.qty_ordered : Number(p.qty_ordered_total ?? 0);
+      const received = laneTotals ? laneTotals.qty_received : Number(p.qty_received_total ?? 0);
       return {
         id: `brix:${p.id}`,
-        source: 'brix',
+        source: 'brix' as const,
         po_number: p.po_number,
         status: p.status,
         vendor_name: p.vendor_name,
         txn_date: p.created_at ? p.created_at.slice(0, 10) : null,
         expected_date: p.expected_date,
-        line_count: Number(p.line_count ?? 0),
+        line_count: laneTotals ? laneTotals.line_count : Number(p.line_count ?? 0),
         qty_open: Math.max(0, ordered - received),
         qty_received: received,
         qty_ordered: ordered,
         subtotal: Number(p.subtotal ?? 0),
         brix_po_id: p.id,
       };
-    });
+    }).filter((row) => !lane || !itemLookup || row.line_count > 0);
     const qboUnified: UnifiedPoRow[] = qboPos
       .filter((p) => !brixLinkedIds.has(p.qbo_id))
-      .map((p) => ({
-        id: `qbo:${p.qbo_id}`,
-        source: 'qbo',
-        po_number: p.doc_number ?? p.qbo_id,
-        status: p.po_status,
-        vendor_name: p.vendor_name,
-        txn_date: p.txn_date,
-        expected_date: null,
-        line_count: 0,
-        qty_open: 0,
-        qty_received: 0,
-        qty_ordered: 0,
-        subtotal: Number(p.total_amt ?? 0),
-        qbo_id: p.qbo_id,
-      }));
+      .map((p) => {
+        const laneTotals = qboLineTotals.get(p.qbo_id);
+        const ordered = laneTotals ? laneTotals.qty_ordered : 0;
+        return {
+          id: `qbo:${p.qbo_id}`,
+          source: 'qbo' as const,
+          po_number: p.doc_number ?? p.qbo_id,
+          status: p.po_status,
+          vendor_name: p.vendor_name,
+          txn_date: p.txn_date,
+          expected_date: null,
+          line_count: laneTotals ? laneTotals.line_count : 0,
+          qty_open: ordered,
+          qty_received: 0,
+          qty_ordered: ordered,
+          subtotal: Number(p.total_amt ?? 0),
+          qbo_id: p.qbo_id,
+        };
+      })
+      .filter((row) => !lane || !itemLookup || row.line_count > 0);
 
     const all = [...brixUnified, ...qboUnified];
     if (statusFilter === 'open_only') {
@@ -178,7 +242,7 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
       );
     }
     return all;
-  }, [brixPos, qboPos, brixLinkedIds, statusFilter]);
+  }, [brixPos, qboPos, brixLinkedIds, statusFilter, brixLineTotals, qboLineTotals, lane, itemLookup]);
 
   async function toggleExpand(row: UnifiedPoRow) {
     if (expandedId === row.id) {
@@ -192,13 +256,13 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
     try {
       if (row.source === 'brix' && row.brix_po_id) {
         const lines = await fetchPoLines(row.brix_po_id);
-        setExpandedLines({ source: 'brix', lines });
+        setExpandedLines({ source: 'brix', lines: lines.filter((line) => lineIsInLane(line.qbo_item_id)) });
       } else if (row.source === 'qbo' && row.qbo_id) {
         const lines = await sbq<QboPoLineShadow>(
           'qbo_purchase_order_lines',
           `select=*&qbo_po_id=eq.${encodeURIComponent(row.qbo_id)}&order=line_num.asc`,
         );
-        setExpandedLines({ source: 'qbo', lines });
+        setExpandedLines({ source: 'qbo', lines: lines.filter((line) => lineIsInLane(line.qbo_item_id)) });
       }
     } finally {
       setLinesLoading(false);
@@ -206,7 +270,7 @@ export function OpenPOsTab({ onChanged }: Props = {}) {
   }
 
   const totalOpenQty = useMemo(
-    () => rows.reduce((s, r) => s + (r.source === 'brix' ? r.qty_open : 0), 0),
+    () => rows.reduce((s, r) => s + r.qty_open, 0),
     [rows],
   );
   const brixCount = rows.filter((r) => r.source === 'brix').length;

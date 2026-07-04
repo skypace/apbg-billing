@@ -4,6 +4,7 @@ import Tab from '@mui/material/Tab';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
 import { Search, X, ShoppingCart } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
+import { InventoryLaneSelector } from '../components/InventoryLaneSelector';
 import { fm, fmtNum } from '../lib/formatters';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -13,6 +14,7 @@ import {
   addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth,
   fetchVelocityExcludes, removeVelocityExclude,
 } from '../lib/inventory';
+import { filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
 import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 // "Inventory Planning" — analytics + buying companion to the operational
@@ -115,6 +117,7 @@ function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
 
 export function InventoryPage() {
   const [tab, setTab] = useState<TabId>('reorder');
+  const [lane, setLane] = useInventoryLane();
   const [lookback, setLookback] = useState(90);
   const [managedOnly, setManagedOnly] = useState(true);
   const [rows, setRows] = useState<InventoryHealthRow[] | null>(null);
@@ -126,6 +129,11 @@ export function InventoryPage() {
   }
   useEffect(load, [lookback, managedOnly]);
 
+  const laneRows = useMemo(
+    () => rows ? filterItemsByLane(rows, lane) : null,
+    [rows, lane],
+  );
+
   const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory Planning';
 
   return (
@@ -136,7 +144,7 @@ export function InventoryPage() {
           <h1 className="hero-title">Inventory Planning</h1>
           <div className="hero-meta">
             {tabLabel}
-            {tab !== 'excludes' && ` · ${lookback}-day lookback${managedOnly ? ' · managed only' : ''}`}
+            {tab !== 'excludes' && ` · ${lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · ${lookback}-day lookback${managedOnly ? ' · managed only' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
@@ -152,6 +160,7 @@ export function InventoryPage() {
       {(tab === 'reorder' || tab === 'velocity') && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
+            <InventoryLaneSelector value={lane} onChange={setLane} />
             <div className="toolbar-section">
               <span className="toolbar-label">Velocity lookback</span>
               <input type="number" min={7} max={365} value={lookback}
@@ -174,14 +183,14 @@ export function InventoryPage() {
         </div>
       )}
 
-      {tab === 'reorder' && <ReorderTable rows={rows} />}
-      {tab === 'velocity' && <VelocityTable rows={rows} />}
+      {tab === 'reorder' && <ReorderTable rows={laneRows} lane={lane} />}
+      {tab === 'velocity' && <VelocityTable rows={laneRows} />}
       {tab === 'excludes' && <ExcludesTab />}
     </div>
   );
 }
 
-function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
+function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane: InventoryLane }) {
   const [search, setSearch] = useState('');
 
   const reorder = useMemo(() => {
@@ -211,8 +220,19 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
         );
       },
     },
-    { field: 'on_hand', headerName: 'On Hand', type: 'number', width: 90, cellClassName: 'mn',
+    { field: 'planning_on_hand', headerName: 'Planning On Hand', type: 'number', width: 140, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'brix_on_hand', headerName: 'BRIX On Hand', type: 'number', width: 120, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'qbo_on_hand', headerName: 'QBO On Hand', type: 'number', width: 115, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'on_hand_drift', headerName: 'Drift', type: 'number', width: 90, cellClassName: 'mn',
+      renderCell: (p) => {
+        const v = Number(p.value ?? 0);
+        return <span style={{ color: v === 0 ? 'var(--mt)' : (v > 0 ? 'var(--gn)' : 'var(--rd)'), fontWeight: v === 0 ? 500 : 700 }}>
+          {v === 0 ? '—' : fmtNum(v)}
+        </span>;
+      } },
     { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
     { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
@@ -238,10 +258,10 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
 
   function exportCsv() {
     if (reorder.length === 0) return;
-    const head = ['Item', 'Category', 'Active', 'On Hand', 'On Order', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
+    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'On Order', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
-      r.item_name, r.category_resolved ?? '', r.active ? 'yes' : 'no',
-      r.on_hand ?? '', r.qty_on_order ?? '',
+      r.item_name, r.category_resolved ?? '', r.inventory_lane ?? '', r.active ? 'yes' : 'no',
+      r.planning_on_hand ?? r.on_hand ?? '', r.brix_on_hand ?? '', r.qbo_on_hand ?? '', r.on_hand_drift ?? '', r.qty_on_order ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
       r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '',
       r.reorder_point ?? '', r.suggested_order_qty ?? '', r.status,
@@ -259,13 +279,15 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
       item_name: r.item_name,
       qty_ordered: Number(r.suggested_order_qty),
       unit_cost: r.purchase_cost ?? 0,
+      default_receiving_location_id: r.default_receiving_location_id ?? null,
     }));
     sessionStorage.setItem('brix.po.prefill', JSON.stringify({
       source: 'inventory-reorder',
       generated_at: new Date().toISOString(),
+      inventory_lane: lane,
       lines: prefill,
     }));
-    window.location.hash = '#production';
+    window.location.hash = '#production?tab=purchase_orders';
   }
 
   function printOrderSheet() {
@@ -273,8 +295,8 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     if (printable.length === 0) return;
     const w = window.open('', '_blank');
     if (!w) return;
-    const tableRows = printable.map((r) => `<tr><td>${escapeHtml(r.item_name)}</td><td style="text-align:right">${r.on_hand ?? '—'}</td><td style="text-align:right">${r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '—'}</td><td style="text-align:right">${r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '—'}</td><td style="text-align:right;font-weight:600">${r.suggested_order_qty ?? '—'}</td><td>${r.status}</td><td>      </td></tr>`).join('');
-    w.document.write(`<html><head><title>Reorder Sheet</title><style>body{font-family:system-ui,-apple-system,sans-serif;color:#0a0e17;max-width:980px;margin:24px auto;padding:0 24px}h1{font-size:18px;border-bottom:2px solid #0ea5b8;padding-bottom:6px}table{width:100%;border-collapse:collapse;font-size:11px;margin-top:12px}td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#f1f5f9;font-size:9px;text-transform:uppercase;letter-spacing:1px}@media print{body{margin:0}}</style></head><body><h1>Reorder Sheet — ${new Date().toISOString().slice(0,10)}</h1><div style="font-size:10px;color:#64748b">${printable.length} items below threshold (active only)</div><table><thead><tr><th>Item</th><th style="text-align:right">On Hand</th><th style="text-align:right">Velocity/day</th><th style="text-align:right">Days Supply</th><th style="text-align:right">Suggested Qty</th><th>Status</th><th>Order Qty</th></tr></thead><tbody>${tableRows}</tbody></table><script>setTimeout(function(){window.print()},350);</script></body></html>`);
+    const tableRows = printable.map((r) => `<tr><td>${escapeHtml(r.item_name)}</td><td style="text-align:right">${r.planning_on_hand ?? r.on_hand ?? '—'}</td><td style="text-align:right">${r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '—'}</td><td style="text-align:right">${r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '—'}</td><td style="text-align:right;font-weight:600">${r.suggested_order_qty ?? '—'}</td><td>${r.status}</td><td>      </td></tr>`).join('');
+    w.document.write(`<html><head><title>Reorder Sheet</title><style>body{font-family:system-ui,-apple-system,sans-serif;color:#0a0e17;max-width:980px;margin:24px auto;padding:0 24px}h1{font-size:18px;border-bottom:2px solid #0ea5b8;padding-bottom:6px}table{width:100%;border-collapse:collapse;font-size:11px;margin-top:12px}td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#f1f5f9;font-size:9px;text-transform:uppercase;letter-spacing:1px}@media print{body{margin:0}}</style></head><body><h1>Reorder Sheet — ${new Date().toISOString().slice(0,10)}</h1><div style="font-size:10px;color:#64748b">${printable.length} items below threshold (active only)</div><table><thead><tr><th>Item</th><th style="text-align:right">Planning On Hand</th><th style="text-align:right">Velocity/day</th><th style="text-align:right">Days Supply</th><th style="text-align:right">Suggested Qty</th><th>Status</th><th>Order Qty</th></tr></thead><tbody>${tableRows}</tbody></table><script>setTimeout(function(){window.print()},350);</script></body></html>`);
     w.document.close();
   }
 
@@ -371,6 +393,15 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{fm(Number(p.value ?? 0))}</span>,
     },
     { field: 'customers_count', headerName: 'Customers', type: 'number', width: 100, cellClassName: 'mn' },
+    { field: 'planning_on_hand', headerName: 'Planning On Hand', type: 'number', width: 140, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'on_hand_drift', headerName: 'Drift', type: 'number', width: 90, cellClassName: 'mn',
+      renderCell: (p) => {
+        const v = Number(p.value ?? 0);
+        return <span style={{ color: v === 0 ? 'var(--mt)' : (v > 0 ? 'var(--gn)' : 'var(--rd)') }}>
+          {v === 0 ? '—' : fmtNum(v)}
+        </span>;
+      } },
     { field: 'purchased_qty', headerName: 'Purchased', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
     {
