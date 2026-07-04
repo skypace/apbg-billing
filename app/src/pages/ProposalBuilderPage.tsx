@@ -6,10 +6,12 @@ import {
 } from '@mui/material';
 import {
   Calculator, Check, Clipboard, Copy, ExternalLink, FileText, FolderOpen, LayoutTemplate, Mail,
-  Images, PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2,
+  Images, PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2, Upload,
 } from 'lucide-react';
 import {
   type BrandAsset,
+  type BrandAssetType,
+  BRAND_ASSET_TYPES,
   type EndOfLeaseOption,
   type EquipmentCatalogItem,
   type EquipmentQuoteResponse,
@@ -26,8 +28,11 @@ import {
   createEquipmentQuote,
   currency,
   defaultProposalTerms,
+  deleteBrandAsset,
   equipmentToPricingLines,
+  fileToBase64,
   selectTemplateProducts,
+  uploadBrandAsset,
   generateGammaProposal,
   generateProposalEmail,
   getSavedProposal,
@@ -96,6 +101,7 @@ export function ProposalBuilderPage() {
   const [endOfLeaseOptions, setEndOfLeaseOptions] = useState<EndOfLeaseOption[]>([]);
   const [brandAssets, setBrandAssets] = useState<BrandAsset[]>([]);
   const [brandAssetError, setBrandAssetError] = useState<string | null>(null);
+  const [assetBusy, setAssetBusy] = useState(false);
 
   const [pricing, setPricing] = useState<PricingCalculateResponse | null>(null);
   const [quote, setQuote] = useState<EquipmentQuoteResponse | null>(null);
@@ -272,6 +278,55 @@ export function ProposalBuilderPage() {
       ? ` — added ${suggestedIds.length} suggested product${suggestedIds.length === 1 ? '' : 's'}`
       : '';
     setToast(`${template.label} template applied${suggestionNote}.`);
+  }
+
+  async function reloadBrandAssets() {
+    try {
+      const assets = await getBrandAssets();
+      setBrandAssets(assets);
+      setBrandAssetError(null);
+    } catch (e) {
+      setBrandAssetError(messageFrom(e));
+    }
+  }
+
+  async function handleUploadAssets(files: FileList | null, type: BrandAssetType) {
+    if (!files || !files.length) return;
+    setAssetBusy(true);
+    let uploaded = 0;
+    try {
+      for (const file of Array.from(files)) {
+        const dataBase64 = await fileToBase64(file);
+        await uploadBrandAsset({
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+          dataBase64,
+          type,
+        });
+        uploaded += 1;
+      }
+      await reloadBrandAssets();
+      setToast(`Uploaded ${uploaded} asset${uploaded === 1 ? '' : 's'} to the brand library.`);
+    } catch (e) {
+      setToast(messageFrom(e));
+      if (uploaded > 0) await reloadBrandAssets();
+    } finally {
+      setAssetBusy(false);
+    }
+  }
+
+  async function handleDeleteAsset(asset: BrandAsset) {
+    if (!asset.path) return;
+    setAssetBusy(true);
+    try {
+      await deleteBrandAsset(asset.path);
+      setBrandAssets((current) => current.filter((item) => item.id !== asset.id));
+      setToast('Asset removed from the brand library.');
+    } catch (e) {
+      setToast(messageFrom(e));
+    } finally {
+      setAssetBusy(false);
+    }
   }
 
   function toggleProduct(product: ProposalProduct) {
@@ -546,12 +601,15 @@ export function ProposalBuilderPage() {
               </Stack>
             </Section>
 
-            <Section title="Brandox Assets" icon={<Images size={18} />}>
+            <Section title="Brand Library" icon={<Images size={18} />}>
               <BrandAssets
                 assets={brandAssets}
                 error={brandAssetError}
                 loading={loadState === 'loading'}
-                onRefresh={loadData}
+                busy={assetBusy}
+                onRefresh={reloadBrandAssets}
+                onUpload={handleUploadAssets}
+                onDelete={handleDeleteAsset}
               />
             </Section>
 
@@ -828,7 +886,7 @@ export function ProposalBuilderPage() {
             <Section title="Export to Gamma" icon={<Sparkles size={18} />}>
               <Stack spacing={1.5}>
                 <Typography variant="body2" color="text.secondary">
-                  Gamma uses the selected products, equipment, pricing, and the Brandox assets matched in the proposal preview.
+                  Gamma uses the selected products, equipment, pricing, and the brand-library assets matched in the proposal preview.
                 </Typography>
                 <Button
                   variant="contained"
@@ -1307,7 +1365,7 @@ function ProposalPreview({ customer, products, equipment, pricing, servicePlans,
       />
       <PreviewBlock
         label="Brand visuals"
-        value={assets.length ? `${assets.length} asset${assets.length === 1 ? '' : 's'} available` : 'No Brandox assets loaded'}
+        value={assets.length ? `${assets.length} asset${assets.length === 1 ? '' : 's'} available` : 'No brand-library assets loaded'}
       />
     </Stack>
   );
@@ -1323,61 +1381,79 @@ function PreviewBlock({ label, value, sub }: { label: string; value: string; sub
   );
 }
 
-function BrandAssets({ assets, error, loading, onRefresh }: {
+function BrandAssets({ assets, error, loading, busy, onRefresh, onUpload, onDelete }: {
   assets: BrandAsset[];
   error: string | null;
   loading: boolean;
+  busy: boolean;
   onRefresh: () => void;
+  onUpload: (files: FileList | null, type: BrandAssetType) => void;
+  onDelete: (asset: BrandAsset) => void;
 }) {
-  if (error) {
-    return (
-      <Alert
-        severity="warning"
-        action={<Button size="small" onClick={onRefresh} disabled={loading}>Retry</Button>}
-      >
-        Brandox: {error}
-      </Alert>
-    );
-  }
-  if (!assets.length) {
-    return (
-      <Stack spacing={1.25}>
-        <Typography variant="body2" color="text.secondary">No Brandox assets loaded.</Typography>
-        <Box>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={loading ? <CircularProgress size={14} /> : <RefreshCw size={14} />}
-            disabled={loading}
-            onClick={onRefresh}
-          >
-            Refresh Brandox
-          </Button>
-        </Box>
-      </Stack>
-    );
-  }
+  const [uploadType, setUploadType] = useState<BrandAssetType>('logo');
   const grouped = assets.reduce<Record<string, number>>((acc, asset) => {
     acc[asset.type] = (acc[asset.type] || 0) + 1;
     return acc;
   }, {});
+  const storedCount = assets.filter((asset) => asset.source === 'supabase').length;
+
   return (
     <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-        <Chip size="small" label={`${assets.length} asset${assets.length === 1 ? '' : 's'}`} color="primary" variant="outlined" />
-        {Object.entries(grouped).map(([type, count]) => (
-          <Chip key={type} size="small" label={`${type} · ${count}`} variant="outlined" />
-        ))}
-        <Tooltip title="Refresh Brandox assets">
+      <Typography variant="body2" color="text.secondary">
+        Your brand library lives in Supabase Storage — upload logos, can art, equipment photos, hero images, and sell sheets here and they flow into the proposal deck. The built-in Brix / Alameda logos always show as a fallback.
+      </Typography>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>Upload as</InputLabel>
+          <Select
+            label="Upload as"
+            value={uploadType}
+            onChange={(e) => setUploadType(e.target.value as BrandAssetType)}
+          >
+            {BRAND_ASSET_TYPES.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <Button
+          component="label"
+          variant="contained"
+          startIcon={busy ? <CircularProgress size={16} /> : <Upload size={16} />}
+          disabled={busy}
+        >
+          Upload Assets
+          <input
+            type="file"
+            hidden
+            multiple
+            accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml,application/pdf"
+            onChange={(e) => { onUpload(e.target.files, uploadType); e.target.value = ''; }}
+          />
+        </Button>
+        <Tooltip title="Refresh brand library">
           <span>
-            <IconButton size="small" onClick={onRefresh} disabled={loading}>
+            <IconButton size="small" onClick={onRefresh} disabled={loading || busy}>
               {loading ? <CircularProgress size={16} /> : <RefreshCw size={16} />}
             </IconButton>
           </span>
         </Tooltip>
       </Stack>
+
+      {error && (
+        <Alert severity="warning" action={<Button size="small" onClick={onRefresh} disabled={loading}>Retry</Button>}>
+          Brand library: {error}
+        </Alert>
+      )}
+
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+        <Chip size="small" label={`${assets.length} asset${assets.length === 1 ? '' : 's'}`} color="primary" variant="outlined" />
+        {storedCount > 0 && <Chip size="small" label={`${storedCount} in library`} color="success" variant="outlined" />}
+        {Object.entries(grouped).map(([type, count]) => (
+          <Chip key={type} size="small" label={`${type} · ${count}`} variant="outlined" />
+        ))}
+      </Stack>
+
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1 }}>
-        {assets.slice(0, 12).map((asset) => (
+        {assets.slice(0, 18).map((asset) => (
           <Paper key={asset.id} variant="outlined" sx={{ p: 1, borderRadius: 1 }}>
             <Stack spacing={1}>
               {asset.thumbnailUrl ? (
@@ -1409,27 +1485,37 @@ function BrandAssets({ assets, error, loading, onRefresh }: {
                     placeItems: 'center',
                   }}
                 >
-                  <Images size={24} color="currentColor" />
+                  {/\.pdf($|\?)/i.test(asset.url) ? <FileText size={24} color="currentColor" /> : <Images size={24} color="currentColor" />}
                 </Box>
               )}
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="body2" fontWeight={700} noWrap title={asset.name}>{asset.name}</Typography>
-                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.5 }}>
+                <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
                   <Chip size="small" label={asset.type} variant="outlined" />
+                  <Box sx={{ flex: 1 }} />
                   <Tooltip title="Open asset">
                     <IconButton size="small" component="a" href={asset.url} target="_blank" rel="noopener noreferrer">
                       <ExternalLink size={14} />
                     </IconButton>
                   </Tooltip>
+                  {asset.source === 'supabase' && asset.path && (
+                    <Tooltip title="Remove from library">
+                      <span>
+                        <IconButton size="small" disabled={busy} onClick={() => onDelete(asset)} aria-label={`Remove ${asset.name}`}>
+                          <Trash2 size={14} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
                 </Stack>
               </Box>
             </Stack>
           </Paper>
         ))}
       </Box>
-      {assets.length > 12 && (
+      {assets.length > 18 && (
         <Typography variant="caption" color="text.secondary">
-          {assets.length - 12} more asset{assets.length - 12 === 1 ? '' : 's'} available from Brandox.
+          {assets.length - 18} more asset{assets.length - 18 === 1 ? '' : 's'} in the brand library.
         </Typography>
       )}
     </Stack>
