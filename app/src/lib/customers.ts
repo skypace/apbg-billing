@@ -1,4 +1,5 @@
 import { sbrpc } from './rpc';
+import { _sbToken } from './supabase';
 
 export interface CustomerListRow {
   qbo_customer_id: string;
@@ -11,6 +12,29 @@ export interface CustomerListRow {
   invoice_count: number;
   channels: string[] | null;
   primary_channel: string | null;
+  last_invoice_date: string | null;
+  revenue_365: number;
+  est_margin_365: number;
+  margin_pct_365: number | null;
+  cost_coverage_pct: number | null;
+  top_item_name: string | null;
+  top_item_revenue: number;
+  top_item_share_pct: number | null;
+  ar_balance: number;
+  ar_overdue: number;
+  ar_90_plus: number;
+  days_oldest_overdue: number | null;
+  future_invoice_count: number;
+  future_revenue: number;
+  future_last_invoice_date: string | null;
+  lifecycle_action_id: number | null;
+  lifecycle_status: string | null;
+  lifecycle_last_error: string | null;
+  lifecycle_requested_at: string | null;
+  can_inactivate: boolean;
+  inactive_reason: string | null;
+  next_action: string | null;
+  priority_score: number;
 }
 
 export interface CustomerDetail {
@@ -116,6 +140,22 @@ export interface DrillRow {
   est_margin: number | null;
 }
 
+export interface CustomerInactivationResponse {
+  ok: boolean;
+  status?: string;
+  processed?: number;
+  action?: {
+    id?: number;
+    status?: string;
+    qbo_customer_id?: string;
+    customer_name?: string;
+    blockers?: unknown;
+    last_error?: string | null;
+  };
+  results?: CustomerInactivationResponse[];
+  error?: string;
+}
+
 export function fetchCustomerList(opts: {
   search?: string;
   channel?: string;
@@ -132,6 +172,34 @@ export function fetchCustomerList(opts: {
     p_limit: opts.limit ?? 200,
     p_offset: opts.offset ?? 0,
   });
+}
+
+export async function runCustomerInactivation(body: {
+  action: 'request' | 'process' | 'request_and_process' | 'request_and_process_many';
+  qbo_customer_id?: string;
+  qbo_customer_ids?: string[];
+  action_id?: number;
+  limit?: number;
+  reason?: string;
+}) {
+  const token = await _sbToken();
+  const res = await fetch('/api/customer-inactivation', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let payload: CustomerInactivationResponse;
+  try {
+    payload = text ? JSON.parse(text) : { ok: res.ok };
+  } catch {
+    payload = { ok: false, error: text || 'Invalid response' };
+  }
+  if (!res.ok) throw new Error(payload.error || `Customer inactivation failed: ${res.status}`);
+  return payload;
 }
 
 export function fetchCustomerDetail(qbo_customer_id: string, start: string, end: string) {

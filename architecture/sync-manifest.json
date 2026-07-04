@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-06-28",
+  "last_updated": "2026-07-04",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
@@ -94,6 +94,23 @@
       "external_inputs": ["QuickBooks Online API: Customers"],
       "notes": "Cron defined in 20260503r_nightly_sync_crons.sql. Writes the upstream customer record (display_name, addresses, etc.). Geocode columns (lat/lon/geocoded_at/geocode_status) are managed by the geocode-customers function.",
       "last_verified": "2026-05-05"
+    },
+    {
+      "name": "customer-inactivation",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (BRIX Refractor → Customers)",
+      "writes": [
+        "ops.customer_lifecycle_actions",
+        "ops.qbo_customers"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "Service Fusion API: Customers",
+        "QuickBooks Online API: Customers"
+      ],
+      "notes": "Protected superadmin workflow at netlify/functions/customer-inactivation.mjs. Stages dormant active customers in ops.customer_lifecycle_actions, updates Service Fusion first, then flips QBO Customer.Active=false and mirrors ops.qbo_customers.active=false only after QBO confirms. It never deletes customers and blocks rows with open AR, recent revenue, future invoices, or missing Service Fusion match.",
+      "last_verified": "2026-07-04"
     },
     {
       "name": "geocode-customers",
