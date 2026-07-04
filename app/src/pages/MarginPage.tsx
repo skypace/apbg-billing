@@ -756,28 +756,7 @@ export function MarginPage() {
   }, [activeModifiers.length, JSON.stringify(effectiveFilters)]);
 
   const usePlNetMargin = plCompatibleFilters && plSummary != null;
-  const effectiveOverheadPools = useMemo<OverheadPoolTotal[]>(() => {
-    if (!usePlNetMargin || !plSummary || !totals) return overheadPools;
-    const lineGrossMargin = Number(totals.est_margin ?? 0);
-    const targetNetMargin = Number(plSummary.net_margin ?? 0);
-    const targetAdjustment = lineGrossMargin - targetNetMargin;
-    const existingAdjustment = totalPoolAmount(overheadPools);
-    const trueUp = targetAdjustment - existingAdjustment;
-    if (!Number.isFinite(trueUp) || Math.abs(trueUp) < 0.5) return overheadPools;
-    const months = Math.max(Number(plSummary.months || 1), 1);
-    return [
-      ...overheadPools,
-      {
-        pool_id: -900001,
-        pool_name: 'P&L gross margin true-up',
-        basis: 'revenue',
-        entity: null,
-        monthly_amount: trueUp / months,
-        pool_total: trueUp,
-        months,
-      },
-    ];
-  }, [overheadPools, plSummary, totals, usePlNetMargin]);
+  const effectiveOverheadPools = overheadPools;
 
   const totalOverhead = useMemo(() => totalPoolAmount(effectiveOverheadPools), [effectiveOverheadPools]);
   const showNetKpi = totals != null && (totalOverhead !== 0 || usePlNetMargin);
