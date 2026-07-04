@@ -64,6 +64,11 @@ export interface QboItemOption {
   income_account_name: string | null;
 }
 
+export interface QboCustomerOption {
+  qbo_customer_id: string;
+  display_name: string;
+}
+
 export const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export function fetchPlans() {
@@ -109,6 +114,13 @@ export function fetchItemOptions() {
   return sbq<QboItemOption>(
     'qbo_items',
     'select=qbo_item_id,name,fully_qualified_name,income_account_ref_id,income_account_name&active=eq.true&order=name&limit=2000',
+  );
+}
+
+export function fetchCustomerOptions() {
+  return sbq<QboCustomerOption>(
+    'qbo_customers',
+    'select=qbo_customer_id,display_name&active=eq.true&order=display_name&limit=1500',
   );
 }
 
