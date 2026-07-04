@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Copy, Download } from 'lucide-react';
+import { ArrowRight, Copy, Download, Plus } from 'lucide-react';
 import { sbDelete, sbInsert, sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
-import { fm } from '../lib/formatters';
-import { SalesPlan, fetchPlans } from '../lib/plans';
+import { fm, fp } from '../lib/formatters';
+import { SalesPlan, fetchPlanForecast, fetchPlans, type PlanForecastRow } from '../lib/plans';
 import { PlanEditor } from './plans/PlanEditor';
 import { useToast } from '../lib/toast';
 import { TableSkeleton } from '../components/Skeletons';
@@ -25,9 +25,64 @@ async function callImportQboBudget(body: Record<string, unknown>) {
   return j;
 }
 
+interface PlanHomeSummary {
+  planRevenue: number;
+  actualYtd: number;
+  projectedFy: number | null;
+  projectedVsPlanPct: number | null;
+  lineCount: number;
+  atRiskCount: number;
+  error?: string;
+}
+
+function summarizeForecast(rows: PlanForecastRow[]): PlanHomeSummary {
+  const planRevenue = rows.reduce((s, r) => s + Number(r.full_year_plan || 0), 0);
+  const actualYtd = rows.reduce((s, r) => s + Number(r.ytd_actual || 0), 0);
+  const projectedRows = rows.filter((r) => r.projected_full_year != null);
+  const projectedFy = projectedRows.length
+    ? projectedRows.reduce((s, r) => s + Number(r.projected_full_year || 0), 0)
+    : null;
+  const projectedVsPlanPct = projectedFy != null && planRevenue > 0
+    ? (projectedFy - planRevenue) / planRevenue
+    : null;
+  const atRiskCount = rows.filter((r) => r.status === 'behind' || r.status === 'critical').length;
+  return { planRevenue, actualYtd, projectedFy, projectedVsPlanPct, lineCount: rows.length, atRiskCount };
+}
+
+function deltaLabel(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return '-';
+  return (Number(v) > 0 ? '+' : '') + fp(v);
+}
+
+function deltaColor(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return 'var(--mt)';
+  if (Number(v) >= 0.05) return 'var(--gn)';
+  if (Number(v) <= -0.1) return 'var(--rd)';
+  if (Number(v) < 0) return 'var(--am)';
+  return 'var(--tx)';
+}
+
+function readoutLabel(summary: PlanHomeSummary | null | undefined) {
+  if (summary == null) return 'checking';
+  if (summary.error) return 'check failed';
+  if (summary.atRiskCount > 0) return summary.atRiskCount + ' risk' + (summary.atRiskCount === 1 ? '' : 's');
+  if (summary.projectedVsPlanPct == null) return summary.lineCount > 0 ? 'no pace' : 'empty';
+  if (summary.projectedVsPlanPct >= 0.05) return 'ahead';
+  if (summary.projectedVsPlanPct <= -0.1) return 'behind';
+  return 'on track';
+}
+
+function readoutColor(summary: PlanHomeSummary | null | undefined) {
+  if (summary == null) return 'var(--mt)';
+  if (summary.error) return 'var(--am)';
+  if (summary.atRiskCount > 0) return 'var(--am)';
+  return deltaColor(summary.projectedVsPlanPct);
+}
+
 export function PlansPage() {
   const toast = useToast();
   const [plans, setPlans] = useState<SalesPlan[] | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, PlanHomeSummary | null>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -43,6 +98,33 @@ export function PlansPage() {
       .catch(() => setPlans([]));
   }
   useEffect(load, []);
+
+  useEffect(() => {
+    if (!plans) return;
+    let cancelled = false;
+    setSummaries((cur) => {
+      const next: Record<string, PlanHomeSummary | null> = {};
+      for (const plan of plans) next[plan.id] = cur[plan.id] ?? null;
+      return next;
+    });
+    Promise.all(plans.map((plan) =>
+      fetchPlanForecast(plan.id)
+        .then((rows) => [plan.id, summarizeForecast(rows)] as const)
+        .catch((err) => [plan.id, {
+          planRevenue: 0,
+          actualYtd: 0,
+          projectedFy: null,
+          projectedVsPlanPct: null,
+          lineCount: 0,
+          atRiskCount: 0,
+          error: err instanceof Error ? err.message : 'Forecast check failed',
+        }] as const),
+    )).then((entries) => {
+      if (cancelled) return;
+      setSummaries(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  }, [plans]);
 
   function createPlan() {
     if (!newPlan.name.trim()) {
@@ -152,7 +234,7 @@ export function PlansPage() {
           <h1 className="hero-title">Plans</h1>
         </div>
       </div>
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
         <TableSkeleton rows={5} cols={5} />
       </div>
     </div>
@@ -163,18 +245,83 @@ export function PlansPage() {
     return <PlanEditor plan={active} onBack={() => { setActiveId(null); load(); }} />;
   }
 
+  const latestFiscalYear = plans.reduce<number | null>((max, plan) => (
+    max == null || Number(plan.fiscal_year) > max ? Number(plan.fiscal_year) : max
+  ), null);
+  const focusPlans = latestFiscalYear == null ? [] : plans.filter((p) => Number(p.fiscal_year) === latestFiscalYear);
+  const activePlanCount = plans.filter((p) => p.status === 'active').length;
+  const sortedPlans = [...plans].sort((a, b) =>
+    Number(b.fiscal_year) - Number(a.fiscal_year)
+    || String(a.scenario || '').localeCompare(String(b.scenario || ''))
+    || String(a.name || '').localeCompare(String(b.name || '')),
+  );
+  const homeSummary = (() => {
+    const ids = focusPlans.map((p) => p.id);
+    const loaded = ids.map((id) => summaries[id]).filter((s): s is PlanHomeSummary => !!s && !s.error);
+    const pending = ids.some((id) => summaries[id] == null);
+    const planRevenue = loaded.reduce((s, r) => s + r.planRevenue, 0);
+    const actualYtd = loaded.reduce((s, r) => s + r.actualYtd, 0);
+    const projectedLoaded = loaded.filter((r) => r.projectedFy != null);
+    const projectedFy = projectedLoaded.length
+      ? projectedLoaded.reduce((s, r) => s + Number(r.projectedFy || 0), 0)
+      : null;
+    const projectedVsPlanPct = projectedFy != null && planRevenue > 0
+      ? (projectedFy - planRevenue) / planRevenue
+      : null;
+    const atRiskCount = loaded.reduce((s, r) => s + r.atRiskCount, 0);
+    return { pending, planRevenue, actualYtd, projectedFy, projectedVsPlanPct, atRiskCount };
+  })();
+
   return (
     <div>
       <div className="hero">
         <div>
           <div className="hero-eyebrow">Sales budgeting · scenarios</div>
           <h1 className="hero-title">Plans</h1>
-          <div className="hero-meta">Plan vs actual · forecast · stretch · conservative · QBO budget</div>
+          <div className="hero-meta">
+            {latestFiscalYear ? 'FY' + latestFiscalYear + ' focus' : 'No focus year'} · {activePlanCount} active
+          </div>
         </div>
         <div className="hero-stamp">
           <span className="status-dot" aria-hidden="true" />
           {plans.length} plan{plans.length === 1 ? '' : 's'}
         </div>
+      </div>
+
+      <div
+        className="cd"
+        style={{
+          padding: 0,
+          marginBottom: 14,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          overflow: 'hidden',
+        }}
+      >
+        <PlanHomeMetric
+          label="Focus year"
+          value={latestFiscalYear ? 'FY' + latestFiscalYear : '-'}
+          detail={focusPlans.length + ' plan' + (focusPlans.length === 1 ? '' : 's')}
+        />
+        <PlanHomeMetric
+          label="Plan revenue"
+          value={homeSummary.pending ? 'Checking' : fm(homeSummary.planRevenue)}
+        />
+        <PlanHomeMetric
+          label="Actual YTD"
+          value={homeSummary.pending ? 'Checking' : fm(homeSummary.actualYtd)}
+        />
+        <PlanHomeMetric
+          label="FY pace"
+          value={homeSummary.pending ? 'Checking' : homeSummary.projectedFy == null ? '-' : fm(homeSummary.projectedFy)}
+          detail={homeSummary.pending ? undefined : deltaLabel(homeSummary.projectedVsPlanPct)}
+          tone={homeSummary.pending ? 'muted' : homeSummary.projectedVsPlanPct == null ? 'muted' : homeSummary.projectedVsPlanPct >= 0 ? 'good' : 'warn'}
+        />
+        <PlanHomeMetric
+          label="Needs review"
+          value={homeSummary.pending ? 'Checking' : String(homeSummary.atRiskCount)}
+          tone={homeSummary.atRiskCount > 0 ? 'warn' : 'good'}
+        />
       </div>
 
       <div
@@ -220,7 +367,13 @@ export function PlansPage() {
           </>
         ) : (
           <>
-            <button onClick={() => setCreating(true)} style={btnPrimary()}>+ NEW PLAN</button>
+            <button
+              onClick={() => setCreating(true)}
+              style={{ ...btnPrimary(), display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Plus size={12} strokeWidth={2.4} aria-hidden="true" />
+              <span>New plan</span>
+            </button>
             <button
               onClick={pullQboBudget}
               disabled={importing}
@@ -235,63 +388,139 @@ export function PlansPage() {
         )}
       </div>
 
-      <div className="cd" style={{ padding: 0 }}>
+      <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
         {plans.length === 0 ? (
-          <div className="ld">No plans yet. Click + NEW PLAN to start, or Pull from QBO Budget to import.</div>
+          <div className="ld">No plans yet.</div>
         ) : (
-          <table>
+          <table style={{ minWidth: 1060 }}>
             <thead>
               <tr>
                 <th>Name</th>
                 <th>FY</th>
                 <th>Scenario</th>
                 <th>Status</th>
+                <th>Readout</th>
+                <th style={{ textAlign: 'right' }}>Plan</th>
+                <th style={{ textAlign: 'right' }}>Actual YTD</th>
+                <th style={{ textAlign: 'right' }}>FY Pace</th>
+                <th style={{ textAlign: 'right' }}>Delta</th>
                 <th>Updated</th>
                 <th style={{ textAlign: 'right' }}></th>
               </tr>
             </thead>
             <tbody>
-              {plans.map((p) => (
-                <tr key={p.id} onClick={() => setActiveId(p.id)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontWeight: 600 }}>{p.name}</td>
-                  <td className="mn">{p.fiscal_year}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{p.scenario}</td>
-                  <td>
-                    <span
-                      className="bg"
-                      style={{
-                        color: p.status === 'active' ? 'var(--gn)' : 'var(--mt)',
-                        borderColor: p.status === 'active' ? 'var(--gn)' : 'var(--bd)',
-                      }}
-                    >
-                      {p.status}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                    {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); duplicatePlan(p); }}
-                      className="tb-btn"
-                      style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                      title="Duplicate this plan into a new fiscal year (header + all lines)"
-                    >
-                      <Copy size={11} strokeWidth={2.2} aria-hidden="true" />
-                      <span style={{ fontSize: 10 }}>Duplicate</span>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deletePlan(p.id, p.name); }}
-                      style={btnDanger()}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {sortedPlans.map((p) => {
+                const summary = summaries[p.id];
+                const color = readoutColor(summary);
+                return (
+                  <tr key={p.id} onClick={() => setActiveId(p.id)} style={{ cursor: 'pointer' }}>
+                    <td>
+                      <div style={{ fontWeight: 700 }}>{p.name}</div>
+                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>
+                        {summary == null ? 'checking lines' : summary.error ? summary.error : summary.lineCount + ' tracked line' + (summary.lineCount === 1 ? '' : 's')}
+                      </div>
+                    </td>
+                    <td className="mn">{p.fiscal_year}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{p.scenario}</td>
+                    <td>
+                      <span
+                        className="bg"
+                        style={{
+                          color: p.status === 'active' ? 'var(--gn)' : 'var(--mt)',
+                          borderColor: p.status === 'active' ? 'var(--gn)' : 'var(--bd)',
+                        }}
+                      >
+                        {p.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className="bg"
+                        style={{
+                          color,
+                          borderColor: color,
+                        }}
+                      >
+                        {readoutLabel(summary)}
+                      </span>
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right' }}>
+                      {summary == null ? '...' : fm(summary.planRevenue)}
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right' }}>
+                      {summary == null ? '...' : fm(summary.actualYtd)}
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right' }}>
+                      {summary == null ? '...' : summary.projectedFy == null ? '-' : fm(summary.projectedFy)}
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right', color: deltaColor(summary?.projectedVsPlanPct) }}>
+                      {summary == null ? '...' : deltaLabel(summary.projectedVsPlanPct)}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>
+                      {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '-'}
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveId(p.id); }}
+                        className="tb-btn"
+                        style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      >
+                        <ArrowRight size={11} strokeWidth={2.2} aria-hidden="true" />
+                        <span style={{ fontSize: 10 }}>Open</span>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); duplicatePlan(p); }}
+                        className="tb-btn"
+                        style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        title="Duplicate this plan into a new fiscal year (header + all lines)"
+                      >
+                        <Copy size={11} strokeWidth={2.2} aria-hidden="true" />
+                        <span style={{ fontSize: 10 }}>Duplicate</span>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deletePlan(p.id, p.name); }}
+                        style={btnDanger()}
+                      >
+                        x
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PlanHomeMetric({
+  label,
+  value,
+  detail,
+  tone = 'muted',
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: 'muted' | 'good' | 'warn' | 'bad';
+}) {
+  const color = tone === 'good'
+    ? 'var(--gn)'
+    : tone === 'warn'
+      ? 'var(--am)'
+      : tone === 'bad'
+        ? 'var(--rd)'
+        : 'var(--tx)';
+  return (
+    <div style={{ padding: '10px 12px', borderRight: '1px solid var(--bd)', minWidth: 0 }}>
+      <div style={{ color: 'var(--mt)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0 }}>
+        {label}
+      </div>
+      <div className="mn" style={{ marginTop: 4, color, fontSize: 16, fontWeight: 800, whiteSpace: 'nowrap' }}>
+        {value}
+        {detail && <span style={{ marginLeft: 6, color: 'var(--mt)', fontSize: 10, fontWeight: 600 }}>{detail}</span>}
       </div>
     </div>
   );
