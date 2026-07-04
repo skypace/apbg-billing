@@ -421,6 +421,167 @@ export function equipmentToPricingLines(equipment: ProposalEquipment[]): Pricing
   }));
 }
 
+export interface ProposalTemplate {
+  key: string;
+  label: string;
+  emoji: string;
+  headline: string;
+  description: string;
+  businessType: string;
+  /** Product categories this venue type typically wants, most relevant first. */
+  productCategories: ProposalProductCategory[];
+  /** Extra name/description keywords used to rank product suggestions. */
+  productKeywords: string[];
+  /** Equipment catalog keywords to pre-fill the equipment search box. */
+  equipmentKeywords: string[];
+  /** Service-plan category to preselect when a matching plan exists. */
+  servicePlanCategory: string;
+  terms: Pick<ProposalTerms, 'pricingModel' | 'termMonths' | 'targetMarginPct' | 'installationTimeline' | 'siteSurveyNextStep'>;
+}
+
+export const PROPOSAL_TEMPLATES: ProposalTemplate[] = [
+  {
+    key: 'restaurant',
+    label: 'Restaurants',
+    emoji: '🍽️',
+    headline: 'Full-service restaurant beverage program',
+    description: 'Fountain BIB lineup with mixers and CO₂ for a full dining room. Built around a leased dispense system and standard service.',
+    businessType: 'Restaurant',
+    productCategories: ['bib', 'mixer', 'co2', 'lemonade', 'tea', 'juice'],
+    productKeywords: ['cola', 'root beer', 'ginger ale', 'lemon', 'tonic'],
+    equipmentKeywords: ['fountain', 'dispenser', 'ice'],
+    servicePlanCategory: 'fountain',
+    terms: {
+      pricingModel: 'lease_support',
+      termMonths: 36,
+      targetMarginPct: 35,
+      installationTimeline: 'Typical installation is 2-4 weeks after site survey, credit approval, and equipment availability.',
+      siteSurveyNextStep: 'Schedule a site survey to confirm utilities, drain access, CO₂ placement, and final install scope for the dining room.',
+    },
+  },
+  {
+    key: 'corporate_cafe',
+    label: 'Corporate Cafes',
+    emoji: '🏢',
+    headline: 'Office & corporate cafe program',
+    description: 'Grab-and-go cans plus a compact BIB station for an amenity-driven workplace. Flexible term for facilities budgets.',
+    businessType: 'Cafe',
+    productCategories: ['can', 'tea', 'juice', 'lemonade', 'co2'],
+    productKeywords: ['sparkling', 'craft soda', 'cold brew', 'seltzer'],
+    equipmentKeywords: ['cooler', 'dispenser', 'countertop'],
+    servicePlanCategory: 'fountain',
+    terms: {
+      pricingModel: 'lease_support',
+      termMonths: 24,
+      targetMarginPct: 40,
+      installationTimeline: 'Most workplace cafes are live within 2-3 weeks after a quick site survey and building access confirmation.',
+      siteSurveyNextStep: 'Confirm pantry/cafe footprint, power, water line access, and delivery/loading logistics with facilities.',
+    },
+  },
+  {
+    key: 'bar',
+    label: 'Bars',
+    emoji: '🍸',
+    headline: 'Bar & cocktail mixer program',
+    description: 'Premium mixers — tonic, ginger beer, club soda — plus CO₂ and juices for a high-volume cocktail bar.',
+    businessType: 'Bar',
+    productCategories: ['mixer', 'co2', 'juice', 'lemonade'],
+    productKeywords: ['tonic', 'ginger beer', 'club soda', 'soda water', 'bitters', 'cranberry'],
+    equipmentKeywords: ['gun', 'dispenser', 'soda', 'rail'],
+    servicePlanCategory: 'fountain',
+    terms: {
+      pricingModel: 'lease_support',
+      termMonths: 36,
+      targetMarginPct: 38,
+      installationTimeline: 'Bar installs are scheduled for 2-4 weeks out, typically during off-hours to avoid service disruption.',
+      siteSurveyNextStep: 'Walk the bar rail and back-of-house to confirm gun placement, CO₂ storage, and drain/water access.',
+    },
+  },
+  {
+    key: 'fast_casual',
+    label: 'Fast Casual',
+    emoji: '🥤',
+    headline: 'Fast casual high-volume program',
+    description: 'High-throughput fountain BIB plus self-serve cans for a quick-service counter. Priced for volume.',
+    businessType: 'Restaurant',
+    productCategories: ['bib', 'can', 'co2', 'lemonade', 'tea'],
+    productKeywords: ['cola', 'lemonade', 'fruit punch', 'energy', 'orange'],
+    equipmentKeywords: ['fountain', 'self serve', 'ice', 'dispenser'],
+    servicePlanCategory: 'fountain',
+    terms: {
+      pricingModel: 'lease_support',
+      termMonths: 36,
+      targetMarginPct: 33,
+      installationTimeline: 'Counter-service installs run 2-3 weeks after site survey; we stage equipment to minimize downtime.',
+      siteSurveyNextStep: 'Confirm self-serve vs. crew-serve dispense, ice needs, CO₂ placement, and peak-volume throughput.',
+    },
+  },
+  {
+    key: 'grocery',
+    label: 'Grocery',
+    emoji: '🛒',
+    headline: 'Grocery & retail case program',
+    description: 'Retail cans and cases delivered direct-store. Month-to-month with no long-term equipment commitment.',
+    businessType: 'Retail',
+    productCategories: ['can', 'tea', 'juice', 'lemonade'],
+    productKeywords: ['24 pack', 'case', 'craft soda', 'sparkling', 'sugar free'],
+    equipmentKeywords: ['cooler', 'rack', 'display', 'shelf'],
+    servicePlanCategory: 'retail',
+    terms: {
+      pricingModel: 'month_to_month',
+      termMonths: 12,
+      targetMarginPct: 25,
+      installationTimeline: 'Retail case programs start on the next delivery cycle once the account and ordering cadence are set.',
+      siteSurveyNextStep: 'Confirm shelf/cooler placement, delivery windows, and receiving requirements with the store.',
+    },
+  },
+];
+
+const TEMPLATE_STOPWORDS = new Set(['the', 'and', 'with', 'for', 'pack', 'gal', 'bib']);
+
+function templateTokens(text: string): string[] {
+  return String(text || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 2 && !TEMPLATE_STOPWORDS.has(word));
+}
+
+/**
+ * Rank the loaded product catalog against a template and return the ids of the
+ * best matches, so picking a template can pre-select a sensible starting lineup.
+ */
+export function selectTemplateProducts(
+  template: ProposalTemplate,
+  products: ProposalProduct[],
+  limit = 8,
+): string[] {
+  const categoryRank = new Map(template.productCategories.map((category, index) => [category, template.productCategories.length - index]));
+  const keywords = template.productKeywords.map((word) => word.toLowerCase());
+  const scored = products
+    .filter((product) => product.active !== false)
+    .map((product) => {
+      let score = 0;
+      const categoryScore = categoryRank.get(product.category);
+      if (categoryScore) score += categoryScore * 4;
+      const haystack = `${product.name} ${product.description || ''} ${product.category}`.toLowerCase();
+      for (const keyword of keywords) {
+        if (haystack.includes(keyword)) score += 3;
+      }
+      const productWords = new Set(templateTokens(haystack));
+      for (const keyword of keywords) {
+        for (const word of templateTokens(keyword)) {
+          if (productWords.has(word)) score += 1;
+        }
+      }
+      // Nudge products that actually carry imagery so the deck looks complete.
+      if (product.imageUrl || (product.imageUrls && product.imageUrls.length)) score += 1;
+      return { product, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name));
+  return scored.slice(0, limit).map((entry) => entry.product.id);
+}
+
 export function defaultProposalTerms(): ProposalTerms {
   return {
     pricingModel: 'lease_support',

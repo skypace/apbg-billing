@@ -5,6 +5,8 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 const ALLOWED_ROLES = ['superadmin', 'admin', 'sales'];
 const COMMON_IMAGE_BUCKETS = [
+  'brix-catalog-images',
+  'brix-order-files',
   'product-images',
   'product-assets',
   'contract-item-images',
@@ -15,6 +17,8 @@ const COMMON_IMAGE_BUCKETS = [
   'brix-order',
 ];
 const COMMON_SPEC_BUCKETS = [
+  'brix-catalog-images',
+  'brix-order-files',
   'product-specs',
   'spec-sheets',
   'contract-item-specs',
@@ -184,6 +188,51 @@ function indexOrderItems(rows) {
   return { byQboId, byName };
 }
 
+// orders.catalog is the live BRIX / Alameda Soda beverage catalog. Its image_url,
+// image_thumb_url and bib_image_url columns hold full public URLs (Supabase Storage
+// `brix-catalog-images` bucket + Shopify CDN), so no bucket guessing is needed.
+function indexCatalog(rows) {
+  const byQboId = new Map();
+  const bySku = new Map();
+  const byName = new Map();
+  for (const row of rows) {
+    if (row.qbo_item_id != null) byQboId.set(String(row.qbo_item_id), row);
+    if (row.sku) {
+      const key = normalizeKey(row.sku);
+      if (key && !bySku.has(key)) bySku.set(key, row);
+    }
+    for (const value of [row.name, row.display_name, row.sf_item_name].filter(Boolean)) {
+      const key = normalizeKey(value);
+      if (key && !byName.has(key)) byName.set(key, row);
+    }
+  }
+  return { byQboId, bySku, byName };
+}
+
+function findCatalogRow(row, index) {
+  if (!index) return undefined;
+  const byId = index.byQboId.get(String(row.qbo_item_id));
+  if (byId) return byId;
+  if (row.sku) {
+    const bySku = index.bySku.get(normalizeKey(row.sku));
+    if (bySku) return bySku;
+  }
+  for (const value of [row.name, row.fully_qualified_name].filter(Boolean)) {
+    const direct = index.byName.get(normalizeKey(value));
+    if (direct) return direct;
+  }
+  return undefined;
+}
+
+// Collect every full/absolute image URL a catalog row carries, most specific first.
+function catalogImageUrls(catalogRow) {
+  if (!catalogRow) return [];
+  const urls = [catalogRow.image_url, catalogRow.image_thumb_url, catalogRow.bib_image_url]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter((value) => /^https?:\/\//i.test(value) || value.startsWith('/'));
+  return [...new Set(urls)];
+}
+
 function findOrderItem(row, index) {
   const byId = index.byQboId.get(String(row.qbo_item_id));
   if (byId) return byId;
@@ -240,12 +289,13 @@ export async function handler(event) {
     const today = new Date().toISOString().slice(0, 10);
     const books = await supabaseGet('price_books?code=eq.BX-1&select=id&limit=1');
     const bookId = books[0]?.id;
-    const [items, prices, orderItems] = await Promise.all([
+    const [items, prices, orderItems, catalogRows] = await Promise.all([
       supabaseGet('qbo_items?active=eq.true&select=qbo_item_id,name,fully_qualified_name,sku,type,active&order=name'),
       bookId
         ? supabaseGet(`price_book_items?price_book_id=eq.${bookId}&effective_from=lte.${today}&or=(effective_to.is.null,effective_to.gte.${today})&select=qbo_item_id,item_name,unit_price,effective_from&order=effective_from.desc`)
         : Promise.resolve([]),
       supabaseGetOptional('contract_items?or=(active.is.null,active.eq.true)&select=id,name,category,description,image_key,item_type,manufacturer,model,qbo_item_id,qbo_item_name,sku,sales_price,spec_sheet_key,weight_lbs&order=sort_order,name', 'public'),
+      supabaseGetOptional('catalog?select=qbo_item_id,name,display_name,sku,category,description,pack_size,volume_oz,weight_lbs,container_type,list_price,image_url,image_thumb_url,bib_image_url,sf_item_name,active,orderable&order=name', 'orders'),
     ]);
 
     const priceByItem = new Map();
@@ -253,28 +303,43 @@ export async function handler(event) {
       if (!priceByItem.has(row.qbo_item_id)) priceByItem.set(row.qbo_item_id, Number(row.unit_price));
     }
     const orderIndex = indexOrderItems(orderItems);
+    const catalogIndex = indexCatalog(catalogRows);
 
     const products = items.map((row) => {
       const name = row.name || row.qbo_item_id;
       const orderItem = findOrderItem(row, orderIndex);
+      const catalogRow = findCatalogRow(row, catalogIndex);
       const price = priceByItem.get(row.qbo_item_id);
-      const category = orderItem ? orderCategory(orderItem, name) : classifyProduct(name);
-      const imageUrls = assetUrlsFor(orderItem?.image_key, 'image');
+      const category = catalogRow?.category
+        ? classifyProduct(`${catalogRow.category} ${name}`)
+        : orderItem ? orderCategory(orderItem, name) : classifyProduct(name);
+      // Catalog images are already full public URLs — prefer them, then fall back to
+      // the (rarely populated) contract-item image_key and finally the local brand art.
+      const catalogImages = catalogImageUrls(catalogRow);
+      const orderImages = assetUrlsFor(orderItem?.image_key, 'image');
+      const imageUrls = [...new Set([...catalogImages, ...orderImages])];
+      const description = catalogRow?.description
+        || descriptionFor(row, price, orderItem);
       return {
         id: String(row.qbo_item_id),
         name,
         category,
-        price: price ?? (orderItem?.sales_price != null ? Number(orderItem.sales_price) : undefined),
-        packageSize: packageSize([name, orderItem?.description, orderItem?.sku, row.sku].filter(Boolean).join(' ')),
-        description: descriptionFor(row, price, orderItem),
+        price: price
+          ?? (orderItem?.sales_price != null ? Number(orderItem.sales_price) : undefined)
+          ?? (catalogRow?.list_price != null ? Number(catalogRow.list_price) : undefined),
+        packageSize: catalogRow?.pack_size
+          || packageSize([name, catalogRow?.container_type, orderItem?.description, orderItem?.sku, row.sku].filter(Boolean).join(' ')),
+        description,
         imageUrl: imageUrls[0] || imageFor(name, category),
         imageUrls,
         specSheetUrl: assetUrlFor(orderItem?.spec_sheet_key, 'spec'),
-        sku: orderItem?.sku || row.sku || undefined,
+        sku: catalogRow?.sku || orderItem?.sku || row.sku || undefined,
         manufacturer: orderItem?.manufacturer || undefined,
         model: orderItem?.model || undefined,
-        weightLbs: orderItem?.weight_lbs != null ? Number(orderItem.weight_lbs) : undefined,
-        source: orderItem ? 'brix-order' : 'qbo',
+        weightLbs: catalogRow?.weight_lbs != null
+          ? Number(catalogRow.weight_lbs)
+          : orderItem?.weight_lbs != null ? Number(orderItem.weight_lbs) : undefined,
+        source: (catalogRow || orderItem) ? 'brix-order' : 'qbo',
         active: row.active !== false,
       };
     });
