@@ -51,23 +51,32 @@ function confidenceColor(tone: 'good' | 'warn' | 'bad' | 'muted') {
 function evaluateMarginConfidence(row: SalesPivotRow | ComparisonRow): { label: string; tone: 'good' | 'warn' | 'bad' | 'muted'; tip: string } {
   const label = String(row.dim_label ?? '').trim().toLowerCase();
   const revenue = Number(row.revenue ?? 0);
-  const coverage = row.cost_coverage_pct != null ? Number(row.cost_coverage_pct) : null;
+  const coverageRaw = row.cost_coverage_pct != null ? Number(row.cost_coverage_pct) : null;
+  const coverage = coverageRaw != null && Number.isFinite(coverageRaw) ? coverageRaw : null;
   const marginPct = row.margin_pct != null ? Number(row.margin_pct) : null;
+  const estCost = row.est_cost != null ? Number(row.est_cost) : null;
+  const estMargin = row.est_margin != null ? Number(row.est_margin) : null;
+  const hasCostedMargin =
+    estCost != null && Number.isFinite(estCost) &&
+    estMargin != null && Number.isFinite(estMargin);
 
   if (label === '(unspecified)' || label === 'unspecified' || label === '') {
     return { label: 'Unmapped', tone: 'bad', tip: 'This row is grouped as unspecified because a source dimension is missing.' };
   }
-  if (Math.abs(revenue) > 0 && (coverage == null || coverage < 0.5)) {
+  if (Math.abs(revenue) === 0) {
+    return { label: 'No revenue', tone: 'muted', tip: 'No revenue in the selected window.' };
+  }
+  if (coverage != null && coverage < 0.5) {
     return { label: 'Missing cost', tone: 'bad', tip: 'Less than half of this row has item-cost coverage.' };
   }
   if (coverage != null && coverage < 0.8) {
     return { label: 'Cost gap', tone: 'warn', tip: 'Some revenue in this row is missing usable item cost.' };
   }
+  if (!hasCostedMargin) {
+    return { label: 'Missing cost', tone: 'bad', tip: 'This row has revenue but no usable cost or margin result.' };
+  }
   if (revenue > 0 && marginPct != null && marginPct < 0) {
     return { label: 'Loss', tone: 'warn', tip: 'Positive revenue is showing negative estimated margin.' };
-  }
-  if (Math.abs(revenue) === 0) {
-    return { label: 'No revenue', tone: 'muted', tip: 'No revenue in the selected window.' };
   }
   return { label: 'Good', tone: 'good', tip: 'Cost coverage and mapping look usable for this row.' };
 }
