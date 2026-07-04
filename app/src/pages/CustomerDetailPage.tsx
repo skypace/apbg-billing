@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import dayjs, { Dayjs } from 'dayjs';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { SegmentChip } from '../components/SegmentChip';
@@ -67,6 +67,7 @@ export function CustomerDetailPage({ customerId }: Props) {
   const [end, setEnd] = useState(today);
   const [detail, setDetail] = useState<CustomerDetail | null | undefined>(undefined);
   const [health, setHealth] = useState<CustomerHealth | null>(null);
+  const [scorecard, setScorecard] = useState<CustomerScorecard | null | undefined>(undefined);
   const [items, setItems] = useState<SalesPivotRow[] | null>(null);
   const [monthly, setMonthly] = useState<SparklineRow[]>([]);
   const [invoices, setInvoices] = useState<DrillRow[] | null>(null);
@@ -76,6 +77,15 @@ export function CustomerDetailPage({ customerId }: Props) {
     fetchCustomerHealth(365)
       .then((rs) => setHealth(rs.find((h) => h.qbo_customer_id === customerId) ?? null))
       .catch(() => setHealth(null));
+  }, [customerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setScorecard(undefined);
+    fetchCustomerScorecard(customerId, 365)
+      .then((sc) => { if (!cancelled) setScorecard(sc); })
+      .catch(() => { if (!cancelled) setScorecard(null); });
+    return () => { cancelled = true; };
   }, [customerId]);
 
   useEffect(() => {
@@ -160,7 +170,10 @@ export function CustomerDetailPage({ customerId }: Props) {
 
   async function printScorecard() {
     if (!detail) return;
-    const sc: CustomerScorecard | null = await fetchCustomerScorecard(customerId, 365);
+    let sc: CustomerScorecard | null = scorecard?.qbo_customer_id === customerId ? scorecard : null;
+    if (!sc) {
+      sc = await fetchCustomerScorecard(customerId, 365);
+    }
     if (!sc) {
       toast.warn('No scorecard data available');
       return;
@@ -185,6 +198,10 @@ export function CustomerDetailPage({ customerId }: Props) {
       const h = max ? Math.max(2, (m.value / max) * 90) : 2;
       return `<div style="display:inline-block;width:7%;text-align:center;font-size:8px;color:#888"><div style="display:inline-block;width:60%;height:${h}px;background:#0ea5b8;vertical-align:bottom"></div><div>${m.ym.slice(2)}</div></div>`;
     }).join('');
+    const futureCount = Number(sc.future_invoice_count ?? 0);
+    const futureNote = futureCount > 0
+      ? `<div class="note"><strong>Future-dated QBO invoices</strong><span>${futureCount} invoice${futureCount === 1 ? '' : 's'} · ${fm(sc.future_revenue)} · latest ${escapeHtml(sc.future_last_invoice_date ?? '-')}</span></div>`
+      : '';
 
     w.document.write(`<!doctype html><html><head><title>Scorecard — ${escapeHtml(sc.customer_name)}</title>
 <style>
@@ -193,13 +210,14 @@ h1{font-size:22px;margin:0 0 4px;color:#0a0e17;border-bottom:2px solid #0ea5b8;p
 h2{font-size:13px;letter-spacing:1px;color:#64748b;margin:18px 0 8px;text-transform:uppercase}
 table{width:100%;border-collapse:collapse;font-size:12px}
 td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0 18px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0 18px}
 .kpi{border:1px solid #e2e8f0;padding:8px 10px;border-radius:4px}
 .kpi .l{font-size:9px;color:#64748b;letter-spacing:1px;text-transform:uppercase}
 .kpi .v{font-size:16px;font-weight:700;margin-top:2px}
 .kpi .s{font-size:10px;color:#64748b;margin-top:2px}
 .bar{height:120px;border-bottom:1px solid #e2e8f0;display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
 .seg{display:inline-block;background:rgba(14,165,184,0.1);color:#0ea5b8;border:1px solid #0ea5b8;border-radius:14px;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:.5px}
+.note{border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:4px;padding:8px 10px;margin:10px 0;font-size:11px;display:flex;justify-content:space-between;gap:14px}
 @media print { body { margin: 0 } }
 </style></head><body>
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -217,11 +235,14 @@ td,th{padding:5px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
     </div>
   </div>
 </div>
+${futureNote}
 <div class="kpis">
-  <div class="kpi"><div class="l">YTD Revenue</div><div class="v">${fm(sc.ytd_revenue)}</div><div class="s">${sc.total_invoices ?? 0} invoices · last ${escapeHtml(sc.last_invoice_date ?? '-')}</div></div>
-  <div class="kpi"><div class="l">Prior Year</div><div class="v">${fm(sc.prior_year_revenue)}</div><div class="s">365d window</div></div>
+  <div class="kpi"><div class="l">YTD Revenue</div><div class="v">${fm(sc.ytd_revenue)}</div><div class="s">vs LYTD ${fm(sc.prior_ytd_revenue)} · ${deltaText(sc.ytd_revenue_delta_pct)}</div></div>
+  <div class="kpi"><div class="l">365d Revenue</div><div class="v">${fm(sc.window_revenue)}</div><div class="s">prior ${fm(sc.prior_window_revenue)} · ${deltaText(sc.window_revenue_delta_pct)}</div></div>
   <div class="kpi"><div class="l">Avg Order Value</div><div class="v">${fm(sc.avg_order_value)}</div><div class="s">recency: ${sc.recency_days != null ? sc.recency_days + 'd' : '-'}</div></div>
-  <div class="kpi"><div class="l">Est Margin %</div><div class="v">${sc.est_margin_pct != null ? (Number(sc.est_margin_pct) * 100).toFixed(1) + '%' : '—'}</div><div class="s">${fm(sc.est_margin)} margin</div></div>
+  <div class="kpi"><div class="l">Est Margin</div><div class="v">${fm(sc.est_margin)}</div><div class="s">${fp(sc.est_margin_pct)} · costed ${fp(sc.cost_coverage_pct)}</div></div>
+  <div class="kpi"><div class="l">AR Risk</div><div class="v">${fm(sc.ar_balance)}</div><div class="s">${fm(sc.ar_overdue)} overdue · ${fm(sc.ar_90_plus)} 90+</div></div>
+  <div class="kpi"><div class="l">Top Item Share</div><div class="v">${fp(sc.top_item_share_pct)}</div><div class="s">${escapeHtml(sc.top_item_name ?? 'No item')} · ${fm(sc.top_item_revenue)}</div></div>
 </div>
 <h2>Trailing-12-Month Revenue</h2>
 <div class="bar">${bars}</div>
@@ -262,7 +283,29 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
   const addr = [detail.bill_addr_line1, detail.bill_addr_city, detail.bill_addr_state, detail.bill_addr_postal]
     .filter(Boolean).join(', ');
   const max = Math.max(...monthVals.map((m) => m.value), 1);
-  const segLabel = health?.rfm_segment ?? '—';
+  const sc = scorecard?.qbo_customer_id === customerId ? scorecard : null;
+  const segLabel = sc?.rfm_segment ?? health?.rfm_segment ?? '—';
+  const rScore = sc?.r_score ?? health?.r_score ?? null;
+  const fScore = sc?.f_score ?? health?.f_score ?? null;
+  const mScore = sc?.m_score ?? health?.m_score ?? null;
+  const rfmTotal = sc?.rfm_total ?? health?.rfm_total ?? null;
+  const recencyDays = sc?.recency_days ?? health?.recency_days ?? null;
+  const frequency = sc?.frequency ?? health?.frequency ?? null;
+  const monetary = sc?.monetary ?? health?.monetary ?? null;
+  const ytdDelta = toFinite(sc?.ytd_revenue_delta_pct);
+  const windowDelta = toFinite(sc?.window_revenue_delta_pct);
+  const marginPct = toFinite(sc?.est_margin_pct ?? detail.current_margin_pct);
+  const costCoverage = toFinite(sc?.cost_coverage_pct);
+  const topItemShare = toFinite(sc?.top_item_share_pct);
+  const arBalance = toFinite(sc?.ar_balance) ?? Number(detail.ar_balance ?? 0);
+  const arOverdue = toFinite(sc?.ar_overdue) ?? Number(detail.ar_overdue ?? 0);
+  const ar90Plus = toFinite(sc?.ar_90_plus) ?? 0;
+  const arAccent = ar90Plus > 0 ? 'var(--rd)' : arOverdue > 0 ? 'var(--am)' : 'var(--gn)';
+  const marginAccent = marginPct == null ? undefined : marginPct >= 0.4 ? 'var(--gn)' : marginPct >= 0 ? 'var(--am)' : 'var(--rd)';
+  const costAccent = costCoverage == null ? undefined : costCoverage >= 0.95 ? 'var(--gn)' : costCoverage >= 0.8 ? 'var(--am)' : 'var(--rd)';
+  const topItemAccent = topItemShare == null ? undefined : topItemShare >= 0.5 ? 'var(--am)' : 'var(--ac)';
+  const futureInvoiceCount = Number(sc?.future_invoice_count ?? 0);
+  const futureRevenue = Number(sc?.future_revenue ?? 0);
 
   return (
     <div>
@@ -363,35 +406,72 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         </div>
       </div>
 
+      {futureInvoiceCount > 0 && (
+        <div
+          className="cd"
+          style={{
+            padding: '10px 14px',
+            marginBottom: 14,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            borderColor: 'rgba(244,180,0,0.45)',
+            background: 'rgba(244,180,0,0.08)',
+          }}
+        >
+          <AlertTriangle size={16} strokeWidth={2.3} color="var(--am)" aria-hidden="true" />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, color: 'var(--am)', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Future-dated QBO invoices
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--tx2)', marginTop: 2 }}>
+              {futureInvoiceCount} invoice{futureInvoiceCount === 1 ? '' : 's'} · {fm(futureRevenue)}
+              {sc?.future_last_invoice_date ? ` · latest ${sc.future_last_invoice_date}` : ''}
+              {' '}excluded from recency until the invoice date.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="gr" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 14, gap: 14 }}>
         <KPICard
           title="YTD REVENUE"
-          value={fm(detail.current_revenue)}
-          sub={`${detail.current_invoice_count} invoices · ${detail.current_line_count} lines`}
+          value={fm(sc?.ytd_revenue ?? detail.current_revenue)}
+          deltaPct={ytdDelta}
+          sub={sc ? `vs LYTD ${fm(sc.prior_ytd_revenue)} · ${detail.current_invoice_count} invoices` : `${detail.current_invoice_count} invoices · ${detail.current_line_count} lines`}
         />
         <KPICard
-          title="YTD MARGIN"
-          value={detail.current_est_margin != null ? fm(detail.current_est_margin) : '—'}
-          accent={
-            detail.current_margin_pct != null
-              ? (Number(detail.current_margin_pct) >= 0.4 ? 'var(--gn)' : 'var(--am)')
-              : undefined
-          }
-          sub={detail.current_margin_pct != null ? fp(detail.current_margin_pct) : '—'}
+          title="365D REVENUE"
+          value={sc ? fm(sc.window_revenue) : '—'}
+          deltaPct={windowDelta}
+          sub={sc ? `prior ${fm(sc.prior_window_revenue)} · ${sc.total_invoices ?? 0} invoices` : 'scorecard loading'}
         />
         <KPICard
-          title="LIFETIME REVENUE"
-          value={fm(detail.lifetime_revenue)}
-          sub={`${detail.lifetime_invoice_count} invoices · last ${detail.last_invoice_date ?? '—'}`}
+          title="EST MARGIN"
+          value={sc ? fm(sc.est_margin) : detail.current_est_margin != null ? fm(detail.current_est_margin) : '—'}
+          accent={marginAccent}
+          sub={`${fp(marginPct)} margin · ${sc ? fm(sc.avg_order_value) + ' avg order' : 'current period'}`}
         />
         <KPICard
-          title="AR BALANCE"
-          value={fm(detail.ar_balance)}
-          accent={Number(detail.ar_overdue) > 0 ? 'var(--am)' : undefined}
+          title="COST COVERAGE"
+          value={costCoverage != null ? fp(costCoverage) : '—'}
+          accent={costAccent}
+          sub={sc ? `${fm(sc.window_revenue)} revenue checked` : 'scorecard loading'}
+        />
+        <KPICard
+          title="TOP ITEM SHARE"
+          value={topItemShare != null ? fp(topItemShare) : '—'}
+          accent={topItemAccent}
+          sub={sc?.top_item_name ? `${truncate(sc.top_item_name, 34)} · ${fm(sc.top_item_revenue)}` : 'no item in 365d'}
+        />
+        <KPICard
+          title="AR RISK"
+          value={fm(arBalance)}
+          accent={arAccent}
           sub={
-            Number(detail.ar_overdue) > 0
-              ? `${fm(detail.ar_overdue)} overdue (${detail.ar_overdue_count})`
-              : 'no overdue'
+            arOverdue > 0
+              ? `${fm(arOverdue)} overdue · ${fm(ar90Plus)} 90+`
+              : `${sc?.open_invoice_count ?? 0} open invoices`
           }
         />
         <div className="cd kpi-card">
@@ -399,20 +479,20 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
             <div className="kpi-title">HEALTH (RFM 365D)</div>
           </div>
           <div style={{ marginTop: 6 }}>
-            {health ? (
+            {segLabel !== '—' ? (
               <>
-                <SegmentChip segment={health.rfm_segment} size="md" />
+                <SegmentChip segment={segLabel} size="md" />
                 <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 6, fontFamily: 'var(--ff-mono)' }}>
-                  R{health.r_score} F{health.f_score} M{health.m_score} · {health.recency_days}d ago
+                  R{rScore ?? '-'} F{fScore ?? '-'} M{mScore ?? '-'} · {recencyDays != null ? `${recencyDays}d ago` : 'no recency'}
                 </div>
               </>
             ) : (
               <span style={{ color: 'var(--mt)', fontSize: 10 }}>no signal</span>
             )}
           </div>
-          {health && (
+          {segLabel !== '—' && (
             <div className="kpi-sub" style={{ marginTop: 6 }}>
-              Score {health.rfm_total}/15 · {health.frequency} invoices · {fm(health.monetary)}
+              Score {rfmTotal ?? '-'}/15 · {frequency ?? '-'} invoices · {fm(monetary)}
             </div>
           )}
         </div>
@@ -553,4 +633,21 @@ function escapeHtml(s: string): string {
         : c === '>' ? '&gt;'
           : c === '"' ? '&quot;'
             : '&#39;');
+}
+
+function toFinite(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function deltaText(v: unknown): string {
+  const n = toFinite(v);
+  if (n == null) return 'no prior';
+  return n >= 0 ? '+' + fp(n) : fp(n);
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(1, max - 3)).trimEnd() + '...';
 }
