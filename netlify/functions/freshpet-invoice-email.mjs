@@ -39,11 +39,18 @@ export function renderFreshpetInvoiceEmail(d) {
     ? `${d.visitCount} completed preventive-maintenance visit${d.visitCount === 1 ? '' : 's'}${d.periodLabel ? ` (${esc(d.periodLabel)})` : ''}`
     : 'completed preventive-maintenance service';
 
-  const ctaBlock = d.invoiceUrl
+  // Primary CTA → the customer portal (photos + signed reports for every visit
+  // on this invoice). Secondary line → pay online (if a QBO link exists) or a
+  // note that the PDF is attached.
+  const portalBtn = d.portalUrl
     ? `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:8px 0 4px 0;">
-         <a href="${esc(d.invoiceUrl)}" style="display:inline-block;background:${NAVY};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:14px 28px;border-radius:10px;letter-spacing:0.01em;">View &amp; pay invoice →</a>
+         <a href="${esc(d.portalUrl)}" style="display:inline-block;background:${NAVY};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:14px 28px;border-radius:10px;letter-spacing:0.01em;">View service visits &amp; photos →</a>
        </td></tr></table>`
-    : `<div style="text-align:center;padding:6px 0;font-size:13px;color:${MUTED};">Your invoice PDF is attached to this email.</div>`;
+    : '';
+  const secondary = d.invoiceUrl
+    ? `<div style="text-align:center;padding:12px 0 0;font-size:13px;"><a href="${esc(d.invoiceUrl)}" style="color:${NAVY_DARK};font-weight:600;text-decoration:none;">Pay this invoice online →</a></div>`
+    : `<div style="text-align:center;padding:12px 0 0;font-size:12px;color:${MUTED};">Your invoice PDF is attached to this email.</div>`;
+  const ctaBlock = portalBtn + secondary;
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${esc(subject)}</title></head>
@@ -58,7 +65,7 @@ export function renderFreshpetInvoiceEmail(d) {
         <h1 style="margin:0 0 6px 0;font-size:24px;font-weight:600;color:${INK};letter-spacing:-0.01em;">Your invoice is ready</h1>
         <p style="margin:0 0 20px 0;font-size:14px;line-height:1.55;color:${MUTED};">
           ${greeting}<br>
-          A new invoice has been issued to <strong style="color:${INK};">${esc(d.customerName)}</strong> for ${visitLine}. A detailed visit report is attached.
+          A new invoice has been issued to <strong style="color:${INK};">${esc(d.customerName)}</strong> for ${visitLine}. You can review every visit — with store photos and the signed service report — in your portal. A summary report is also attached.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;background:${SURFACE_ALT};border-radius:10px;border:1px solid ${BORDER};">
           <tr>
@@ -115,13 +122,14 @@ export function renderFreshpetInvoiceEmail(d) {
   const text = [
     `Your invoice is ready - #${d.docNumber}`, '',
     greeting,
-    `A new invoice has been issued to ${d.customerName} for ${d.visitCount || ''} completed preventive-maintenance visit(s)${d.periodLabel ? ` (${d.periodLabel})` : ''}. A detailed visit report is attached.`, '',
+    `A new invoice has been issued to ${d.customerName} for ${d.visitCount || ''} completed preventive-maintenance visit(s)${d.periodLabel ? ` (${d.periodLabel})` : ''}. Review every visit with photos and the signed report in your portal; a summary report is also attached.`, '',
     `Invoice #:    ${d.docNumber}`,
     `Invoice date: ${fmtDate(d.invoiceDate)}`,
     `Due date:     ${fmtDate(d.dueDate)}`,
     `Amount:       ${fmtUsd(d.totalAmount)}`,
     `Balance due:  ${fmtUsd(d.balance)}`, '',
-    d.invoiceUrl ? `View & pay invoice: ${d.invoiceUrl}` : 'Your invoice PDF is attached to this email.', '',
+    d.portalUrl ? `View service visits & photos: ${d.portalUrl}` : '',
+    d.invoiceUrl ? `Pay this invoice online: ${d.invoiceUrl}` : 'Your invoice PDF is attached to this email.', '',
     'Questions? Reply to this email - it goes to your Brix rep.', '',
     'Brix Beverage', '1951 Monarch St. #200, Alameda CA 94501', '1-800-372-5098',
     'www.brixbev.com  ·  www.alamedasoda.com',
