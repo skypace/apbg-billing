@@ -81,6 +81,23 @@ export interface CustomerScorecard {
   first_invoice_date: string | null;
   bill_state: string | null;
   bill_city: string | null;
+  active: boolean | null;
+  customer_type_name: string | null;
+  window_revenue: number;
+  prior_window_revenue: number;
+  window_revenue_delta_pct: number | null;
+  prior_ytd_revenue: number;
+  ytd_revenue_delta_pct: number | null;
+  cost_coverage_pct: number | null;
+  top_item_share_pct: number | null;
+  ar_balance: number;
+  ar_overdue: number;
+  ar_90_plus: number;
+  open_invoice_count: number;
+  days_oldest_overdue: number | null;
+  future_invoice_count: number;
+  future_revenue: number;
+  future_last_invoice_date: string | null;
 }
 
 export interface DrillRow {
