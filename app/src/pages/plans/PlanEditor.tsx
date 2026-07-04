@@ -11,6 +11,7 @@ import {
   SalesPlan,
   SalesPlanLine,
   fetchItemOptions,
+  fetchPlanActualsByItem,
   fetchPlanLineSections,
   fetchPlanLines,
 } from '../../lib/plans';
@@ -23,6 +24,7 @@ import { PlanLinesGrouped } from './PlanLinesGrouped';
 
 type Mode = 'pl' | 'lines' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
+type ActualsByItem = Record<string, { item_name?: string; amounts: number[]; total: number }>;
 
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
   { id: 'revenue', label: 'Revenue ($)' },
@@ -44,8 +46,8 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [linesSections, setLinesSections] = useState<PlanLineSection[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
-  const [actualsByItem, setActualsByItem] = useState<Record<string, { amounts: number[]; total: number }> | null>(null);
-  const [mode, setMode] = useState<Mode>('pl');
+  const [actualsByItem, setActualsByItem] = useState<ActualsByItem | null>(null);
+  const [mode, setMode] = useState<Mode>('lines');
   const [viewMode, setViewMode] = useState<ViewMode>('revenue');
   const [buildOpen, setBuildOpen] = useState(false);
 
@@ -63,31 +65,27 @@ export function PlanEditor({ plan, onBack }: Props) {
     fetchItemOptions().then(setItemOpts).catch(() => setItemOpts([]));
   }, []);
 
-  // Pull actuals by item for plan.fiscal_year, broken out by month — only when needed.
+  // Pull actuals once for the plan year and key them by stable QBO item id.
   useEffect(() => {
-    if (mode !== 'vs_actuals') return;
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const start = plan.fiscal_year + '-' + String(i + 1).padStart(2, '0') + '-01';
-      const endD = new Date(plan.fiscal_year, i + 1, 0);
-      return { i, start, end: endD.toISOString().slice(0, 10) };
-    });
-    Promise.all(
-      months.map((m) =>
-        fetchPivot('item' as Dim, { start: m.start, end: m.end }, 2000),
-      ),
-    ).then((per) => {
-      const byItem: Record<string, { amounts: number[]; total: number }> = {};
-      per.forEach((rows, mi) => {
+    setActualsByItem(null);
+    fetchPlanActualsByItem(plan.id)
+      .then((rows) => {
+        const byItem: ActualsByItem = {};
         for (const r of rows) {
-          if (!byItem[r.dim_label]) byItem[r.dim_label] = { amounts: Array(12).fill(0), total: 0 };
-          const v = Number(r.revenue || 0);
-          byItem[r.dim_label].amounts[mi] = v;
-          byItem[r.dim_label].total += v;
+          byItem[r.qbo_item_id] = {
+            item_name: r.item_name,
+            amounts: [
+              Number(r.m1 || 0), Number(r.m2 || 0), Number(r.m3 || 0), Number(r.m4 || 0),
+              Number(r.m5 || 0), Number(r.m6 || 0), Number(r.m7 || 0), Number(r.m8 || 0),
+              Number(r.m9 || 0), Number(r.m10 || 0), Number(r.m11 || 0), Number(r.m12 || 0),
+            ],
+            total: Number(r.total || 0),
+          };
         }
-      });
-      setActualsByItem(byItem);
-    });
-  }, [mode, plan.fiscal_year]);
+        setActualsByItem(byItem);
+      })
+      .catch(() => setActualsByItem({}));
+  }, [plan.id]);
 
   function addItemLine(it: QboItemOption) {
     sbInsert<Partial<SalesPlanLine>>('sales_plan_lines', {
@@ -246,10 +244,10 @@ export function PlanEditor({ plan, onBack }: Props) {
   if (!lines) return <div className="ld">Loading plan…</div>;
 
   const modeBtns: { id: Mode; label: string }[] = [
+    { id: 'lines',      label: 'Studio' },
     { id: 'pl',         label: 'P&L' },
-    { id: 'lines',      label: 'Plan Lines' },
-    { id: 'vs_actuals', label: 'vs Actuals' },
-    { id: 'forecast',   label: 'Forecast' },
+    { id: 'vs_actuals', label: 'Variance' },
+    { id: 'forecast',   label: 'Scorecard' },
   ];
 
   return (
@@ -330,7 +328,12 @@ export function PlanEditor({ plan, onBack }: Props) {
               alignItems: 'center',
             }}
           >
-            <div className="ct" style={{ margin: 0 }}>PLAN LINES — {lines.length}</div>
+            <div>
+              <div className="ct" style={{ margin: 0 }}>PLANNING STUDIO</div>
+              <div style={{ fontSize: 10, color: 'var(--mt)' }}>
+                FY{plan.fiscal_year} · {lines.length} plan lines · {actualsByItem == null ? 'actuals loading' : 'actuals loaded'}
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>View</span>
               <div style={{ display: 'flex', border: '1px solid var(--bd)', borderRadius: 4, overflow: 'hidden' }}>
@@ -377,6 +380,8 @@ export function PlanEditor({ plan, onBack }: Props) {
               lines={lines}
               linesSections={linesSections}
               viewMode={viewMode}
+              actualsByItem={actualsByItem}
+              planFiscalYear={plan.fiscal_year}
               onSetCell={(line, monthIdx, value) => setCell(line, monthIdx, value)}
               onFillFlat={(line, total) => fillFlat(line, total)}
               onDelete={(id) => deleteLine(id)}

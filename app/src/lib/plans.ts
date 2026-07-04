@@ -44,6 +44,7 @@ export interface PlanAccountRollupRow {
 
 export interface PlanForecastRow {
   line_id: string;
+  qbo_item_id: string | null;
   item_name: string | null;
   account_name: string | null;
   full_year_plan: number;
@@ -82,6 +83,19 @@ export function fetchPlanAccountRollup(plan_id: string) {
 
 export function fetchPlanForecast(plan_id: string) {
   return sbrpc<PlanForecastRow[]>('fn_plan_forecast', { p_plan_id: plan_id });
+}
+
+export interface PlanActualsByItemRow {
+  qbo_item_id: string;
+  item_name: string;
+  m1: number; m2: number; m3: number; m4: number;
+  m5: number; m6: number; m7: number; m8: number;
+  m9: number; m10: number; m11: number; m12: number;
+  total: number;
+}
+
+export function fetchPlanActualsByItem(plan_id: string) {
+  return sbrpc<PlanActualsByItemRow[]>('fn_plan_actuals_by_item', { p_plan_id: plan_id });
 }
 
 export function fetchItemOptions() {

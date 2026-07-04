@@ -6,7 +6,7 @@ import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
 interface Props {
   plan: SalesPlan;
   lines: SalesPlanLine[];
-  actualsByItem: Record<string, { amounts: number[]; total: number }> | null;
+  actualsByItem: Record<string, { item_name?: string; amounts: number[]; total: number }> | null;
 }
 
 interface VsRow {
@@ -53,9 +53,25 @@ export function PlanVsActuals({ plan, lines, actualsByItem }: Props) {
         ? 12
         : 0;
 
-  function summarize(line: SalesPlanLine) {
+  const itemGroups = new Map<string, { id: string; item_name: string | null; qbo_item_id: string | null; amounts: number[] }>();
+  for (const line of lines) {
+    const key = line.qbo_item_id ?? line.item_name ?? line.id;
+    if (!itemGroups.has(key)) {
+      itemGroups.set(key, {
+        id: key,
+        item_name: line.item_name ?? null,
+        qbo_item_id: line.qbo_item_id,
+        amounts: Array(12).fill(0),
+      });
+    }
+    const target = itemGroups.get(key)!;
     const amts = line.amounts ?? Array(12).fill(0);
-    const act = actualsByItem?.[line.item_name ?? '']?.amounts ?? Array(12).fill(0);
+    for (let i = 0; i < 12; i++) target.amounts[i] += Number(amts[i] || 0);
+  }
+
+  function summarize(group: { qbo_item_id: string | null; amounts: number[] }) {
+    const amts = group.amounts;
+    const act = actualsByItem?.[group.qbo_item_id ?? '']?.amounts ?? Array(12).fill(0);
     const totalPlan = amts.reduce((s, v) => s + Number(v || 0), 0);
     const totalAct = act.reduce((s, v) => s + Number(v || 0), 0);
     let ytdPlan = 0, ytdAct = 0;
@@ -68,10 +84,10 @@ export function PlanVsActuals({ plan, lines, actualsByItem }: Props) {
     return { totalPlan, totalAct, ytdPlan, ytdAct, ytdVar, fyVar, amts, act };
   }
 
-  const gridRows: VsRow[] = lines.map((l) => {
-    const s = summarize(l);
+  const gridRows: VsRow[] = Array.from(itemGroups.values()).map((g) => {
+    const s = summarize(g);
     return {
-      id: l.id, item_name: l.item_name ?? null,
+      id: g.id, item_name: g.item_name ?? actualsByItem?.[g.qbo_item_id ?? '']?.item_name ?? null,
       ytdPlan: s.ytdPlan, ytdAct: s.ytdAct, ytdVar: s.ytdVar,
       totalPlan: s.totalPlan, totalAct: s.totalAct, fyVar: s.fyVar,
     };
