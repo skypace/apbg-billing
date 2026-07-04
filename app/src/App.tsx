@@ -84,7 +84,7 @@ export function App() {
       body = <StockPage />;
       break;
     case 'production':
-      body = <ProductionPage />;
+      body = <ProductionPage routeParams={route.params} />;
       break;
     case 'operations':
       // Operations moved to APBG-OPS (alamedapointbg.com/operations). Stub

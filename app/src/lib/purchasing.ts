@@ -61,6 +61,8 @@ export interface PurchaseOrderLine {
   created_at: string;
 }
 
+export type PurchaseOrderLineSummary = Pick<PurchaseOrderLine, 'po_id' | 'qbo_item_id'>;
+
 export interface PoLineInput {
   qbo_item_id: string;
   description?: string | null;
@@ -105,6 +107,13 @@ export async function fetchPurchaseOrders(limit = 200): Promise<PurchaseOrderRow
 export async function fetchPoLines(poId: string): Promise<PurchaseOrderLine[]> {
   return sbq<PurchaseOrderLine>('purchase_order_lines',
     `select=*&po_id=eq.${poId}&order=sort_order.asc`);
+}
+
+export async function fetchAllPoLineSummaries(): Promise<PurchaseOrderLineSummary[]> {
+  return sbq<PurchaseOrderLineSummary>(
+    'purchase_order_lines',
+    'select=po_id,qbo_item_id',
+  );
 }
 
 // ── Mutations ────────────────────────────────────────────────────────────

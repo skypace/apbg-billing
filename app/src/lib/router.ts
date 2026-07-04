@@ -20,12 +20,15 @@ export type View =
 export interface Route {
   view: View;
   customerId: string | null;
+  params: Record<string, string>;
 }
 
 export function parseHash(): Route {
-  const h = (window.location.hash || '').replace(/^#/, '').replace(/^\//, '');
+  const raw = (window.location.hash || '').replace(/^#/, '').replace(/^\//, '');
+  const [h, query = ''] = raw.split('?', 2);
+  const params = Object.fromEntries(new URLSearchParams(query).entries());
   if (h.startsWith('customer-')) {
-    return { view: 'customer-detail', customerId: h.slice('customer-'.length) };
+    return { view: 'customer-detail', customerId: h.slice('customer-'.length), params };
   }
   const known: View[] = [
     'overview',
@@ -43,8 +46,8 @@ export function parseHash(): Route {
     'fleet',
     'settings',
   ];
-  if (known.includes(h as View)) return { view: h as View, customerId: null };
-  return { view: 'overview', customerId: null };
+  if (known.includes(h as View)) return { view: h as View, customerId: null, params };
+  return { view: 'overview', customerId: null, params: {} };
 }
 
 export function useRoute(): [Route, (v: View) => void] {
@@ -61,7 +64,7 @@ export function useRoute(): [Route, (v: View) => void] {
     if (window.location.hash !== nextHash) {
       window.history.replaceState(null, '', nextHash);
     }
-    setRoute({ view: v, customerId: null });
+    setRoute({ view: v, customerId: null, params: {} });
   }
 
   return [route, navTo];

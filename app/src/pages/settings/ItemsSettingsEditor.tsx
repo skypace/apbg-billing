@@ -25,12 +25,20 @@ import {
   fetchItemHygieneSummary,
   alignCategoriesToPl,
   fetchProductFamilies, fetchProductTypes, fetchSegmentOptions,
+  setInventoryLane,
   setItemProductFamily, setItemProductType, setItemSegment,
   bulkSetItemProductFamily, bulkSetItemProductType, bulkSetItemSegment,
   type CategoryOption, type ItemPlAuditRow, type AlignmentStatus,
   type ItemHygieneRow, type HygieneBucket,
   type ProductFamily, type ProductType, type SegmentOption,
 } from '../../lib/inventory';
+import {
+  INVENTORY_LANE_LABEL,
+  INVENTORY_LANE_SIZE_LABEL,
+  type InventoryLaneDb,
+  type InventoryLaneSize,
+} from '../../lib/inventoryLane';
+import { fetchLocations, type InventoryLocation } from '../../lib/inventoryControl';
 
 interface ItemMasterRow {
   qbo_item_id: string;
@@ -67,6 +75,11 @@ interface ItemMasterRow {
   segment_source: 'item' | 'category' | null;
   track_locations: boolean;
   has_bom: boolean;
+  inventory_lane: InventoryLaneDb;
+  inventory_lane_size: InventoryLaneSize | null;
+  inventory_lane_source: 'auto' | 'manual';
+  inventory_lane_reviewed: boolean;
+  default_receiving_location_id: string | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -175,6 +188,7 @@ export function ItemsSettingsEditor() {
   const [families, setFamilies] = useState<ProductFamily[]>([]);
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [segmentOpts, setSegmentOpts] = useState<SegmentOption[]>([]);
+  const [locations, setLocations] = useState<InventoryLocation[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkFamily, setBulkFamily] = useState<string>('');
   const [bulkType, setBulkType] = useState<string>('');
@@ -249,8 +263,9 @@ export function ItemsSettingsEditor() {
       fetchProductFamilies(),
       fetchProductTypes(),
       fetchSegmentOptions(),
+      fetchLocations(),
     ])
-      .then(([rs, cs, audit, hy, fams, types, segs]) => {
+      .then(([rs, cs, audit, hy, fams, types, segs, locs]) => {
         setRows([...rs].sort(sortRows));
         setCategories(cs);
         const m = new Map<string, ItemPlAuditRow>();
@@ -260,6 +275,7 @@ export function ItemsSettingsEditor() {
         setFamilies(fams);
         setProductTypes(types);
         setSegmentOpts(segs);
+        setLocations(locs);
       })
       .catch((e) => { toast.error('Load failed: ' + (e as Error).message); setRows([]); });
   }
@@ -304,6 +320,10 @@ export function ItemsSettingsEditor() {
   );
 
   const categoryLabels = useMemo(() => categories.map((c) => c.label), [categories]);
+  const physicalLocations = useMemo(
+    () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment'),
+    [locations],
+  );
 
   async function patchSettings(
     qbo_item_id: string,
@@ -348,6 +368,55 @@ export function ItemsSettingsEditor() {
     } catch (e) {
       toast.error('Save failed: ' + (e as Error).message);
       load();
+    }
+  }
+
+  async function patchLane(
+    qbo_item_id: string,
+    patchData: Partial<Pick<ItemMasterRow,
+      'inventory_lane' | 'inventory_lane_size' | 'inventory_lane_reviewed' | 'default_receiving_location_id'
+    >>,
+  ) {
+    if (!qbo_item_id) return;
+    const current = rows?.find((r) => r.qbo_item_id === qbo_item_id);
+    if (!current) return;
+
+    const nextLane = patchData.inventory_lane ?? current.inventory_lane ?? 'excluded';
+    let nextSize = patchData.inventory_lane_size !== undefined
+      ? patchData.inventory_lane_size
+      : current.inventory_lane_size;
+    if (nextLane === 'excluded') nextSize = null;
+    if (nextLane === 'cans_24pk') nextSize = '24pk';
+    if (nextLane === 'bib_product' && nextSize !== '3g' && nextSize !== '5g') nextSize = '3g';
+
+    const nextReceivingLocation = patchData.default_receiving_location_id !== undefined
+      ? patchData.default_receiving_location_id
+      : current.default_receiving_location_id;
+    const nextReviewed = patchData.inventory_lane_reviewed ?? current.inventory_lane_reviewed ?? true;
+
+    try {
+      await setInventoryLane({
+        qbo_item_id,
+        inventory_lane: nextLane,
+        inventory_lane_size: nextSize,
+        default_receiving_location_id: nextReceivingLocation,
+        inventory_lane_reviewed: nextReviewed,
+      });
+      setRows((cur) => cur?.map((r) => r.qbo_item_id === qbo_item_id
+        ? {
+            ...r,
+            inventory_lane: nextLane,
+            inventory_lane_size: nextSize,
+            inventory_lane_source: 'manual',
+            inventory_lane_reviewed: nextReviewed,
+            default_receiving_location_id: nextReceivingLocation,
+            is_managed: nextLane !== 'excluded' ? true : r.is_managed,
+            track_locations: nextLane !== 'excluded' ? true : r.track_locations,
+            has_bom: nextLane === 'cans_24pk' ? true : (nextLane === 'bib_product' ? false : r.has_bom),
+          }
+        : r) ?? null);
+    } catch (e) {
+      toast.error('Lane save failed: ' + (e as Error).message);
     }
   }
 
@@ -708,6 +777,100 @@ export function ItemsSettingsEditor() {
               onChange={(v) => patchSettings(p.row.qbo_item_id, { has_bom: v })}
               title="If on, this item is treated as a manufactured/assembled SKU built from components. Drives the Phase 2 BOM editor + work-order cost rollup."
             />
+          );
+        },
+      },
+      {
+        field: 'inventory_lane', headerName: 'Lane', width: 140, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const value = (p.value ?? 'excluded') as InventoryLaneDb;
+          return (
+            <select
+              value={value}
+              onChange={(e) => patchLane(p.row.qbo_item_id, { inventory_lane: e.target.value as InventoryLaneDb })}
+              style={{ ...inp(), width: 120 }}
+              title="Daily inventory lane. Only BIB Product and Cans 24pks appear in operator inventory screens."
+            >
+              <option value="bib_product">{INVENTORY_LANE_LABEL.bib_product}</option>
+              <option value="cans_24pk">{INVENTORY_LANE_LABEL.cans_24pk}</option>
+              <option value="excluded">{INVENTORY_LANE_LABEL.excluded}</option>
+            </select>
+          );
+        },
+      },
+      {
+        field: 'inventory_lane_size', headerName: 'Lane Size', width: 105, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const lane = (p.row.inventory_lane ?? 'excluded') as InventoryLaneDb;
+          const value = (p.value ?? '') as InventoryLaneSize | '';
+          if (lane === 'excluded') return <span style={{ color: 'var(--mt)' }}>—</span>;
+          return (
+            <select
+              value={value}
+              onChange={(e) => patchLane(p.row.qbo_item_id, { inventory_lane_size: e.target.value as InventoryLaneSize })}
+              style={{ ...inp(), width: 82 }}
+            >
+              {lane === 'bib_product' && (
+                <>
+                  <option value="3g">{INVENTORY_LANE_SIZE_LABEL['3g']}</option>
+                  <option value="5g">{INVENTORY_LANE_SIZE_LABEL['5g']}</option>
+                </>
+              )}
+              {lane === 'cans_24pk' && <option value="24pk">{INVENTORY_LANE_SIZE_LABEL['24pk']}</option>}
+            </select>
+          );
+        },
+      },
+      {
+        field: 'inventory_lane_source', headerName: 'Lane Src', width: 90, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <span style={{
+              color: p.value === 'manual' ? 'var(--ac)' : 'var(--mt)',
+              fontSize: 9.5,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+            }}>
+              {String(p.value ?? 'auto')}
+            </span>
+          );
+        },
+      },
+      {
+        field: 'inventory_lane_reviewed', headerName: 'Reviewed', width: 90, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          return (
+            <Toggle
+              checked={!!p.value}
+              onChange={(v) => patchLane(p.row.qbo_item_id, { inventory_lane_reviewed: v })}
+              title="Marks this lane classification as reviewed. Manual reviewed rows are protected from future auto-classification sweeps."
+            />
+          );
+        },
+      },
+      {
+        field: 'default_receiving_location_id', headerName: 'Recv Loc', width: 150, sortable: true,
+        renderCell: (p) => {
+          if (p.rowNode.type === 'group') return null;
+          const lane = (p.row.inventory_lane ?? 'excluded') as InventoryLaneDb;
+          if (lane === 'excluded') return <span style={{ color: 'var(--mt)' }}>—</span>;
+          return (
+            <select
+              value={String(p.value ?? '')}
+              onChange={(e) => patchLane(p.row.qbo_item_id, { default_receiving_location_id: e.target.value || null })}
+              style={{ ...inp(), width: 130 }}
+              title="Suggested destination location for POs generated from inventory planning."
+            >
+              <option value="">—</option>
+              {physicalLocations.map((loc) => (
+                <option key={loc.id} value={loc.id}>{loc.code} — {loc.name}</option>
+              ))}
+            </select>
           );
         },
       },
@@ -1106,7 +1269,7 @@ export function ItemsSettingsEditor() {
     // not here. Don't add the saved state to deps; otherwise we'd
     // re-render columns on every persist and lose the user's in-flight
     // drag.
-  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryLabels, showAlignment, families, productTypes, segmentOpts, physicalLocations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Make group rows span the whole grid (no toggles, no "0"s in numeric
   // cells, no autocomplete dropdowns) — the category header sits alone.
