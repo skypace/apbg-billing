@@ -22,6 +22,8 @@ const ATTACH_BUCKET = "expense-attachments";
 const SUBMITTER_ID = "2da634b7-623d-4f73-b667-cf87975fcdb6"; // skypace@brixbev.com (system)
 const START_DATE = Deno.env.get("SF_SWEEP_START_DATE") || "2026-06-03";
 const PAGES_PER_RUN = 8;
+const TOKEN_LOCK_SECONDS = 45;
+const TOKEN_LOCK_WAIT_MS = 2500;
 const ACCOUNT_MAP: Record<string, { id: string; name: string }> = {
   equipment: { id: "42", name: "Equipment Sales COGS" },
   service: { id: "101", name: "Service COGS" },
@@ -31,21 +33,118 @@ function sb() {
   return createClient(Deno.env.get("SUPABASE_URL") || "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "", { db: { schema: "ops" } });
 }
 function json(d: any, s = 200) { return new Response(JSON.stringify(d, null, 2), { status: s, headers: { "Content-Type": "application/json" } }); }
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readTokenCache(s: any): Promise<any | null> {
+  try {
+    const { data } = await s.from("sf_token_cache").select("*").eq("id", 1).maybeSingle();
+    return data || null;
+  } catch (_e) {
+    return null;
+  }
+}
+function cacheHasFreshAccessToken(c: any): boolean {
+  return !!(c?.access_token && c?.access_expires_at && new Date(c.access_expires_at).getTime() > Date.now() + 30000);
+}
+function useCachedAccess(c: any): string {
+  accessToken = c.access_token;
+  tokenExpires = new Date(c.access_expires_at).getTime();
+  return accessToken;
+}
+async function claimRefreshLock(s: any, owner: string): Promise<boolean> {
+  try {
+    const { data, error } = await s.rpc("fn_sf_token_claim_refresh", { p_owner: owner, p_lock_seconds: TOKEN_LOCK_SECONDS });
+    if (error) return true; // migration may not be applied yet; keep old behavior.
+    return data === true;
+  } catch (_e) {
+    return true;
+  }
+}
+async function releaseRefreshLock(s: any, owner: string): Promise<void> {
+  try { await s.rpc("fn_sf_token_release_refresh", { p_owner: owner }); } catch (_e) { /* best effort */ }
+}
+async function noteRefreshError(s: any, message: string): Promise<void> {
+  try {
+    await s.from("sf_token_cache").update({
+      last_refresh_error: message.slice(0, 500),
+      last_refresh_error_at: new Date().toISOString(),
+    }).eq("id", 1);
+  } catch (_e) { /* best effort */ }
+}
+async function writeTokenCache(s: any, row: any): Promise<void> {
+  const { error } = await s.from("sf_token_cache").upsert(row);
+  if (!error) return;
+  const fallback = { ...row };
+  delete fallback.refresh_locked_until;
+  delete fallback.refresh_lock_owner;
+  delete fallback.last_refresh_error;
+  delete fallback.last_refresh_error_at;
+  await s.from("sf_token_cache").upsert(fallback);
+}
+function tokenErrorMessage(status: number, body: string): string {
+  const clean = body.replace(/\s+/g, " ").trim().slice(0, 300);
+  const hint = status === 400 ? " (refresh token rejected or already rotated)" : "";
+  return `SF token refresh failed ${status}${hint}${clean ? ": " + clean : ""}`;
+}
 
 let accessToken = ""; let tokenExpires = 0;
 async function sfToken(s: any): Promise<string> {
   if (accessToken && tokenExpires > Date.now()) return accessToken;
-  const { data: c } = await s.from("sf_token_cache").select("*").eq("id", 1).single();
-  if (c?.access_token && new Date(c.access_expires_at).getTime() > Date.now()) { accessToken = c.access_token; tokenExpires = new Date(c.access_expires_at).getTime(); return accessToken; }
-  const rt = c?.refresh_token || Deno.env.get("SF_REFRESH_TOKEN") || "";
+  const cached = await readTokenCache(s);
+  if (cacheHasFreshAccessToken(cached)) return useCachedAccess(cached);
+  const rt = cached?.refresh_token || Deno.env.get("SF_REFRESH_TOKEN") || "";
   if (!rt) throw new Error("No SF refresh token");
-  const res = await fetch(SF_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=refresh_token&client_id=" + (Deno.env.get("SF_CLIENT_ID") || "") + "&client_secret=" + (Deno.env.get("SF_CLIENT_SECRET") || "") + "&refresh_token=" + rt });
-  if (!res.ok) throw new Error("SF token fail " + res.status);
-  const d = await res.json(); if (!d.access_token) throw new Error("No token");
-  accessToken = d.access_token; tokenExpires = Date.now() + 50 * 60 * 1000;
-  const u: any = { id: 1, access_token: d.access_token, access_expires_at: new Date(tokenExpires).toISOString(), updated_at: new Date().toISOString() };
-  if (d.refresh_token) u.refresh_token = d.refresh_token;
-  await s.from("sf_token_cache").upsert(u); return accessToken;
+
+  const owner = `sf-receipt-sync:${crypto.randomUUID()}`;
+  const claimed = await claimRefreshLock(s, owner);
+  if (!claimed) {
+    for (let i = 0; i < 6; i++) {
+      await sleep(TOKEN_LOCK_WAIT_MS);
+      const retry = await readTokenCache(s);
+      if (cacheHasFreshAccessToken(retry)) return useCachedAccess(retry);
+    }
+    throw new Error("SF token refresh already running; no fresh access token appeared");
+  }
+
+  try {
+    const latest = await readTokenCache(s);
+    if (cacheHasFreshAccessToken(latest)) return useCachedAccess(latest);
+    const refreshToken = latest?.refresh_token || rt;
+    const envRefreshToken = Deno.env.get("SF_REFRESH_TOKEN") || "";
+    const candidates = [refreshToken, envRefreshToken].filter((v, i, arr) => v && arr.indexOf(v) === i);
+    let lastError = "";
+    for (const candidate of candidates) {
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: Deno.env.get("SF_CLIENT_ID") || "",
+        client_secret: Deno.env.get("SF_CLIENT_SECRET") || "",
+        refresh_token: candidate,
+      });
+      const res = await fetch(SF_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+      if (!res.ok) {
+        lastError = tokenErrorMessage(res.status, await res.text());
+        await noteRefreshError(s, lastError);
+        continue;
+      }
+      const d = await res.json(); if (!d.access_token) throw new Error("No token");
+      accessToken = d.access_token; tokenExpires = Date.now() + 50 * 60 * 1000;
+      const u: any = {
+        id: 1,
+        access_token: d.access_token,
+        access_expires_at: new Date(tokenExpires).toISOString(),
+        updated_at: new Date().toISOString(),
+        refresh_locked_until: null,
+        refresh_lock_owner: null,
+        last_refresh_error: null,
+        last_refresh_error_at: null,
+      };
+      if (d.refresh_token) u.refresh_token = d.refresh_token;
+      await writeTokenCache(s, u); return accessToken;
+    }
+    throw new Error(lastError || "SF token refresh failed");
+  } finally {
+    await releaseRefreshLock(s, owner);
+  }
 }
 async function sfGet(s: any, ep: string): Promise<any> {
   const t = await sfToken(s);
@@ -154,6 +253,21 @@ async function attachReceipt(s: any, reqId: string, url: string, idx: number): P
   return true;
 }
 
+async function logReceiptSync(s: any, started: string, status: "ok" | "error", records: number, metadata: any, errorMessage: string | null = null): Promise<void> {
+  try {
+    await s.from("sync_log").insert({
+      source: "sf-receipt-sync",
+      sync_type: "receipts",
+      status,
+      records_synced: records,
+      started_at: started,
+      completed_at: new Date().toISOString(),
+      error_message: errorMessage,
+      metadata,
+    });
+  } catch (_e) { /**/ }
+}
+
 async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boolean } = {}): Promise<{ landed: number; attached: number; skipped?: string }> {
   let full = job;
   if (!Array.isArray(job.expenses)) { try { full = await sfGet(s, `/jobs/${job.id}?expand=expenses`); } catch { full = job; } }
@@ -226,6 +340,7 @@ Deno.serve(async (req: Request) => {
   const u = new URL(req.url);
   const s = sb();
   const log: string[] = [];
+  const started = new Date().toISOString();
 
   // ?raw=<id>&expand=... — dump a job's expand data (diagnostics).
   if (u.searchParams.get("raw")) {
@@ -267,11 +382,16 @@ Deno.serve(async (req: Request) => {
 
   // Sweep modes: ?fresh=N (newest N pages, fast) or default crawl (time-bounded,
   // cursor only advances past fully-processed pages — no silent skips).
-  const started = new Date().toISOString();
   const freshParam = u.searchParams.get("fresh");
   const fresh = freshParam !== null;
   let meta: any = {};
-  try { meta = (await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=1`))._meta || {}; } catch (e: any) { return json({ error: "SF: " + e.message }, 500); }
+  try {
+    meta = (await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=1`))._meta || {};
+  } catch (e: any) {
+    const message = "SF: " + e.message;
+    await logReceiptSync(s, started, "error", 0, { ok: false, stage: "list-meta", error: message }, message);
+    return json({ error: message }, 500);
+  }
   const pageCount = meta.pageCount || 1;
 
   let page = parseInt(u.searchParams.get("page") || "0");
@@ -287,6 +407,7 @@ Deno.serve(async (req: Request) => {
   const lo = Math.max(1, page - span + 1);
   const budgetMs = 110000; const t0 = Date.now();
   let lastCompleted = page + 1; let budgetHit = false;
+  let fatalError = "";
   try {
     for (let p = page; p >= lo; p--) {
       if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push("time budget"); break; }
@@ -300,10 +421,11 @@ Deno.serve(async (req: Request) => {
       }
       lastCompleted = p;
     }
-  } catch (e: any) { log.push("FATAL " + e.message); }
+  } catch (e: any) { fatalError = e.message; log.push("FATAL " + fatalError); }
   const nextPage = fresh ? null : (lastCompleted <= 1 ? pageCount : lastCompleted - 1);
-  const result: any = { ok: true, mode: fresh ? "fresh" : "crawl", pageCount, fromPage: page, lastCompleted, budgetHit, jobsSeen, detail, drafts, attached };
+  const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", pageCount, fromPage: page, lastCompleted, budgetHit, jobsSeen, detail, drafts, attached };
+  if (fatalError) result.error = fatalError;
   if (nextPage !== null) result.next_page = nextPage;
-  try { await s.from("sync_log").insert({ source: "sf-receipt-sync", sync_type: "receipts", status: "ok", records_synced: drafts, started_at: started, completed_at: new Date().toISOString(), metadata: { ...result, log: log.slice(0, 20) } }); } catch (_e) { /**/ }
-  return json({ ...result, log });
+  await logReceiptSync(s, started, fatalError ? "error" : "ok", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
+  return json({ ...result, log }, fatalError ? 500 : 200);
 });
