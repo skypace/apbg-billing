@@ -49,28 +49,40 @@
       "name": "sync-qbo",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "nightly 09:00 UTC + every 3 min backfill",
+      "schedule": "called by qbo-sync-runner (Netlify scheduled function every 15 min)",
       "writes": [
         "ops.qbo_invoices",
         "ops.qbo_invoice_lines",
         "ops.pl_snapshots",
-        "ops.qbo_token_cache"
+        "ops.qbo_token_cache",
+        "ops.sync_log"
       ],
       "multi_writer": true,
       "external_inputs": ["QuickBooks Online API"],
-      "notes": "Source at supabase/functions/sync-qbo/. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh(). v40 (2026-05-28) populates qbo_invoices.invoice_payment_url with Invoice.InvoiceLink via per-invoice read with ?include=invoiceLink&minorversion=70; surfaces to brix-order /invoices/:id 'Pay now' CTA.",
-      "last_verified": "2026-05-28"
+      "notes": "Source at supabase/functions/sync-qbo/. Writes qbo_token_cache via lease RPC ops.qbo_token_claim_refresh(). v45 logs mv_sales_lines refreshes and treats QBO HTTP/Fault responses as failures instead of empty success. Direct pg_cron callers are disabled by 20260703j; qbo-sync-runner holds Supabase auth in Netlify env and calls this Edge Function.",
+      "last_verified": "2026-07-03"
     },
     {
       "name": "sync-qbo-items",
       "kind": "supabase-edge-function",
-      "source_repo": "unknown",
-      "schedule": "nightly 09:30 UTC + on-demand from Margin UI",
-      "writes": ["ops.qbo_items", "ops.qbo_token_cache"],
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "called by qbo-sync-runner when qbo_items cache is stale + on-demand from Margin UI",
+      "writes": ["ops.qbo_items", "ops.qbo_token_cache", "ops.sync_log"],
       "multi_writer": true,
       "external_inputs": ["QuickBooks Online API: Items"],
-      "notes": "Populates purchase_cost which powers est_cost / est_margin in v_sales_lines. Uses lease RPC for token refresh. Cron defined in 20260503r_nightly_sync_crons.sql.",
-      "last_verified": "2026-05-05"
+      "notes": "Populates purchase_cost which powers est_cost / est_margin in v_sales_lines. Uses lease RPC for token refresh. v8 now writes qbo:items sync_log rows. The old direct pg_cron caller is disabled by 20260703j.",
+      "last_verified": "2026-07-03"
+    },
+    {
+      "name": "qbo-sync-runner",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "Netlify scheduled function every 15 min",
+      "writes": ["ops.sync_log"],
+      "multi_writer": true,
+      "external_inputs": ["Supabase Edge Functions: sync-qbo, sync-qbo-items"],
+      "notes": "Scheduler bridge at netlify/functions/qbo-sync-runner.mjs. Holds Supabase bearer auth in Netlify runtime env instead of SQL cron text, computes the rolling line-backfill offset from ops.sync_log, and calls the existing Supabase Edge Functions only when invoices, lines, materialized-view refresh, or qbo_items are stale.",
+      "last_verified": "2026-07-03"
     },
     {
       "name": "sync-qbo-customers",

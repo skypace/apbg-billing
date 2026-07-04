@@ -119,9 +119,9 @@ async function checkSyncFreshness() {
 // ops.sync_log directly and compares to a per-source SLA. Any source
 // older than its threshold gets surfaced as a row in the watchdog email.
 const SYNC_SLA = {
-  // expected nightly + every 3 min backfill; data should be < 1 day old
+  // expected nightly + Netlify-runner backfill; data should be < 1 day old
   'qbo:invoices':           { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo header upserts' },
-  'qbo:lines_backfill':     { maxAgeMs: 30 * 60 * 1000,      label: 'sync-qbo line backfill (every 3 min)' },
+  'qbo:lines_backfill':     { maxAgeMs: 30 * 60 * 1000,      label: 'sync-qbo line backfill (Netlify runner every 15 min)' },
   'qbo:pl_snapshots':       { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo P&L snapshots (nightly)' },
   // SF jobs incremental: every 30 min
   'sf:jobs':                { maxAgeMs: 90 * 60 * 1000,      label: 'sync-sf jobs (every 30 min)' },

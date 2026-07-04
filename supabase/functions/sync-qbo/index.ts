@@ -107,6 +107,25 @@ function jsonRes(d: unknown, s = 200) {
 }
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+async function qboJson(res: Response, context: string): Promise<any> {
+  const text = await res.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_e) {
+      data = { raw: text.slice(0, 1000) };
+    }
+  }
+  if (!res.ok) {
+    throw new Error(`${context}: HTTP ${res.status}: ${text.slice(0, 1000)}`);
+  }
+  if (data?.Fault) {
+    throw new Error(`${context}: QBO Fault: ${JSON.stringify(data.Fault).slice(0, 1000)}`);
+  }
+  return data;
+}
+
 async function refreshSalesLines(sb: SupabaseClient) {
   const startedAt = new Date().toISOString();
   try {
@@ -209,7 +228,7 @@ async function qboQ(sb: SupabaseClient, q: string): Promise<any> {
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, "QBO query");
 }
 async function qboRead(sb: SupabaseClient, p: string, id: string, opts: { include?: string; minorVersion?: string } = {}): Promise<any> {
   const realm = getRealm();
@@ -225,7 +244,7 @@ async function qboRead(sb: SupabaseClient, p: string, id: string, opts: { includ
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, `QBO read ${p}/${id}`);
 }
 async function qboReport(sb: SupabaseClient, n: string, p: Record<string, string>) {
   const realm = getRealm();
@@ -237,7 +256,7 @@ async function qboReport(sb: SupabaseClient, n: string, p: Record<string, string
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, `QBO report ${n}`);
 }
 
 // readSalesTxn — wraps qboRead with the right include/minorversion combo per
@@ -546,7 +565,7 @@ Deno.serve(async (req: Request) => {
     const { data: allInvs } = await sb.from("qbo_invoices")
       .select("id, qbo_invoice_id, txn_type, invoice_payment_url")
       .range(offset, offset + batchSize - 1);
-    let processed = 0, linesAdded = 0;
+    let processed = 0, linesAdded = 0, errors = 0;
     for (const inv of (allInvs || []) as any[]) {
       const cfg = TXN_CONFIGS[inv.txn_type] || TXN_CONFIGS.Invoice;
       const needsUrl = cfg.hasInvoiceLink && !inv.invoice_payment_url;
@@ -566,17 +585,20 @@ Deno.serve(async (req: Request) => {
         processed++;
         await sleep(80);
       } catch (e: any) {
+        errors++;
         console.error(`Line read ${inv.qbo_invoice_id} (${inv.txn_type}): ${e.message}`);
       }
     }
     const mvResult = await refreshSalesLines(sb);
-    const syncStatus = mvResult.ok ? "success" : "error";
+    const syncStatus = mvResult.ok ? (errors > 0 ? "partial" : "success") : "error";
     await sb.from("sync_log").insert({
       source: "qbo", sync_type: "lines_backfill", status: syncStatus,
       records_synced: linesAdded,
-      error_message: mvResult.ok ? null : `mv_sales_lines refresh failed: ${mvResult.error || "unknown"}`,
+      error_message: mvResult.ok
+        ? (errors > 0 ? `${errors} invoice line read error(s)` : null)
+        : `mv_sales_lines refresh failed: ${mvResult.error || "unknown"}`,
       completed_at: new Date().toISOString(),
-      metadata: { offset, batch: batchSize, processed, mv_refresh: mvResult },
+      metadata: { offset, batch: batchSize, processed, errors, mv_refresh: mvResult },
     });
     if (!mvResult.ok) {
       return jsonRes({
@@ -586,10 +608,10 @@ Deno.serve(async (req: Request) => {
       }, 500);
     }
     return jsonRes({
-      status: "success", mode: "lines",
+      status: errors > 0 ? "partial" : "success", mode: "lines",
       invoices_checked: allInvs?.length || 0, invoices_processed: processed,
-      lines_added: linesAdded, next_offset: offset + batchSize, mv_refresh: mvResult,
-    });
+      lines_added: linesAdded, errors, next_offset: offset + batchSize, mv_refresh: mvResult,
+    }, errors > 0 ? 207 : 200);
   }
 
   const now = new Date();
@@ -616,16 +638,19 @@ Deno.serve(async (req: Request) => {
     const revMap = await loadRevenueMap(sb);
     const perTypeResults: Record<string, any> = {};
     let totalHeaders = 0;
+    let totalErrors = 0;
     for (const t of types) {
       const r = await syncOneType(sb, t, startDate, endDate, skipLines, refetchExistingLines, revMap);
       perTypeResults[t] = r;
       totalHeaders += r.headers;
+      totalErrors += r.errors || 0;
     }
     await sb.from("sync_log").insert({
       source: "qbo", sync_type: skipLines ? "headers_only" : "invoices",
-      status: "success", records_synced: totalHeaders,
+      status: totalErrors > 0 ? "partial" : "success", records_synced: totalHeaders,
+      error_message: totalErrors > 0 ? `${totalErrors} QBO transaction read error(s)` : null,
       completed_at: new Date().toISOString(),
-      metadata: { start_date: startDate, end_date: endDate, mode, skip_lines: skipLines, types, per_type: perTypeResults },
+      metadata: { start_date: startDate, end_date: endDate, mode, skip_lines: skipLines, types, per_type: perTypeResults, errors: totalErrors },
     });
 
     let plCount = 0;
@@ -684,10 +709,10 @@ Deno.serve(async (req: Request) => {
       }, 500);
     }
     return jsonRes({
-      status: "success", mode, types, skip_lines: skipLines,
+      status: totalErrors > 0 ? "partial" : "success", mode, types, skip_lines: skipLines,
       total_headers: totalHeaders, per_type: perTypeResults,
       pl_rows: plCount, mv_refresh: mvResult,
-    });
+    }, totalErrors > 0 ? 207 : 200);
   } catch (err: any) {
     console.error("FATAL:", err);
     try {
