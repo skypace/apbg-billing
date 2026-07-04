@@ -5,7 +5,7 @@ import {
   TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import {
-  Calculator, Check, Clipboard, Copy, ExternalLink, FileText, FolderOpen, Mail,
+  Calculator, Check, Clipboard, Copy, ExternalLink, FileText, FolderOpen, LayoutTemplate, Mail,
   Images, PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2,
 } from 'lucide-react';
 import {
@@ -17,14 +17,17 @@ import {
   type ProposalCustomer,
   type ProposalEquipment,
   type ProposalProduct,
+  type ProposalTemplate,
   type ProposalTerms,
   type SavedProposalSummary,
+  PROPOSAL_TEMPLATES,
   calculateEquipmentPricing,
   catalogItemToProposalEquipment,
   createEquipmentQuote,
   currency,
   defaultProposalTerms,
   equipmentToPricingLines,
+  selectTemplateProducts,
   generateGammaProposal,
   generateProposalEmail,
   getSavedProposal,
@@ -81,6 +84,7 @@ export function ProposalBuilderPage() {
 
   const [customer, setCustomer] = useState<ProposalCustomer>(blankCustomer);
   const [terms, setTerms] = useState<ProposalTerms>(() => defaultProposalTerms());
+  const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
 
   const [products, setProducts] = useState<ProposalProduct[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
@@ -239,6 +243,35 @@ export function ProposalBuilderPage() {
 
   function patchTerms<K extends keyof ProposalTerms>(field: K, value: ProposalTerms[K]) {
     setTerms((current) => ({ ...current, [field]: value }));
+  }
+
+  function applyTemplate(template: ProposalTemplate) {
+    setActiveTemplate(template.key);
+    setCustomer((current) => ({ ...current, businessType: template.businessType }));
+    setTerms((current) => ({
+      ...current,
+      pricingModel: template.terms.pricingModel,
+      termMonths: template.terms.termMonths,
+      targetMarginPct: template.terms.targetMarginPct,
+      installationTimeline: template.terms.installationTimeline,
+      siteSurveyNextStep: template.terms.siteSurveyNextStep,
+      servicePlanKeys: (() => {
+        const match = servicePlans.find((plan) => plan.category === template.servicePlanCategory)
+          || servicePlans.find((plan) => plan.category === 'fountain');
+        return match ? [match.key] : current.servicePlanKeys;
+      })(),
+    }));
+
+    const suggestedIds = selectTemplateProducts(template, products);
+    setSelectedProductIds((current) => [...new Set([...current, ...suggestedIds])]);
+    setEquipmentSearch(template.equipmentKeywords[0] || '');
+    setPricing(null);
+    setQuote(null);
+
+    const suggestionNote = suggestedIds.length
+      ? ` — added ${suggestedIds.length} suggested product${suggestedIds.length === 1 ? '' : 's'}`
+      : '';
+    setToast(`${template.label} template applied${suggestionNote}.`);
   }
 
   function toggleProduct(product: ProposalProduct) {
@@ -435,6 +468,14 @@ export function ProposalBuilderPage() {
 
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.05fr) minmax(420px, 0.95fr)' }, gap: 2.5 }}>
           <Stack spacing={2.5}>
+            <Section title="Start from a Template" icon={<LayoutTemplate size={18} />}>
+              <TemplateGallery
+                templates={PROPOSAL_TEMPLATES}
+                activeKey={activeTemplate}
+                onSelect={applyTemplate}
+              />
+            </Section>
+
             <Section title="Customer Info" icon={<Clipboard size={18} />}>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
                 <TextField label="Customer name" size="small" value={customer.name} onChange={(e) => patchCustomer('name', e.target.value)} />
@@ -852,6 +893,70 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
         {children}
       </Stack>
     </Paper>
+  );
+}
+
+function TemplateGallery({ templates, activeKey, onSelect }: {
+  templates: ProposalTemplate[];
+  activeKey: string | null;
+  onSelect: (template: ProposalTemplate) => void;
+}) {
+  return (
+    <Stack spacing={1.25}>
+      <Typography variant="body2" color="text.secondary">
+        Pick a venue type to pre-fill the business type, lease terms, service plan, and a suggested beverage lineup. You can adjust everything after.
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 1.25 }}>
+        {templates.map((template) => {
+          const selected = template.key === activeKey;
+          return (
+            <Paper
+              key={template.key}
+              variant="outlined"
+              onClick={() => onSelect(template)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(template);
+                }
+              }}
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                cursor: 'pointer',
+                height: '100%',
+                borderColor: selected ? 'primary.main' : 'divider',
+                borderWidth: selected ? 2 : 1,
+                bgcolor: selected ? 'action.selected' : 'background.paper',
+                transition: 'border-color 120ms ease, background-color 120ms ease',
+                '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
+              }}
+            >
+              <Stack spacing={0.75}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Box component="span" sx={{ fontSize: 22, lineHeight: 1 }}>{template.emoji}</Box>
+                  <Typography variant="subtitle2" fontWeight={800}>{template.label}</Typography>
+                  {selected && <Check size={16} />}
+                </Stack>
+                <Typography variant="caption" color="text.secondary">
+                  {template.description}
+                </Typography>
+                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.25 }}>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={template.terms.pricingModel === 'lease_support' ? `${template.terms.termMonths}mo lease` : 'Month-to-month'}
+                  />
+                  <Chip size="small" variant="outlined" label={`${template.terms.targetMarginPct}% margin`} />
+                </Stack>
+              </Stack>
+            </Paper>
+          );
+        })}
+      </Box>
+    </Stack>
   );
 }
 
