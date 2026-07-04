@@ -446,7 +446,7 @@ The cache reconciles against QBO continuously now:
 
 - **Nightly sync (09:00 UTC)** pulls all four QBO sales-transaction types — Invoices, Sales Receipts, Credit Memos, Refund Receipts — into `ops.qbo_invoices` + `ops.qbo_invoice_lines`. Credit Memos and Refund Receipts are stored as negative amounts so `SUM(amount)` directly equals net revenue.
 - **Every 10 minutes**, a rolling refresh re-fetches lines for ~100 invoices in the last 90 days. Over ~6 hours the full window is refreshed once. Edits made to an invoice in QBO propagate within this window — no manual backfill needed.
-- **Every 3 minutes**, a line-backfill cron catches any invoice that lost its line cache (rare, but it can happen if the sync function times out mid-loop).
+- **Every few minutes**, the Netlify QBO runner catches invoices that lost line cache and rolls through recently edited invoice lines, without storing Supabase bearer tokens in SQL cron text.
 - **Every 5 minutes**, a `pg_net` failure scanner watches for silent cron→HTTP errors so a broken sync can't hide for days like it did in early May 2026.
 
 The Margin app reads from `ops.mv_sales_lines` (materialized view, ~50K rows, sub-100ms response). The view is refreshed automatically after every sync.

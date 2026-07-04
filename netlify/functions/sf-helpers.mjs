@@ -1,16 +1,22 @@
 // Service Fusion API helper
-// OAuth2 with blob-cached access token + refresh token rotation
+// OAuth2 with shared Supabase token cache + legacy Blob fallback
 // Token URL: https://api.servicefusion.com/oauth/access_token
 // API Base: https://api.servicefusion.com/v1
 
+import { createClient } from '@supabase/supabase-js';
+import { SUPABASE_URL } from './supabase-helpers.mjs';
+
 const SF_API = 'https://api.servicefusion.com/v1';
 const SF_TOKEN_URL = 'https://api.servicefusion.com/oauth/access_token';
+const TOKEN_LOCK_SECONDS = 45;
+const TOKEN_LOCK_WAIT_MS = 3000;
 
 // In-memory token cache (persists across calls within same function invocation)
 let memCache = { accessToken: null, accessExpires: 0, refreshToken: null };
 
 let blobStore = null;
 let blobsAvailable = null;
+let tokenDb = null;
 
 async function getStore() {
   if (blobStore) return blobStore;
@@ -30,6 +36,116 @@ async function getStore() {
   }
 }
 
+function getTokenDb() {
+  if (tokenDb) return tokenDb;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  tokenDb = createClient(SUPABASE_URL, key, {
+    db: { schema: 'ops' },
+    auth: { persistSession: false },
+  });
+  return tokenDb;
+}
+
+async function readDbTokenCache() {
+  const sb = getTokenDb();
+  if (!sb) return null;
+  try {
+    const { data } = await sb.from('sf_token_cache').select('*').eq('id', 1).maybeSingle();
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+function hasFreshAccessToken(row) {
+  return !!(
+    row?.access_token
+    && row?.access_expires_at
+    && new Date(row.access_expires_at).getTime() > Date.now() + 30000
+  );
+}
+
+function useDbAccessToken(row) {
+  memCache.accessToken = row.access_token;
+  memCache.accessExpires = new Date(row.access_expires_at).getTime();
+  if (row.refresh_token) memCache.refreshToken = row.refresh_token;
+  return row.access_token;
+}
+
+async function claimDbRefreshLock(owner) {
+  const sb = getTokenDb();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb.rpc('fn_sf_token_claim_refresh', {
+      p_owner: owner,
+      p_lock_seconds: TOKEN_LOCK_SECONDS,
+    });
+    if (error) return null;
+    return data === true;
+  } catch {
+    return null;
+  }
+}
+
+async function releaseDbRefreshLock(owner) {
+  const sb = getTokenDb();
+  if (!sb) return;
+  try { await sb.rpc('fn_sf_token_release_refresh', { p_owner: owner }); } catch {}
+}
+
+async function noteDbRefreshError(message) {
+  const sb = getTokenDb();
+  if (!sb) return;
+  try {
+    await sb.from('sf_token_cache').update({
+      last_refresh_error: String(message || '').slice(0, 500),
+      last_refresh_error_at: new Date().toISOString(),
+    }).eq('id', 1);
+  } catch {}
+}
+
+async function writeDbTokenCache(data, expires) {
+  const sb = getTokenDb();
+  if (!sb || !data?.access_token) return;
+  const row = {
+    id: 1,
+    access_token: data.access_token,
+    access_expires_at: new Date(expires).toISOString(),
+    updated_at: new Date().toISOString(),
+    refresh_locked_until: null,
+    refresh_lock_owner: null,
+    last_refresh_error: null,
+    last_refresh_error_at: null,
+  };
+  if (data.refresh_token) row.refresh_token = data.refresh_token;
+  try {
+    const { error } = await sb.from('sf_token_cache').upsert(row);
+    if (!error) return;
+    const fallback = { ...row };
+    delete fallback.refresh_locked_until;
+    delete fallback.refresh_lock_owner;
+    delete fallback.last_refresh_error;
+    delete fallback.last_refresh_error_at;
+    await sb.from('sf_token_cache').upsert(fallback);
+  } catch {}
+}
+
+async function waitForDbAccessToken() {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((resolve) => setTimeout(resolve, TOKEN_LOCK_WAIT_MS));
+    const retry = await readDbTokenCache();
+    if (hasFreshAccessToken(retry)) return useDbAccessToken(retry);
+  }
+  return null;
+}
+
+function sfTokenError(status, body) {
+  const clean = String(body || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const hint = status === 400 ? ' (refresh token rejected or already rotated)' : '';
+  return `SF token refresh failed: ${status}${hint}${clean ? ` ${clean}` : ''}`;
+}
+
 export async function getSFAccessToken() {
   // 1. Try in-memory cache first (fastest, works without blobs)
   if (memCache.accessToken && memCache.accessExpires > Date.now()) {
@@ -37,8 +153,10 @@ export async function getSFAccessToken() {
   }
 
   const store = await getStore();
+  const dbCached = await readDbTokenCache();
+  if (hasFreshAccessToken(dbCached)) return useDbAccessToken(dbCached);
 
-  // 2. Try blob-cached access token
+  // 2. Try blob-cached access token as a legacy fallback.
   if (store) {
     try {
       const cached = await store.get('access-token');
@@ -53,16 +171,20 @@ export async function getSFAccessToken() {
     } catch (e) {}
   }
 
-  // 3. Get the freshest refresh token: memory > blob > env var
+  // 3. Get the freshest refresh token: shared DB > memory > blob > env var.
   const clientId = process.env.SF_CLIENT_ID;
   const clientSecret = process.env.SF_CLIENT_SECRET;
-  let refreshToken = memCache.refreshToken || null;
+  let refreshToken = dbCached?.refresh_token || memCache.refreshToken || null;
+  let blobRefreshToken = null;
 
   // Try blob (survives across invocations)
-  if (!refreshToken && store) {
+  if (store) {
     try {
       const blobRT = await store.get('refresh-token');
-      if (blobRT) refreshToken = blobRT;
+      if (blobRT) {
+        blobRefreshToken = blobRT;
+        if (!refreshToken) refreshToken = blobRT;
+      }
     } catch (e) {}
   }
 
@@ -75,8 +197,18 @@ export async function getSFAccessToken() {
     throw new Error('SF_REFRESH_TOKEN not set. Go to /setup.html and connect Service Fusion.');
   }
 
-  // 3. Lock — prevent concurrent refresh races that kill tokens
-  if (store) {
+  const owner = `netlify-sf:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const dbLock = await claimDbRefreshLock(owner);
+  let blobLockHeld = false;
+
+  if (dbLock === false) {
+    const waited = await waitForDbAccessToken();
+    if (waited) return waited;
+    throw new Error('SF token refresh already running; no fresh access token appeared');
+  }
+
+  // Legacy fallback lock for deployments that have not applied the DB lease yet.
+  if (dbLock === null && store) {
     try {
       const lockRaw = await store.get('refresh-lock');
       if (lockRaw) {
@@ -96,43 +228,65 @@ export async function getSFAccessToken() {
         }
       }
       await store.set('refresh-lock', JSON.stringify({ ts: Date.now() }));
+      blobLockHeld = true;
     } catch(e) {}
   }
 
-  // 4. Refresh
-  const res = await fetch(SF_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${refreshToken}`,
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    // Release lock on failure
-    if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
-    // If refresh failed and we used a blob token, try env var as last resort
-    if (refreshToken !== process.env.SF_REFRESH_TOKEN && process.env.SF_REFRESH_TOKEN) {
-      const res2 = await fetch(SF_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${process.env.SF_REFRESH_TOKEN}`,
-      });
-      if (!res2.ok) {
-        throw new Error(`SF token refresh failed: ${res.status} ${err}`);
-      }
-      const data2 = await res2.json();
-      await cacheTokens(store, data2);
-      if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
-      return data2.access_token;
+  try {
+    if (dbLock === true) {
+      const latest = await readDbTokenCache();
+      if (hasFreshAccessToken(latest)) return useDbAccessToken(latest);
+      refreshToken = latest?.refresh_token || refreshToken;
     }
-    throw new Error(`SF token refresh failed: ${res.status} ${err}`);
-  }
 
-  const data = await res.json();
-  await cacheTokens(store, data);
-  // Release lock
-  if (store) { try { await store.delete('refresh-lock'); } catch(e) {} }
-  return data.access_token;
+    // 4. Refresh
+    const res = await fetch(SF_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: clientId || '',
+        client_secret: clientSecret || '',
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      const message = sfTokenError(res.status, err);
+      await noteDbRefreshError(message);
+      // If the shared DB token was stale, let Netlify heal it from Blob/env.
+      const fallbacks = [blobRefreshToken, process.env.SF_REFRESH_TOKEN]
+        .filter((token, index, arr) => token && token !== refreshToken && arr.indexOf(token) === index);
+      for (const fallbackToken of fallbacks) {
+        const retry = await fetch(SF_TOKEN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            client_id: clientId || '',
+            client_secret: clientSecret || '',
+            refresh_token: fallbackToken,
+          }),
+        });
+        if (retry.ok) {
+          const data2 = await retry.json();
+          await cacheTokens(store, data2);
+          return data2.access_token;
+        }
+        const retryMessage = sfTokenError(retry.status, await retry.text());
+        await noteDbRefreshError(retryMessage);
+      }
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    await cacheTokens(store, data);
+    return data.access_token;
+  } finally {
+    if (dbLock === true) await releaseDbRefreshLock(owner);
+    if (blobLockHeld && store) { try { await store.delete('refresh-lock'); } catch(e) {} }
+  }
 }
 
 async function cacheTokens(store, data) {
@@ -146,6 +300,8 @@ async function cacheTokens(store, data) {
   if (data.refresh_token) {
     memCache.refreshToken = data.refresh_token;
   }
+
+  await writeDbTokenCache(data, expires);
 
   // Cache access token in blob (50 min, SF tokens last ~1hr)
   if (store && data.access_token) {
