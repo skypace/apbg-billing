@@ -28,6 +28,12 @@ export interface OverheadPoolTotal {
   months: number;       // decimal months in window
 }
 
+export interface OverheadBasisTotals {
+  revenue: number;
+  unit_volume: number;
+  margin_contribution: number;
+}
+
 /** Call fn_overhead_total(start, end, entity?) on Supabase. */
 export function fetchOverheadPools(
   start: string,
@@ -46,12 +52,29 @@ export function totalPoolAmount(pools: OverheadPoolTotal[]): number {
   return pools.reduce((s, p) => s + Number(p.pool_total ?? 0), 0);
 }
 
+function positiveFinite(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Denominators based on rows currently visible in Margin. Credits/refunds do
+ * not get negative overhead shares or make positive rows over-allocate. */
+export function buildOverheadBasisTotals(rows: SalesPivotRow[]): OverheadBasisTotals {
+  return rows.reduce<OverheadBasisTotals>((acc, row) => {
+    acc.revenue += positiveFinite(row.revenue);
+    acc.unit_volume += positiveFinite(row.qty);
+    acc.margin_contribution += positiveFinite(row.est_margin);
+    return acc;
+  }, { revenue: 0, unit_volume: 0, margin_contribution: 0 });
+}
+
 /** Per-row overhead allocation. Iterates pools; each pool uses its own basis. */
 export function allocateRowOverhead(
   row: SalesPivotRow,
   totals: SalesTotals | null,
   rowCount: number,
   pools: OverheadPoolTotal[],
+  basisTotals?: OverheadBasisTotals | null,
 ): number {
   if (!pools.length || !totals) return 0;
   let total = 0;
@@ -61,13 +84,13 @@ export function allocateRowOverhead(
     let share = 0;
     switch (pool.basis) {
       case 'revenue': {
-        const denom = Number(totals.revenue ?? 0);
-        share = denom > 0 ? Number(row.revenue ?? 0) / denom : 0;
+        const denom = basisTotals?.revenue ?? positiveFinite(totals.revenue);
+        share = denom > 0 ? positiveFinite(row.revenue) / denom : 0;
         break;
       }
       case 'unit_volume': {
-        const denom = totals.qty != null ? Number(totals.qty) : 0;
-        const rowQty = row.qty != null ? Number(row.qty) : 0;
+        const denom = basisTotals?.unit_volume ?? positiveFinite(totals.qty);
+        const rowQty = positiveFinite(row.qty);
         share = denom > 0 ? rowQty / denom : 0;
         break;
       }
@@ -76,8 +99,8 @@ export function allocateRowOverhead(
         break;
       }
       case 'margin_contribution': {
-        const denom = totals.est_margin != null ? Number(totals.est_margin) : 0;
-        const rowMargin = row.est_margin != null ? Number(row.est_margin) : 0;
+        const denom = basisTotals?.margin_contribution ?? positiveFinite(totals.est_margin);
+        const rowMargin = positiveFinite(row.est_margin);
         share = denom > 0 ? rowMargin / denom : 0;
         break;
       }
@@ -102,8 +125,9 @@ export function computeOverheadFields(
   totals: SalesTotals | null,
   rowCount: number,
   pools: OverheadPoolTotal[],
+  basisTotals?: OverheadBasisTotals | null,
 ): OverheadRowFields {
-  const overhead = allocateRowOverhead(row, totals, rowCount, pools);
+  const overhead = allocateRowOverhead(row, totals, rowCount, pools, basisTotals);
   const qty = row.qty != null ? Number(row.qty) : 0;
   const margin = row.est_margin != null ? Number(row.est_margin) : 0;
   const revenue = Number(row.revenue ?? 0);

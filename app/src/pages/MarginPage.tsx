@@ -33,6 +33,7 @@ import {
 import { KEYS, loadSetting, saveSetting } from '../lib/settingsStore';
 import {
   fetchOverheadPools,
+  buildOverheadBasisTotals,
   computeOverheadFields,
   totalPoolAmount,
   type OverheadPoolTotal,
@@ -42,12 +43,12 @@ type ChartKind = 'none' | 'bar' | 'pie' | 'line';
 const CHART_KINDS: ChartKind[] = ['none', 'bar', 'pie', 'line'];
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
-import { sbq, sbrpc } from '../lib/rpc';
+import { sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
-  computePriorBounds, fetchDimValues, fetchPivot, fetchSparkline, fetchTotals,
-  mergeWithPrior, trailing12MonthKeys,
+  computePriorBounds, fetchDimValues, fetchPivot, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
+  mergeWithPrior, type QboSyncFreshness, trailing12MonthKeys,
 } from '../lib/sales';
 
 const DIMS: { id: Dim; label: string }[] = [
@@ -153,6 +154,18 @@ function detectActivePreset(start: string, end: string, today: string): Preset {
   }
   return 'custom';
 }
+function ageLabel(ts: string | null | undefined): string {
+  if (!ts) return 'never';
+  const t = new Date(ts).getTime();
+  if (!Number.isFinite(t)) return 'unknown';
+  const ageMin = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (ageMin < 60) return ageMin + 'm ago';
+  if (ageMin < 1440) return Math.round(ageMin / 60) + 'h ago';
+  return Math.round(ageMin / 1440) + 'd ago';
+}
+function dateTimeLabel(ts: string | null | undefined): string {
+  return ts ? new Date(ts).toLocaleString() : 'never';
+}
 
 interface DimMetaRow {
   dim_label: string;
@@ -257,18 +270,18 @@ export function MarginPage() {
   const [dimOpts, setDimOpts] = useState<Partial<Record<Dim, DimValue[]>>>({});
   const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
 
-  const [syncedAt, setSyncedAt] = useState<string | null | undefined>(undefined);
+  const [qboFreshness, setQboFreshness] = useState<QboSyncFreshness | null | undefined>(undefined);
   const [syncing, setSyncing] = useState(false);
 
-  function loadSyncedAt() {
-    sbq<{ synced_at: string | null }>('qbo_items', 'select=synced_at&order=synced_at.desc&limit=1')
-      .then((rs) => setSyncedAt(rs?.[0]?.synced_at ?? null))
-      .catch(() => setSyncedAt(null));
+  function loadQboFreshness() {
+    fetchQboSyncFreshness()
+      .then(setQboFreshness)
+      .catch(() => setQboFreshness(null));
   }
   function loadSavedViews() {
     fetchSavedViews().then(setSavedViews).catch(() => setSavedViews([]));
   }
-  useEffect(() => { loadSyncedAt(); loadSavedViews(); }, []);
+  useEffect(() => { loadQboFreshness(); loadSavedViews(); }, []);
 
   async function saveCurrentView() {
     const name = prompt('Save current Margin view as:', '');
@@ -346,7 +359,7 @@ export function MarginPage() {
       const j = await res.json();
       if (j.ok) {
         toast.success(`Synced ${j.synced} items (${j.with_purchase_cost} with purchase cost). Refreshing…`);
-        loadSyncedAt();
+        loadQboFreshness();
         setFilters((cur) => ({ ...cur }));
       } else {
         toast.error('Sync failed: ' + (j.error || 'unknown'));
@@ -358,14 +371,35 @@ export function MarginPage() {
     }
   }
 
-  const syncFresh = useMemo(() => {
-    if (syncedAt === undefined) return '';
-    if (!syncedAt) return 'never';
-    const ageMin = Math.round((Date.now() - new Date(syncedAt).getTime()) / 60000);
-    if (ageMin < 60) return ageMin + 'm ago';
-    if (ageMin < 1440) return Math.round(ageMin / 60) + 'h ago';
-    return Math.round(ageMin / 1440) + 'd ago';
-  }, [syncedAt]);
+  const qboPrimaryAt = qboFreshness?.last_mv_refresh_at
+    ?? qboFreshness?.last_invoice_sync_at
+    ?? qboFreshness?.invoice_cache_at
+    ?? qboFreshness?.item_cache_at
+    ?? null;
+  const qboWarnings = qboFreshness?.warnings?.filter(Boolean) ?? [];
+  const qboStatusLabel = qboFreshness === undefined ? 'CHECKING'
+    : qboFreshness == null ? 'UNKNOWN'
+    : qboFreshness.status === 'warn' ? 'STALE' : 'LIVE';
+  const qboStatusColor = qboFreshness === undefined || qboFreshness == null ? 'var(--mt)'
+    : qboFreshness.status === 'warn' ? 'var(--am)' : 'var(--gn)';
+  const qboFreshLabel = qboFreshness === undefined ? ''
+    : qboFreshness == null ? 'unknown' : ageLabel(qboPrimaryAt);
+  const qboFreshTitle = useMemo(() => {
+    if (qboFreshness === undefined) return 'Checking QBO freshness';
+    if (!qboFreshness) return 'QBO freshness check unavailable';
+    const lines = [
+      'QBO status: ' + qboStatusLabel,
+      'Margin view refresh: ' + dateTimeLabel(qboFreshness.last_mv_refresh_at),
+      'Invoice sync: ' + dateTimeLabel(qboFreshness.last_invoice_sync_at),
+      'Line backfill: ' + dateTimeLabel(qboFreshness.last_line_backfill_at),
+      'Invoice cache: ' + dateTimeLabel(qboFreshness.invoice_cache_at),
+      'Item-cost cache: ' + dateTimeLabel(qboFreshness.item_cache_at),
+      'Expense-cost cache: ' + dateTimeLabel(qboFreshness.expense_line_cache_at),
+      'Recent QBO errors: ' + Number(qboFreshness.recent_qbo_errors || 0),
+    ];
+    if (qboWarnings.length > 0) lines.push('Warnings: ' + qboWarnings.join(' | '));
+    return lines.join('\n');
+  }, [qboFreshness, qboStatusLabel, qboWarnings]);
 
   useEffect(() => {
     setDimOpts({});
@@ -459,16 +493,19 @@ export function MarginPage() {
   function exportCsv() {
     if (!rows || rows.length === 0) return;
     const display = comparison ?? rows;
-    const baseHeader = ['Dimension', 'Line count', 'Qty', 'Revenue', 'Est cost', 'Est margin', 'Margin %'];
+    const baseHeader = ['Dimension', 'Line count', 'Qty', 'Revenue', 'Est cost', 'Est margin', 'Margin %', 'Cost coverage %'];
     const cmpHeader = comparison ? ['Prior revenue', 'Δ revenue', 'Δ %'] : [];
     const extraHeader = extraColumns.map((c) => c.label);
     const header = [...baseHeader, ...cmpHeader, ...extraHeader];
     const rowCount = display.length;
+    const overheadBasisTotals = overheadPools.length > 0 && totals
+      ? buildOverheadBasisTotals(display)
+      : null;
     const data: (string | number | null)[][] = display.map((r) => {
       const cmp = (r as ComparisonRow).prior_revenue !== undefined ? (r as ComparisonRow) : null;
       const meta = enrichment[r.dim_label] ?? {};
       const oh = overheadPools.length > 0 && totals
-        ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
+        ? computeOverheadFields(r, totals, rowCount, overheadPools, overheadBasisTotals) : {};
       const spark = sparklines[r.dim_label];
       // Spread the typed row first so SalesPivotRow fields are preserved; meta/oh layer
       // in dynamic enrichment keys; double-cast through unknown to satisfy the strict
@@ -488,6 +525,7 @@ export function MarginPage() {
         r.est_cost != null ? Number(r.est_cost).toFixed(2) : '',
         r.est_margin != null ? Number(r.est_margin).toFixed(2) : '',
         r.margin_pct != null ? Number(r.margin_pct).toFixed(4) : '',
+        r.cost_coverage_pct != null ? Number(r.cost_coverage_pct).toFixed(4) : '',
         ...(comparison && cmp ? [
           cmp.prior_revenue != null ? Number(cmp.prior_revenue).toFixed(2) : '',
           cmp.delta_revenue != null ? Number(cmp.delta_revenue).toFixed(2) : '',
@@ -610,9 +648,12 @@ export function MarginPage() {
     const hasSparks     = Object.keys(sparklines).length > 0;
     if (!hasEnrichment && !hasOverhead && !hasSparks) return tableRows;
     const rowCount = tableRows.length;
+    const overheadBasisTotals = hasOverhead
+      ? buildOverheadBasisTotals(tableRows as SalesPivotRow[])
+      : null;
     return (tableRows as Array<SalesPivotRow | ComparisonRow>).map((r) => {
       const meta = hasEnrichment ? (enrichment[r.dim_label] ?? {}) : {};
-      const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, overheadPools) : {};
+      const oh = hasOverhead ? computeOverheadFields(r, totals, rowCount, overheadPools, overheadBasisTotals) : {};
       const spark = hasSparks ? sparklines[r.dim_label] : undefined;
       return { ...r, ...meta, ...oh, _spark12: spark };
     }) as typeof tableRows;
@@ -644,6 +685,7 @@ export function MarginPage() {
               {effectiveFilters.start} → {effectiveFilters.end}{compareLabel ? ` · ${compareLabel}` : ''}
               {enrichmentLoading ? ' · loading column data…' : ''}
               {showOverheadKpi ? ` · ${overheadPools.length} OH pool${overheadPools.length === 1 ? '' : 's'} (${fm(totalOverhead)})` : ''}
+              {qboWarnings.length > 0 ? ' · QBO warning: ' + qboWarnings[0] + (qboWarnings.length > 1 ? ` (+${qboWarnings.length - 1})` : '') : ''}
               {expandedRollup.perRollup.length > 0 && (
                 ' · excluding: ' + expandedRollup.perRollup.map((r) =>
                   r.code + ' (' + r.matched_customers + 'c · ' + r.matched_items + 'i)'
@@ -654,15 +696,19 @@ export function MarginPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 'none' }}>
-          <div className="hero-stamp" title={syncedAt ? 'Last QBO item-cost sync: ' + new Date(syncedAt).toLocaleString() : 'never synced'}>
-            <span className="status-dot" aria-hidden="true" />
-            <span className="hero-stamp-label">LIVE</span>
+          <div className="hero-stamp" title={qboFreshTitle}>
+            <span
+              className="status-dot"
+              aria-hidden="true"
+              style={{ background: qboStatusColor, boxShadow: '0 0 0 0 ' + qboStatusColor }}
+            />
+            <span className="hero-stamp-label" style={{ color: qboStatusColor }}>{qboStatusLabel}</span>
             <span className="hero-stamp-divider">·</span>
-            <span>Costs {syncFresh || '—'}</span>
-            {syncedAt && (
+            <span>QBO {qboFreshLabel || '—'}</span>
+            {qboPrimaryAt && (
               <>
                 <span className="hero-stamp-divider">·</span>
-                <span className="hero-stamp-time">{dayjs(syncedAt).format('MMM D, h:mm A')}</span>
+                <span className="hero-stamp-time">{dayjs(qboPrimaryAt).format('MMM D, h:mm A')}</span>
               </>
             )}
           </div>

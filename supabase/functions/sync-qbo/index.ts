@@ -1,4 +1,12 @@
 // sync-qbo edge function — APBG-BILLING Supabase project
+// version 45 (2026-07-03): Margin Minder integrity + stale-data hardening.
+//   CreditMemo/RefundReceipt line quantities now carry the same sign as their
+//   revenue so margin COGS reverses with returns/credits instead of showing
+//   negative revenue with positive cost. QBO token lease polling now waits
+//   longer than the lease TTL to avoid false "jammed" failures while another
+//   worker is refreshing. Materialized-view refreshes are logged as qbo:mv_refresh
+//   and failed refreshes return HTTP 500 so pg_net failure scanning and the
+//   watchdog alert before Margin serves stale data.
 // version 44 (2026-06-15): FIX line-sync regression. `mode=fast` no longer
 //   force-skips invoice lines. Previously the nightly cron (jobid 2) ran
 //   `?mode=fast`, which set skipLines=true, so the scheduled sync upserted
@@ -64,7 +72,7 @@ const REFRESH_TOKEN_TTL_SECONDS = 100 * 24 * 3600;
 const REFRESH_MIN_REMAINING_SECONDS = 300;
 const LEASE_SECONDS = 20;
 const LEASE_POLL_INTERVAL_MS = 750;
-const LEASE_POLL_MAX_ATTEMPTS = 20;
+const LEASE_POLL_MAX_ATTEMPTS = 40;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -100,8 +108,37 @@ function jsonRes(d: unknown, s = 200) {
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 async function refreshSalesLines(sb: SupabaseClient) {
-  try { const { error } = await sb.rpc("refresh_sales_lines"); return { ok: !error, error: error?.message }; }
-  catch (e) { return { ok: false, error: (e as Error).message }; }
+  const startedAt = new Date().toISOString();
+  try {
+    const { error } = await sb.rpc("refresh_sales_lines");
+    const result = { ok: !error, error: error?.message };
+    await sb.from("sync_log").insert({
+      source: "qbo",
+      sync_type: "mv_refresh",
+      status: result.ok ? "success" : "error",
+      records_synced: 0,
+      error_message: result.error || null,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      metadata: { relation: "ops.mv_sales_lines" },
+    });
+    return result;
+  } catch (e) {
+    const result = { ok: false, error: (e as Error).message };
+    try {
+      await sb.from("sync_log").insert({
+        source: "qbo",
+        sync_type: "mv_refresh",
+        status: "error",
+        records_synced: 0,
+        error_message: result.error,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        metadata: { relation: "ops.mv_sales_lines" },
+      });
+    } catch (_logErr) { /* non-fatal */ }
+    return result;
+  }
 }
 async function loadRevenueMap(sb: SupabaseClient): Promise<Record<string, string>> {
   try {
@@ -125,7 +162,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, e: number
   const aE = new Date(Date.now() + e * 1000).toISOString();
   const rE = x ? new Date(Date.now() + x * 1000).toISOString() : new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist",
-    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v40" });
+    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v45" });
   if (error) throw new Error("persist: " + error.message);
 }
 async function releaseFailedLease(sb: SupabaseClient, m: string) {
@@ -290,6 +327,11 @@ function headerRow(txn: any, txnType: string, sign: 1 | -1) {
 function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Record<string, string>): any[] {
   const out: any[] = [];
   let idx = 0;
+  const signedQty = (q: unknown, s: 1 | -1): number | null => {
+    if (q == null) return null;
+    const n = Number(q);
+    return Number.isFinite(n) ? n * s : null;
+  };
   for (const l of (txn.Line || [])) {
     const dt = l.DetailType;
     let acctId = "", acctName: string | null = null;
@@ -322,7 +364,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
         out.push({
           invoice_id: invRowId, line_num: idx,
           description: child.Description || null,
-          quantity: cdd.Qty ?? null,
+          quantity: signedQty(cdd.Qty, sign),
           unit_price: cdd.UnitPrice ?? null,
           amount: (parseFloat(child.Amount) || 0) * sign,
           item_ref_id: cdd.ItemRef?.value || null,
@@ -341,7 +383,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
     out.push({
       invoice_id: invRowId, line_num: idx,
       description: l.Description || null,
-      quantity: qty, unit_price: unitPrice,
+      quantity: signedQty(qty, lineSign), unit_price: unitPrice,
       amount: raw * lineSign,
       item_ref_id: itemRefId, item_name: itemName,
       account_ref_id: acctId, account_name: acctName,
@@ -436,9 +478,9 @@ Deno.serve(async (req: Request) => {
 
   if (mode === "refresh-mv") {
     const r = await refreshSalesLines(sb);
-    return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
+    return jsonRes({ status: r.ok ? "success" : "error", refresh: r }, r.ok ? 200 : 500);
   }
-  if (mode === "whoami") return jsonRes({ version: 44, txn_types_supported: ALL_TXN_TYPES });
+  if (mode === "whoami") return jsonRes({ version: 45, txn_types_supported: ALL_TXN_TYPES });
 
   // === refresh-lines mode ===
   // Reads a slice of qbo_invoices by date+offset and refetches their lines via
@@ -480,6 +522,13 @@ Deno.serve(async (req: Request) => {
       }
     }
     const mvResult = await refreshSalesLines(sb);
+    if (!mvResult.ok) {
+      return jsonRes({
+        status: "error", mode: "refresh-lines",
+        message: "Invoice lines refreshed, but mv_sales_lines refresh failed",
+        mv_refresh: mvResult,
+      }, 500);
+    }
     return jsonRes({
       status: "success", mode: "refresh-lines",
       start, end, offset, batch,
@@ -521,11 +570,21 @@ Deno.serve(async (req: Request) => {
       }
     }
     const mvResult = await refreshSalesLines(sb);
+    const syncStatus = mvResult.ok ? "success" : "error";
     await sb.from("sync_log").insert({
-      source: "qbo", sync_type: "lines_backfill", status: "success",
-      records_synced: linesAdded, completed_at: new Date().toISOString(),
+      source: "qbo", sync_type: "lines_backfill", status: syncStatus,
+      records_synced: linesAdded,
+      error_message: mvResult.ok ? null : `mv_sales_lines refresh failed: ${mvResult.error || "unknown"}`,
+      completed_at: new Date().toISOString(),
       metadata: { offset, batch: batchSize, processed, mv_refresh: mvResult },
     });
+    if (!mvResult.ok) {
+      return jsonRes({
+        status: "error", mode: "lines",
+        message: "Line backfill ran, but mv_sales_lines refresh failed",
+        mv_refresh: mvResult,
+      }, 500);
+    }
     return jsonRes({
       status: "success", mode: "lines",
       invoices_checked: allInvs?.length || 0, invoices_processed: processed,
@@ -616,6 +675,14 @@ Deno.serve(async (req: Request) => {
       });
     }
     const mvResult = await refreshSalesLines(sb);
+    if (!mvResult.ok) {
+      return jsonRes({
+        status: "error", mode, types, skip_lines: skipLines,
+        message: "QBO sync ran, but mv_sales_lines refresh failed",
+        total_headers: totalHeaders, per_type: perTypeResults,
+        pl_rows: plCount, mv_refresh: mvResult,
+      }, 500);
+    }
     return jsonRes({
       status: "success", mode, types, skip_lines: skipLines,
       total_headers: totalHeaders, per_type: perTypeResults,
