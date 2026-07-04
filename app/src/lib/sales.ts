@@ -202,11 +202,17 @@ export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[])
 
 export function fetchSparkline(dim: Dim, labels: string[], end: string, f: SalesFilters) {
   const { p_start: _start, p_end: _end, ...filterArgs } = rpcArgs(f);
-  return sbrpc<SparklineRow[]>('fn_sparkline', {
+  const args = {
     p_dim: dim,
     p_labels: labels,
     p_end: end,
     ...filterArgs,
+  } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(args)) {
+    if (value == null) delete args[key];
+  }
+  return sbrpc<SparklineRow[]>('fn_sparkline', {
+    ...args,
   });
 }
 
