@@ -47,8 +47,8 @@ import { sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
 import {
   ComparisonRow, Dim, DimValue, SalesFilters, SalesPivotRow, SalesTotals,
-  computePriorBounds, fetchDimValues, fetchPivot, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
-  mergeWithPrior, type QboSyncFreshness, trailing12MonthKeys,
+  computePriorBounds, fetchDimValues, fetchMarginDataHealth, fetchPivot, fetchQboSyncFreshness, fetchSparkline, fetchTotals,
+  mergeWithPrior, type MarginHealthIssue, type QboSyncFreshness, trailing12MonthKeys,
 } from '../lib/sales';
 
 const DIMS: { id: Dim; label: string }[] = [
@@ -127,7 +127,7 @@ const ACX_PAPER = {
       '& .MuiAutocomplete-option.Mui-focused': { background: 'rgba(91,181,240,0.18)' },
       '& .MuiAutocomplete-groupLabel': {
         background: 'var(--sf)', color: 'var(--mt)', fontSize: 10,
-        textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: 0, fontWeight: 600,
       },
     },
   },
@@ -165,6 +165,106 @@ function ageLabel(ts: string | null | undefined): string {
 }
 function dateTimeLabel(ts: string | null | undefined): string {
   return ts ? new Date(ts).toLocaleString() : 'never';
+}
+function healthToneColor(severity: string | null | undefined): string {
+  if (severity === 'critical') return 'var(--rd)';
+  if (severity === 'warn') return 'var(--am)';
+  return 'var(--gn)';
+}
+function healthSummary(issues: MarginHealthIssue[] | null): { label: string; color: string } {
+  if (issues == null) return { label: 'CHECKING', color: 'var(--mt)' };
+  if (issues.some((i) => i.severity === 'critical')) return { label: 'NEEDS REVIEW', color: 'var(--rd)' };
+  if (issues.some((i) => i.severity === 'warn')) return { label: 'WATCH', color: 'var(--am)' };
+  return { label: 'GOOD', color: 'var(--gn)' };
+}
+
+function MarginHealthPanel({
+  issues,
+  expanded,
+  onToggle,
+  onSyncCosts,
+  syncing,
+}: {
+  issues: MarginHealthIssue[] | null;
+  expanded: boolean;
+  onToggle: () => void;
+  onSyncCosts: () => void;
+  syncing: boolean;
+}) {
+  const summary = healthSummary(issues);
+  const visible = issues == null ? [] : (expanded ? issues : issues.slice(0, 4));
+  const issueCount = issues?.length ?? 0;
+
+  return (
+    <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, borderColor: summary.color }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, color: summary.color,
+            fontSize: 10, fontWeight: 800, letterSpacing: 0, textTransform: 'uppercase',
+          }}
+        >
+          <span className="status-dot" aria-hidden="true" style={{ background: summary.color }} />
+          Margin Data Health: {summary.label}
+        </span>
+        <span style={{ color: 'var(--mt)', fontSize: 11 }}>
+          {issues == null ? 'checking margin data' : issueCount === 0 ? 'no stale syncs, unmapped buckets, or missing-cost warnings in this view' : `${issueCount} item${issueCount === 1 ? '' : 's'} to review`}
+        </span>
+        <button type="button" onClick={onToggle} className="tb-btn" disabled={issueCount === 0} style={{ marginLeft: 'auto' }}>
+          {expanded ? 'Hide details' : 'Show details'}
+        </button>
+        <button type="button" onClick={onSyncCosts} className="tb-btn" disabled={syncing}>
+          {syncing ? 'Syncing...' : 'Sync item costs'}
+        </button>
+      </div>
+      {visible.length > 0 && (
+        <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+          {visible.map((issue) => {
+            const color = healthToneColor(issue.severity);
+            const samples = (issue.sample_labels ?? []).filter(Boolean);
+            return (
+              <div
+                key={issue.issue_key}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: 10,
+                  alignItems: 'center',
+                  padding: '7px 8px',
+                  borderTop: '1px solid var(--bd)',
+                  fontSize: 11,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0, fontSize: 9 }}>
+                    {issue.severity}
+                  </div>
+                  <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {issue.title}
+                  </div>
+                </div>
+                <div style={{ color: 'var(--tx2)', minWidth: 0 }}>
+                  <span>{issue.detail}</span>
+                  {issue.revenue != null && <span style={{ color: 'var(--mt)' }}> · {fm(issue.revenue)}</span>}
+                  {issue.line_count > 0 && <span style={{ color: 'var(--mt)' }}> · {fmtNum(issue.line_count)} lines</span>}
+                </div>
+                <div style={{ color: 'var(--mt)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={[samples.join(', '), issue.action ?? ''].filter(Boolean).join(' — ')}
+                >
+                  {samples.length > 0 ? samples.join(', ') : issue.action}
+                </div>
+              </div>
+            );
+          })}
+          {!expanded && issueCount > visible.length && (
+            <div style={{ color: 'var(--mt)', fontSize: 10, padding: '2px 8px' }}>
+              +{issueCount - visible.length} more
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface DimMetaRow {
@@ -271,6 +371,8 @@ export function MarginPage() {
   const [dimOptsLoading, setDimOptsLoading] = useState<Partial<Record<Dim, boolean>>>({});
 
   const [qboFreshness, setQboFreshness] = useState<QboSyncFreshness | null | undefined>(undefined);
+  const [marginHealth, setMarginHealth] = useState<MarginHealthIssue[] | null>(null);
+  const [healthExpanded, setHealthExpanded] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   function loadQboFreshness() {
@@ -425,6 +527,28 @@ export function MarginPage() {
       .catch((e) => { if (!cancelled) setErr(e.message); });
     return () => { cancelled = true; };
   }, [dim, JSON.stringify(effectiveFilters)]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMarginHealth(null);
+    fetchMarginDataHealth(effectiveFilters)
+      .then((issues) => { if (!cancelled) setMarginHealth(issues ?? []); })
+      .catch((err) => {
+        if (!cancelled) {
+          setMarginHealth([{
+            issue_key: 'health_check_unavailable',
+            severity: 'warn',
+            title: 'Health check unavailable',
+            detail: err instanceof Error ? err.message : 'Margin health could not be checked.',
+            line_count: 0,
+            revenue: null,
+            sample_labels: ['Margin diagnostics'],
+            action: 'Make sure the latest database migration has run.',
+          }]);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [JSON.stringify(effectiveFilters)]);
 
   useEffect(() => {
     if (compareMode === 'off') { setPriorTotals(null); return; }
@@ -738,6 +862,14 @@ export function MarginPage() {
             sub="% of revenue with item-cost data" accent={accent} />
         </div>
       )}
+
+      <MarginHealthPanel
+        issues={marginHealth}
+        expanded={healthExpanded}
+        onToggle={() => setHealthExpanded((v) => !v)}
+        onSyncCosts={syncItemCosts}
+        syncing={syncing}
+      />
 
       <div className="toolbar">
         <div className="toolbar-row">

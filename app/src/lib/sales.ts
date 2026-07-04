@@ -113,6 +113,21 @@ export function fetchQboSyncFreshness() {
   );
 }
 
+export interface MarginHealthIssue {
+  issue_key: string;
+  severity: 'critical' | 'warn' | 'ok' | string;
+  title: string;
+  detail: string | null;
+  line_count: number;
+  revenue: number | null;
+  sample_labels: string[] | null;
+  action: string | null;
+}
+
+export function fetchMarginDataHealth(f: SalesFilters) {
+  return sbrpc<MarginHealthIssue[]>('fn_margin_data_health', rpcArgs(f));
+}
+
 export function fetchDimValues(dim: Dim, start: string, end: string, limit = 2000) {
   return sbrpc<DimValue[]>('fn_sales_dim_values', {
     p_dim: dim,
