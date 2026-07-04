@@ -87,6 +87,24 @@ async function resolveItemId() {
   return null;
 }
 
+// Upload the invoice PDF to the Freshpet `fp-invoices` public bucket (using the
+// caller's JWT) so the customer portal can link to it. Returns the object path.
+async function uploadInvoicePdf(jwt, docNumber, pdfB64) {
+  try {
+    const path = `Invoice-${String(docNumber).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
+    const res = await fetch(`${FRESHPET_SUPABASE_URL}/storage/v1/object/fp-invoices/${encodeURIComponent(path)}`, {
+      method: 'POST',
+      headers: {
+        apikey: FRESHPET_ANON_KEY, Authorization: `Bearer ${jwt}`,
+        'Content-Type': 'application/pdf', 'x-upsert': 'true',
+      },
+      body: Buffer.from(pdfB64, 'base64'),
+    });
+    if (!res.ok) return null;
+    return path;
+  } catch (e) { return null; }
+}
+
 async function fetchInvoicePdfBase64(invoiceId) {
   try {
     const token = await getAccessToken();
@@ -202,12 +220,20 @@ export async function handler(event) {
   }
 
   const warnings = [];
+
+  // Fetch the QBO invoice PDF + stash it in the Freshpet `fp-invoices` bucket so
+  // the customer portal can link to it (both best-effort).
+  const pdfB64 = await fetchInvoicePdfBase64(created.Id);
+  let invoicePdfPath = null;
+  if (pdfB64) invoicePdfPath = await uploadInvoicePdf(jwt, created.DocNumber || created.Id, pdfB64);
+
   // Mark billed (best-effort but important — surface a clear warning if it fails
   // so the operator doesn't double-bill).
   try {
     await fpPatch(`completed_pms?id=in.(${eligible.map(r => r.id).join(',')})`, jwt, {
       billed: true, bill_amount: rate, invoice_id: created.Id,
       invoice_doc_number: created.DocNumber || null,
+      invoice_pdf_path: invoicePdfPath,
       invoiced_at: new Date().toISOString(), invoiced_by: adminEmail,
     });
   } catch (e) {
@@ -221,9 +247,6 @@ export async function handler(event) {
   ).join('\n');
   const csvB64 = Buffer.from(`${csvHeader}\n${csvBody}\n`).toString('base64');
   const periodTag = (minDate || 'report').replace(/[^0-9]/g, '') || 'report';
-
-  // Invoice PDF (best-effort).
-  const pdfB64 = await fetchInvoicePdfBase64(created.Id);
 
   // Email (optional).
   let emailed = false;
@@ -252,6 +275,7 @@ export async function handler(event) {
       id: created.Id, docNumber: created.DocNumber || created.Id, total,
       customerName: created.CustomerRef?.name || 'FRESH PET',
       itemUsed: item.name, invoiceLink: created.InvoiceLink || null,
+      pdfStored: !!invoicePdfPath,
     },
     billedCount: count, rate, periodLabel, emailed, skipped, warnings,
   });
