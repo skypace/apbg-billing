@@ -74,6 +74,8 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
   const [storeItemSearch, setStoreItemSearch] = useState('');
   const [storeProductId, setStoreProductId] = useState('');
   const [storeRows, setStoreRows] = useState<StoreProductRow[]>([]);
+  const [quickStoreText, setQuickStoreText] = useState('');
+  const [quickStoreStatus, setQuickStoreStatus] = useState<string | null>(null);
   const [loadingStorePrice, setLoadingStorePrice] = useState(false);
   const [rows, setRows] = useState<ItemRow[] | null>(null);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -210,30 +212,15 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
     if (!item || storeRows.some((r) => r.qbo_item_id === item.qbo_item_id)) return;
 
     setLoadingStorePrice(true);
-    let unitPrice = 0;
     try {
-      const [history] = await fetchPlanHistoryForItems([item.qbo_item_id], sourceYear);
-      unitPrice = history?.ly_avg_unit_price != null ? Number(history.ly_avg_unit_price) : 0;
-    } catch {
-      unitPrice = 0;
+      const row = await storeProductRowFor(item, sourceYear);
+      setStoreRows((current) => [...current, row]);
+      setStoreProductId('');
+    } catch (e) {
+      setErr((e as Error).message);
     } finally {
       setLoadingStorePrice(false);
     }
-
-    setStoreRows((current) => [
-      ...current,
-      {
-        qbo_item_id: item.qbo_item_id,
-        item_name: item.name || item.fully_qualified_name || item.qbo_item_id,
-        category_path: item.category_path || '(no category)',
-        qbo_account_id: item.income_account_ref_id,
-        account_name: item.income_account_name,
-        qty_per_store: 1,
-        unit_price: round2(unitPrice),
-        unit_cost: 0,
-      },
-    ]);
-    setStoreProductId('');
   }
 
   function updateStoreRow(id: string, patch: Partial<StoreProductRow>) {
@@ -242,6 +229,77 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
 
   function removeStoreRow(id: string) {
     setStoreRows((current) => current.filter((r) => r.qbo_item_id !== id));
+  }
+
+  async function applyQuickStoreSetup() {
+    if (!allItems || !customers) {
+      setQuickStoreStatus('Still loading workbook inputs.');
+      return;
+    }
+    const parsed = parseStoreQuickEntry(quickStoreText);
+    const matched: string[] = [];
+    const missed: string[] = [];
+
+    if (parsed.storeCount != null) {
+      setStoreCount(parsed.storeCount);
+      matched.push(`${parsed.storeCount} stores`);
+    }
+    if (parsed.startMonth != null) {
+      setStoreStartMonth(parsed.startMonth);
+      matched.push(MONTHS_SHORT[parsed.startMonth - 1]);
+    }
+    if (parsed.duration != null) {
+      setStoreDuration(parsed.duration);
+      matched.push(`${parsed.duration} months`);
+    }
+    if (parsed.customerTerm) {
+      setCustomerSearch(parsed.customerTerm);
+      const customer = bestCustomerMatch(customers, parsed.customerTerm);
+      if (customer) {
+        setStoreCustomerId(customer.qbo_customer_id);
+        matched.push(customer.display_name);
+      } else {
+        missed.push(parsed.customerTerm);
+      }
+    }
+
+    const selected = new Set(storeRows.map((r) => r.qbo_item_id));
+    const productMatches: { term: string; item: QboItemWithCategory }[] = [];
+    const unmatchedProducts: string[] = [];
+    for (const term of parsed.productTerms) {
+      const item = bestItemMatch(allItems, term, selected);
+      if (item) {
+        productMatches.push({ term, item });
+        selected.add(item.qbo_item_id);
+      } else {
+        unmatchedProducts.push(term);
+      }
+    }
+
+    if (productMatches.length > 0) {
+      setLoadingStorePrice(true);
+      try {
+        const nextRows = await Promise.all(productMatches.map((m) => storeProductRowFor(m.item, sourceYear)));
+        setStoreRows((current) => {
+          const currentIds = new Set(current.map((r) => r.qbo_item_id));
+          return [...current, ...nextRows.filter((r) => !currentIds.has(r.qbo_item_id))];
+        });
+        matched.push(`${productMatches.length} product${productMatches.length === 1 ? '' : 's'}`);
+      } catch (e) {
+        setErr((e as Error).message);
+      } finally {
+        setLoadingStorePrice(false);
+      }
+    }
+
+    missed.push(...unmatchedProducts);
+    if (matched.length === 0 && missed.length === 0) {
+      setQuickStoreStatus('No clear setup found.');
+    } else if (missed.length > 0) {
+      setQuickStoreStatus(`Matched ${matched.length || 0}; check ${missed.slice(0, 3).join(', ')}.`);
+    } else {
+      setQuickStoreStatus(`Matched ${matched.length}.`);
+    }
   }
 
   const selectedRows = useMemo(
@@ -373,6 +431,32 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
           <Metric label="Stores" value={String(Number(storeCount) || 0)} />
           <Metric label="Active months" value={rangeLabel} />
           <Metric label="Planned revenue" value={fm(storeTotals.revenue)} detail={`${fmNum(storeTotals.qty)} units`} />
+        </div>
+
+        <div style={quickSetupStyle()}>
+          <label style={{ ...ctrl(), flex: '1 1 360px' }}>
+            <span style={miniLbl()}>Quick Setup</span>
+            <input
+              value={quickStoreText}
+              onChange={(e) => {
+                setQuickStoreText(e.target.value);
+                setQuickStoreStatus(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyQuickStoreSetup();
+              }}
+              placeholder="3 new stores for Customer X selling Product A, Product B over 6 months"
+              style={{ ...inp(), width: '100%' }}
+            />
+          </label>
+          <button
+            onClick={applyQuickStoreSetup}
+            style={btnSecondary()}
+            disabled={!quickStoreText.trim() || !customers || !allItems || loadingStorePrice}
+          >
+            Fill
+          </button>
+          {quickStoreStatus && <span style={{ color: 'var(--mt)', fontSize: 10 }}>{quickStoreStatus}</span>}
         </div>
 
         <div style={setupStyle()}>
@@ -928,6 +1012,145 @@ function projectionFor(r: ItemRow): { qty: number; price: number; revenue: numbe
   return { qty, price, revenue: qty * price };
 }
 
+async function storeProductRowFor(item: QboItemWithCategory, sourceYear: number): Promise<StoreProductRow> {
+  let unitPrice = 0;
+  try {
+    const [history] = await fetchPlanHistoryForItems([item.qbo_item_id], sourceYear);
+    unitPrice = history?.ly_avg_unit_price != null ? Number(history.ly_avg_unit_price) : 0;
+  } catch {
+    unitPrice = 0;
+  }
+
+  return {
+    qbo_item_id: item.qbo_item_id,
+    item_name: item.name || item.fully_qualified_name || item.qbo_item_id,
+    category_path: item.category_path || '(no category)',
+    qbo_account_id: item.income_account_ref_id,
+    account_name: item.income_account_name,
+    qty_per_store: 1,
+    unit_price: round2(unitPrice),
+    unit_cost: 0,
+  };
+}
+
+function parseStoreQuickEntry(text: string): {
+  storeCount: number | null;
+  startMonth: number | null;
+  duration: number | null;
+  customerTerm: string;
+  productTerms: string[];
+} {
+  const raw = text.trim();
+  const lower = raw.toLowerCase();
+  const stores = lower.match(/(\d+(?:\.\d+)?)\s+(?:new\s+)?stores?\b/);
+  const months = lower.match(/\bover\s+(\d+)\s+months?\b/) ?? lower.match(/\bfor\s+(\d+)\s+months?\b/);
+  const startMonth = monthFromText(lower);
+  const customerTerm = cleanQuickTerm(
+    firstCapture(raw, [
+      /\bfor\s+customer\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
+      /\bfor\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
+      /\bcustomer\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
+    ]),
+  );
+  return {
+    storeCount: stores ? Math.max(1, Math.round(Number(stores[1]))) : null,
+    startMonth,
+    duration: months ? Math.max(1, Math.min(12, Math.round(Number(months[1])))) : null,
+    customerTerm,
+    productTerms: productTermsFromText(raw),
+  };
+}
+
+function productTermsFromText(text: string): string[] {
+  const explicit = firstCapture(text, [
+    /\b(?:selling|sell|with)\s+(.+?)(?=\s+\bover\b|\s+\bstarting\b|\s+\bstart\b|\s+\bbeginning\b|$)/i,
+    /\bproducts?\s*[:=]\s*(.+?)(?=\s+\bover\b|\s+\bstarting\b|\s+\bstart\b|\s+\bbeginning\b|$)/i,
+  ]);
+  const source = explicit || text.split(',').slice(1).join(',');
+  return source
+    .replace(/\bover\s+\d+\s+months?\b/gi, '')
+    .replace(/\b(?:starting|start|beginning)\s+\w+\b/gi, '')
+    .split(/,|\+|&|\band\b/gi)
+    .map(cleanQuickTerm)
+    .filter((term) => term.length >= 2)
+    .filter((term) => !/^\d+(?:\.\d+)?\s*(?:products?|stores?|months?)?$/i.test(term))
+    .filter((term) => !/\b(?:new\s+)?stores?\b/i.test(term))
+    .slice(0, 8);
+}
+
+function firstCapture(text: string, patterns: RegExp[]): string {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function cleanQuickTerm(term: string): string {
+  return term
+    .replace(/\b(?:they\s+will|will|inside|at|for|customer|products?)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, '')
+    .trim();
+}
+
+function monthFromText(text: string): number | null {
+  const match = text.match(/\b(?:starting|start|beginning)\s+([a-z]{3,9})\b/);
+  if (!match) return null;
+  const token = match[1].slice(0, 3).toLowerCase();
+  const idx = MONTHS_SHORT.findIndex((m) => m.toLowerCase().slice(0, 3) === token);
+  return idx >= 0 ? idx + 1 : null;
+}
+
+function bestCustomerMatch(customers: QboCustomerOption[], term: string): QboCustomerOption | null {
+  const needle = normalizeQuickText(term);
+  if (needle.length < 2) return null;
+  return bestScored(customers, (customer) => scoreTextMatch(normalizeQuickText(customer.display_name), needle));
+}
+
+function bestItemMatch(items: QboItemWithCategory[], term: string, selected: Set<string>): QboItemWithCategory | null {
+  const needle = normalizeQuickText(term);
+  if (needle.length < 2) return null;
+  return bestScored(
+    items.filter((item) => item.type !== 'Category' && !selected.has(item.qbo_item_id)),
+    (item) => {
+      const label = normalizeQuickText([item.name, item.fully_qualified_name, item.category_path].filter(Boolean).join(' '));
+      return scoreTextMatch(label, needle);
+    },
+  );
+}
+
+function bestScored<T>(items: T[], scoreFor: (item: T) => number): T | null {
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const item of items) {
+    const score = scoreFor(item);
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  return bestScore >= 45 ? best : null;
+}
+
+function scoreTextMatch(label: string, needle: string): number {
+  if (!label || !needle) return 0;
+  if (label === needle) return 100;
+  if (label.startsWith(needle)) return 92 - Math.min(20, label.length - needle.length);
+  if (label.includes(needle)) return 80 - Math.min(25, label.length - needle.length);
+  const words = needle.split(' ').filter(Boolean);
+  if (words.length > 0 && words.every((word) => label.includes(word))) return 62;
+  return 0;
+}
+
+function normalizeQuickText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function storeArraysFor(
   row: StoreProductRow,
   storeCount: number,
@@ -1053,6 +1276,16 @@ function metricRowStyle(): React.CSSProperties {
     gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
     borderBottom: '1px solid var(--bd)',
     background: 'rgba(255,255,255,0.018)',
+  };
+}
+function quickSetupStyle(): React.CSSProperties {
+  return {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    padding: '10px 16px',
+    borderBottom: '1px solid var(--bd)',
   };
 }
 function setupStyle(): React.CSSProperties {
