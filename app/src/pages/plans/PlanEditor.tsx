@@ -3,18 +3,22 @@ import { sbDelete, sbInsert, sbUpdate } from '../../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../../lib/supabase';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { downloadCsv, toCsv } from '../../lib/csv';
-import { fm } from '../../lib/formatters';
+import { fm, fp } from '../../lib/formatters';
 import {
   MONTHS_SHORT,
+  PlanActualsByItemRow,
   PlanLineSection,
   QboItemOption,
   SalesPlan,
   SalesPlanLine,
   fetchItemOptions,
+  fetchPlanActualsByItem,
+  fetchPlanActualsByItemYear,
   fetchPlanLineSections,
   fetchPlanLines,
+  fetchPlans,
 } from '../../lib/plans';
-import { Dim, fetchPivot } from '../../lib/sales';
+import { fetchQboSyncFreshness, type QboSyncFreshness } from '../../lib/sales';
 import { PlanVsActuals } from './PlanVsActuals';
 import { PlanForecast } from './PlanForecast';
 import { PlanPlView } from './PlanPlView';
@@ -23,6 +27,8 @@ import { PlanLinesGrouped } from './PlanLinesGrouped';
 
 type Mode = 'pl' | 'lines' | 'vs_actuals' | 'forecast';
 type ViewMode = 'revenue' | 'qty' | 'price' | 'cost';
+type ActualsByItem = Record<string, { item_name?: string; amounts: number[]; total: number }>;
+type CompareByItem = Record<string, { item_name?: string | null; amounts: number[]; total: number }>;
 
 const VIEW_MODES: { id: ViewMode; label: string }[] = [
   { id: 'revenue', label: 'Revenue ($)' },
@@ -34,6 +40,72 @@ const VIEW_MODES: { id: ViewMode; label: string }[] = [
 const ZEROS = (): number[] => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+function rowAmounts(r: PlanActualsByItemRow): number[] {
+  return [
+    Number(r.m1 || 0), Number(r.m2 || 0), Number(r.m3 || 0), Number(r.m4 || 0),
+    Number(r.m5 || 0), Number(r.m6 || 0), Number(r.m7 || 0), Number(r.m8 || 0),
+    Number(r.m9 || 0), Number(r.m10 || 0), Number(r.m11 || 0), Number(r.m12 || 0),
+  ];
+}
+
+function rowsToActualsByItem(rows: PlanActualsByItemRow[]): ActualsByItem {
+  const byItem: ActualsByItem = {};
+  for (const r of rows) {
+    byItem[r.qbo_item_id] = {
+      item_name: r.item_name,
+      amounts: rowAmounts(r),
+      total: Number(r.total || 0),
+    };
+  }
+  return byItem;
+}
+
+function sum(values: number[] | null | undefined): number {
+  return (values ?? []).reduce((s, v) => s + Number(v || 0), 0);
+}
+
+function completedMonths(planFiscalYear: number): number {
+  const today = new Date();
+  if (today.getFullYear() < planFiscalYear) return 0;
+  if (today.getFullYear() > planFiscalYear) return 12;
+  return today.getMonth();
+}
+
+function monthlyRevenue(lines: SalesPlanLine[]): number[] {
+  const m = ZEROS();
+  for (const line of lines) {
+    const amounts = line.amounts ?? ZEROS();
+    for (let i = 0; i < 12; i++) m[i] += Number(amounts[i] || 0);
+  }
+  return m;
+}
+
+function uniqueActualRevenue(lines: SalesPlanLine[], actualsByItem: ActualsByItem | null): number[] | null {
+  if (actualsByItem == null) return null;
+  const m = ZEROS();
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (!line.qbo_item_id || seen.has(line.qbo_item_id)) continue;
+    seen.add(line.qbo_item_id);
+    const actual = actualsByItem[line.qbo_item_id]?.amounts ?? ZEROS();
+    for (let i = 0; i < 12; i++) m[i] += Number(actual[i] || 0);
+  }
+  return m;
+}
+
+function compareRevenue(lines: SalesPlanLine[], compareByItem: CompareByItem | null): number | null {
+  if (!compareByItem) return null;
+  const seen = new Set<string>();
+  let total = 0;
+  for (const line of lines) {
+    const key = line.qbo_item_id ?? line.item_name ?? line.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    total += Number(compareByItem[key]?.total ?? 0);
+  }
+  return total;
+}
+
 interface Props {
   plan: SalesPlan;
   onBack: () => void;
@@ -44,10 +116,14 @@ export function PlanEditor({ plan, onBack }: Props) {
   const [linesSections, setLinesSections] = useState<PlanLineSection[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [itemOpts, setItemOpts] = useState<QboItemOption[]>([]);
-  const [actualsByItem, setActualsByItem] = useState<Record<string, { amounts: number[]; total: number }> | null>(null);
-  const [mode, setMode] = useState<Mode>('pl');
+  const [actualsByItem, setActualsByItem] = useState<ActualsByItem | null>(null);
+  const [mode, setMode] = useState<Mode>('lines');
   const [viewMode, setViewMode] = useState<ViewMode>('revenue');
   const [buildOpen, setBuildOpen] = useState(false);
+  const [comparePlans, setComparePlans] = useState<SalesPlan[]>([]);
+  const [comparePlanId, setComparePlanId] = useState('');
+  const [compareLines, setCompareLines] = useState<SalesPlanLine[] | null>(null);
+  const [qboFreshness, setQboFreshness] = useState<QboSyncFreshness | null>(null);
 
   function load() {
     Promise.all([
@@ -63,31 +139,33 @@ export function PlanEditor({ plan, onBack }: Props) {
     fetchItemOptions().then(setItemOpts).catch(() => setItemOpts([]));
   }, []);
 
-  // Pull actuals by item for plan.fiscal_year, broken out by month — only when needed.
   useEffect(() => {
-    if (mode !== 'vs_actuals') return;
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const start = plan.fiscal_year + '-' + String(i + 1).padStart(2, '0') + '-01';
-      const endD = new Date(plan.fiscal_year, i + 1, 0);
-      return { i, start, end: endD.toISOString().slice(0, 10) };
-    });
-    Promise.all(
-      months.map((m) =>
-        fetchPivot('item' as Dim, { start: m.start, end: m.end }, 2000),
-      ),
-    ).then((per) => {
-      const byItem: Record<string, { amounts: number[]; total: number }> = {};
-      per.forEach((rows, mi) => {
-        for (const r of rows) {
-          if (!byItem[r.dim_label]) byItem[r.dim_label] = { amounts: Array(12).fill(0), total: 0 };
-          const v = Number(r.revenue || 0);
-          byItem[r.dim_label].amounts[mi] = v;
-          byItem[r.dim_label].total += v;
-        }
-      });
-      setActualsByItem(byItem);
-    });
-  }, [mode, plan.fiscal_year]);
+    fetchPlans()
+      .then((plans) => {
+        setComparePlans(plans.filter((p) => p.id !== plan.id && p.fiscal_year === plan.fiscal_year));
+      })
+      .catch(() => setComparePlans([]));
+  }, [plan.id, plan.fiscal_year]);
+
+  useEffect(() => {
+    if (!comparePlanId) {
+      setCompareLines(null);
+      return;
+    }
+    fetchPlanLines(comparePlanId).then(setCompareLines).catch(() => setCompareLines([]));
+  }, [comparePlanId]);
+
+  useEffect(() => {
+    fetchQboSyncFreshness().then(setQboFreshness).catch(() => setQboFreshness(null));
+  }, []);
+
+  // Pull actuals once for the plan year and key them by stable QBO item id.
+  useEffect(() => {
+    setActualsByItem(null);
+    fetchPlanActualsByItem(plan.id)
+      .then((rows) => setActualsByItem(rowsToActualsByItem(rows)))
+      .catch(() => setActualsByItem({}));
+  }, [plan.id]);
 
   function addItemLine(it: QboItemOption) {
     sbInsert<Partial<SalesPlanLine>>('sales_plan_lines', {
@@ -177,21 +255,48 @@ export function PlanEditor({ plan, onBack }: Props) {
   async function copyFromActuals() {
     const yr = plan.fiscal_year - 1;
     if (!confirm(`Replace this plan's line amounts with actuals from ${yr}? Existing values overwritten.`)) return;
-    const rows = await fetchPivot('item' as Dim, {
-      start: yr + '-01-01',
-      end: yr + '-12-31',
-    }, 1000);
-    const byName = new Map<string, number>();
-    for (const r of rows) byName.set(r.dim_label, Number(r.revenue || 0));
     if (!lines) return;
-    await Promise.all(lines.map((l) => {
-      const v = byName.get(l.item_name ?? '') ?? 0;
-      const per = Math.round((v / 12) * 100) / 100;
-      return sbUpdate<SalesPlanLine>('sales_plan_lines', 'id=eq.' + l.id, {
-        amounts: Array(12).fill(per),
-      } as Partial<SalesPlanLine>);
-    }));
-    load();
+    try {
+      const byItem = rowsToActualsByItem(await fetchPlanActualsByItemYear(plan.id, yr));
+      const groups = new Map<string, SalesPlanLine[]>();
+      for (const line of lines) {
+        if (!line.qbo_item_id) continue;
+        if (!groups.has(line.qbo_item_id)) groups.set(line.qbo_item_id, []);
+        groups.get(line.qbo_item_id)!.push(line);
+      }
+
+      const updates: Promise<SalesPlanLine>[] = [];
+      for (const [itemId, itemLines] of groups.entries()) {
+        const actual = byItem[itemId];
+        if (!actual) continue;
+
+        const currentTotals = itemLines.map((line) => sum(line.amounts));
+        const currentGroupTotal = currentTotals.reduce((s, v) => s + v, 0);
+        const equalShare = itemLines.length > 0 ? 1 / itemLines.length : 0;
+
+        itemLines.forEach((line, idx) => {
+          const share = itemLines.length === 1
+            ? 1
+            : currentGroupTotal > 0
+              ? currentTotals[idx] / currentGroupTotal
+              : equalShare;
+          updates.push(sbUpdate<SalesPlanLine>('sales_plan_lines', 'id=eq.' + line.id, {
+            amounts: actual.amounts.map((v) => round2(v * share)),
+            updated_at: new Date().toISOString(),
+          } as Partial<SalesPlanLine>));
+        });
+      }
+
+      if (updates.length === 0) {
+        alert('No plan lines with QBO item IDs were available to update.');
+        return;
+      }
+
+      await Promise.all(updates);
+      load();
+    } catch (err) {
+      alert('Could not copy actuals: ' + (err instanceof Error ? err.message : 'unknown error'));
+    }
   }
 
   async function pushToQbo() {
@@ -242,14 +347,55 @@ export function PlanEditor({ plan, onBack }: Props) {
     () => (lines ?? []).reduce((s, l) => s + (l.amounts ?? []).reduce((a, v) => a + Number(v || 0), 0), 0),
     [lines],
   );
+  const compareByItem = useMemo<CompareByItem | null>(() => {
+    if (!compareLines) return null;
+    const byItem: CompareByItem = {};
+    for (const line of compareLines) {
+      const key = line.qbo_item_id ?? line.item_name ?? line.id;
+      if (!byItem[key]) byItem[key] = { item_name: line.item_name, amounts: ZEROS(), total: 0 };
+      const amounts = line.amounts ?? ZEROS();
+      for (let i = 0; i < 12; i++) byItem[key].amounts[i] += Number(amounts[i] || 0);
+      byItem[key].total = sum(byItem[key].amounts);
+    }
+    return byItem;
+  }, [compareLines]);
+  const comparePlan = comparePlans.find((p) => p.id === comparePlanId) ?? null;
+  const revenueLines = useMemo(() => {
+    if (!lines) return [];
+    if (!linesSections) return lines;
+    const byLine = new Map<string, PlanLineSection>();
+    for (const section of linesSections) byLine.set(section.line_id, section);
+    return lines.filter((line) => byLine.get(line.id)?.section === 'revenue');
+  }, [lines, linesSections]);
+  const studioSummary = useMemo(() => {
+    const planMonths = monthlyRevenue(revenueLines);
+    const planTotal = sum(planMonths);
+    const elapsed = completedMonths(plan.fiscal_year);
+    const actualMonths = uniqueActualRevenue(revenueLines, actualsByItem);
+    const actualYtd = actualMonths == null ? null : sum(actualMonths.slice(0, elapsed));
+    const remainingPlan = sum(planMonths.slice(elapsed));
+    const pace = actualYtd == null ? null : actualYtd + remainingPlan;
+    const compareTotal = compareRevenue(revenueLines, compareByItem);
+    return {
+      planTotal,
+      actualYtd,
+      pace,
+      paceDeltaPct: pace != null && planTotal > 0 ? (pace - planTotal) / planTotal : null,
+      compareTotal,
+      compareDelta: compareTotal != null ? planTotal - compareTotal : null,
+      compareDeltaPct: compareTotal != null && compareTotal > 0 ? (planTotal - compareTotal) / compareTotal : null,
+    };
+  }, [actualsByItem, compareByItem, plan.fiscal_year, revenueLines]);
+  const qboWarnings = qboFreshness?.warnings?.filter(Boolean) ?? [];
+  const showQboWarning = qboFreshness != null && (qboFreshness.status !== 'ok' || qboWarnings.length > 0);
 
   if (!lines) return <div className="ld">Loading plan…</div>;
 
   const modeBtns: { id: Mode; label: string }[] = [
+    { id: 'lines',      label: 'Studio' },
     { id: 'pl',         label: 'P&L' },
-    { id: 'lines',      label: 'Plan Lines' },
-    { id: 'vs_actuals', label: 'vs Actuals' },
-    { id: 'forecast',   label: 'Forecast' },
+    { id: 'vs_actuals', label: 'Variance' },
+    { id: 'forecast',   label: 'Scorecard' },
   ];
 
   return (
@@ -308,6 +454,27 @@ export function PlanEditor({ plan, onBack }: Props) {
         </div>
       </div>
 
+      {showQboWarning && (
+        <div
+          className="cd"
+          style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            borderColor: 'rgba(242,184,75,0.55)',
+            color: 'var(--am)',
+            fontSize: 11,
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <strong>QBO DATA WARNING</strong>
+          <span>{qboWarnings[0] ?? qboFreshness?.status ?? 'Freshness check needs attention'}</span>
+          {qboWarnings.length > 1 && <span style={{ color: 'var(--mt)' }}>+{qboWarnings.length - 1} more</span>}
+        </div>
+      )}
+
       {mode === 'pl' && <PlanPlView planId={plan.id} />}
 
       {buildOpen && (
@@ -315,7 +482,7 @@ export function PlanEditor({ plan, onBack }: Props) {
           planId={plan.id}
           planFiscalYear={plan.fiscal_year}
           onClose={() => setBuildOpen(false)}
-          onApplied={load}
+          onApplied={() => { load(); setMode('lines'); }}
         />
       )}
 
@@ -330,7 +497,12 @@ export function PlanEditor({ plan, onBack }: Props) {
               alignItems: 'center',
             }}
           >
-            <div className="ct" style={{ margin: 0 }}>PLAN LINES — {lines.length}</div>
+            <div>
+              <div className="ct" style={{ margin: 0 }}>PLANNING STUDIO</div>
+              <div style={{ fontSize: 10, color: 'var(--mt)' }}>
+                FY{plan.fiscal_year} · {lines.length} plan lines · {actualsByItem == null ? 'actuals loading' : 'actuals loaded'}
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>View</span>
               <div style={{ display: 'flex', border: '1px solid var(--bd)', borderRadius: 4, overflow: 'hidden' }}>
@@ -347,8 +519,51 @@ export function PlanEditor({ plan, onBack }: Props) {
                   >{v.label}</button>
                 ))}
               </div>
+              <select
+                value={comparePlanId}
+                onChange={(e) => setComparePlanId(e.target.value)}
+                style={{ ...inp(), width: 190, fontSize: 10, padding: '4px 8px' }}
+              >
+                <option value="">Compare plan</option>
+                {comparePlans.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
               <button onClick={() => setPickerOpen(!pickerOpen)} style={btnSecondary()}>+ ADD ITEM</button>
             </div>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 0,
+              borderBottom: '1px solid var(--bd)',
+              background: 'rgba(255,255,255,0.018)',
+            }}
+          >
+            <StudioMetric label="Planned revenue" value={fm(studioSummary.planTotal)} />
+            <StudioMetric
+              label="Actual YTD"
+              value={studioSummary.actualYtd == null ? 'Loading' : fm(studioSummary.actualYtd)}
+            />
+            <StudioMetric
+              label="FY pace"
+              value={studioSummary.pace == null ? 'Loading' : fm(studioSummary.pace)}
+              detail={fp(studioSummary.paceDeltaPct)}
+              tone={studioSummary.paceDeltaPct == null ? 'muted' : studioSummary.paceDeltaPct >= 0 ? 'good' : 'warn'}
+            />
+            <StudioMetric
+              label={comparePlan ? 'Compare delta' : 'Compare'}
+              value={comparePlan ? fm(studioSummary.compareDelta ?? 0) : 'Pick a plan'}
+              detail={comparePlan ? fp(studioSummary.compareDeltaPct) : undefined}
+              tone={
+                !comparePlan || studioSummary.compareDelta == null
+                  ? 'muted'
+                  : studioSummary.compareDelta >= 0
+                    ? 'good'
+                    : 'bad'
+              }
+            />
           </div>
           {pickerOpen && (
             <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
@@ -377,6 +592,10 @@ export function PlanEditor({ plan, onBack }: Props) {
               lines={lines}
               linesSections={linesSections}
               viewMode={viewMode}
+              actualsByItem={actualsByItem}
+              compareByItem={compareByItem}
+              compareLabel={comparePlan?.name ?? null}
+              planFiscalYear={plan.fiscal_year}
               onSetCell={(line, monthIdx, value) => setCell(line, monthIdx, value)}
               onFillFlat={(line, total) => fillFlat(line, total)}
               onDelete={(id) => deleteLine(id)}
@@ -390,6 +609,44 @@ export function PlanEditor({ plan, onBack }: Props) {
       )}
 
       {mode === 'forecast' && <PlanForecast plan={plan} />}
+    </div>
+  );
+}
+
+function StudioMetric({
+  label,
+  value,
+  detail,
+  tone = 'muted',
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: 'muted' | 'good' | 'warn' | 'bad';
+}) {
+  const color = tone === 'good'
+    ? 'var(--gn)'
+    : tone === 'warn'
+      ? 'var(--am)'
+      : tone === 'bad'
+        ? 'var(--rd)'
+        : 'var(--tx)';
+
+  return (
+    <div
+      style={{
+        padding: '9px 14px',
+        borderRight: '1px solid var(--bd)',
+        minWidth: 0,
+      }}
+    >
+      <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.7 }}>
+        {label}
+      </div>
+      <div className="mn" style={{ marginTop: 3, color, fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {value}
+        {detail && <span style={{ marginLeft: 6, color: 'var(--mt)', fontSize: 10, fontWeight: 600 }}>{detail}</span>}
+      </div>
     </div>
   );
 }

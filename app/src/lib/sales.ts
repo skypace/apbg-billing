@@ -113,6 +113,21 @@ export function fetchQboSyncFreshness() {
   );
 }
 
+export interface MarginHealthIssue {
+  issue_key: string;
+  severity: 'critical' | 'warn' | 'ok' | string;
+  title: string;
+  detail: string | null;
+  line_count: number;
+  revenue: number | null;
+  sample_labels: string[] | null;
+  action: string | null;
+}
+
+export function fetchMarginDataHealth(f: SalesFilters) {
+  return sbrpc<MarginHealthIssue[]>('fn_margin_data_health', rpcArgs(f));
+}
+
 export function fetchDimValues(dim: Dim, start: string, end: string, limit = 2000) {
   return sbrpc<DimValue[]>('fn_sales_dim_values', {
     p_dim: dim,
@@ -202,11 +217,17 @@ export function mergeWithPrior(current: SalesPivotRow[], prior: SalesPivotRow[])
 
 export function fetchSparkline(dim: Dim, labels: string[], end: string, f: SalesFilters) {
   const { p_start: _start, p_end: _end, ...filterArgs } = rpcArgs(f);
-  return sbrpc<SparklineRow[]>('fn_sparkline', {
+  const args = {
     p_dim: dim,
     p_labels: labels,
     p_end: end,
     ...filterArgs,
+  } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(args)) {
+    if (value == null) delete args[key];
+  }
+  return sbrpc<SparklineRow[]>('fn_sparkline', {
+    ...args,
   });
 }
 

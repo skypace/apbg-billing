@@ -42,6 +42,35 @@ function coverageColor(v: number | null | undefined) {
   if (v >= 0.5) return 'var(--am)';
   return 'var(--rd)';
 }
+function confidenceColor(tone: 'good' | 'warn' | 'bad' | 'muted') {
+  if (tone === 'good') return 'var(--gn)';
+  if (tone === 'warn') return 'var(--am)';
+  if (tone === 'bad') return 'var(--rd)';
+  return 'var(--mt)';
+}
+function evaluateMarginConfidence(row: SalesPivotRow | ComparisonRow): { label: string; tone: 'good' | 'warn' | 'bad' | 'muted'; tip: string } {
+  const label = String(row.dim_label ?? '').trim().toLowerCase();
+  const revenue = Number(row.revenue ?? 0);
+  const coverage = row.cost_coverage_pct != null ? Number(row.cost_coverage_pct) : null;
+  const marginPct = row.margin_pct != null ? Number(row.margin_pct) : null;
+
+  if (label === '(unspecified)' || label === 'unspecified' || label === '') {
+    return { label: 'Unmapped', tone: 'bad', tip: 'This row is grouped as unspecified because a source dimension is missing.' };
+  }
+  if (Math.abs(revenue) > 0 && (coverage == null || coverage < 0.5)) {
+    return { label: 'Missing cost', tone: 'bad', tip: 'Less than half of this row has item-cost coverage.' };
+  }
+  if (coverage != null && coverage < 0.8) {
+    return { label: 'Cost gap', tone: 'warn', tip: 'Some revenue in this row is missing usable item cost.' };
+  }
+  if (revenue > 0 && marginPct != null && marginPct < 0) {
+    return { label: 'Loss', tone: 'warn', tip: 'Positive revenue is showing negative estimated margin.' };
+  }
+  if (Math.abs(revenue) === 0) {
+    return { label: 'No revenue', tone: 'muted', tip: 'No revenue in the selected window.' };
+  }
+  return { label: 'Good', tone: 'good', tip: 'Cost coverage and mapping look usable for this row.' };
+}
 
 function evaluateAtRisk(row: Record<string, unknown>): { sev: 'severe' | 'warn'; tip: string } | null {
   const priorRev = row.prior_revenue != null ? Number(row.prior_revenue) : null;
@@ -168,6 +197,27 @@ export function MarginGrid({
     }
 
     cols.push(
+      {
+        field: 'confidence', headerName: 'Health', width: 116, sortable: false, filterable: false,
+        renderCell: (p) => {
+          if (p.row.__isTotal) return null;
+          const conf = evaluateMarginConfidence(p.row as SalesPivotRow | ComparisonRow);
+          const color = confidenceColor(conf.tone);
+          return (
+            <span
+              title={conf.tip}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: 76, padding: '2px 7px', borderRadius: 4,
+                border: '1px solid ' + color, color, fontSize: 10, fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: 0,
+              }}
+            >
+              {conf.label}
+            </span>
+          );
+        },
+      },
       { field: 'line_count', headerName: 'Lines', type: 'number', width: 88, cellClassName: 'mn',
         valueFormatter: (v) => (v != null ? fmtNum(Number(v)) : '—') },
       { field: 'qty', headerName: 'Qty', type: 'number', width: 96, cellClassName: 'mn',
