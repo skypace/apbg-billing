@@ -13,7 +13,9 @@ import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
+import { UOM_OPTIONS, fmtQty, scaleBom, uomGroup } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
+import { ProductionUnitConverter } from './ProductionUnitConverter';
 
 const STATUS_COLOR: Record<WorkOrderStatus, string> = {
   draft:    'var(--mt)',
@@ -21,6 +23,8 @@ const STATUS_COLOR: Record<WorkOrderStatus, string> = {
   closed:   'var(--gn)',
   void:     '#64748b',
 };
+
+const TANK_SIZES_GAL = [500, 1500, 2000, 2500];
 
 interface Props {
   workOrders: WorkOrder[] | null;
@@ -82,16 +86,27 @@ export function WorkOrdersTab({
     },
     { field: 'finished_label', headerName: 'Finished SKU', flex: 1, minWidth: 200,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value)}</span> },
-    { field: 'qty_to_produce', headerName: 'Qty', type: 'number', width: 90, cellClassName: 'mn',
-      valueFormatter: (v) => fmtNum(Number(v ?? 0)) },
-    { field: 'qty_produced_actual', headerName: 'Actual', type: 'number', width: 90, cellClassName: 'mn',
+    {
+      field: 'qty_to_produce', headerName: 'Target', width: 125, cellClassName: 'mn',
+      renderCell: (p) => {
+        const b = bomById.get(String(p.row.bom_id));
+        return fmtQty(Number(p.row.qty_to_produce ?? 0), String(p.row.target_uom ?? b?.yield_uom ?? 'each'));
+      },
+    },
+    {
+      field: 'actual_yield_qty', headerName: 'Actual Yield', width: 125, cellClassName: 'mn',
+      renderCell: (p) => p.row.actual_yield_qty == null
+        ? <span style={{ color: 'var(--mt)' }}>—</span>
+        : fmtQty(Number(p.row.actual_yield_qty), String(p.row.actual_yield_uom ?? p.row.target_uom ?? 'each')),
+    },
+    { field: 'qty_produced_actual', headerName: 'QBO Qty', type: 'number', width: 95, cellClassName: 'mn',
       valueFormatter: (v) => v == null ? '—' : fmtNum(Number(v)) },
     { field: 'location_label', headerName: 'Location', width: 130 },
     { field: 'scheduled_date', headerName: 'Scheduled', width: 110,
       valueFormatter: (v) => v ? String(v) : '—' },
     { field: 'created_at', headerName: 'Created', width: 160,
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
-  ], []);
+  ], [bomById]);
 
   const activeBoms = boms.filter((b) => b.is_active);
 
@@ -178,6 +193,7 @@ function CreateWorkOrderForm({
   const toast = useToast();
   const [bomId, setBomId] = useState('');
   const [qty, setQty] = useState<string>('');
+  const [targetUom, setTargetUom] = useState<string>('gal');
   const [locId, setLocId] = useState('');
   const [scheduled, setScheduled] = useState('');
   const [notes, setNotes] = useState('');
@@ -186,6 +202,26 @@ function CreateWorkOrderForm({
   const canSave = !!bomId && Number(qty) > 0 && !!locId;
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
+  const plannedRuns = useMemo(() => {
+    if (!selectedBom || !(Number(qty) > 0)) return null;
+    return scaleBom(
+      { qty: Number(qty), uom: targetUom },
+      {
+        qty: Number(selectedBom.yield_qty),
+        uom: selectedBom.yield_uom || 'each',
+        finishedVolPerYieldGal: selectedBom.finished_vol_per_yield_gal == null
+          ? undefined
+          : Number(selectedBom.finished_vol_per_yield_gal),
+        dilutionRatio: Number(selectedBom.dilution_ratio ?? 0),
+      },
+      [],
+    );
+  }, [selectedBom, qty, targetUom]);
+
+  useEffect(() => {
+    if (!selectedBom) return;
+    setTargetUom(selectedBom.yield_uom || 'gal');
+  }, [selectedBom]);
 
   async function submit() {
     if (!canSave) return;
@@ -194,6 +230,7 @@ function CreateWorkOrderForm({
       await createWorkOrder({
         bom_id: bomId,
         qty_to_produce: Number(qty),
+        target_uom: targetUom,
         production_location_id: locId,
         scheduled_date: scheduled || null,
         notes: notes || null,
@@ -222,14 +259,29 @@ function CreateWorkOrderForm({
             {boms.map((b) => {
               const it = itemLookup.byId.get(b.finished_qbo_item_id);
               return <option key={b.id} value={b.id}>
-                {it?.item_name ?? b.finished_qbo_item_id} · v{b.version}
+                {it?.item_name ?? b.finished_qbo_item_id} · v{b.version} · {fmtQty(Number(b.yield_qty), b.yield_uom || 'each')}
               </option>;
             })}
           </select>
         </LField>
-        <LField label="Qty to produce">
-          <input type="number" min={0.0001} step="any" style={inp()}
-            value={qty} onChange={(e) => setQty(e.target.value)} />
+        <LField label="Tank / qty to produce">
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="number" min={0.0001} step="any" style={{ ...inp(), flex: 1 }}
+              value={qty} onChange={(e) => setQty(e.target.value)} />
+            <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 90 }}>
+              {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          {targetUom === 'gal' && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+              {TANK_SIZES_GAL.map((tank) => (
+                <button key={tank} type="button" onClick={() => setQty(String(tank))}
+                  style={{ ...btnSecondary(), padding: '3px 7px', fontSize: 10 }}>
+                  {tank} gal
+                </button>
+              ))}
+            </div>
+          )}
         </LField>
         <LField label="Production location">
           <select style={inp()} value={locId} onChange={(e) => setLocId(e.target.value)}>
@@ -248,8 +300,33 @@ function CreateWorkOrderForm({
           background: 'rgba(91,181,240,0.04)', border: '1px solid var(--bd)', borderRadius: 4,
           fontSize: 11, color: 'var(--mt)',
         }}>
-          BOM yield: <strong style={{ color: 'var(--tx)' }}>{selectedBom.yield_qty}</strong> {selectedFinished?.item_name ?? ''} per batch
-          {Number(qty) > 0 && <> · running <strong style={{ color: 'var(--tx)' }}>{(Number(qty) / Number(selectedBom.yield_qty)).toFixed(2)}</strong> batches</>}
+          Recipe basis: <strong style={{ color: 'var(--tx)' }}>{fmtQty(Number(selectedBom.yield_qty), selectedBom.yield_uom || 'each')}</strong> per run
+          {selectedFinished?.item_name && <> · finished item: <strong style={{ color: 'var(--tx)' }}>{selectedFinished.item_name}</strong></>}
+          {Number(qty) > 0 && plannedRuns && (
+            <> · running <strong style={{ color: 'var(--tx)' }}>{plannedRuns.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong> run{plannedRuns.runs === 1 ? '' : 's'}</>
+          )}
+          {Number(qty) > 0 && !plannedRuns && (
+            <span style={{ color: 'var(--am)' }}>
+              {' '}· cannot scale {targetUom} against this BOM yet; use {selectedBom.yield_uom || 'each'} or set the gallon recipe basis.
+            </span>
+          )}
+          {uomGroup(targetUom) === 'volume' && selectedBom.cans_per_case > 0 && Number(selectedBom.oz_per_can) > 0 && (
+            <> · QBO yield estimate: <strong style={{ color: 'var(--tx)' }}>
+              {(Number(qty || 0) * (targetUom === 'gal' ? 128 : targetUom === 'fl_oz' ? 1 : targetUom === 'L' ? 33.8140227 : targetUom === 'mL' ? 0.0338140227 : 0) / (Number(selectedBom.cans_per_case) * Number(selectedBom.oz_per_can))).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </strong> finished units</>
+          )}
+        </div>
+      )}
+
+      {selectedBom && (
+        <div style={{ marginTop: 10 }}>
+          <ProductionUnitConverter
+            title="Tank and pack converter"
+            cansPerFinishedUnit={Number(selectedBom.cans_per_case || 24)}
+            ozPerCan={Number(selectedBom.oz_per_can || 12)}
+            initialQty={Number(qty) > 0 ? Number(qty) : Number(selectedBom.yield_qty)}
+            initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
+          />
         </div>
       )}
 
@@ -302,7 +379,41 @@ function WorkOrderDetailModal({
   const bom = bomById.get(wo.bom_id);
   const loc = locById.get(wo.production_location_id);
   const finished = itemLookup.byId.get(wo.finished_qbo_item_id);
-  const batches = bom ? Number(wo.qty_to_produce) / Number(bom.yield_qty) : 0;
+  const targetUom = wo.target_uom || bom?.yield_uom || 'each';
+  const targetLabel = fmtQty(Number(wo.qty_to_produce), targetUom);
+  const actualYieldLabel = wo.actual_yield_qty == null
+    ? '—'
+    : fmtQty(Number(wo.actual_yield_qty), wo.actual_yield_uom || targetUom);
+  const qboQtyLabel = wo.qty_produced_actual == null
+    ? '—'
+    : `${fmtNum(Number(wo.qty_produced_actual))} finished unit${Number(wo.qty_produced_actual) === 1 ? '' : 's'}`;
+  const plannedScale = bom && bomLines
+    ? scaleBom(
+        { qty: Number(wo.qty_to_produce), uom: targetUom },
+        {
+          qty: Number(bom.yield_qty),
+          uom: bom.yield_uom || 'each',
+          finishedVolPerYieldGal: bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal),
+          dilutionRatio: Number(bom.dilution_ratio ?? 0),
+        },
+        bomLines.map((l, idx) => {
+          const item = l.component_qbo_item_id ? itemLookup.byId.get(l.component_qbo_item_id) : null;
+          return {
+            qty_per: Number(l.qty_per),
+            qty_uom: l.qty_uom || 'each',
+            scrap_pct: Number(l.scrap_pct ?? 0),
+            ref: { idx },
+            itemName: item?.item_name ?? l.service_label ?? null,
+            itemType: l.line_type === 'service' ? 'Service' : null,
+          };
+        }),
+      )
+    : null;
+  const plannedByIdx = new Map<number, { qty: number; uom: string }>();
+  if (plannedScale) {
+    for (const line of plannedScale.scaledLines) plannedByIdx.set(line.ref.idx, { qty: line.qty, uom: line.uom });
+  }
+  const batches = plannedScale?.runs ?? (bom ? Number(wo.qty_to_produce) / Number(bom.yield_qty) : 0);
 
   async function doConsume() {
     if (!confirm(`Consume components for ${wo!.batch_code}?\n\nThis will deduct each component's qty from ${loc?.code ?? 'production location'}. Movements are append-only — to reverse, void this WO (only available from draft) or create offsetting adjustments.`)) return;
@@ -317,9 +428,9 @@ function WorkOrderDetailModal({
 
   async function doClose() {
     const actualStr = prompt(
-      `Close ${wo!.batch_code} — finished qty produced?\n\n` +
-      `Target was ${wo!.qty_to_produce}. Enter actual yield.`,
-      String(wo!.qty_to_produce)
+      `Close ${wo!.batch_code} — actual finished yield?\n\n` +
+      `Target was ${targetLabel}. Enter actual yield in ${targetUom}. The app will convert it into finished QBO units using the BOM pack size.`,
+      String(wo!.actual_yield_qty ?? wo!.qty_to_produce)
     );
     if (actualStr == null) return;
     const actual = Number(actualStr);
@@ -383,7 +494,7 @@ function WorkOrderDetailModal({
       <td>${i + 1}</td>
       <td>${escapeHtml(d.label)}</td>
       <td>${d.kind}</td>
-      <td style="text-align:right">${fmtNum(Number(d.qty))}</td>
+      <td style="text-align:right">${fmtNum(Number(d.qty))}${d.uom ? ` ${escapeHtml(d.uom)}` : ''}</td>
       <td style="text-align:right">${d.unit_cost == null ? '—' : `$${Number(d.unit_cost).toFixed(4)}`}</td>
       <td style="text-align:right">$${Number(d.extended_cost).toFixed(2)}</td>
     </tr>`).join('');
@@ -404,8 +515,9 @@ function WorkOrderDetailModal({
       <h1>Work Order · ${escapeHtml(wo.batch_code)}</h1>
       <div class="meta">
         <div class="kv"><div class="lbl">Finished SKU</div>${escapeHtml(finished?.item_name ?? wo.finished_qbo_item_id)}</div>
-        <div class="kv"><div class="lbl">BOM</div>v${escapeHtml(bom.version)} · yield ${bom.yield_qty}/batch</div>
-        <div class="kv"><div class="lbl">Qty target / actual</div>${fmtNum(Number(wo.qty_to_produce))} / ${wo.qty_produced_actual == null ? '—' : fmtNum(Number(wo.qty_produced_actual))}</div>
+        <div class="kv"><div class="lbl">BOM</div>v${escapeHtml(bom.version)} · recipe ${escapeHtml(fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each'))}/run</div>
+        <div class="kv"><div class="lbl">Tank target / actual</div>${escapeHtml(targetLabel)} / ${escapeHtml(actualYieldLabel)}</div>
+        <div class="kv"><div class="lbl">Finished QBO units</div>${escapeHtml(qboQtyLabel)}</div>
         <div class="kv"><div class="lbl">Production location</div>${escapeHtml(loc?.name ?? '?')} · ${escapeHtml(loc?.code ?? '')}</div>
         <div class="kv"><div class="lbl">Status</div>${wo.status.toUpperCase()}</div>
         <div class="kv"><div class="lbl">Scheduled / Closed</div>${escapeHtml(wo.scheduled_date ?? '—')} / ${wo.closed_at ? new Date(wo.closed_at).toLocaleDateString() : '—'}</div>
@@ -417,7 +529,7 @@ function WorkOrderDetailModal({
           <tr><td colspan="5" style="text-align:right">Components</td><td style="text-align:right">$${Number(costs.components_cost).toFixed(2)}</td></tr>
           <tr><td colspan="5" style="text-align:right">Services</td><td style="text-align:right">$${Number(costs.services_cost).toFixed(2)}</td></tr>
           <tr><td colspan="5" style="text-align:right">TOTAL</td><td style="text-align:right">$${Number(costs.total_cost).toFixed(2)}</td></tr>
-          <tr><td colspan="5" style="text-align:right">UNIT COST (÷ ${fmtNum(Number(costs.qty_produced))})</td><td style="text-align:right">${costs.unit_cost == null ? '—' : `$${Number(costs.unit_cost).toFixed(4)}`}</td></tr>
+          <tr><td colspan="5" style="text-align:right">UNIT COST (÷ ${fmtNum(Number(costs.qty_produced))} finished units)</td><td style="text-align:right">${costs.unit_cost == null ? '—' : `$${Number(costs.unit_cost).toFixed(4)}`}</td></tr>
         </tfoot>
       </table>` : '<div style="color:#94a3b8;font-style:italic">Cost rollup not yet computed (close the work order to snapshot).</div>'}
       <script>setTimeout(function(){window.print()},300);</script>
@@ -453,13 +565,26 @@ function WorkOrderDetailModal({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, fontSize: 12, marginBottom: 14 }}>
-          <Meta label="BOM" value={bom ? `v${bom.version} · yield ${bom.yield_qty}/batch` : '?'} />
-          <Meta label="Qty (target / actual)" value={`${fmtNum(Number(wo.qty_to_produce))} / ${wo.qty_produced_actual == null ? '—' : fmtNum(Number(wo.qty_produced_actual))}`} />
-          <Meta label="Batches" value={batches > 0 ? batches.toFixed(2) : '—'} />
+          <Meta label="BOM" value={bom ? `v${bom.version} · recipe ${fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')}/run` : '?'} />
+          <Meta label="Tank target / actual" value={`${targetLabel} / ${actualYieldLabel}`} />
+          <Meta label="Finished QBO units" value={qboQtyLabel} />
+          <Meta label="Runs" value={batches > 0 ? batches.toFixed(4) : '—'} />
           <Meta label="Location" value={loc ? `${loc.code} — ${loc.name}` : '?'} />
           <Meta label="Scheduled" value={wo.scheduled_date ?? '—'} />
           <Meta label="Closed" value={wo.closed_at ? new Date(wo.closed_at).toLocaleString() : '—'} />
         </div>
+
+        {bom && (
+          <div style={{ marginBottom: 14 }}>
+            <ProductionUnitConverter
+              title="Tank and pack converter"
+              cansPerFinishedUnit={Number(bom.cans_per_case || 24)}
+              ozPerCan={Number(bom.oz_per_can || 12)}
+              initialQty={Number(wo.actual_yield_qty ?? wo.qty_to_produce)}
+              initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
+            />
+          </div>
+        )}
 
         {/* Cost rollup */}
         {costs && (
@@ -476,75 +601,35 @@ function WorkOrderDetailModal({
               <Kv label="Total"      value={fm(Number(costs.total_cost))} bold />
               <Kv label="Unit cost"  value={costs.unit_cost == null ? '—' : `$${Number(costs.unit_cost).toFixed(4)}`} bold accent />
             </div>
-            {/* Per-can / per-case / per-oz from actual yield. Computed
-                client-side from total_cost ÷ finished_oz, where finished_oz
-                is derived from qty_produced × the BOM's finished-volume
-                yield (gallons-per-yield bridge or dilution-driven). The
-                actual_yield_pct vs target reveals yield loss in $$.  */}
-            {(() => {
-              if (!bom || !costs) return null;
-              const actualQty = Number(costs.qty_produced);
-              const targetQty = Number(wo.qty_to_produce);
-              const total = Number(costs.total_cost);
-              if (!(actualQty > 0) || !(total > 0)) return null;
-              // Resolve finished volume per yield-unit (gal). Uses the
-              // dilution path when set, else legacy gal-bridge, else
-              // yield_uom if it's already a volume.
-              let finishedGalPerYieldUnit: number | null = null;
-              const dr = Number(bom.dilution_ratio || 0);
-              if (dr > 0 && bom.yield_qty > 0) {
-                // Can't perfectly derive ingredient volume without the
-                // lines; fall back to gal-bridge if set.
-              }
-              if (finishedGalPerYieldUnit == null && bom.finished_vol_per_yield_gal) {
-                finishedGalPerYieldUnit = Number(bom.finished_vol_per_yield_gal) / Number(bom.yield_qty);
-              }
-              if (finishedGalPerYieldUnit == null && (bom.yield_uom === 'gal' || bom.yield_uom === 'fl_oz' || bom.yield_uom === 'L' || bom.yield_uom === 'mL')) {
-                // Yield UoM is already a volume; per yield-unit = 1 of that unit
-                const VOLUME: Record<string, number> = { gal: 128, fl_oz: 1, L: 33.8140227, mL: 0.0338140227 };
-                finishedGalPerYieldUnit = VOLUME[bom.yield_uom] / 128;
-              }
-              if (finishedGalPerYieldUnit == null) {
-                return (
-                  <div style={{ marginTop: 10, fontSize: 10, color: 'var(--mt)', fontStyle: 'italic' }}>
-                    Set <strong>1 {bom.yield_uom || 'each'} produces ___ gal</strong> on the BOM (or use volume-UoM yield) to compute $/case · $/can · $/oz.
-                  </div>
-                );
-              }
-              const cansPerCase = Number(bom.cans_per_case ?? 24);
-              const ozPerCan    = Number(bom.oz_per_can ?? 12);
-              const finishedGal = actualQty * finishedGalPerYieldUnit;
-              const finishedOz  = finishedGal * 128;
-              const cansProduced = finishedOz / ozPerCan;
-              const casesProduced = cansProduced / cansPerCase;
-              const perOz   = total / finishedOz;
-              const perCan  = perOz * ozPerCan;
-              const perCase = perCan * cansPerCase;
-              const perGal  = perOz * 128;
-              const yieldPct = targetQty > 0 ? actualQty / targetQty : null;
-              const yieldLoss = yieldPct != null && yieldPct < 1 ? total * (1 - yieldPct) / Math.max(yieldPct, 0.0001) : 0;
-              return (
-                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--bd)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
-                    Per-unit (from actual yield: {actualQty} {bom.yield_uom || 'each'} = {finishedGal.toLocaleString(undefined, { maximumFractionDigits: 1 })} gal · {cansProduced.toLocaleString(undefined, { maximumFractionDigits: 0 })} cans · {casesProduced.toLocaleString(undefined, { maximumFractionDigits: 1 })} cases)
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 13 }}>
-                    <Kv label="$ / case" value={`$${perCase.toFixed(4)}`} bold accent />
-                    <Kv label="$ / can"  value={`$${perCan.toFixed(4)}`} />
-                    <Kv label="$ / oz"   value={`$${perOz.toFixed(5)}`} />
-                    <Kv label="$ / gal"  value={`$${perGal.toFixed(4)}`} />
-                  </div>
-                  {yieldPct != null && (
-                    <div style={{ marginTop: 8, fontSize: 11, color: yieldPct < 1 ? 'var(--am)' : 'var(--gn)' }}>
-                      Yield: <strong>{(yieldPct * 100).toFixed(1)}%</strong> ({actualQty} actual / {targetQty} target)
-                      {yieldPct < 1 && (
-                        <> · loss attributable to missed yield: <strong>${yieldLoss.toFixed(2)}</strong></>
-                      )}
-                    </div>
+            {(costs.per_case != null || costs.per_can != null || costs.per_oz != null || costs.per_gal_finished != null) && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--bd)' }}>
+                <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                  Per-unit from locked yield · actual {actualYieldLabel} · QBO output {qboQtyLabel}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 13 }}>
+                  {costs.per_case != null && (
+                    <Kv label="$ / case" value={`$${Number(costs.per_case).toFixed(4)}`} bold accent />
+                  )}
+                  {costs.per_can != null && (
+                    <Kv label="$ / can" value={`$${Number(costs.per_can).toFixed(4)}`} />
+                  )}
+                  {costs.per_oz != null && (
+                    <Kv label="$ / oz" value={`$${Number(costs.per_oz).toFixed(5)}`} />
+                  )}
+                  {costs.per_gal_finished != null && (
+                    <Kv label="$ / gal" value={`$${Number(costs.per_gal_finished).toFixed(4)}`} />
                   )}
                 </div>
-              );
-            })()}
+                {costs.actual_yield_pct != null && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: Number(costs.actual_yield_pct) < 1 ? 'var(--am)' : 'var(--gn)' }}>
+                    Yield: <strong>{(Number(costs.actual_yield_pct) * 100).toFixed(1)}%</strong>
+                    {Number(costs.yield_loss_dollars ?? 0) > 0 && (
+                      <> · loss attributable to missed yield: <strong>${Number(costs.yield_loss_dollars).toFixed(2)}</strong></>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {costs.detail.length > 0 && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 10 }}>
                 <thead>
@@ -562,7 +647,7 @@ function WorkOrderDetailModal({
                         <strong>{d.label}</strong>
                         <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{d.kind}</span>
                       </td>
-                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(d.qty))}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtQty(Number(d.qty), d.uom || 'each')}</td>
                       <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
                         {d.unit_cost == null ? '—' : `$${Number(d.unit_cost).toFixed(4)}`}
                       </td>
@@ -592,25 +677,27 @@ function WorkOrderDetailModal({
                 </tr>
               </thead>
               <tbody>
-                {bomLines.map((l) => {
+                {bomLines.map((l, idx) => {
                   const label = l.line_type === 'component'
                     ? (itemLookup.byId.get(l.component_qbo_item_id ?? '')?.item_name ?? l.component_qbo_item_id ?? '?')
                     : l.service_label ?? '?';
                   const baseUnit = l.line_type === 'component'
                     ? (l.default_cost ?? itemLookup.byId.get(l.component_qbo_item_id ?? '')?.purchase_cost ?? null)
                     : l.default_cost;
-                  const qtyForWo = batches * Number(l.qty_per) * (1 + Number(l.scrap_pct));
+                  const scaled = plannedByIdx.get(idx);
                   return (
                     <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                       <td style={cellTd}>
                         <strong>{label}</strong>
                         <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{l.line_type}</span>
                       </td>
-                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(l.qty_per))}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtQty(Number(l.qty_per), l.qty_uom || 'each')}</td>
                       <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
                         {(Number(l.scrap_pct) * 100).toFixed(1)}%
                       </td>
-                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(qtyForWo)}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                        {scaled ? fmtQty(scaled.qty, scaled.uom) : '—'}
+                      </td>
                       <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
                         {baseUnit == null ? '—' : `$${Number(baseUnit).toFixed(4)}`}
                       </td>

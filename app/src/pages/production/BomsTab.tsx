@@ -8,6 +8,7 @@ import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup, inferItemVolumeFlOz } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
+import { ProductionUnitConverter } from './ProductionUnitConverter';
 
 interface Props {
   boms: ProductBom[] | null;
@@ -17,12 +18,35 @@ interface Props {
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
+const TANK_SIZES_GAL = [500, 1500, 2000, 2500];
+
 /** Friendly display label for a BOM. Falls back to "Version N" so the
  *  table never shows blank cells for older rows that pre-date the name
  *  field (migration backfill handles existing data; this is the runtime
  *  safety net for any future null). */
 function bomLabel(b: ProductBom): string {
   return (b.name && b.name.trim()) || `Version ${b.version}`;
+}
+
+function packGal(b: Pick<ProductBom, 'cans_per_case' | 'oz_per_can'>): number {
+  const cans = Number(b.cans_per_case || 24);
+  const oz = Number(b.oz_per_can || 12);
+  return cans > 0 && oz > 0 ? cans * oz / 128 : 0;
+}
+
+function bomSetupWarning(b: ProductBom): string | null {
+  const yUom = b.yield_uom || 'each';
+  if (uomGroup(yUom) === 'volume') return null;
+  const bridge = b.finished_vol_per_yield_gal == null ? null : Number(b.finished_vol_per_yield_gal);
+  const pack = packGal(b);
+  if (bridge != null && bridge > 0 && pack > 0 && (bridge > pack * 10 || bridge < pack / 10)) {
+    return `Recipe yield is count-based but the gallon bridge says ${bridge.toLocaleString()} gal per ${yUom}; ${Number(b.cans_per_case || 24)} x ${Number(b.oz_per_can || 12)} oz is about ${pack.toFixed(3)} gal. Alameda Soda batches should usually be recipe-yielded in gallons.`;
+  }
+  return 'Soda production is normally mixed by gallons first. Use a gallon recipe basis for tank runs, then let pack size convert to finished units.';
+}
+
+function serviceLikeItemName(name: string | null | undefined): boolean {
+  return /\b(LABOU?R|PACK\s*OFF|FEE|CHARGE|SHIPPING|FREIGHT|DELIVERY|SERVICE)\b/i.test(name ?? '');
 }
 
 export function BomsTab({ boms, itemLookup, onChanged }: Props) {
@@ -84,6 +108,7 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
             )}
             {boms.map((b) => {
               const it = itemLookup.byId.get(b.finished_qbo_item_id);
+              const warning = bomSetupWarning(b);
               return (
                 <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <Td><strong>{it?.item_name ?? b.finished_qbo_item_id}</strong></Td>
@@ -95,6 +120,11 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
                   </Td>
                   <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                     {fmtQty(Number(b.yield_qty), b.yield_uom || 'each')}
+                    {warning && (
+                      <div style={{ fontSize: 9, color: 'var(--am)', fontFamily: 'var(--ff-sans)', marginTop: 2 }}>
+                        Check setup
+                      </div>
+                    )}
                   </Td>
                   <Td>
                     <span style={{
@@ -137,8 +167,8 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
   const [finishedId, setFinishedId] = useState('');
   const [version, setVersion] = useState('1');
   const [name, setName] = useState('');
-  const [yieldQty, setYieldQty] = useState<string>('1');
-  const [yieldUom, setYieldUom] = useState<string>('each');
+  const [yieldQty, setYieldQty] = useState<string>('500');
+  const [yieldUom, setYieldUom] = useState<string>('gal');
   // Volume bridge: only meaningful when yield is a count UoM (each/case) and
   // 1 yield produces a known volume of finished product. Lets the scaler
   // accept "make 1000 gal" against a per-case BOM.
@@ -200,7 +230,7 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
           <input style={inp()} value={name} onChange={(e) => setName(e.target.value)}
             placeholder='e.g. "Cola — 1000 gal batch"' />
         </LField>
-        <LField label="Yield / batch">
+        <LField label="Recipe basis / tank">
           <div style={{ display: 'flex', gap: 6 }}>
             <input type="number" min={0.0001} step="any" style={{ ...inp(), flex: 1 }}
               value={yieldQty} onChange={(e) => setYieldQty(e.target.value)} />
@@ -208,6 +238,16 @@ function CreateBomForm({ itemLookup, onCancel, onCreated }: {
               {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+          {yieldUom === 'gal' && (
+            <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+              {TANK_SIZES_GAL.map((tank) => (
+                <button key={tank} type="button" onClick={() => setYieldQty(String(tank))}
+                  style={{ ...btnSecondary(), padding: '3px 7px', fontSize: 10 }}>
+                  {tank} gal
+                </button>
+              ))}
+            </div>
+          )}
         </LField>
         {uomGroup(yieldUom) === 'count' && (
           <LField label="Gal of finished product / yield (optional)">
@@ -318,6 +358,16 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     const v = Number(ozPerCan);
     return Number.isFinite(v) && v > 0 ? v : 12;
   }, [ozPerCan]);
+  const setupWarning = bomSetupWarning({
+    ...bom,
+    finished_vol_per_yield_gal: bridgeGal ?? null,
+    dilution_ratio: dilutionNum,
+    cans_per_case: cansPerCaseNum,
+    oz_per_can: ozPerCanNum,
+  });
+  const finishedUnitsPerGal = cansPerCaseNum > 0 && ozPerCanNum > 0
+    ? 128 / (cansPerCaseNum * ozPerCanNum)
+    : null;
 
   const scaling = useMemo(() => {
     const tQty = Number(targetQty) || 0;
@@ -541,6 +591,27 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
           </button>
         </div>
 
+        {setupWarning ? (
+          <div style={{
+            marginBottom: 14, padding: '10px 12px',
+            background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.32)',
+            borderRadius: 4, fontSize: 11, color: 'var(--am)', lineHeight: 1.45,
+          }}>
+            <strong>Recipe setup warning:</strong> {setupWarning}
+          </div>
+        ) : (
+          <div style={{
+            marginBottom: 14, padding: '10px 12px',
+            background: 'rgba(58,167,113,0.06)', border: '1px solid rgba(58,167,113,0.25)',
+            borderRadius: 4, fontSize: 11, color: 'var(--tx2)', lineHeight: 1.45,
+          }}>
+            Gallon-first recipe. Work orders scale the tank in {bom.yield_uom || 'gal'}, then convert finished liquid into QBO units using pack size
+            {finishedUnitsPerGal != null && (
+              <> ({finishedUnitsPerGal.toLocaleString(undefined, { maximumFractionDigits: 4 })} finished units per gal)</>
+            )}.
+          </div>
+        )}
+
         {uomGroup(bom.yield_uom || 'each') === 'count' && (
           <div style={{
             marginBottom: 10, padding: '8px 10px',
@@ -602,6 +673,12 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
           <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 110 }}>
             {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          {targetUom === 'gal' && TANK_SIZES_GAL.map((tank) => (
+            <button key={tank} type="button" onClick={() => setTargetQty(String(tank))}
+              style={{ ...btnSecondary(), padding: '3px 7px', fontSize: 10 }}>
+              {tank}
+            </button>
+          ))}
           {scaling.scaled ? (
             <span style={{ color: 'var(--mt)' }}>
               → <strong style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)' }}>
@@ -672,6 +749,16 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
                   oz per can = {(cansPerCaseNum * ozPerCanNum).toLocaleString(undefined, { maximumFractionDigits: 2 })} oz/case
                   ({(cansPerCaseNum * ozPerCanNum / 128).toLocaleString(undefined, { maximumFractionDigits: 3 })} gal/case)
                 </span>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <ProductionUnitConverter
+                  title="Tank and pack converter"
+                  cansPerFinishedUnit={cansPerCaseNum}
+                  ozPerCan={ozPerCanNum}
+                  initialQty={Number(targetQty) > 0 ? Number(targetQty) : Number(bom.yield_qty)}
+                  initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
+                />
               </div>
 
               {/* Cost rollup — theoretical (assumes 100% yield). The Work
@@ -796,6 +883,29 @@ function BomLinesEditor({ lines, setLines, itemLookup, scaledByIdx }: {
                     return (
                       <div style={{ fontSize: 9, color: 'var(--mt)', marginBottom: 2 }}>
                         SKU → <strong style={{ color: 'var(--ac)' }}>{display}</strong>/unit
+                      </div>
+                    );
+                  })()
+                )}
+                {l.line_type === 'component' && l.component_qbo_item_id && (
+                  (() => {
+                    const it = itemLookup.byId.get(l.component_qbo_item_id);
+                    if (!serviceLikeItemName(it?.item_name)) return null;
+                    return (
+                      <div style={{
+                        fontSize: 9, color: 'var(--am)', marginBottom: 4,
+                        display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                      }}>
+                        Looks like labor/packaging service.
+                        <button type="button"
+                          onClick={() => patch(i, {
+                            line_type: 'service',
+                            service_label: it?.item_name ?? 'Service',
+                            component_qbo_item_id: null,
+                          })}
+                          style={{ ...btnSecondary(), padding: '2px 6px', fontSize: 9 }}>
+                          Make service
+                        </button>
                       </div>
                     );
                   })()
@@ -930,4 +1040,3 @@ function CostStat({ label, value, primary }: { label: string; value: string; pri
     </div>
   );
 }
-
