@@ -426,6 +426,8 @@ function CopackOrderDetailModal({
   const [freight, setFreight] = useState('');
   const [otherCost, setOtherCost] = useState('');
   const [receivedAt, setReceivedAt] = useState('');
+  const [syrupGallonsActual, setSyrupGallonsActual] = useState('');
+  const [syrupRateActual, setSyrupRateActual] = useState('');
   const [busy, setBusy] = useState(false);
   const [sourceLocId, setSourceLocId] = useState('');
   const [copackerLocId, setCopackerLocId] = useState('');
@@ -451,6 +453,16 @@ function CopackOrderDetailModal({
       setCoPackFee(Number(order.co_pack_fee || 0) > 0 ? String(order.co_pack_fee) : '');
       setFreight(Number(order.freight_cost || 0) > 0 ? String(order.freight_cost) : '');
       setOtherCost(Number(order.other_landed_cost || 0) > 0 ? String(order.other_landed_cost) : '');
+      setSyrupGallonsActual(
+        order.actual_syrup_gallons == null
+          ? (order.syrup_gallons == null ? '' : String(order.syrup_gallons))
+          : String(order.actual_syrup_gallons),
+      );
+      setSyrupRateActual(
+        order.actual_syrup_unit_cost_per_gal == null
+          ? (Number(order.syrup_unit_cost_per_gal || 0) > 0 ? String(order.syrup_unit_cost_per_gal) : '')
+          : String(order.actual_syrup_unit_cost_per_gal),
+      );
       setMaterialRows(null);
       setSourceLocId((cur) => sourceLocs.some((l) => l.id === cur) ? cur : (sourceLocs[0]?.id ?? ''));
       setCopackerLocId((cur) => copackerLocs.some((l) => l.id === cur) ? cur : (copackerLocs[0]?.id ?? ''));
@@ -469,6 +481,18 @@ function CopackOrderDetailModal({
   const isSyrupMode = materialSourceMode === 'syrup_by_gallon';
   const syrupGallons = order.syrup_gallons == null ? null : Number(order.syrup_gallons);
   const syrupRate = Number(order.syrup_unit_cost_per_gal ?? 0);
+  const enteredSyrupGallons = syrupGallonsActual === '' ? null : Number(syrupGallonsActual);
+  const enteredSyrupRate = syrupRateActual === '' ? null : Number(syrupRateActual);
+  const lockedSyrupRate = order.actual_syrup_unit_cost_per_gal == null
+    ? null
+    : Number(order.actual_syrup_unit_cost_per_gal);
+  const effectiveSyrupGallons = isSyrupMode && enteredSyrupGallons != null && Number.isFinite(enteredSyrupGallons)
+    ? enteredSyrupGallons
+    : syrupGallons;
+  const effectiveSyrupRate = isSyrupMode && enteredSyrupRate != null && Number.isFinite(enteredSyrupRate)
+    ? enteredSyrupRate
+    : lockedSyrupRate ?? syrupRate;
+  const syrupInvoiceTotal = effectiveSyrupGallons == null ? null : effectiveSyrupGallons * effectiveSyrupRate;
   const orderedLabel = fmtQty(Number(order.qty_ordered), order.target_uom || 'gal');
   const receivedLabel = order.actual_yield_qty == null
     ? '—'
@@ -496,7 +520,7 @@ function CopackOrderDetailModal({
   const plannedByIdx = new Map<number, { qty: number; uom: string }>();
   if (planned) for (const line of planned.scaledLines) plannedByIdx.set(line.ref.idx, { qty: line.qty, uom: line.uom });
   const estimatedComponentCost = isSyrupMode
-    ? Number(syrupGallons ?? 0) * syrupRate
+    ? Number(effectiveSyrupGallons ?? 0) * effectiveSyrupRate
     : materialRows
     ? materialRows.reduce((sum, r) => sum + Number(r.required_qty || 0) * Number(r.unit_cost ?? 0), 0)
     : (bomLines ?? []).reduce((sum, l, idx) => {
@@ -535,7 +559,24 @@ function CopackOrderDetailModal({
       toast.error('Enter actual yield received');
       return;
     }
-    if (!confirm(`Receive ${order!.order_number}?\n\nThis will add finished inventory at landed unit cost using BOM cost + co-pack fee + freight.`)) return;
+    const syrupGallonsForReceive = isSyrupMode
+      ? (enteredSyrupGallons != null && Number.isFinite(enteredSyrupGallons) ? enteredSyrupGallons : syrupGallons)
+      : null;
+    const syrupRateForReceive = isSyrupMode
+      ? (enteredSyrupRate != null && Number.isFinite(enteredSyrupRate) ? enteredSyrupRate : syrupRate)
+      : null;
+    if (isSyrupMode && !(Number(syrupGallonsForReceive) > 0)) {
+      toast.error('Enter vendor invoice syrup gallons');
+      return;
+    }
+    if (isSyrupMode && !(Number(syrupRateForReceive) > 0)) {
+      toast.error('Enter vendor invoice syrup $ / gal');
+      return;
+    }
+    const receiveBasis = isSyrupMode
+      ? `using invoice syrup ${fmtQty(Number(syrupGallonsForReceive), 'gal')} at $${Number(syrupRateForReceive).toFixed(4)} / gal + services + landed costs`
+      : 'using BOM cost + co-pack fee + freight';
+    if (!confirm(`Receive ${order!.order_number}?\n\nThis will add finished inventory at landed unit cost ${receiveBasis}.`)) return;
     setBusy(true);
     try {
       await receiveCopackOrder({
@@ -546,6 +587,8 @@ function CopackOrderDetailModal({
         freight_cost: freight === '' ? null : Number(freight),
         other_landed_cost: otherCost === '' ? null : Number(otherCost),
         received_at: receivedAt || null,
+        syrup_gallons: syrupGallonsForReceive,
+        syrup_unit_cost_per_gal: syrupRateForReceive,
       });
       toast.success('Received finished goods and locked landed COGS');
       onChanged();
@@ -625,15 +668,21 @@ function CopackOrderDetailModal({
   function printOrder() {
     const w = window.open('', '_blank');
     if (!w) return;
+    const printSyrupGallons = costs?.syrup_gallons == null
+      ? effectiveSyrupGallons
+      : Number(costs.syrup_gallons);
+    const printSyrupRate = order!.actual_syrup_unit_cost_per_gal == null
+      ? effectiveSyrupRate
+      : Number(order!.actual_syrup_unit_cost_per_gal);
     const materialRowsHtml = isSyrupMode
       ? `<tr>
           <td>Flavor company syrup</td>
-          <td style="text-align:right">${escapeHtml(syrupGallons == null ? '-' : fmtQty(syrupGallons, 'gal'))}</td>
+          <td style="text-align:right">${escapeHtml(printSyrupGallons == null ? '-' : fmtQty(printSyrupGallons, 'gal'))}</td>
           <td style="text-align:right">Supplied by vendor</td>
           <td style="text-align:right">-</td>
           <td style="text-align:right">-</td>
           <td style="text-align:right">-</td>
-          <td style="text-align:right">${escapeHtml(`$${syrupRate.toFixed(4)}`)}</td>
+          <td style="text-align:right">${escapeHtml(`$${printSyrupRate.toFixed(4)}`)}</td>
           <td style="text-align:right">${escapeHtml(fm(estimatedComponentCost))}</td>
           <td>SYRUP</td>
         </tr>`
@@ -874,8 +923,8 @@ function CopackOrderDetailModal({
         {bom && isSyrupMode && (
           <>
             <SyrupModeNotice
-              syrupGallons={syrupGallons}
-              syrupRate={syrupRate}
+              syrupGallons={effectiveSyrupGallons}
+              syrupRate={effectiveSyrupRate}
             />
             {!costs && (
               <div style={{
@@ -886,6 +935,8 @@ function CopackOrderDetailModal({
                   Estimated COGS packet · syrup co-pack
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 8, fontSize: 13 }}>
+                  <Kv label="Syrup gal" value={effectiveSyrupGallons == null ? '—' : fmtQty(effectiveSyrupGallons, 'gal')} />
+                  <Kv label="$ / gal" value={`$${Number(effectiveSyrupRate || 0).toFixed(4)}`} />
                   <Kv label="Syrup" value={fm(estimatedComponentCost)} />
                   <Kv label="Services" value={fm(estimatedServiceCost)} />
                   <Kv label="Landed costs" value={fm(estimatedLandedCost)} />
@@ -925,6 +976,36 @@ function CopackOrderDetailModal({
                   />
                 )}
               </LField>
+              {isSyrupMode && (
+                <>
+                  <LField label="Invoice syrup gallons">
+                    <input
+                      type="number"
+                      min={0.0001}
+                      step="any"
+                      style={inp()}
+                      value={syrupGallonsActual}
+                      onChange={(e) => setSyrupGallonsActual(e.target.value)}
+                    />
+                    <div style={{ marginTop: 4, fontSize: 10, color: 'var(--mt)' }}>
+                      BOM estimate: {syrupGallons == null ? '—' : fmtQty(syrupGallons, 'gal')}
+                    </div>
+                  </LField>
+                  <LField label="Invoice $ / gal">
+                    <input
+                      type="number"
+                      min={0.0001}
+                      step="any"
+                      style={inp()}
+                      value={syrupRateActual}
+                      onChange={(e) => setSyrupRateActual(e.target.value)}
+                    />
+                    <div style={{ marginTop: 4, fontSize: 10, color: 'var(--mt)' }}>
+                      Syrup total: {syrupInvoiceTotal == null ? '—' : fm(syrupInvoiceTotal)}
+                    </div>
+                  </LField>
+                </>
+              )}
               <LField label="Co-pack fee">
                 <input type="number" min={0} step="any" style={inp()} value={coPackFee} onChange={(e) => setCoPackFee(e.target.value)} />
               </LField>
@@ -949,8 +1030,10 @@ function CopackOrderDetailModal({
             <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
               Landed COGS · locked {new Date(costs.computed_at).toLocaleString()}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 8, fontSize: 13 }}>
               <Kv label={isSyrupMode ? 'Syrup' : 'BOM components'} value={fm(Number(costs.components_cost))} />
+              {isSyrupMode && <Kv label="Syrup gal" value={costs.syrup_gallons == null ? '—' : fmtQty(Number(costs.syrup_gallons), 'gal')} />}
+              {isSyrupMode && <Kv label="$ / gal" value={`$${Number(effectiveSyrupRate || 0).toFixed(4)}`} />}
               <Kv label="BOM services" value={fm(Number(costs.services_cost))} />
               <Kv label="Co-pack fee" value={fm(Number(costs.co_pack_fee))} />
               <Kv label="Freight" value={fm(Number(costs.freight_cost))} />
