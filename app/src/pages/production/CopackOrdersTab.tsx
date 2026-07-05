@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { CheckCircle2, FileText, Plus, Send, X as XIcon } from 'lucide-react';
+import { CheckCircle2, FileText, Plus, Send, Truck, X as XIcon } from 'lucide-react';
 import {
-  CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
+  BomMaterialRequirement, CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
   receiveCopackOrder, sendCopackOrder, voidCopackOrder,
 } from '../../lib/production';
 import type { QboVendor } from '../../lib/purchasing';
-import type { InventoryLocation } from '../../lib/inventoryControl';
+import {
+  createTransfer,
+  type InventoryLocation,
+  type InventoryTransferLineInput,
+} from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { fm, fmtNum } from '../../lib/formatters';
@@ -170,6 +174,7 @@ export function CopackOrdersTab({
           orderId={openId}
           order={(orders ?? []).find((o) => o.id === openId) ?? null}
           bomById={bomById}
+          locations={locations}
           locById={locById}
           itemLookup={itemLookup}
           onClose={() => setOpenId(null)}
@@ -346,11 +351,12 @@ function CreateCopackOrderForm({
 }
 
 function CopackOrderDetailModal({
-  orderId, order, bomById, locById, itemLookup, onClose, onChanged,
+  orderId, order, bomById, locations, locById, itemLookup, onClose, onChanged,
 }: {
   orderId: string;
   order: CopackOrderRow | null;
   bomById: Map<string, ProductBom>;
+  locations: InventoryLocation[];
   locById: Map<string, InventoryLocation>;
   itemLookup: ProductionItemLookup;
   onClose: () => void;
@@ -366,6 +372,19 @@ function CopackOrderDetailModal({
   const [otherCost, setOtherCost] = useState('');
   const [receivedAt, setReceivedAt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sourceLocId, setSourceLocId] = useState('');
+  const [copackerLocId, setCopackerLocId] = useState('');
+  const [materialRows, setMaterialRows] = useState<BomMaterialRequirement[] | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
+
+  const sourceLocs = useMemo(
+    () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment' && l.kind !== 'co_packer'),
+    [locations],
+  );
+  const copackerLocs = useMemo(
+    () => locations.filter((l) => l.is_active && l.kind === 'co_packer'),
+    [locations],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -377,13 +396,18 @@ function CopackOrderDetailModal({
       setCoPackFee(Number(order.co_pack_fee || 0) > 0 ? String(order.co_pack_fee) : '');
       setFreight(Number(order.freight_cost || 0) > 0 ? String(order.freight_cost) : '');
       setOtherCost(Number(order.other_landed_cost || 0) > 0 ? String(order.other_landed_cost) : '');
+      setSourceLocId((cur) => sourceLocs.some((l) => l.id === cur) ? cur : (sourceLocs[0]?.id ?? ''));
+      setCopackerLocId((cur) => copackerLocs.some((l) => l.id === cur) ? cur : (copackerLocs[0]?.id ?? ''));
     }
     return () => { alive = false; };
-  }, [orderId, order]);
+  }, [orderId, order, sourceLocs, copackerLocs]);
 
   if (!order) return null;
+  const currentOrder = order;
   const bom = bomById.get(order.bom_id);
   const loc = locById.get(order.destination_location_id);
+  const sourceLoc = locById.get(sourceLocId);
+  const copackerLoc = locById.get(copackerLocId);
   const finished = itemLookup.byId.get(order.finished_qbo_item_id);
   const orderedLabel = fmtQty(Number(order.qty_ordered), order.target_uom || 'gal');
   const receivedLabel = order.actual_yield_qty == null
@@ -466,6 +490,49 @@ function CopackOrderDetailModal({
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
+  }
+
+  async function doCreateMaterialTransfer() {
+    if (!sourceLocId || !copackerLocId || sourceLocId === copackerLocId) {
+      toast.error('Pick a source and co-packer location');
+      return;
+    }
+    const rows = (materialRows ?? []).filter((r) => Number(r.required_qty) > 0);
+    if (rows.length === 0) {
+      toast.error('No raw material rows are available yet');
+      return;
+    }
+    const shortRows = rows.filter((r) => Number(r.shortage_qty) > 0);
+    const shortMsg = shortRows.length > 0
+      ? `\n\nWarning: ${sourceLoc?.code ?? 'source'} is short on ${shortRows.length} item${shortRows.length === 1 ? '' : 's'}. The draft transfer will still be a staging packet, but do not ship it until the shortage is resolved.`
+      : '';
+    if (!confirm(`Create a draft material transfer for ${currentOrder.order_number}?${shortMsg}`)) return;
+
+    const transferLines: InventoryTransferLineInput[] = rows.map((r) => ({
+      qbo_item_id: r.component_qbo_item_id,
+      qty: Number(r.required_qty),
+      unit_cost: r.unit_cost == null ? null : Number(r.unit_cost),
+      notes: `${currentOrder.order_number} raw material · required ${fmtQty(Number(r.required_qty), r.required_uom || 'each')}` +
+        (Number(r.shortage_qty) > 0 ? ` · source short ${fmtQty(Number(r.shortage_qty), r.required_uom || 'each')}` : ''),
+    }));
+
+    setTransferBusy(true);
+    try {
+      await createTransfer({
+        from_location_id: sourceLocId,
+        to_location_id: copackerLocId,
+        lines: transferLines,
+        notes: [
+          `Raw materials for co-pack order ${currentOrder.order_number}`,
+          `Finished SKU: ${finished?.item_name ?? currentOrder.finished_item_name ?? currentOrder.finished_qbo_item_id}`,
+          `Order yield: ${orderedLabel}`,
+          `Co-packer: ${currentOrder.vendor_name ?? currentOrder.qbo_vendor_id}`,
+        ].join('\n'),
+        special_instructions: `Stage and ship raw materials for ${currentOrder.order_number}. Do not mark shipped until source shortages are resolved.`,
+      });
+      toast.success('Draft raw material transfer created');
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setTransferBusy(false); }
   }
 
   function printOrder() {
@@ -562,12 +629,65 @@ function CopackOrderDetailModal({
         )}
 
         {bom && (
-          <MaterialRequirementsPanel
-            bomId={bom.id}
-            targetQty={Number(order.qty_ordered)}
-            targetUom={order.target_uom || 'gal'}
-            title="Raw materials to stage for co-packer"
-          />
+          <>
+            <div style={{
+              marginBottom: 10,
+              padding: 12,
+              border: '1px solid var(--bd)',
+              borderRadius: 4,
+              background: 'rgba(255,255,255,0.025)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+                <Truck size={15} color="var(--ac)" />
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                    Stage raw materials to co-packer
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 2 }}>
+                    Creates a draft stock transfer packet. Inventory moves only when the transfer is shipped.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, alignItems: 'end' }}>
+                <LField label="Source stock location">
+                  <select style={inp()} value={sourceLocId} onChange={(e) => setSourceLocId(e.target.value)}>
+                    <option value="">—</option>
+                    {sourceLocs.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
+                  </select>
+                </LField>
+                <LField label="Co-packer staging location">
+                  <select style={inp()} value={copackerLocId} onChange={(e) => setCopackerLocId(e.target.value)}>
+                    <option value="">—</option>
+                    {copackerLocs.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
+                  </select>
+                </LField>
+                <div>
+                  <button
+                    onClick={doCreateMaterialTransfer}
+                    disabled={transferBusy || !sourceLocId || !copackerLocId || !materialRows || materialRows.length === 0}
+                    style={btnPrimary()}
+                  >
+                    <Truck size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
+                    {transferBusy ? 'Creating…' : 'Create Draft Transfer'}
+                  </button>
+                </div>
+              </div>
+              {copackerLocs.length === 0 && (
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--am)' }}>
+                  Add an active inventory location with kind “co-packer” before creating staging transfers.
+                </div>
+              )}
+            </div>
+            <MaterialRequirementsPanel
+              bomId={bom.id}
+              targetQty={Number(order.qty_ordered)}
+              targetUom={order.target_uom || 'gal'}
+              locationId={sourceLocId || null}
+              locationLabel={sourceLoc ? `${sourceLoc.code} — ${sourceLoc.name}` : null}
+              title="Raw materials to stage for co-packer"
+              onRowsChange={setMaterialRows}
+            />
+          </>
         )}
 
         {canReceive && (
