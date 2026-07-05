@@ -153,6 +153,8 @@ export interface CopackOrderRow {
   void_reason: string | null;
   material_source_mode: CopackMaterialSourceMode;
   syrup_unit_cost_per_gal: number;
+  actual_syrup_gallons: number | null;
+  actual_syrup_unit_cost_per_gal: number | null;
   syrup_gallons: number | null;
   co_pack_fee: number;
   freight_cost: number;
@@ -384,6 +386,8 @@ export async function receiveCopackOrder(args: {
   freight_cost?: number | null;
   other_landed_cost?: number | null;
   received_at?: string | null;
+  syrup_gallons?: number | null;
+  syrup_unit_cost_per_gal?: number | null;
 }): Promise<void> {
   await sbrpc('fn_receive_copack_order', {
     p_order_id: args.order_id,
@@ -393,6 +397,8 @@ export async function receiveCopackOrder(args: {
     p_freight_cost: args.freight_cost ?? null,
     p_other_landed_cost: args.other_landed_cost ?? null,
     p_received_at: args.received_at ?? null,
+    p_syrup_gallons: args.syrup_gallons ?? null,
+    p_syrup_unit_cost_per_gal: args.syrup_unit_cost_per_gal ?? null,
   });
 }
 
