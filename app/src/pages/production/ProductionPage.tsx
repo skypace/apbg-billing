@@ -13,8 +13,8 @@ import {
   fetchLocations, InventoryLocation,
 } from '../../lib/inventoryControl';
 import {
-  ProductBom, WorkOrder,
-  fetchBoms, fetchWorkOrders,
+  CopackOrderRow, ProductBom, WorkOrder,
+  fetchBoms, fetchCopackOrders, fetchWorkOrders,
 } from '../../lib/production';
 import {
   PurchaseOrderLineSummary, PurchaseOrderRow, QboVendor,
@@ -24,17 +24,19 @@ import { TABS_SX } from '../stock/stockStyles';
 import { BomsTab } from './BomsTab';
 import { WorkOrdersTab } from './WorkOrdersTab';
 import { PurchaseOrdersTab } from './PurchaseOrdersTab';
+import { CopackOrdersTab } from './CopackOrdersTab';
 
-type TabId = 'boms' | 'work_orders' | 'purchase_orders';
+type TabId = 'boms' | 'work_orders' | 'copack_orders' | 'purchase_orders';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'boms',            label: 'Bills of Materials' },
   { id: 'work_orders',     label: 'Work Orders'        },
+  { id: 'copack_orders',   label: 'Co-Pack Orders'     },
   { id: 'purchase_orders', label: 'Purchase Orders'    },
 ];
 
 function coerceTab(value: unknown): TabId | null {
-  return value === 'boms' || value === 'work_orders' || value === 'purchase_orders'
+  return value === 'boms' || value === 'work_orders' || value === 'copack_orders' || value === 'purchase_orders'
     ? value
     : null;
 }
@@ -69,6 +71,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [tab, setTab] = useState<TabId>(initialTab);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
   const [wos, setWos] = useState<WorkOrder[] | null>(null);
+  const [copacks, setCopacks] = useState<CopackOrderRow[] | null>(null);
   const [items, setItems] = useState<InventoryHealthRow[] | null>(null);
   const [locations, setLocations] = useState<InventoryLocation[] | null>(null);
   const [vendors, setVendors] = useState<QboVendor[] | null>(null);
@@ -76,9 +79,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [poLines, setPoLines] = useState<PurchaseOrderLineSummary[] | null>(null);
 
   function reloadAll() {
-    setBoms(null); setWos(null); setPos(null); setPoLines(null);
+    setBoms(null); setWos(null); setCopacks(null); setPos(null); setPoLines(null);
     fetchBoms().then(setBoms).catch(() => setBoms([]));
     fetchWorkOrders().then(setWos).catch(() => setWos([]));
+    fetchCopackOrders().then(setCopacks).catch(() => setCopacks([]));
     fetchInventoryHealth({ lookback: 90 }).then(setItems).catch(() => setItems([]));
     fetchLocations().then(setLocations).catch(() => setLocations([]));
     fetchVendors().then(setVendors).catch(() => setVendors([]));
@@ -150,6 +154,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     () => wos ? wos.filter((w) => itemLookup.byId.get(w.finished_qbo_item_id)?.inventory_lane === lane) : null,
     [wos, itemLookup, lane],
   );
+  const filteredCopacks = useMemo(
+    () => copacks ? copacks.filter((o) => itemLookup.byId.get(o.finished_qbo_item_id)?.inventory_lane === lane) : null,
+    [copacks, itemLookup, lane],
+  );
   const lanePoIds = useMemo(() => {
     const ids = new Set<string>();
     for (const line of poLines ?? []) {
@@ -164,6 +172,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
 
   const activeLabel = visibleTabs.find((t) => t.id === tab)?.label ?? 'Production';
   const openCount = (filteredWos ?? []).filter((w) => w.status === 'draft' || w.status === 'consumed').length;
+  const openCopackCount = (filteredCopacks ?? []).filter((o) => o.status === 'draft' || o.status === 'sent').length;
   const openPoCount = (filteredPos ?? []).filter((p) => p.status === 'open' || p.status === 'partial').length;
 
   return (
@@ -173,7 +182,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           <div className="hero-eyebrow">BOM · Work Orders · Purchase Orders · Cost Rollup</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
-            {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
+            {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openCopackCount} open co-pack · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
           </div>
         </div>
         <div className="hero-stamp">
@@ -191,7 +200,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           <InventoryLaneSelector value={lane} onChange={setLane} />
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-            {lane === 'bib_product' ? 'Purchasing only' : 'BOMs and work orders enabled'}
+            {lane === 'bib_product' ? 'Purchasing only' : 'BOMs, work orders, and co-pack orders enabled'}
           </span>
         </div>
       </div>
@@ -208,6 +217,18 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           workOrders={filteredWos}
           boms={filteredBoms ?? []}
           bomById={bomById}
+          locations={locations ?? []}
+          locById={locById}
+          itemLookup={itemLookup}
+          onChanged={reloadAll}
+        />
+      )}
+      {tab === 'copack_orders' && (
+        <CopackOrdersTab
+          orders={filteredCopacks}
+          boms={filteredBoms ?? []}
+          bomById={bomById}
+          vendors={vendors}
           locations={locations ?? []}
           locById={locById}
           itemLookup={itemLookup}
