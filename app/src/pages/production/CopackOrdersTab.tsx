@@ -15,6 +15,7 @@ import { GRID_DEFAULTS, GRID_SX } from '../stock/stockStyles';
 import { fmtQty, scaleBom, UOM_OPTIONS } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 import { ProductionUnitConverter } from './ProductionUnitConverter';
+import { MaterialRequirementsPanel } from './MaterialRequirementsPanel';
 
 const STATUS_COLOR: Record<CopackOrderStatus, string> = {
   draft: 'var(--mt)',
@@ -320,6 +321,15 @@ function CreateCopackOrderForm({
         </div>
       )}
 
+      {selectedBom && Number(qty) > 0 && (
+        <MaterialRequirementsPanel
+          bomId={selectedBom.id}
+          targetQty={Number(qty)}
+          targetUom={targetUom}
+          title="Raw materials to stage for co-packer"
+        />
+      )}
+
       <LField label="Notes / instructions for co-packer">
         <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
           value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -549,6 +559,15 @@ function CopackOrderDetailModal({
               initialUnit={(actualUom === 'gal' || actualUom === 'fl_oz') ? actualUom : 'gal'}
             />
           </div>
+        )}
+
+        {bom && (
+          <MaterialRequirementsPanel
+            bomId={bom.id}
+            targetQty={Number(order.qty_ordered)}
+            targetUom={order.target_uom || 'gal'}
+            title="Raw materials to stage for co-packer"
+          />
         )}
 
         {canReceive && (

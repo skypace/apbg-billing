@@ -198,6 +198,26 @@ export interface CopackOrderCosts {
   computed_at: string;
 }
 
+export type BomMaterialRequirementStatus = 'ok' | 'on_order' | 'short' | 'no_stock';
+
+export interface BomMaterialRequirement {
+  component_qbo_item_id: string;
+  item_name: string | null;
+  required_qty: number;
+  required_uom: string;
+  source_line_count: number;
+  qty_per: number | null;
+  scrap_pct: number | null;
+  on_hand_qty: number;
+  location_on_hand_qty: number | null;
+  on_order_qty: number;
+  available_qty: number;
+  shortage_qty: number;
+  unit_cost: number | null;
+  shortage_cost: number;
+  status: BomMaterialRequirementStatus;
+}
+
 // ── Reads ────────────────────────────────────────────────────────────────
 
 export async function fetchBoms(): Promise<ProductBom[]> {
@@ -225,6 +245,20 @@ export async function fetchCopackOrders(limit = 200): Promise<CopackOrderRow[]> 
 export async function fetchCopackOrderCosts(orderId: string): Promise<CopackOrderCosts | null> {
   const rows = await sbq<CopackOrderCosts>('copack_order_costs', `select=*&order_id=eq.${orderId}`);
   return rows[0] ?? null;
+}
+
+export async function fetchBomMaterialRequirements(args: {
+  bom_id: string;
+  target_qty: number;
+  target_uom?: string | null;
+  location_id?: string | null;
+}): Promise<BomMaterialRequirement[]> {
+  return sbrpc<BomMaterialRequirement[]>('fn_bom_material_requirements', {
+    p_bom_id: args.bom_id,
+    p_target_qty: args.target_qty,
+    p_target_uom: args.target_uom ?? null,
+    p_location_id: args.location_id ?? null,
+  });
 }
 
 // ── BOM mutations ────────────────────────────────────────────────────────

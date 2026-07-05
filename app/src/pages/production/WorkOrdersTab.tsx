@@ -16,6 +16,7 @@ import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import { UOM_OPTIONS, fmtQty, scaleBom, uomGroup } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 import { ProductionUnitConverter } from './ProductionUnitConverter';
+import { MaterialRequirementsPanel } from './MaterialRequirementsPanel';
 
 const STATUS_COLOR: Record<WorkOrderStatus, string> = {
   draft:    'var(--mt)',
@@ -202,6 +203,7 @@ function CreateWorkOrderForm({
   const canSave = !!bomId && Number(qty) > 0 && !!locId;
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
+  const selectedLoc = locations.find((l) => l.id === locId);
   const plannedRuns = useMemo(() => {
     if (!selectedBom || !(Number(qty) > 0)) return null;
     return scaleBom(
@@ -328,6 +330,17 @@ function CreateWorkOrderForm({
             initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
           />
         </div>
+      )}
+
+      {selectedBom && Number(qty) > 0 && (
+        <MaterialRequirementsPanel
+          bomId={selectedBom.id}
+          targetQty={Number(qty)}
+          targetUom={targetUom}
+          locationId={locId || null}
+          locationLabel={selectedLoc ? `${selectedLoc.code} — ${selectedLoc.name}` : null}
+          title="Raw materials for this work order"
+        />
       )}
 
       <div style={{ marginTop: 12 }}>
@@ -584,6 +597,17 @@ function WorkOrderDetailModal({
               initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
             />
           </div>
+        )}
+
+        {bom && (
+          <MaterialRequirementsPanel
+            bomId={bom.id}
+            targetQty={Number(wo.qty_to_produce)}
+            targetUom={targetUom}
+            locationId={wo.production_location_id}
+            locationLabel={loc ? `${loc.code} — ${loc.name}` : null}
+            title="Raw materials for this work order"
+          />
         )}
 
         {/* Cost rollup */}
