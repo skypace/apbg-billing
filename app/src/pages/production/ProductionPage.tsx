@@ -120,10 +120,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     const componentOptions: { id: string; label: string }[] = [];
     for (const it of items ?? []) {
       byId.set(it.qbo_item_id, it);
+      if (it.track_locations) componentOptions.push({ id: it.qbo_item_id, label: it.item_name });
     }
     for (const it of laneItems) {
       if (lane === 'cans_24pk' && it.has_bom) finishedOptions.push({ id: it.qbo_item_id, label: it.item_name });
-      if (it.track_locations) componentOptions.push({ id: it.qbo_item_id, label: it.item_name });
     }
     finishedOptions.sort((a, b) => a.label.localeCompare(b.label));
     componentOptions.sort((a, b) => a.label.localeCompare(b.label));
