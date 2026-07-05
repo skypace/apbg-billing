@@ -24,13 +24,14 @@ interface Props {
   locationId?: string | null;
   locationLabel?: string | null;
   title?: string;
+  onRowsChange?: (rows: BomMaterialRequirement[] | null) => void;
 }
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
 export function MaterialRequirementsPanel({
   bomId, targetQty, targetUom, locationId = null, locationLabel = null,
-  title = 'Raw material requirements',
+  title = 'Raw material requirements', onRowsChange,
 }: Props) {
   const toast = useToast();
   const [rows, setRows] = useState<BomMaterialRequirement[] | null>(null);
@@ -44,20 +45,22 @@ export function MaterialRequirementsPanel({
     if (!canLoad || !bomId) {
       setRows(null);
       setError(null);
+      onRowsChange?.(null);
       return () => { alive = false; };
     }
     setRows(null);
     setError(null);
+    onRowsChange?.(null);
     fetchBomMaterialRequirements({
       bom_id: bomId,
       target_qty: qty,
       target_uom: targetUom || null,
       location_id: locationId || null,
     })
-      .then((r) => { if (alive) setRows(r); })
-      .catch((e) => { if (alive) { setRows([]); setError(errMsg(e)); } });
+      .then((r) => { if (alive) { setRows(r); onRowsChange?.(r); } })
+      .catch((e) => { if (alive) { setRows([]); setError(errMsg(e)); onRowsChange?.([]); } });
     return () => { alive = false; };
-  }, [bomId, canLoad, qty, targetUom, locationId]);
+  }, [bomId, canLoad, qty, targetUom, locationId, onRowsChange]);
 
   const summary = useMemo(() => {
     const list = rows ?? [];
