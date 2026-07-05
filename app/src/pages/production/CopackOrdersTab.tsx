@@ -435,6 +435,27 @@ function CopackOrderDetailModal({
   ) : null;
   const plannedByIdx = new Map<number, { qty: number; uom: string }>();
   if (planned) for (const line of planned.scaledLines) plannedByIdx.set(line.ref.idx, { qty: line.qty, uom: line.uom });
+  const estimatedComponentCost = materialRows
+    ? materialRows.reduce((sum, r) => sum + Number(r.required_qty || 0) * Number(r.unit_cost ?? 0), 0)
+    : (bomLines ?? []).reduce((sum, l, idx) => {
+      if (l.line_type !== 'component') return sum;
+      const scaled = plannedByIdx.get(idx);
+      const unitCost = l.default_cost ?? itemLookup.byId.get(l.component_qbo_item_id ?? '')?.purchase_cost ?? 0;
+      return sum + Number(scaled?.qty ?? 0) * Number(unitCost ?? 0);
+    }, 0);
+  const estimatedServiceCost = (bomLines ?? []).reduce((sum, l, idx) => {
+    if (l.line_type !== 'service') return sum;
+    const scaled = plannedByIdx.get(idx);
+    return sum + Number(scaled?.qty ?? 0) * Number(l.default_cost ?? 0);
+  }, 0);
+  const estimatedLandedCost = Number(order.co_pack_fee || 0) + Number(order.freight_cost || 0) + Number(order.other_landed_cost || 0);
+  const estimatedTotalCost = estimatedComponentCost + estimatedServiceCost + estimatedLandedCost;
+  const estimatedFinishedUnits = bom ? estimateFinishedUnits(Number(order.qty_ordered), order.target_uom || 'gal', bom) : null;
+  const estimatedUnitCost = estimatedFinishedUnits && estimatedFinishedUnits > 0
+    ? estimatedTotalCost / estimatedFinishedUnits
+    : null;
+  const shortageRows = (materialRows ?? []).filter((r) => Number(r.shortage_qty) > 0);
+  const shortageCost = shortageRows.reduce((sum, r) => sum + Number(r.shortage_cost ?? 0), 0);
 
   async function doSend() {
     setBusy(true);
@@ -538,40 +559,102 @@ function CopackOrderDetailModal({
   function printOrder() {
     const w = window.open('', '_blank');
     if (!w) return;
-    const rows = (bomLines ?? []).map((l, idx) => {
-      const itemName = l.line_type === 'component'
-        ? itemLookup.byId.get(l.component_qbo_item_id ?? '')?.item_name ?? l.component_qbo_item_id ?? '?'
-        : l.service_label ?? '?';
+    const materialRowsHtml = materialRows && materialRows.length > 0
+      ? materialRows.map((r) => {
+        const uom = r.required_uom || 'each';
+        const sourceStock = sourceLocId ? Number(r.location_on_hand_qty ?? 0) : Number(r.on_hand_qty ?? 0);
+        const status = Number(r.shortage_qty) > 0 ? 'SHORT' : r.status.toUpperCase();
+        const extended = Number(r.required_qty || 0) * Number(r.unit_cost ?? 0);
+        return `<tr class="${Number(r.shortage_qty) > 0 ? 'warn' : ''}">
+          <td>${escapeHtml(r.item_name ?? r.component_qbo_item_id)}</td>
+          <td style="text-align:right">${escapeHtml(fmtQty(Number(r.required_qty), uom))}</td>
+          <td style="text-align:right">${escapeHtml(fmtQty(sourceStock, uom))}</td>
+          <td style="text-align:right">${escapeHtml(fmtQty(Number(r.on_hand_qty ?? 0), uom))}</td>
+          <td style="text-align:right">${escapeHtml(fmtQty(Number(r.on_order_qty ?? 0), uom))}</td>
+          <td style="text-align:right">${escapeHtml(fmtQty(Number(r.shortage_qty ?? 0), uom))}</td>
+          <td style="text-align:right">${escapeHtml(r.unit_cost == null ? '-' : `$${Number(r.unit_cost).toFixed(4)}`)}</td>
+          <td style="text-align:right">${escapeHtml(fm(extended))}</td>
+          <td>${escapeHtml(status)}</td>
+        </tr>`;
+      }).join('')
+      : (bomLines ?? []).map((l, idx) => ({ l, idx })).filter(({ l }) => l.line_type === 'component').map(({ l, idx }) => {
+        const itemName = itemLookup.byId.get(l.component_qbo_item_id ?? '')?.item_name ?? l.component_qbo_item_id ?? '?';
+        const scaled = plannedByIdx.get(idx);
+        const unitCost = l.default_cost ?? itemLookup.byId.get(l.component_qbo_item_id ?? '')?.purchase_cost ?? null;
+        const extended = Number(scaled?.qty ?? 0) * Number(unitCost ?? 0);
+        return `<tr>
+          <td>${escapeHtml(itemName)}</td>
+          <td style="text-align:right">${escapeHtml(scaled ? fmtQty(scaled.qty, scaled.uom) : '-')}</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">${escapeHtml(unitCost == null ? '-' : `$${Number(unitCost).toFixed(4)}`)}</td>
+          <td style="text-align:right">${escapeHtml(fm(extended))}</td>
+          <td>UNCHECKED</td>
+        </tr>`;
+      }).join('');
+    const serviceRowsHtml = (bomLines ?? []).map((l, idx) => ({ l, idx })).filter(({ l }) => l.line_type === 'service').map(({ l, idx }) => {
+      const itemName = l.service_label ?? '?';
       const scaled = plannedByIdx.get(idx);
+      const unitCost = l.default_cost ?? null;
+      const extended = Number(scaled?.qty ?? 0) * Number(unitCost ?? 0);
       return `<tr>
         <td>${escapeHtml(itemName)}</td>
-        <td>${escapeHtml(l.line_type)}</td>
         <td style="text-align:right">${escapeHtml(fmtQty(Number(l.qty_per), l.qty_uom || 'each'))}</td>
         <td style="text-align:right">${escapeHtml(scaled ? fmtQty(scaled.qty, scaled.uom) : '-')}</td>
+        <td style="text-align:right">${escapeHtml(unitCost == null ? '-' : `$${Number(unitCost).toFixed(4)}`)}</td>
+        <td style="text-align:right">${escapeHtml(fm(extended))}</td>
       </tr>`;
     }).join('');
+    const costBasis = costs ? `Locked ${new Date(costs.computed_at).toLocaleString()}` : 'Estimated from current BOM + item costs';
+    const packetComponentCost = costs ? Number(costs.components_cost) : estimatedComponentCost;
+    const packetServiceCost = costs ? Number(costs.services_cost) : estimatedServiceCost;
+    const packetCoPackFee = costs ? Number(costs.co_pack_fee) : Number(order!.co_pack_fee || 0);
+    const packetFreight = costs ? Number(costs.freight_cost) : Number(order!.freight_cost || 0);
+    const packetOther = costs ? Number(costs.other_cost) : Number(order!.other_landed_cost || 0);
+    const packetTotal = costs ? Number(costs.total_cost) : estimatedTotalCost;
+    const packetUnitCost = costs ? costs.unit_cost : estimatedUnitCost;
     w.document.write(`<html><head><title>${escapeHtml(order!.order_number)}</title>
       <style>
         @page{size:letter;margin:0.5in}
         body{font-family:system-ui,sans-serif;color:#0a0e17;font-size:11px;margin:0}
         h1{font-size:20px;border-bottom:3px solid #0a0e17;padding-bottom:6px;margin:0 0 12px}
+        h2{font-size:12px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:1px}
         .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
         .kv{border:1px solid #0a0e17;padding:6px 8px}
         .lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:#475569;text-transform:uppercase}
         table{width:100%;border-collapse:collapse;font-size:10.5px;border:1px solid #0a0e17;margin-top:10px}
         th{background:#0a0e17;color:#fff;padding:5px 6px;font-size:8.5px;text-align:left;text-transform:uppercase;letter-spacing:1px}
         td{padding:5px 6px;border-bottom:1px solid #e2e8f0}
+        .warn td{background:#fff7ed}
+        .totals{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
       </style></head><body>
       <h1>Co-Pack Order · ${escapeHtml(order!.order_number)}</h1>
       <div class="meta">
         <div class="kv"><div class="lbl">Co-packer</div>${escapeHtml(order!.vendor_name ?? order!.qbo_vendor_id)}</div>
         <div class="kv"><div class="lbl">Finished SKU</div>${escapeHtml(finished?.item_name ?? order!.finished_item_name ?? order!.finished_qbo_item_id)}</div>
         <div class="kv"><div class="lbl">Ordered yield</div>${escapeHtml(orderedLabel)}</div>
+        <div class="kv"><div class="lbl">Finished units</div>${escapeHtml(order!.finished_units_received == null ? (estimatedFinishedUnits == null ? '-' : fmtNum(estimatedFinishedUnits)) : fmtNum(Number(order!.finished_units_received)))}</div>
         <div class="kv"><div class="lbl">Expected</div>${escapeHtml(order!.expected_date ?? '-')}</div>
         <div class="kv"><div class="lbl">Receive to</div>${escapeHtml(loc?.name ?? order!.location_label ?? '-')}</div>
+        <div class="kv"><div class="lbl">Stage from</div>${escapeHtml(sourceLoc ? `${sourceLoc.code} - ${sourceLoc.name}` : '-')}</div>
+        <div class="kv"><div class="lbl">Co-packer staging</div>${escapeHtml(copackerLoc ? `${copackerLoc.code} - ${copackerLoc.name}` : '-')}</div>
         <div class="kv"><div class="lbl">Instructions</div>${escapeHtml(order!.notes ?? '-')}</div>
       </div>
-      <table><thead><tr><th>Item / Service</th><th>Type</th><th style="text-align:right">Qty / Recipe</th><th style="text-align:right">Required</th></tr></thead><tbody>${rows}</tbody></table>
+      <h2>Cost Summary · ${escapeHtml(costBasis)}</h2>
+      <div class="totals">
+        <div class="kv"><div class="lbl">Components</div>${escapeHtml(fm(packetComponentCost))}</div>
+        <div class="kv"><div class="lbl">Services</div>${escapeHtml(fm(packetServiceCost))}</div>
+        <div class="kv"><div class="lbl">Co-pack fee</div>${escapeHtml(fm(packetCoPackFee))}</div>
+        <div class="kv"><div class="lbl">Freight</div>${escapeHtml(fm(packetFreight))}</div>
+        <div class="kv"><div class="lbl">Other</div>${escapeHtml(fm(packetOther))}</div>
+        <div class="kv"><div class="lbl">Landed $/unit</div>${escapeHtml(packetUnitCost == null ? '-' : `$${Number(packetUnitCost).toFixed(4)}`)}</div>
+      </div>
+      <div class="kv" style="margin-top:6px"><div class="lbl">Total landed COGS</div>${escapeHtml(fm(packetTotal))}</div>
+      <h2>Raw Materials ${shortageRows.length > 0 ? `· ${shortageRows.length} short` : ''}</h2>
+      <table><thead><tr><th>Component</th><th style="text-align:right">Required</th><th style="text-align:right">Source stock</th><th style="text-align:right">All stock</th><th style="text-align:right">On order</th><th style="text-align:right">Short</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th><th>Status</th></tr></thead><tbody>${materialRowsHtml}</tbody></table>
+      ${serviceRowsHtml ? `<h2>Services / Co-Pack Work</h2><table><thead><tr><th>Service</th><th style="text-align:right">Qty / Recipe</th><th style="text-align:right">Required</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th></tr></thead><tbody>${serviceRowsHtml}</tbody></table>` : ''}
       <script>setTimeout(function(){window.print()},300);</script>
       </body></html>`);
     w.document.close();
@@ -687,6 +770,24 @@ function CopackOrderDetailModal({
               title="Raw materials to stage for co-packer"
               onRowsChange={setMaterialRows}
             />
+            {!costs && (
+              <div style={{
+                marginBottom: 14, padding: 12,
+                background: 'rgba(91,181,240,0.04)', border: '1px solid rgba(91,181,240,0.18)', borderRadius: 4,
+              }}>
+                <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                  Estimated COGS packet · before receipt
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 8, fontSize: 13 }}>
+                  <Kv label="Components" value={fm(estimatedComponentCost)} />
+                  <Kv label="Services" value={fm(estimatedServiceCost)} />
+                  <Kv label="Landed costs" value={fm(estimatedLandedCost)} />
+                  <Kv label="Total" value={fm(estimatedTotalCost)} bold accent />
+                  <Kv label="$ / finished unit" value={estimatedUnitCost == null ? '—' : `$${Number(estimatedUnitCost).toFixed(4)}`} bold accent />
+                  <Kv label="Short $" value={fm(shortageCost)} />
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -861,6 +962,22 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+function estimateFinishedUnits(qty: number, uom: string, bom: ProductBom): number | null {
+  if (!Number.isFinite(qty) || !(qty > 0)) return null;
+  const cansPerFinishedUnit = Number(bom.cans_per_case || 0);
+  const ozPerCan = Number(bom.oz_per_can || 0);
+  if (cansPerFinishedUnit > 0 && ozPerCan > 0) {
+    const flOz = uom === 'gal' ? qty * 128
+      : uom === 'fl_oz' ? qty
+        : uom === 'L' ? qty * 33.8140227
+          : uom === 'mL' ? qty * 0.0338140227
+            : null;
+    if (flOz != null) return flOz / (cansPerFinishedUnit * ozPerCan);
+  }
+  if (uom === 'each' || uom === 'case') return qty;
+  return null;
 }
 
 const th: React.CSSProperties = {
