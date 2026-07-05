@@ -1,7 +1,8 @@
-// Brand asset library backed by the public Supabase Storage bucket `brand-assets`.
-// Replaces the old Brandox scrape (a Meteor DDP single-page app that can't be read
-// server-side). Operators upload/manage brand art here from the Proposal Builder,
-// and the 4 built-in local logos are merged in as a never-empty fallback.
+// Brand-asset feed for the Margin Control Proposal Builder. Now sourced from
+// Fountain DAM (skypace/DAM-Fountain → the `dam` schema on this Supabase project);
+// files still live in the shared `brand-assets` bucket. GET returns the curated,
+// tagged DAM library (+ 4 built-in local logos as a never-empty fallback); uploads
+// register a dam.assets row and deletes remove it, so both stay in sync.
 import { requireAuth } from './lib/auth.mjs';
 import { corsHeaders } from './qbo-helpers.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
@@ -75,6 +76,22 @@ function storageHeaders(extra = {}) {
   return { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, ...extra };
 }
 
+// The brand library is now owned by Fountain DAM (skypace/DAM-Fountain), whose
+// metadata lives in the `dam` schema on this same Supabase project. Read/write
+// it here so the Proposal Builder shows the same curated, tagged assets.
+function damHeaders(extra = {}) {
+  return {
+    apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`,
+    'Accept-Profile': 'dam', 'Content-Profile': 'dam',
+    Accept: 'application/json', 'Content-Type': 'application/json', ...extra,
+  };
+}
+async function damGet(qs) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${qs}`, { headers: damHeaders() });
+  if (!res.ok) throw new Error(`dam read failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
+  return res.json();
+}
+
 async function listPrefix(prefix) {
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${BUCKET}`, {
     method: 'POST',
@@ -85,26 +102,24 @@ async function listPrefix(prefix) {
   return res.json();
 }
 
-// List the bucket root plus one level of type folders (assets are stored as
-// `<type>/<filename>`), returning renderable brand assets.
+// Pull the curated brand library from Fountain DAM (dam.assets), excluding
+// archived assets, mapped to the BrandAsset shape the Proposal Builder expects.
 async function listBrandAssets() {
-  const assets = new Map();
-  const rootEntries = await listPrefix('');
-  const folders = [];
-  for (const entry of rootEntries) {
-    if (!entry?.name) continue;
-    if (entry.id === null || entry.metadata == null) { folders.push(entry.name); continue; }
-    addStorageAsset(assets, entry.name, '');
-  }
-  for (const folder of folders) {
-    let entries = [];
-    try { entries = await listPrefix(folder); } catch { entries = []; }
-    for (const entry of entries) {
-      if (!entry?.name || entry.id === null) continue;
-      addStorageAsset(assets, `${folder}/${entry.name}`, folder);
-    }
-  }
-  return [...assets.values()];
+  const rows = await damGet('assets?status=neq.archived&select=id,storage_path,title,filename,type,asset_tags(tag:tags(name))&order=created_at.desc');
+  return rows.map((r) => {
+    const url = publicUrl(r.storage_path);
+    const name = r.title || prettyName(r.filename || r.storage_path);
+    return {
+      id: r.id,
+      name,
+      type: ASSET_TYPES.includes(r.type) ? r.type : classifyAsset(name, r.type),
+      url,
+      thumbnailUrl: isImagePath(r.storage_path) ? url : undefined,
+      tags: (r.asset_tags || []).map((t) => t.tag?.name).filter(Boolean),
+      path: r.storage_path,
+      source: 'supabase',
+    };
+  });
 }
 
 function addStorageAsset(map, path, folder) {
@@ -180,9 +195,19 @@ async function storeBytes(bytes, filename, contentType, type) {
     body: bytes,
   });
   if (!res.ok) throw new Error(`Upload failed (${res.status}): ${(await res.text()).slice(0, 160)}`);
+  // Register in Fountain DAM so it appears in both the Proposal Builder and the DAM.
+  let damId;
+  try {
+    const reg = await fetch(`${SUPABASE_URL}/rest/v1/assets`, {
+      method: 'POST',
+      headers: damHeaders({ Prefer: 'return=representation' }),
+      body: JSON.stringify({ storage_path: objectPath, filename: filename || objectPath.split('/').pop(), title: prettyName(objectPath), type: folder, brand: 'shared', content_type: mime, bytes: bytes.length }),
+    });
+    if (reg.ok) { const rows = await reg.json(); damId = rows[0]?.id; }
+  } catch (e) { console.warn('dam register failed:', e instanceof Error ? e.message : e); }
   const url = publicUrl(objectPath);
   return {
-    id: assetId(objectPath),
+    id: damId || assetId(objectPath),
     name: prettyName(objectPath),
     type: folder,
     url,
@@ -248,6 +273,10 @@ async function handleUpload(event) {
 async function handleDeletePath(path) {
   if (!path) return json({ error: 'path is required.' }, 400);
   const clean = String(path).replace(/^\/+/, '');
+  // Remove the Fountain DAM row (best-effort) then the storage object.
+  await fetch(`${SUPABASE_URL}/rest/v1/assets?storage_path=eq.${encodeURIComponent(clean)}`, {
+    method: 'DELETE', headers: damHeaders({ Prefer: 'return=minimal' }),
+  }).catch(() => {});
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${clean.split('/').map(encodeURIComponent).join('/')}`, {
     method: 'DELETE',
     headers: storageHeaders(),
