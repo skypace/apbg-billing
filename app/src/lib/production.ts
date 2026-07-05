@@ -128,6 +128,7 @@ export interface WorkOrderCosts {
 
 export type CopackOrderStatus = 'draft' | 'sent' | 'received' | 'closed' | 'void';
 export type CopackMaterialSourceMode = 'raw_materials' | 'syrup_by_gallon';
+export type CopackSyrupVarianceStatus = 'pending' | 'ok' | 'watch' | 'alert';
 
 export interface CopackOrderRow {
   id: string;
@@ -153,8 +154,18 @@ export interface CopackOrderRow {
   void_reason: string | null;
   material_source_mode: CopackMaterialSourceMode;
   syrup_unit_cost_per_gal: number;
+  estimated_syrup_gallons: number | null;
+  estimated_syrup_cost: number | null;
   actual_syrup_gallons: number | null;
   actual_syrup_unit_cost_per_gal: number | null;
+  locked_syrup_gallons: number | null;
+  locked_syrup_unit_cost_per_gal: number | null;
+  locked_syrup_cost: number | null;
+  syrup_gallons_variance: number | null;
+  syrup_gallons_variance_pct: number | null;
+  syrup_cost_variance: number | null;
+  syrup_cost_variance_pct: number | null;
+  syrup_variance_status: CopackSyrupVarianceStatus | null;
   syrup_gallons: number | null;
   co_pack_fee: number;
   freight_cost: number;

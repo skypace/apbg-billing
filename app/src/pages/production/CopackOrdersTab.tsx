@@ -6,7 +6,7 @@ import {
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
   receiveCopackOrder, sendCopackOrder, voidCopackOrder,
 } from '../../lib/production';
-import type { CopackMaterialSourceMode } from '../../lib/production';
+import type { CopackMaterialSourceMode, CopackSyrupVarianceStatus } from '../../lib/production';
 import type { QboVendor } from '../../lib/purchasing';
 import {
   createTransfer,
@@ -35,6 +35,13 @@ const TANK_SIZES_GAL = [500, 1500, 2000, 2500];
 const SOURCE_MODE_LABEL: Record<CopackMaterialSourceMode, string> = {
   raw_materials: 'Raw Materials Co-Pack',
   syrup_by_gallon: 'Syrup Co-Pack',
+};
+
+const SYRUP_VARIANCE_LABEL: Record<CopackSyrupVarianceStatus, string> = {
+  pending: 'Pending',
+  ok: 'OK',
+  watch: 'Watch',
+  alert: 'Alert',
 };
 
 interface Props {
@@ -110,6 +117,28 @@ export function CopackOrdersTab({
         return <span style={{ fontSize: 10, color: 'var(--tx)', fontWeight: 600 }}>
           {SOURCE_MODE_LABEL[v] ?? 'Raw Materials Co-Pack'}
         </span>;
+      },
+    },
+    {
+      field: 'syrup_variance_status', headerName: 'Syrup Var', width: 130,
+      renderCell: (p) => {
+        if (p.row.material_source_mode !== 'syrup_by_gallon') {
+          return <span style={{ color: 'var(--mt)' }}>—</span>;
+        }
+        const status = String(p.value ?? 'pending') as CopackSyrupVarianceStatus;
+        const tone = syrupVarianceTone(status);
+        const delta = p.row.syrup_cost_variance == null ? null : Number(p.row.syrup_cost_variance);
+        return (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            color: tone.color, border: `1px solid ${tone.border}`,
+            background: tone.bg, padding: '1px 7px', borderRadius: 10,
+            fontSize: 10, fontWeight: 700,
+          }}>
+            {SYRUP_VARIANCE_LABEL[status] ?? 'Pending'}
+            {delta == null ? '' : ` ${fmtDeltaMoney(delta)}`}
+          </span>
+        );
       },
     },
     { field: 'vendor_name', headerName: 'Co-packer', width: 180,
@@ -481,9 +510,18 @@ function CopackOrderDetailModal({
   const isSyrupMode = materialSourceMode === 'syrup_by_gallon';
   const syrupGallons = order.syrup_gallons == null ? null : Number(order.syrup_gallons);
   const syrupRate = Number(order.syrup_unit_cost_per_gal ?? 0);
+  const plannedSyrupGallons = order.estimated_syrup_gallons == null ? null : Number(order.estimated_syrup_gallons);
+  const plannedSyrupCost = order.estimated_syrup_cost == null ? null : Number(order.estimated_syrup_cost);
+  const lockedSyrupGallonsForVariance = order.locked_syrup_gallons == null ? null : Number(order.locked_syrup_gallons);
+  const lockedSyrupRateForVariance = order.locked_syrup_unit_cost_per_gal == null ? null : Number(order.locked_syrup_unit_cost_per_gal);
+  const lockedSyrupCostForVariance = order.locked_syrup_cost == null ? null : Number(order.locked_syrup_cost);
+  const syrupGallonsVariance = order.syrup_gallons_variance == null ? null : Number(order.syrup_gallons_variance);
+  const syrupGallonsVariancePct = order.syrup_gallons_variance_pct == null ? null : Number(order.syrup_gallons_variance_pct);
+  const syrupCostVariance = order.syrup_cost_variance == null ? null : Number(order.syrup_cost_variance);
+  const syrupCostVariancePct = order.syrup_cost_variance_pct == null ? null : Number(order.syrup_cost_variance_pct);
   const enteredSyrupGallons = syrupGallonsActual === '' ? null : Number(syrupGallonsActual);
   const enteredSyrupRate = syrupRateActual === '' ? null : Number(syrupRateActual);
-  const lockedSyrupRate = order.actual_syrup_unit_cost_per_gal == null
+  const savedSyrupRate = order.actual_syrup_unit_cost_per_gal == null
     ? null
     : Number(order.actual_syrup_unit_cost_per_gal);
   const effectiveSyrupGallons = isSyrupMode && enteredSyrupGallons != null && Number.isFinite(enteredSyrupGallons)
@@ -491,7 +529,7 @@ function CopackOrderDetailModal({
     : syrupGallons;
   const effectiveSyrupRate = isSyrupMode && enteredSyrupRate != null && Number.isFinite(enteredSyrupRate)
     ? enteredSyrupRate
-    : lockedSyrupRate ?? syrupRate;
+    : savedSyrupRate ?? syrupRate;
   const syrupInvoiceTotal = effectiveSyrupGallons == null ? null : effectiveSyrupGallons * effectiveSyrupRate;
   const orderedLabel = fmtQty(Number(order.qty_ordered), order.target_uom || 'gal');
   const receivedLabel = order.actual_yield_qty == null
@@ -742,6 +780,16 @@ function CopackOrderDetailModal({
     const packetOther = costs ? Number(costs.other_cost) : Number(order!.other_landed_cost || 0);
     const packetTotal = costs ? Number(costs.total_cost) : estimatedTotalCost;
     const packetUnitCost = costs ? costs.unit_cost : estimatedUnitCost;
+    const syrupVarianceHtml = isSyrupMode ? `
+      <h2>Syrup Variance</h2>
+      <div class="totals">
+        <div class="kv"><div class="lbl">Planned gal</div>${escapeHtml(plannedSyrupGallons == null ? '-' : fmtQty(plannedSyrupGallons, 'gal'))}</div>
+        <div class="kv"><div class="lbl">Invoice gal</div>${escapeHtml(lockedSyrupGallonsForVariance == null ? '-' : fmtQty(lockedSyrupGallonsForVariance, 'gal'))}</div>
+        <div class="kv"><div class="lbl">Gal variance</div>${escapeHtml(fmtDeltaQty(syrupGallonsVariance, 'gal'))}</div>
+        <div class="kv"><div class="lbl">Gal variance %</div>${escapeHtml(fmtDeltaPct(syrupGallonsVariancePct))}</div>
+        <div class="kv"><div class="lbl">Cost variance</div>${escapeHtml(fmtDeltaMoney(syrupCostVariance))}</div>
+        <div class="kv"><div class="lbl">Status</div>${escapeHtml(SYRUP_VARIANCE_LABEL[order!.syrup_variance_status ?? 'pending'] ?? 'Pending')}</div>
+      </div>` : '';
     w.document.write(`<html><head><title>${escapeHtml(order!.order_number)}</title>
       <style>
         @page{size:letter;margin:0.5in}
@@ -780,6 +828,7 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Landed $/unit</div>${escapeHtml(packetUnitCost == null ? '-' : `$${Number(packetUnitCost).toFixed(4)}`)}</div>
       </div>
       <div class="kv" style="margin-top:6px"><div class="lbl">Total landed COGS</div>${escapeHtml(fm(packetTotal))}</div>
+      ${syrupVarianceHtml}
       <h2>${isSyrupMode ? 'Syrup Supply' : 'Raw Materials'} ${shortageRows.length > 0 ? `· ${shortageRows.length} short` : ''}</h2>
       <table><thead><tr><th>Component</th><th style="text-align:right">Required</th><th style="text-align:right">Source stock</th><th style="text-align:right">All stock</th><th style="text-align:right">On order</th><th style="text-align:right">Short</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th><th>Status</th></tr></thead><tbody>${materialRowsHtml}</tbody></table>
       ${serviceRowsHtml ? `<h2>Services / Co-Pack Work</h2><table><thead><tr><th>Service</th><th style="text-align:right">Qty / Recipe</th><th style="text-align:right">Required</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th></tr></thead><tbody>${serviceRowsHtml}</tbody></table>` : ''}
@@ -925,6 +974,18 @@ function CopackOrderDetailModal({
             <SyrupModeNotice
               syrupGallons={effectiveSyrupGallons}
               syrupRate={effectiveSyrupRate}
+            />
+            <SyrupVariancePanel
+              status={order.syrup_variance_status}
+              plannedGallons={plannedSyrupGallons}
+              plannedCost={plannedSyrupCost}
+              lockedGallons={lockedSyrupGallonsForVariance}
+              lockedRate={lockedSyrupRateForVariance}
+              lockedCost={lockedSyrupCostForVariance}
+              gallonsVariance={syrupGallonsVariance}
+              gallonsVariancePct={syrupGallonsVariancePct}
+              costVariance={syrupCostVariance}
+              costVariancePct={syrupCostVariancePct}
             />
             {!costs && (
               <div style={{
@@ -1195,6 +1256,70 @@ function SyrupModeNotice({
   );
 }
 
+function SyrupVariancePanel({
+  status,
+  plannedGallons,
+  plannedCost,
+  lockedGallons,
+  lockedRate,
+  lockedCost,
+  gallonsVariance,
+  gallonsVariancePct,
+  costVariance,
+  costVariancePct,
+}: {
+  status: CopackSyrupVarianceStatus | null;
+  plannedGallons: number | null;
+  plannedCost: number | null;
+  lockedGallons: number | null;
+  lockedRate: number | null;
+  lockedCost: number | null;
+  gallonsVariance: number | null;
+  gallonsVariancePct: number | null;
+  costVariance: number | null;
+  costVariancePct: number | null;
+}) {
+  const effectiveStatus = status ?? 'pending';
+  const tone = syrupVarianceTone(effectiveStatus);
+  return (
+    <section style={{
+      marginBottom: 14,
+      padding: 12,
+      border: `1px solid ${tone.border}`,
+      borderRadius: 4,
+      background: tone.bg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          Syrup Variance
+        </div>
+        <span style={{
+          color: tone.color,
+          border: `1px solid ${tone.border}`,
+          background: 'rgba(255,255,255,0.04)',
+          padding: '1px 7px',
+          borderRadius: 10,
+          fontSize: 10,
+          fontWeight: 700,
+        }}>
+          {SYRUP_VARIANCE_LABEL[effectiveStatus]}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, fontSize: 13 }}>
+        <Kv label="BOM gal" value={plannedGallons == null ? '—' : fmtQty(plannedGallons, 'gal')} />
+        <Kv label="Invoice gal" value={lockedGallons == null ? '—' : fmtQty(lockedGallons, 'gal')} />
+        <Kv label="Gal delta" value={fmtDeltaQty(gallonsVariance, 'gal')} bold accent={effectiveStatus === 'alert'} />
+        <Kv label="Gal delta %" value={fmtDeltaPct(gallonsVariancePct)} />
+        <Kv label="BOM syrup $" value={plannedCost == null ? '—' : fm(plannedCost)} />
+        <Kv label="Invoice syrup $" value={lockedCost == null ? '—' : fm(lockedCost)} />
+        <Kv label="$ / gal" value={lockedRate == null ? '—' : `$${lockedRate.toFixed(4)}`} />
+        <Kv label="$ delta" value={fmtDeltaMoney(costVariance)} bold accent={effectiveStatus === 'alert'} />
+        <Kv label="$ delta %" value={fmtDeltaPct(costVariancePct)} />
+      </div>
+    </section>
+  );
+}
+
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ minWidth: 74 }}>
@@ -1202,6 +1327,41 @@ function MiniStat({ label, value }: { label: string; value: string }) {
       <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>{value}</div>
     </div>
   );
+}
+
+function syrupVarianceTone(status: CopackSyrupVarianceStatus) {
+  switch (status) {
+    case 'alert':
+      return { color: '#f87171', border: 'rgba(248,113,113,0.45)', bg: 'rgba(248,113,113,0.08)' };
+    case 'watch':
+      return { color: 'var(--am)', border: 'rgba(239,191,65,0.40)', bg: 'rgba(239,191,65,0.08)' };
+    case 'ok':
+      return { color: 'var(--gn)', border: 'rgba(125,238,164,0.35)', bg: 'rgba(125,238,164,0.06)' };
+    case 'pending':
+    default:
+      return { color: 'var(--mt)', border: 'rgba(148,163,184,0.30)', bg: 'rgba(148,163,184,0.06)' };
+  }
+}
+
+function fmtDeltaMoney(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  if (Math.abs(n) < 0.005) return fm(0);
+  return `${n > 0 ? '+' : ''}${fm(n)}`;
+}
+
+function fmtDeltaQty(value: number | null | undefined, uom: string): string {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  if (Math.abs(n) < 0.0001) return fmtQty(0, uom);
+  return `${n > 0 ? '+' : ''}${fmtQty(n, uom)}`;
+}
+
+function fmtDeltaPct(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value) * 100;
+  if (Math.abs(n) < 0.05) return '0.0%';
+  return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
 }
 
 function PackEntryHelper({
