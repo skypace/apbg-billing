@@ -44,6 +44,15 @@ interface Props {
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
+type PackEntryUnit = 'finished' | 'can' | 'pack8' | 'pack24';
+
+const PACK_ENTRY_OPTIONS: { value: PackEntryUnit; label: string }[] = [
+  { value: 'finished', label: 'finished units' },
+  { value: 'can', label: 'cans' },
+  { value: 'pack8', label: '8-packs' },
+  { value: 'pack24', label: '24-packs' },
+];
+
 export function CopackOrdersTab({
   orders, boms, bomById, vendors, locations, locById, itemLookup, onChanged,
 }: Props) {
@@ -289,6 +298,15 @@ function CreateCopackOrderForm({
               {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+          {selectedBom && (
+            <PackEntryHelper
+              bom={selectedBom}
+              onApply={(nextQty, nextUom) => {
+                setQty(formatInputQty(nextQty));
+                setTargetUom(nextUom);
+              }}
+            />
+          )}
           {targetUom === 'gal' && (
             <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
               {TANK_SIZES_GAL.map((tank) => (
@@ -808,6 +826,16 @@ function CopackOrderDetailModal({
                     {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
+                {bom && (
+                  <PackEntryHelper
+                    bom={bom}
+                    label="Actual pack entry"
+                    onApply={(nextQty, nextUom) => {
+                      setActualQty(formatInputQty(nextQty));
+                      setActualUom(nextUom);
+                    }}
+                  />
+                )}
               </LField>
               <LField label="Co-pack fee">
                 <input type="number" min={0} step="any" style={inp()} value={coPackFee} onChange={(e) => setCoPackFee(e.target.value)} />
@@ -960,8 +988,78 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
   </div>;
 }
 
+function PackEntryHelper({
+  bom, label = 'Pack entry', onApply,
+}: {
+  bom: ProductBom;
+  label?: string;
+  onApply: (qty: number, uom: string) => void;
+}) {
+  const [entryQty, setEntryQty] = useState('');
+  const [entryUnit, setEntryUnit] = useState<PackEntryUnit>('finished');
+  const converted = useMemo(
+    () => convertPackEntry(Number(entryQty), entryUnit, bom),
+    [entryQty, entryUnit, bom],
+  );
+
+  return (
+    <div style={{
+      marginTop: 6,
+      padding: 8,
+      border: '1px solid rgba(255,255,255,0.09)',
+      borderRadius: 4,
+      background: 'rgba(255,255,255,0.025)',
+    }}>
+      <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input type="number" min={0} step="any" style={{ ...inp(), flex: '1 1 72px', minWidth: 0 }} value={entryQty} onChange={(e) => setEntryQty(e.target.value)} />
+        <select style={{ ...inp(), flex: '1 1 112px', minWidth: 0 }} value={entryUnit} onChange={(e) => setEntryUnit(e.target.value as PackEntryUnit)}>
+          {PACK_ENTRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <button type="button" style={{ ...btnSecondary(), padding: '4px 8px' }}
+          disabled={!converted}
+          onClick={() => converted && onApply(converted.qty, converted.uom)}>
+          Use
+        </button>
+      </div>
+      <div style={{
+        marginTop: 5,
+        fontSize: 10.5,
+        color: converted ? 'var(--tx)' : 'var(--mt)',
+        fontFamily: 'var(--ff-mono)',
+      }}>
+        {converted ? `= ${fmtQty(converted.qty, converted.uom)}` : '= -'}
+      </div>
+    </div>
+  );
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+function convertPackEntry(qty: number, unit: PackEntryUnit, bom: ProductBom): { qty: number; uom: string } | null {
+  if (!Number.isFinite(qty) || !(qty > 0)) return null;
+  const cansPerFinishedUnit = Number(bom.cans_per_case || 0);
+  const ozPerCan = Number(bom.oz_per_can || 0);
+  if (!(cansPerFinishedUnit > 0) || !(ozPerCan > 0)) return null;
+
+  const cans = unit === 'can' ? qty
+    : unit === 'pack8' ? qty * 8
+      : unit === 'pack24' ? qty * 24
+        : qty * cansPerFinishedUnit;
+  const finishedUnits = cans / cansPerFinishedUnit;
+  const yieldUom = bom.yield_uom || 'each';
+  if (yieldUom === 'each' || yieldUom === 'case') return { qty: finishedUnits, uom: yieldUom };
+
+  return { qty: cans * ozPerCan / 128, uom: 'gal' };
+}
+
+function formatInputQty(v: number): string {
+  if (!Number.isFinite(v)) return '';
+  return String(Number(v.toFixed(6)));
 }
 
 function estimateFinishedUnits(qty: number, uom: string, bom: ProductBom): number | null {
