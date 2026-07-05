@@ -6,6 +6,7 @@ import {
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
   receiveCopackOrder, sendCopackOrder, voidCopackOrder,
 } from '../../lib/production';
+import type { CopackMaterialSourceMode } from '../../lib/production';
 import type { QboVendor } from '../../lib/purchasing';
 import {
   createTransfer,
@@ -30,6 +31,11 @@ const STATUS_COLOR: Record<CopackOrderStatus, string> = {
 };
 
 const TANK_SIZES_GAL = [500, 1500, 2000, 2500];
+
+const SOURCE_MODE_LABEL: Record<CopackMaterialSourceMode, string> = {
+  raw_materials: 'Raw Materials Co-Pack',
+  syrup_by_gallon: 'Syrup Co-Pack',
+};
 
 interface Props {
   orders: CopackOrderRow[] | null;
@@ -95,6 +101,15 @@ export function CopackOrdersTab({
           background: 'rgba(255,255,255,0.04)', color: c, border: '1px solid ' + c,
           padding: '1px 7px', borderRadius: 12, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
         }}>{v.toUpperCase()}</span>;
+      },
+    },
+    {
+      field: 'material_source_mode', headerName: 'Source', width: 150,
+      renderCell: (p) => {
+        const v = String(p.value ?? 'raw_materials') as CopackMaterialSourceMode;
+        return <span style={{ fontSize: 10, color: 'var(--tx)', fontWeight: 600 }}>
+          {SOURCE_MODE_LABEL[v] ?? 'Raw Materials Co-Pack'}
+        </span>;
       },
     },
     { field: 'vendor_name', headerName: 'Co-packer', width: 180,
@@ -214,12 +229,15 @@ function CreateCopackOrderForm({
   const [coPackFee, setCoPackFee] = useState('');
   const [freight, setFreight] = useState('');
   const [otherCost, setOtherCost] = useState('');
+  const [materialSourceMode, setMaterialSourceMode] = useState<CopackMaterialSourceMode>('raw_materials');
+  const [syrupRate, setSyrupRate] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
-  const canSave = !!bomId && !!vendorId && !!locId && Number(qty) > 0;
+  const canSave = !!bomId && !!vendorId && !!locId && Number(qty) > 0
+    && (materialSourceMode !== 'syrup_by_gallon' || Number(syrupRate) > 0);
 
   async function submit() {
     if (!canSave) return;
@@ -235,6 +253,8 @@ function CreateCopackOrderForm({
         co_pack_fee: Number(coPackFee || 0),
         freight_cost: Number(freight || 0),
         other_landed_cost: Number(otherCost || 0),
+        material_source_mode: materialSourceMode,
+        syrup_unit_cost_per_gal: Number(syrupRate || 0),
         notes: notes || null,
       });
       toast.success('Co-pack order created');
@@ -287,6 +307,12 @@ function CreateCopackOrderForm({
         <LField label="Expected date">
           <input type="date" style={inp()} value={expected} onChange={(e) => setExpected(e.target.value)} />
         </LField>
+        <LField label="Material source">
+          <select style={inp()} value={materialSourceMode} onChange={(e) => setMaterialSourceMode(e.target.value as CopackMaterialSourceMode)}>
+            <option value="raw_materials">Raw Materials Co-Pack</option>
+            <option value="syrup_by_gallon">Syrup Co-Pack</option>
+          </select>
+        </LField>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
@@ -321,6 +347,11 @@ function CreateCopackOrderForm({
         <LField label="Co-pack fee">
           <input type="number" min={0} step="any" style={inp()} value={coPackFee} onChange={(e) => setCoPackFee(e.target.value)} />
         </LField>
+        {materialSourceMode === 'syrup_by_gallon' && (
+          <LField label="Syrup $ / gal">
+            <input type="number" min={0} step="any" style={inp()} value={syrupRate} onChange={(e) => setSyrupRate(e.target.value)} />
+          </LField>
+        )}
         <LField label="Estimated freight">
           <input type="number" min={0} step="any" style={inp()} value={freight} onChange={(e) => setFreight(e.target.value)} />
         </LField>
@@ -344,12 +375,18 @@ function CreateCopackOrderForm({
         </div>
       )}
 
-      {selectedBom && Number(qty) > 0 && (
+      {selectedBom && Number(qty) > 0 && materialSourceMode === 'raw_materials' && (
         <MaterialRequirementsPanel
           bomId={selectedBom.id}
           targetQty={Number(qty)}
           targetUom={targetUom}
           title="Raw materials to stage for co-packer"
+        />
+      )}
+      {selectedBom && Number(qty) > 0 && materialSourceMode === 'syrup_by_gallon' && (
+        <SyrupModeNotice
+          syrupGallons={null}
+          syrupRate={Number(syrupRate || 0)}
         />
       )}
 
@@ -414,6 +451,7 @@ function CopackOrderDetailModal({
       setCoPackFee(Number(order.co_pack_fee || 0) > 0 ? String(order.co_pack_fee) : '');
       setFreight(Number(order.freight_cost || 0) > 0 ? String(order.freight_cost) : '');
       setOtherCost(Number(order.other_landed_cost || 0) > 0 ? String(order.other_landed_cost) : '');
+      setMaterialRows(null);
       setSourceLocId((cur) => sourceLocs.some((l) => l.id === cur) ? cur : (sourceLocs[0]?.id ?? ''));
       setCopackerLocId((cur) => copackerLocs.some((l) => l.id === cur) ? cur : (copackerLocs[0]?.id ?? ''));
     }
@@ -427,6 +465,10 @@ function CopackOrderDetailModal({
   const sourceLoc = locById.get(sourceLocId);
   const copackerLoc = locById.get(copackerLocId);
   const finished = itemLookup.byId.get(order.finished_qbo_item_id);
+  const materialSourceMode = order.material_source_mode ?? 'raw_materials';
+  const isSyrupMode = materialSourceMode === 'syrup_by_gallon';
+  const syrupGallons = order.syrup_gallons == null ? null : Number(order.syrup_gallons);
+  const syrupRate = Number(order.syrup_unit_cost_per_gal ?? 0);
   const orderedLabel = fmtQty(Number(order.qty_ordered), order.target_uom || 'gal');
   const receivedLabel = order.actual_yield_qty == null
     ? '—'
@@ -453,7 +495,9 @@ function CopackOrderDetailModal({
   ) : null;
   const plannedByIdx = new Map<number, { qty: number; uom: string }>();
   if (planned) for (const line of planned.scaledLines) plannedByIdx.set(line.ref.idx, { qty: line.qty, uom: line.uom });
-  const estimatedComponentCost = materialRows
+  const estimatedComponentCost = isSyrupMode
+    ? Number(syrupGallons ?? 0) * syrupRate
+    : materialRows
     ? materialRows.reduce((sum, r) => sum + Number(r.required_qty || 0) * Number(r.unit_cost ?? 0), 0)
     : (bomLines ?? []).reduce((sum, l, idx) => {
       if (l.line_type !== 'component') return sum;
@@ -472,7 +516,7 @@ function CopackOrderDetailModal({
   const estimatedUnitCost = estimatedFinishedUnits && estimatedFinishedUnits > 0
     ? estimatedTotalCost / estimatedFinishedUnits
     : null;
-  const shortageRows = (materialRows ?? []).filter((r) => Number(r.shortage_qty) > 0);
+  const shortageRows = isSyrupMode ? [] : (materialRows ?? []).filter((r) => Number(r.shortage_qty) > 0);
   const shortageCost = shortageRows.reduce((sum, r) => sum + Number(r.shortage_cost ?? 0), 0);
 
   async function doSend() {
@@ -532,6 +576,10 @@ function CopackOrderDetailModal({
   }
 
   async function doCreateMaterialTransfer() {
+    if (isSyrupMode) {
+      toast.error('Syrup co-pack orders do not stage APBG raw materials');
+      return;
+    }
     if (!sourceLocId || !copackerLocId || sourceLocId === copackerLocId) {
       toast.error('Pick a source and co-packer location');
       return;
@@ -577,7 +625,19 @@ function CopackOrderDetailModal({
   function printOrder() {
     const w = window.open('', '_blank');
     if (!w) return;
-    const materialRowsHtml = materialRows && materialRows.length > 0
+    const materialRowsHtml = isSyrupMode
+      ? `<tr>
+          <td>Flavor company syrup</td>
+          <td style="text-align:right">${escapeHtml(syrupGallons == null ? '-' : fmtQty(syrupGallons, 'gal'))}</td>
+          <td style="text-align:right">Supplied by vendor</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">-</td>
+          <td style="text-align:right">${escapeHtml(`$${syrupRate.toFixed(4)}`)}</td>
+          <td style="text-align:right">${escapeHtml(fm(estimatedComponentCost))}</td>
+          <td>SYRUP</td>
+        </tr>`
+      : materialRows && materialRows.length > 0
       ? materialRows.map((r) => {
         const uom = r.required_uom || 'each';
         const sourceStock = sourceLocId ? Number(r.location_on_hand_qty ?? 0) : Number(r.on_hand_qty ?? 0);
@@ -654,10 +714,11 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Finished SKU</div>${escapeHtml(finished?.item_name ?? order!.finished_item_name ?? order!.finished_qbo_item_id)}</div>
         <div class="kv"><div class="lbl">Ordered yield</div>${escapeHtml(orderedLabel)}</div>
         <div class="kv"><div class="lbl">Finished units</div>${escapeHtml(order!.finished_units_received == null ? (estimatedFinishedUnits == null ? '-' : fmtNum(estimatedFinishedUnits)) : fmtNum(Number(order!.finished_units_received)))}</div>
+        <div class="kv"><div class="lbl">Material source</div>${escapeHtml(SOURCE_MODE_LABEL[materialSourceMode])}</div>
         <div class="kv"><div class="lbl">Expected</div>${escapeHtml(order!.expected_date ?? '-')}</div>
         <div class="kv"><div class="lbl">Receive to</div>${escapeHtml(loc?.name ?? order!.location_label ?? '-')}</div>
-        <div class="kv"><div class="lbl">Stage from</div>${escapeHtml(sourceLoc ? `${sourceLoc.code} - ${sourceLoc.name}` : '-')}</div>
-        <div class="kv"><div class="lbl">Co-packer staging</div>${escapeHtml(copackerLoc ? `${copackerLoc.code} - ${copackerLoc.name}` : '-')}</div>
+        <div class="kv"><div class="lbl">Stage from</div>${escapeHtml(isSyrupMode ? 'Vendor supplied syrup' : sourceLoc ? `${sourceLoc.code} - ${sourceLoc.name}` : '-')}</div>
+        <div class="kv"><div class="lbl">Co-packer staging</div>${escapeHtml(isSyrupMode ? 'Not staged by APBG' : copackerLoc ? `${copackerLoc.code} - ${copackerLoc.name}` : '-')}</div>
         <div class="kv"><div class="lbl">Instructions</div>${escapeHtml(order!.notes ?? '-')}</div>
       </div>
       <h2>Cost Summary · ${escapeHtml(costBasis)}</h2>
@@ -670,7 +731,7 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Landed $/unit</div>${escapeHtml(packetUnitCost == null ? '-' : `$${Number(packetUnitCost).toFixed(4)}`)}</div>
       </div>
       <div class="kv" style="margin-top:6px"><div class="lbl">Total landed COGS</div>${escapeHtml(fm(packetTotal))}</div>
-      <h2>Raw Materials ${shortageRows.length > 0 ? `· ${shortageRows.length} short` : ''}</h2>
+      <h2>${isSyrupMode ? 'Syrup Supply' : 'Raw Materials'} ${shortageRows.length > 0 ? `· ${shortageRows.length} short` : ''}</h2>
       <table><thead><tr><th>Component</th><th style="text-align:right">Required</th><th style="text-align:right">Source stock</th><th style="text-align:right">All stock</th><th style="text-align:right">On order</th><th style="text-align:right">Short</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th><th>Status</th></tr></thead><tbody>${materialRowsHtml}</tbody></table>
       ${serviceRowsHtml ? `<h2>Services / Co-Pack Work</h2><table><thead><tr><th>Service</th><th style="text-align:right">Qty / Recipe</th><th style="text-align:right">Required</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th></tr></thead><tbody>${serviceRowsHtml}</tbody></table>` : ''}
       <script>setTimeout(function(){window.print()},300);</script>
@@ -710,10 +771,11 @@ function CopackOrderDetailModal({
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, fontSize: 12, marginBottom: 14 }}>
           <Meta label="Ordered yield" value={orderedLabel} />
           <Meta label="Actual yield" value={receivedLabel} />
           <Meta label="Finished units" value={order.finished_units_received == null ? '—' : fmtNum(Number(order.finished_units_received))} />
+          <Meta label="Material source" value={SOURCE_MODE_LABEL[materialSourceMode]} />
           <Meta label="Receive to" value={loc ? `${loc.code} — ${loc.name}` : order.location_label ?? '—'} />
         </div>
 
@@ -729,7 +791,7 @@ function CopackOrderDetailModal({
           </div>
         )}
 
-        {bom && (
+        {bom && !isSyrupMode && (
           <>
             <div style={{
               marginBottom: 10,
@@ -809,6 +871,32 @@ function CopackOrderDetailModal({
           </>
         )}
 
+        {bom && isSyrupMode && (
+          <>
+            <SyrupModeNotice
+              syrupGallons={syrupGallons}
+              syrupRate={syrupRate}
+            />
+            {!costs && (
+              <div style={{
+                marginBottom: 14, padding: 12,
+                background: 'rgba(91,181,240,0.04)', border: '1px solid rgba(91,181,240,0.18)', borderRadius: 4,
+              }}>
+                <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                  Estimated COGS packet · syrup co-pack
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 8, fontSize: 13 }}>
+                  <Kv label="Syrup" value={fm(estimatedComponentCost)} />
+                  <Kv label="Services" value={fm(estimatedServiceCost)} />
+                  <Kv label="Landed costs" value={fm(estimatedLandedCost)} />
+                  <Kv label="Total" value={fm(estimatedTotalCost)} bold accent />
+                  <Kv label="$ / finished unit" value={estimatedUnitCost == null ? '—' : `$${Number(estimatedUnitCost).toFixed(4)}`} bold accent />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
         {canReceive && (
           <div style={{
             marginBottom: 14, padding: 12,
@@ -862,7 +950,7 @@ function CopackOrderDetailModal({
               Landed COGS · locked {new Date(costs.computed_at).toLocaleString()}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, fontSize: 13 }}>
-              <Kv label="BOM components" value={fm(Number(costs.components_cost))} />
+              <Kv label={isSyrupMode ? 'Syrup' : 'BOM components'} value={fm(Number(costs.components_cost))} />
               <Kv label="BOM services" value={fm(Number(costs.services_cost))} />
               <Kv label="Co-pack fee" value={fm(Number(costs.co_pack_fee))} />
               <Kv label="Freight" value={fm(Number(costs.freight_cost))} />
@@ -986,6 +1074,51 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
     <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
     {children}
   </div>;
+}
+
+function SyrupModeNotice({
+  syrupGallons,
+  syrupRate,
+}: {
+  syrupGallons: number | null;
+  syrupRate: number;
+}) {
+  const syrupCost = syrupGallons == null ? null : syrupGallons * syrupRate;
+  return (
+    <section style={{
+      marginTop: 12,
+      marginBottom: 14,
+      padding: 12,
+      border: '1px solid rgba(91,181,240,0.24)',
+      borderRadius: 4,
+      background: 'rgba(91,181,240,0.05)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Truck size={15} color="var(--ac)" />
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Syrup Co-Pack
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 2 }}>
+            Syrup is supplied by the flavor company and billed by gallon. APBG component inventory is not staged for this order.
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <MiniStat label="Syrup gal" value={syrupGallons == null ? '—' : fmtQty(syrupGallons, 'gal')} />
+        <MiniStat label="$ / gal" value={`$${Number(syrupRate || 0).toFixed(4)}`} />
+        <MiniStat label="Syrup cost" value={syrupCost == null ? '—' : fm(syrupCost)} />
+      </div>
+    </section>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ minWidth: 74 }}>
+      <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>{value}</div>
+    </div>
+  );
 }
 
 function PackEntryHelper({

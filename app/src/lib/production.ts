@@ -127,6 +127,7 @@ export interface WorkOrderCosts {
 }
 
 export type CopackOrderStatus = 'draft' | 'sent' | 'received' | 'closed' | 'void';
+export type CopackMaterialSourceMode = 'raw_materials' | 'syrup_by_gallon';
 
 export interface CopackOrderRow {
   id: string;
@@ -150,6 +151,9 @@ export interface CopackOrderRow {
   closed_at: string | null;
   voided_at: string | null;
   void_reason: string | null;
+  material_source_mode: CopackMaterialSourceMode;
+  syrup_unit_cost_per_gal: number;
+  syrup_gallons: number | null;
   co_pack_fee: number;
   freight_cost: number;
   other_landed_cost: number;
@@ -194,6 +198,7 @@ export interface CopackOrderCosts {
   per_oz: number | null;
   per_gal_finished: number | null;
   actual_yield_pct: number | null;
+  syrup_gallons: number | null;
   detail: CopackOrderCostDetail[];
   computed_at: string;
 }
@@ -347,6 +352,8 @@ export async function createCopackOrder(args: {
   co_pack_fee?: number | null;
   freight_cost?: number | null;
   other_landed_cost?: number | null;
+  material_source_mode?: CopackMaterialSourceMode;
+  syrup_unit_cost_per_gal?: number | null;
   notes?: string | null;
 }): Promise<string> {
   return sbrpc<string>('fn_create_copack_order', {
@@ -360,6 +367,8 @@ export async function createCopackOrder(args: {
     p_freight_cost: args.freight_cost ?? 0,
     p_other_landed_cost: args.other_landed_cost ?? 0,
     p_notes: args.notes ?? null,
+    p_material_source_mode: args.material_source_mode ?? 'raw_materials',
+    p_syrup_unit_cost_per_gal: args.syrup_unit_cost_per_gal ?? 0,
   });
 }
 
