@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { CheckCircle2, FileText, Plus, Send, Truck, X as XIcon } from 'lucide-react';
+import { CheckCircle2, ClipboardCopy, FileText, Plus, Send, Truck, X as XIcon } from 'lucide-react';
 import {
   BomLineInput, BomMaterialRequirement, CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
@@ -641,6 +641,28 @@ function CopackOrderDetailModal({
     : null;
   const shortageRows = isSyrupMode ? [] : (materialRows ?? []).filter((r) => Number(r.shortage_qty) > 0);
   const shortageCost = shortageRows.reduce((sum, r) => sum + Number(r.shortage_cost ?? 0), 0);
+  const packetComponentCost = costs ? Number(costs.components_cost) : estimatedComponentCost;
+  const packetServiceCost = costs ? Number(costs.services_cost) : estimatedServiceCost;
+  const packetCoPackFee = costs ? Number(costs.co_pack_fee) : Number(order.co_pack_fee || 0);
+  const packetFreight = costs ? Number(costs.freight_cost) : Number(order.freight_cost || 0);
+  const packetOther = costs ? Number(costs.other_cost) : Number(order.other_landed_cost || 0);
+  const packetTotal = costs ? Number(costs.total_cost) : estimatedTotalCost;
+  const packetFinishedUnits = costs ? Number(costs.qty_finished) : estimatedFinishedUnits;
+  const packetUnitCost = costs ? costs.unit_cost : estimatedUnitCost;
+  const packetCans = bom && packetFinishedUnits != null
+    ? packetFinishedUnits * Number(bom.cans_per_case || 0)
+    : null;
+  const packetFinishedGallons = bom && packetCans != null
+    ? packetCans * Number(bom.oz_per_can || 0) / 128
+    : estimateFinishedGallons(Number(order.qty_ordered), order.target_uom || 'gal', bom);
+  const packetPack8 = packetCans == null ? null : packetCans / 8;
+  const packetPack24 = packetCans == null ? null : packetCans / 24;
+  const packetPerCan = costs?.per_can ?? (packetCans && packetCans > 0 ? packetTotal / packetCans : null);
+  const packetPerOz = costs?.per_oz ?? (packetFinishedGallons && packetFinishedGallons > 0 ? packetTotal / (packetFinishedGallons * 128) : null);
+  const packetPerGal = costs?.per_gal_finished ?? (packetFinishedGallons && packetFinishedGallons > 0 ? packetTotal / packetFinishedGallons : null);
+  const packetFormulaName = bom
+    ? (bom.name ? `${bom.name}${bom.version ? ` · v${bom.version}` : ''}` : `Version ${bom.version || '1'}`)
+    : '—';
 
   async function doSend() {
     setBusy(true);
@@ -764,6 +786,66 @@ function CopackOrderDetailModal({
     finally { setTransferBusy(false); }
   }
 
+  async function copyPacket() {
+    const materialSummary = isSyrupMode
+      ? [
+        `Syrup gallons: ${effectiveSyrupGallons == null ? '-' : fmtQty(effectiveSyrupGallons, 'gal')}`,
+        `Syrup rate: $${Number(effectiveSyrupRate || 0).toFixed(4)} / gal`,
+        `Syrup cost: ${syrupInvoiceTotal == null ? '-' : fm(syrupInvoiceTotal)}`,
+      ].join('\n')
+      : [
+        `Raw material rows: ${materialRows ? materialRows.length : 'not checked yet'}`,
+        `Short rows: ${shortageRows.length}`,
+        `Short dollars: ${fm(shortageCost)}`,
+        `Stage from: ${sourceLoc ? `${sourceLoc.code} - ${sourceLoc.name}` : '-'}`,
+        `Co-packer staging: ${copackerLoc ? `${copackerLoc.code} - ${copackerLoc.name}` : '-'}`,
+      ].join('\n');
+    const body = [
+      `Co-Pack Order ${currentOrder.order_number}`,
+      `Status: ${currentOrder.status.toUpperCase()}`,
+      `Co-packer: ${currentOrder.vendor_name ?? currentOrder.qbo_vendor_id}`,
+      `Finished SKU: ${finished?.item_name ?? currentOrder.finished_item_name ?? currentOrder.finished_qbo_item_id}`,
+      `Formula: ${packetFormulaName}`,
+      `Expected date: ${currentOrder.expected_date ?? '-'}`,
+      `Receive to: ${loc ? `${loc.code} - ${loc.name}` : currentOrder.location_label ?? '-'}`,
+      '',
+      'Production target',
+      `Ordered yield: ${orderedLabel}`,
+      `Finished gallons: ${packetFinishedGallons == null ? '-' : fmtQty(packetFinishedGallons, 'gal')}`,
+      `Finished units: ${packetFinishedUnits == null ? '-' : fmtNum(packetFinishedUnits, 2)}`,
+      `Cans: ${packetCans == null ? '-' : fmtNum(packetCans, 0)}`,
+      `24-packs: ${packetPack24 == null ? '-' : fmtNum(packetPack24, 2)}`,
+      '',
+      'Materials',
+      materialSummary,
+      '',
+      'COGS target',
+      `Components/syrup: ${fm(packetComponentCost)}`,
+      `Services: ${fm(packetServiceCost)}`,
+      `Co-pack fee: ${fm(packetCoPackFee)}`,
+      `Freight: ${fm(packetFreight)}`,
+      `Other landed: ${fm(packetOther)}`,
+      `Total landed COGS: ${fm(packetTotal)}`,
+      `$/finished unit: ${packetUnitCost == null ? '-' : `$${Number(packetUnitCost).toFixed(4)}`}`,
+      `$/can: ${packetPerCan == null ? '-' : `$${Number(packetPerCan).toFixed(4)}`}`,
+      `$/gal: ${packetPerGal == null ? '-' : `$${Number(packetPerGal).toFixed(4)}`}`,
+      '',
+      'Receive checklist',
+      isSyrupMode ? '- Confirm vendor invoice syrup gallons and syrup $/gal.' : '- Confirm raw material transfer shipped to co-packer.',
+      '- Confirm actual finished yield and receive unit.',
+      '- Enter final co-pack fee, freight, and other landed costs.',
+      '- Receive finished goods and lock landed COGS.',
+      '',
+      `Instructions: ${currentOrder.notes ?? '-'}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(body);
+      toast.success('Co-pack packet copied');
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }
+
   function printOrder() {
     const w = window.open('', '_blank');
     if (!w) return;
@@ -833,14 +915,20 @@ function CopackOrderDetailModal({
         <td style="text-align:right">${escapeHtml(fm(extended))}</td>
       </tr>`;
     }).join('');
+    const formulaRowsHtml = (bomLines ?? []).map((l, idx) => {
+      const label = l.line_type === 'component'
+        ? (itemLookup.byId.get(l.component_qbo_item_id ?? '')?.item_name ?? l.component_qbo_item_id ?? '?')
+        : l.service_label ?? '?';
+      const scaled = plannedByIdx.get(idx);
+      return `<tr>
+        <td>${escapeHtml(label)}</td>
+        <td>${escapeHtml(l.line_type.toUpperCase())}</td>
+        <td style="text-align:right">${escapeHtml(fmtQty(Number(l.qty_per), l.qty_uom || 'each'))}</td>
+        <td style="text-align:right">${escapeHtml(scaled ? fmtQty(scaled.qty, scaled.uom) : '-')}</td>
+        <td>${escapeHtml(l.notes ?? '')}</td>
+      </tr>`;
+    }).join('');
     const costBasis = costs ? `Locked ${new Date(costs.computed_at).toLocaleString()}` : 'Estimated from current BOM + item costs';
-    const packetComponentCost = costs ? Number(costs.components_cost) : estimatedComponentCost;
-    const packetServiceCost = costs ? Number(costs.services_cost) : estimatedServiceCost;
-    const packetCoPackFee = costs ? Number(costs.co_pack_fee) : Number(order!.co_pack_fee || 0);
-    const packetFreight = costs ? Number(costs.freight_cost) : Number(order!.freight_cost || 0);
-    const packetOther = costs ? Number(costs.other_cost) : Number(order!.other_landed_cost || 0);
-    const packetTotal = costs ? Number(costs.total_cost) : estimatedTotalCost;
-    const packetUnitCost = costs ? costs.unit_cost : estimatedUnitCost;
     const syrupVarianceHtml = isSyrupMode ? `
       <h2>Syrup Variance</h2>
       <div class="totals">
@@ -851,6 +939,15 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Cost variance</div>${escapeHtml(fmtDeltaMoney(syrupCostVariance))}</div>
         <div class="kv"><div class="lbl">Status</div>${escapeHtml(SYRUP_VARIANCE_LABEL[order!.syrup_variance_status ?? 'pending'] ?? 'Pending')}</div>
       </div>` : '';
+    const receiveChecklistHtml = `
+      <h2>Receive Checklist</h2>
+      <ul class="checklist">
+        <li><span class="box"></span>${escapeHtml(isSyrupMode ? 'Confirm vendor invoice syrup gallons and syrup $/gal.' : 'Confirm raw material transfer shipped to co-packer.')}</li>
+        <li><span class="box"></span>Confirm actual finished yield and receive unit.</li>
+        <li><span class="box"></span>Enter final co-pack fee, freight, and other landed costs.</li>
+        <li><span class="box"></span>Receive finished goods and lock landed COGS.</li>
+        <li><span class="box"></span>Review locked $/unit, $/can, and $/gal against the target.</li>
+      </ul>`;
     w.document.write(`<html><head><title>${escapeHtml(order!.order_number)}</title>
       <style>
         @page{size:letter;margin:0.5in}
@@ -860,13 +957,23 @@ function CopackOrderDetailModal({
         .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
         .kv{border:1px solid #0a0e17;padding:6px 8px}
         .lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:#475569;text-transform:uppercase}
+        .muted{color:#475569}
+        .pill{display:inline-block;border:1px solid #0a0e17;border-radius:999px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
         table{width:100%;border-collapse:collapse;font-size:10.5px;border:1px solid #0a0e17;margin-top:10px}
         th{background:#0a0e17;color:#fff;padding:5px 6px;font-size:8.5px;text-align:left;text-transform:uppercase;letter-spacing:1px}
         td{padding:5px 6px;border-bottom:1px solid #e2e8f0}
         .warn td{background:#fff7ed}
         .totals{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
+        .totals.four{grid-template-columns:repeat(4,1fr)}
+        .checklist{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;list-style:none;padding:0;margin:8px 0 0}
+        .checklist li{display:flex;gap:6px;align-items:flex-start}
+        .box{display:inline-block;width:10px;height:10px;border:1px solid #0a0e17;margin-top:2px;flex:0 0 auto}
       </style></head><body>
       <h1>Co-Pack Order · ${escapeHtml(order!.order_number)}</h1>
+      <div style="margin:-6px 0 12px">
+        <span class="pill">${escapeHtml(order!.status.toUpperCase())}</span>
+        <span class="muted" style="margin-left:8px">${escapeHtml(costBasis)}</span>
+      </div>
       <div class="meta">
         <div class="kv"><div class="lbl">Co-packer</div>${escapeHtml(order!.vendor_name ?? order!.qbo_vendor_id)}</div>
         <div class="kv"><div class="lbl">Finished SKU</div>${escapeHtml(finished?.item_name ?? order!.finished_item_name ?? order!.finished_qbo_item_id)}</div>
@@ -879,6 +986,22 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Co-packer staging</div>${escapeHtml(isSyrupMode ? 'Not staged by APBG' : copackerLoc ? `${copackerLoc.code} - ${copackerLoc.name}` : '-')}</div>
         <div class="kv"><div class="lbl">Instructions</div>${escapeHtml(order!.notes ?? '-')}</div>
       </div>
+      <h2>Formula / Pack Basis</h2>
+      <div class="totals four">
+        <div class="kv"><div class="lbl">Formula</div>${escapeHtml(packetFormulaName)}</div>
+        <div class="kv"><div class="lbl">Recipe yield</div>${escapeHtml(bom ? fmtQty(Number(bom.yield_qty), bom.yield_uom || 'gal') : '-')}</div>
+        <div class="kv"><div class="lbl">Scale runs</div>${escapeHtml(planned ? fmtNum(planned.runs, 4) : '-')}</div>
+        <div class="kv"><div class="lbl">Pack size</div>${escapeHtml(bom ? `${fmtNum(Number(bom.cans_per_case || 0))} cans x ${fmtNum(Number(bom.oz_per_can || 0), 2)} oz` : '-')}</div>
+      </div>
+      <h2>Production Targets</h2>
+      <div class="totals">
+        <div class="kv"><div class="lbl">Finished gal</div>${escapeHtml(packetFinishedGallons == null ? '-' : fmtQty(packetFinishedGallons, 'gal'))}</div>
+        <div class="kv"><div class="lbl">Finished units</div>${escapeHtml(packetFinishedUnits == null ? '-' : fmtNum(packetFinishedUnits, 2))}</div>
+        <div class="kv"><div class="lbl">Cans</div>${escapeHtml(packetCans == null ? '-' : fmtNum(packetCans))}</div>
+        <div class="kv"><div class="lbl">8-packs</div>${escapeHtml(packetPack8 == null ? '-' : fmtNum(packetPack8, 2))}</div>
+        <div class="kv"><div class="lbl">24-packs</div>${escapeHtml(packetPack24 == null ? '-' : fmtNum(packetPack24, 2))}</div>
+        <div class="kv"><div class="lbl">${escapeHtml(isSyrupMode ? 'Syrup gal' : 'Short rows')}</div>${escapeHtml(isSyrupMode ? (printSyrupGallons == null ? '-' : fmtQty(printSyrupGallons, 'gal')) : String(shortageRows.length))}</div>
+      </div>
       <h2>Cost Summary · ${escapeHtml(costBasis)}</h2>
       <div class="totals">
         <div class="kv"><div class="lbl">Components</div>${escapeHtml(fm(packetComponentCost))}</div>
@@ -888,11 +1011,19 @@ function CopackOrderDetailModal({
         <div class="kv"><div class="lbl">Other</div>${escapeHtml(fm(packetOther))}</div>
         <div class="kv"><div class="lbl">Landed $/unit</div>${escapeHtml(packetUnitCost == null ? '-' : `$${Number(packetUnitCost).toFixed(4)}`)}</div>
       </div>
-      <div class="kv" style="margin-top:6px"><div class="lbl">Total landed COGS</div>${escapeHtml(fm(packetTotal))}</div>
+      <div class="totals four">
+        <div class="kv"><div class="lbl">Total landed COGS</div>${escapeHtml(fm(packetTotal))}</div>
+        <div class="kv"><div class="lbl">$ / can</div>${escapeHtml(packetPerCan == null ? '-' : `$${Number(packetPerCan).toFixed(4)}`)}</div>
+        <div class="kv"><div class="lbl">$ / oz</div>${escapeHtml(packetPerOz == null ? '-' : `$${Number(packetPerOz).toFixed(5)}`)}</div>
+        <div class="kv"><div class="lbl">$ / gal</div>${escapeHtml(packetPerGal == null ? '-' : `$${Number(packetPerGal).toFixed(4)}`)}</div>
+      </div>
       ${syrupVarianceHtml}
       <h2>${isSyrupMode ? 'Syrup Supply' : 'Raw Materials'} ${shortageRows.length > 0 ? `· ${shortageRows.length} short` : ''}</h2>
       <table><thead><tr><th>Component</th><th style="text-align:right">Required</th><th style="text-align:right">Source stock</th><th style="text-align:right">All stock</th><th style="text-align:right">On order</th><th style="text-align:right">Short</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th><th>Status</th></tr></thead><tbody>${materialRowsHtml}</tbody></table>
       ${serviceRowsHtml ? `<h2>Services / Co-Pack Work</h2><table><thead><tr><th>Service</th><th style="text-align:right">Qty / Recipe</th><th style="text-align:right">Required</th><th style="text-align:right">Unit $</th><th style="text-align:right">Extended</th></tr></thead><tbody>${serviceRowsHtml}</tbody></table>` : ''}
+      <h2>Formula Detail</h2>
+      <table><thead><tr><th>Item / Service</th><th>Type</th><th style="text-align:right">Qty / recipe</th><th style="text-align:right">Required for order</th><th>Notes</th></tr></thead><tbody>${formulaRowsHtml}</tbody></table>
+      ${receiveChecklistHtml}
       <script>setTimeout(function(){window.print()},300);</script>
       </body></html>`);
     w.document.close();
@@ -1260,6 +1391,9 @@ function CopackOrderDetailModal({
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
+          <button onClick={copyPacket} style={btnSecondary()}>
+            <ClipboardCopy size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Copy Packet
+          </button>
           <button onClick={printOrder} style={btnSecondary()}>
             <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Print Order
           </button>
@@ -1543,6 +1677,19 @@ function estimateFinishedUnits(qty: number, uom: string, bom: ProductBom): numbe
   }
   if (uom === 'each' || uom === 'case') return qty;
   return null;
+}
+
+function estimateFinishedGallons(qty: number, uom: string, bom: ProductBom | undefined): number | null {
+  if (!bom || !Number.isFinite(qty) || !(qty > 0)) return null;
+  if (uom === 'gal') return qty;
+  if (uom === 'fl_oz') return qty / 128;
+  if (uom === 'L') return qty * 33.8140227 / 128;
+  if (uom === 'mL') return qty * 0.0338140227 / 128;
+  const finishedUnits = estimateFinishedUnits(qty, uom, bom);
+  const cansPerFinishedUnit = Number(bom.cans_per_case || 0);
+  const ozPerCan = Number(bom.oz_per_can || 0);
+  if (finishedUnits == null || !(cansPerFinishedUnit > 0) || !(ozPerCan > 0)) return null;
+  return finishedUnits * cansPerFinishedUnit * ozPerCan / 128;
 }
 
 const th: React.CSSProperties = {
