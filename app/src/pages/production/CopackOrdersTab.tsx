@@ -23,6 +23,7 @@ import { ProductionUnitConverter } from './ProductionUnitConverter';
 import { MaterialRequirementsPanel } from './MaterialRequirementsPanel';
 import { FormulaReadinessPanel } from './FormulaReadinessPanel';
 import { evaluateFormulaReadiness } from './formulaReadiness';
+import { CopackOrderWorksheetPanel } from './CopackOrderWorksheetPanel';
 
 const STATUS_COLOR: Record<CopackOrderStatus, string> = {
   draft: 'var(--mt)',
@@ -263,6 +264,7 @@ function CreateCopackOrderForm({
   const [materialSourceMode, setMaterialSourceMode] = useState<CopackMaterialSourceMode>('raw_materials');
   const [syrupRate, setSyrupRate] = useState('');
   const [selectedBomLines, setSelectedBomLines] = useState<BomLineInput[] | null>(null);
+  const [worksheetMaterialRows, setWorksheetMaterialRows] = useState<BomMaterialRequirement[] | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -278,6 +280,10 @@ function CreateCopackOrderForm({
       .catch(() => alive && setSelectedBomLines([]));
     return () => { alive = false; };
   }, [bomId]);
+
+  useEffect(() => {
+    if (materialSourceMode === 'syrup_by_gallon') setWorksheetMaterialRows(null);
+  }, [materialSourceMode]);
 
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
@@ -442,12 +448,29 @@ function CreateCopackOrderForm({
         />
       )}
 
+      {selectedBom && Number(qty) > 0 && (
+        <CopackOrderWorksheetPanel
+          bom={selectedBom}
+          lines={selectedBomLines}
+          itemLookup={itemLookup}
+          targetQty={Number(qty)}
+          targetUom={targetUom}
+          materialSourceMode={materialSourceMode}
+          syrupRate={Number(syrupRate || 0)}
+          coPackFee={Number(coPackFee || 0)}
+          freightCost={Number(freight || 0)}
+          otherLandedCost={Number(otherCost || 0)}
+          materialRows={materialSourceMode === 'raw_materials' ? worksheetMaterialRows : null}
+        />
+      )}
+
       {selectedBom && Number(qty) > 0 && materialSourceMode === 'raw_materials' && (
         <MaterialRequirementsPanel
           bomId={selectedBom.id}
           targetQty={Number(qty)}
           targetUom={targetUom}
           title="Raw materials to stage for co-packer"
+          onRowsChange={setWorksheetMaterialRows}
         />
       )}
       {selectedBom && Number(qty) > 0 && materialSourceMode === 'syrup_by_gallon' && (
@@ -925,6 +948,23 @@ function CopackOrderDetailModal({
               initialUnit={(actualUom === 'gal' || actualUom === 'fl_oz') ? actualUom : 'gal'}
             />
           </div>
+        )}
+
+        {bom && (
+          <CopackOrderWorksheetPanel
+            title={costs ? 'Order worksheet' : 'Order worksheet - estimate'}
+            bom={bom}
+            lines={bomLines ? bomLines.map(bomLineToInputForReadiness) : null}
+            itemLookup={itemLookup}
+            targetQty={Number(order.qty_ordered)}
+            targetUom={order.target_uom || 'gal'}
+            materialSourceMode={materialSourceMode}
+            syrupRate={effectiveSyrupRate}
+            coPackFee={Number(coPackFee || order.co_pack_fee || 0)}
+            freightCost={Number(freight || order.freight_cost || 0)}
+            otherLandedCost={Number(otherCost || order.other_landed_cost || 0)}
+            materialRows={isSyrupMode ? null : materialRows}
+          />
         )}
 
         {bom && !isSyrupMode && (
