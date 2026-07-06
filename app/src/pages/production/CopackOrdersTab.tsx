@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { CheckCircle2, FileText, Plus, Send, Truck, X as XIcon } from 'lucide-react';
 import {
-  BomMaterialRequirement, CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
+  BomLineInput, BomMaterialRequirement, CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
   receiveCopackOrder, sendCopackOrder, voidCopackOrder,
 } from '../../lib/production';
@@ -21,6 +21,8 @@ import { fmtQty, scaleBom, UOM_OPTIONS } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 import { ProductionUnitConverter } from './ProductionUnitConverter';
 import { MaterialRequirementsPanel } from './MaterialRequirementsPanel';
+import { FormulaReadinessPanel } from './FormulaReadinessPanel';
+import { evaluateFormulaReadiness } from './formulaReadiness';
 
 const STATUS_COLOR: Record<CopackOrderStatus, string> = {
   draft: 'var(--mt)',
@@ -260,13 +262,41 @@ function CreateCopackOrderForm({
   const [otherCost, setOtherCost] = useState('');
   const [materialSourceMode, setMaterialSourceMode] = useState<CopackMaterialSourceMode>('raw_materials');
   const [syrupRate, setSyrupRate] = useState('');
+  const [selectedBomLines, setSelectedBomLines] = useState<BomLineInput[] | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    let alive = true;
+    if (!bomId) {
+      setSelectedBomLines(null);
+      return () => { alive = false; };
+    }
+    setSelectedBomLines(null);
+    fetchBomLines(bomId)
+      .then((rows) => alive && setSelectedBomLines(rows.map(bomLineToInputForReadiness)))
+      .catch(() => alive && setSelectedBomLines([]));
+    return () => { alive = false; };
+  }, [bomId]);
+
   const selectedBom = boms.find((b) => b.id === bomId);
   const selectedFinished = selectedBom ? itemLookup.byId.get(selectedBom.finished_qbo_item_id) : null;
+  const selectedFormulaReadiness = useMemo(() => selectedBom
+    ? evaluateFormulaReadiness({
+      bom: selectedBom,
+      lines: selectedBomLines,
+      itemLookup,
+      materialSourceMode,
+      syrupUnitCostPerGal: Number(syrupRate || 0),
+      requireSyrupRate: materialSourceMode === 'syrup_by_gallon',
+    })
+    : null,
+  [selectedBom, selectedBomLines, itemLookup, materialSourceMode, syrupRate]);
+  const readinessAllowsSave = !selectedFormulaReadiness
+    || selectedFormulaReadiness.status === 'ready'
+    || selectedFormulaReadiness.status === 'watch';
   const canSave = !!bomId && !!vendorId && !!locId && Number(qty) > 0
-    && (materialSourceMode !== 'syrup_by_gallon' || Number(syrupRate) > 0);
+    && readinessAllowsSave;
 
   async function submit() {
     if (!canSave) return;
@@ -402,6 +432,14 @@ function CreateCopackOrderForm({
             Finished item: <strong style={{ color: 'var(--tx)' }}>{selectedFinished?.item_name ?? selectedBom.finished_qbo_item_id}</strong>
           </div>
         </div>
+      )}
+
+      {selectedFormulaReadiness && (
+        <FormulaReadinessPanel
+          readiness={selectedFormulaReadiness}
+          title="Co-pack readiness"
+          compact
+        />
       )}
 
       {selectedBom && Number(qty) > 0 && materialSourceMode === 'raw_materials' && (
@@ -1410,6 +1448,19 @@ function PackEntryHelper({
       </div>
     </div>
   );
+}
+
+function bomLineToInputForReadiness(l: ProductBomLine): BomLineInput {
+  return {
+    line_type: l.line_type,
+    component_qbo_item_id: l.component_qbo_item_id,
+    service_label: l.service_label,
+    qty_per: Number(l.qty_per),
+    qty_uom: l.qty_uom || 'each',
+    scrap_pct: Number(l.scrap_pct ?? 0),
+    default_cost: l.default_cost == null ? null : Number(l.default_cost),
+    notes: l.notes,
+  };
 }
 
 function escapeHtml(s: string): string {
