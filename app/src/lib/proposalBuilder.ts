@@ -32,10 +32,13 @@ export type ProposalProductCategory =
   | 'co2'
   | 'other';
 
+export type BeverageClass = 'fountain' | 'packaged';
+
 export interface ProposalProduct {
   id: string;
   name: string;
   category: ProposalProductCategory;
+  beverageClass?: BeverageClass;
   price?: number;
   packageSize?: string;
   description?: string;
@@ -176,11 +179,17 @@ export interface BrandAsset {
   url: string;
   thumbnailUrl?: string;
   tags?: string[];
+  /** DAM brand slug (alameda / brix / shared / sister brand). */
+  brand?: string;
   /** Storage path within the brand-assets bucket (present for uploaded assets). */
   path?: string;
   /** 'supabase' = in the brand library bucket, 'local' = built-in fallback art. */
   source?: 'supabase' | 'local';
 }
+
+export interface DamBrandOption { slug: string; label: string }
+export interface DamCollectionOption { id: string; name: string; parent_id?: string | null }
+export interface BrandLibraryResponse { assets: BrandAsset[]; brands: DamBrandOption[]; collections: DamCollectionOption[] }
 
 export interface ProposalCustomer {
   name: string;
@@ -322,9 +331,24 @@ export async function getBrixProducts(): Promise<ProposalProduct[]> {
   return Array.isArray(result) ? result : result.products;
 }
 
-export async function getBrandAssets(): Promise<BrandAsset[]> {
-  const result = await apiFetch<{ assets: BrandAsset[] } | BrandAsset[]>(BRAND_ASSETS_URL);
+function brandAssetsUrl(opts: { brand?: string; collection?: string } = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.brand) qs.set('brand', opts.brand);
+  if (opts.collection) qs.set('collection', opts.collection);
+  const query = qs.toString();
+  if (!query) return BRAND_ASSETS_URL;
+  return `${BRAND_ASSETS_URL}${BRAND_ASSETS_URL.includes('?') ? '&' : '?'}${query}`;
+}
+
+export async function getBrandAssets(opts: { brand?: string; collection?: string } = {}): Promise<BrandAsset[]> {
+  const result = await apiFetch<{ assets: BrandAsset[] } | BrandAsset[]>(brandAssetsUrl(opts));
   return Array.isArray(result) ? result : result.assets;
+}
+
+// Full brand library payload including the brand + collection pickers.
+export async function getBrandLibrary(opts: { brand?: string; collection?: string } = {}): Promise<BrandLibraryResponse> {
+  const result = await apiFetch<BrandLibraryResponse>(brandAssetsUrl(opts));
+  return { assets: result.assets || [], brands: result.brands || [], collections: result.collections || [] };
 }
 
 export interface BrandAssetUpload {

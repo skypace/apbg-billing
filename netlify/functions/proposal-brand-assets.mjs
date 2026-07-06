@@ -102,10 +102,32 @@ async function listPrefix(prefix) {
   return res.json();
 }
 
+// The DAM brand + folder registries, so the Proposal Builder can offer "pick a
+// brand and a collection" pickers scoped to exactly what the user needs.
+async function listDamBrands() {
+  try { return await damGet('brands?select=slug,label&order=sort_order.asc,label.asc'); }
+  catch { return []; }
+}
+async function listDamCollections() {
+  try { return await damGet('collections?select=id,name,parent_id&order=name.asc'); }
+  catch { return []; }
+}
+
 // Pull the curated brand library from Fountain DAM (dam.assets), excluding
-// archived assets, mapped to the BrandAsset shape the Proposal Builder expects.
-async function listBrandAssets() {
-  const rows = await damGet('assets?status=neq.archived&select=id,storage_path,title,filename,type,asset_tags(tag:tags(name))&order=created_at.desc');
+// archived + trashed assets, optionally scoped to a brand and/or collection,
+// mapped to the BrandAsset shape the Proposal Builder expects.
+async function listBrandAssets({ brand, collection } = {}) {
+  const sel = 'id,storage_path,title,filename,type,brand,status,deleted_at,asset_tags(tag:tags(name))';
+  let rows;
+  if (collection) {
+    const links = await damGet(`collection_assets?collection_id=eq.${encodeURIComponent(collection)}&select=asset:assets(${sel})&order=sort_order.asc`);
+    rows = links.map((l) => l.asset).filter(Boolean).filter((r) => r.status !== 'archived' && !r.deleted_at);
+    if (brand) rows = rows.filter((r) => r.brand === brand);
+  } else {
+    const filters = ['status=neq.archived', 'deleted_at=is.null'];
+    if (brand) filters.push(`brand=eq.${encodeURIComponent(brand)}`);
+    rows = await damGet(`assets?${filters.join('&')}&select=${sel}&order=created_at.desc`);
+  }
   return rows.map((r) => {
     const url = publicUrl(r.storage_path);
     const name = r.title || prettyName(r.filename || r.storage_path);
@@ -113,6 +135,7 @@ async function listBrandAssets() {
       id: r.id,
       name,
       type: ASSET_TYPES.includes(r.type) ? r.type : classifyAsset(name, r.type),
+      brand: r.brand || 'shared',
       url,
       thumbnailUrl: isImagePath(r.storage_path) ? url : undefined,
       tags: (r.asset_tags || []).map((t) => t.tag?.name).filter(Boolean),
@@ -299,15 +322,20 @@ export async function handler(event) {
 
   try {
     if (method === 'GET') {
+      const brand = event.queryStringParameters?.brand || undefined;
+      const collection = event.queryStringParameters?.collection || undefined;
       let stored = [];
       let warning;
       try {
-        stored = await listBrandAssets();
+        stored = await listBrandAssets({ brand, collection });
       } catch (e) {
         warning = e instanceof Error ? e.message : String(e);
         console.warn('brand-assets list failed:', warning);
       }
-      return json({ assets: mergeAssets(stored, fallbackAssets(event)), bucket: BUCKET, warning });
+      const [brands, collections] = await Promise.all([listDamBrands(), listDamCollections()]);
+      // The local fallback logos only make sense when browsing everything.
+      const assets = (brand || collection) ? stored : mergeAssets(stored, fallbackAssets(event));
+      return json({ assets, brands, collections, bucket: BUCKET, warning });
     }
     if (method === 'POST') return await handleUpload(event);
     if (method === 'DELETE') return await handleDelete(event);

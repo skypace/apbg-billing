@@ -11,6 +11,8 @@ import {
 import {
   type BrandAsset,
   type BrandAssetType,
+  type DamBrandOption,
+  type DamCollectionOption,
   BRAND_ASSET_TYPES,
   type EndOfLeaseOption,
   type EquipmentCatalogItem,
@@ -37,6 +39,7 @@ import {
   generateProposalEmail,
   getSavedProposal,
   getBrandAssets,
+  getBrandLibrary,
   getBrixProducts,
   getEndOfLeaseOptions,
   getEquipmentCatalog,
@@ -94,6 +97,7 @@ export function ProposalBuilderPage() {
   const [products, setProducts] = useState<ProposalProduct[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [productSearch, setProductSearch] = useState('');
+  const [beverageFilter, setBeverageFilter] = useState<'all' | 'fountain' | 'packaged'>('all');
   const [catalog, setCatalog] = useState<EquipmentCatalogItem[]>([]);
   const [equipmentSearch, setEquipmentSearch] = useState('');
   const [selectedEquipment, setSelectedEquipment] = useState<ProposalEquipment[]>([]);
@@ -102,6 +106,10 @@ export function ProposalBuilderPage() {
   const [brandAssets, setBrandAssets] = useState<BrandAsset[]>([]);
   const [brandAssetError, setBrandAssetError] = useState<string | null>(null);
   const [assetBusy, setAssetBusy] = useState(false);
+  const [brandOptions, setBrandOptions] = useState<DamBrandOption[]>([]);
+  const [collectionOptions, setCollectionOptions] = useState<DamCollectionOption[]>([]);
+  const [assetBrand, setAssetBrand] = useState('');
+  const [assetCollection, setAssetCollection] = useState('');
 
   const [pricing, setPricing] = useState<PricingCalculateResponse | null>(null);
   const [quote, setQuote] = useState<EquipmentQuoteResponse | null>(null);
@@ -122,16 +130,18 @@ export function ProposalBuilderPage() {
       getEquipmentCatalog(),
       getServicePlans(),
       getEndOfLeaseOptions(),
-      getBrandAssets(),
+      getBrandLibrary(),
       listSavedProposals(),
     ]);
 
     if (catalogResult.status === 'fulfilled') setCatalog(catalogResult.value.filter((item) => item.active !== false));
     else nextErrors.push(`Equipment: ${messageFrom(catalogResult.reason)}`);
 
-    const loadedAssets = assetResult.status === 'fulfilled' ? assetResult.value : [];
+    const loadedAssets = assetResult.status === 'fulfilled' ? assetResult.value.assets : [];
     if (assetResult.status === 'fulfilled') {
       setBrandAssets(loadedAssets);
+      setBrandOptions(assetResult.value.brands || []);
+      setCollectionOptions(assetResult.value.collections || []);
       setBrandAssetError(null);
     } else {
       setBrandAssets([]);
@@ -183,21 +193,33 @@ export function ProposalBuilderPage() {
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
-    const rows = q
-      ? products.filter((product) =>
-          [
-            product.name,
-            product.category,
-            product.description || '',
-            product.sku || '',
-            product.manufacturer || '',
-            product.model || '',
-            product.packageSize || '',
-          ].join(' ').toLowerCase().includes(q),
-        )
-      : products;
+    let rows = beverageFilter === 'all' ? products : products.filter((p) => p.beverageClass === beverageFilter);
+    if (q) {
+      rows = rows.filter((product) =>
+        [
+          product.name,
+          product.category,
+          product.description || '',
+          product.sku || '',
+          product.manufacturer || '',
+          product.model || '',
+          product.packageSize || '',
+        ].join(' ').toLowerCase().includes(q),
+      );
+    }
     return rows.slice(0, 80);
-  }, [productSearch, products]);
+  }, [productSearch, products, beverageFilter]);
+
+  // Re-scope the brand library when the operator picks a brand/collection.
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    let live = true;
+    getBrandAssets({ brand: assetBrand || undefined, collection: assetCollection || undefined })
+      .then((a) => { if (live) { setBrandAssets(a); setBrandAssetError(null); } })
+      .catch((e) => { if (live) setBrandAssetError(messageFrom(e)); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetBrand, assetCollection]);
 
   const filteredCatalog = useMemo(() => {
     const q = equipmentSearch.trim().toLowerCase();
@@ -282,7 +304,7 @@ export function ProposalBuilderPage() {
 
   async function reloadBrandAssets() {
     try {
-      const assets = await getBrandAssets();
+      const assets = await getBrandAssets({ brand: assetBrand || undefined, collection: assetCollection || undefined });
       setBrandAssets(assets);
       setBrandAssetError(null);
     } catch (e) {
@@ -586,6 +608,19 @@ export function ProposalBuilderPage() {
                   )}
                   renderInput={(params) => <TextField {...params} label="Products and flavors" />}
                 />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  {([['all', 'All beverages'], ['fountain', 'Fountain'], ['packaged', 'Packaged']] as const).map(([key, label]) => (
+                    <Chip
+                      key={key}
+                      label={label}
+                      size="small"
+                      clickable
+                      color={beverageFilter === key ? 'primary' : 'default'}
+                      variant={beverageFilter === key ? 'filled' : 'outlined'}
+                      onClick={() => setBeverageFilter(key)}
+                    />
+                  ))}
+                </Stack>
                 <TextField
                   size="small"
                   label="Search product catalog"
@@ -602,6 +637,19 @@ export function ProposalBuilderPage() {
             </Section>
 
             <Section title="Brand Library" icon={<Images size={18} />}>
+              <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+                <TextField select size="small" label="Brand" value={assetBrand} onChange={(e) => setAssetBrand(e.target.value)} sx={{ minWidth: 150 }}>
+                  <MenuItem value="">All brands</MenuItem>
+                  {brandOptions.map((b) => <MenuItem key={b.slug} value={b.slug}>{b.label}</MenuItem>)}
+                </TextField>
+                <TextField select size="small" label="Collection" value={assetCollection} onChange={(e) => setAssetCollection(e.target.value)} sx={{ minWidth: 190 }}>
+                  <MenuItem value="">All collections</MenuItem>
+                  {collectionOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                </TextField>
+                {(assetBrand || assetCollection) && (
+                  <Chip label="Clear" size="small" onDelete={() => { setAssetBrand(''); setAssetCollection(''); }} onClick={() => { setAssetBrand(''); setAssetCollection(''); }} />
+                )}
+              </Stack>
               <BrandAssets
                 assets={brandAssets}
                 error={brandAssetError}
