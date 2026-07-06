@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { CheckCircle2, ClipboardCopy, FileText, Plus, Send, Truck, X as XIcon } from 'lucide-react';
+import { CheckCircle2, ClipboardCopy, FileText, Plus, Send, TriangleAlert, Truck, X as XIcon } from 'lucide-react';
 import {
   BomLineInput, BomMaterialRequirement, CopackOrderCosts, CopackOrderRow, CopackOrderStatus, ProductBom, ProductBomLine,
   closeCopackOrder, createCopackOrder, fetchBomLines, fetchCopackOrderCosts,
@@ -663,6 +663,32 @@ function CopackOrderDetailModal({
   const packetFormulaName = bom
     ? (bom.name ? `${bom.name}${bom.version ? ` · v${bom.version}` : ''}` : `Version ${bom.version || '1'}`)
     : '—';
+  const enteredActualQty = actualQty === '' ? null : Number(actualQty);
+  const validActualQty = enteredActualQty != null && Number.isFinite(enteredActualQty) && enteredActualQty > 0
+    ? enteredActualQty
+    : null;
+  const receiveActualFinishedUnits = bom && validActualQty != null ? estimateFinishedUnits(validActualQty, actualUom, bom) : null;
+  const receiveActualFinishedGallons = bom && validActualQty != null ? estimateFinishedGallons(validActualQty, actualUom, bom) : null;
+  const receiveCoPackFee = coPackFee === '' ? Number(order.co_pack_fee || 0) : Number(coPackFee);
+  const receiveFreight = freight === '' ? Number(order.freight_cost || 0) : Number(freight);
+  const receiveOtherCost = otherCost === '' ? Number(order.other_landed_cost || 0) : Number(otherCost);
+  const receivePlannedMaterialCost = isSyrupMode
+    ? Number(plannedSyrupCost ?? (syrupGallons == null ? 0 : syrupGallons * syrupRate))
+    : estimatedComponentCost;
+  const receiveFinalMaterialCost = isSyrupMode
+    ? Number(syrupInvoiceTotal ?? 0)
+    : estimatedComponentCost;
+  const receivePlannedLandedCost = Number(order.co_pack_fee || 0) + Number(order.freight_cost || 0) + Number(order.other_landed_cost || 0);
+  const receiveFinalLandedCost = receiveCoPackFee + receiveFreight + receiveOtherCost;
+  const receivePlannedTotal = receivePlannedMaterialCost + estimatedServiceCost + receivePlannedLandedCost;
+  const receiveFinalTotal = receiveFinalMaterialCost + estimatedServiceCost + receiveFinalLandedCost;
+  const receivePlannedUnitCost = estimatedFinishedUnits && estimatedFinishedUnits > 0
+    ? receivePlannedTotal / estimatedFinishedUnits
+    : null;
+  const receiveFinalUnitCost = receiveActualFinishedUnits && receiveActualFinishedUnits > 0
+    ? receiveFinalTotal / receiveActualFinishedUnits
+    : null;
+  const receiveActualSyrupCost = effectiveSyrupGallons == null ? null : effectiveSyrupGallons * effectiveSyrupRate;
 
   async function doSend() {
     setBusy(true);
@@ -1289,6 +1315,25 @@ function CopackOrderDetailModal({
                 <input type="datetime-local" style={inp()} value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} />
               </LField>
             </div>
+            <ReceiveReviewPanel
+              materialSourceMode={materialSourceMode}
+              orderedLabel={orderedLabel}
+              actualLabel={validActualQty != null ? fmtQty(validActualQty, actualUom || order.target_uom || 'gal') : '—'}
+              plannedFinishedUnits={estimatedFinishedUnits}
+              actualFinishedUnits={receiveActualFinishedUnits}
+              plannedFinishedGallons={estimateFinishedGallons(Number(order.qty_ordered), order.target_uom || 'gal', bom)}
+              actualFinishedGallons={receiveActualFinishedGallons}
+              plannedSyrupGallons={plannedSyrupGallons ?? syrupGallons}
+              actualSyrupGallons={effectiveSyrupGallons}
+              plannedSyrupCost={plannedSyrupCost}
+              actualSyrupCost={receiveActualSyrupCost}
+              plannedTotalCost={receivePlannedTotal}
+              finalTotalCost={receiveFinalTotal}
+              plannedUnitCost={receivePlannedUnitCost}
+              finalUnitCost={receiveFinalUnitCost}
+              plannedLandedCost={receivePlannedLandedCost}
+              finalLandedCost={receiveFinalLandedCost}
+            />
           </div>
         )}
 
@@ -1532,6 +1577,178 @@ function SyrupVariancePanel({
   );
 }
 
+function ReceiveReviewPanel({
+  materialSourceMode,
+  orderedLabel,
+  actualLabel,
+  plannedFinishedUnits,
+  actualFinishedUnits,
+  plannedFinishedGallons,
+  actualFinishedGallons,
+  plannedSyrupGallons,
+  actualSyrupGallons,
+  plannedSyrupCost,
+  actualSyrupCost,
+  plannedTotalCost,
+  finalTotalCost,
+  plannedUnitCost,
+  finalUnitCost,
+  plannedLandedCost,
+  finalLandedCost,
+}: {
+  materialSourceMode: CopackMaterialSourceMode;
+  orderedLabel: string;
+  actualLabel: string;
+  plannedFinishedUnits: number | null;
+  actualFinishedUnits: number | null;
+  plannedFinishedGallons: number | null;
+  actualFinishedGallons: number | null;
+  plannedSyrupGallons: number | null;
+  actualSyrupGallons: number | null;
+  plannedSyrupCost: number | null;
+  actualSyrupCost: number | null;
+  plannedTotalCost: number;
+  finalTotalCost: number;
+  plannedUnitCost: number | null;
+  finalUnitCost: number | null;
+  plannedLandedCost: number;
+  finalLandedCost: number;
+}) {
+  const yieldDeltaPct = ratioDelta(actualFinishedUnits, plannedFinishedUnits);
+  const unitCostDeltaPct = ratioDelta(finalUnitCost, plannedUnitCost);
+  const totalCostDeltaPct = ratioDelta(finalTotalCost, plannedTotalCost);
+  const syrupGallonsDeltaPct = materialSourceMode === 'syrup_by_gallon'
+    ? ratioDelta(actualSyrupGallons, plannedSyrupGallons)
+    : null;
+  const reviewItems: string[] = [];
+  if (actualFinishedUnits == null) reviewItems.push('Actual yield cannot be converted to finished units.');
+  if (yieldDeltaPct != null && Math.abs(yieldDeltaPct) >= 0.05) reviewItems.push(`Yield is ${fmtDeltaPct(yieldDeltaPct)} vs ordered.`);
+  if (unitCostDeltaPct != null && Math.abs(unitCostDeltaPct) >= 0.10) reviewItems.push(`Unit COGS is ${fmtDeltaPct(unitCostDeltaPct)} vs plan.`);
+  if (totalCostDeltaPct != null && Math.abs(totalCostDeltaPct) >= 0.10) reviewItems.push(`Total COGS is ${fmtDeltaPct(totalCostDeltaPct)} vs plan.`);
+  if (syrupGallonsDeltaPct != null && Math.abs(syrupGallonsDeltaPct) >= 0.10) reviewItems.push(`Syrup gallons are ${fmtDeltaPct(syrupGallonsDeltaPct)} vs BOM.`);
+
+  const tone = reviewItems.length > 0
+    ? { color: 'var(--am)', border: 'rgba(239,191,65,0.32)', bg: 'rgba(239,191,65,0.07)' }
+    : { color: 'var(--gn)', border: 'rgba(125,238,164,0.24)', bg: 'rgba(125,238,164,0.055)' };
+
+  return (
+    <section style={{
+      marginTop: 12,
+      padding: 12,
+      border: `1px solid ${tone.border}`,
+      borderRadius: 4,
+      background: tone.bg,
+    }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        {reviewItems.length > 0 ? <TriangleAlert size={15} color={tone.color} /> : <CheckCircle2 size={15} color={tone.color} />}
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Receipt review before lock
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 2 }}>
+            Compare planned order economics to the receipt values about to be posted.
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{
+          color: tone.color,
+          border: `1px solid ${tone.border}`,
+          background: 'rgba(255,255,255,0.04)',
+          borderRadius: 10,
+          padding: '1px 7px',
+          fontSize: 10,
+          fontWeight: 700,
+        }}>
+          {reviewItems.length > 0 ? `${reviewItems.length} review` : 'Ready'}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 8, fontSize: 13 }}>
+        <Kv label="Ordered yield" value={orderedLabel} />
+        <Kv label="Actual yield" value={actualLabel} />
+        <Kv label="Yield delta" value={fmtDeltaPct(yieldDeltaPct)} bold accent={yieldDeltaPct != null && yieldDeltaPct < -0.05} />
+        <Kv label="Final $ / unit" value={finalUnitCost == null ? '—' : `$${Number(finalUnitCost).toFixed(4)}`} bold accent />
+        <Kv label="$ / unit delta" value={fmtDeltaPct(unitCostDeltaPct)} bold accent={unitCostDeltaPct != null && unitCostDeltaPct > 0.10} />
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 10 }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+            <th style={th}>Measure</th>
+            <th style={{ ...th, textAlign: 'right' }}>Planned</th>
+            <th style={{ ...th, textAlign: 'right' }}>Receipt</th>
+            <th style={{ ...th, textAlign: 'right' }}>Delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          <ReviewRow
+            label="Finished units"
+            planned={plannedFinishedUnits == null ? '—' : fmtNum(plannedFinishedUnits, 2)}
+            actual={actualFinishedUnits == null ? '—' : fmtNum(actualFinishedUnits, 2)}
+            delta={fmtDeltaQty(numberDelta(actualFinishedUnits, plannedFinishedUnits), 'unit')}
+          />
+          <ReviewRow
+            label="Finished gallons"
+            planned={plannedFinishedGallons == null ? '—' : fmtQty(plannedFinishedGallons, 'gal')}
+            actual={actualFinishedGallons == null ? '—' : fmtQty(actualFinishedGallons, 'gal')}
+            delta={fmtDeltaQty(numberDelta(actualFinishedGallons, plannedFinishedGallons), 'gal')}
+          />
+          {materialSourceMode === 'syrup_by_gallon' && (
+            <ReviewRow
+              label="Syrup gallons"
+              planned={plannedSyrupGallons == null ? '—' : fmtQty(plannedSyrupGallons, 'gal')}
+              actual={actualSyrupGallons == null ? '—' : fmtQty(actualSyrupGallons, 'gal')}
+              delta={fmtDeltaQty(numberDelta(actualSyrupGallons, plannedSyrupGallons), 'gal')}
+            />
+          )}
+          {materialSourceMode === 'syrup_by_gallon' && (
+            <ReviewRow
+              label="Syrup cost"
+              planned={plannedSyrupCost == null ? '—' : fm(plannedSyrupCost)}
+              actual={actualSyrupCost == null ? '—' : fm(actualSyrupCost)}
+              delta={fmtDeltaMoney(numberDelta(actualSyrupCost, plannedSyrupCost))}
+            />
+          )}
+          <ReviewRow
+            label="Landed add-ons"
+            planned={fm(plannedLandedCost)}
+            actual={fm(finalLandedCost)}
+            delta={fmtDeltaMoney(finalLandedCost - plannedLandedCost)}
+          />
+          <ReviewRow
+            label="Total COGS"
+            planned={fm(plannedTotalCost)}
+            actual={fm(finalTotalCost)}
+            delta={fmtDeltaMoney(finalTotalCost - plannedTotalCost)}
+          />
+        </tbody>
+      </table>
+
+      {reviewItems.length > 0 && (
+        <div style={{ display: 'grid', gap: 4, marginTop: 10 }}>
+          {reviewItems.map((item) => (
+            <div key={item} style={{ color: 'var(--am)', display: 'flex', gap: 6, alignItems: 'center', fontSize: 11 }}>
+              <TriangleAlert size={12} />
+              {item}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReviewRow({ label, planned, actual, delta }: { label: string; planned: string; actual: string; delta: string }) {
+  return (
+    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+      <td style={td}><strong>{label}</strong></td>
+      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>{planned}</td>
+      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{actual}</td>
+      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{delta}</td>
+    </tr>
+  );
+}
+
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ minWidth: 74 }}>
@@ -1574,6 +1791,22 @@ function fmtDeltaPct(value: number | null | undefined): string {
   const n = Number(value) * 100;
   if (Math.abs(n) < 0.05) return '0.0%';
   return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
+}
+
+function numberDelta(actual: number | null | undefined, planned: number | null | undefined): number | null {
+  if (actual == null || planned == null) return null;
+  const a = Number(actual);
+  const p = Number(planned);
+  if (!Number.isFinite(a) || !Number.isFinite(p)) return null;
+  return a - p;
+}
+
+function ratioDelta(actual: number | null | undefined, planned: number | null | undefined): number | null {
+  if (actual == null || planned == null) return null;
+  const a = Number(actual);
+  const p = Number(planned);
+  if (!Number.isFinite(a) || !Number.isFinite(p) || Math.abs(p) < 0.000001) return null;
+  return (a - p) / p;
 }
 
 function PackEntryHelper({
