@@ -9,6 +9,8 @@ import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup, inferItemVolumeFlOz } from '../../lib/uom';
 import type { ProductionItemLookup } from './ProductionPage';
 import { ProductionUnitConverter } from './ProductionUnitConverter';
+import { FormulaReadinessBadge, FormulaReadinessPanel } from './FormulaReadinessPanel';
+import { evaluateFormulaReadiness } from './formulaReadiness';
 
 interface Props {
   boms: ProductBom[] | null;
@@ -52,6 +54,45 @@ function serviceLikeItemName(name: string | null | undefined): boolean {
 export function BomsTab({ boms, itemLookup, onChanged }: Props) {
   const [creating, setCreating] = useState(false);
   const [openBomId, setOpenBomId] = useState<string | null>(null);
+  const [bomLineMap, setBomLineMap] = useState<Map<string, BomLineInput[]> | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (boms === null) {
+      setBomLineMap(null);
+      return () => { alive = false; };
+    }
+    if (boms.length === 0) {
+      setBomLineMap(new Map());
+      return () => { alive = false; };
+    }
+    setBomLineMap(null);
+    Promise.all(boms.map(async (b) => {
+      const rows = await fetchBomLines(b.id).catch(() => []);
+      return [b.id, rows.map(bomLineToInput)] as const;
+    })).then((entries) => {
+      if (alive) setBomLineMap(new Map(entries));
+    });
+    return () => { alive = false; };
+  }, [boms]);
+
+  const readinessByBomId = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof evaluateFormulaReadiness>>();
+    for (const b of boms ?? []) {
+      m.set(b.id, evaluateFormulaReadiness({
+        bom: b,
+        lines: bomLineMap?.get(b.id) ?? null,
+        itemLookup,
+      }));
+    }
+    return m;
+  }, [boms, bomLineMap, itemLookup]);
+
+  const readinessCounts = useMemo(() => {
+    const counts = { ready: 0, watch: 0, blocked: 0, pending: 0 };
+    for (const readiness of readinessByBomId.values()) counts[readiness.status] += 1;
+    return counts;
+  }, [readinessByBomId]);
 
   if (boms === null) return <div style={{ padding: 18, color: 'var(--mt)' }}>Loading…</div>;
 
@@ -60,7 +101,7 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: 'var(--mt)', fontSize: 11 }}>
-            {boms.length} BOM{boms.length === 1 ? '' : 's'} · {boms.filter((b) => b.is_active).length} active
+            {boms.length} BOM{boms.length === 1 ? '' : 's'} · {boms.filter((b) => b.is_active).length} active · {readinessCounts.ready} ready · {readinessCounts.watch} review · {readinessCounts.blocked} blocked
           </span>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
           <button onClick={() => setCreating(true)} style={btnPrimary()}>
@@ -95,6 +136,7 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
               <Th>Finished SKU</Th>
               <Th>Name</Th>
               <Th style={{ textAlign: 'right' }}>Yield Qty</Th>
+              <Th>Readiness</Th>
               <Th>Status</Th>
               <Th>Effective</Th>
               <Th style={{ width: 90 }}> </Th>
@@ -102,13 +144,14 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
           </thead>
           <tbody>
             {boms.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 18, textAlign: 'center', color: 'var(--mt)' }}>
+              <tr><td colSpan={7} style={{ padding: 18, textAlign: 'center', color: 'var(--mt)' }}>
                 No BOMs yet.
               </td></tr>
             )}
             {boms.map((b) => {
               const it = itemLookup.byId.get(b.finished_qbo_item_id);
               const warning = bomSetupWarning(b);
+              const readiness = readinessByBomId.get(b.id) ?? evaluateFormulaReadiness({ bom: b, lines: null, itemLookup });
               return (
                 <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <Td><strong>{it?.item_name ?? b.finished_qbo_item_id}</strong></Td>
@@ -125,6 +168,10 @@ export function BomsTab({ boms, itemLookup, onChanged }: Props) {
                         Check setup
                       </div>
                     )}
+                  </Td>
+                  <Td>
+                    <FormulaReadinessBadge readiness={readiness} />
+                    <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>{readiness.summary}</div>
                   </Td>
                   <Td>
                     <span style={{
@@ -466,6 +513,18 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     };
   }, [lines, scaling, itemLookup, targetQty, targetUom, ozPerCanNum, cansPerCaseNum]);
 
+  const formulaReadiness = useMemo(() => evaluateFormulaReadiness({
+    bom,
+    lines,
+    itemLookup,
+    overrides: {
+      finishedVolPerYieldGal: bridgeGal ?? null,
+      dilutionRatio: dilutionNum,
+      cansPerCase: cansPerCaseNum,
+      ozPerCan: ozPerCanNum,
+    },
+  }), [bom, lines, itemLookup, bridgeGal, dilutionNum, cansPerCaseNum, ozPerCanNum]);
+
   async function saveLines() {
     if (!lines || !lines.every(validLine)) return;
     setSaving(true);
@@ -590,6 +649,8 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
             {active ? 'Deactivate' : 'Activate'}
           </button>
         </div>
+
+        <FormulaReadinessPanel readiness={formulaReadiness} />
 
         {setupWarning ? (
           <div style={{
