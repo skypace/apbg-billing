@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Divider, FormControl,
-  IconButton, InputLabel, MenuItem, Paper, Select, Snackbar, Stack, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControl,
+  FormControlLabel, IconButton, InputLabel, MenuItem, Paper, Select, Snackbar, Stack, Table, TableBody,
+  TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
 import {
   Calculator, Check, Clipboard, Copy, ExternalLink, FileText, FolderOpen, LayoutTemplate, Mail,
-  Images, PackagePlus, Presentation, RefreshCw, Save, Send, Share2, Sparkles, Trash2, Upload,
+  Images, PackagePlus, Paperclip, Plus, Presentation, RefreshCw, Save, Send, Sparkles, Share2, Trash2, Upload,
 } from 'lucide-react';
 import {
   type BrandAsset,
@@ -35,8 +35,8 @@ import {
   fileToBase64,
   selectTemplateProducts,
   uploadBrandAsset,
+  generateAiProposal,
   generateGammaProposal,
-  generateProposalEmail,
   getSavedProposal,
   getBrandAssets,
   getBrandLibrary,
@@ -51,6 +51,30 @@ import {
 
 type LoadState = 'idle' | 'loading' | 'ready';
 type BusyState = 'none' | 'pricing' | 'quote' | 'email' | 'gamma' | 'save' | 'share' | 'load';
+
+// What the operator chose to include for a selected product: which image, and
+// whether the spec sheet + price ride along into the proposal.
+interface ProductChoice {
+  imageUrl?: string;
+  includeSpec?: boolean;
+  includePrice?: boolean;
+}
+
+function applyProductChoice(product: ProposalProduct, choice?: ProductChoice): ProposalProduct {
+  const includeSpec = choice?.includeSpec !== false;
+  const includePrice = choice?.includePrice !== false;
+  const chosenImage = choice?.imageUrl
+    || product.imageUrl
+    || (product.imageUrls && product.imageUrls[0])
+    || undefined;
+  return {
+    ...product,
+    imageUrl: chosenImage,
+    imageUrls: chosenImage ? [chosenImage] : product.imageUrls,
+    specSheetUrl: includeSpec ? product.specSheetUrl : undefined,
+    price: includePrice ? product.price : undefined,
+  };
+}
 
 const businessTypes = [
   'Restaurant',
@@ -120,6 +144,12 @@ export function ProposalBuilderPage() {
   const [proposalTitle, setProposalTitle] = useState('Custom Beverage Program Proposal');
   const [savedProposals, setSavedProposals] = useState<SavedProposalSummary[]>([]);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [emailSource, setEmailSource] = useState<'ai' | 'template' | null>(null);
+
+  // Per-product include choices (image / spec / price) + hand-picked brand assets.
+  const [productChoices, setProductChoices] = useState<Record<string, ProductChoice>>({});
+  const [chosenAssetIds, setChosenAssetIds] = useState<string[]>([]);
+  const [assetRoles, setAssetRoles] = useState<Record<string, 'embed' | 'attach'>>({});
 
   async function loadData() {
     setLoadState('loading');
@@ -191,6 +221,12 @@ export function ProposalBuilderPage() {
     [products, selectedProductIds],
   );
 
+  // Selected products with the operator's include choices (image/spec/price) baked in.
+  const proposalProducts = useMemo(
+    () => selectedProducts.map((product) => applyProductChoice(product, productChoices[product.id])),
+    [selectedProducts, productChoices],
+  );
+
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
     let rows = beverageFilter === 'all' ? products : products.filter((p) => p.beverageClass === beverageFilter);
@@ -241,14 +277,19 @@ export function ProposalBuilderPage() {
     [endOfLeaseOptions, terms.endOfLeaseOptionKeys],
   );
 
-  const proposalAssets = useMemo(
-    () => selectProposalAssets(brandAssets, selectedProducts, selectedEquipment),
-    [brandAssets, selectedEquipment, selectedProducts],
-  );
+  // Hand-picked brand assets win (carrying their embed/attach role); if the
+  // operator hasn't chosen any, fall back to the automatic match as before.
+  const proposalAssets = useMemo(() => {
+    const chosen = brandAssets
+      .filter((asset) => chosenAssetIds.includes(asset.id))
+      .map((asset) => ({ ...asset, role: assetRoles[asset.id] || 'embed' as const }));
+    if (chosen.length) return chosen;
+    return selectProposalAssets(brandAssets, proposalProducts, selectedEquipment);
+  }, [brandAssets, chosenAssetIds, assetRoles, proposalProducts, selectedEquipment]);
 
   const proposalData = useMemo(() => ({
     customer,
-    products: selectedProducts,
+    products: proposalProducts,
     equipment: selectedEquipment,
     pricing,
     servicePlans,
@@ -256,7 +297,7 @@ export function ProposalBuilderPage() {
     assets: proposalAssets,
     terms,
     quote,
-  }), [customer, endOfLeaseOptions, pricing, proposalAssets, quote, selectedEquipment, selectedProducts, servicePlans, terms]);
+  }), [customer, endOfLeaseOptions, pricing, proposalAssets, quote, selectedEquipment, proposalProducts, servicePlans, terms]);
 
   const pricingPayload = useMemo(() => ({
     pricing_model: terms.pricingModel,
@@ -359,6 +400,20 @@ export function ProposalBuilderPage() {
     );
   }
 
+  function patchProductChoice(id: string, patch: Partial<ProductChoice>) {
+    setProductChoices((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  }
+
+  function toggleAssetChoice(asset: BrandAsset) {
+    setChosenAssetIds((current) =>
+      current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id],
+    );
+  }
+
+  function setAssetRole(id: string, role: 'embed' | 'attach') {
+    setAssetRoles((current) => ({ ...current, [id]: role }));
+  }
+
   function addEquipment(item: EquipmentCatalogItem) {
     setSelectedEquipment((current) => {
       const existing = current.find((row) => row.catalogItemId === item.id);
@@ -432,9 +487,10 @@ export function ProposalBuilderPage() {
   async function createEmail() {
     setBusy('email');
     try {
-      const text = await generateProposalEmail(proposalData);
+      const { text, source } = await generateAiProposal(proposalData, 'email');
       setGeneratedEmail(text);
-      setToast('Email generated.');
+      setEmailSource(source);
+      setToast(source === 'ai' ? 'AI drafted the proposal email.' : 'Draft generated from template (AI unavailable).');
     } catch (e) {
       setToast(messageFrom(e));
     } finally {
@@ -500,9 +556,20 @@ export function ProposalBuilderPage() {
       setProducts((current) => mergeProducts(current, data.products || []));
       setSelectedProductIds((data.products || []).map((product) => product.id));
       setSelectedEquipment(data.equipment || []);
+      setProductChoices(Object.fromEntries((data.products || []).map((product) => [
+        product.id,
+        {
+          imageUrl: product.imageUrl,
+          includeSpec: !!product.specSheetUrl,
+          includePrice: product.price != null,
+        } as ProductChoice,
+      ])));
+      setChosenAssetIds((data.assets || []).filter((asset) => asset.role).map((asset) => asset.id));
+      setAssetRoles(Object.fromEntries((data.assets || []).filter((asset) => asset.role).map((asset) => [asset.id, asset.role!])));
       setPricing(data.pricing || null);
       setQuote(data.quote || null);
       setGeneratedEmail(saved.generatedEmail || '');
+      setEmailSource(saved.generatedEmail ? 'ai' : null);
       setGammaUrl(saved.gammaUrl || null);
       setPdfUrl(saved.pdfUrl || null);
       setToast(`Loaded ${saved.title}.`);
@@ -632,7 +699,7 @@ export function ProposalBuilderPage() {
                   selectedIds={selectedProductIds}
                   onToggle={toggleProduct}
                 />
-                <ProductSummary products={selectedProducts} />
+                <ProductSummary products={selectedProducts} choices={productChoices} onPatch={patchProductChoice} />
               </Stack>
             </Section>
 
@@ -655,6 +722,10 @@ export function ProposalBuilderPage() {
                 error={brandAssetError}
                 loading={loadState === 'loading'}
                 busy={assetBusy}
+                chosenIds={chosenAssetIds}
+                roles={assetRoles}
+                onToggleChoose={toggleAssetChoice}
+                onSetRole={setAssetRole}
                 onRefresh={reloadBrandAssets}
                 onUpload={handleUploadAssets}
                 onDelete={handleDeleteAsset}
@@ -891,7 +962,7 @@ export function ProposalBuilderPage() {
             <Section title="Proposal Preview" icon={<Presentation size={18} />}>
               <ProposalPreview
                 customer={customer}
-                products={selectedProducts}
+                products={proposalProducts}
                 equipment={selectedEquipment}
                 pricing={pricing}
                 servicePlans={selectedServicePlans}
@@ -902,16 +973,19 @@ export function ProposalBuilderPage() {
               />
             </Section>
 
-            <Section title="Generated Email" icon={<Mail size={18} />}>
+            <Section title="AI Proposal Email" icon={<Mail size={18} />}>
               <Stack spacing={1.5}>
-                <Stack direction="row" spacing={1}>
+                <Typography variant="body2" color="text.secondary">
+                  Claude drafts the first-level proposal from your selected products, equipment, pricing, and attached brand assets. Edit it inline, or export a polished deck with Gamma below if you want more.
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
                   <Button
                     variant="contained"
-                    startIcon={busy === 'email' ? <CircularProgress size={16} /> : <Send size={16} />}
+                    startIcon={busy === 'email' ? <CircularProgress size={16} /> : <Sparkles size={16} />}
                     disabled={busy !== 'none'}
                     onClick={createEmail}
                   >
-                    Generate Email
+                    {generatedEmail ? 'Regenerate with AI' : 'Generate with AI'}
                   </Button>
                   <Tooltip title="Copy email">
                     <span>
@@ -920,6 +994,8 @@ export function ProposalBuilderPage() {
                       </IconButton>
                     </span>
                   </Tooltip>
+                  {emailSource === 'ai' && <Chip size="small" color="primary" variant="outlined" icon={<Sparkles size={13} />} label="AI draft" />}
+                  {emailSource === 'template' && <Chip size="small" variant="outlined" icon={<Send size={13} />} label="Template draft" />}
                 </Stack>
                 <TextField
                   multiline
@@ -1197,7 +1273,11 @@ function ProductCatalogBrowser({ products, selectedIds, onToggle }: {
   );
 }
 
-function ProductSummary({ products }: { products: ProposalProduct[] }) {
+function ProductSummary({ products, choices, onPatch }: {
+  products: ProposalProduct[];
+  choices: Record<string, ProductChoice>;
+  onPatch: (id: string, patch: Partial<ProductChoice>) => void;
+}) {
   if (!products.length) return <Typography variant="body2" color="text.secondary">No products selected.</Typography>;
   const grouped = products.reduce<Record<string, number>>((acc, product) => {
     acc[product.category] = (acc[product.category] || 0) + 1;
@@ -1205,50 +1285,83 @@ function ProductSummary({ products }: { products: ProposalProduct[] }) {
   }, {});
   return (
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
         {Object.entries(grouped).map(([category, count]) => (
           <Chip key={category} size="small" variant="outlined" label={`${category.toUpperCase()} · ${count}`} />
         ))}
+        <Typography variant="caption" color="text.secondary">Pick the image, spec sheet, and price that go into the proposal.</Typography>
       </Stack>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 1 }}>
-        {products.slice(0, 8).map((product) => (
-          <Paper key={product.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
-            <Stack direction="row" spacing={1.25} alignItems="flex-start">
-              <Thumb src={product.imageUrl} fallbackSrcs={product.imageUrls} alt={product.name} size={68} />
-              <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 1 }}>
+        {products.slice(0, 12).map((product) => {
+          const choice = choices[product.id] || {};
+          const images = [...new Set([product.imageUrl, ...(product.imageUrls || [])].filter(Boolean) as string[])];
+          const chosenImage = choice.imageUrl || images[0];
+          const includeSpec = choice.includeSpec !== false;
+          const includePrice = choice.includePrice !== false;
+          return (
+            <Paper key={product.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
+              <Stack direction="row" spacing={1.25} alignItems="flex-start">
+                <Thumb src={chosenImage} fallbackSrcs={images} alt={product.name} size={68} />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography variant="body2" fontWeight={700} noWrap title={product.name}>{product.name}</Typography>
-                  {product.specSheetUrl && (
-                    <Tooltip title="Open product spec sheet">
-                      <IconButton size="small" component="a" href={product.specSheetUrl} target="_blank" rel="noopener noreferrer">
-                        <FileText size={14} />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Stack>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {productSubtitle(product)}
-                </Typography>
-                {product.description && product.description !== product.name && (
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      mt: 0.25,
-                    }}
-                  >
-                    {product.description}
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {productSubtitle(product)}
                   </Typography>
-                )}
-                <ProductSpecChips product={product} />
-              </Box>
-            </Stack>
-          </Paper>
-        ))}
+                  <ProductSpecChips product={product} />
+                </Box>
+              </Stack>
+
+              {images.length > 1 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Image</Typography>
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                    {images.map((src) => {
+                      const active = src === chosenImage;
+                      return (
+                        <Box
+                          key={src}
+                          component="button"
+                          type="button"
+                          onClick={() => onPatch(product.id, { imageUrl: src })}
+                          aria-label={active ? 'Selected image' : 'Use this image'}
+                          sx={{
+                            p: 0, cursor: 'pointer', borderRadius: 1, overflow: 'hidden', bgcolor: 'action.hover',
+                            width: 40, height: 40, display: 'grid', placeItems: 'center',
+                            border: '2px solid', borderColor: active ? 'primary.main' : 'divider',
+                          }}
+                        >
+                          <Box component="img" src={src} alt="" sx={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              )}
+
+              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                <FormControlLabel
+                  control={<Checkbox size="small" checked={includeSpec} disabled={!product.specSheetUrl} onChange={(e) => onPatch(product.id, { includeSpec: e.target.checked })} />}
+                  label={
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <Typography variant="caption">Spec sheet</Typography>
+                      {product.specSheetUrl && (
+                        <IconButton size="small" component="a" href={product.specSheetUrl} target="_blank" rel="noopener noreferrer" sx={{ p: 0.25 }}>
+                          <FileText size={13} />
+                        </IconButton>
+                      )}
+                    </Stack>
+                  }
+                  sx={{ mr: 0 }}
+                />
+                <FormControlLabel
+                  control={<Checkbox size="small" checked={includePrice} disabled={product.price == null} onChange={(e) => onPatch(product.id, { includePrice: e.target.checked })} />}
+                  label={<Typography variant="caption">Price {product.price != null ? `(${currency(product.price)})` : '(n/a)'}</Typography>}
+                  sx={{ mr: 0 }}
+                />
+              </Stack>
+            </Paper>
+          );
+        })}
       </Box>
     </Stack>
   );
@@ -1429,11 +1542,15 @@ function PreviewBlock({ label, value, sub }: { label: string; value: string; sub
   );
 }
 
-function BrandAssets({ assets, error, loading, busy, onRefresh, onUpload, onDelete }: {
+function BrandAssets({ assets, error, loading, busy, chosenIds, roles, onToggleChoose, onSetRole, onRefresh, onUpload, onDelete }: {
   assets: BrandAsset[];
   error: string | null;
   loading: boolean;
   busy: boolean;
+  chosenIds: string[];
+  roles: Record<string, 'embed' | 'attach'>;
+  onToggleChoose: (asset: BrandAsset) => void;
+  onSetRole: (id: string, role: 'embed' | 'attach') => void;
   onRefresh: () => void;
   onUpload: (files: FileList | null, type: BrandAssetType) => void;
   onDelete: (asset: BrandAsset) => void;
@@ -1444,11 +1561,12 @@ function BrandAssets({ assets, error, loading, busy, onRefresh, onUpload, onDele
     return acc;
   }, {});
   const storedCount = assets.filter((asset) => asset.source === 'supabase').length;
+  const chosenCount = assets.filter((asset) => chosenIds.includes(asset.id)).length;
 
   return (
     <Stack spacing={1.5}>
       <Typography variant="body2" color="text.secondary">
-        Your brand library lives in Supabase Storage — upload logos, can art, equipment photos, hero images, and sell sheets here and they flow into the proposal deck. The built-in Brix / Alameda logos always show as a fallback.
+        Your brand library lives in Supabase Storage — upload logos, can art, equipment photos, hero images, and sell sheets here and they flow into the proposal deck. Use <strong>+ Add to proposal</strong> to hand-pick the images that go into the email/deck (as an embedded visual or an attachment). If you pick none, we auto-match by product. The built-in Brix / Alameda logos always show as a fallback.
       </Typography>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
@@ -1495,14 +1613,18 @@ function BrandAssets({ assets, error, loading, busy, onRefresh, onUpload, onDele
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
         <Chip size="small" label={`${assets.length} asset${assets.length === 1 ? '' : 's'}`} color="primary" variant="outlined" />
         {storedCount > 0 && <Chip size="small" label={`${storedCount} in library`} color="success" variant="outlined" />}
+        {chosenCount > 0 && <Chip size="small" color="primary" label={`${chosenCount} in proposal`} icon={<Check size={13} />} />}
         {Object.entries(grouped).map(([type, count]) => (
           <Chip key={type} size="small" label={`${type} · ${count}`} variant="outlined" />
         ))}
       </Stack>
 
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1 }}>
-        {assets.slice(0, 18).map((asset) => (
-          <Paper key={asset.id} variant="outlined" sx={{ p: 1, borderRadius: 1 }}>
+        {assets.slice(0, 18).map((asset) => {
+          const chosen = chosenIds.includes(asset.id);
+          const role = roles[asset.id] || 'embed';
+          return (
+          <Paper key={asset.id} variant="outlined" sx={{ p: 1, borderRadius: 1, borderColor: chosen ? 'primary.main' : 'divider', borderWidth: chosen ? 2 : 1 }}>
             <Stack spacing={1}>
               {asset.thumbnailUrl ? (
                 <Box
@@ -1556,10 +1678,34 @@ function BrandAssets({ assets, error, loading, busy, onRefresh, onUpload, onDele
                     </Tooltip>
                   )}
                 </Stack>
+                <Button
+                  fullWidth
+                  size="small"
+                  variant={chosen ? 'contained' : 'outlined'}
+                  startIcon={chosen ? <Check size={14} /> : <Plus size={14} />}
+                  onClick={() => onToggleChoose(asset)}
+                  sx={{ mt: 1 }}
+                >
+                  {chosen ? 'In proposal' : 'Add to proposal'}
+                </Button>
+                {chosen && (
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    fullWidth
+                    value={role}
+                    onChange={(_, next) => next && onSetRole(asset.id, next)}
+                    sx={{ mt: 0.75 }}
+                  >
+                    <ToggleButton value="embed"><Images size={13} style={{ marginRight: 4 }} />Embed</ToggleButton>
+                    <ToggleButton value="attach"><Paperclip size={13} style={{ marginRight: 4 }} />Attach</ToggleButton>
+                  </ToggleButtonGroup>
+                )}
               </Box>
             </Stack>
           </Paper>
-        ))}
+          );
+        })}
       </Box>
       {assets.length > 18 && (
         <Typography variant="caption" color="text.secondary">
