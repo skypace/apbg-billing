@@ -75,6 +75,19 @@ function classifyProduct(name) {
   return 'other';
 }
 
+// Split beverages into the two lines the Proposal Builder cares about:
+//   fountain  — BIB / bag-in-box / syrup / post-mix dispensed drinks
+//   packaged  — cans / bottles / cases (ready-to-drink)
+// Anything else (CO2 gas, equipment, uncategorized) returns null and is hidden
+// from the product selector.
+function beverageClassOf(category, name) {
+  const v = String(name || '').toLowerCase();
+  if (category === 'bib' || /\b(fountain|bib|bag[-\s]?in[-\s]?box|post[-\s]?mix|postmix|syrup)\b/.test(v)) return 'fountain';
+  if (['can', 'tea', 'lemonade', 'juice', 'mixer'].includes(category)
+    || /\b(can|cans|bottle|bottles|case|cases|12\s?oz|16\s?oz|20\s?oz|8\s?oz|sleeve|pack|6-?pack|4-?pack)\b/.test(v)) return 'packaged';
+  return null;
+}
+
 function looksLikeEquipment(value) {
   return /\b(equipment|dispenser|cooler|ice machine|refrigerator|refrigeration|walk[-\s]?in|lancer|avantco|beverage air|stainless|table|sink|shelving|kegerator|fountain unit)\b/i
     .test(String(value || ''));
@@ -263,6 +276,7 @@ function orderItemToProduct(orderItem, priceByItem) {
     id: qboId || `order:${orderItem.id}`,
     name,
     category,
+    beverageClass: beverageClassOf(category, name),
     price: price ?? (orderItem.sales_price != null ? Number(orderItem.sales_price) : undefined),
     packageSize: packageSize([name, orderItem.description, orderItem.sku].filter(Boolean).join(' ')),
     description: orderItem.description || [name, orderItem.sku, orderItem.model].filter(Boolean).join(' · '),
@@ -324,6 +338,7 @@ export async function handler(event) {
         id: String(row.qbo_item_id),
         name,
         category,
+        beverageClass: beverageClassOf(category, name),
         price: price
           ?? (orderItem?.sales_price != null ? Number(orderItem.sales_price) : undefined)
           ?? (catalogRow?.list_price != null ? Number(catalogRow.list_price) : undefined),
@@ -356,12 +371,15 @@ export async function handler(event) {
       seenNames.add(nameKey);
     }
 
-    products.sort((a, b) => {
+    // Only fountain + packaged beverages belong in the proposal item selector.
+    const beverages = products.filter((p) => p.beverageClass === 'fountain' || p.beverageClass === 'packaged');
+
+    beverages.sort((a, b) => {
       if (a.source !== b.source) return a.source === 'brix-order' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
-    return json({ products, count: products.length });
+    return json({ products: beverages, count: beverages.length });
   } catch (e) {
     console.error('proposal-products error:', e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
