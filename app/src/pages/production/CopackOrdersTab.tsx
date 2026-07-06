@@ -60,7 +60,64 @@ interface Props {
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
+function copackAttention(row: CopackOrderRow): CopackAttention {
+  const syrupStatus = row.syrup_variance_status ?? 'pending';
+  if (row.material_source_mode === 'syrup_by_gallon' && (syrupStatus === 'watch' || syrupStatus === 'alert')) {
+    return {
+      level: 'review',
+      label: syrupStatus === 'alert' ? 'Syrup alert' : 'Syrup watch',
+      detail: row.syrup_cost_variance == null ? undefined : `Syrup cost delta ${fmtDeltaMoney(Number(row.syrup_cost_variance))}`,
+    };
+  }
+
+  if ((row.status === 'received' || row.status === 'closed') && !(Number(row.unit_cost) > 0)) {
+    return { level: 'review', label: 'Missing COGS', detail: 'Received order does not have a locked landed unit cost.' };
+  }
+
+  const yieldPct = row.actual_yield_pct == null ? null : Number(row.actual_yield_pct);
+  if (yieldPct != null && Number.isFinite(yieldPct) && yieldPct < 0.95) {
+    return { level: 'review', label: 'Low yield', detail: `Actual yield is ${fmtRatioPct(yieldPct)}` };
+  }
+  if (yieldPct != null && Number.isFinite(yieldPct) && yieldPct > 1.10) {
+    return { level: 'review', label: 'High yield', detail: `Actual yield is ${fmtRatioPct(yieldPct)}` };
+  }
+
+  if (row.status === 'sent' && isExpectedDatePast(row.expected_date)) {
+    return { level: 'review', label: 'Receipt late', detail: `Expected ${String(row.expected_date).slice(0, 10)}` };
+  }
+  if (row.status === 'sent') return { level: 'waiting', label: 'Await receipt' };
+  if (row.status === 'draft') return { level: 'waiting', label: 'Draft' };
+  if (row.status === 'received') return { level: 'ok', label: 'Ready close' };
+  if (row.status === 'closed') return { level: 'ok', label: 'Closed' };
+  if (row.status === 'void') return { level: 'ok', label: 'Void' };
+  return { level: 'ok', label: 'OK' };
+}
+
+function isExpectedDatePast(value: string | null): boolean {
+  if (!value) return false;
+  const [datePart] = String(value).split('T');
+  const [year, month, day] = datePart.split('-').map((part) => Number(part));
+  if (!year || !month || !day) return false;
+  const dueEndOfDay = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+  return Number.isFinite(dueEndOfDay) && dueEndOfDay < Date.now();
+}
+
+function attentionTone(level: CopackAttentionLevel) {
+  if (level === 'review') return { color: 'var(--am)', border: 'rgba(239,191,65,0.40)', bg: 'rgba(239,191,65,0.08)' };
+  if (level === 'waiting') return { color: 'var(--ac)', border: 'rgba(91,181,240,0.34)', bg: 'rgba(91,181,240,0.07)' };
+  return { color: 'var(--gn)', border: 'rgba(125,238,164,0.28)', bg: 'rgba(125,238,164,0.06)' };
+}
+
 type PackEntryUnit = 'finished' | 'can' | 'pack8' | 'pack24';
+type CopackSourceFilter = 'all' | CopackMaterialSourceMode;
+type CopackAttentionFilter = 'all' | 'needs_review' | 'waiting_receipt';
+type CopackAttentionLevel = 'ok' | 'waiting' | 'review';
+
+interface CopackAttention {
+  level: CopackAttentionLevel;
+  label: string;
+  detail?: string;
+}
 
 const PACK_ENTRY_OPTIONS: { value: PackEntryUnit; label: string }[] = [
   { value: 'finished', label: 'finished units' },
@@ -75,6 +132,8 @@ export function CopackOrdersTab({
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | CopackOrderStatus>('all');
+  const [sourceFilter, setSourceFilter] = useState<CopackSourceFilter>('all');
+  const [attentionFilter, setAttentionFilter] = useState<CopackAttentionFilter>('all');
 
   const activeBoms = useMemo(() => boms.filter((b) => b.is_active), [boms]);
   const activeVendors = useMemo(
@@ -88,9 +147,27 @@ export function CopackOrdersTab({
 
   const filtered = useMemo(() => {
     const list = orders ?? [];
-    if (statusFilter === 'all') return list;
-    return list.filter((o) => o.status === statusFilter);
-  }, [orders, statusFilter]);
+    return list.filter((o) => {
+      if (statusFilter !== 'all' && o.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && (o.material_source_mode ?? 'raw_materials') !== sourceFilter) return false;
+      if (attentionFilter === 'needs_review' && copackAttention(o).level !== 'review') return false;
+      if (attentionFilter === 'waiting_receipt' && o.status !== 'sent') return false;
+      return true;
+    });
+  }, [orders, statusFilter, sourceFilter, attentionFilter]);
+
+  const queueStats = useMemo(() => {
+    const list = orders ?? [];
+    return {
+      open: list.filter((o) => o.status === 'draft' || o.status === 'sent').length,
+      waitingReceipt: list.filter((o) => o.status === 'sent').length,
+      receivedOpen: list.filter((o) => o.status === 'received').length,
+      needsReview: list.filter((o) => copackAttention(o).level === 'review').length,
+      lockedCogs: list
+        .filter((o) => o.status === 'received' || o.status === 'closed')
+        .reduce((sum, o) => sum + Number(o.total_cost || 0), 0),
+    };
+  }, [orders]);
 
   const columns: GridColDef[] = useMemo(() => [
     {
@@ -112,6 +189,10 @@ export function CopackOrdersTab({
           padding: '1px 7px', borderRadius: 12, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
         }}>{v.toUpperCase()}</span>;
       },
+    },
+    {
+      field: 'attention', headerName: 'Attention', width: 150, sortable: false,
+      renderCell: (p) => <AttentionBadge attention={copackAttention(p.row as CopackOrderRow)} />,
     },
     {
       field: 'material_source_mode', headerName: 'Source', width: 150,
@@ -160,6 +241,8 @@ export function CopackOrdersTab({
     },
     { field: 'finished_units_received', headerName: 'Finished Units', width: 120, cellClassName: 'mn',
       valueFormatter: (v) => v == null ? '—' : fmtNum(Number(v)) },
+    { field: 'actual_yield_pct', headerName: 'Yield %', type: 'number', width: 95, cellClassName: 'mn',
+      valueFormatter: (v) => v == null ? '—' : fmtRatioPct(Number(v)) },
     { field: 'unit_cost', headerName: 'Landed $/unit', type: 'number', width: 125, cellClassName: 'mn',
       valueFormatter: (v) => v == null ? '—' : `$${Number(v).toFixed(4)}` },
     { field: 'total_cost', headerName: 'Total COGS', type: 'number', width: 115, cellClassName: 'mn',
@@ -170,6 +253,19 @@ export function CopackOrdersTab({
 
   return (
     <div>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+        gap: 8,
+        marginBottom: 12,
+      }}>
+        <QueueMetric label="Open orders" value={fmtNum(queueStats.open)} />
+        <QueueMetric label="Waiting receipt" value={fmtNum(queueStats.waitingReceipt)} tone={queueStats.waitingReceipt > 0 ? 'wait' : 'ok'} />
+        <QueueMetric label="Received open" value={fmtNum(queueStats.receivedOpen)} />
+        <QueueMetric label="Needs review" value={fmtNum(queueStats.needsReview)} tone={queueStats.needsReview > 0 ? 'review' : 'ok'} />
+        <QueueMetric label="Locked COGS" value={queueStats.lockedCogs > 0 ? fm(queueStats.lockedCogs) : '—'} />
+      </div>
+
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -181,6 +277,22 @@ export function CopackOrdersTab({
               <option value="received">Received</option>
               <option value="closed">Closed</option>
               <option value="void">Void</option>
+            </select>
+          </div>
+          <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span className="toolbar-label">Source</span>
+            <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as CopackSourceFilter)} style={inp()}>
+              <option value="all">All</option>
+              <option value="raw_materials">Raw materials</option>
+              <option value="syrup_by_gallon">Syrup</option>
+            </select>
+          </div>
+          <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span className="toolbar-label">Attention</span>
+            <select value={attentionFilter} onChange={(e) => setAttentionFilter(e.target.value as CopackAttentionFilter)} style={inp()}>
+              <option value="all">All</option>
+              <option value="needs_review">Needs review</option>
+              <option value="waiting_receipt">Waiting receipt</option>
             </select>
           </div>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
@@ -1477,6 +1589,52 @@ function LField({ label, children }: { label: string; children: React.ReactNode 
   </div>;
 }
 
+function QueueMetric({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'ok' | 'wait' | 'review' }) {
+  const color = tone === 'review' ? 'var(--am)' : tone === 'wait' ? 'var(--ac)' : tone === 'ok' ? 'var(--gn)' : 'var(--tx)';
+  const border = tone === 'review'
+    ? 'rgba(239,191,65,0.34)'
+    : tone === 'wait'
+      ? 'rgba(91,181,240,0.28)'
+      : tone === 'ok'
+        ? 'rgba(125,238,164,0.24)'
+        : 'rgba(255,255,255,0.08)';
+  return (
+    <div style={{
+      border: `1px solid ${border}`,
+      borderRadius: 4,
+      background: 'rgba(255,255,255,0.025)',
+      padding: '9px 10px',
+      minHeight: 54,
+    }}>
+      <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ marginTop: 5, fontFamily: 'var(--ff-mono)', fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+}
+
+function AttentionBadge({ attention }: { attention: CopackAttention }) {
+  const tone = attentionTone(attention.level);
+  return (
+    <span
+      title={attention.detail ?? attention.label}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        color: tone.color,
+        border: `1px solid ${tone.border}`,
+        background: tone.bg,
+        padding: '1px 7px',
+        borderRadius: 10,
+        fontSize: 10,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {attention.label}
+    </span>
+  );
+}
+
 function SyrupModeNotice({
   syrupGallons,
   syrupRate,
@@ -1791,6 +1949,11 @@ function fmtDeltaPct(value: number | null | undefined): string {
   const n = Number(value) * 100;
   if (Math.abs(n) < 0.05) return '0.0%';
   return `${n > 0 ? '+' : ''}${n.toFixed(1)}%`;
+}
+
+function fmtRatioPct(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  return `${(Number(value) * 100).toFixed(1)}%`;
 }
 
 function numberDelta(actual: number | null | undefined, planned: number | null | undefined): number | null {
