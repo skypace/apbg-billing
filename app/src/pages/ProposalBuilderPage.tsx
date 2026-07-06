@@ -50,7 +50,7 @@ import {
 } from '../lib/proposalBuilder';
 
 type LoadState = 'idle' | 'loading' | 'ready';
-type BusyState = 'none' | 'pricing' | 'quote' | 'email' | 'gamma' | 'save' | 'share' | 'load';
+type BusyState = 'none' | 'pricing' | 'quote' | 'email' | 'proposal' | 'gamma' | 'save' | 'share' | 'load';
 
 // What the operator chose to include for a selected product: which image, and
 // whether the spec sheet + price ride along into the proposal.
@@ -138,6 +138,7 @@ export function ProposalBuilderPage() {
   const [pricing, setPricing] = useState<PricingCalculateResponse | null>(null);
   const [quote, setQuote] = useState<EquipmentQuoteResponse | null>(null);
   const [generatedEmail, setGeneratedEmail] = useState('');
+  const [generatedProposal, setGeneratedProposal] = useState('');
   const [gammaUrl, setGammaUrl] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [proposalId, setProposalId] = useState<string | null>(null);
@@ -504,6 +505,25 @@ export function ProposalBuilderPage() {
     setToast('Email copied.');
   }
 
+  async function createProposalDoc() {
+    setBusy('proposal');
+    try {
+      const { text, source } = await generateAiProposal(proposalData, 'proposal');
+      setGeneratedProposal(text);
+      setToast(source === 'ai' ? 'AI drafted a one-page proposal.' : 'One-pager generated from template (AI unavailable).');
+    } catch (e) {
+      setToast(messageFrom(e));
+    } finally {
+      setBusy('none');
+    }
+  }
+
+  async function copyProposalDoc() {
+    if (!generatedProposal) return;
+    await navigator.clipboard.writeText(generatedProposal);
+    setToast('Proposal copied.');
+  }
+
   async function exportGamma() {
     setBusy('gamma');
     try {
@@ -570,6 +590,7 @@ export function ProposalBuilderPage() {
       setQuote(data.quote || null);
       setGeneratedEmail(saved.generatedEmail || '');
       setEmailSource(saved.generatedEmail ? 'ai' : null);
+      setGeneratedProposal('');
       setGammaUrl(saved.gammaUrl || null);
       setPdfUrl(saved.pdfUrl || null);
       setToast(`Loaded ${saved.title}.`);
@@ -1004,13 +1025,44 @@ export function ProposalBuilderPage() {
                   onChange={(e) => setGeneratedEmail(e.target.value)}
                   placeholder="Generated follow-up email"
                 />
+
+                <Divider textAlign="left"><Typography variant="caption" color="text.secondary">One-page proposal</Typography></Divider>
+                <Typography variant="body2" color="text.secondary">
+                  Prefer a full one-pager over an email? Generate a Markdown proposal (Overview, Lineup, Equipment, Investment, Service, Next Steps) you can paste anywhere or drop into Gamma.
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Button
+                    variant="outlined"
+                    startIcon={busy === 'proposal' ? <CircularProgress size={16} /> : <FileText size={16} />}
+                    disabled={busy !== 'none'}
+                    onClick={createProposalDoc}
+                  >
+                    {generatedProposal ? 'Regenerate one-pager' : 'Generate one-pager (AI)'}
+                  </Button>
+                  <Tooltip title="Copy proposal">
+                    <span>
+                      <IconButton disabled={!generatedProposal} onClick={copyProposalDoc}>
+                        <Copy size={18} />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+                {generatedProposal && (
+                  <TextField
+                    multiline
+                    minRows={12}
+                    value={generatedProposal}
+                    onChange={(e) => setGeneratedProposal(e.target.value)}
+                    placeholder="AI one-page proposal (Markdown)"
+                  />
+                )}
               </Stack>
             </Section>
 
             <Section title="Export to Gamma" icon={<Sparkles size={18} />}>
               <Stack spacing={1.5}>
                 <Typography variant="body2" color="text.secondary">
-                  Gamma uses the selected products, equipment, pricing, and the brand-library assets matched in the proposal preview.
+                  Gamma uses the selected products, equipment, pricing, and your brand assets — images marked <strong>Embed</strong> appear inline on the deck; <strong>Attach</strong> assets are listed as reference links.
                 </Typography>
                 <Button
                   variant="contained"
