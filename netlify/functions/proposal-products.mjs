@@ -82,14 +82,20 @@ function classifyProduct(name) {
 // from the product selector.
 function beverageClassOf(category, name) {
   const v = String(name || '').toLowerCase();
+  // Equipment (ovens, dispensers, coolers, etc.) never belongs in the beverage
+  // selector even if its model number happens to carry a "case"/"pack" token.
+  if (looksLikeEquipment(name)) return null;
   if (category === 'bib' || /\b(fountain|bib|bag[-\s]?in[-\s]?box|post[-\s]?mix|postmix|syrup)\b/.test(v)) return 'fountain';
-  if (['can', 'tea', 'lemonade', 'juice', 'mixer'].includes(category)
-    || /\b(can|cans|bottle|bottles|case|cases|12\s?oz|16\s?oz|20\s?oz|8\s?oz|sleeve|pack|6-?pack|4-?pack)\b/.test(v)) return 'packaged';
+  // Packaged = ready-to-drink. Trust a real beverage category outright; otherwise
+  // require an explicit container/volume word (dropped the loose case|pack|sleeve
+  // tokens that were matching equipment model numbers).
+  if (['can', 'tea', 'lemonade', 'juice', 'mixer'].includes(category)) return 'packaged';
+  if (/\b(can|cans|bottle|bottles|12\s?oz|16\s?oz|20\s?oz|8\s?oz)\b/.test(v)) return 'packaged';
   return null;
 }
 
 function looksLikeEquipment(value) {
-  return /\b(equipment|dispenser|cooler|ice machine|refrigerator|refrigeration|walk[-\s]?in|lancer|avantco|beverage air|stainless|table|sink|shelving|kegerator|fountain unit)\b/i
+  return /\b(equipment|dispenser|cooler|ice machine|refrigerator|refrigeration|freezer|walk[-\s]?in|lancer|avantco|beverage air|stainless|table|sink|shelving|kegerator|fountain unit|oven|fryer|grill|griddle|range|warmer|heater|hvac|compressor|regulator|carbonator|tower|faucet|pump|valve|panel|rack|cart|blender|machine)\b/i
     .test(String(value || ''));
 }
 
@@ -320,9 +326,11 @@ export async function handler(event) {
     const catalogIndex = indexCatalog(catalogRows);
 
     const products = items.map((row) => {
-      const name = row.name || row.qbo_item_id;
       const orderItem = findOrderItem(row, orderIndex);
       const catalogRow = findCatalogRow(row, catalogIndex);
+      // Prefer the catalog's friendly display name over the raw QBO master code /
+      // model number so the grid reads "Cable Car Lemon Lime" not "3G6141 …".
+      const name = catalogRow?.display_name || catalogRow?.name || orderItem?.name || row.name || row.qbo_item_id;
       const price = priceByItem.get(row.qbo_item_id);
       const category = catalogRow?.category
         ? classifyProduct(`${catalogRow.category} ${name}`)
@@ -372,7 +380,9 @@ export async function handler(event) {
     }
 
     // Only fountain + packaged beverages belong in the proposal item selector.
-    const beverages = products.filter((p) => p.beverageClass === 'fountain' || p.beverageClass === 'packaged');
+    const beverages = products.filter(
+      (p) => (p.beverageClass === 'fountain' || p.beverageClass === 'packaged') && !looksLikeEquipment(p.name),
+    );
 
     beverages.sort((a, b) => {
       if (a.source !== b.source) return a.source === 'brix-order' ? -1 : 1;

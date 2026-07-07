@@ -23,8 +23,18 @@ function proposalMarkdown(data) {
   const equipment = Array.isArray(data.equipment) ? data.equipment : [];
   const servicePlans = Array.isArray(data.servicePlans) ? data.servicePlans : [];
   const endOptions = Array.isArray(data.endOfLeaseOptions) ? data.endOfLeaseOptions : [];
+  const assets = Array.isArray(data.assets) ? data.assets : [];
   const pricing = data.pricing || {};
   const terms = data.terms || {};
+
+  const isImage = (a) => !/\.pdf($|\?)/i.test(a.url || '') && (a.type !== 'sell-sheet');
+  // Embedded visuals become inline images in the deck; attachments are listed as links.
+  const embeds = assets.filter((a) => (a.role ? a.role === 'embed' : true) && isImage(a));
+  const attachments = assets.filter((a) => a.role === 'attach' || !isImage(a));
+
+  // Inline product/equipment imagery so the deck isn't text-only.
+  const productImages = products.map((p) => p.imageUrl).filter(Boolean);
+  const heroImages = [...new Set([...embeds.map((a) => a.url), ...productImages])].slice(0, 6);
 
   return [
     `# ${data.title || 'Custom Beverage Program Proposal'}`,
@@ -33,6 +43,7 @@ function proposalMarkdown(data) {
     `Business type: ${customer.businessType || 'Restaurant / foodservice'}`,
     `Location: ${customer.location || 'TBD'}`,
     '',
+    ...(heroImages.length ? ['## Brand & Product Visuals', ...heroImages.map((url) => `![Brand visual](${url})`), ''] : []),
     '## Recommended Beverage Lineup',
     products.length ? products.map((p) => `- ${p.name}${p.packageSize ? ` (${p.packageSize})` : ''}${p.price != null ? ` — ${money(p.price)}` : ''}`).join('\n') : '- Curated BRIX beverage lineup to be finalized',
     '',
@@ -59,6 +70,7 @@ function proposalMarkdown(data) {
     '## End-of-Lease Options',
     endOptions.length ? endOptions.map((o) => `- ${o.label}: ${o.description || ''}`).join('\n') : '- End-of-lease options to be selected',
     '',
+    ...(attachments.length ? ['## Reference Attachments', ...attachments.map((a) => `- [${a.name || 'Attachment'}](${a.url})`), ''] : []),
     '## Style Direction',
     data.style || 'Alameda Craft Soda / Brix Beverage premium local beverage partner',
   ].join('\n');

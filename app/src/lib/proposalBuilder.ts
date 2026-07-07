@@ -17,6 +17,7 @@ const LEASING_API_URL = trimSlash(import.meta.env.VITE_BRIX_LEASING_API_URL || '
 const DIRECT_LEASING_API_ENABLED = import.meta.env.VITE_PROPOSAL_BUILDER_DIRECT_LEASING === '1';
 const LEASING_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_BRIX_LEASING_PROXY_URL, netlifyFunction('proposal-leasing'));
 const GAMMA_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_GAMMA_PROXY_URL, netlifyFunction('proposal-gamma'));
+const GENERATE_PROXY_URL = normalizeFunctionOverride(import.meta.env.VITE_PROPOSAL_GENERATE_URL, netlifyFunction('proposal-generate'));
 const BRAND_ASSETS_URL = normalizeFunctionOverride(import.meta.env.VITE_BRAND_ASSETS_URL, netlifyFunction('proposal-brand-assets'));
 const PRODUCTS_PROXY_URL = netlifyFunction('proposal-products');
 const PROPOSAL_STORE_URL = normalizeFunctionOverride(import.meta.env.VITE_PROPOSAL_STORE_URL, netlifyFunction('proposal-store'));
@@ -185,6 +186,8 @@ export interface BrandAsset {
   path?: string;
   /** 'supabase' = in the brand library bucket, 'local' = built-in fallback art. */
   source?: 'supabase' | 'local';
+  /** How this asset is included in the proposal when the operator hand-picks it. */
+  role?: 'embed' | 'attach';
 }
 
 export interface DamBrandOption { slug: string; label: string }
@@ -414,6 +417,10 @@ export async function generateProposalEmail(data: ProposalBuilderData): Promise<
     .map((plan) => plan.label)
     .join(', ') || 'standard BRIX service and support';
   const contact = data.customer.contactName || data.customer.name || 'there';
+  const attachments = data.assets.filter((asset) => asset.role === 'attach');
+  const attachmentLine = attachments.length
+    ? `I've attached ${attachments.length === 1 ? 'a reference' : `${attachments.length} references`} — ${attachments.map((a) => a.name).join(', ')}.`
+    : '';
 
   return [
     `Hi ${contact},`,
@@ -427,11 +434,43 @@ export async function generateProposalEmail(data: ProposalBuilderData): Promise<
     '',
     `When you are ready, the account application is here: ${data.terms.accountApplicationUrl || ACCOUNT_APPLICATION_URL}`,
     '',
-    'I can also send over a polished proposal deck with the product lineup, equipment package, service plan, and next steps.',
+    ['I can also send over a polished proposal deck with the product lineup, equipment package, service plan, and next steps.', attachmentLine].filter(Boolean).join(' '),
     '',
     'Best,',
     'Brix Beverage',
   ].join('\n');
+}
+
+/**
+ * Ask Claude to draft the first-level proposal (email by default, or a one-page
+ * Markdown proposal). Falls back to the deterministic template so the operator
+ * always gets copy even when the AI endpoint or API key is unavailable.
+ */
+export async function generateAiProposal(
+  data: ProposalBuilderData,
+  format: 'email' | 'proposal' = 'email',
+): Promise<{ text: string; source: 'ai' | 'template' }> {
+  try {
+    const result = await apiFetch<{ text: string }>(GENERATE_PROXY_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        format,
+        customer: data.customer,
+        products: data.products,
+        equipment: data.equipment,
+        pricing: data.pricing,
+        quote: data.quote,
+        servicePlans: data.servicePlans.filter((plan) => data.terms.servicePlanKeys.includes(plan.key)),
+        endOfLeaseOptions: data.endOfLeaseOptions.filter((option) => data.terms.endOfLeaseOptionKeys.includes(option.key)),
+        terms: data.terms,
+      }),
+    });
+    if (result.text?.trim()) return { text: result.text.trim(), source: 'ai' };
+  } catch (err) {
+    // Swallow and fall through to the deterministic template below.
+    console.warn('AI proposal draft failed, using template fallback:', err);
+  }
+  return { text: await generateProposalEmail(data), source: 'template' };
 }
 
 export async function generateGammaProposal(data: ProposalBuilderData): Promise<GammaProposalResult> {
