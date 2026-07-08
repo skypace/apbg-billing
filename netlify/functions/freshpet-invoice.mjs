@@ -20,6 +20,7 @@
 // URL + anon key are public (shipped in the Freshpet HTML) and hardcoded as
 // fallbacks so this works before any new env var is set.
 
+import { randomBytes } from 'node:crypto';
 import { qboRequest, qboQuery, getAccessToken, corsHeaders } from './qbo-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
 import { renderFreshpetInvoiceEmail } from './freshpet-invoice-email.mjs';
@@ -91,7 +92,12 @@ async function resolveItemId() {
 // caller's JWT) so the customer portal can link to it. Returns the object path.
 async function uploadInvoicePdf(jwt, docNumber, pdfB64) {
   try {
-    const path = `Invoice-${String(docNumber).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
+    // Random token in the object name: the bucket is public and QBO doc numbers
+    // are sequential, so a bare Invoice-<n>.pdf name is guessable from outside.
+    // The portal reads the stored completed_pms.invoice_pdf_path, never the doc
+    // number, so the suffix is invisible to it.
+    const token = randomBytes(12).toString('base64url');
+    const path = `Invoice-${String(docNumber).replace(/[^A-Za-z0-9._-]/g, '_')}-${token}.pdf`;
     const res = await fetch(`${FRESHPET_SUPABASE_URL}/storage/v1/object/fp-invoices/${encodeURIComponent(path)}`, {
       method: 'POST',
       headers: {
