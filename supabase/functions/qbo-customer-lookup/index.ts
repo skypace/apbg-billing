@@ -1,4 +1,4 @@
-// qbo-customer-lookup v1 — live QBO customer lookup by display name, with
+// qbo-customer-lookup v2 — live QBO customer lookup by display name, with
 // mirror heal.
 //
 // Purpose: ops.qbo_customers refreshes once a day (sync-qbo), so a brand-new
@@ -9,7 +9,11 @@
 // the row into ops.qbo_customers immediately (the nightly sync harmlessly
 // re-upserts with full detail later).
 //
-// body: { display_name }  → { ok, found, customer: {id, display_name, email} }
+// body: { display_name }                                → lookup (+ mirror heal)
+// body: { action: "deactivate", qbo_customer_id }        → set Active=false in
+//        QBO (sparse update; QBO refuses when the customer still carries a
+//        balance — brix-order's closure flow gates on $0 first) and flip the
+//        mirror row inactive. Used by the account-closure final step.
 //
 // Requires header x-internal-secret == INTERNAL_PAY_SECRET. verify_jwt=false.
 // deno-lint-ignore-file no-explicit-any
@@ -118,6 +122,16 @@ async function getAccessToken(sb: SupabaseClient): Promise<string> {
 
 
 // ── QBO Accounting (v3) ──
+async function acctPost(token: string, path: string, body: any): Promise<any> {
+  const url = accountingBase() + "/v3/company/" + getRealm() + path + (path.includes("?") ? "&" : "?") + "minorversion=70";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("QBO acct POST " + path + " (" + res.status + "): " + await res.text());
+  return res.json();
+}
 async function acctQuery(token: string, query: string): Promise<any> {
   const url = accountingBase() + "/v3/company/" + getRealm() + "/query?query=" + encodeURIComponent(query) + "&minorversion=70";
   const res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
@@ -138,6 +152,37 @@ Deno.serve(async (req: Request) => {
     if (!secret || provided !== secret) return jsonRes({ ok: false, error: "unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
+
+    // ── action: deactivate ──
+    if (body?.action === "deactivate") {
+      const qboId = String(body?.qbo_customer_id || "").trim();
+      if (!/^[0-9]+$/.test(qboId)) throw new Error("bad qbo_customer_id");
+      const token = await getAccessToken(sb);
+      const data = await acctQuery(token, "select Id, SyncToken, DisplayName, Active from Customer where Id = '" + qboId + "'");
+      const rows: any[] = data?.QueryResponse?.Customer ?? [];
+      if (rows.length === 0) throw new Error("QBO customer " + qboId + " not found");
+      const cust = rows[0];
+      if (cust.Active === false) {
+        return jsonRes({ ok: true, action: "deactivate", already_inactive: true, duration_ms: Date.now() - startedAt });
+      }
+      const updated = (await acctPost(token, "/customer", {
+        Id: String(cust.Id), SyncToken: String(cust.SyncToken), sparse: true, Active: false,
+      }))?.Customer;
+      // Mirror: flip inactive so the portal stops offering the customer.
+      try {
+        const ops = getOpsSB();
+        await ops.from("qbo_customers").update({ active: false, synced_at: new Date().toISOString() })
+          .eq("qbo_customer_id", qboId);
+      } catch (err) {
+        console.error("qbo-customer-lookup mirror deactivate failed:", err);
+      }
+      return jsonRes({
+        ok: true, action: "deactivate",
+        customer: { id: String(updated?.Id ?? qboId), display_name: updated?.DisplayName ?? cust.DisplayName ?? null, active: updated?.Active ?? false },
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
     const name = String(body?.display_name || "").trim().slice(0, 200);
     if (name.length < 2) throw new Error("display_name required");
 
