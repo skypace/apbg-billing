@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-07-04",
+  "last_updated": "2026-07-09",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
 
   "writers": [
@@ -22,6 +22,17 @@
       "external_inputs": [],
       "notes": "Pricing Control Center editor (superadmin). Service-role REST against the ops pricing model: BX-1 standard book (effective-dated price_book_items), customer price-book assignment, and named/dated chain contracts. Read by brix-order via ops.resolve_price / ops.resolve_prices_for_customer (contract -> BX-1 -> list). Source: netlify/functions/pricing-admin.mjs.",
       "last_verified": "2026-06-25"
+    },
+    {
+      "name": "qbo-cylinder-audit",
+      "kind": "supabase-edge-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (brix-order driver Cylinder Audit PWA)",
+      "writes": ["ops.qbo_invoices", "ops.qbo_invoice_lines", "ops.qbo_token_cache"],
+      "multi_writer": true,
+      "external_inputs": ["QuickBooks Online API: Invoice create"],
+      "notes": "Source at supabase/functions/qbo-cylinder-audit/. Creates the $0 CR-ADJ-<n> cylinder audit adjustment invoice in QBO (cylinder delivery items for count-up deltas, PU* pickup items for count-down) for brix-order's audit-submit function (x-internal-secret == INTERNAL_PAY_SECRET, verify_jwt=false), then immediately upserts the header + lines into the ops mirror (same conflict keys as sync-qbo) so brix-order's v_cylinder_inventory reflects the adjustment instantly. Token via lease RPCs.",
+      "last_verified": "2026-07-09"
     },
     {
       "name": "qbo-reconcile",
