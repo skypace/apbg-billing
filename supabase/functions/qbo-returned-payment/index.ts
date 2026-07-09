@@ -10,21 +10,34 @@
 // payment, invoice the customer a return fee, re-send) is what this function
 // automates:
 //
+// Method (v2 — "expense swap", QBO's official bounced-payment bookkeeping):
+// a plain void would orphan BOTH real bank events (Intuit's original deposit
+// in and its clawback out), breaking reconciliation. Instead:
+//   1. Create an Expense (Purchase, PaymentType Check) to the CUSTOMER,
+//      account = the bank account the payment deposited to, category =
+//      Accounts Receivable. This is the book entry the clawback withdrawal
+//      matches to in the bank feed. (Debit A/R, credit bank.)
+//   2. Re-link the original Payment from the invoice to that expense. The
+//      payment (and its deposit) stay intact — the deposit stays reconciled —
+//      and the INVOICE REOPENS because nothing pays it anymore.
+//   3. Create the "Returned Payment Fee" invoice (service item, due on
+//      receipt).
+// Net: A/R shows the reopened invoice + fee; both bank lines have matching
+// entries; nothing that already reconciled is disturbed.
+//
 // Modes (body.mode):
-//   "preview" — read-only. Locate the Payment applied to the invoice, verify
-//               ownership/amounts, and report exactly what "record" would do
-//               (which payment gets voided, whether it spans other invoices,
-//               what the fee invoice will look like). No writes.
-//   "record"  — void the Payment (invoice reopens, full audit trail kept) and
-//               create a separate fee invoice ("Returned Payment Fee" service
-//               item, due on receipt). Returns both ids.
+//   "preview" — read-only. Locates the applied Payment, resolves the bank +
+//               A/R accounts, and reports exactly what "record" would do.
+//   "record"  — executes the three steps above. Returns all created ids.
 //
 // Both modes require header x-internal-secret == INTERNAL_PAY_SECRET so only
 // brix-order's admin function (server-side, superadmin-gated) can call this.
 //
 // Safety rails:
 //   - If the applied Payment also covers OTHER invoices, "record" refuses and
-//     returns needs_manual=true — voiding it would unpay unrelated invoices.
+//     returns needs_manual=true — unlinking it would unpay unrelated invoices.
+//   - If the deposit bank account can't be resolved, "record" refuses with
+//     needs_manual rather than guessing an account.
 //   - The fee item/account are found by name and created once if missing
 //     ("Returned Payment Fee" service item → "Returned Payment Fees" income
 //     account).
@@ -176,6 +189,58 @@ function linkedInvoiceIds(payment: any): string[] {
   return Array.from(ids);
 }
 
+/**
+ * Resolve the BANK account the payment's funds landed in — the account the
+ * returned-payment expense must post against so the clawback withdrawal can
+ * be matched in the bank feed.
+ *   1. If the payment's DepositToAccountRef is a Bank-type account, use it.
+ *   2. Otherwise (Undeposited Funds flow) find the Deposit whose lines link
+ *      this payment and use ITS DepositToAccountRef.
+ * Returns null when neither resolves — caller refuses with needs_manual.
+ */
+async function resolveDepositBank(
+  token: string,
+  payment: any,
+): Promise<{ id: string; name: string } | null> {
+  const direct = payment?.DepositToAccountRef?.value
+    ? String(payment.DepositToAccountRef.value)
+    : null;
+  if (direct) {
+    const j = await acctGet(token, "/account/" + encodeURIComponent(direct));
+    const acc = j?.Account;
+    if (acc?.AccountType === "Bank") return { id: String(acc.Id), name: String(acc.Name) };
+  }
+  // Undeposited Funds → scan recent deposits for one containing this payment.
+  const paymentId = String(payment?.Id);
+  const txnDate = String(payment?.TxnDate || "").slice(0, 10);
+  const q = txnDate
+    ? "select * from Deposit where TxnDate >= '" + txnDate + "' orderby TxnDate maxresults 100"
+    : "select * from Deposit orderby TxnDate desc maxresults 100";
+  const j = await acctQuery(token, q);
+  const deposits: any[] = j?.QueryResponse?.Deposit ?? [];
+  for (const dep of deposits) {
+    const hasPayment = (dep?.Line ?? []).some((l: any) =>
+      (l?.LinkedTxn ?? []).some((t: any) => String(t?.TxnId) === paymentId && t?.TxnType === "Payment"),
+    );
+    if (hasPayment && dep?.DepositToAccountRef?.value) {
+      const accJ = await acctGet(token, "/account/" + encodeURIComponent(String(dep.DepositToAccountRef.value)));
+      const acc = accJ?.Account;
+      if (acc?.Id) return { id: String(acc.Id), name: String(acc.Name) };
+    }
+  }
+  return null;
+}
+
+/** The company's Accounts Receivable account (first A/R-type account). */
+async function resolveArAccount(token: string): Promise<{ id: string; name: string } | null> {
+  const j = await acctQuery(
+    token,
+    "select Id, Name from Account where AccountType = 'Accounts Receivable' maxresults 1",
+  );
+  const acc = j?.QueryResponse?.Account?.[0];
+  return acc?.Id ? { id: String(acc.Id), name: String(acc.Name) } : null;
+}
+
 /** Find-or-create the "Returned Payment Fee" service item (+ income account). */
 async function ensureFeeItem(token: string): Promise<{ id: string; name: string }> {
   const found = await acctQuery(token, "select Id, Name from Item where Name = '" + FEE_ITEM_NAME + "'");
@@ -251,7 +316,7 @@ Deno.serve(async (req: Request) => {
     if (linked.length === 0) {
       return jsonRes({
         ok: false, mode, error: "no payment is applied to invoice " + docNumber +
-          " — nothing to void (already reopened, or never paid)",
+          " — nothing to unwind (already reopened, or never paid)",
         invoice: { id: invoiceId, doc_number: docNumber, total: invoiceTotal, balance: invoiceBalance },
       }, 409);
     }
@@ -262,13 +327,19 @@ Deno.serve(async (req: Request) => {
     const paymentDate = String(payment?.TxnDate || "");
     const otherInvoices = linkedInvoiceIds(payment).filter((id) => id !== invoiceId);
 
+    // Resolve the accounts the expense will post between (read-only).
+    const bank = await resolveDepositBank(token, payment);
+    const ar = await resolveArAccount(token);
+
     const plan = {
+      method: "expense_swap",
       invoice: { id: invoiceId, doc_number: docNumber, total: invoiceTotal, balance: invoiceBalance },
       payment: {
         id: paymentId, total: paymentTotal, txn_date: paymentDate,
         also_covers_invoices: otherInvoices,
         candidates: linked.length,
       },
+      expense: { bank_account: bank, ar_account: ar, amount: paymentTotal },
       fee: feeAmount > 0 ? { amount: feeAmount, item: FEE_ITEM_NAME } : null,
     };
 
@@ -276,7 +347,16 @@ Deno.serve(async (req: Request) => {
       return jsonRes({
         ok: false, mode, needs_manual: true,
         error: "payment " + paymentId + " also covers other invoice(s) " + otherInvoices.join(", ") +
-          " — voiding it would unpay those too. Handle this one in QBO directly.",
+          " — unlinking it would unpay those too. Handle this one in QBO directly.",
+        plan,
+      }, 409);
+    }
+    if (!bank || !ar) {
+      return jsonRes({
+        ok: false, mode, needs_manual: true,
+        error: !bank
+          ? "could not resolve which bank account payment " + paymentId + " deposited to — record this one in QBO directly"
+          : "no Accounts Receivable account found in QBO",
         plan,
       }, 409);
     }
@@ -285,16 +365,42 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ ok: true, mode, plan, duration_ms: Date.now() - startedAt });
     }
 
-    // ---- record ----
-    // 1. Void the payment (keeps the record at $0 — full audit trail; the
-    //    invoice reopens). QBO voids Payment via operation=update + include=void.
-    await acctPost(token, "/payment?operation=update&include=void", {
-      Id: paymentId,
-      SyncToken: String(payment?.SyncToken ?? "0"),
-      sparse: true,
-    });
+    // ---- record (expense-swap method) ----
+    const today = new Date().toISOString().slice(0, 10);
 
-    // 2. Create the fee invoice (due on receipt).
+    // 1. The returned-payment expense: money OUT of the bank (the clawback),
+    //    debiting A/R against this customer. This is what the bank-feed
+    //    withdrawal gets matched to.
+    const purchaseRes = await acctPost(token, "/purchase", {
+      PaymentType: "Check",
+      AccountRef: { value: bank.id },
+      EntityRef: { value: customerQboId, type: "Customer" },
+      TxnDate: today,
+      PrintStatus: "NotSet",
+      PrivateNote: "Returned payment — invoice #" + docNumber + " (" + returnReason + "); created by brix-order returned-payment workflow",
+      Line: [{
+        Amount: paymentTotal,
+        DetailType: "AccountBasedExpenseLineDetail",
+        Description: "Returned payment — invoice #" + docNumber + " (" + returnReason + ")",
+        AccountBasedExpenseLineDetail: {
+          AccountRef: { value: ar.id },
+          CustomerRef: { value: customerQboId },
+        },
+      }],
+    });
+    const purchaseId = String(purchaseRes?.Purchase?.Id || "");
+    if (!purchaseId) throw new Error("returned-payment expense not created");
+
+    // 2. Re-link the original payment: it now pays off the expense instead of
+    //    the invoice. Payment + its deposit stay intact (reconciliation safe);
+    //    the invoice reopens. Full update with the fetched entity.
+    const relinked = { ...payment, sparse: false, Line: [{
+      Amount: paymentTotal,
+      LinkedTxn: [{ TxnId: purchaseId, TxnType: "Check" }],
+    }] };
+    await acctPost(token, "/payment", relinked);
+
+    // 3. Create the fee invoice (due on receipt).
     let feeInvoice: { id: string; doc_number: string } | null = null;
     if (feeAmount > 0) {
       const feeItem = await ensureFeeItem(token);
@@ -311,7 +417,7 @@ Deno.serve(async (req: Request) => {
             UnitPrice: feeAmount,
           },
         }],
-        PrivateNote: "Auto-created by brix-order returned-payment workflow (payment " + paymentId + " voided)",
+        PrivateNote: "Auto-created by brix-order returned-payment workflow (payment " + paymentId + " re-linked to returned-payment expense)",
       });
       const fi = created?.Invoice;
       if (fi?.Id) feeInvoice = { id: String(fi.Id), doc_number: String(fi.DocNumber || fi.Id) };
@@ -319,7 +425,11 @@ Deno.serve(async (req: Request) => {
 
     return jsonRes({
       ok: true, mode, plan,
+      method: "expense_swap",
+      // kept name for the brix-order caller's contract: the id of the payment
+      // that was unlinked from the invoice (not literally voided in v2).
       voided_payment_id: paymentId,
+      returned_expense_id: purchaseId,
       payment_total: paymentTotal,
       fee_invoice: feeInvoice,
       duration_ms: Date.now() - startedAt,
