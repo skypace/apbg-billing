@@ -383,20 +383,40 @@ export async function sfRequest(method, endpoint, body = null) {
 }
 
 export async function createSFCustomer({ customerName, firstName, lastName, phone, email, address, city, state, zip }) {
+  // SF changed POST /customers (2026 — same wave as the /items removal): the
+  // old flat contact { phone, email } and location { street/state/zip } keys
+  // now 422 with "invalid field's name". Current spec (verified live from
+  // brix-order 2026-07-09):
+  //   contacts[]: fname + lname REQUIRED; phones: [{phone, type}] with a
+  //   strict ^\d{3}-\d{3}-\d{4}$ phone regex; emails: [{email, class}].
+  //   locations[]: street_1 REQUIRED + city / state_prov / postal_code.
+  const digits = String(phone || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  const sfPhone = digits.length === 10
+    ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+    : null;
+  const fname = (firstName || '').trim() || (lastName || '').trim();
+  const lname = (lastName || '').trim() || fname;
+
   const payload = {
     customer_name: customerName,
-    contacts: [{
-      fname: firstName || '',
-      lname: lastName || '',
-      phone: phone || '',
-      email: email || '',
-    }],
-    locations: [{
-      street: address || '',
-      city: city || '',
-      state: state || '',
-      zip: zip || '',
-    }],
+    ...(fname && lname ? {
+      contacts: [{
+        fname,
+        lname,
+        is_primary: true,
+        ...(sfPhone ? { phones: [{ phone: sfPhone, type: 'Work' }] } : {}),
+        ...(email ? { emails: [{ email, class: 'Business' }] } : {}),
+      }],
+    } : {}),
+    ...(address ? {
+      locations: [{
+        street_1: address,
+        city: city || '',
+        state_prov: state || '',
+        postal_code: zip || '',
+        is_primary: true,
+      }],
+    } : {}),
   };
 
   return sfRequest('POST', '/customers', payload);
