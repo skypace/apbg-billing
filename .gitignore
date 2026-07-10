@@ -1,5 +1,8 @@
 # Local Netlify folder
 .netlify
+
+# Root deps (installed for Netlify Functions, e.g. pdf-lib) — never commit
+/node_modules
 .claude/*
 !.claude/skills/
 .claude/skills/**/__pycache__/
