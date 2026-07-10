@@ -84,6 +84,7 @@ export async function handler(event) {
     const uRes = await fetch(`${FRESHPET_SUPABASE_URL}/auth/v1/user`, { headers: { apikey: FRESHPET_ANON_KEY, Authorization: `Bearer ${jwt}` } });
     if (!uRes.ok) return json(401, { error: 'Invalid or expired token' });
     adminEmail = (await uRes.json())?.email;
+    if (!adminEmail) return json(401, { error: 'Invalid token' });
     const prof = (await fpGet(`tech_profiles?email=eq.${encodeURIComponent(adminEmail)}&select=role`, jwt))[0];
     if (!prof || prof.role !== 'admin') return json(403, { error: 'Freshpet admin role required' });
   } catch (e) { return json(502, { error: 'Freshpet auth check failed: ' + e.message }); }
