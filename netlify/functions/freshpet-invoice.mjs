@@ -21,6 +21,7 @@
 // fallbacks so this works before any new env var is set.
 
 import { qboRequest, qboQuery, getAccessToken, corsHeaders } from './qbo-helpers.mjs';
+import { renderFreshpetInvoicePdf } from './lib/freshpet-invoice-pdf.mjs';
 import { sendEmail } from './email-helpers.mjs';
 import { renderFreshpetInvoiceEmail } from './freshpet-invoice-email.mjs';
 
@@ -89,7 +90,7 @@ async function resolveItemId() {
 
 // Upload the invoice PDF to the Freshpet `fp-invoices` public bucket (using the
 // caller's JWT) so the customer portal can link to it. Returns the object path.
-async function uploadInvoicePdf(jwt, docNumber, pdfB64) {
+async function uploadInvoicePdf(jwt, docNumber, bytes) {
   try {
     const path = `Invoice-${String(docNumber).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
     const res = await fetch(`${FRESHPET_SUPABASE_URL}/storage/v1/object/fp-invoices/${encodeURIComponent(path)}`, {
@@ -98,7 +99,7 @@ async function uploadInvoicePdf(jwt, docNumber, pdfB64) {
         apikey: FRESHPET_ANON_KEY, Authorization: `Bearer ${jwt}`,
         'Content-Type': 'application/pdf', 'x-upsert': 'true',
       },
-      body: Buffer.from(pdfB64, 'base64'),
+      body: Buffer.from(bytes),
     });
     if (!res.ok) return null;
     return path;
@@ -160,7 +161,7 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,assets(city)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -221,11 +222,21 @@ export async function handler(event) {
 
   const warnings = [];
 
-  // Fetch the QBO invoice PDF + stash it in the Freshpet `fp-invoices` bucket so
-  // the customer portal can link to it (both best-effort).
-  const pdfB64 = await fetchInvoicePdfBase64(created.Id);
-  let invoicePdfPath = null;
-  if (pdfB64) invoicePdfPath = await uploadInvoicePdf(jwt, created.DocNumber || created.Id, pdfB64);
+  // Render our branded invoice PDF (page 1 = invoice + FP-SVC summary line,
+  // page 2+ = the per-visit asset report) and stash it in fp-invoices for the
+  // portal. Same template the Quarterly Reactive invoice uses.
+  const docRef = created.DocNumber || String(created.Id);
+  let pdfBytes = null, invoicePdfPath = null;
+  try {
+    pdfBytes = await renderFreshpetInvoicePdf({
+      invoiceRef: docRef, billingType: 'pm', customerName: created.CustomerRef?.name || 'FRESH PET',
+      billTo: null, invoiceDate: created.TxnDate || new Date().toISOString().slice(0, 10),
+      dueDate: created.DueDate || null, summaryLabel: description, qty: count, rate, total,
+      assets: eligible.map(r => ({ store: r.store, city: r.assets?.city || '', serial: r.serial,
+        model: r.assets?.model || '', warranty: r.assets?.warranty || '' })),
+    });
+    invoicePdfPath = await uploadInvoicePdf(jwt, docRef, pdfBytes);
+  } catch (e) { /* non-fatal — invoice still created */ }
 
   // Mark billed (best-effort but important — surface a clear warning if it fails
   // so the operator doesn't double-bill).
@@ -255,7 +266,7 @@ export async function handler(event) {
   if (recipientEmail) {
     try {
       const attachments = [{ filename: `freshpet-pm-report-${periodTag}.csv`, content: csvB64 }];
-      if (pdfB64) attachments.push({ filename: `Invoice-${created.DocNumber || created.Id}.pdf`, content: pdfB64 });
+      if (pdfBytes) attachments.push({ filename: `Invoice-${docRef}.pdf`, content: Buffer.from(pdfBytes).toString('base64') });
       const { subject, html, text } = renderFreshpetInvoiceEmail({
         recipientName: null, customerName: created.CustomerRef?.name || 'FRESH PET',
         docNumber: created.DocNumber || created.Id,

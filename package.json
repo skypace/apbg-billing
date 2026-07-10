@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
-    "@supabase/supabase-js": "^2.49.0"
+    "@supabase/supabase-js": "^2.49.0",
+    "pdf-lib": "^1.17.1"
   }
 }
