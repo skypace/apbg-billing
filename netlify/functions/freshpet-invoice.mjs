@@ -52,6 +52,18 @@ function csvCell(v) {
   const s = v == null ? '' : String(v);
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
+// When the PM was signed (client clock) + the tech's GPS at signing.
+function fmtSignedAt(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return String(iso); }
+}
+function fmtGps(lat, lng) {
+  if (lat == null || lng == null) return '';
+  const a = Number(lat), b = Number(lng);
+  if (isNaN(a) || isNaN(b)) return '';
+  return a.toFixed(5) + ', ' + b.toFixed(5);
+}
 
 // PostgREST GET against the Freshpet project using the caller's JWT (so RLS
 // applies as the authenticated admin).
@@ -161,7 +173,7 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,assets(city,model,warranty)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -233,7 +245,8 @@ export async function handler(event) {
       billTo: null, invoiceDate: created.TxnDate || new Date().toISOString().slice(0, 10),
       dueDate: created.DueDate || null, summaryLabel: description, qty: count, rate, total,
       assets: eligible.map(r => ({ store: r.store, city: r.assets?.city || '', serial: r.serial,
-        model: r.assets?.model || '', warranty: r.assets?.warranty || '' })),
+        model: r.assets?.model || '', warranty: r.assets?.warranty || '',
+        signedAt: fmtSignedAt(r.signed_at), gps: fmtGps(r.gps_lat, r.gps_lng) })),
     });
     invoicePdfPath = await uploadInvoicePdf(jwt, docRef, pdfBytes);
   } catch (e) { /* non-fatal — invoice still created */ }
@@ -254,9 +267,10 @@ export async function handler(event) {
   }
 
   // Build CSV visit report.
-  const csvHeader = 'Store,City,Serial,PM Date,Technician,Amount';
+  const csvHeader = 'Store,City,Serial,PM Date,Technician,Signed At,GPS,Amount';
   const csvBody = eligible.map(r =>
-    [csvCell(r.store), csvCell(r.assets?.city || ''), csvCell(r.serial), csvCell(r.pm_date), csvCell(r.tech_name), rate.toFixed(2)].join(',')
+    [csvCell(r.store), csvCell(r.assets?.city || ''), csvCell(r.serial), csvCell(r.pm_date), csvCell(r.tech_name),
+     csvCell(fmtSignedAt(r.signed_at)), csvCell(fmtGps(r.gps_lat, r.gps_lng)), rate.toFixed(2)].join(',')
   ).join('\n');
   const csvB64 = Buffer.from(`${csvHeader}\n${csvBody}\n`).toString('base64');
   const periodTag = (minDate || 'report').replace(/[^0-9]/g, '') || 'report';

@@ -551,8 +551,19 @@ export async function renderFreshpetInvoicePdf(input) {
     } else {
       cy = drawAssetsTableHead(p, ctx, cy);
       const BOTTOM_LIMIT = MARGIN + 24;
+      // Optional per-row "signed at + GPS" sub-line (PM rows carry it; the
+      // caller passes preformatted `signedAt` and `gps` strings).
+      const extraOf = (a) => {
+        const parts = [];
+        if (a && a.signedAt) parts.push('Signed ' + String(a.signedAt));
+        if (a && a.gps) parts.push('GPS ' + String(a.gps));
+        return parts.join('     ');
+      };
+      const SUB_H = 11;
       for (const a of assets) {
-        if (cy - ROW_H < BOTTOM_LIMIT) {
+        const extra = extraOf(a);
+        const rh = extra ? ROW_H + SUB_H : ROW_H;
+        if (cy - rh < BOTTOM_LIMIT) {
           const np = newAssetPage();
           p = np.p;
           cy = np.cy;
@@ -570,7 +581,10 @@ export async function renderFreshpetInvoicePdf(input) {
         drawText(p, fit(serial, font, NUM, A_SERIAL_MAX_W), A_SERIAL_X, rowY, font, NUM, BLACK);
         drawText(p, fit(model, font, NUM, A_MODEL_MAX_W), A_MODEL_X, rowY, font, NUM, BLACK);
         drawText(p, fit(warranty, font, NUM, A_WARR_MAX_W), A_WARR_X, rowY, font, NUM, GRAY);
-        cy = bandTop - ROW_H;
+        if (extra) {
+          drawText(p, fit(extra, font, TINY, CONTENT_W - PAD * 2), A_STORE_X, rowY - SUB_H, font, TINY, GRAY);
+        }
+        cy = bandTop - rh;
         drawRowRule(p, cy);
       }
     }
