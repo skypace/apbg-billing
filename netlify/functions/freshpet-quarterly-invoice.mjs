@@ -179,6 +179,7 @@ export async function handler(event) {
         invoiceDate: created.TxnDate || new Date().toISOString().slice(0, 10), dueDate: created.DueDate || null,
         totalAmount: total, balance: created.Balance != null ? created.Balance : total,
         invoiceUrl: created.InvoiceLink || '', visitCount: count, periodLabel: batch.quarter_label || '',
+        billingType: 'reactive',
         portalUrl: 'https://alamedapointbg.com/freshpet/portal?invoice=' + encodeURIComponent(ref),
       });
       await sendEmail({ to: recipientEmail, subject, html, text, attachments, from: 'APBG Billing <alerts@alamedapointbg.com>' });

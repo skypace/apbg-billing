@@ -31,20 +31,30 @@ function esc(s) {
 }
 
 // d: { recipientName, customerName, docNumber, invoiceDate, dueDate, totalAmount,
-//      balance, invoiceUrl (optional), visitCount, periodLabel, pdfAttached }
+//      balance, invoiceUrl (optional), visitCount, periodLabel, portalUrl,
+//      billingType ('pm' | 'reactive'), pdfAttached }
 export function renderFreshpetInvoiceEmail(d) {
+  const isReactive = d.billingType === 'reactive';
   const greeting = d.recipientName ? `Hi ${esc(d.recipientName)},` : 'Hi there,';
   const subject = `Invoice #${d.docNumber} from Brix Beverage · ${fmtUsd(d.balance)} due`;
-  const visitLine = d.visitCount
-    ? `${d.visitCount} completed preventive-maintenance visit${d.visitCount === 1 ? '' : 's'}${d.periodLabel ? ` (${esc(d.periodLabel)})` : ''}`
-    : 'completed preventive-maintenance service';
+  const visitLine = isReactive
+    ? `quarterly reactive service${d.periodLabel ? ` (${esc(d.periodLabel)})` : ''}${d.visitCount ? ` — ${d.visitCount} out-of-warranty cooler${d.visitCount === 1 ? '' : 's'}` : ''}`
+    : (d.visitCount
+        ? `${d.visitCount} completed preventive-maintenance visit${d.visitCount === 1 ? '' : 's'}${d.periodLabel ? ` (${esc(d.periodLabel)})` : ''}`
+        : 'completed preventive-maintenance service');
+  // Second sentence adapts: PM points at per-visit photos + signed report;
+  // Reactive points at the asset backup + attached itemized invoice.
+  const reviewLine = isReactive
+    ? 'You can review the full asset list and service backup in your portal — the itemized invoice is attached.'
+    : 'You can review every visit — with store photos and the signed service report — in your portal. A summary report is also attached.';
+  const ctaLabel = isReactive ? 'View invoice &amp; service backup →' : 'View service visits &amp; photos →';
 
-  // Primary CTA → the customer portal (photos + signed reports for every visit
-  // on this invoice). Secondary line → pay online (if a QBO link exists) or a
-  // note that the PDF is attached.
+  // Primary CTA → the customer portal (backup for every line on this invoice).
+  // Secondary line → pay online (if a QBO link exists) or a note that the PDF
+  // is attached.
   const portalBtn = d.portalUrl
     ? `<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:8px 0 4px 0;">
-         <a href="${esc(d.portalUrl)}" style="display:inline-block;background:${NAVY};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:14px 28px;border-radius:10px;letter-spacing:0.01em;">View service visits &amp; photos →</a>
+         <a href="${esc(d.portalUrl)}" style="display:inline-block;background:${NAVY};color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:14px 28px;border-radius:10px;letter-spacing:0.01em;">${ctaLabel}</a>
        </td></tr></table>`
     : '';
   const secondary = d.invoiceUrl
@@ -65,7 +75,7 @@ export function renderFreshpetInvoiceEmail(d) {
         <h1 style="margin:0 0 6px 0;font-size:24px;font-weight:600;color:${INK};letter-spacing:-0.01em;">Your invoice is ready</h1>
         <p style="margin:0 0 20px 0;font-size:14px;line-height:1.55;color:${MUTED};">
           ${greeting}<br>
-          A new invoice has been issued to <strong style="color:${INK};">${esc(d.customerName)}</strong> for ${visitLine}. You can review every visit — with store photos and the signed service report — in your portal. A summary report is also attached.
+          A new invoice has been issued to <strong style="color:${INK};">${esc(d.customerName)}</strong> for ${visitLine}. ${reviewLine}
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;background:${SURFACE_ALT};border-radius:10px;border:1px solid ${BORDER};">
           <tr>
@@ -122,13 +132,13 @@ export function renderFreshpetInvoiceEmail(d) {
   const text = [
     `Your invoice is ready - #${d.docNumber}`, '',
     greeting,
-    `A new invoice has been issued to ${d.customerName} for ${d.visitCount || ''} completed preventive-maintenance visit(s)${d.periodLabel ? ` (${d.periodLabel})` : ''}. Review every visit with photos and the signed report in your portal; a summary report is also attached.`, '',
+    `A new invoice has been issued to ${d.customerName} for ${visitLine.replace(/&amp;/g, '&')}. ${isReactive ? 'Review the full asset list and service backup in your portal; the itemized invoice is attached.' : 'Review every visit with photos and the signed report in your portal; a summary report is also attached.'}`, '',
     `Invoice #:    ${d.docNumber}`,
     `Invoice date: ${fmtDate(d.invoiceDate)}`,
     `Due date:     ${fmtDate(d.dueDate)}`,
     `Amount:       ${fmtUsd(d.totalAmount)}`,
     `Balance due:  ${fmtUsd(d.balance)}`, '',
-    d.portalUrl ? `View service visits & photos: ${d.portalUrl}` : '',
+    d.portalUrl ? `${isReactive ? 'View invoice & service backup' : 'View service visits & photos'}: ${d.portalUrl}` : '',
     d.invoiceUrl ? `Pay this invoice online: ${d.invoiceUrl}` : 'Your invoice PDF is attached to this email.', '',
     'Questions? Reply to this email - it goes to your Brix rep.', '',
     'Brix Beverage', '1951 Monarch St. #200, Alameda CA 94501', '1-800-372-5098',
