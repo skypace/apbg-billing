@@ -133,6 +133,22 @@ async function acctPost(token: string, path: string, body: any): Promise<any> {
   if (!res.ok) throw new Error("QBO acct POST " + path + " (" + res.status + "): " + await res.text());
   return res.json();
 }
+async function acctQuery(token: string, sql: string): Promise<any[]> {
+  const j = await acctGet(token, "/query?query=" + encodeURIComponent(sql));
+  const qr = j?.QueryResponse ?? {};
+  for (const k of Object.keys(qr)) if (Array.isArray(qr[k])) return qr[k];
+  return [];
+}
+// The Payment must land in Undeposited Funds so the Stripe payout reconciler
+// (qbo-stripe-deposit) can group it into a bank Deposit. We set this explicitly
+// rather than relying on the company's "pre-selected deposit account" default,
+// which may auto-deposit straight to a bank (leaving nothing to group).
+async function findUndepositedFunds(token: string): Promise<string | null> {
+  try {
+    const rows = await acctQuery(token, "select Id from Account where AccountSubType = 'UndepositedFunds' and Active = true");
+    return rows[0]?.Id ? String(rows[0].Id) : null;
+  } catch { return null; }
+}
 
 interface InvoiceInput { qbo_invoice_id: string; amount: number }
 
@@ -182,11 +198,17 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ ok: true, mode: "preview", customer_qbo_id: customerQboId, total, invoices: resolved });
     }
 
+    // Deposit to Undeposited Funds so the Stripe payout reconciler can group
+    // this Payment into a bank Deposit later (best-effort resolve; if the
+    // account can't be found we fall back to the company default).
+    const undepositedId = await findUndepositedFunds(token);
+
     // Create the QBO Payment applying the amount(s) to the invoice line(s).
-    const payment = {
+    const payment: Record<string, unknown> = {
       CustomerRef: { value: customerQboId },
       TotalAmt: total,
       ...(externalRef ? { PaymentRefNum: externalRef.slice(0, 21) } : {}),
+      ...(undepositedId ? { DepositToAccountRef: { value: undepositedId } } : {}),
       PrivateNote: (memo || "Stripe payment") + (externalRef ? " (" + externalRef + ")" : ""),
       Line: invoices.map((inv) => ({
         Amount: Number(inv.amount),
