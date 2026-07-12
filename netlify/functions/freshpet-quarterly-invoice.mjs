@@ -69,6 +69,10 @@ async function uploadPdf(jwt, ref, bytes) {
     return path;
   } catch (e) { return null; }
 }
+// Public URL for a stored fp-invoices PDF (the bucket is public).
+function pdfPublicUrl(path) {
+  return path ? `${FRESHPET_SUPABASE_URL}/storage/v1/object/public/fp-invoices/${encodeURIComponent(path)}` : null;
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders(), body: '' };
@@ -182,9 +186,11 @@ export async function handler(event) {
     } catch (e) { warnings.push('Invoice created but email send failed: ' + e.message); }
   }
 
+  const portalUrl = 'https://alamedapointbg.com/freshpet/portal?invoice=' + encodeURIComponent(ref);
   return json(200, {
     mode: 'create',
-    invoice: { ref, qboId: created.Id, total, billableCount: count, assetCount: assets.length, itemUsed: item.name, pdfStored: !!pdfPath },
+    invoice: { ref, qboId: created.Id, total, billableCount: count, assetCount: assets.length, itemUsed: item.name,
+      pdfStored: !!pdfPath, pdfPath, pdfUrl: pdfPublicUrl(pdfPath), portalUrl, qboInvoiceUrl: created.InvoiceLink || null },
     emailed, warnings,
   });
 }
