@@ -589,14 +589,36 @@ function ageStr(iso){
   if(mins<60) return mins+'m ago';
   const h=Math.round(mins/60); return h<48?h+'h ago':Math.round(h/24)+'d ago';
 }
+let RESQ_SF={};
 async function loadResqSync(){
   const box=document.getElementById('resqSyncBox');
   try{
     const res=await fetch(`${APBG_FN}/resq-sync-control`);
     const data=await res.json();
     if(!res.ok) throw new Error(data.error||res.status);
+    RESQ_SF=data.sf||{};
     renderResqSync(data.status||{});
   }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function sfCardHtml(){
+  const sf=RESQ_SF||{};
+  let pill, note, border;
+  if(sf.error){ pill='<span style="color:#DC2626;font-weight:700">⚠ status unavailable</span>'; note=esc(sf.error); border='#FCA5A5'; }
+  else if(!sf.connected){ pill='<span style="color:#DC2626;font-weight:700">● Not connected</span>'; note='No token yet — click Connect to authorize RESQ’s Service Fusion app.'; border='#FCA5A5'; }
+  else if(sf.access_valid){ pill='<span style="color:#059669;font-weight:700">● Connected</span>'; note='Access token valid until '+ (sf.access_expires_at?new Date(sf.access_expires_at).toLocaleString():'—'); border='#A7F3D0'; }
+  else { pill='<span style="color:#B45309;font-weight:700">● Connected — token refreshes on next run</span>'; note='Has a refresh token; access token expired and will auto-renew.'; border='#FCD34D'; }
+  const meta=sf.connected?`refreshes: ${sf.refresh_count??0} · last by ${esc(sf.last_refreshed_by||'—')} · ${ageStr(sf.updated_at)}`:'';
+  const errLine=sf.last_error?`<div style="color:#DC2626;font-size:0.72rem;margin-top:4px">last error: ${esc(sf.last_error)}</div>`:'';
+  return `<div style="background:#F9FAFB;border:1px solid ${border};border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:4px">Service Fusion connection <span style="text-transform:none">— RESQ’s own Connected App (isolated token)</span></div>
+      <div style="font-size:0.95rem">${pill}</div>
+      <div style="font-size:0.75rem;color:#6B7280;margin-top:2px">${note}</div>
+      ${meta?`<div style="font-size:0.7rem;color:#9CA3AF;margin-top:2px">${meta}</div>`:''}
+      ${errLine}
+    </div>
+    <button onclick="reconnectSF()" style="${btnCss(sf.connected?'#475569':'#059669')}">${sf.connected?'↻ Reconnect':'🔗 Connect'}</button>
+  </div>`;
 }
 function renderResqSync(s){
   const write=!!s.write_enabled;
@@ -616,6 +638,7 @@ function renderResqSync(s){
     <td style="padding:5px 8px;color:#9CA3AF;white-space:nowrap">${ageStr(r.updated_at)}</td></tr>`).join('');
 
   document.getElementById('resqSyncBox').innerHTML=`
+    ${sfCardHtml()}
     <!-- Two switches -->
     <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
       <div>
@@ -675,6 +698,15 @@ async function toggleResqWrite(isOn){
   await postResqControl({action:'set_write',enabled:!isOn}, `Mode → ${!isOn?'WRITE':'OBSERVE'}`);
 }
 async function runResqTick(){ await postResqControl({action:'run_tick'}, 'Triggered a full sync tick'); }
+async function reconnectSF(){
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sf_connect_url'})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    window.open(data.url,'_blank','noopener');
+    log('Opened Service Fusion connect in a new tab — approve there, then click ↻ Refresh.','info');
+  }catch(e){ log('SF reconnect failed: '+e.message,'error'); alert('Failed: '+e.message); }
+}
 async function driveResqWo(){
   const code=(document.getElementById('resqDriveCode').value||'').trim().toUpperCase();
   if(!code){ alert('Enter a ResQ code'); return; }

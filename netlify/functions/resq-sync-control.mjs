@@ -44,6 +44,43 @@ async function rpc(name, args = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+async function sbGet(pathAndQuery) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Accept-Profile': 'ops' },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`sbGet ${pathAndQuery} ${res.status}: ${text.slice(0, 200)}`);
+  return text ? JSON.parse(text) : [];
+}
+
+// SF connection health for RESQ's OWN Connected App (ops.resq_sf_token_cache).
+// Returns only booleans + non-secret metadata — never the token values.
+async function sfStatus() {
+  const rows = await sbGet('resq_sf_token_cache?select=access_token,access_expires_at,refresh_token,refresh_count,last_refreshed_by,last_error,updated_at&id=eq.1');
+  const r = rows[0] || {};
+  const expMs = r.access_expires_at ? Date.parse(r.access_expires_at) : 0;
+  return {
+    connected: !!r.refresh_token,               // a refresh token means we're authorized
+    access_valid: expMs > Date.now(),
+    access_expires_at: r.access_expires_at || null,
+    has_access: !!r.access_token,
+    refresh_count: r.refresh_count ?? 0,
+    last_refreshed_by: r.last_refreshed_by || null,
+    last_error: r.last_error || null,
+    updated_at: r.updated_at || null,
+  };
+}
+
+// Build the one-click connect/reconnect URL for RESQ's Connected App. The
+// inbound_secret gates sf-connect's ?start; only returned to an authed
+// superadmin.
+async function sfConnectUrl() {
+  const rows = await sbGet('resq_sync_config?select=value&key=eq.inbound_secret');
+  const secret = rows[0]?.value || '';
+  if (!secret) throw new Error('inbound_secret not set');
+  return `${SUPABASE_URL}/functions/v1/sf-connect?start=1&secret=${encodeURIComponent(secret)}`;
+}
+
 async function callTick(body) {
   // sync-tick is the ungated cron entrypoint; it self-gates the mutating step
   // (sync-wo) with the injected service key. We pass the bearer anyway.
@@ -67,7 +104,11 @@ export async function handler(event) {
 
   try {
     if (event.httpMethod === 'GET') {
-      return json({ ok: true, status: await rpc('resq_sync_status') });
+      const [status, sf] = await Promise.all([
+        rpc('resq_sync_status'),
+        sfStatus().catch((e) => ({ error: e.message })),
+      ]);
+      return json({ ok: true, status, sf });
     }
     if (event.httpMethod !== 'POST') return json({ error: 'GET or POST only' }, 405);
 
@@ -95,6 +136,9 @@ export async function handler(event) {
       if (!codes.length) return json({ error: 'codes[] required' }, 400);
       const result = await callTick({ source: `control:${auth.user?.email || 'superadmin'}`, codes });
       return json({ ok: true, tick: result, status: await rpc('resq_sync_status') });
+    }
+    if (action === 'sf_connect_url') {
+      return json({ ok: true, url: await sfConnectUrl() });
     }
     return json({ error: `unknown action: ${action}` }, 400);
   } catch (e) {
