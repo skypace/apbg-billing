@@ -143,7 +143,7 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
-    <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books &amp; Service Fusion for the PACER MCP servers</span></h2>
+    <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books, Service Fusion &amp; Outlook for the PACER MCP servers</span></h2>
     <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
       <div style="font-size:0.85rem;color:#374151;max-width:560px">
         Connect or reconnect the accounting / field-service systems the
@@ -151,6 +151,21 @@ header .links a:hover{color:#1F4E79}
         Tokens are stored server-side in Supabase and refresh automatically — reconnect only if a connection goes red.
       </div>
       <a href="/pacer/connect.html" style="flex:none;background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Manage MCP Connections →</a>
+    </div>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;margin-top:12px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:4px">
+          <span class="dot unknown" id="outlookMcpDot" style="width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0"></span>
+          Outlook MCP <span style="font-weight:400;color:#9CA3AF">(<code>pacer-outlook</code>)</span>
+          <span id="outlookMcpStatus" style="font-weight:400;font-size:0.75rem;color:#6B7280"></span>
+        </div>
+        Office 365 mailbox tools (<code>outlook_search_emails</code>, vendor-doc scrub, attachment extraction).
+        Unlike the connectors above, its token is a Netlify env var (<code>M365_REFRESH_TOKEN</code> on the
+        <code>pacer-outlook</code> site) and <b>expires after 90 days of inactivity</b>. After reconnecting,
+        copy the refresh token from the callback page, save it to the Netlify env var, and redeploy the site
+        (or paste the token to Claude, which handles all three steps).
+      </div>
+      <a href="https://pacer-outlook.netlify.app/outlook/auth" target="_blank" style="flex:none;background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Reconnect Outlook →</a>
     </div>
   </div>
 
@@ -319,6 +334,38 @@ async function refreshAll() {
   document.getElementById('lastCheck').textContent = 'Last check: ' + new Date().toLocaleTimeString();
   renderSites();
   renderKeepalive();
+  checkOutlookMcp();
+}
+
+// ═══ OUTLOOK MCP HEALTH ═══
+// /outlook/health on pacer-outlook attempts a real M365 token refresh (result
+// cached server-side 5 min), so green = the refresh token actually works.
+// Uses window.fetch (not the authedFetch shim) — the endpoint is public and a
+// cross-origin Authorization header would just force a CORS preflight.
+let outlookMcpLastState = null;
+async function checkOutlookMcp() {
+  const dot = document.getElementById('outlookMcpDot');
+  const statusEl = document.getElementById('outlookMcpStatus');
+  if (!dot || !statusEl) return;
+  let state, text;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const r = await window.fetch('https://pacer-outlook.netlify.app/outlook/health', { signal: controller.signal });
+    clearTimeout(timeout);
+    const d = await r.json();
+    if (d.tokenValid) { state = 'ok'; text = 'Token OK'; }
+    else { state = 'fail'; text = d.error || 'Token invalid — reconnect'; }
+  } catch (e) {
+    state = 'unknown';
+    text = e.name === 'AbortError' ? 'Health check timeout' : 'Unreachable — ' + e.message;
+  }
+  dot.className = 'dot ' + state;
+  statusEl.textContent = '— ' + text;
+  if (state !== outlookMcpLastState) {
+    log('Outlook MCP: ' + text, state === 'ok' ? 'ok' : state === 'fail' ? 'err' : 'warn');
+    outlookMcpLastState = state;
+  }
 }
 
 // ═══ RENDER ═══
