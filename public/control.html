@@ -667,6 +667,7 @@ function renderResqSync(s){
       <button onclick="runResqTick()" style="${btnCss('#1F4E79')}">▶ Run a tick now</button>
       <input id="resqDriveCode" placeholder="ResQ code e.g. R1046442" style="font-size:0.82rem;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;width:200px" onkeydown="if(event.key==='Enter'){event.preventDefault();driveResqWo();}">
       <button onclick="driveResqWo()" style="${btnCss('#1F4E79')}">⚡ Drive this WO</button>
+      <button onclick="reconcileResqSf()" style="${btnCss('#0E7490')}">🔗 Reconcile ResQ ↔ SF</button>
       <button onclick="loadResqSync()" style="${btnCss('#475569')}">↻ Refresh</button>
     </div>
 
@@ -675,7 +676,8 @@ function renderResqSync(s){
       <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
         <th style="padding:5px 8px">ResQ code</th><th style="padding:5px 8px">SF job</th><th style="padding:5px 8px">Last action</th><th style="padding:5px 8px">Error</th><th style="padding:5px 8px">Updated</th></tr></thead>
       <tbody>${recent||'<tr><td colspan="5" style="padding:12px;color:#9CA3AF">No work orders tracked yet.</td></tr>'}</tbody>
-    </table>`;
+    </table>
+    <div id="resqReconcileBox" style="margin-top:14px"></div>`;
 }
 async function postResqControl(body, okMsg){
   try{
@@ -698,6 +700,32 @@ async function toggleResqWrite(isOn){
   await postResqControl({action:'set_write',enabled:!isOn}, `Mode → ${!isOn?'WRITE':'OBSERVE'}`);
 }
 async function runResqTick(){ await postResqControl({action:'run_tick'}, 'Triggered a full sync tick'); }
+async function reconcileResqSf(){
+  const box=document.getElementById('resqReconcileBox');
+  box.innerHTML='<div style="color:#6B7280;font-size:0.85rem"><span class="spinner"></span> Reconciling ResQ ↔ SF… (~60–90s)</div>';
+  try{
+    const r1=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reconcile_url',n:50})});
+    const d1=await r1.json(); if(!r1.ok) throw new Error(d1.error||r1.status);
+    const r2=await fetch(d1.url); const d=await r2.json(); if(!r2.ok) throw new Error(d.error||r2.status);
+    const rows=(d.rows||[]).slice().sort((a,b)=>((a.sf?1:0)-(b.sf?1:0))||String(a.resq_status).localeCompare(b.resq_status));
+    const tr=rows.map(r=>{
+      const sfj=r.sf?esc(String(r.sf.number||r.sf.id)):(r.err?'<span style="color:#DC2626">ERR</span>':'<span style="color:#DC2626;font-weight:700">— none —</span>');
+      return `<tr style="border-top:1px solid #F1F3F5">
+        <td style="padding:5px 8px;font-family:monospace">${esc(r.code)}</td>
+        <td style="padding:5px 8px">${esc(r.resq_status)}</td>
+        <td style="padding:5px 8px;font-family:monospace">${sfj}</td>
+        <td style="padding:5px 8px;color:#6B7280">${esc(r.facility||'')}</td></tr>`;
+    }).join('');
+    box.innerHTML=`
+      <div style="font-size:0.85rem;margin-bottom:8px">
+        <b>${d.open_assigned}</b> open WOs assigned to us · <span style="color:#059669;font-weight:700">${d.matched} matched</span> · <span style="color:${d.unmatched?'#DC2626':'#6B7280'};font-weight:700">${d.unmatched} no SF job</span>${d.errors?` · <span style="color:#DC2626">${d.errors} err</span>`:''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+        <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+          <th style="padding:5px 8px">ResQ code</th><th style="padding:5px 8px">ResQ status</th><th style="padding:5px 8px">SF job</th><th style="padding:5px 8px">Facility</th></tr></thead>
+        <tbody>${tr}</tbody></table>`;
+  }catch(e){ box.innerHTML=`<span style="color:#DC2626">Reconcile failed: ${esc(e.message)}</span>`; }
+}
 async function reconnectSF(){
   try{
     const res=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sf_connect_url'})});
