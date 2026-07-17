@@ -81,6 +81,16 @@ async function sfConnectUrl() {
   return `${SUPABASE_URL}/functions/v1/sf-connect?start=1&secret=${encodeURIComponent(secret)}`;
 }
 
+// The read-only ResQ↔SF reconcile runs ~60-90s (per-WO SF lookups) — longer than
+// a Netlify function may run — so the browser calls the edge endpoint directly.
+// We only hand the authed superadmin the secret-gated URL.
+async function reconcileUrl(n = 40) {
+  const rows = await sbGet('resq_sync_config?select=value&key=eq.inbound_secret');
+  const secret = rows[0]?.value || '';
+  if (!secret) throw new Error('inbound_secret not set');
+  return `${SUPABASE_URL}/functions/v1/resq-inbound?reconcile=1&n=${n}&secret=${encodeURIComponent(secret)}`;
+}
+
 async function callTick(body) {
   // sync-tick is the ungated cron entrypoint; it self-gates the mutating step
   // (sync-wo) with the injected service key. We pass the bearer anyway.
@@ -139,6 +149,9 @@ export async function handler(event) {
     }
     if (action === 'sf_connect_url') {
       return json({ ok: true, url: await sfConnectUrl() });
+    }
+    if (action === 'reconcile_url') {
+      return json({ ok: true, url: await reconcileUrl(body.n || 40) });
     }
     return json({ error: `unknown action: ${action}` }, 400);
   } catch (e) {
