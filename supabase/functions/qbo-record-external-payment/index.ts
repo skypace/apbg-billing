@@ -6,12 +6,18 @@
 //
 //   POST  header x-internal-secret == INTERNAL_PAY_SECRET
 //   body: {
-//     mode?: 'record' | 'preview',           // default 'record'
+//     mode?: 'record' | 'preview' | 'lookup', // default 'record'
 //     customer_qbo_id: string,
 //     invoices: [{ qbo_invoice_id: string, amount: number }],
 //     external_ref?: string,                  // Stripe pi_… (memo/PaymentRefNum)
 //     memo?: string
 //   }
+//
+// mode 'lookup' (v3): { mode: 'lookup', external_ref } — find the QBO Payment
+// previously booked for a Stripe pi_ ref (matched on PaymentRefNum, which we
+// truncate to QBO's 21-char limit at record time). Read-only. Lets brix-order's
+// payout reconciler self-heal a payments row whose qbo_payment_id was never
+// stamped (e.g. the booking succeeded but the caller crashed before persisting).
 //
 // Creates ONE QBO Payment (ReceivePayment) whose lines link the given invoices
 // (deposited to Undeposited Funds — Stripe payout/fee reconciliation is a
@@ -73,7 +79,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, exp: numb
   const refreshExpiry = new Date(Date.now() + (rExp ?? REFRESH_TOKEN_TTL_SECONDS) * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist", {
     p_realm_id: getRealm(), p_access_token: a, p_access_expires: accessExpiry,
-    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-record-external-payment@v1",
+    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-record-external-payment@v3",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
@@ -168,6 +174,24 @@ Deno.serve(async (req: Request) => {
     const invoices: InvoiceInput[] = Array.isArray(body.invoices) ? body.invoices : [];
     const externalRef = String(body.external_ref ?? "").trim();
     const memo = String(body.memo ?? "").trim();
+
+    if (mode === "lookup") {
+      // Read-only: find the Payment we booked for this external ref.
+      if (!externalRef) return jsonRes({ ok: false, error: "external_ref required for lookup" }, 400);
+      const sb = getSB();
+      const token = await getAccessToken(sb);
+      const refKey = externalRef.slice(0, 21).replace(/'/g, "");
+      const rows = await acctQuery(token, "select * from Payment where PaymentRefNum = '" + refKey + "'");
+      const payments = rows.map((p: any) => ({
+        qbo_payment_id: String(p.Id),
+        total: Number(p.TotalAmt ?? 0),
+        txn_date: p.TxnDate ?? null,
+        deposit_account_id: p.DepositToAccountRef?.value ? String(p.DepositToAccountRef.value) : null,
+        invoice_ids: (p.Line ?? []).flatMap((l: any) =>
+          (l.LinkedTxn ?? []).filter((t: any) => t.TxnType === "Invoice").map((t: any) => String(t.TxnId))),
+      }));
+      return jsonRes({ ok: true, mode: "lookup", found: payments.length > 0, payments });
+    }
 
     if (!customerQboId) return jsonRes({ ok: false, error: "customer_qbo_id required" }, 400);
     if (invoices.length === 0) return jsonRes({ ok: false, error: "invoices required" }, 400);
