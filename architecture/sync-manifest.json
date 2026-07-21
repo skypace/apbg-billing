@@ -523,6 +523,34 @@
       "external_inputs": [],
       "notes": "Generic key/value site settings (anon-readable so any app can read a flag; service-role writes). First use: the maintenance flag/banner, toggled from public/control.html and read client-side by public/maintenance-banner.js. POST is superadmin-gated (requireAuth). Migration 20260602d_site_settings.sql.",
       "last_verified": "2026-06-02"
+    },
+    {
+      "name": "brix-production:app-and-rpcs",
+      "kind": "manual-ui",
+      "description": "BRIX Margin Control Production section (app/src/pages/production/*) via ops SECURITY DEFINER RPCs: formula library (fn_formula_save), BOMs (fn_create_bom/fn_replace_bom_lines + header updates), the work-order pipeline (fn_wo_create_pipeline / fn_wo_generate_pos / fn_wo_advance / fn_wo_set_material_vendor), purchase orders (fn_create_purchase_order / fn_receive_purchase_order_line / close / void), and legacy co-pack orders. Movement rows these RPCs post are covered by the brix-stock writer entry (shared inventory_movements ledger).",
+      "writes": [
+        "ops.product_formulas",
+        "ops.product_formula_ingredients",
+        "ops.product_formula_revisions",
+        "ops.product_bom",
+        "ops.product_bom_lines",
+        "ops.work_orders",
+        "ops.work_order_costs",
+        "ops.work_order_materials",
+        "ops.work_order_events",
+        "ops.copack_orders",
+        "ops.copack_order_costs",
+        "ops.purchase_orders",
+        "ops.purchase_order_lines"
+      ]
+    },
+    {
+      "name": "push-qbo-item:vendors",
+      "kind": "supabase-edge-function",
+      "description": "push-qbo-item edge function action=syncVendors mirrors QBO Vendors into ops.qbo_vendors. (Its postPurchaseOrder / postInventoryAdjustment actions only stamp qbo_* writeback columns on rows owned by brix-production.)",
+      "writes": [
+        "ops.qbo_vendors"
+      ]
     }
   ],
   "orphans": [

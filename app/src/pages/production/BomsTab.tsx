@@ -1,601 +1,240 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, X as XIcon } from 'lucide-react';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
+import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
 import {
-  BomLineInput, ProductBom, ProductBomLine,
-  createBom, fetchBomLines, replaceBomLines, updateBom,
+  BomLineInput, BomLineType, ProductBom, ProductBomLine,
+  fetchBomLines, saveBomV2, updateBom,
 } from '../../lib/production';
+import { ProductFormula } from '../../lib/formulas';
+import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
-import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
-import { UOM_OPTIONS, scaleBom, fmtQty, uomGroup, inferItemVolumeFlOz } from '../../lib/uom';
+import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
+import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
-import { ProductionUnitConverter } from './ProductionUnitConverter';
-import { FormulaReadinessBadge, FormulaReadinessPanel } from './FormulaReadinessPanel';
-import { evaluateFormulaReadiness } from './formulaReadiness';
+
+function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 
 interface Props {
   boms: ProductBom[] | null;
+  formulas: ProductFormula[] | null;
+  vendors: QboVendor[] | null;
   itemLookup: ProductionItemLookup;
   onChanged: () => void;
 }
 
-function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+// The redesigned BOM is a pure parts list: the sellable finished item, the
+// sub-items that make it up (each with its vendor), and the formula / spec
+// sheet it's built from. NO quantity math lives here — every total is
+// calculated on the work order.
+export function BomsTab({ boms, formulas, vendors, itemLookup, onChanged }: Props) {
+  const [editing, setEditing] = useState<ProductBom | 'new' | null>(null);
+  const toast = useToast();
 
-const TANK_SIZES_GAL = [500, 1500, 2000, 2500];
-
-/** Friendly display label for a BOM. Falls back to "Version N" so the
- *  table never shows blank cells for older rows that pre-date the name
- *  field (migration backfill handles existing data; this is the runtime
- *  safety net for any future null). */
-function bomLabel(b: ProductBom): string {
-  return (b.name && b.name.trim()) || `Version ${b.version}`;
-}
-
-function packGal(b: Pick<ProductBom, 'cans_per_case' | 'oz_per_can'>): number {
-  const cans = Number(b.cans_per_case || 24);
-  const oz = Number(b.oz_per_can || 12);
-  return cans > 0 && oz > 0 ? cans * oz / 128 : 0;
-}
-
-function bomSetupWarning(b: ProductBom): string | null {
-  const yUom = b.yield_uom || 'each';
-  if (uomGroup(yUom) === 'volume') return null;
-  const bridge = b.finished_vol_per_yield_gal == null ? null : Number(b.finished_vol_per_yield_gal);
-  const pack = packGal(b);
-  if (bridge != null && bridge > 0 && pack > 0 && (bridge > pack * 10 || bridge < pack / 10)) {
-    return `Recipe yield is count-based but the gallon bridge says ${bridge.toLocaleString()} gal per ${yUom}; ${Number(b.cans_per_case || 24)} x ${Number(b.oz_per_can || 12)} oz is about ${pack.toFixed(3)} gal. Alameda Soda batches should usually be recipe-yielded in gallons.`;
-  }
-  return 'Soda production is normally mixed by gallons first. Use a gallon recipe basis for tank runs, then let pack size convert to finished units.';
-}
-
-function serviceLikeItemName(name: string | null | undefined): boolean {
-  return /\b(LABOU?R|PACK\s*OFF|FEE|CHARGE|SHIPPING|FREIGHT|DELIVERY|SERVICE)\b/i.test(name ?? '');
-}
-
-export function BomsTab({ boms, itemLookup, onChanged }: Props) {
-  const [creating, setCreating] = useState(false);
-  const [openBomId, setOpenBomId] = useState<string | null>(null);
-  const [bomLineMap, setBomLineMap] = useState<Map<string, BomLineInput[]> | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    if (boms === null) {
-      setBomLineMap(null);
-      return () => { alive = false; };
-    }
-    if (boms.length === 0) {
-      setBomLineMap(new Map());
-      return () => { alive = false; };
-    }
-    setBomLineMap(null);
-    Promise.all(boms.map(async (b) => {
-      const rows = await fetchBomLines(b.id).catch(() => []);
-      return [b.id, rows.map(bomLineToInput)] as const;
-    })).then((entries) => {
-      if (alive) setBomLineMap(new Map(entries));
-    });
-    return () => { alive = false; };
-  }, [boms]);
-
-  const readinessByBomId = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof evaluateFormulaReadiness>>();
-    for (const b of boms ?? []) {
-      m.set(b.id, evaluateFormulaReadiness({
-        bom: b,
-        lines: bomLineMap?.get(b.id) ?? null,
-        itemLookup,
-      }));
-    }
+  const formulaById = useMemo(() => {
+    const m = new Map<string, ProductFormula>();
+    for (const f of formulas ?? []) m.set(f.id, f);
     return m;
-  }, [boms, bomLineMap, itemLookup]);
+  }, [formulas]);
 
-  const readinessCounts = useMemo(() => {
-    const counts = { ready: 0, watch: 0, blocked: 0, pending: 0 };
-    for (const readiness of readinessByBomId.values()) counts[readiness.status] += 1;
-    return counts;
-  }, [readinessByBomId]);
+  const rows = useMemo(() => (boms ?? []).map((b) => ({
+    ...b,
+    finished_label: itemLookup.byId.get(b.finished_qbo_item_id)?.item_name ?? b.finished_qbo_item_id,
+    formula_label: b.formula_id ? (formulaById.get(b.formula_id)?.name ?? '…') : null,
+  })), [boms, itemLookup, formulaById]);
 
-  if (boms === null) return <div style={{ padding: 18, color: 'var(--mt)' }}>Loading…</div>;
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'finished_label', headerName: 'Sellable item', flex: 1, minWidth: 220,
+      renderCell: (p) => (
+        <button onClick={() => setEditing((boms ?? []).find((b) => b.id === p.row.id) ?? null)} style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--ac)', fontWeight: 700, padding: 0, fontSize: 12.5, textAlign: 'left',
+        }}>{String(p.value ?? '')}</button>
+      ),
+    },
+    { field: 'name', headerName: 'BOM name', flex: 1, minWidth: 160,
+      valueFormatter: (v) => v ? String(v) : '—' },
+    {
+      field: 'formula_label', headerName: 'Formula / spec sheet', flex: 1, minWidth: 190,
+      renderCell: (p) => p.value
+        ? <span style={{ fontSize: 11 }}>
+            <FlaskConical size={11} style={{ verticalAlign: -1, marginRight: 4, color: 'var(--ac)' }} />
+            {String(p.value)}
+          </span>
+        : <span style={{ color: 'var(--am)', fontSize: 11 }}>no formula linked</span>,
+    },
+    { field: 'version', headerName: 'Ver', width: 60, cellClassName: 'mn' },
+    {
+      field: 'is_active', headerName: 'Active', width: 90,
+      renderCell: (p) => {
+        const active = Boolean(p.value);
+        return <span style={{
+          color: active ? 'var(--gn)' : 'var(--mt)', fontSize: 9, fontWeight: 700,
+          border: `1px solid ${active ? 'var(--gn)' : 'var(--mt)'}`, padding: '1px 7px', borderRadius: 12,
+        }}>{active ? 'ACTIVE' : 'OFF'}</span>;
+      },
+    },
+    { field: 'cans_per_case', headerName: 'Cans/case', width: 90, cellClassName: 'mn' },
+    { field: 'oz_per_can', headerName: 'Oz/can', width: 80, cellClassName: 'mn' },
+    { field: 'updated_at', headerName: 'Updated', width: 155,
+      valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
+  ], [boms]);
+
+  async function toggleActive(bom: ProductBom) {
+    try {
+      await updateBom(bom.id, { is_active: !bom.is_active } as Partial<ProductBom>);
+      toast.success(bom.is_active ? 'BOM deactivated' : 'BOM activated');
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+  }
 
   return (
     <div>
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: 'var(--mt)', fontSize: 11 }}>
-            {boms.length} BOM{boms.length === 1 ? '' : 's'} · {boms.filter((b) => b.is_active).length} active · {readinessCounts.ready} ready · {readinessCounts.watch} review · {readinessCounts.blocked} blocked
+          <span style={{ fontSize: 11, color: 'var(--mt)' }}>
+            A BOM is the sellable item + the sub-items that make it up, tied to its formula.
+            Quantities here are <strong>per finished unit</strong> — totals are calculated on the work order.
           </span>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
-          <button onClick={() => setCreating(true)} style={btnPrimary()}>
+          <button onClick={() => setEditing('new')} style={btnPrimary()}>
             <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New BOM
           </button>
         </div>
       </div>
 
-      {creating && (
-        <CreateBomForm
-          itemLookup={itemLookup}
-          onCancel={() => setCreating(false)}
-          onCreated={() => { setCreating(false); onChanged(); }}
+      <div className="cd" style={{ padding: 0 }}>
+        <DataGridPro
+          rows={rows}
+          columns={columns}
+          {...GRID_DEFAULTS}
+          sx={GRID_SX}
+          density="compact"
+          loading={boms === null}
+          disableRowSelectionOnClick
         />
-      )}
-
-      {itemLookup.finishedOptions.length === 0 && (
-        <div style={{
-          padding: 10, marginBottom: 14,
-          background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)',
-          borderRadius: 4, fontSize: 11, color: 'var(--am)',
-        }}>
-          No items flagged for BOM. Toggle <strong>BOM</strong> on a finished SKU in{' '}
-          <strong>Settings → Items (master)</strong> before creating a BOM.
-        </div>
-      )}
-
-      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Finished SKU</Th>
-              <Th>Name</Th>
-              <Th style={{ textAlign: 'right' }}>Yield Qty</Th>
-              <Th>Readiness</Th>
-              <Th>Status</Th>
-              <Th>Effective</Th>
-              <Th style={{ width: 90 }}> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {boms.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 18, textAlign: 'center', color: 'var(--mt)' }}>
-                No BOMs yet.
-              </td></tr>
-            )}
-            {boms.map((b) => {
-              const it = itemLookup.byId.get(b.finished_qbo_item_id);
-              const warning = bomSetupWarning(b);
-              const readiness = readinessByBomId.get(b.id) ?? evaluateFormulaReadiness({ bom: b, lines: null, itemLookup });
-              return (
-                <tr key={b.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <Td><strong>{it?.item_name ?? b.finished_qbo_item_id}</strong></Td>
-                  <Td>
-                    <div style={{ fontWeight: 600, color: 'var(--tx)' }}>{bomLabel(b)}</div>
-                    <div style={{ fontSize: 10, color: 'var(--mt)', fontFamily: 'var(--ff-mono)', marginTop: 1 }}>
-                      v{b.version}
-                    </div>
-                  </Td>
-                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtQty(Number(b.yield_qty), b.yield_uom || 'each')}
-                    {warning && (
-                      <div style={{ fontSize: 9, color: 'var(--am)', fontFamily: 'var(--ff-sans)', marginTop: 2 }}>
-                        Check setup
-                      </div>
-                    )}
-                  </Td>
-                  <Td>
-                    <FormulaReadinessBadge readiness={readiness} />
-                    <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>{readiness.summary}</div>
-                  </Td>
-                  <Td>
-                    <span style={{
-                      fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5,
-                      color: b.is_active ? 'var(--gn)' : 'var(--mt)',
-                    }}>{b.is_active ? 'ACTIVE' : 'INACTIVE'}</span>
-                  </Td>
-                  <Td><span style={{ color: 'var(--mt)' }}>{b.effective_date ?? '—'}</span></Td>
-                  <Td>
-                    <button onClick={() => setOpenBomId(b.id)} style={btnSecondary()}>Open</button>
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
       </div>
 
-      {openBomId && (
-        <BomDetailModal
-          bomId={openBomId}
-          bom={boms.find((b) => b.id === openBomId)!}
+      {editing && (
+        <BomEditModal
+          bom={editing === 'new' ? null : editing}
+          formulas={formulas ?? []}
+          vendors={vendors ?? []}
           itemLookup={itemLookup}
-          onClose={() => setOpenBomId(null)}
-          onChanged={() => { setOpenBomId(null); onChanged(); }}
+          onToggleActive={editing !== 'new' ? () => { void toggleActive(editing as ProductBom); setEditing(null); } : undefined}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); onChanged(); }}
         />
       )}
     </div>
   );
 }
 
-// ── Create form ────────────────────────────────────────────────────────
+// ── Edit / create ────────────────────────────────────────────────────────
 
-function CreateBomForm({ itemLookup, onCancel, onCreated }: {
+interface LineRow {
+  line_type: BomLineType;
+  component_qbo_item_id: string;
+  service_label: string;
+  qty_per: string;
+  qty_uom: string;
+  scrap_pct: string;   // percent, e.g. "2" = 2%
+  default_cost: string;
+  vendor_id: string;
+  notes: string;
+}
+
+const EMPTY_LINE: LineRow = {
+  line_type: 'component', component_qbo_item_id: '', service_label: '',
+  qty_per: '', qty_uom: 'each', scrap_pct: '', default_cost: '', vendor_id: '', notes: '',
+};
+
+function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onClose, onSaved }: {
+  bom: ProductBom | null;
+  formulas: ProductFormula[];
+  vendors: QboVendor[];
   itemLookup: ProductionItemLookup;
-  onCancel: () => void;
-  onCreated: () => void;
+  onToggleActive?: () => void;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const toast = useToast();
-  const [finishedId, setFinishedId] = useState('');
-  const [version, setVersion] = useState('1');
-  const [name, setName] = useState('');
-  const [yieldQty, setYieldQty] = useState<string>('500');
-  const [yieldUom, setYieldUom] = useState<string>('gal');
-  // Volume bridge: only meaningful when yield is a count UoM (each/case) and
-  // 1 yield produces a known volume of finished product. Lets the scaler
-  // accept "make 1000 gal" against a per-case BOM.
-  const [finishedGal, setFinishedGal] = useState<string>('');
-  const [effective, setEffective] = useState('');
-  const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<BomLineInput[]>([emptyComponentLine()]);
+  const isNew = bom == null;
+  const [finishedId, setFinishedId] = useState(bom?.finished_qbo_item_id ?? '');
+  const [name, setName] = useState(bom?.name ?? '');
+  const [version, setVersion] = useState(bom?.version ?? '1');
+  const [formulaId, setFormulaId] = useState(bom?.formula_id ?? '');
+  const [cansPerCase, setCansPerCase] = useState(String(bom?.cans_per_case ?? 24));
+  const [ozPerCan, setOzPerCan] = useState(String(bom?.oz_per_can ?? 12));
+  const [notes, setNotes] = useState(bom?.notes ?? '');
+  const [lines, setLines] = useState<LineRow[]>([{ ...EMPTY_LINE }]);
   const [saving, setSaving] = useState(false);
 
-  const canSave =
-    !!finishedId &&
-    Number(yieldQty) > 0 &&
-    lines.length > 0 &&
-    lines.every(validLine);
+  useEffect(() => {
+    if (!bom) return;
+    let alive = true;
+    fetchBomLines(bom.id).then((rows: ProductBomLine[]) => {
+      if (!alive) return;
+      setLines(rows.map((l) => ({
+        line_type: l.line_type,
+        component_qbo_item_id: l.component_qbo_item_id ?? '',
+        service_label: l.service_label ?? '',
+        qty_per: String(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        scrap_pct: l.scrap_pct ? String(Number(l.scrap_pct) * 100) : '',
+        default_cost: l.default_cost != null ? String(l.default_cost) : '',
+        vendor_id: l.preferred_qbo_vendor_id ?? '',
+        notes: l.notes ?? '',
+      })));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [bom]);
+
+  const validLines = lines.filter((l) =>
+    Number(l.qty_per) > 0 &&
+    (l.line_type === 'component' ? l.component_qbo_item_id : l.service_label.trim()));
+  const canSave = !!finishedId && validLines.length > 0;
+  const missingVendors = validLines.filter((l) => l.line_type === 'component' && !l.vendor_id).length;
 
   async function submit() {
     if (!canSave) return;
     setSaving(true);
     try {
-      await createBom({
-        finished_qbo_item_id: finishedId,
-        yield_qty: Number(yieldQty),
-        yield_uom: yieldUom,
-        finished_vol_per_yield_gal: finishedGal.trim() === '' ? null : Number(finishedGal),
-        lines,
-        version,
-        name: name.trim() === '' ? null : name.trim(),
-        effective_date: effective || null,
-        notes: notes || null,
+      const payload: BomLineInput[] = validLines.map((l) => ({
+        line_type: l.line_type,
+        component_qbo_item_id: l.line_type === 'component' ? l.component_qbo_item_id : null,
+        service_label: l.line_type === 'service' ? l.service_label.trim() : null,
+        qty_per: Number(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        scrap_pct: l.scrap_pct ? Number(l.scrap_pct) / 100 : 0,
+        default_cost: l.default_cost ? Number(l.default_cost) : null,
+        preferred_qbo_vendor_id: l.vendor_id || null,
+        notes: l.notes || null,
+      }));
+      await saveBomV2({
+        id: bom?.id ?? null,
+        header: {
+          finished_qbo_item_id: finishedId,
+          name: name || null,
+          version,
+          formula_id: formulaId || null,
+          yield_qty: 1,
+          yield_uom: 'each',
+          cans_per_case: Number(cansPerCase) || 24,
+          oz_per_can: Number(ozPerCan) || 12,
+          notes: notes || null,
+        },
+        lines: payload,
       });
-      toast.success('BOM created');
-      onCreated();
+      toast.success(isNew ? 'BOM created' : 'BOM saved');
+      onSaved();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setSaving(false); }
   }
 
-  return (
-    <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          New BOM
-        </div>
-        <button onClick={onCancel} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
-          <XIcon size={14} />
-        </button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
-        <LField label="Finished SKU">
-          <select style={inp()} value={finishedId} onChange={(e) => setFinishedId(e.target.value)}>
-            <option value="">— Select item —</option>
-            {itemLookup.finishedOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
-        </LField>
-        <LField label="Version">
-          <input style={inp()} value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1" />
-        </LField>
-        <LField label="Name (optional)">
-          <input style={inp()} value={name} onChange={(e) => setName(e.target.value)}
-            placeholder='e.g. "Cola — 1000 gal batch"' />
-        </LField>
-        <LField label="Recipe basis / tank">
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input type="number" min={0.0001} step="any" style={{ ...inp(), flex: 1 }}
-              value={yieldQty} onChange={(e) => setYieldQty(e.target.value)} />
-            <select value={yieldUom} onChange={(e) => setYieldUom(e.target.value)} style={{ ...inp(), width: 90 }}>
-              {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          {yieldUom === 'gal' && (
-            <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
-              {TANK_SIZES_GAL.map((tank) => (
-                <button key={tank} type="button" onClick={() => setYieldQty(String(tank))}
-                  style={{ ...btnSecondary(), padding: '3px 7px', fontSize: 10 }}>
-                  {tank} gal
-                </button>
-              ))}
-            </div>
-          )}
-        </LField>
-        {uomGroup(yieldUom) === 'count' && (
-          <LField label="Gal of finished product / yield (optional)">
-            <input type="number" min={0} step="any" style={inp()}
-              value={finishedGal} onChange={(e) => setFinishedGal(e.target.value)}
-              placeholder="e.g. 2.25 — enables scaling by gallons" />
-          </LField>
-        )}
-        <LField label="Effective date">
-          <input type="date" style={inp()} value={effective} onChange={(e) => setEffective(e.target.value)} />
-        </LField>
-      </div>
-
-      <BomLinesEditor
-        lines={lines}
-        setLines={setLines}
-        itemLookup={itemLookup}
-      />
-
-      <div style={{ marginTop: 10 }}>
-        <LField label="Notes">
-          <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
-            value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </LField>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-        <button onClick={onCancel} style={btnSecondary()}>Cancel</button>
-        <button onClick={submit} disabled={!canSave || saving} style={btnPrimary()}>
-          {saving ? 'Creating…' : 'Create BOM'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Detail modal (edit lines, toggle active, rename) ───────────────────
-
-function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
-  bomId: string;
-  bom: ProductBom;
-  itemLookup: ProductionItemLookup;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const [lines, setLines] = useState<BomLineInput[] | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [active, setActive] = useState(bom.is_active);
-  const [name, setName] = useState<string>(bom.name ?? '');
-  // Local-edit copy of the gal-per-yield bridge. Persists via updateBom on
-  // blur so the BOM scaler can convert "make N gal" → runs without a
-  // save + reopen.
-  const [finishedGal, setFinishedGal] = useState<string>(
-    bom.finished_vol_per_yield_gal == null ? '' : String(bom.finished_vol_per_yield_gal),
-  );
-  // Post-mix dilution: water parts per 1 part concentrate. When set, the
-  // scaler computes runs from ingredient volumes × (1 + dilution_ratio)
-  // instead of the legacy yield bridge. 5:1 fountain syrup → 5 here.
-  const [dilutionRatio, setDilutionRatio] = useState<string>(
-    bom.dilution_ratio == null || Number(bom.dilution_ratio) === 0
-      ? ''
-      : String(bom.dilution_ratio),
-  );
-  // Pack sizing for the cost-rollup card. 24 × 12 oz is the default
-  // because that's what all of Sky's RAW INGREDIENTS sheet rows use.
-  const [cansPerCase, setCansPerCase] = useState<string>(
-    bom.cans_per_case == null ? '24' : String(bom.cans_per_case),
-  );
-  const [ozPerCan, setOzPerCan] = useState<string>(
-    bom.oz_per_can == null ? '12' : String(bom.oz_per_can),
-  );
-
-  useEffect(() => {
-    let alive = true;
-    fetchBomLines(bomId).then((ls) => {
-      if (!alive) return;
-      setLines(ls.map(bomLineToInput));
-    }).catch(() => alive && setLines([]));
-    return () => { alive = false; };
-  }, [bomId]);
-
-  // Target volume for scaling — drives the "Required for batch" column in
-  // BomLinesEditor. Held here so a single input at the top controls the rows.
-  const [targetQty, setTargetQty] = useState<string>('');
-  const [targetUom, setTargetUom] = useState<string>(bom.yield_uom || 'each');
-
-  const it = itemLookup.byId.get(bom.finished_qbo_item_id);
-
-  const bridgeGal = useMemo(() => {
-    const live = finishedGal.trim();
-    if (live !== '') return Number(live);
-    return bom.finished_vol_per_yield_gal == null ? undefined : Number(bom.finished_vol_per_yield_gal);
-  }, [finishedGal, bom.finished_vol_per_yield_gal]);
-
-  const dilutionNum = useMemo(() => {
-    const live = dilutionRatio.trim();
-    if (live !== '') return Number(live);
-    return bom.dilution_ratio == null ? 0 : Number(bom.dilution_ratio);
-  }, [dilutionRatio, bom.dilution_ratio]);
-
-  // Effective pack sizing (live edits before they're persisted).
-  const cansPerCaseNum = useMemo(() => {
-    const v = Number(cansPerCase);
-    return Number.isFinite(v) && v > 0 ? v : 24;
-  }, [cansPerCase]);
-  const ozPerCanNum = useMemo(() => {
-    const v = Number(ozPerCan);
-    return Number.isFinite(v) && v > 0 ? v : 12;
-  }, [ozPerCan]);
-  const setupWarning = bomSetupWarning({
-    ...bom,
-    finished_vol_per_yield_gal: bridgeGal ?? null,
-    dilution_ratio: dilutionNum,
-    cans_per_case: cansPerCaseNum,
-    oz_per_can: ozPerCanNum,
-  });
-  const finishedUnitsPerGal = cansPerCaseNum > 0 && ozPerCanNum > 0
-    ? 128 / (cansPerCaseNum * ozPerCanNum)
-    : null;
-
-  const scaling = useMemo(() => {
-    const tQty = Number(targetQty) || 0;
-    if (!lines || tQty <= 0) {
-      return {
-        scaled: null,
-        incompat: false,
-        scaledByIdx: new Map<number, { qty: number; uom: string }>(),
-      };
-    }
-    const yieldDef = {
-      qty: Number(bom.yield_qty),
-      uom: bom.yield_uom || 'each',
-      finishedVolPerYieldGal: bridgeGal,
-      dilutionRatio: dilutionNum,
-    };
-    const out = scaleBom(
-      { qty: tQty, uom: targetUom },
-      yieldDef,
-      lines.map((l, idx) => {
-        const item = l.component_qbo_item_id
-          ? itemLookup.byId.get(l.component_qbo_item_id)
-          : null;
-        return {
-          qty_per: Number(l.qty_per),
-          qty_uom: l.qty_uom || 'each',
-          scrap_pct: Number(l.scrap_pct ?? 0),
-          ref: { idx },
-          itemName: item?.item_name ?? l.service_label ?? null,
-          // Pass 'Service' for service lines so the SKU parser skips
-          // descriptive volume tokens in labor item names ("12OZ CAN FILL
-          // LABOR" must not parse as 12 fl_oz). Components fall through to
-          // null which lets the parser run.
-          itemType: l.line_type === 'service' ? 'Service' : null,
-        };
-      }),
-    );
-    const map = new Map<number, { qty: number; uom: string }>();
-    if (out) for (const s of out.scaledLines) map.set(s.ref.idx, { qty: s.qty, uom: s.uom });
-    return { scaled: out, incompat: out === null, scaledByIdx: map };
-  }, [lines, bom.yield_qty, bom.yield_uom, bridgeGal, dilutionNum, targetQty, targetUom, itemLookup]);
-
-  // Cost rollup at the target scale. Theoretical math — assumes 100% yield.
-  // Per-line cost = qty_required × (line.default_cost ?? item.purchase_cost ?? 0).
-  // Per-unit costs are derived from the target volume + pack sizing.
-  const costRollup = useMemo(() => {
-    if (!lines || !scaling.scaled) return null;
-    let totalBatchCost = 0;
-    let componentsCost = 0;
-    let servicesCost = 0;
-    const rows: { idx: number; label: string; unit_cost: number; qty: number; uom: string; subtotal: number }[] = [];
-    for (const [i, l] of lines.entries()) {
-      const scaled = scaling.scaledByIdx.get(i);
-      if (!scaled) continue;
-      const item = l.component_qbo_item_id ? itemLookup.byId.get(l.component_qbo_item_id) : null;
-      const unitCost = l.default_cost != null && Number(l.default_cost) > 0
-        ? Number(l.default_cost)
-        : Number(item?.purchase_cost ?? 0);
-      const subtotal = scaled.qty * unitCost;
-      const label = l.line_type === 'component'
-        ? (item?.item_name ?? '(missing item)')
-        : (l.service_label ?? '(service)');
-      rows.push({ idx: i, label, unit_cost: unitCost, qty: scaled.qty, uom: scaled.uom, subtotal });
-      totalBatchCost += subtotal;
-      if (l.line_type === 'service') servicesCost += subtotal;
-      else componentsCost += subtotal;
-    }
-    // Target volume in fl_oz — the denominator for $/oz.
-    // When target is in volume units, that's straightforward.
-    // When target is in count + we have ingredient-mode scaling, use the
-    // computed finished volume from scaleBom. Otherwise we can't show
-    // per-oz / per-can / per-case — only total + per-unit-of-yield.
-    let finishedFlOz: number | null = null;
-    const tQty = Number(targetQty) || 0;
-    if (uomGroup(targetUom) === 'volume' && tQty > 0) {
-      finishedFlOz = tQty * (
-        targetUom === 'gal' ? 128
-        : targetUom === 'fl_oz' ? 1
-        : targetUom === 'L' ? 33.8140227
-        : targetUom === 'mL' ? 0.0338140227
-        : 0
-      );
-    } else if (scaling.scaled?.finishedVolPerYieldGal && scaling.scaled.runs > 0) {
-      finishedFlOz = scaling.scaled.finishedVolPerYieldGal * scaling.scaled.runs * 128;
-    }
-    const perOz = finishedFlOz && finishedFlOz > 0 ? totalBatchCost / finishedFlOz : null;
-    const perCan = perOz != null ? perOz * ozPerCanNum : null;
-    const perCase = perCan != null ? perCan * cansPerCaseNum : null;
-    const perGalFinished = perOz != null ? perOz * 128 : null;
-    const cansProduced = finishedFlOz != null && ozPerCanNum > 0 ? finishedFlOz / ozPerCanNum : null;
-    const casesProduced = cansProduced != null ? cansProduced / cansPerCaseNum : null;
-    return {
-      totalBatchCost, componentsCost, servicesCost, rows,
-      finishedFlOz, cansProduced, casesProduced,
-      perOz, perCan, perCase, perGalFinished,
-    };
-  }, [lines, scaling, itemLookup, targetQty, targetUom, ozPerCanNum, cansPerCaseNum]);
-
-  const formulaReadiness = useMemo(() => evaluateFormulaReadiness({
-    bom,
-    lines,
-    itemLookup,
-    overrides: {
-      finishedVolPerYieldGal: bridgeGal ?? null,
-      dilutionRatio: dilutionNum,
-      cansPerCase: cansPerCaseNum,
-      ozPerCan: ozPerCanNum,
-    },
-  }), [bom, lines, itemLookup, bridgeGal, dilutionNum, cansPerCaseNum, ozPerCanNum]);
-
-  async function saveLines() {
-    if (!lines || !lines.every(validLine)) return;
-    setSaving(true);
-    try {
-      await replaceBomLines(bomId, lines);
-      toast.success('BOM lines saved');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setSaving(false); }
+  function setLine(i: number, patch: Partial<LineRow>) {
+    setLines((rows) => rows.map((x, j) => j === i ? { ...x, ...patch } : x));
   }
-
-  async function toggleActive() {
-    setSaving(true);
-    try {
-      await updateBom(bomId, { is_active: !active });
-      setActive(!active);
-      toast.success(active ? 'Deactivated' : 'Activated');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setSaving(false); }
-  }
-
-  async function saveName() {
-    const next = name.trim() === '' ? null : name.trim();
-    const prev = bom.name ?? null;
-    if (next === prev) return;
-    try {
-      await updateBom(bomId, { name: next });
-      toast.success(next ? `Renamed to "${next}"` : 'Name cleared');
-      // No onChanged — autosave-on-blur, parent treats that as "close+refresh".
-      // Next fetchBoms will pick it up; the detail modal keeps the live state.
-    } catch (e) { toast.error(errMsg(e)); }
-  }
-
-  async function saveFinishedGal() {
-    const next = finishedGal.trim() === '' ? null : Number(finishedGal);
-    // Coerce prev: PostgREST returns numeric as JSON string, so comparing a
-    // typed number against bom.finished_vol_per_yield_gal directly always
-    // misses (same gotcha as bom.yield_qty in the detail header).
-    const prev = bom.finished_vol_per_yield_gal == null
-      ? null
-      : Number(bom.finished_vol_per_yield_gal);
-    if (next === prev || (next !== null && !Number.isFinite(next))) return;
-    try {
-      await updateBom(bomId, { finished_vol_per_yield_gal: next });
-    } catch (e) { toast.error(errMsg(e)); }
-  }
-
-  async function saveDilutionRatio() {
-    const next = dilutionRatio.trim() === '' ? 0 : Number(dilutionRatio);
-    const prev = bom.dilution_ratio == null ? 0 : Number(bom.dilution_ratio);
-    if (next === prev || !Number.isFinite(next) || next < 0) return;
-    try {
-      await updateBom(bomId, { dilution_ratio: next });
-    } catch (e) { toast.error(errMsg(e)); }
-  }
-
-  async function savePackSizing() {
-    const nextCans = Number(cansPerCase) || 24;
-    const nextOz = Number(ozPerCan) || 12;
-    const prevCans = bom.cans_per_case ?? 24;
-    const prevOz = Number(bom.oz_per_can ?? 12);
-    const patch: Partial<ProductBom> = {};
-    if (nextCans !== prevCans && Number.isFinite(nextCans) && nextCans > 0) patch.cans_per_case = nextCans;
-    if (nextOz !== prevOz && Number.isFinite(nextOz) && nextOz > 0) patch.oz_per_can = nextOz;
-    if (Object.keys(patch).length === 0) return;
-    try { await updateBom(bomId, patch); }
-    catch (e) { toast.error(errMsg(e)); }
-  }
-
-  const displayName = (name && name.trim()) || `Version ${bom.version}`;
 
   return (
     <div onClick={onClose} style={{
@@ -605,499 +244,128 @@ function BomDetailModal({ bomId, bom, itemLookup, onClose, onChanged }: {
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
-        maxWidth: 1080, width: '100%', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', padding: 20,
+        maxWidth: 980, width: '100%', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', padding: 20,
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
-              BOM · {displayName} · v{bom.version} · yield {fmtQty(Number(bom.yield_qty), bom.yield_uom || 'each')} / batch
-            </div>
-            <h2 style={{ margin: '4px 0 0', fontSize: 22, color: 'var(--ac)' }}>
-              {it?.item_name ?? bom.finished_qbo_item_id}
-            </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            {isNew ? 'New Bill of Materials' : `Edit BOM · ${itemLookup.byId.get(bom!.finished_qbo_item_id)?.item_name ?? bom!.finished_qbo_item_id}`}
           </div>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
-            <XIcon size={18} />
+            <XIcon size={16} />
           </button>
         </div>
 
-        {/* Rename row */}
-        <div style={{
-          marginBottom: 14, padding: '8px 10px',
-          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <span style={{ color: 'var(--mt)' }}>Name</span>
-          <input style={{ ...inp(), flex: 1 }}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={saveName}
-            placeholder='e.g. "Cola — 1000 gal batch"' />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+          <LField label="Sellable finished item *">
+            <select style={inp()} value={finishedId} onChange={(e) => setFinishedId(e.target.value)} disabled={!isNew}>
+              <option value="">—</option>
+              {isNew
+                ? itemLookup.finishedOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)
+                : <option value={finishedId}>{itemLookup.byId.get(finishedId)?.item_name ?? finishedId}</option>}
+            </select>
+          </LField>
+          <LField label="Formula / spec sheet (the driver)">
+            <select style={inp()} value={formulaId} onChange={(e) => setFormulaId(e.target.value)}>
+              <option value="">— none —</option>
+              {formulas.map((f) => <option key={f.id} value={f.id}>{f.name} · rev {f.doc_rev}</option>)}
+            </select>
+          </LField>
+          <LField label="BOM name">
+            <input style={inp()} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cola 24pk case" />
+          </LField>
+          <LField label="Version">
+            <input style={inp()} value={version} onChange={(e) => setVersion(e.target.value)} />
+          </LField>
+          <LField label="Cans per case">
+            <input type="number" min={1} style={inp()} value={cansPerCase} onChange={(e) => setCansPerCase(e.target.value)} />
+          </LField>
+          <LField label="Oz per can">
+            <input type="number" min={0} step="any" style={inp()} value={ozPerCan} onChange={(e) => setOzPerCan(e.target.value)} />
+          </LField>
         </div>
 
-        <div style={{
-          marginBottom: 14, padding: '8px 10px',
-          background: 'rgba(91,181,240,0.04)', border: '1px solid var(--bd)', borderRadius: 4,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11,
-        }}>
-          <span>
-            Status: <strong style={{ color: active ? 'var(--gn)' : 'var(--mt)' }}>
-              {active ? 'ACTIVE' : 'INACTIVE'}
-            </strong>
-          </span>
-          <button onClick={toggleActive} disabled={saving} style={btnSecondary()}>
-            {active ? 'Deactivate' : 'Activate'}
-          </button>
-        </div>
-
-        <FormulaReadinessPanel readiness={formulaReadiness} />
-
-        {setupWarning ? (
-          <div style={{
-            marginBottom: 14, padding: '10px 12px',
-            background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.32)',
-            borderRadius: 4, fontSize: 11, color: 'var(--am)', lineHeight: 1.45,
-          }}>
-            <strong>Recipe setup warning:</strong> {setupWarning}
+        <div style={{ marginTop: 16, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Sub-items (per 1 finished unit)
           </div>
-        ) : (
-          <div style={{
-            marginBottom: 14, padding: '10px 12px',
-            background: 'rgba(58,167,113,0.06)', border: '1px solid rgba(58,167,113,0.25)',
-            borderRadius: 4, fontSize: 11, color: 'var(--tx2)', lineHeight: 1.45,
-          }}>
-            Gallon-first recipe. Work orders scale the tank in {bom.yield_uom || 'gal'}, then convert finished liquid into QBO units using pack size
-            {finishedUnitsPerGal != null && (
-              <> ({finishedUnitsPerGal.toLocaleString(undefined, { maximumFractionDigits: 4 })} finished units per gal)</>
-            )}.
-          </div>
-        )}
-
-        {uomGroup(bom.yield_uom || 'each') === 'count' && (
-          <div style={{
-            marginBottom: 10, padding: '8px 10px',
-            border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <span style={{ color: 'var(--mt)' }}>
-              1 {bom.yield_uom || 'each'} produces
-            </span>
-            <input type="number" min={0} step="any" style={{ ...inp(), width: 100 }}
-              value={finishedGal}
-              onChange={(e) => setFinishedGal(e.target.value)}
-              onBlur={saveFinishedGal}
-              placeholder="—" />
-            <span style={{ color: 'var(--mt)' }}>
-              gal of finished product (legacy bridge; superseded by dilution ratio when set)
-            </span>
-          </div>
-        )}
-
-        {/* Dilution ratio — water parts per 1 part concentrate. Set this
-            for post-mix BOMs (e.g. 5 for 5:1 fountain syrup) and the
-            scaler computes finished volume directly from the parsed
-            ingredient SKU volumes. */}
-        <div style={{
-          marginBottom: 10, padding: '8px 10px',
-          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <span style={{ color: 'var(--mt)' }}>
-            Dilution ratio (water parts per 1 part concentrate)
-          </span>
-          <input type="number" min={0} step="any" style={{ ...inp(), width: 80 }}
-            value={dilutionRatio}
-            onChange={(e) => setDilutionRatio(e.target.value)}
-            onBlur={saveDilutionRatio}
-            placeholder="0" />
-          <span style={{ color: 'var(--mt)' }}>
-            {dilutionNum > 0
-              ? `→ 1 + ${dilutionNum} = ${1 + dilutionNum}× finished per concentrate (SKU prefix drives qty)`
-              : '0 = no dilution (concentrate is finished). 5 = standard post-mix.'}
-          </span>
-        </div>
-
-        {/* Scale-to-batch input — drives the Required column in the BOM lines editor below. */}
-        <div style={{
-          marginBottom: 14, padding: '10px 12px',
-          border: '1px solid var(--bd)', borderRadius: 4, fontSize: 12,
-          background: 'rgba(91,181,240,0.04)',
-          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        }}>
-          <span style={{ color: 'var(--mt)', fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-            Scale to make
-          </span>
-          <input type="number" min={0} step="any" style={{ ...inp(), width: 110, textAlign: 'right' }}
-            value={targetQty}
-            onChange={(e) => setTargetQty(e.target.value)}
-            placeholder="qty" />
-          <select value={targetUom} onChange={(e) => setTargetUom(e.target.value)} style={{ ...inp(), width: 110 }}>
-            {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          {targetUom === 'gal' && TANK_SIZES_GAL.map((tank) => (
-            <button key={tank} type="button" onClick={() => setTargetQty(String(tank))}
-              style={{ ...btnSecondary(), padding: '3px 7px', fontSize: 10 }}>
-              {tank}
-            </button>
-          ))}
-          {scaling.scaled ? (
-            <span style={{ color: 'var(--mt)' }}>
-              → <strong style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)' }}>
-                {scaling.scaled.runs.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-              </strong> {scaling.scaled.runs === 1 ? 'run' : 'runs'} ·{' '}
-              {scaling.scaled.mode === 'ingredient' && scaling.scaled.finishedVolPerYieldGal != null ? (
-                <>
-                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtQty(scaling.scaled.ingredientVolGal ?? 0, 'gal')}
-                  </strong>{' '}
-                  concentrate ×{' '}
-                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
-                    {(1 + dilutionNum).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  </strong>{' '}
-                  ={' '}
-                  <strong style={{ color: 'var(--tx)', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtQty(scaling.scaled.finishedVolPerYieldGal, 'gal')}
-                  </strong>{' '}
-                  finished per yield · BOM lines show required quantities
-                </>
-              ) : (
-                <>BOM lines below show required quantities for this batch</>
-              )}
-            </span>
-          ) : scaling.incompat ? (
-            <span style={{ color: 'var(--am)', fontSize: 11 }}>
-              Can't convert {targetUom} → {bom.yield_uom || 'each'}.
-              {uomGroup(targetUom) === 'volume' && uomGroup(bom.yield_uom || 'each') === 'count' && bridgeGal == null
-                ? <> Set "1 {bom.yield_uom || 'each'} produces ___ gal" above.</>
-                : <> Enter the target in {bom.yield_uom || 'each'}.</>}
-            </span>
-          ) : (
-            <span style={{ color: 'var(--mt)', fontSize: 11 }}>
-              Enter a target qty to see Required columns auto-populate.
+          {missingVendors > 0 && (
+            <span style={{ fontSize: 10.5, color: 'var(--am)' }}>
+              {missingVendors} component{missingVendors === 1 ? '' : 's'} without a vendor — assign vendors so work orders can generate POs automatically.
             </span>
           )}
         </div>
 
-        {lines === null
-          ? <div style={{ padding: 18, color: 'var(--mt)' }}>Loading lines…</div>
-          : <>
-              <BomLinesEditor
-                lines={lines}
-                setLines={setLines}
-                itemLookup={itemLookup}
-                scaledByIdx={scaling.scaledByIdx}
-              />
+        <div style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 4, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span>Type</span><span>Sub-item / service</span><span>Qty per unit</span><span>UoM</span><span>Scrap %</span><span>Est unit $</span><span>Vendor</span><span />
+        </div>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 6 }}>
+            <select style={inp()} value={l.line_type} onChange={(e) => setLine(i, { line_type: e.target.value as BomLineType })}>
+              <option value="component">Component</option>
+              <option value="service">Service</option>
+            </select>
+            {l.line_type === 'component' ? (
+              <select style={inp()} value={l.component_qbo_item_id} onChange={(e) => setLine(i, { component_qbo_item_id: e.target.value })}>
+                <option value="">—</option>
+                {itemLookup.componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            ) : (
+              <input style={inp()} placeholder="Service label (e.g. Canning fee)" value={l.service_label}
+                onChange={(e) => setLine(i, { service_label: e.target.value })} />
+            )}
+            <input type="number" min={0} step="any" style={inp()} value={l.qty_per}
+              onChange={(e) => setLine(i, { qty_per: e.target.value })} />
+            <input style={inp()} value={l.qty_uom} onChange={(e) => setLine(i, { qty_uom: e.target.value })} />
+            <input type="number" min={0} step="any" style={inp()} value={l.scrap_pct}
+              onChange={(e) => setLine(i, { scrap_pct: e.target.value })} />
+            <input type="number" min={0} step="any" style={inp()} value={l.default_cost}
+              onChange={(e) => setLine(i, { default_cost: e.target.value })} />
+            {l.line_type === 'component' ? (
+              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}>
+                <option value="">— vendor —</option>
+                {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
+              </select>
+            ) : <span style={{ fontSize: 10, color: 'var(--mt)', alignSelf: 'center' }}>cost-only</span>}
+            <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}
+              onClick={() => setLines((rows) => rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)}>
+              <XIcon size={13} />
+            </button>
+          </div>
+        ))}
+        <button style={btnSecondary()} onClick={() => setLines((rows) => [...rows, { ...EMPTY_LINE }])}>
+          <Plus size={11} style={{ marginRight: 3, verticalAlign: -1 }} /> Add sub-item
+        </button>
 
-              {/* Pack sizing — controls $/case and $/oz in the rollup card. */}
-              <div style={{
-                marginTop: 14, padding: '8px 10px',
-                border: '1px solid var(--bd)', borderRadius: 4, fontSize: 11,
-                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              }}>
-                <span style={{ color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10 }}>
-                  Pack sizing
-                </span>
-                <input type="number" min={1} step="any" style={{ ...inp(), width: 60, textAlign: 'right' }}
-                  value={cansPerCase}
-                  onChange={(e) => setCansPerCase(e.target.value)}
-                  onBlur={savePackSizing} />
-                <span style={{ color: 'var(--mt)' }}>cans per case ×</span>
-                <input type="number" min={0.01} step="any" style={{ ...inp(), width: 60, textAlign: 'right' }}
-                  value={ozPerCan}
-                  onChange={(e) => setOzPerCan(e.target.value)}
-                  onBlur={savePackSizing} />
-                <span style={{ color: 'var(--mt)' }}>
-                  oz per can = {(cansPerCaseNum * ozPerCanNum).toLocaleString(undefined, { maximumFractionDigits: 2 })} oz/case
-                  ({(cansPerCaseNum * ozPerCanNum / 128).toLocaleString(undefined, { maximumFractionDigits: 3 })} gal/case)
-                </span>
-              </div>
+        <div style={{ marginTop: 12 }}>
+          <LField label="Notes">
+            <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
+              value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </LField>
+        </div>
 
-              <div style={{ marginTop: 10 }}>
-                <ProductionUnitConverter
-                  title="Tank and pack converter"
-                  cansPerFinishedUnit={cansPerCaseNum}
-                  ozPerCan={ozPerCanNum}
-                  initialQty={Number(targetQty) > 0 ? Number(targetQty) : Number(bom.yield_qty)}
-                  initialUnit={(targetUom === 'gal' || targetUom === 'fl_oz') ? targetUom : 'gal'}
-                />
-              </div>
-
-              {/* Cost rollup — theoretical (assumes 100% yield). The Work
-                  Order detail modal owns the actual-yield-aware variant. */}
-              {costRollup && costRollup.totalBatchCost > 0 && (
-                <div className="cd" style={{ marginTop: 14, padding: 14, background: 'rgba(58,167,113,0.04)', borderColor: 'rgba(58,167,113,0.3)' }}>
-                  <div style={{ fontSize: 10, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>
-                    Theoretical cost rollup at this scale (100% yield)
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 12 }}>
-                    <CostStat label="Total batch cost" value={`$${costRollup.totalBatchCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} primary />
-                    <CostStat label="Components" value={`$${costRollup.componentsCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-                    <CostStat label="Services / labor" value={`$${costRollup.servicesCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-                    {costRollup.casesProduced != null && (
-                      <CostStat
-                        label="Cases produced"
-                        value={costRollup.casesProduced.toLocaleString(undefined, { maximumFractionDigits: 1 })}
-                      />
-                    )}
-                  </div>
-                  {(costRollup.perCase != null || costRollup.perCan != null || costRollup.perOz != null) && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bd)' }}>
-                      {costRollup.perCase != null && (
-                        <CostStat label="$ / case" value={`$${costRollup.perCase.toFixed(4)}`} primary />
-                      )}
-                      {costRollup.perCan != null && (
-                        <CostStat label="$ / can" value={`$${costRollup.perCan.toFixed(4)}`} />
-                      )}
-                      {costRollup.perOz != null && (
-                        <CostStat label="$ / oz" value={`$${costRollup.perOz.toFixed(5)}`} />
-                      )}
-                      {costRollup.perGalFinished != null && (
-                        <CostStat label="$ / gal finished" value={`$${costRollup.perGalFinished.toFixed(4)}`} />
-                      )}
-                    </div>
-                  )}
-                  {costRollup.perOz == null && (
-                    <div style={{ fontSize: 10, color: 'var(--mt)', fontStyle: 'italic', marginTop: 8 }}>
-                      Enter the target in a volume unit (gal / fl_oz / L) or set a dilution_ratio to see per-can / per-case / per-oz numbers.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-                <button onClick={onClose} style={btnSecondary()}>Close</button>
-                <button onClick={saveLines} disabled={saving || !lines.every(validLine)} style={btnPrimary()}>
-                  {saving ? 'Saving…' : 'Save lines'}
-                </button>
-              </div>
-            </>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16 }}>
+          <div>
+            {onToggleActive && (
+              <button onClick={onToggleActive} style={btnSecondary()}>
+                {bom?.is_active ? 'Deactivate BOM' : 'Reactivate BOM'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={btnSecondary()}>Cancel</button>
+            <button onClick={submit} disabled={!canSave || saving} style={btnPrimary()}>
+              {saving ? 'Saving…' : isNew ? 'Create BOM' : 'Save BOM'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── BOM lines sub-editor (shared by create form + detail modal) ─────────
-
-function BomLinesEditor({ lines, setLines, itemLookup, scaledByIdx }: {
-  lines: BomLineInput[];
-  setLines: (next: BomLineInput[]) => void;
-  itemLookup: ProductionItemLookup;
-  /** Per-row scaled qty + uom keyed by line index. Empty Map = no scaling
-   *  active; the Required column renders "—". */
-  scaledByIdx?: Map<number, { qty: number; uom: string }>;
-}) {
-  const showRequired = (scaledByIdx?.size ?? 0) > 0;
-
-  function addComponent() { setLines([...lines, emptyComponentLine()]); }
-  function addService()   { setLines([...lines, emptyServiceLine()]); }
-  function rm(i: number)  { setLines(lines.filter((_, idx) => idx !== i)); }
-  function patch(i: number, p: Partial<BomLineInput>) {
-    setLines(lines.map((l, idx) => idx === i ? { ...l, ...p } : l));
-  }
-
-  return (
-    <>
-      <div style={{ marginTop: 14, fontSize: 10, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>
-        Lines (per yield qty){showRequired ? ' · Required column shows scaled batch quantities' : ''}
-      </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-            <th style={cellTh}>Type</th>
-            <th style={cellTh}>Component / Service</th>
-            <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Qty / yield</th>
-            <th style={{ ...cellTh, width: 80 }}>UoM</th>
-            {showRequired && (
-              <th style={{ ...cellTh, width: 110, textAlign: 'right', color: 'var(--ac)' }}>Required</th>
-            )}
-            <th style={{ ...cellTh, width: 80, textAlign: 'right' }}>Scrap %</th>
-            <th style={{ ...cellTh, width: 100, textAlign: 'right' }}>Unit Cost</th>
-            <th style={{ ...cellTh, width: 150 }}>Notes</th>
-            <th style={{ ...cellTh, width: 36 }}> </th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <td style={cellTd}>
-                <select value={l.line_type} onChange={(e) => {
-                  const t = e.target.value as 'component' | 'service';
-                  patch(i, t === 'component'
-                    ? { line_type: 'component', service_label: null }
-                    : { line_type: 'service', component_qbo_item_id: null });
-                }} style={{ ...inp(), width: '100%' }}>
-                  <option value="component">Component</option>
-                  <option value="service">Service</option>
-                </select>
-              </td>
-              <td style={cellTd}>
-                {l.line_type === 'component' && l.component_qbo_item_id && (
-                  (() => {
-                    const it = itemLookup.byId.get(l.component_qbo_item_id);
-                    if (!it) return null;
-                    const fl = inferItemVolumeFlOz(it.item_name, null);
-                    if (fl == null || fl <= 0) return null;
-                    const gal = fl / 128;
-                    const display = gal >= 1
-                      ? `${gal.toLocaleString(undefined, { maximumFractionDigits: 3 })} gal`
-                      : `${fl.toLocaleString(undefined, { maximumFractionDigits: 2 })} fl oz`;
-                    return (
-                      <div style={{ fontSize: 9, color: 'var(--mt)', marginBottom: 2 }}>
-                        SKU → <strong style={{ color: 'var(--ac)' }}>{display}</strong>/unit
-                      </div>
-                    );
-                  })()
-                )}
-                {l.line_type === 'component' && l.component_qbo_item_id && (
-                  (() => {
-                    const it = itemLookup.byId.get(l.component_qbo_item_id);
-                    if (!serviceLikeItemName(it?.item_name)) return null;
-                    return (
-                      <div style={{
-                        fontSize: 9, color: 'var(--am)', marginBottom: 4,
-                        display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-                      }}>
-                        Looks like labor/packaging service.
-                        <button type="button"
-                          onClick={() => patch(i, {
-                            line_type: 'service',
-                            service_label: it?.item_name ?? 'Service',
-                            component_qbo_item_id: null,
-                          })}
-                          style={{ ...btnSecondary(), padding: '2px 6px', fontSize: 9 }}>
-                          Make service
-                        </button>
-                      </div>
-                    );
-                  })()
-                )}
-                {l.line_type === 'component'
-                  ? <select value={l.component_qbo_item_id ?? ''}
-                      onChange={(e) => patch(i, { component_qbo_item_id: e.target.value || null })}
-                      style={{ ...inp(), width: '100%' }}>
-                      <option value="">— Select component —</option>
-                      {itemLookup.componentOptions.map((o) =>
-                        <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
-                  : <input style={{ ...inp(), width: '100%' }} value={l.service_label ?? ''}
-                      placeholder="e.g. Co-pack fee per case"
-                      onChange={(e) => patch(i, { service_label: e.target.value || null })} />}
-              </td>
-              <td style={{ ...cellTd, textAlign: 'right' }}>
-                <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                  value={l.qty_per} onChange={(e) => patch(i, { qty_per: Number(e.target.value) })} />
-              </td>
-              <td style={cellTd}>
-                <select value={l.qty_uom ?? 'each'} onChange={(e) => patch(i, { qty_uom: e.target.value })}
-                  style={{ ...inp(), width: '100%' }}>
-                  {UOM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </td>
-              {showRequired && (
-                <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600, color: 'var(--ac)' }}>
-                  {scaledByIdx?.has(i)
-                    ? fmtQty(scaledByIdx.get(i)!.qty, scaledByIdx.get(i)!.uom)
-                    : <span style={{ color: 'var(--mt)' }}>—</span>}
-                </td>
-              )}
-              <td style={{ ...cellTd, textAlign: 'right' }}>
-                <input type="number" min={0} max={99} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                  value={(l.scrap_pct ?? 0) * 100}
-                  onChange={(e) => patch(i, { scrap_pct: Number(e.target.value) / 100 })} />
-              </td>
-              <td style={{ ...cellTd, textAlign: 'right' }}>
-                <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                  value={l.default_cost ?? ''}
-                  placeholder={l.line_type === 'component' && l.component_qbo_item_id
-                    ? (itemLookup.byId.get(l.component_qbo_item_id)?.purchase_cost ?? '').toString()
-                    : ''}
-                  onChange={(e) => patch(i, { default_cost: e.target.value === '' ? null : Number(e.target.value) })} />
-              </td>
-              <td style={cellTd}>
-                <input style={inp()} value={l.notes ?? ''}
-                  onChange={(e) => patch(i, { notes: e.target.value || null })} />
-              </td>
-              <td style={{ ...cellTd, textAlign: 'right' }}>
-                <button onClick={() => rm(i)} disabled={lines.length === 1}
-                  style={{
-                    background: 'transparent', border: 'none',
-                    cursor: lines.length === 1 ? 'not-allowed' : 'pointer',
-                    color: lines.length === 1 ? 'var(--mt)' : 'var(--rd)',
-                    opacity: lines.length === 1 ? 0.4 : 1, padding: 4,
-                  }}><Trash2 size={13} /></button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button onClick={addComponent} style={btnSecondary()}>+ Component</button>
-        <button onClick={addService}   style={btnSecondary()}>+ Service</button>
-      </div>
-    </>
-  );
-}
-
-// ── helpers ─────────────────────────────────────────────────────────────
-
-function emptyComponentLine(): BomLineInput {
-  return { line_type: 'component', component_qbo_item_id: null, qty_per: 1, qty_uom: 'each', scrap_pct: 0, default_cost: null, notes: null };
-}
-function emptyServiceLine(): BomLineInput {
-  return { line_type: 'service', service_label: '', qty_per: 1, qty_uom: 'each', scrap_pct: 0, default_cost: null, notes: null };
-}
-function bomLineToInput(l: ProductBomLine): BomLineInput {
-  return {
-    line_type: l.line_type,
-    component_qbo_item_id: l.component_qbo_item_id,
-    service_label: l.service_label,
-    qty_per: Number(l.qty_per),
-    qty_uom: l.qty_uom || 'each',
-    scrap_pct: Number(l.scrap_pct),
-    default_cost: l.default_cost == null ? null : Number(l.default_cost),
-    notes: l.notes,
-  };
-}
-function validLine(l: BomLineInput): boolean {
-  if (!(Number(l.qty_per) > 0)) return false;
-  if (l.line_type === 'component') return !!l.component_qbo_item_id;
-  return !!(l.service_label && l.service_label.trim());
-}
-
-function Th({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600,
-    letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)', ...style }}>{children}</th>;
-}
-function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <td style={{ padding: '7px 10px', verticalAlign: 'middle', ...style }}>{children}</td>;
-}
 function LField({ label, children }: { label: string; children: React.ReactNode }) {
   return <div>
     <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
     {children}
   </div>;
-}
-
-const cellTh: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10, fontWeight: 600,
-  letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)' };
-const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middle' };
-
-// Small KPI-style stat tile used in the cost-rollup card.
-function CostStat({ label, value, primary }: { label: string; value: string; primary?: boolean }) {
-  return (
-    <div>
-      <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.6 }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: primary ? 16 : 14,
-        fontWeight: primary ? 700 : 600,
-        fontFamily: 'var(--ff-mono)',
-        color: primary ? 'var(--gn)' : 'var(--tx)',
-        marginTop: 2,
-      }}>
-        {value}
-      </div>
-    </div>
-  );
 }

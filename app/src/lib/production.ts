@@ -31,6 +31,8 @@ export interface ProductBom {
   oz_per_can: number;
   is_active: boolean;
   notes: string | null;
+  /** The product spec sheet / formula this BOM is built from — the driver. */
+  formula_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -48,6 +50,8 @@ export interface ProductBomLine {
   qty_uom: string;
   scrap_pct: number;
   default_cost: number | null;
+  /** Which vendor this sub-item is purchased from. Drives PO generation. */
+  preferred_qbo_vendor_id: string | null;
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -61,10 +65,16 @@ export interface BomLineInput {
   qty_uom?: string;
   scrap_pct?: number;
   default_cost?: number | null;
+  preferred_qbo_vendor_id?: string | null;
   notes?: string | null;
 }
 
-export type WorkOrderStatus = 'draft' | 'consumed' | 'closed' | 'void';
+/** Pipeline statuses (2026-07 redesign). 'consumed' is the retired legacy
+ *  in-house flow value, kept only so old rows render. */
+export type WorkOrderStatus =
+  | 'draft' | 'ordered' | 'at_copacker' | 'in_production'
+  | 'yield_recorded' | 'in_transit' | 'received' | 'closed' | 'void'
+  | 'consumed';
 
 export interface WorkOrder {
   id: string;
@@ -74,6 +84,24 @@ export interface WorkOrder {
   qty_to_produce: number;
   target_uom: string | null;
   qty_produced_actual: number | null;
+  // ── Pipeline fields (2026-07 redesign) ──
+  formula_id: string | null;
+  copacker_qbo_vendor_id: string | null;
+  copacker_location_id: string | null;
+  destination_location_id: string | null;
+  batch_size_gal: number | null;
+  expected_units: number | null;
+  yield_pct: number | null;
+  ordered_at: string | null;
+  materials_at_copacker_at: string | null;
+  production_started_at: string | null;
+  yield_recorded_at: string | null;
+  shipped_at: string | null;
+  received_at: string | null;
+  ship_carrier: string | null;
+  ship_tracking: string | null;
+  ship_bol_number: string | null;
+  transfer_id: string | null;
   /** Actual yield reported at WO close. Together with actual_yield_uom this
    *  drives the actual-vs-theoretical cost rollup. NULL until closed. */
   actual_yield_qty: number | null;
@@ -236,6 +264,64 @@ export interface BomMaterialRequirement {
   status: BomMaterialRequirementStatus;
 }
 
+/** Row from ops.v_work_orders — WorkOrder plus joined display fields. */
+export interface WorkOrderView extends WorkOrder {
+  bom_name: string | null;
+  bom_version: string | null;
+  bom_yield_uom: string | null;
+  bom_cans_per_case: number | null;
+  bom_oz_per_can: number | null;
+  formula_name: string | null;
+  formula_doc_rev: string | null;
+  finished_item_name: string | null;
+  copacker_vendor_name: string | null;
+  copacker_location_label: string | null;
+  destination_location_label: string | null;
+  transfer_bol_number: string | null;
+  transfer_status: string | null;
+  total_cost: number | null;
+  unit_cost: number | null;
+  components_cost: number | null;
+  services_cost: number | null;
+  po_count: number | null;
+  po_open_count: number | null;
+}
+
+/** A WO material requirement row — the quantity calc lives here, per vendor. */
+export interface WorkOrderMaterial {
+  id: string;
+  wo_id: string;
+  bom_line_id: string | null;
+  component_qbo_item_id: string;
+  item_name: string | null;
+  required_qty: number;
+  uom: string;
+  unit_cost_est: number | null;
+  qbo_vendor_id: string | null;
+  vendor_name: string | null;
+  po_id: string | null;
+  po_line_id: string | null;
+  sort_order: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface WorkOrderEvent {
+  id: string;
+  wo_id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  note: string | null;
+  payload: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type WoAdvanceAction =
+  | 'materials_at_copacker' | 'start_production' | 'record_yield'
+  | 'ship' | 'receive' | 'close' | 'void';
+
 // ── Reads ────────────────────────────────────────────────────────────────
 
 export async function fetchBoms(): Promise<ProductBom[]> {
@@ -249,6 +335,20 @@ export async function fetchBomLines(bomId: string): Promise<ProductBomLine[]> {
 
 export async function fetchWorkOrders(limit = 200): Promise<WorkOrder[]> {
   return sbq<WorkOrder>('work_orders', `select=*&order=created_at.desc&limit=${limit}`);
+}
+
+export async function fetchWorkOrderViews(limit = 200): Promise<WorkOrderView[]> {
+  return sbq<WorkOrderView>('v_work_orders', `select=*&order=created_at.desc&limit=${limit}`);
+}
+
+export async function fetchWorkOrderMaterials(woId: string): Promise<WorkOrderMaterial[]> {
+  return sbq<WorkOrderMaterial>('work_order_materials',
+    `select=*&wo_id=eq.${woId}&order=sort_order.asc`);
+}
+
+export async function fetchWorkOrderEvents(woId: string): Promise<WorkOrderEvent[]> {
+  return sbq<WorkOrderEvent>('work_order_events',
+    `select=*&wo_id=eq.${woId}&order=created_at.asc`);
 }
 
 export async function fetchWorkOrderCosts(woId: string): Promise<WorkOrderCosts | null> {
@@ -309,6 +409,31 @@ export async function replaceBomLines(bomId: string, lines: BomLineInput[]): Pro
   await sbrpc('fn_replace_bom_lines', { p_bom_id: bomId, p_lines: lines });
 }
 
+/** v2 save — the redesigned parts-list BOM (formula link + per-line vendor). */
+export async function saveBomV2(args: {
+  id?: string | null;
+  header: {
+    finished_qbo_item_id: string;
+    name?: string | null;
+    version?: string;
+    formula_id?: string | null;
+    yield_qty?: number;
+    yield_uom?: string;
+    cans_per_case?: number;
+    oz_per_can?: number;
+    effective_date?: string | null;
+    notes?: string | null;
+    is_active?: boolean;
+  };
+  lines: BomLineInput[];
+}): Promise<string> {
+  return sbrpc<string>('fn_bom_save_v2', {
+    p_id: args.id ?? null,
+    p_header: args.header,
+    p_lines: args.lines,
+  });
+}
+
 export async function updateBom(id: string, patch: Partial<ProductBom>): Promise<void> {
   await sbUpdate('product_bom', `id=eq.${id}`, patch);
 }
@@ -351,6 +476,67 @@ export async function closeWorkOrder(woId: string, qtyProducedActual: number, cl
 
 export async function voidWorkOrder(woId: string, reason: string): Promise<void> {
   await sbrpc('fn_void_work_order', { p_wo_id: woId, p_reason: reason });
+}
+
+// ── Work order pipeline (2026-07 redesign) ───────────────────────────────
+
+/** Create a pipeline WO. Material quantities are computed server-side and
+ *  snapshotted into ops.work_order_materials — the calc lives on the WO. */
+export async function createWorkOrderPipeline(args: {
+  bom_id: string;
+  qty_to_produce: number;
+  copacker_qbo_vendor_id?: string | null;
+  copacker_location_id: string;
+  destination_location_id: string;
+  scheduled_date?: string | null;
+  batch_size_gal?: number | null;
+  notes?: string | null;
+}): Promise<string> {
+  return sbrpc<string>('fn_wo_create_pipeline', {
+    p_bom_id: args.bom_id,
+    p_qty_to_produce: args.qty_to_produce,
+    p_copacker_qbo_vendor_id: args.copacker_qbo_vendor_id ?? null,
+    p_copacker_location_id: args.copacker_location_id,
+    p_destination_location_id: args.destination_location_id,
+    p_scheduled_date: args.scheduled_date ?? null,
+    p_batch_size_gal: args.batch_size_gal ?? null,
+    p_notes: args.notes ?? null,
+  });
+}
+
+export interface GeneratedPo {
+  po_id: string;
+  po_number: string;
+  qbo_vendor_id: string;
+  subtotal: number;
+}
+
+/** One PO per vendor from the WO's unassigned materials; draft → ordered. */
+export async function generateWoPurchaseOrders(
+  woId: string,
+  expectedDate?: string | null,
+): Promise<GeneratedPo[]> {
+  return sbrpc<GeneratedPo[]>('fn_wo_generate_pos', {
+    p_wo_id: woId,
+    p_expected_date: expectedDate ?? null,
+  });
+}
+
+/** Drive the pipeline: materials_at_copacker / start_production /
+ *  record_yield / ship / receive / close / void. */
+export async function advanceWorkOrder(
+  woId: string,
+  action: WoAdvanceAction,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  await sbrpc('fn_wo_advance', { p_wo_id: woId, p_action: action, p_payload: payload });
+}
+
+export async function setWoMaterialVendor(materialId: string, qboVendorId: string | null): Promise<void> {
+  await sbrpc('fn_wo_set_material_vendor', {
+    p_material_id: materialId,
+    p_qbo_vendor_id: qboVendorId ?? '',
+  });
 }
 
 // ── Co-pack order transitions ───────────────────────────────────────────

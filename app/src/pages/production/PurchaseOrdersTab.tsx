@@ -123,6 +123,12 @@ export function PurchaseOrdersTab({
     },
     { field: 'vendor_name', headerName: 'Vendor', flex: 1, minWidth: 200,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value ?? '—')}</span> },
+    {
+      field: 'work_order_batch_code', headerName: 'Work Order', width: 130,
+      renderCell: (p) => p.value
+        ? <span style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontSize: 11 }}>{String(p.value)}</span>
+        : <span style={{ color: 'var(--mt)' }}>—</span>,
+    },
     { field: 'location_label', headerName: 'Destination', width: 140,
       valueFormatter: (v) => String(v ?? '—') },
     { field: 'line_count', headerName: 'Lines', type: 'number', width: 80, cellClassName: 'mn',

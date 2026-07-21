@@ -36,6 +36,9 @@ export interface PurchaseOrderRow {
   qbo_purchase_order_id: string | null;
   qbo_pushed_at: string | null;
   qbo_push_error: string | null;
+  /** Set when this PO was generated from a work order. */
+  work_order_id: string | null;
+  work_order_batch_code: string | null;
   ordered_at: string | null;
   received_at: string | null;
   closed_at: string | null;
