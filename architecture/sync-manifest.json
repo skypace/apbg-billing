@@ -5,6 +5,25 @@
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
   "writers": [
     {
+      "name": "vendor-email-intake",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "event-driven (Resend inbound email webhook)",
+      "writes": [
+        "ops.vendor_email_routes",
+        "ops.vendor_email_tickets",
+        "ops.vendor_ticket_events"
+      ],
+      "multi_writer": false,
+      "external_inputs": [
+        "Resend inbound webhook (email.received) for rbfreeflow@/freshpet@/sf-status@alamedapointbg.com",
+        "Anthropic API (email parsing)",
+        "Service Fusion API: POST /jobs"
+      ],
+      "notes": "Vendor email → SF ticket automation. Red Bull (rbfreeflow@) and Freshpet (freshpet@) emails are parsed by Claude and become SF jobs under the route's sf_customer_name; SF's own job-status notification emails (pointed at sf-status@) are parsed and relayed to the route's send_list. Zero crons — fully event-driven. Svix-signature gated (RESEND_INBOUND_SECRET). Source: netlify/functions/vendor-email-intake.mjs; tables seeded by migration 20260722a.",
+      "last_verified": "2026-07-22"
+    },
+    {
       "name": "pricing-admin",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
