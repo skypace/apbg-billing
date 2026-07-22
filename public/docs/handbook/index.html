@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>APBG Master Handbook</title>
+<meta name="description" content="APBG Master Handbook — user guides for every app plus the Operations SOP Manual.">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<style>
+/* Monochrome + navy (Brix) + crimson (Alameda Soda) accents.
+   Apple system type. Theme: black-on-white or white-on-black,
+   keyed to the shared localStorage.apbg_theme. */
+:root, :root[data-theme="dark"]{
+  --bg:#000000;--bg-elev:#111113;--surface:#1C1C1E;--surface-hover:#2C2C2E;
+  --border:#2C2C2E;--border-strong:#3A3A3C;
+  --text:#F5F5F7;--text-2:#D6D6DB;--text-3:#8E8E93;
+  --accent:#8FB4E3;          /* navy, lifted for black bg */
+  --accent-deep:#1F4E79;     /* brand navy */
+  --accent-soft:rgba(143,180,227,0.14);
+  --red:#E0455C;             /* Alameda Soda crimson, lifted for black bg */
+  --success:#30D158;--warning:#FFD60A;--error:#FF453A;
+}
+:root[data-theme="light"]{
+  --bg:#FFFFFF;--bg-elev:#F5F5F7;--surface:#F5F5F7;--surface-hover:#EBEBED;
+  --border:#D2D2D7;--border-strong:#B8B8BD;
+  --text:#1D1D1F;--text-2:#3A3A3C;--text-3:#6E6E73;
+  --accent:#1F4E79;          /* brand navy */
+  --accent-deep:#1F4E79;
+  --accent-soft:rgba(31,78,121,0.08);
+  --red:#C8102E;             /* Alameda Soda crimson */
+  --success:#248A3D;--warning:#B25000;--error:#D70015;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important}
+}
+html,body{
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.6;
+}
+code,pre,.brand-sub,.search-meta,.crumb,.pager .dir{font-family:"SF Mono",ui-monospace,Menlo,Monaco,"Cascadia Mono",monospace}
+
+.app{display:grid;grid-template-columns:340px 1fr;min-height:100vh}
+.sidebar{
+  background:var(--bg);
+  border-right:1px solid var(--border);position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:22px 18px;
+}
+.content{padding:52px 64px 110px;max-width:1080px}
+
+.brand{display:flex;align-items:center;gap:12px;padding:6px 4px 18px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.brand-logos{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.brand-logos img{height:42px;width:42px;object-fit:contain;border-radius:50%;background:#fff}
+.brand-logos img.seal{border:1px solid var(--red)}
+.brand-text{display:flex;flex-direction:column;min-width:0}
+.brand-title{font-size:1rem;font-weight:700;color:var(--text);letter-spacing:-0.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-sub{font-size:0.68rem;color:var(--text-3);letter-spacing:0.08em;text-transform:uppercase;font-weight:600}
+.back-link{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;margin:8px 0 12px;font-size:0.82rem;color:var(--text-2);text-decoration:none;border-radius:7px;font-weight:600;transition:all 0.15s}
+.back-link:hover{background:var(--surface);color:var(--text)}
+.theme-btn{
+  margin-left:auto;flex:none;width:34px;height:34px;border-radius:50%;
+  border:1px solid var(--border);background:var(--surface);color:var(--text-2);
+  cursor:pointer;font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center;
+}
+.theme-btn:hover{border-color:var(--border-strong);color:var(--text)}
+
+.search-wrap{position:relative;margin-bottom:14px}
+.search-input{
+  width:100%;padding:10px 12px 10px 36px;border:1px solid var(--border);border-radius:10px;
+  background:var(--surface);color:var(--text);font-size:0.92rem;outline:none;transition:all 0.15s;font-family:inherit;
+}
+.search-input::placeholder{color:var(--text-3)}
+.search-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none}
+.search-meta{font-size:0.68rem;color:var(--text-3);margin-top:6px;padding-left:4px}
+
+.part-label{font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;font-weight:700;color:var(--accent);padding:16px 10px 6px}
+.part-label.sop{color:var(--red)}
+.nav{list-style:none;display:flex;flex-direction:column;gap:1px}
+.nav li{display:flex;flex-direction:column}
+.nav a.chapter{
+  padding:8px 10px;font-size:0.9rem;font-weight:500;color:var(--text-2);
+  text-decoration:none;border-radius:8px;transition:all 0.12s;line-height:1.35;
+}
+.nav a.chapter:hover{background:var(--surface);color:var(--text)}
+.nav a.chapter.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.subtoc{list-style:none;margin:2px 0 8px;display:none}
+.nav li.open .subtoc{display:block}
+.subtoc a{
+  display:block;padding:5px 10px 5px 26px;font-size:0.82rem;color:var(--text-3);
+  text-decoration:none;border-radius:7px;line-height:1.35;transition:all 0.12s;
+}
+.subtoc a:hover{color:var(--text-2);background:var(--surface)}
+.subtoc a.active{color:var(--accent);font-weight:600}
+.nav-hidden{display:none!important}
+.nav-empty{padding:14px 10px;font-size:0.85rem;color:var(--text-3);font-style:italic}
+
+.sidebar-foot{margin-top:24px;padding-top:14px;border-top:1px solid var(--border);font-size:0.76rem;color:var(--text-3);line-height:1.6}
+.sidebar-foot a{color:var(--text-2);text-decoration:none}
+.sidebar-foot a:hover{color:var(--accent)}
+.sidebar-foot code{font-size:0.68rem;padding:1px 5px;background:var(--bg-elev);border:1px solid var(--border);border-radius:4px}
+
+/* Content typography — 1.5× reading scale */
+.content h1{font-size:3rem;font-weight:700;letter-spacing:-0.035em;color:var(--text);margin-bottom:12px;line-height:1.1}
+.content h2{font-size:2.1rem;font-weight:700;letter-spacing:-0.025em;color:var(--text);margin-top:60px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border);scroll-margin-top:20px;position:relative}
+.content h3{font-size:1.6rem;font-weight:600;letter-spacing:-0.015em;color:var(--text);margin-top:40px;margin-bottom:14px;scroll-margin-top:20px;position:relative}
+.content h4{font-size:1.35rem;font-weight:600;color:var(--text);margin-top:30px;margin-bottom:10px}
+.content h2 .anchor,.content h3 .anchor{
+  position:absolute;left:-32px;top:50%;transform:translateY(-50%);
+  color:var(--text-3);text-decoration:none;font-weight:400;opacity:0;transition:opacity 0.15s;font-size:0.75em;
+}
+.content h2:hover .anchor,.content h3:hover .anchor{opacity:1}
+.content h2 .anchor:hover,.content h3 .anchor:hover{color:var(--accent)}
+
+.content p{margin:0 0 20px;color:var(--text-2);line-height:1.6;font-size:1.4rem}
+.content strong{color:var(--text);font-weight:650}
+.content em{font-style:italic;color:var(--text)}
+.content a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color 0.15s}
+.content a:hover{border-bottom-color:var(--accent)}
+.content ul,.content ol{margin:0 0 22px 0;padding-left:30px;color:var(--text-2);font-size:1.4rem;line-height:1.6}
+.content li{margin-bottom:9px}
+.content li::marker{color:var(--text-3)}
+.content blockquote{
+  border-left:3px solid var(--red);background:var(--bg-elev);
+  padding:18px 24px;margin:24px 0;border-radius:0 12px 12px 0;color:var(--text-2);
+}
+.content blockquote p{margin-bottom:10px;font-size:1.3rem}
+.content blockquote p:last-child{margin-bottom:0}
+.content blockquote strong{color:var(--text)}
+.content code{
+  font-size:0.82em;background:var(--bg-elev);border:1px solid var(--border);
+  padding:1px 7px;border-radius:6px;color:var(--accent);
+}
+.content pre{background:var(--bg-elev);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin:22px 0;overflow-x:auto}
+.content pre code{background:transparent;border:none;padding:0;color:var(--text-2);font-size:1.05rem;line-height:1.5}
+.content pre.mermaid{background:transparent;border:none;text-align:center}
+.content hr{border:none;border-top:1px solid var(--border);margin:48px 0}
+.content table{width:100%;border-collapse:collapse;margin:22px 0;font-size:1.2rem}
+.content thead{background:var(--bg-elev)}
+.content th,.content td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+.content th{font-weight:650;font-size:0.95rem;letter-spacing:0.03em;text-transform:uppercase;color:var(--text-3)}
+.content td{color:var(--text-2);line-height:1.55}
+.content td strong{color:var(--text)}
+.content tr:last-child td{border-bottom:none}
+.table-scroll{overflow-x:auto}
+
+.content-header{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  padding-bottom:18px;margin-bottom:28px;border-bottom:1px solid var(--border);
+}
+.content-meta{display:flex;flex-direction:column;gap:4px}
+.crumb{font-size:0.78rem;color:var(--text-3);letter-spacing:0.07em;text-transform:uppercase;font-weight:700}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.action-btn{
+  display:inline-flex;align-items:center;gap:6px;padding:8px 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:9px;
+  color:var(--text-2);font-size:0.86rem;font-weight:600;cursor:pointer;
+  text-decoration:none;transition:all 0.15s;font-family:inherit;
+}
+.action-btn:hover{border-color:var(--accent);color:var(--text)}
+
+.pager{display:flex;justify-content:space-between;gap:14px;margin-top:64px;padding-top:24px;border-top:1px solid var(--border)}
+.pager a{
+  flex:1;max-width:48%;padding:16px 20px;border:1px solid var(--border);border-radius:14px;
+  text-decoration:none;color:var(--text-2);transition:all 0.15s;background:var(--surface);
+}
+.pager a:hover{border-color:var(--accent);color:var(--text)}
+.pager .dir{font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;color:var(--text-3)}
+.pager .pt{font-size:1.05rem;font-weight:600;margin-top:4px}
+.pager .next{text-align:right;margin-left:auto}
+
+.state{padding:48px 20px;text-align:center;color:var(--text-3);font-size:1.1rem}
+.state.error{color:var(--error)}
+.state a{color:var(--accent)}
+.spinner{width:26px;height:26px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media (max-width:980px){
+  .app{grid-template-columns:1fr}
+  .sidebar{position:fixed;top:0;left:0;width:320px;z-index:50;transform:translateX(-100%);transition:transform 0.2s;box-shadow:0 0 40px rgba(0,0,0,0.35)}
+  .sidebar.open{transform:translateX(0)}
+  .content{padding:26px 22px 70px}
+  .content h1{font-size:2.2rem}
+  .content h2{font-size:1.7rem}
+  .content p,.content ul,.content ol{font-size:1.2rem}
+  .menu-btn{display:flex!important}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:40}
+  .scrim.open{display:block}
+}
+.menu-btn{
+  display:none;position:fixed;top:14px;left:14px;z-index:60;
+  width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);
+  color:var(--text);align-items:center;justify-content:center;cursor:pointer;
+}
+
+@media print{
+  .app{display:block}
+  .sidebar,.scrim,.menu-btn,.actions,.pager{display:none!important}
+  .content{padding:0;max-width:100%;color:#000}
+  .content h1,.content h2,.content h3,.content h4,.content strong{color:#000}
+  .content p,.content li,.content td,.content blockquote{color:#222}
+  .content blockquote{background:#f5f5f5;border-left-color:#C8102E}
+  .content code{background:#f0f0f0;color:#000;border:1px solid #ccc}
+  .content pre{background:#f5f5f5;border:1px solid #ddd}
+  .content a{color:#1F4E79;text-decoration:underline}
+  body{background:#fff}
+  html,body{font-size:12pt;line-height:1.5}
+}
+</style>
+</head>
+<body>
+
+<button class="menu-btn" id="menuBtn" aria-label="Open menu">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div class="scrim" id="scrim"></div>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-logos">
+        <img src="https://alamedapointbg.com/logos/brix-round.png" alt="Brix Beverage" onerror="this.style.display='none'">
+        <img src="https://alamedapointbg.com/logos/alameda-seal.png" alt="Alameda Soda Co." class="seal" onerror="this.style.display='none'">
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">APBG Master Handbook</div>
+        <div class="brand-sub">User Guides · SOP Manual</div>
+      </div>
+      <button class="theme-btn" id="themeBtn" title="Light / dark" aria-label="Toggle light or dark theme">◐</button>
+    </div>
+
+    <a href="https://alamedapointbg.com" class="back-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to the Hub
+    </a>
+
+    <div class="search-wrap">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="search" class="search-input" placeholder="Search chapters…" autocomplete="off">
+      <div class="search-meta" id="searchMeta">Press / to focus</div>
+    </div>
+
+    <nav id="nav"><div class="nav-empty">Loading…</div></nav>
+
+    <div class="sidebar-foot">
+      <div>Source: <code>docs/handbook/</code></div>
+      <div style="margin-top:6px">
+        <a id="editLink" href="https://github.com/skypace/apbg-billing/tree/main/docs/handbook" target="_blank" rel="noopener">Edit on GitHub →</a>
+      </div>
+      <div style="margin-top:6px">Freshness: run the Handbook Sweep in <a href="https://alamedapointbg.com/control" target="_blank" rel="noopener">Master Control</a></div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="content-header">
+      <div class="content-meta">
+        <div class="crumb" id="crumb">APBG · Master Handbook</div>
+      </div>
+      <div class="actions">
+        <button class="action-btn" id="printBtn" title="Print this chapter">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print
+        </button>
+        <a class="action-btn" id="chapterEdit" href="#" target="_blank" rel="noopener" style="display:none">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit chapter
+        </a>
+      </div>
+    </div>
+
+    <article id="doc">
+      <div class="state"><div class="spinner"></div><div>Loading handbook…</div></div>
+    </article>
+
+    <nav class="pager" id="pager" style="display:none"></nav>
+  </main>
+</div>
+
+<script>
+marked.setOptions({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+const state = { manifest: null, current: null, obs: null, mermaid: null };
+const DEFAULT_CHAPTER = '00-start-here';
+
+// Live chapters (architecture mirror, change log) call Netlify functions.
+// Served through the gateway the functions live under /margin/.netlify/…;
+// on the netlify origin they're at /.netlify/….
+const FN_BASE = location.pathname.startsWith('/margin/')
+  ? '/margin/.netlify/functions/'
+  : '/.netlify/functions/';
+
+function sessionToken(){
+  try {
+    const raw = localStorage.getItem('apbg_session');
+    if (raw) { const s = JSON.parse(raw); if (s && s.token) return s.token; }
+  } catch {}
+  return null;
+}
+
+function mermaidConfig(){
+  const dark = document.documentElement.dataset.theme !== 'light';
+  return { startOnLoad: false, theme: dark ? 'dark' : 'neutral', securityLevel: 'strict',
+    themeVariables: { fontFamily: '-apple-system, Helvetica Neue, Helvetica, sans-serif',
+      primaryColor: dark ? '#1E3A5F' : '#E8EEF5', primaryTextColor: dark ? '#F5F5F7' : '#1D1D1F',
+      lineColor: dark ? '#8E8E93' : '#6E6E73' } };
+}
+
+async function ensureMermaid(){
+  if (!state.mermaid) {
+    const mod = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
+    state.mermaid = mod.default;
+  }
+  state.mermaid.initialize(mermaidConfig());
+  return state.mermaid;
+}
+
+async function renderMermaid(root){
+  const blocks = root.querySelectorAll('pre > code.language-mermaid');
+  if (!blocks.length) return;
+  try {
+    const mermaid = await ensureMermaid();
+    blocks.forEach((code) => {
+      const holder = document.createElement('pre');
+      holder.className = 'mermaid';
+      holder.style.background = 'transparent';
+      holder.style.border = 'none';
+      holder.textContent = code.textContent;
+      code.parentNode.replaceWith(holder);
+    });
+    await mermaid.run({ nodes: root.querySelectorAll('pre.mermaid') });
+  } catch (e) {
+    console.error('mermaid render failed', e); // diagrams degrade to code blocks
+  }
+}
+
+function slugify(text){
+  return text.toLowerCase().trim().replace(/[^\w\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+function chapterFromHash(){
+  const h = location.hash.replace(/^#\/?/, '');
+  // hash may be "chapter-slug" or "chapter-slug/section-id"
+  return h ? h.split('/')[0] : DEFAULT_CHAPTER;
+}
+function sectionFromHash(){
+  const h = location.hash.replace(/^#\/?/, '');
+  const parts = h.split('/');
+  return parts.length > 1 ? parts.slice(1).join('/') : null;
+}
+
+async function init(){
+  try {
+    const res = await fetch('./manifest.json?_=' + Date.now(), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`manifest.json HTTP ${res.status}`);
+    state.manifest = await res.json();
+    buildNav();
+    await route();
+    window.addEventListener('hashchange', route);
+  } catch (err) {
+    document.getElementById('doc').innerHTML =
+      `<div class="state error"><div style="font-size:1.2rem;margin-bottom:8px">⚠️ Couldn't load the handbook manifest</div><div style="font-size:0.82rem">${err.message}</div></div>`;
+  }
+}
+
+function buildNav(){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  for (const part of state.manifest.parts) {
+    const chapters = state.manifest.chapters.filter(c => c.part === part.id);
+    if (!chapters.length) continue;
+    const label = document.createElement('div');
+    label.className = 'part-label' + (part.id === 'sop' ? ' sop' : '');
+    label.textContent = part.label;
+    nav.appendChild(label);
+    const ul = document.createElement('ul');
+    ul.className = 'nav';
+    for (const ch of chapters) {
+      const li = document.createElement('li');
+      li.dataset.slug = ch.slug;
+      const a = document.createElement('a');
+      a.className = 'chapter';
+      a.href = '#/' + ch.slug;
+      a.textContent = ch.title;
+      li.appendChild(a);
+      const sub = document.createElement('ul');
+      sub.className = 'subtoc';
+      li.appendChild(sub);
+      ul.appendChild(li);
+    }
+    nav.appendChild(ul);
+  }
+}
+
+async function route(){
+  const slug = chapterFromHash();
+  const ch = state.manifest.chapters.find(c => c.slug === slug);
+  if (!ch) { location.hash = '#/' + DEFAULT_CHAPTER; return; }
+  if (state.current !== slug) {
+    state.current = slug;
+    await loadChapter(ch);
+  }
+  const section = sectionFromHash();
+  if (section) {
+    const el = document.getElementById(section);
+    if (el) el.scrollIntoView();
+  } else {
+    window.scrollTo(0, 0);
+  }
+}
+
+async function fetchChapterMarkdown(ch){
+  if (!ch.remote) {
+    const res = await fetch('./' + ch.slug + '.md?_=' + Date.now(), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`${ch.slug}.md HTTP ${res.status}`);
+    return { md: await res.text(), meta: null };
+  }
+  // Live chapter — authed function call.
+  const token = sessionToken();
+  if (!token) {
+    throw new Error('SIGN_IN');
+  }
+  const res = await fetch(FN_BASE + ch.remote, { headers: { Authorization: 'Bearer ' + token } });
+  if (res.status === 401 || res.status === 403) throw new Error('SIGN_IN');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return { md: data.markdown || '', meta: data };
+}
+
+async function loadChapter(ch){
+  const docEl = document.getElementById('doc');
+  docEl.innerHTML = '<div class="state"><div class="spinner"></div><div>Loading chapter…</div></div>';
+  try {
+    const { md, meta } = await fetchChapterMarkdown(ch);
+    ch._meta = meta;
+    const rawHtml = marked.parse(md);
+    const safeHtml = DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target','rel'] });
+    docEl.innerHTML = safeHtml;
+
+    // Rewrite intra-handbook links: marked leaves href="#/slug" intact; make
+    // in-chapter section anchors chapter-scoped, wrap wide tables.
+    docEl.querySelectorAll('a[href^="http"]').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
+    docEl.querySelectorAll('table').forEach(t => {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-scroll';
+      t.parentNode.insertBefore(wrap, t);
+      wrap.appendChild(t);
+    });
+
+    await renderMermaid(docEl);
+    assignHeadingIds(ch.slug);
+    buildSubToc(ch.slug);
+    addAnchors(ch.slug);
+    updateChrome(ch);
+    buildPager(ch);
+    setupNavObserver(ch.slug);
+  } catch (err) {
+    if (err.message === 'SIGN_IN') {
+      docEl.innerHTML = `<div class="state">
+        <div style="font-size:1.2rem;margin-bottom:8px">🔒 This chapter is live data — sign in to view it</div>
+        <div style="font-size:0.84rem;max-width:520px;margin:0 auto;line-height:1.6">
+          The live architecture mirror and change log are pulled from GitHub at view time and need an
+          APBG admin session. Sign in at <a href="https://alamedapointbg.com" target="_blank" rel="noopener">alamedapointbg.com</a>,
+          then open the handbook through
+          <a href="https://alamedapointbg.com/margin/docs/handbook/">alamedapointbg.com/margin/docs/handbook/</a>
+          so your session travels with it.
+        </div></div>`;
+    } else {
+      docEl.innerHTML = `<div class="state error">
+        <div style="font-size:1.2rem;margin-bottom:8px">⚠️ Couldn't load this chapter</div>
+        <div style="font-size:0.82rem">${err.message}</div>
+        <div style="font-size:0.78rem;margin-top:14px;color:var(--text-3)">
+          ${ch.remote
+            ? 'Live chapters need the <code>' + ch.remote + '</code> function and a valid <code>GITHUB_TOKEN</code> on Netlify.'
+            : 'The viewer expects <code>./' + ch.slug + '.md</code> next to this file — the build step copies <code>docs/</code> → <code>public/docs/</code>.'}
+        </div></div>`;
+    }
+    document.getElementById('pager').style.display = 'none';
+  }
+}
+
+function assignHeadingIds(slug){
+  const used = new Set();
+  document.querySelectorAll('#doc h2, #doc h3').forEach(h => {
+    let id = slugify(h.textContent);
+    let unique = id, i = 2;
+    while (used.has(unique)) { unique = id + '-' + i; i++; }
+    h.id = unique;
+    used.add(unique);
+  });
+}
+
+function buildSubToc(slug){
+  // collapse all, populate + open the active chapter's section list
+  document.querySelectorAll('#nav li').forEach(li => {
+    li.classList.toggle('open', li.dataset.slug === slug);
+    li.querySelector('a.chapter').classList.toggle('active', li.dataset.slug === slug);
+    if (li.dataset.slug !== slug) li.querySelector('.subtoc').innerHTML = '';
+  });
+  const li = document.querySelector(`#nav li[data-slug="${slug}"]`);
+  if (!li) return;
+  const sub = li.querySelector('.subtoc');
+  sub.innerHTML = '';
+  document.querySelectorAll('#doc h2').forEach(h => {
+    const a = document.createElement('a');
+    a.href = '#/' + slug + '/' + h.id;
+    a.textContent = h.textContent.replace(/#$/,'').trim();
+    a.dataset.target = h.id;
+    const sli = document.createElement('li');
+    sli.appendChild(a);
+    sub.appendChild(sli);
+  });
+}
+
+function addAnchors(slug){
+  document.querySelectorAll('#doc h2, #doc h3').forEach(h => {
+    const a = document.createElement('a');
+    a.href = '#/' + slug + '/' + h.id;
+    a.className = 'anchor';
+    a.innerHTML = '#';
+    a.setAttribute('aria-label', 'Link to ' + h.textContent.trim());
+    h.appendChild(a);
+  });
+}
+
+function updateChrome(ch){
+  const partLabel = (state.manifest.parts.find(p => p.id === ch.part) || {}).label || '';
+  const meta = ch._meta;
+  document.getElementById('crumb').textContent = ch.remote
+    ? `${partLabel} · LIVE · fetched ${((meta && (meta.fetched_at || meta.generated_at)) || '').slice(0,16).replace('T',' ')} UTC`
+    : `${partLabel} · reviewed ${ch.last_reviewed} · owner ${ch.owner}`;
+  document.title = ch.title + ' — APBG Master Handbook';
+  const edit = document.getElementById('chapterEdit');
+  if (ch.remote && !ch.edit_url) {
+    edit.style.display = 'none';
+  } else {
+    edit.href = ch.edit_url || `https://github.com/skypace/apbg-billing/blob/main/docs/handbook/${ch.slug}.md`;
+    edit.style.display = 'inline-flex';
+  }
+}
+
+function buildPager(ch){
+  const list = state.manifest.chapters;
+  const idx = list.findIndex(c => c.slug === ch.slug);
+  const prev = idx > 0 ? list[idx - 1] : null;
+  const next = idx < list.length - 1 ? list[idx + 1] : null;
+  const pager = document.getElementById('pager');
+  pager.innerHTML = '';
+  if (prev) pager.innerHTML += `<a href="#/${prev.slug}"><div class="dir">← Previous</div><div class="pt">${prev.title}</div></a>`;
+  if (next) pager.innerHTML += `<a class="next" href="#/${next.slug}"><div class="dir">Next →</div><div class="pt">${next.title}</div></a>`;
+  pager.style.display = (prev || next) ? 'flex' : 'none';
+}
+
+function setupNavObserver(slug){
+  if (state.obs) state.obs.disconnect();
+  const links = Array.from(document.querySelectorAll(`#nav li[data-slug="${slug}"] .subtoc a`));
+  const headings = document.querySelectorAll('#doc h2');
+  if (!headings.length) return;
+  state.obs = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        links.forEach(l => l.classList.toggle('active', l.dataset.target === en.target.id));
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px' });
+  headings.forEach(h => state.obs.observe(h));
+}
+
+function setupSearch(){
+  const input = document.getElementById('search');
+  const meta = document.getElementById('searchMeta');
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('#nav > ul > li, #nav li[data-slug]').forEach(li => {
+      const text = li.textContent.toLowerCase();
+      const show = !q || text.includes(q);
+      li.classList.toggle('nav-hidden', !show);
+      if (show) visible++;
+    });
+    document.querySelectorAll('#nav .part-label').forEach(label => {
+      const ul = label.nextElementSibling;
+      const any = ul && ul.querySelector('li:not(.nav-hidden)');
+      label.classList.toggle('nav-hidden', q && !any);
+    });
+    meta.textContent = q ? `${visible} chapter${visible === 1 ? '' : 's'} match` : 'Press / to focus';
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (e.key === 'Escape') { input.value=''; input.dispatchEvent(new Event('input')); input.blur(); }
+      return;
+    }
+    if (e.key === '/') { e.preventDefault(); input.focus(); }
+  });
+}
+
+function setupMobileMenu(){
+  const btn = document.getElementById('menuBtn');
+  const sidebar = document.getElementById('sidebar');
+  const scrim = document.getElementById('scrim');
+  btn.addEventListener('click', () => { sidebar.classList.add('open'); scrim.classList.add('open'); });
+  scrim.addEventListener('click', () => { sidebar.classList.remove('open'); scrim.classList.remove('open'); });
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#nav a')) { sidebar.classList.remove('open'); scrim.classList.remove('open'); }
+  });
+}
+
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+// Theme — shares localStorage.apbg_theme with the hub + waffle toggle.
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  document.getElementById('themeBtn').textContent = t === 'light' ? '◑' : '◐';
+}
+function initTheme(){
+  let t = 'light';
+  try { const stored = localStorage.getItem('apbg_theme'); if (stored === 'dark' || stored === 'light') t = stored; } catch {}
+  applyTheme(t);
+}
+document.getElementById('themeBtn').addEventListener('click', async () => {
+  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(t);
+  try { localStorage.setItem('apbg_theme', t); } catch {}
+  // Re-render the chapter so Mermaid diagrams pick up the new theme.
+  const ch = state.manifest && state.manifest.chapters.find(c => c.slug === state.current);
+  if (ch) { state.current = null; await route(); }
+});
+
+initTheme();
+setupSearch();
+setupMobileMenu();
+init();
+</script>
+</body>
+</html>
