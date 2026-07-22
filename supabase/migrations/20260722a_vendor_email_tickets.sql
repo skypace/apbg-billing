@@ -23,6 +23,9 @@ create table if not exists ops.vendor_email_routes (
                                                  -- Job Categories (unknown names 422;
                                                  -- intake retries without it)
   sf_job_status_initial text not null default 'Unscheduled',
+  require_confirmation boolean not null default true, -- hold the built job and
+                                                      -- email an Approve/Decline
+                                                      -- link before creating in SF
   send_list text[] not null default '{service@brixbev.com}',
   extraction_hints text,                         -- extra per-vendor parser instructions
   active boolean not null default true,
@@ -41,11 +44,14 @@ create table if not exists ops.vendor_email_tickets (
   received_at timestamptz,
   raw_text text,
   parsed jsonb,
+  sf_payload jsonb,                              -- the built SF job, held until confirmed
+  confirm_token text,                            -- single-use Approve/Decline link token
   sf_job_id text,
   sf_job_number text,
   sf_customer_name text,
   status text not null default 'received'
-    check (status in ('received','needs_route_config','sf_created','sf_failed','ignored')),
+    check (status in ('received','needs_route_config','awaiting_confirmation',
+                      'declined','sf_created','sf_failed','ignored')),
   error text,
   last_sf_status text,
   last_status_at timestamptz,

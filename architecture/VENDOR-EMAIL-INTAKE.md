@@ -15,11 +15,26 @@ Freshpet email ──forward──▶ freshpet@alamedapointbg.com  ──┤
                             netlify/functions/vendor-email-intake.mjs
                               1. Svix signature check (RESEND_INBOUND_SECRET)
                               2. Route by recipient (ops.vendor_email_routes)
-                              3. Claude parses the email (location, ref #,
-                                 issue, contact, urgency — per-route hints)
-                              4. SF job created under route.sf_customer_name
-                              5. Ticket recorded (ops.vendor_email_tickets)
-                              6. "Ticket created" email → route.send_list
+                              3. Parse: Red Bull reactive WOs are parsed
+                                 DETERMINISTICALLY (stable labeled format);
+                                 Claude is the fallback + the other vendors
+                              4. SF job payload built per the route's mapping
+                              5. CONFIRM GATE (route.require_confirmation,
+                                 default ON): send list gets the parsed
+                                 summary + WO preview with ✓ Create / ✕
+                                 Decline links (single-use token). The SF job
+                                 is only created when someone clicks Create.
+                              6. Ticket recorded (ops.vendor_email_tickets)
+                              7. "Ticket created" email → route.send_list
+
+Red Bull SF-job mapping (per Sky, 2026-07-22):
+  PO number   = "ZD <zendesk #> / SF <vendor's SF job #>"
+  Description = ISSUE REPORTED + DESCRIPTION call-log + LOCATION CONTACT +
+                ZENDESK LINK + LOCATION DETAILS + NTE lines (verbatim blocks)
+  Job notes   = MANUFACTURE DATE · SERVICE YEARS · ZENDESK TICKET LINK
+  Plus structured job location (location_name/street_1/city/state_prov/
+  postal_code) + contact_first_name so dispatch sees the real site.
+  Customer = FREEFLOW BEVERAGE SOLUTIONS COMPANY, status Unscheduled.
 
 SF job status changes ──SF notification email──▶ sf-status@alamedapointbg.com
                                                            ▼

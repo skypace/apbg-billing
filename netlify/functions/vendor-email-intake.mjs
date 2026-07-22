@@ -230,6 +230,23 @@ function parseRedBullDeterministic(subject, text) {
   const makeModel = grab(/ASSET MAKE\/MODEL:[ \t]*([^\n]*)/i);
   const serial = grab(/ASSET SERIAL:[ \t]*([^\n]*)/i);
 
+  // Verbatim section slices (everything between a label line and the next
+  // known section) — used to rebuild the SF description exactly as received.
+  const section = (label, stops) => {
+    const re = new RegExp(`${label}:\\s*\\n([\\s\\S]*?)(?=\\n\\s*(?:${stops})|$)`, 'i');
+    const m = t.match(re);
+    const v = m ? m[1].trim() : null;
+    return v && v !== '' ? v : null;
+  };
+  const descriptionBlock = section(
+    'DESCRIPTION',
+    'LOCATION CONTACT:|IN NATIVE|IN FREEFLOW|ZENDESK LINK:|LOCATION DETAILS:|NTE INFORMATION:',
+  );
+  const locationBlock = section(
+    'LOCATION DETAILS',
+    'NTE INFORMATION:|MANUFACTURE DATE:|Click for',
+  );
+
   return {
     location_name: locationName,
     address,
@@ -254,6 +271,8 @@ function parseRedBullDeterministic(subject, text) {
       service_years: grab(/SERVICE YEARS:[ \t]*([^\n]*)/i),
       native_reactive_territory: grab(/IN (?:FREEFLOW )?NATIVE REACTIVE TERRITORY:[ \t]*([^\n]*)/i),
       zendesk_link: grab(/(https:\/\/\S*zendesk\.com\/\S+)/i),
+      description_block: descriptionBlock,
+      location_block: locationBlock,
     },
     parser: 'deterministic-redbull',
   };
@@ -313,9 +332,67 @@ ${String(text || '').slice(0, 8000)}`,
   return parseJsonBlock(raw);
 }
 
-// ─── SF job creation ───
+// ─── SF job payload builders ───
 
-async function createSfJob(route, parsed, { from, subject, text, receivedAt }) {
+// Red Bull mapping (per Sky, 2026-07-22):
+//   PO number      = ZENDESK REPAIR TICKET # + vendor SERVICE FUSION JOB #
+//   Description    = ISSUE REPORTED + DESCRIPTION block + LOCATION CONTACT +
+//                    ZENDESK LINK + LOCATION DETAILS + NTE INFO lines
+//   Job notes      = MANUFACTURE DATE, SERVICE YEARS, ZENDESK TICKET LINK
+// Plus the store's name/address/contact into the job's structured location
+// fields so dispatch sees where the work actually is.
+function buildRedBullSfJob(route, parsed) {
+  const vf = parsed.vendor_fields || {};
+  const po = [
+    vf.zendesk_ticket && `ZD ${vf.zendesk_ticket}`,
+    vf.vendor_sf_ref && `SF ${vf.vendor_sf_ref}`,
+  ].filter(Boolean).join(' / ');
+
+  const description = [
+    `ISSUE REPORTED: ${parsed.issue_summary || vf.headline || ''}`,
+    vf.description_block && `DESCRIPTION:\n${vf.description_block}`,
+    (parsed.contact_name || parsed.contact_phone) &&
+      `LOCATION CONTACT:\n${[parsed.contact_name, parsed.contact_phone].filter(Boolean).join(' / ')}`,
+    vf.zendesk_link && `ZENDESK LINK:\n${vf.zendesk_link}`,
+    vf.location_block && `LOCATION DETAILS:\n${vf.location_block}`,
+    (vf.nte || vf.nte_type) &&
+      `NTE INFORMATION:${vf.nte ? `\nNTE: ${vf.nte}` : ''}${vf.nte_type ? `\nNTE TYPE: ${vf.nte_type}` : ''}`,
+  ].filter(Boolean).join('\n\n');
+
+  const notes = [
+    vf.manufacture_date && { notes: `MANUFACTURE DATE: ${vf.manufacture_date}` },
+    vf.service_years && { notes: `SERVICE YEARS: ${vf.service_years}` },
+    vf.zendesk_link && { notes: `ZENDESK TICKET LINK: ${vf.zendesk_link}` },
+  ].filter(Boolean);
+
+  // Structured location from the LOCATION DETAILS block (name / street / "CITY, ST ZIP")
+  const location = {};
+  const locLines = String(vf.location_block || '')
+    .split('\n').map((s) => s.trim()).filter(Boolean)
+    .filter((l) => !/^(IN\s.*TERRITORY|CONTACT|NTE)/i.test(l));
+  if (locLines[0]) location.location_name = locLines[0];
+  if (locLines[1]) location.street_1 = locLines[1];
+  const cityLine = (locLines[2] || '').match(/^(.*?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (cityLine) {
+    location.city = cityLine[1];
+    location.state_prov = cityLine[2];
+    location.postal_code = cityLine[3];
+  }
+  const contactFirst = (parsed.contact_name || '').trim().split(/\s+/)[0];
+
+  return {
+    customer_name: route.sf_customer_name,
+    status: route.sf_job_status_initial || 'Unscheduled',
+    ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
+    ...(po ? { po_number: po.slice(0, 50) } : {}),
+    description: description.slice(0, MAX_DESC),
+    ...(notes.length ? { notes } : {}),
+    ...location,
+    ...(contactFirst ? { contact_first_name: contactFirst } : {}),
+  };
+}
+
+function buildGenericSfJob(route, parsed, { from, subject, text, receivedAt }) {
   const lines = [
     `${route.display_name.toUpperCase()} — AUTOMATED EMAIL TICKET`,
     parsed.location_name && `Location: ${parsed.location_name}`,
@@ -341,26 +418,44 @@ async function createSfJob(route, parsed, { from, subject, text, receivedAt }) {
     String(text || '').slice(0, MAX_DESC),
   ].filter((l) => l !== false && l !== null && l !== undefined);
 
-  const payload = {
+  return {
     customer_name: route.sf_customer_name,
     status: route.sf_job_status_initial || 'Unscheduled',
+    ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
+    ...(parsed.reference_number ? { po_number: String(parsed.reference_number).slice(0, 50) } : {}),
     description: lines.join('\n').slice(0, MAX_DESC + 800),
   };
+}
 
-  // SF only ATTACHES existing categories — an unknown name 422s the whole
-  // job, so retry once without it rather than losing the ticket.
-  if (route.sf_job_category) {
+function buildSfJobPayload(route, parsed, email) {
+  return parsed.parser === 'deterministic-redbull'
+    ? buildRedBullSfJob(route, parsed)
+    : buildGenericSfJob(route, parsed, email);
+}
+
+// SF only ATTACHES existing categories, and the notes-array shape is spec-
+// documented but unproven live — on a 422, retry with the risky fields
+// stripped (category first, then notes) rather than losing the ticket.
+async function createSfJobWithRetries(payload) {
+  const attempts = [
+    { drop: [], warning: null },
+    { drop: ['category'], warning: `SF rejected job category "${payload.category}" — job created without it. Add the category in SF Settings → Job Categories.` },
+    { drop: ['category', 'notes'], warning: 'SF rejected the category and/or notes — job created without them; add the notes by hand.' },
+  ].filter((a) => a.drop.every((f) => payload[f] !== undefined));
+
+  let lastErr;
+  for (const attempt of attempts) {
+    const body = { ...payload };
+    for (const f of attempt.drop) delete body[f];
     try {
-      return { job: await sfRequest('POST', '/jobs', { ...payload, category: route.sf_job_category }) };
+      return { job: await sfRequest('POST', '/jobs', body), warning: attempt.warning };
     } catch (e) {
-      console.warn(`SF rejected category "${route.sf_job_category}" (${e.message}); retrying without`);
-      return {
-        job: await sfRequest('POST', '/jobs', payload),
-        warning: `SF rejected job category "${route.sf_job_category}" — job created without it. Add the category in SF Settings → Job Categories.`,
-      };
+      lastErr = e;
+      if (!/422/.test(e.message)) throw e; // only field rejections get the ladder
+      console.warn(`SF POST /jobs 422 (dropped: ${attempt.drop.join(',') || 'nothing'}): ${e.message}`);
     }
   }
-  return { job: await sfRequest('POST', '/jobs', payload) };
+  throw lastErr;
 }
 
 // ─── Notification emails ───
@@ -440,13 +535,65 @@ async function handleVendorEmail(route, email) {
   } catch (e) {
     parsed = { issue_summary: email.subject, parse_error: e.message };
   }
+  const payload = buildSfJobPayload(route, parsed, email);
 
-  try {
-    const { job, warning } = await createSfJob(route, parsed, email);
-    const jobId = job?.id ?? job?.job_id ?? null;
-    const jobNumber = String(job?.number ?? job?.job_number ?? jobId ?? '');
+  // Confirm-before-create (per-route; default ON): hold the built job and
+  // email the send list an Approve/Decline link instead of creating it.
+  if (route.require_confirmation !== false) {
+    const token = crypto.randomBytes(24).toString('hex');
     await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
       parsed,
+      sf_payload: payload,
+      confirm_token: token,
+      sf_customer_name: route.sf_customer_name,
+      status: 'awaiting_confirmation',
+    });
+    const base = `${process.env.URL || 'https://apbg-billing.netlify.app'}/.netlify/functions/vendor-email-intake`;
+    const link = (action) => `${base}?action=${action}&ticket=${ticket.id}&token=${token}`;
+    await notifySendList(
+      route,
+      `🟡 ${route.display_name} work order pending — confirm to create SF job`,
+      ticketSummaryRows(route, parsed, email) +
+        `<p style="margin:14px 0 4px"><strong>Work order preview</strong></p>
+         <pre style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12px;white-space:pre-wrap">${esc(
+           `Customer: ${payload.customer_name}\nStatus: ${payload.status}${payload.category ? `\nCategory: ${payload.category}` : ''}${payload.po_number ? `\nPO #: ${payload.po_number}` : ''}\n\n${payload.description}`,
+         )}</pre>
+         <div style="margin:16px 0">
+           <a href="${link('create')}" style="background:#16a34a;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block">✓ Create SF work order</a>
+           &nbsp;&nbsp;
+           <a href="${link('decline')}" style="background:#dc2626;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block">✕ Decline</a>
+         </div>
+         <p style="margin:4px 0;color:#64748b;font-size:12px">No SF job exists yet — nothing is billed or dispatched until someone clicks Create.</p>`,
+    );
+    return { ok: true, ticketId: ticket.id, status: 'awaiting_confirmation' };
+  }
+
+  return finalizeSfCreation(ticket.id, route, payload, parsed, email);
+}
+
+function ticketSummaryRows(route, parsed, email) {
+  return (
+    row('Customer', route.sf_customer_name) +
+    row('Location', parsed.location_name) +
+    row('Address', parsed.address) +
+    row('Vendor ref #', parsed.reference_number) +
+    row('Equipment', parsed.equipment) +
+    row('NTE', parsed.vendor_fields?.nte && `${parsed.vendor_fields.nte}${parsed.vendor_fields.nte_type ? ` (${parsed.vendor_fields.nte_type})` : ''}`) +
+    row('Issue', parsed.issue_summary) +
+    row('Requested date', parsed.requested_date) +
+    row('Source email', email ? `${email.from} — ${email.subject}` : null)
+  );
+}
+
+async function finalizeSfCreation(ticketId, route, payload, parsed, email) {
+  try {
+    const { job, warning } = await createSfJobWithRetries(payload);
+    const jobId = job?.id ?? job?.job_id ?? null;
+    const jobNumber = String(job?.number ?? job?.job_number ?? jobId ?? '');
+    await sbUpdate('vendor_email_tickets', `id=eq.${ticketId}`, {
+      parsed,
+      sf_payload: payload,
+      confirm_token: null,
       sf_job_id: jobId ? String(jobId) : null,
       sf_job_number: jobNumber || null,
       sf_customer_name: route.sf_customer_name,
@@ -457,34 +604,75 @@ async function handleVendorEmail(route, email) {
       route,
       `🎫 ${route.display_name} ticket created — SF job ${jobNumber || '(no number returned)'}`,
       row('SF job #', jobNumber) +
-        row('Customer', route.sf_customer_name) +
-        row('Location', parsed.location_name) +
-        row('Address', parsed.address) +
-        row('Vendor ref #', parsed.reference_number) +
-        row('Equipment', parsed.equipment) +
-        row('NTE', parsed.vendor_fields?.nte && `${parsed.vendor_fields.nte}${parsed.vendor_fields.nte_type ? ` (${parsed.vendor_fields.nte_type})` : ''}`) +
-        row('Issue', parsed.issue_summary) +
-        row('Requested date', parsed.requested_date) +
-        row('Source email', `${email.from} — ${email.subject}`) +
+        ticketSummaryRows(route, parsed, email) +
         (warning ? `<p style="margin:10px 0 0;color:#b45309">${esc(warning)}</p>` : ''),
     );
-    return { ok: true, ticketId: ticket.id, sfJob: jobNumber };
+    return { ok: true, ticketId, sfJob: jobNumber };
   } catch (e) {
-    await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
+    await sbUpdate('vendor_email_tickets', `id=eq.${ticketId}`, {
       parsed,
+      sf_payload: payload,
       status: 'sf_failed',
       error: e.message.slice(0, 500),
     });
     await notifySendList(
       route,
       `⚠ ${route.display_name} email received — SF job creation FAILED`,
-      row('Subject', email.subject) +
-        row('From', email.from) +
+      (email ? row('Subject', email.subject) + row('From', email.from) : '') +
         row('Error', e.message.slice(0, 300)) +
-        `<p style="margin:10px 0 0">The email is recorded (ticket ${esc(ticket.id)}); create the SF job by hand or fix the route and re-forward.</p>`,
+        `<p style="margin:10px 0 0">The email is recorded (ticket ${esc(ticketId)}); create the SF job by hand or fix the route and re-forward.</p>`,
     );
-    return { ok: true, ticketId: ticket.id, status: 'sf_failed' };
+    return { ok: true, ticketId, status: 'sf_failed' };
   }
+}
+
+// GET ?action=create|decline&ticket=<id>&token=<confirm_token> — the links
+// in the confirmation email. Token is single-use (cleared on decision).
+async function handleConfirmClick(params) {
+  const { action, ticket: ticketId, token } = params;
+  const page = (title, body, code = 200) => ({
+    statusCode: code,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    body: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:'DM Sans',Arial,sans-serif;background:#0F172A;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0"><div style="max-width:440px;padding:32px;text-align:center"><h2 style="color:#fff">${title}</h2><p style="line-height:1.6">${body}</p></div></body>`,
+  });
+
+  if (!['create', 'decline'].includes(action) || !ticketId || !token) {
+    return page('Invalid link', 'This confirmation link is malformed.', 400);
+  }
+  const tickets = await sbSelect(
+    'vendor_email_tickets',
+    `id=eq.${encodeURIComponent(ticketId)}&select=*&limit=1`,
+  );
+  const ticket = tickets[0];
+  if (!ticket || !ticket.confirm_token || ticket.confirm_token !== token) {
+    return page('Link expired', 'This confirmation link is invalid or was already used.', 400);
+  }
+  if (ticket.status !== 'awaiting_confirmation') {
+    return page('Already handled', `This work order is already "${esc(ticket.status)}".`);
+  }
+  const routes = await sbSelect('vendor_email_routes', `id=eq.${ticket.route_id}&select=*&limit=1`);
+  const route = routes[0];
+  if (!route) return page('Route missing', 'The route for this ticket no longer exists.', 400);
+
+  if (action === 'decline') {
+    await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
+      status: 'declined',
+      confirm_token: null,
+    });
+    await notifySendList(
+      route,
+      `⛔ ${route.display_name} work order DECLINED — ${ticket.parsed?.reference_number || ticket.subject}`,
+      ticketSummaryRows(route, ticket.parsed || {}, null) +
+        `<p style="margin:10px 0 0">No Service Fusion job was created.</p>`,
+    );
+    return page('Declined', 'No Service Fusion work order was created. The send list has been notified.');
+  }
+
+  const result = await finalizeSfCreation(ticket.id, route, ticket.sf_payload, ticket.parsed || {}, null);
+  if (result.sfJob) {
+    return page('✓ Work order created', `Service Fusion job <strong>${esc(result.sfJob)}</strong> is in — status ${esc(route.sf_job_status_initial || 'Unscheduled')}. The send list has been notified.`);
+  }
+  return page('Creation failed', 'Service Fusion rejected the job — the send list got the error details, and the ticket is saved for retry.', 502);
 }
 
 async function handleStatusEmail(email) {
@@ -543,6 +731,15 @@ async function handleStatusEmail(email) {
 // ─── Entry point ───
 
 export async function handler(event) {
+  // Approve/Decline clicks from the confirmation email arrive as GETs
+  if (event.httpMethod === 'GET') {
+    try {
+      return await handleConfirmClick(event.queryStringParameters || {});
+    } catch (e) {
+      console.error('confirm-click error:', e);
+      return { statusCode: 500, body: 'Something went wrong — try the link again.' };
+    }
+  }
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
   }
