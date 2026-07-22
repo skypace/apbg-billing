@@ -15,7 +15,9 @@
 // (whsec_...) is REQUIRED — unsigned or badly-signed calls are rejected.
 //
 // Env:
-//   RESEND_INBOUND_SECRET  — Resend webhook signing secret (required)
+//   RESEND_INBOUND_SECRET  — webhook auth (required): either the shared
+//                            ?secret= value baked into the webhook URL, or
+//                            the Svix whsec_ signing secret
 //   RESEND_API_KEY         — used to fetch full email bodies when the webhook
 //                            payload doesn't inline them (and by email-helpers)
 //   ANTHROPIC_API_KEY      — email parsing
@@ -924,10 +926,17 @@ export async function handler(event) {
     console.error('RESEND_INBOUND_SECRET not set — refusing unauthenticated inbound email');
     return { statusCode: 503, body: JSON.stringify({ error: 'intake not configured' }) };
   }
+  // Two accepted auth shapes: the ?secret= query param baked into the webhook
+  // URL (the house pattern — sf-inbound/resq-inbound do the same), or a valid
+  // Svix signature when RESEND_INBOUND_SECRET holds the whsec_ signing secret.
+  const qsSecret = String((event.queryStringParameters || {}).secret || '');
+  const qsOk =
+    qsSecret.length === secret.length &&
+    crypto.timingSafeEqual(Buffer.from(qsSecret), Buffer.from(secret));
   const headers = Object.fromEntries(
     Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v]),
   );
-  if (!verifySvix(headers, rawBody, secret)) {
+  if (!qsOk && !verifySvix(headers, rawBody, secret)) {
     return { statusCode: 401, body: JSON.stringify({ error: 'bad signature' }) };
   }
 
