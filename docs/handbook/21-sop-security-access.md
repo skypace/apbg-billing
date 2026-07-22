@@ -78,6 +78,16 @@ The role→access map is duplicated server-side in the gateway's `apps.mjs` — 
 3. Run the OAuth connect flow for the affected provider (QBO or SF). The callback writes the new token into the shared cache via the sanctioned path.
 4. Verify: re-run the failing operation (e.g., a ResQ Sync tick from [Master Control](#/09-master-control)).
 
+### Known credential expirations
+
+Static tokens with a hard expiry date. When one lapses, the features it powers fail quietly — renew **before** the date, not after the breakage.
+
+| Credential | Lives at | Expires | What breaks if it lapses | Renewal |
+|---|---|---|---|---|
+| `GITHUB_TOKEN` (classic PAT, `repo` scope) | apbg-billing Netlify env | **2027-01-01** | Handbook sweep + weekly drift emails, Live Architecture Mirror, Change Log tab, Auto-update button | Mint a new classic PAT at github.com/settings/tokens/new (`repo` scope) and replace the value at app.netlify.com/projects/apbg-billing/configuration/env |
+
+The Monday drift-cron's sweep failures are the earliest symptom of a lapsed `GITHUB_TOKEN` — chapters flip to "unknown" with a rate-limit/not-found note. Add every new dated credential to this table when it's created (SOP-0 propagation rule).
+
 ## PCI posture — payment instrument data
 
 ### Policy
