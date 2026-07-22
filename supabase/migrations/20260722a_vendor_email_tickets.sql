@@ -81,12 +81,14 @@ alter table ops.vendor_ticket_events enable row level security;
 --   update ops.vendor_email_routes set sf_customer_name = '<EXACT SF NAME>'
 --   where inbox = 'rbfreeflow@alamedapointbg.com';
 insert into ops.vendor_email_routes
-  (inbox, vendor_key, display_name, sf_job_category, extraction_hints)
+  (inbox, vendor_key, display_name, sf_customer_name, sf_job_category, extraction_hints)
 values
   ('rbfreeflow@alamedapointbg.com', 'redbull', 'Red Bull / FreeFlow',
+   'FREEFLOW BEVERAGE SOLUTIONS COMPANY',
    'Service Call',
-   'These are Red Bull dispatch/service emails. Pull the account/venue name and full street address, any Red Bull reference or dispatch number, the equipment involved (cooler, fridge, etc.), and the requested service or issue description.'),
+   'These are "RED BULL REACTIVE WORK ORDER RECEIVED" notifications relayed from admin@freeflowbev.com. They carry labeled sections: ZENDESK REPAIR TICKET #, a headline line (issue + store + S/N), CREATED, ISSUE REPORTED, ASSET MAKE/MODEL, ASSET SERIAL, ASSET MATERIAL NUMBER, a DESCRIPTION call log, LOCATION CONTACT (name / phone), LOCATION DETAILS (store name, street, city/state/zip), NTE amount + NTE TYPE, MANUFACTURE DATE, SERVICE YEARS, IN NATIVE REACTIVE TERRITORY yes/no, and an "SF <number>" vendor-side reference in the subject. Extract every labeled value exactly as written.'),
   ('freshpet@alamedapointbg.com', 'freshpet', 'Freshpet',
+   null, -- sf_customer_name: set before go-live (sample email pending)
    'Service Call',
    'These are Freshpet service emails. Pull the store/location name and number, full street address, any Freshpet work order or reference number, the fridge/equipment identifiers, and the requested service or issue description.')
 on conflict (inbox) do nothing;

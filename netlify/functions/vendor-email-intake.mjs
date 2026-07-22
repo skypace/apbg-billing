@@ -182,7 +182,89 @@ function parseJsonBlock(text) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
+// Red Bull reactive work orders arrive as machine-generated
+// "RED BULL REACTIVE WORK ORDER RECEIVED - SF <n> / ZENDESK <n>" notifications
+// with stable labeled sections — parse those exactly, no AI involved. Returns
+// null when the email doesn't look like that format (→ Claude fallback).
+function parseRedBullDeterministic(subject, text) {
+  const t = String(text || '');
+  const grab = (re) => {
+    const m = t.match(re);
+    const v = m ? m[1].trim() : null;
+    return v && v !== '' ? v : null;
+  };
+
+  const zendesk =
+    grab(/ZENDESK\s+(?:REPAIR\s+)?TICKET\s*(?:NUMBER\s*)?#?\s*(\d+)/i) ||
+    (String(subject).match(/ZENDESK\s+#?(\d+)/i)?.[1] ?? null);
+  const vendorSfRef =
+    String(subject).match(/\bSF\s+#?(\d{4,})\b/i)?.[1] ||
+    grab(/Service Fusion Job\s+#?(\d{4,})/i);
+  const issueReported = grab(/ISSUE REPORTED:[ \t]*([^\n]*)/i);
+  if (!zendesk && !issueReported) return null; // not this format
+
+  // Headline line right under the ticket number, e.g.
+  // "LEAKING COOLER - LUCKY STORE 755 (S/N: 10612477)"
+  const headline = grab(/ZENDESK\s+(?:REPAIR\s+)?TICKET\s*#\s*\d+\s*\n\s*([^\n]+)/i);
+
+  // LOCATION DETAILS block: store name, street, "CITY, ST ZIP"
+  let locationName = null;
+  let address = null;
+  const locBlock = t.match(/LOCATION DETAILS:\s*\n([\s\S]{0,500})/i)?.[1];
+  if (locBlock) {
+    const lines = locBlock
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((l) => !/^(IN\s.*TERRITORY|CONTACT|NTE)/i.test(l));
+    if (lines.length) {
+      locationName = lines[0];
+      if (lines.length >= 2) address = lines.slice(1, 3).join(', ');
+    }
+  }
+
+  const contact =
+    t.match(/LOCATION CONTACT:\s*\n?\s*([^\/\n]+?)\s*\/\s*([\d\-\(\)\s.+]{7,})/i) ||
+    t.match(/CONTACT:\s*([^\/\n]+?)\s*\/\s*([\d\-\(\)\s.+]{7,})/i);
+
+  const makeModel = grab(/ASSET MAKE\/MODEL:[ \t]*([^\n]*)/i);
+  const serial = grab(/ASSET SERIAL:[ \t]*([^\n]*)/i);
+
+  return {
+    location_name: locationName,
+    address,
+    contact_name: contact ? contact[1].trim() : null,
+    contact_phone: contact ? contact[2].trim() : null,
+    reference_number: zendesk ? `ZENDESK ${zendesk}` : vendorSfRef,
+    equipment: makeModel ? `${makeModel}${serial ? ` (S/N: ${serial})` : ''}` : serial,
+    issue_summary: issueReported || headline || subject,
+    requested_date: null,
+    urgency: /urgent|emergency|asap/i.test(t) ? 'urgent' : 'normal',
+    vendor_fields: {
+      zendesk_ticket: zendesk,
+      vendor_sf_ref: vendorSfRef,
+      headline,
+      created: grab(/CREATED:[ \t]*([^\n]*)/i),
+      asset_make_model: makeModel,
+      asset_serial: serial,
+      asset_material_number: grab(/ASSET MATERIAL NUMBER:[ \t]*([^\n]*)/i),
+      nte: grab(/NTE:[ \t]*(\$?\s?[\d,]+(?:\.\d{2})?)/i),
+      nte_type: grab(/NTE TYPE:[ \t]*([^\n]*)/i),
+      manufacture_date: grab(/MANUFACTURE DATE:[ \t]*([^\n]*)/i),
+      service_years: grab(/SERVICE YEARS:[ \t]*([^\n]*)/i),
+      native_reactive_territory: grab(/IN (?:FREEFLOW )?NATIVE REACTIVE TERRITORY:[ \t]*([^\n]*)/i),
+      zendesk_link: grab(/(https:\/\/\S*zendesk\.com\/\S+)/i),
+    },
+    parser: 'deterministic-redbull',
+  };
+}
+
 async function parseVendorEmail(route, { from, subject, text }) {
+  if (route.vendor_key === 'redbull') {
+    const exact = parseRedBullDeterministic(subject, text);
+    if (exact) return exact;
+    console.warn('Red Bull email did not match the known format — falling back to Claude parse');
+  }
   const raw = await claude(
     `You are parsing a forwarded vendor service email so a Service Fusion job ticket can be created.
 Vendor: ${route.display_name} (${route.vendor_key})
@@ -243,6 +325,11 @@ async function createSfJob(route, parsed, { from, subject, text, receivedAt }) {
     parsed.contact_name && `On-site contact: ${parsed.contact_name}${parsed.contact_phone ? ` (${parsed.contact_phone})` : ''}`,
     parsed.requested_date && `Requested date: ${parsed.requested_date}`,
     parsed.urgency === 'urgent' && `⚠ URGENT per vendor email`,
+    ...(parsed.vendor_fields
+      ? Object.entries(parsed.vendor_fields)
+          .filter(([, v]) => v)
+          .map(([k, v]) => `${k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())}: ${v}`)
+      : []),
     '',
     `Issue: ${parsed.issue_summary || subject}`,
     '',
@@ -374,6 +461,8 @@ async function handleVendorEmail(route, email) {
         row('Location', parsed.location_name) +
         row('Address', parsed.address) +
         row('Vendor ref #', parsed.reference_number) +
+        row('Equipment', parsed.equipment) +
+        row('NTE', parsed.vendor_fields?.nte && `${parsed.vendor_fields.nte}${parsed.vendor_fields.nte_type ? ` (${parsed.vendor_fields.nte_type})` : ''}`) +
         row('Issue', parsed.issue_summary) +
         row('Requested date', parsed.requested_date) +
         row('Source email', `${email.from} — ${email.subject}`) +
