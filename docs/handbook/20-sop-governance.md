@@ -46,7 +46,16 @@ Each manifest entry also registers the chapter's **sources** — the repo files 
 4. A chapter re-verified as still accurate just gets its `last_reviewed` bumped in the manifest — no prose change needed.
 5. The deeper, engineering-level drift audit remains the `/sync-arch` skill (architecture handbook vs recent commits across all repos); run it when the sweep shows broad staleness.
 
-The sweep **finds** drift — it never edits content on its own. Judgment about what a code change means for a procedure stays with a human or a supervised Claude session.
+The sweep **finds** drift — it never edits content on its own. There are two ways to act on it:
+
+- **Copy update prompt** — paste into a Claude Code session, review the diff, merge.
+- **Auto-update** — one button: Claude rewrites every stale chapter against its changed sources in the background and opens a **draft PR**.
+
+**Policy — auto-update PRs never merge without human review.** The button ends at a draft PR by design. The reviewer checks that the rewrite matches what actually changed (not just that it reads well), then merges. A policy or procedure that silently rewrites itself is a hazard, not a convenience.
+
+## The Change Log — automatic, not hand-kept
+
+**Policy.** The handbook's [Change Log](#/90-change-log) tab is generated from git: every commit landing on the default branch of every APBG repo appears in the feed automatically. Nobody maintains a change list by hand — if work isn't committed, it didn't ship; if it's committed, it's logged. The [Live Architecture Mirror](#/13-architecture-live) works the same way: it renders the master `ARCHITECTURE.md` straight from GitHub at view time, so it cannot drift. The consequence: keeping commit messages and PR descriptions meaningful **is** the logging discipline.
 
 ## Feeding the assistants (internal RAG)
 

@@ -106,11 +106,15 @@ Authorizes the accounting / field-service systems the `pacerfinance` MCP servers
 
 ## APBG Handbook & SOP Sweep
 
-The **APBG Handbook** panel has two parts:
+The **APBG Handbook** panel has three parts: the library link, the sweep, and the auto-update button.
 
 ### Handbook library link
 
-Opens the handbook viewer — the document you are reading. The markdown source lives in `apbg-billing` at `docs/handbook/`, and the viewer is served at **https://alamedapointbg.com/margin/docs/handbook/** through the gateway (the `/margin/docs/*` proxy route; directly, `apbg-billing.netlify.app/docs/handbook/`).
+Opens the handbook viewer — the document you are reading. The markdown source lives in `apbg-billing` at `docs/handbook/`, and the viewer is served at **https://alamedapointbg.com/margin/docs/handbook/** through the gateway (the `/margin/docs/*` proxy route; directly, `apbg-billing.netlify.app/docs/handbook/`). Beyond the user guides and SOPs, the library carries:
+
+- **[Architecture & Data](#/12-architecture-overview)** — Mermaid diagrams of how the apps, data stores, and pipelines fit together.
+- **[Live Architecture Mirror](#/13-architecture-live)** — the master `ARCHITECTURE.md` rendered straight from GitHub at view time (`handbook-architecture` function; admin sign-in required). A live fetch can't drift the way a copy would.
+- **[Change Log](#/90-change-log)** — an automatic feed of every commit across all APBG repos (`handbook-changelog` function). Git is the logger; nothing is entered by hand.
 
 ### Run sweep
 
@@ -122,6 +126,12 @@ Every chapter registers its **source documents** in `docs/handbook/manifest.json
 4. Reports the results in the panel: which chapters are stale, which sources moved, and when.
 
 For each stale chapter the sweep produces a **copy-paste update prompt** — a ready-made instruction for a Claude session naming the chapter file, its changed sources, and the review-date bump — so bringing a chapter current is a paste, not a research project. After a chapter is re-verified against its sources, update its `last_reviewed` in the manifest (that's what clears the stale flag).
+
+### Auto-update (one button → draft PR)
+
+When the sweep finds stale chapters, an **Auto-update** button appears. It calls `handbook-autoupdate-background`, which for each stale chapter: pulls the current chapter and the changed source files from GitHub, has Claude rewrite the chapter against them (same structure, grounded, review date bumped), then commits everything to a new branch and opens a **draft PR** on `apbg-billing`. Runs in the background (~1–3 minutes); the PR appearing at github.com/skypace/apbg-billing/pulls is the result.
+
+**It never merges anything.** Per [SOP-0](#/20-sop-governance), SOP and user-guide text always gets human review before it goes live — the automation ends at a ready-to-review PR. Needs `GITHUB_WRITE_TOKEN` (or a write-scoped `GITHUB_TOKEN`) and `ANTHROPIC_API_KEY` on the Netlify site.
 
 Superadmin only, like everything else on this page. The governance rules around who reviews what and how often live in [SOP-0 · Policy Governance](#/20-sop-governance).
 

@@ -250,8 +250,52 @@ html,body{
 <script>
 marked.setOptions({ gfm: true, breaks: false, headerIds: true, mangle: false });
 
-const state = { manifest: null, current: null, obs: null };
+const state = { manifest: null, current: null, obs: null, mermaid: null };
 const DEFAULT_CHAPTER = '00-start-here';
+
+// Live chapters (architecture mirror, change log) call Netlify functions.
+// Served through the gateway the functions live under /margin/.netlify/…;
+// on the netlify origin they're at /.netlify/….
+const FN_BASE = location.pathname.startsWith('/margin/')
+  ? '/margin/.netlify/functions/'
+  : '/.netlify/functions/';
+
+function sessionToken(){
+  try {
+    const raw = localStorage.getItem('apbg_session');
+    if (raw) { const s = JSON.parse(raw); if (s && s.token) return s.token; }
+  } catch {}
+  return null;
+}
+
+async function ensureMermaid(){
+  if (!state.mermaid) {
+    const mod = await import('https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs');
+    state.mermaid = mod.default;
+    state.mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict',
+      themeVariables: { fontFamily: 'DM Sans, sans-serif', primaryColor: '#1E3A5F', primaryTextColor: '#F8FAFC', lineColor: '#64748B' } });
+  }
+  return state.mermaid;
+}
+
+async function renderMermaid(root){
+  const blocks = root.querySelectorAll('pre > code.language-mermaid');
+  if (!blocks.length) return;
+  try {
+    const mermaid = await ensureMermaid();
+    blocks.forEach((code) => {
+      const holder = document.createElement('pre');
+      holder.className = 'mermaid';
+      holder.style.background = 'transparent';
+      holder.style.border = 'none';
+      holder.textContent = code.textContent;
+      code.parentNode.replaceWith(holder);
+    });
+    await mermaid.run({ nodes: root.querySelectorAll('pre.mermaid') });
+  } catch (e) {
+    console.error('mermaid render failed', e); // diagrams degrade to code blocks
+  }
+}
 
 function slugify(text){
   return text.toLowerCase().trim().replace(/[^\w\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
@@ -327,13 +371,30 @@ async function route(){
   }
 }
 
+async function fetchChapterMarkdown(ch){
+  if (!ch.remote) {
+    const res = await fetch('./' + ch.slug + '.md?_=' + Date.now(), { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`${ch.slug}.md HTTP ${res.status}`);
+    return { md: await res.text(), meta: null };
+  }
+  // Live chapter — authed function call.
+  const token = sessionToken();
+  if (!token) {
+    throw new Error('SIGN_IN');
+  }
+  const res = await fetch(FN_BASE + ch.remote, { headers: { Authorization: 'Bearer ' + token } });
+  if (res.status === 401 || res.status === 403) throw new Error('SIGN_IN');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return { md: data.markdown || '', meta: data };
+}
+
 async function loadChapter(ch){
   const docEl = document.getElementById('doc');
   docEl.innerHTML = '<div class="state"><div class="spinner"></div><div>Loading chapter…</div></div>';
   try {
-    const res = await fetch('./' + ch.slug + '.md?_=' + Date.now(), { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`${ch.slug}.md HTTP ${res.status}`);
-    const md = await res.text();
+    const { md, meta } = await fetchChapterMarkdown(ch);
+    ch._meta = meta;
     const rawHtml = marked.parse(md);
     const safeHtml = DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['target','rel'] });
     docEl.innerHTML = safeHtml;
@@ -348,6 +409,7 @@ async function loadChapter(ch){
       wrap.appendChild(t);
     });
 
+    await renderMermaid(docEl);
     assignHeadingIds(ch.slug);
     buildSubToc(ch.slug);
     addAnchors(ch.slug);
@@ -355,13 +417,26 @@ async function loadChapter(ch){
     buildPager(ch);
     setupNavObserver(ch.slug);
   } catch (err) {
-    docEl.innerHTML = `<div class="state error">
-      <div style="font-size:1.2rem;margin-bottom:8px">⚠️ Couldn't load this chapter</div>
-      <div style="font-size:0.82rem">${err.message}</div>
-      <div style="font-size:0.78rem;margin-top:14px;color:var(--text-3)">
-        The viewer expects <code>./${ch.slug}.md</code> next to this file — the build step copies
-        <code>docs/</code> → <code>public/docs/</code>.
-      </div></div>`;
+    if (err.message === 'SIGN_IN') {
+      docEl.innerHTML = `<div class="state">
+        <div style="font-size:1.2rem;margin-bottom:8px">🔒 This chapter is live data — sign in to view it</div>
+        <div style="font-size:0.84rem;max-width:520px;margin:0 auto;line-height:1.6">
+          The live architecture mirror and change log are pulled from GitHub at view time and need an
+          APBG admin session. Sign in at <a href="https://alamedapointbg.com" target="_blank" rel="noopener">alamedapointbg.com</a>,
+          then open the handbook through
+          <a href="https://alamedapointbg.com/margin/docs/handbook/">alamedapointbg.com/margin/docs/handbook/</a>
+          so your session travels with it.
+        </div></div>`;
+    } else {
+      docEl.innerHTML = `<div class="state error">
+        <div style="font-size:1.2rem;margin-bottom:8px">⚠️ Couldn't load this chapter</div>
+        <div style="font-size:0.82rem">${err.message}</div>
+        <div style="font-size:0.78rem;margin-top:14px;color:var(--text-3)">
+          ${ch.remote
+            ? 'Live chapters need the <code>' + ch.remote + '</code> function and a valid <code>GITHUB_TOKEN</code> on Netlify.'
+            : 'The viewer expects <code>./' + ch.slug + '.md</code> next to this file — the build step copies <code>docs/</code> → <code>public/docs/</code>.'}
+        </div></div>`;
+    }
     document.getElementById('pager').style.display = 'none';
   }
 }
@@ -412,12 +487,18 @@ function addAnchors(slug){
 
 function updateChrome(ch){
   const partLabel = (state.manifest.parts.find(p => p.id === ch.part) || {}).label || '';
-  document.getElementById('crumb').textContent =
-    `${partLabel} · reviewed ${ch.last_reviewed} · owner ${ch.owner}`;
+  const meta = ch._meta;
+  document.getElementById('crumb').textContent = ch.remote
+    ? `${partLabel} · LIVE · fetched ${((meta && (meta.fetched_at || meta.generated_at)) || '').slice(0,16).replace('T',' ')} UTC`
+    : `${partLabel} · reviewed ${ch.last_reviewed} · owner ${ch.owner}`;
   document.title = ch.title + ' — APBG Master Handbook';
   const edit = document.getElementById('chapterEdit');
-  edit.href = `https://github.com/skypace/apbg-billing/blob/main/docs/handbook/${ch.slug}.md`;
-  edit.style.display = 'inline-flex';
+  if (ch.remote && !ch.edit_url) {
+    edit.style.display = 'none';
+  } else {
+    edit.href = ch.edit_url || `https://github.com/skypace/apbg-billing/blob/main/docs/handbook/${ch.slug}.md`;
+    edit.style.display = 'inline-flex';
+  }
 }
 
 function buildPager(ch){

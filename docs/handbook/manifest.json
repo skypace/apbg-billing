@@ -4,9 +4,26 @@
   "version": "1.0.0",
   "updated": "2026-07-22",
   "parts": [
-    { "id": "intro", "label": "Start Here" },
-    { "id": "guide", "label": "Part I · Master User Guide" },
-    { "id": "sop", "label": "Part II · Operations SOP Manual" }
+    {
+      "id": "intro",
+      "label": "Start Here"
+    },
+    {
+      "id": "guide",
+      "label": "Part I · Master User Guide"
+    },
+    {
+      "id": "arch",
+      "label": "Architecture & Data"
+    },
+    {
+      "id": "sop",
+      "label": "Part II · Operations SOP Manual"
+    },
+    {
+      "id": "log",
+      "label": "Change Log"
+    }
   ],
   "chapters": [
     {
@@ -16,7 +33,10 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/Skilliosis_Mytosis_Architecture", "path": "ARCHITECTURE.md" }
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        }
       ]
     },
     {
@@ -26,8 +46,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-gateway", "path": "CLAUDE.md" },
-        { "repo": "skypace/apbg-gateway", "path": "public/auth.js" }
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "public/auth.js"
+        }
       ]
     },
     {
@@ -37,8 +63,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "content/knowledge-base/portal-user-guide.md" },
-        { "repo": "activespacescience/brix-order", "path": "content/knowledge-base/account-billing-faqs.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/portal-user-guide.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/account-billing-faqs.md"
+        }
       ]
     },
     {
@@ -48,8 +80,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" },
-        { "repo": "activespacescience/brix-order", "path": "ARCHITECTURE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "ARCHITECTURE.md"
+        }
       ]
     },
     {
@@ -59,7 +97,10 @@
       "owner": "Dani",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -69,8 +110,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" },
-        { "repo": "activespacescience/brix-order", "path": "content/knowledge-base" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base"
+        }
       ]
     },
     {
@@ -80,8 +127,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "docs/margin-control/user-guide.md" },
-        { "repo": "skypace/apbg-billing", "path": "architecture/MARGIN-CONTROL.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/margin-control/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/MARGIN-CONTROL.md"
+        }
       ]
     },
     {
@@ -91,8 +144,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "docs/brixpense/user-guide.md" },
-        { "repo": "skypace/apbg-billing", "path": "architecture/BRIXPENSE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/brixpense/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/BRIXPENSE.md"
+        }
       ]
     },
     {
@@ -102,8 +161,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "CLAUDE.md" },
-        { "repo": "skypace/apbg-billing", "path": "public/setup.html" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/setup.html"
+        }
       ]
     },
     {
@@ -113,7 +178,10 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "public/control.html" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/control.html"
+        }
       ]
     },
     {
@@ -123,7 +191,10 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "CLAUDE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -133,8 +204,38 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/Skilliosis_Mytosis_Architecture", "path": "ARCHITECTURE.md" }
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        }
       ]
+    },
+    {
+      "slug": "12-architecture-overview",
+      "title": "Architecture & Data — How the Programs and Data Work",
+      "part": "arch",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/sync-manifest.json"
+        }
+      ]
+    },
+    {
+      "slug": "13-architecture-live",
+      "title": "Live Architecture Mirror — ARCHITECTURE.md (rendered from GitHub)",
+      "part": "arch",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "remote": "handbook-architecture",
+      "edit_url": "https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md",
+      "sources": []
     },
     {
       "slug": "20-sop-governance",
@@ -143,7 +244,10 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "docs/handbook/manifest.json" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/handbook/manifest.json"
+        }
       ]
     },
     {
@@ -153,8 +257,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-gateway", "path": "CLAUDE.md" },
-        { "repo": "skypace/apbg-billing", "path": "CLAUDE.md" }
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -164,7 +274,10 @@
       "owner": "Dani",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -174,7 +287,10 @@
       "owner": "Dani",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -184,8 +300,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "docs/BILLANDPAY-MIGRATION.md" },
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "docs/BILLANDPAY-MIGRATION.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -195,8 +317,14 @@
       "owner": "Dani",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "activespacescience/brix-order", "path": "content/knowledge-base/tank-co2-rentals.md" },
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/tank-co2-rentals.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -206,8 +334,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "public/control.html" },
-        { "repo": "activespacescience/brix-order", "path": "CLAUDE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/control.html"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -217,8 +351,14 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "docs/brixpense/user-guide.md" },
-        { "repo": "skypace/apbg-billing", "path": "CLAUDE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/brixpense/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -228,7 +368,10 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "CLAUDE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
       ]
     },
     {
@@ -238,9 +381,24 @@
       "owner": "Sky Pace",
       "last_reviewed": "2026-07-22",
       "sources": [
-        { "repo": "skypace/apbg-billing", "path": "architecture/sync-manifest.json" },
-        { "repo": "activespacescience/Skilliosis_Mytosis_Architecture", "path": "ARCHITECTURE.md" }
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/sync-manifest.json"
+        },
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        }
       ]
+    },
+    {
+      "slug": "90-change-log",
+      "title": "Change Log — What Shipped Across Every APBG Repo",
+      "part": "log",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "remote": "handbook-changelog",
+      "sources": []
     }
   ]
 }

@@ -6,7 +6,8 @@ This is the **APBG Master Handbook** — one place for everything: how to use ev
 
 ## How to navigate
 
-- The **sidebar** lists every chapter, grouped into the User Guide and the SOP Manual. Click a chapter to load it; the section list underneath tracks where you are.
+- The **sidebar** lists every chapter, grouped into the User Guide, Architecture & Data, the SOP Manual, and the Change Log. Click a chapter to load it; the section list underneath tracks where you are.
+- **[Architecture & Data](#/12-architecture-overview)** diagrams how the programs and data connect; the **[Live Architecture Mirror](#/13-architecture-live)** renders the master `ARCHITECTURE.md` straight from GitHub (sign in first). The **[Change Log](#/90-change-log)** is an automatic feed of every commit across every APBG repo.
 - **Search** (press `/`) filters chapters and sections.
 - Every chapter cross-links its neighbors and ends with a **Related** section pointing at the deeper source documents.
 - **Print** renders the current chapter clean for paper.
