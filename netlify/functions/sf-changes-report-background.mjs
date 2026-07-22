@@ -26,7 +26,8 @@
 // ~1-2 min). Invoked by the Master Control button (superadmin Bearer) or the
 // daily cron (x-sf-changes-secret = SUPABASE_SERVICE_ROLE_KEY prefix). The
 // cron path emails ONLY when something changed; the button always emails.
-// Every run appends an ops.sync_log row (existing logging convention).
+// Every run appends an ops.sync_log row (source='sf' — sync_log has a CHECK
+// allowlist on source — discriminated by sync_type='sf-changes-report').
 
 import { requireAuth } from './lib/auth.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
@@ -218,7 +219,7 @@ export default async (req) => {
 
     logMsg = `${isBaseline ? `baseline ${current.size} customers` : `${changes} changes (${commsChanged.length} comms, +${added.length}, -${removed.length}, ${renamed.length} renamed)`}${shouldEmail ? ', emailed' : ', quiet (no changes)'}`;
     await opsWrite('POST', 'sync_log', {
-      source: 'sf-changes-report', sync_type: 'sf_changes', status: 'success',
+      source: 'sf', sync_type: 'sf-changes-report', status: 'success',
       records_synced: current.size, started_at: startedAt, completed_at: new Date().toISOString(),
       metadata: { message: logMsg },
     }).catch(() => {});
@@ -227,7 +228,7 @@ export default async (req) => {
   } catch (e) {
     console.error('[sf-changes-report] failed:', e);
     await opsWrite('POST', 'sync_log', {
-      source: 'sf-changes-report', sync_type: 'sf_changes', status: 'error',
+      source: 'sf', sync_type: 'sf-changes-report', status: 'error',
       error_message: String(e?.message || e).slice(0, 500), started_at: startedAt, completed_at: new Date().toISOString(),
     }).catch(() => {});
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 });
