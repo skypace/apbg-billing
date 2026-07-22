@@ -116,6 +116,11 @@ function commsOf(c) {
   return rows;
 }
 
+/** Order- and key-order-proof comparison key for a comms array. */
+function commsFingerprint(rows) {
+  return (rows || []).map((r) => `${r.email}|${r.contact}|${r.types}`).sort().join(';');
+}
+
 function fmtComms(rows) {
   if (!rows.length) return '<i>none</i>';
   return rows.map((r) => `${esc(r.email)}${r.contact ? ` (${esc(r.contact)})` : ''}: <b>${esc(r.types)}</b>`).join('<br>');
@@ -139,7 +144,15 @@ export default async (req) => {
     const customers = await fetchAllSfCustomers(token);
     const current = new Map(customers.map((c) => [String(c.id), { name: c.customer_name || '', comms: commsOf(c) }]));
 
-    const snapRows = await opsGet('sf_customer_snapshot?select=sf_customer_id,customer_name,comms,removed_at&limit=10000');
+    // PostgREST caps any single read at its max-rows setting (1000 on this
+    // project) no matter what limit= asks for — page explicitly or the diff
+    // sees a truncated snapshot and reports phantom "new" customers.
+    const snapRows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await opsGet(`sf_customer_snapshot?select=sf_customer_id,customer_name,comms,removed_at,last_seen_at&order=sf_customer_id.asc&limit=1000&offset=${offset}`);
+      snapRows.push(...page);
+      if (page.length < 1000) break;
+    }
     const snap = new Map(snapRows.map((r) => [String(r.sf_customer_id), r]));
     const isBaseline = snap.size === 0;
 
@@ -153,9 +166,11 @@ export default async (req) => {
       const old = snap.get(id);
       if (!old) { added.push({ id, ...cur }); continue; }
       if (old.removed_at) returned.push({ id, ...cur });
-      const oldComms = JSON.stringify(old.comms || []);
-      const newComms = JSON.stringify(cur.comms);
-      if (oldComms !== newComms) commsChanged.push({ id, name: cur.name, before: old.comms || [], after: cur.comms });
+      // jsonb re-orders object keys on storage, so never compare JSON strings —
+      // fingerprint on values only.
+      if (commsFingerprint(old.comms) !== commsFingerprint(cur.comms)) {
+        commsChanged.push({ id, name: cur.name, before: old.comms || [], after: cur.comms });
+      }
       if ((old.customer_name || '') !== cur.name) renamed.push({ id, before: old.customer_name, after: cur.name });
     }
     for (const [id, old] of snap) {
@@ -183,10 +198,19 @@ export default async (req) => {
 
     let html;
     if (isBaseline) {
-      html = `<p><b>Baseline created.</b> Snapshot of ${current.size} Service Fusion customers stored. Future runs will report changes against it.</p>`;
-    } else {
+      const withComms = [...current].filter(([, c]) => c.comms.length);
       html =
-        `<p>Compared against the snapshot from the previous run. <b>${changes} change${changes === 1 ? '' : 's'}</b> across ${current.size} customers.</p>` +
+        `<p><b>First run — baseline stored.</b> Future emails will list the changes in Service Fusion since the previous check.</p>` +
+        `<p>Current state: <b>${current.size} customers</b>, <b>${withComms.length}</b> with communication settings:</p>` +
+        table(withComms.map(([id, c]) =>
+          `<tr><td style="${td}"><b>${esc(c.name)}</b><br><span style="color:#6B7280">SF ${esc(id)}</span></td><td style="${td}">${fmtComms(c.comms)}</td></tr>`).join(''));
+    } else {
+      const since = snapRows.reduce((m, r) => (r.last_seen_at && r.last_seen_at > m ? r.last_seen_at : m), '');
+      const sinceTxt = since ? new Date(since).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : 'the previous check';
+      html =
+        (changes === 0
+          ? `<p style="color:#059669"><b>No changes in Service Fusion</b> since ${sinceTxt} (${current.size} customers checked).</p>`
+          : `<p><b>These are the changes in Service Fusion</b> since ${sinceTxt} — <b>${changes} change${changes === 1 ? '' : 's'}</b> across ${current.size} customers:</p>`) +
         section(`⚙️ Communication settings changed (${commsChanged.length})`,
           commsChanged.length ? table(commsChanged.map((c) =>
             `<tr><td style="${td}"><b>${esc(c.name)}</b><br><span style="color:#6B7280">SF ${esc(c.id)}</span></td>` +
@@ -194,13 +218,12 @@ export default async (req) => {
             `<td style="${td}"><span style="color:#6B7280">now:</span><br>${fmtComms(c.after)}</td></tr>`).join('')) : '') +
         section(`🆕 New customers (${added.length})`,
           added.length ? table(added.map((c) => `<tr><td style="${td}"><b>${esc(c.name)}</b> — SF ${esc(c.id)}</td><td style="${td}">${fmtComms(c.comms)}</td></tr>`).join('')) : '') +
-        section(`🗑 Removed customers — deleted or archived, SF's API can't tell which (${removed.length})`,
+        section(`🗑 Removed customers — deleted or deactivated, SF's API can't tell which (${removed.length})`,
           removed.length ? table(removed.map((c) => `<tr><td style="${td}"><b>${esc(c.name)}</b> — SF ${esc(c.id)}</td><td style="${td}">had: ${fmtComms(c.comms)}</td></tr>`).join('')) : '') +
         section(`↩️ Returned (previously removed, visible again) (${returned.length})`,
           returned.length ? table(returned.map((c) => `<tr><td style="${td}"><b>${esc(c.name)}</b> — SF ${esc(c.id)}</td></tr>`).join('')) : '') +
         section(`✏️ Renamed (${renamed.length})`,
-          renamed.length ? table(renamed.map((c) => `<tr><td style="${td}">SF ${esc(c.id)}: ${esc(c.before)} → <b>${esc(c.after)}</b></td></tr>`).join('')) : '') +
-        (changes === 0 ? '<p style="color:#059669"><b>No changes.</b></p>' : '');
+          renamed.length ? table(renamed.map((c) => `<tr><td style="${td}">SF ${esc(c.id)}: ${esc(c.before)} → <b>${esc(c.after)}</b></td></tr>`).join('')) : '');
     }
 
     const shouldEmail = isBaseline || changes > 0 || !quietIfUnchanged;
@@ -208,10 +231,12 @@ export default async (req) => {
       await sendEmail({
         to: REPORT_TO,
         subject: isBaseline
-          ? `Service Fusion Changes report — baseline created (${current.size} customers)`
-          : `Service Fusion Changes report — ${changes} change${changes === 1 ? '' : 's'}`,
+          ? `Service Fusion Changes — baseline stored (${current.size} customers)`
+          : changes === 0
+            ? 'Service Fusion Changes — no changes'
+            : `Service Fusion Changes — ${changes} change${changes === 1 ? '' : 's'} (${commsChanged.length} comms, ${added.length} new, ${removed.length} removed)`,
         html: `<div style="font-family:'DM Sans',Arial,sans-serif;max-width:720px">` +
-          `<div style="background:#0F172A;color:#fff;padding:14px 20px;border-radius:10px 10px 0 0"><b>Service Fusion Changes report</b> · ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PT</div>` +
+          `<div style="background:#0F172A;color:#fff;padding:14px 20px;border-radius:10px 10px 0 0"><b>Service Fusion Changes</b> · ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PT</div>` +
           `<div style="border:1px solid #E5E7EB;border-top:0;border-radius:0 0 10px 10px;padding:6px 20px 16px">${html}` +
           `<p style="color:#9CA3AF;font-size:12px;margin-top:16px">Run from ${isCron ? 'the daily check' : 'Master Control'} · comms settings = per-email types_accepted (CONF/STATUS/PMT/INV) · SF's API is read-only for customers, so fixes happen in the SF web UI.</p></div></div>`,
       });
