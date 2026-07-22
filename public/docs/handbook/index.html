@@ -493,11 +493,15 @@ function assignHeadingIds(slug){
 }
 
 function buildSubToc(slug){
-  // collapse all, populate + open the active chapter's section list
-  document.querySelectorAll('#nav li').forEach(li => {
+  // collapse all, populate + open the active chapter's section list.
+  // Scope to li[data-slug] — the sidebar also contains section sub-items
+  // (subtoc <li>s) with no chapter link; touching those crashed navigation.
+  document.querySelectorAll('#nav li[data-slug]').forEach(li => {
+    const link = li.querySelector('a.chapter');
+    const sub = li.querySelector('.subtoc');
     li.classList.toggle('open', li.dataset.slug === slug);
-    li.querySelector('a.chapter').classList.toggle('active', li.dataset.slug === slug);
-    if (li.dataset.slug !== slug) li.querySelector('.subtoc').innerHTML = '';
+    if (link) link.classList.toggle('active', li.dataset.slug === slug);
+    if (sub && li.dataset.slug !== slug) sub.innerHTML = '';
   });
   const li = document.querySelector(`#nav li[data-slug="${slug}"]`);
   if (!li) return;
@@ -574,7 +578,7 @@ function setupSearch(){
   input.addEventListener('input', () => {
     const q = input.value.trim().toLowerCase();
     let visible = 0;
-    document.querySelectorAll('#nav > ul > li, #nav li[data-slug]').forEach(li => {
+    document.querySelectorAll('#nav li[data-slug]').forEach(li => {
       const text = li.textContent.toLowerCase();
       const show = !q || text.includes(q);
       li.classList.toggle('nav-hidden', !show);
