@@ -28,7 +28,7 @@ A tile per system showing whether its token/cache activity is alive: last activi
 
 Puts any APBG app into a **banner** (dismissible notice) or **lockout** (full-screen block) state with your service note. State lives in the gateway's `public.app_maintenance` table, written via the gateway `POST /api/maintenance` (superadmin JWT), and rendered inside every app by the embedded `appswitcher.js`. Users see the effect within ~30 seconds. What users experience is described in [APBG Gateway](#/01-gateway-hub).
 
-Targetable apps: **All apps (global)**, Refractor / 3rd-Party Billing, BRIX Margin Control, Brixpense, Master Control, Melt Dashboard, Brix Order (customer), Leasing / Rental, Operations Hub.
+The row list is **registry-driven**: every app registered in the gateway's app registry gets a row automatically (plus the core infrastructure rows — All apps, Operations Hub, Master Control, the Handbook), so any app in the portal can be cut off from here without a code change. Apps that share one surface collapse onto one row (User Guides + SOPs → Handbook; Inventory → Refractor); external third-party links (Trello, Service Fusion's own site) have no row because we can't lock a site we don't run.
 
 ### Put an app into maintenance
 
