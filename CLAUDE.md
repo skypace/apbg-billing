@@ -177,6 +177,7 @@ Full original brief: [`PACER-KPI-SPEC.md`](PACER-KPI-SPEC.md), [`FLEET-HR-INTEGR
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-07-22 | vendor intake | **Vendor email → SF ticket automation (Red Bull + Freshpet), zero crons.** New `netlify/functions/vendor-email-intake.mjs` — Resend inbound webhook (Svix-verified via `RESEND_INBOUND_SECRET`): emails forwarded to `rbfreeflow@`/`freshpet@alamedapointbg.com` are Claude-parsed (per-route hints) and become SF jobs under the route's `sf_customer_name`; SF's own job-status notification emails pointed at `sf-status@alamedapointbg.com` are parsed (regex + Claude fallback) and relayed to the route's `send_list` — SF has no API webhooks, its notification email IS the event. New tables `ops.vendor_email_routes/_email_tickets/_ticket_events` (migration `20260722a`, service-role only, seeded routes; `sf_customer_name` NULL = record-but-don't-create + alert). Category attach retries without on 422; dedup on Resend email id; setup checklist in `architecture/VENDOR-EMAIL-INTAKE.md`. |
 | 2026-05-11 | v0.9.22 | Items active/managed toggles, customers parent/sub + address, Margin hero-stamp polish. |
 | 2026-05-11 | v0.9.23 | **P&L alignment audit shipped.** `fn_item_pl_audit` + `fn_apply_pl_category_suggestions`. Items master gets a P&L Alignment column + bulk auto-categorize. |
 | 2026-05-11 | v0.9.24 | **Per-customer entity + FIRST QBO WRITEBACK PATH.** New `push-qbo-item` edge function. |
