@@ -801,6 +801,18 @@ async function handleStatusEmail(email) {
     last_sf_status: newStatus,
     last_status_at: new Date().toISOString(),
   });
+
+  // Enrich the update with live job detail so completion/billing emails carry
+  // the actual outcome (what was done, totals), not just the status name.
+  // Best-effort: a failed SF read still sends the basic update.
+  let job = null;
+  try {
+    job = await sfRequest('GET', `/jobs/${ticket.sf_job_id || jobNumber}`);
+  } catch (e) {
+    console.warn('SF job detail fetch failed (sending basic update):', e.message);
+  }
+  const money = (v) => (v !== null && v !== undefined && v !== '' ? `$${v}` : null);
+
   await sendTo(
     recipients,
     `Work order update — ${ticket.parsed?.reference_number || `job ${jobNumber}`}: ${newStatus}`,
@@ -809,6 +821,12 @@ async function handleStatusEmail(email) {
       row('New status', newStatus) +
       row('Previous status', ticket.last_sf_status || '(first update)') +
       row('Location', ticket.parsed?.location_name) +
+      row('Scheduled for', job?.start_date) +
+      row('Completed', job?.closed_at) +
+      row('Work performed', job?.completion_notes) +
+      row('Tech notes', job?.tech_notes) +
+      row('Job total', money(job?.total)) +
+      row('Payment status', job?.payment_status) +
       row('Original request', ticket.subject),
   );
   return { ok: true, ticketId: ticket.id, status: newStatus };
