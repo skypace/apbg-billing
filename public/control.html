@@ -454,20 +454,51 @@ const btnCss = (bg)=>`padding:8px 16px;border:0;border-radius:6px;font-weight:60
 // appswitcher.js embedded in every app. We write it via the gateway
 // /api/maintenance endpoint (superadmin JWT via authedFetch).
 const GW_API = 'https://alamedapointbg.com/api';
-const MAINT_APPS = [
-  {key:'all',      label:'🌐 All apps (global)'},
-  {key:'billing',  label:'Refractor / 3rd-Party Billing'},
-  {key:'margin',   label:'BRIX Margin Control'},
-  {key:'brixpense',label:'Brixpense'},
-  {key:'control',  label:'Master Control'},
-  {key:'melt',     label:'Melt Dashboard'},
-  {key:'order',    label:'Brix Order (customer)'},
-  {key:'leasing',  label:'Leasing / Rental'},
-  {key:'gateway',  label:'Operations Hub'},
+// Core infrastructure rows (always shown) — keys match what appswitcher.js
+// appKey() infers per app, which is what banner/lockout enforcement keys on.
+const MAINT_CORE = [
+  {key:'all',       label:'🌐 All apps (global)'},
+  {key:'gateway',   label:'Operations Hub (gateway + admin pages)'},
+  {key:'control',   label:'Master Control'},
+  {key:'billing',   label:'3rd-Party Billing (AP tool)'},
+  {key:'margin',    label:'BRIX Refractor (Margin)'},
+  {key:'brixpense', label:'Brixpense'},
+  {key:'melt',      label:'Melt Dashboard'},
+  {key:'order',     label:'Brix Order (customer portal)'},
+  {key:'leasing',   label:'Brix ERLS / Leasing'},
+  {key:'operations',label:'APBG Ops (KPIs)'},
+  {key:'handbook',  label:'Handbook (User Guides + SOPs)'},
 ];
+// Registry app_key → enforcement key. null = no lockable surface (external
+// third-party sites, placeholder cards); duplicates collapse onto one row.
+const MAINT_KEY_MAP = {
+  brixOrder:'order', marginCtrl:'margin', inventory:'margin', brixKpi:'operations',
+  erls:'leasing', userguides:'handbook', sop:'handbook',
+  users:'gateway', appMgr:'gateway', pacerConnect:'gateway',
+  trello:null, serviceDash:null, cylinder:null, sales:null, starbird:null,
+};
+let MAINT_APPS = MAINT_CORE.slice();
 let maintState = {};
 async function loadMaintenance(){
   const box=document.getElementById('maintBox');
+  // Merge the live gateway app registry so EVERY portal app gets a row here
+  // — any app can be cut off from this panel. Registry fetch failure falls
+  // back to the core list (never blocks the panel).
+  try{
+    const r=await fetch(`${GW_API}/apps`,{headers:authHeaders()});
+    const d=await r.json();
+    const rows=Array.isArray(d)?d:(d&&(d.apps||d.data))||[];
+    const seen=new Set(MAINT_CORE.map(a=>a.key));
+    const extra=[];
+    rows.forEach(a=>{
+      if(!a||a.active===false||!a.href||a.href==='#') return;
+      const key=Object.prototype.hasOwnProperty.call(MAINT_KEY_MAP,a.app_key)?MAINT_KEY_MAP[a.app_key]:a.app_key;
+      if(!key||seen.has(key)) return;
+      seen.add(key);
+      extra.push({key, label:a.name});
+    });
+    MAINT_APPS=MAINT_CORE.concat(extra.sort((x,y)=>String(x.label).localeCompare(String(y.label))));
+  }catch(e){ MAINT_APPS=MAINT_CORE.slice(); }
   try{
     const res=await fetch(`${GW_API}/maintenance`);
     const data=await res.json();
