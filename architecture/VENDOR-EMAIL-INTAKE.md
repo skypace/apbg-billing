@@ -28,13 +28,29 @@ Freshpet email ──forward──▶ freshpet@alamedapointbg.com  ──┤
                               7. "Ticket created" email → route.send_list
 
 Red Bull SF-job mapping (per Sky, 2026-07-22):
+  Customer    = FF REDBULL SERVICE (sub-customer), parent_customer =
+                FREEFLOW BEVERAGE SOLUTIONS attached on every job. ⚠ SF's
+                API has NO job-level bill-to field — set "Bill To: parent"
+                on the FF REDBULL SERVICE customer record in SF once, and
+                every WO bills the main customer.
   PO number   = "ZD <zendesk #> / SF <vendor's SF job #>"
   Description = ISSUE REPORTED + DESCRIPTION call-log + LOCATION CONTACT +
                 ZENDESK LINK + LOCATION DETAILS + NTE lines (verbatim blocks)
   Job notes   = MANUFACTURE DATE · SERVICE YEARS · ZENDESK TICKET LINK
   Plus structured job location (location_name/street_1/city/state_prov/
   postal_code) + contact_first_name so dispatch sees the real site.
-  Customer = FREEFLOW BEVERAGE SOLUTIONS COMPANY, status Unscheduled.
+  Status Unscheduled.
+
+Accept / Decline / update audiences:
+  - Pending-confirmation email → route.send_list (internal; service@brixbev.com).
+  - ✓ Create → SF job created; ACCEPTANCE email ("accepted and received —
+    you will receive updates through completion and billing") → the original
+    submitter + route.vendor_notify_list (Red Bull: cokraska@freeflowbev.com).
+  - ✕ Decline → reason picker page (territory / NTE / equipment / duplicate /
+    access / other + notes); recorded on the ticket; decline email → the same
+    vendor recipients + the internal send list.
+  - SF status changes (via sf-status@) → vendor recipients + internal send
+    list, every transition, all the way through billing statuses.
 
 SF job status changes ──SF notification email──▶ sf-status@alamedapointbg.com
                                                            ▼

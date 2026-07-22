@@ -19,6 +19,9 @@ create table if not exists ops.vendor_email_routes (
   sf_customer_name text,                         -- SF customer the job is created under.
                                                  -- NULL = intake records the email but
                                                  -- refuses to create the SF job.
+  sf_parent_customer text,                       -- attach-by-name parent customer on the
+                                                 -- job (billing rolls up to the main
+                                                 -- customer via SF's Bill-To setting)
   sf_job_category text,                          -- must already exist in SF Settings →
                                                  -- Job Categories (unknown names 422;
                                                  -- intake retries without it)
@@ -27,6 +30,10 @@ create table if not exists ops.vendor_email_routes (
                                                       -- email an Approve/Decline
                                                       -- link before creating in SF
   send_list text[] not null default '{service@brixbev.com}',
+  vendor_notify_list text[] not null default '{}', -- vendor-facing recipients for
+                                                   -- accepted/declined/status emails
+                                                   -- (the original submitter is always
+                                                   -- added automatically)
   extraction_hints text,                         -- extra per-vendor parser instructions
   active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -52,6 +59,7 @@ create table if not exists ops.vendor_email_tickets (
   status text not null default 'received'
     check (status in ('received','needs_route_config','awaiting_confirmation',
                       'declined','sf_created','sf_failed','ignored')),
+  decline_reason text,
   error text,
   last_sf_status text,
   last_status_at timestamptz,
@@ -87,14 +95,20 @@ alter table ops.vendor_ticket_events enable row level security;
 --   update ops.vendor_email_routes set sf_customer_name = '<EXACT SF NAME>'
 --   where inbox = 'rbfreeflow@alamedapointbg.com';
 insert into ops.vendor_email_routes
-  (inbox, vendor_key, display_name, sf_customer_name, sf_job_category, extraction_hints)
+  (inbox, vendor_key, display_name, sf_customer_name, sf_parent_customer,
+   vendor_notify_list, sf_job_category, extraction_hints)
 values
   ('rbfreeflow@alamedapointbg.com', 'redbull', 'Red Bull / FreeFlow',
-   'FREEFLOW BEVERAGE SOLUTIONS COMPANY',
+   'FF REDBULL SERVICE',                -- sub-customer jobs are created under
+   'FREEFLOW BEVERAGE SOLUTIONS',       -- parent attached on every job; billing
+                                        -- rolls up via SF Bill-To=parent setting
+   '{cokraska@freeflowbev.com}',
    'Service Call',
    'These are "RED BULL REACTIVE WORK ORDER RECEIVED" notifications relayed from admin@freeflowbev.com. They carry labeled sections: ZENDESK REPAIR TICKET #, a headline line (issue + store + S/N), CREATED, ISSUE REPORTED, ASSET MAKE/MODEL, ASSET SERIAL, ASSET MATERIAL NUMBER, a DESCRIPTION call log, LOCATION CONTACT (name / phone), LOCATION DETAILS (store name, street, city/state/zip), NTE amount + NTE TYPE, MANUFACTURE DATE, SERVICE YEARS, IN NATIVE REACTIVE TERRITORY yes/no, and an "SF <number>" vendor-side reference in the subject. Extract every labeled value exactly as written.'),
   ('freshpet@alamedapointbg.com', 'freshpet', 'Freshpet',
    null, -- sf_customer_name: set before go-live (sample email pending)
+   null, -- sf_parent_customer
+   '{}', -- vendor_notify_list: set before go-live
    'Service Call',
    'These are Freshpet service emails. Pull the store/location name and number, full street address, any Freshpet work order or reference number, the fridge/equipment identifiers, and the requested service or issue description.')
 on conflict (inbox) do nothing;

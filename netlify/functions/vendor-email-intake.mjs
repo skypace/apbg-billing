@@ -383,6 +383,7 @@ function buildRedBullSfJob(route, parsed) {
   return {
     customer_name: route.sf_customer_name,
     status: route.sf_job_status_initial || 'Unscheduled',
+    ...(route.sf_parent_customer ? { parent_customer: route.sf_parent_customer } : {}),
     ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
     ...(po ? { po_number: po.slice(0, 50) } : {}),
     description: description.slice(0, MAX_DESC),
@@ -421,6 +422,7 @@ function buildGenericSfJob(route, parsed, { from, subject, text, receivedAt }) {
   return {
     customer_name: route.sf_customer_name,
     status: route.sf_job_status_initial || 'Unscheduled',
+    ...(route.sf_parent_customer ? { parent_customer: route.sf_parent_customer } : {}),
     ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
     ...(parsed.reference_number ? { po_number: String(parsed.reference_number).slice(0, 50) } : {}),
     description: lines.join('\n').slice(0, MAX_DESC + 800),
@@ -441,6 +443,7 @@ async function createSfJobWithRetries(payload) {
     { drop: [], warning: null },
     { drop: ['category'], warning: `SF rejected job category "${payload.category}" — job created without it. Add the category in SF Settings → Job Categories.` },
     { drop: ['category', 'notes'], warning: 'SF rejected the category and/or notes — job created without them; add the notes by hand.' },
+    { drop: ['category', 'notes', 'parent_customer'], warning: `SF rejected the parent customer "${payload.parent_customer}" (and/or category/notes) — job created without them. Check the parent customer name and re-attach by hand.` },
   ].filter((a) => a.drop.every((f) => payload[f] !== undefined));
 
   let lastErr;
@@ -477,8 +480,8 @@ function row(label, value) {
   return `<p style="margin:4px 0"><strong>${esc(label)}:</strong> ${esc(value)}</p>`;
 }
 
-async function notifySendList(route, subject, rowsHtml) {
-  const to = (route.send_list || []).filter(Boolean);
+async function sendTo(recipients, subject, rowsHtml) {
+  const to = dedupeEmails(recipients);
   if (!to.length) return;
   try {
     await sendEmail({
@@ -486,11 +489,32 @@ async function notifySendList(route, subject, rowsHtml) {
       subject,
       html: shellHtml(subject, rowsHtml),
       from: 'APBG Service Desk <alerts@alamedapointbg.com>',
+      replyTo: 'service@brixbev.com',
     });
   } catch (e) {
     // Notification failure never undoes the ticket
-    console.warn('send-list email failed:', e.message);
+    console.warn('notification email failed:', e.message);
   }
+}
+
+function dedupeEmails(list) {
+  const seen = new Set();
+  return (list || []).filter(Boolean).map((e) => String(e).trim()).filter((e) => {
+    const k = e.toLowerCase();
+    if (!k.includes('@') || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// Vendor-facing recipients: the route's configured list + whoever sent the
+// original email (the submitter always hears back).
+function vendorRecipients(route, fromEmail) {
+  return dedupeEmails([...(route.vendor_notify_list || []), fromEmail]);
+}
+
+async function notifySendList(route, subject, rowsHtml) {
+  await sendTo(route.send_list || [], subject, rowsHtml);
 }
 
 // ─── Handlers ───
@@ -636,7 +660,7 @@ async function handleConfirmClick(params) {
     body: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:'DM Sans',Arial,sans-serif;background:#0F172A;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0"><div style="max-width:440px;padding:32px;text-align:center"><h2 style="color:#fff">${title}</h2><p style="line-height:1.6">${body}</p></div></body>`,
   });
 
-  if (!['create', 'decline'].includes(action) || !ticketId || !token) {
+  if (!['create', 'decline', 'decline_confirm'].includes(action) || !ticketId || !token) {
     return page('Invalid link', 'This confirmation link is malformed.', 400);
   }
   const tickets = await sbSelect(
@@ -654,23 +678,76 @@ async function handleConfirmClick(params) {
   const route = routes[0];
   if (!route) return page('Route missing', 'The route for this ticket no longer exists.', 400);
 
+  const ref = ticket.parsed?.reference_number || ticket.subject || '';
+
+  // Step 1 of decline: pick a reason (form GETs back into this handler)
   if (action === 'decline') {
+    const base = `${process.env.URL || 'https://apbg-billing.netlify.app'}/.netlify/functions/vendor-email-intake`;
+    const opt = (v) => `<option value="${v}">${v}</option>`;
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      body: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+<body style="font-family:'DM Sans',Arial,sans-serif;background:#0F172A;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0">
+<form method="GET" action="${base}" style="max-width:460px;width:100%;padding:32px;background:#1e293b;border-radius:12px;margin:16px">
+  <h2 style="color:#fff;margin-top:0">Decline work order</h2>
+  <p style="line-height:1.5;color:#94a3b8">${esc(ref)}</p>
+  <input type="hidden" name="action" value="decline_confirm">
+  <input type="hidden" name="ticket" value="${esc(ticket.id)}">
+  <input type="hidden" name="token" value="${esc(token)}">
+  <label style="display:block;margin:14px 0 6px;font-weight:700">Reason</label>
+  <select name="reason" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0F172A;color:#e2e8f0">
+    <option value="" disabled selected>Choose a reason…</option>
+    ${opt('Out of native reactive territory')}
+    ${opt('NTE too low for the work required')}
+    ${opt('Cannot service this equipment type')}
+    ${opt('Duplicate request')}
+    ${opt('Location not serviceable / access issue')}
+    ${opt('Other (explain below)')}
+  </select>
+  <label style="display:block;margin:14px 0 6px;font-weight:700">Notes (optional)</label>
+  <textarea name="notes" rows="3" style="width:100%;padding:10px;border-radius:6px;border:1px solid #475569;background:#0F172A;color:#e2e8f0"></textarea>
+  <button type="submit" style="margin-top:18px;background:#dc2626;color:#fff;border:none;padding:12px 26px;border-radius:6px;font-weight:700;font-size:15px;cursor:pointer">Decline work order</button>
+</form></body>`,
+    };
+  }
+
+  // Step 2 of decline: reason chosen — record + notify vendor and internal lists
+  if (action === 'decline_confirm') {
+    const reason = [params.reason, params.notes].filter(Boolean).join(' — ').slice(0, 500)
+      || 'No reason given';
     await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
       status: 'declined',
+      decline_reason: reason,
       confirm_token: null,
     });
-    await notifySendList(
-      route,
-      `⛔ ${route.display_name} work order DECLINED — ${ticket.parsed?.reference_number || ticket.subject}`,
+    const declineRows =
+      row('Reference', ref) +
+      row('Reason', reason) +
       ticketSummaryRows(route, ticket.parsed || {}, null) +
-        `<p style="margin:10px 0 0">No Service Fusion job was created.</p>`,
+      `<p style="margin:10px 0 0">No Service Fusion job was created for this request.</p>`;
+    await sendTo(
+      vendorRecipients(route, ticket.from_email),
+      `Work order declined — ${ref}`,
+      declineRows,
     );
-    return page('Declined', 'No Service Fusion work order was created. The send list has been notified.');
+    await notifySendList(route, `⛔ ${route.display_name} work order DECLINED — ${ref}`, declineRows);
+    return page('Declined', `The work order was declined ("${esc(reason)}"). The submitter and notification list have been emailed.`);
   }
 
   const result = await finalizeSfCreation(ticket.id, route, ticket.sf_payload, ticket.parsed || {}, null);
   if (result.sfJob) {
-    return page('✓ Work order created', `Service Fusion job <strong>${esc(result.sfJob)}</strong> is in — status ${esc(route.sf_job_status_initial || 'Unscheduled')}. The send list has been notified.`);
+    // Vendor-facing acceptance: submitter + configured vendor contacts
+    await sendTo(
+      vendorRecipients(route, ticket.from_email),
+      `Work order accepted — ${ref}`,
+      row('Reference', ref) +
+        row('Our job #', result.sfJob) +
+        row('Location', ticket.parsed?.location_name) +
+        row('Issue', ticket.parsed?.issue_summary) +
+        `<p style="margin:12px 0 0">Your work order has been <strong>accepted and received</strong>. You will receive email updates as the job progresses — through scheduling, completion, and billing.</p>`,
+    );
+    return page('✓ Work order created', `Service Fusion job <strong>${esc(result.sfJob)}</strong> is in — status ${esc(route.sf_job_status_initial || 'Unscheduled')}. The submitter and notification lists have been emailed.`);
   }
   return page('Creation failed', 'Service Fusion rejected the job — the send list got the error details, and the ticket is saved for retry.', 502);
 }
@@ -702,27 +779,36 @@ async function handleStatusEmail(email) {
   const routes = ticket.route_id
     ? await sbSelect('vendor_email_routes', `id=eq.${ticket.route_id}&select=*&limit=1`)
     : [];
-  const route = routes[0] || { display_name: ticket.vendor_key || 'Vendor', send_list: ['service@brixbev.com'] };
+  const route = routes[0]
+    || { display_name: ticket.vendor_key || 'Vendor', send_list: ['service@brixbev.com'], vendor_notify_list: [] };
+
+  // Updates go to the vendor (submitter + configured contacts) AND the
+  // internal send list — "all the way to the billing".
+  const recipients = dedupeEmails([
+    ...(route.send_list || []),
+    ...(route.vendor_notify_list || []),
+    ticket.from_email,
+  ]);
 
   await sbInsert('vendor_ticket_events', {
     ticket_id: ticket.id,
     sf_job_number: jobNumber,
     sf_status: newStatus,
-    notified_to: route.send_list || [],
+    notified_to: recipients,
     raw: { subject: email.subject, from: email.from },
   });
   await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
     last_sf_status: newStatus,
     last_status_at: new Date().toISOString(),
   });
-  await notifySendList(
-    route,
-    `📋 ${route.display_name} — SF job ${jobNumber} is now "${newStatus}"`,
-    row('SF job #', jobNumber) +
+  await sendTo(
+    recipients,
+    `Work order update — ${ticket.parsed?.reference_number || `job ${jobNumber}`}: ${newStatus}`,
+    row('Reference', ticket.parsed?.reference_number) +
+      row('Our job #', jobNumber) +
       row('New status', newStatus) +
       row('Previous status', ticket.last_sf_status || '(first update)') +
       row('Location', ticket.parsed?.location_name) +
-      row('Vendor ref #', ticket.parsed?.reference_number) +
       row('Original request', ticket.subject),
   );
   return { ok: true, ticketId: ticket.id, status: newStatus };
