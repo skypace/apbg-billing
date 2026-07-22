@@ -20,7 +20,7 @@
         "Anthropic API (email parsing)",
         "Service Fusion API: POST /jobs"
       ],
-      "notes": "Vendor email → SF ticket automation. Red Bull (rbfreeflow@) and Freshpet (freshpet@) emails are parsed by Claude and become SF jobs under the route's sf_customer_name; SF's own job-status notification emails (pointed at sf-status@) are parsed and relayed to the route's send_list. Zero crons — fully event-driven. Svix-signature gated (RESEND_INBOUND_SECRET). Source: netlify/functions/vendor-email-intake.mjs; tables seeded by migration 20260722a.",
+      "notes": "Vendor email \u2192 SF ticket automation. Red Bull (rbfreeflow@) and Freshpet (freshpet@) emails are parsed by Claude and become SF jobs under the route's sf_customer_name; SF's own job-status notification emails (pointed at sf-status@) are parsed and relayed to the route's send_list. Zero crons \u2014 fully event-driven. Svix-signature gated (RESEND_INBOUND_SECRET). Source: netlify/functions/vendor-email-intake.mjs; tables seeded by migration 20260722a.",
       "last_verified": "2026-07-22"
     },
     {
@@ -570,6 +570,18 @@
       "writes": [
         "ops.qbo_vendors"
       ]
+    },
+    {
+      "name": "sf-changes-report",
+      "kind": "netlify-background-function + daily cron",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "daily 15:00 UTC (sf-changes-cron) + on-demand from Master Control",
+      "writes": [
+        "ops.sf_customer_snapshot",
+        "ops.sync_log"
+      ],
+      "multi_writer": true,
+      "notes": "Service Fusion Changes report: scans all SF customers (token piggybacked from ops.pacer_mcp_tokens via the pacerfinance SF MCP), diffs comms settings / new / removed / renamed customers against ops.sf_customer_snapshot, emails the report (SF_CHANGES_REPORT_TO, default service@brixbev.com), and replaces the snapshot. sync_log is the shared logging convention."
     }
   ],
   "orphans": [
