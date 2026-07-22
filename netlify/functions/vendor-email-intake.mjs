@@ -480,10 +480,35 @@ function row(label, value) {
   return `<p style="margin:4px 0"><strong>${esc(label)}:</strong> ${esc(value)}</p>`;
 }
 
-async function sendTo(recipients, subject, rowsHtml) {
+// Outbound emails prefer the Resend-hosted templates (editable in the Resend
+// dashboard, aliases vendor-ticket-*); the code-built HTML is the fallback so
+// a deleted/unpublished template can never silence a notification.
+async function sendTemplate(to, subject, alias, variables) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return false;
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'APBG Service Desk <alerts@alamedapointbg.com>',
+      to,
+      subject,
+      reply_to: 'service@brixbev.com',
+      template: { id: alias, variables },
+    }),
+  });
+  if (!res.ok) {
+    console.warn(`template "${alias}" send failed (${res.status}): ${(await res.text()).slice(0, 200)} — falling back to inline HTML`);
+    return false;
+  }
+  return true;
+}
+
+async function sendTo(recipients, subject, rowsHtml, tpl = null) {
   const to = dedupeEmails(recipients);
   if (!to.length) return;
   try {
+    if (tpl && (await sendTemplate(to, subject, tpl.alias, tpl.variables))) return;
     await sendEmail({
       to,
       subject,
@@ -513,8 +538,8 @@ function vendorRecipients(route, fromEmail) {
   return dedupeEmails([...(route.vendor_notify_list || []), fromEmail]);
 }
 
-async function notifySendList(route, subject, rowsHtml) {
-  await sendTo(route.send_list || [], subject, rowsHtml);
+async function notifySendList(route, subject, rowsHtml, tpl = null) {
+  await sendTo(route.send_list || [], subject, rowsHtml, tpl);
 }
 
 // ─── Handlers ───
@@ -574,20 +599,29 @@ async function handleVendorEmail(route, email) {
     });
     const base = `${process.env.URL || 'https://apbg-billing.netlify.app'}/.netlify/functions/vendor-email-intake`;
     const link = (action) => `${base}?action=${action}&ticket=${ticket.id}&token=${token}`;
+    const previewText = `Customer: ${payload.customer_name}\nStatus: ${payload.status}${payload.category ? `\nCategory: ${payload.category}` : ''}${payload.po_number ? `\nPO #: ${payload.po_number}` : ''}\n\n${payload.description}`;
     await notifySendList(
       route,
       `🟡 ${route.display_name} work order pending — confirm to create SF job`,
       ticketSummaryRows(route, parsed, email) +
         `<p style="margin:14px 0 4px"><strong>Work order preview</strong></p>
-         <pre style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12px;white-space:pre-wrap">${esc(
-           `Customer: ${payload.customer_name}\nStatus: ${payload.status}${payload.category ? `\nCategory: ${payload.category}` : ''}${payload.po_number ? `\nPO #: ${payload.po_number}` : ''}\n\n${payload.description}`,
-         )}</pre>
+         <pre style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12px;white-space:pre-wrap">${esc(previewText)}</pre>
          <div style="margin:16px 0">
            <a href="${link('create')}" style="background:#16a34a;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block">✓ Create SF work order</a>
            &nbsp;&nbsp;
            <a href="${link('decline')}" style="background:#dc2626;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block">✕ Decline</a>
          </div>
          <p style="margin:4px 0;color:#64748b;font-size:12px">No SF job exists yet — nothing is billed or dispatched until someone clicks Create.</p>`,
+      {
+        alias: 'vendor-ticket-pending',
+        variables: {
+          VENDOR: route.display_name,
+          ROWS_HTML: ticketSummaryRows(route, parsed, email),
+          WO_PREVIEW: esc(previewText),
+          CREATE_URL: link('create'),
+          DECLINE_URL: link('decline'),
+        },
+      },
     );
     return { ok: true, ticketId: ticket.id, status: 'awaiting_confirmation' };
   }
@@ -726,26 +760,47 @@ async function handleConfirmClick(params) {
       row('Reason', reason) +
       ticketSummaryRows(route, ticket.parsed || {}, null) +
       `<p style="margin:10px 0 0">No Service Fusion job was created for this request.</p>`;
+    const declineTpl = {
+      alias: 'vendor-ticket-declined',
+      variables: {
+        VENDOR: route.display_name,
+        REFERENCE: ref,
+        REASON: reason,
+        ROWS_HTML: ticketSummaryRows(route, ticket.parsed || {}, null),
+      },
+    };
     await sendTo(
       vendorRecipients(route, ticket.from_email),
       `Work order declined — ${ref}`,
       declineRows,
+      declineTpl,
     );
-    await notifySendList(route, `⛔ ${route.display_name} work order DECLINED — ${ref}`, declineRows);
+    await notifySendList(route, `⛔ ${route.display_name} work order DECLINED — ${ref}`, declineRows, declineTpl);
     return page('Declined', `The work order was declined ("${esc(reason)}"). The submitter and notification list have been emailed.`);
   }
 
   const result = await finalizeSfCreation(ticket.id, route, ticket.sf_payload, ticket.parsed || {}, null);
   if (result.sfJob) {
     // Vendor-facing acceptance: submitter + configured vendor contacts
+    const acceptRows =
+      row('Reference', ref) +
+      row('Our job #', result.sfJob) +
+      row('Location', ticket.parsed?.location_name) +
+      row('Issue', ticket.parsed?.issue_summary);
     await sendTo(
       vendorRecipients(route, ticket.from_email),
       `Work order accepted — ${ref}`,
-      row('Reference', ref) +
-        row('Our job #', result.sfJob) +
-        row('Location', ticket.parsed?.location_name) +
-        row('Issue', ticket.parsed?.issue_summary) +
+      acceptRows +
         `<p style="margin:12px 0 0">Your work order has been <strong>accepted and received</strong>. You will receive email updates as the job progresses — through scheduling, completion, and billing.</p>`,
+      {
+        alias: 'vendor-ticket-accepted',
+        variables: {
+          VENDOR: route.display_name,
+          REFERENCE: ref,
+          JOB_NUMBER: result.sfJob,
+          ROWS_HTML: acceptRows,
+        },
+      },
     );
     return page('✓ Work order created', `Service Fusion job <strong>${esc(result.sfJob)}</strong> is in — status ${esc(route.sf_job_status_initial || 'Unscheduled')}. The submitter and notification lists have been emailed.`);
   }
@@ -813,21 +868,33 @@ async function handleStatusEmail(email) {
   }
   const money = (v) => (v !== null && v !== undefined && v !== '' ? `$${v}` : null);
 
+  const updateRows =
+    row('Reference', ticket.parsed?.reference_number) +
+    row('Our job #', jobNumber) +
+    row('New status', newStatus) +
+    row('Previous status', ticket.last_sf_status || '(first update)') +
+    row('Location', ticket.parsed?.location_name) +
+    row('Scheduled for', job?.start_date) +
+    row('Completed', job?.closed_at) +
+    row('Work performed', job?.completion_notes) +
+    row('Tech notes', job?.tech_notes) +
+    row('Job total', money(job?.total)) +
+    row('Payment status', job?.payment_status) +
+    row('Original request', ticket.subject);
   await sendTo(
     recipients,
     `Work order update — ${ticket.parsed?.reference_number || `job ${jobNumber}`}: ${newStatus}`,
-    row('Reference', ticket.parsed?.reference_number) +
-      row('Our job #', jobNumber) +
-      row('New status', newStatus) +
-      row('Previous status', ticket.last_sf_status || '(first update)') +
-      row('Location', ticket.parsed?.location_name) +
-      row('Scheduled for', job?.start_date) +
-      row('Completed', job?.closed_at) +
-      row('Work performed', job?.completion_notes) +
-      row('Tech notes', job?.tech_notes) +
-      row('Job total', money(job?.total)) +
-      row('Payment status', job?.payment_status) +
-      row('Original request', ticket.subject),
+    updateRows,
+    {
+      alias: 'vendor-ticket-update',
+      variables: {
+        VENDOR: route.display_name || 'Vendor',
+        REFERENCE: ticket.parsed?.reference_number || `job ${jobNumber}`,
+        JOB_NUMBER: jobNumber,
+        NEW_STATUS: newStatus,
+        ROWS_HTML: updateRows,
+      },
+    },
   );
   return { ok: true, ticketId: ticket.id, status: newStatus };
 }
