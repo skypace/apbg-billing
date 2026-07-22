@@ -36,7 +36,7 @@ Each manifest entry also registers the chapter's **sources** — the repo files 
 
 ## Keeping the handbook fresh — the sweep
 
-**Policy.** The handbook is checked for drift with the **Handbook Sweep** in [Master Control](#/09-master-control) — at minimum monthly, and after any large feature push.
+**Policy.** The handbook is checked for drift **automatically every Monday** (the `handbook-sweep-cron` scheduled function, 15:00 UTC) — when anything is stale, a digest email goes to service@brixbev.com (override: `HANDBOOK_ALERT_TO`) listing the chapters and linking to Master Control, where one click drafts the fix PR. The on-demand **Run sweep** button in [Master Control](#/09-master-control) covers the moments in between — use it after any large feature push. A fresh handbook sends no email.
 
 **Procedure.**
 

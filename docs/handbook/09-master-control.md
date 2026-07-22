@@ -133,6 +133,8 @@ When the sweep finds stale chapters, an **Auto-update** button appears. It calls
 
 **It never merges anything.** Per [SOP-0](#/20-sop-governance), SOP and user-guide text always gets human review before it goes live — the automation ends at a ready-to-review PR. Needs `GITHUB_WRITE_TOKEN` (or a write-scoped `GITHUB_TOKEN`) and `ANTHROPIC_API_KEY` on the Netlify site.
 
+The sweep also runs **automatically every Monday 15:00 UTC** (`handbook-sweep-cron`): when anything is stale it emails a digest to service@brixbev.com (override with `HANDBOOK_ALERT_TO`) pointing back to this panel — so drift gets noticed even if nobody presses the button. A fresh handbook sends nothing.
+
 Superadmin only, like everything else on this page. The governance rules around who reviews what and how often live in [SOP-0 · Policy Governance](#/20-sop-governance).
 
 ## Activity Log
