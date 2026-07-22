@@ -154,6 +154,25 @@ header .links a:hover{color:#1F4E79}
     </div>
   </div>
 
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>📖 APBG Handbook <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— master user guide + operations SOP manual, with a freshness sweep against its source docs</span></h2>
+    <div id="handbookBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+        <div style="font-size:0.85rem;color:#374151;max-width:560px">
+          Every app's user guide and every SOP live in the
+          <a href="/docs/handbook/" target="_blank" rel="noopener" style="color:#1F4E79;font-weight:600">Master Handbook</a>.
+          The sweep checks each chapter's registered source documents (GitHub commit dates vs the chapter's
+          last-reviewed date) and flags what's drifted — then hands you a copy-paste update prompt per stale chapter.
+        </div>
+        <div style="display:flex;gap:8px;flex:none">
+          <a href="/docs/handbook/" target="_blank" rel="noopener" style="background:#fff;color:#1F4E79;border:1px solid #1F4E79;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Open Handbook →</a>
+          <button id="sweepBtn" onclick="runHandbookSweep()" style="background:#1F4E79;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:600;font-size:0.85rem;cursor:pointer">🔍 Run sweep</button>
+        </div>
+      </div>
+      <div id="sweepResults" style="font-size:0.85rem"></div>
+    </div>
+  </div>
+
   <div class="log-section">
     <h2>Activity Log</h2>
     <div class="log" id="log"></div>
@@ -825,6 +844,89 @@ async function ccImport(purchaseId){
   if(!confirm('Create a Brixpense record from this QBO charge? (It lands as already-posted — nothing re-posts to QuickBooks.)')) return;
   try{ const r=await ccApi('POST',{action:'import',purchaseId}); log(`Imported charge ${purchaseId} → Brixpense ${r.expense_id}`,'ok'); loadCcMatch(); }
   catch(e){ alert('Import failed: '+e.message); }
+}
+
+// ═══ HANDBOOK SWEEP ═══
+let lastSweep = null;
+
+async function runHandbookSweep(){
+  const btn = document.getElementById('sweepBtn');
+  const out = document.getElementById('sweepResults');
+  btn.disabled = true; btn.textContent = 'Sweeping…';
+  out.innerHTML = '<div style="color:#6B7280;padding:10px 0">Checking every chapter\'s sources against GitHub…</div>';
+  try{
+    const r = await fetch('/.netlify/functions/handbook-sweep', { headers: authHeaders() });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+    lastSweep = d;
+    renderSweep(d);
+    log(`Handbook sweep: ${d.summary.stale} stale / ${d.summary.fresh} fresh / ${d.summary.unknown} unknown`, d.summary.stale ? 'warn' : 'ok');
+  }catch(e){
+    out.innerHTML = `<div style="color:#DC2626;padding:10px 0">Sweep failed: ${esc(e.message)}</div>`;
+    log('Handbook sweep failed: '+e.message, 'error');
+  }finally{
+    btn.disabled = false; btn.textContent = '🔍 Run sweep';
+  }
+}
+
+function renderSweep(d){
+  const out = document.getElementById('sweepResults');
+  const badge = (s)=>({
+    fresh:  '<span style="background:#ECFDF5;color:#047857;border:1px solid #A7F3D0;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">fresh</span>',
+    stale:  '<span style="background:#FFFBEB;color:#B45309;border:1px solid #FDE68A;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">stale</span>',
+    unknown:'<span style="background:#F3F4F6;color:#6B7280;border:1px solid #E5E7EB;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">unknown</span>',
+  }[s] || s);
+  const th='text-align:left;padding:7px 10px;font-size:0.72rem;color:#6B7280;border-bottom:1px solid #E5E7EB;text-transform:uppercase;letter-spacing:0.04em';
+  const td='padding:8px 10px;border-bottom:1px solid #F3F4F6;vertical-align:top';
+
+  let html = `<div style="margin:12px 0 8px;color:#374151;font-size:0.8rem">
+    Checked ${new Date(d.checked_at).toLocaleString()} · ${d.summary.stale} stale · ${d.summary.fresh} fresh · ${d.summary.unknown} unknown
+    ${d.github_token_present ? '' : ' · <span style="color:#B45309">⚠ GITHUB_TOKEN not set — private-repo sources can\'t be checked</span>'}
+  </div>`;
+
+  html += `<table style="width:100%;border-collapse:collapse"><tr>
+    <th style="${th}">Chapter</th><th style="${th}">Status</th><th style="${th}">Reviewed</th><th style="${th}">What changed</th><th style="${th}"></th></tr>`;
+
+  for(const ch of d.chapters){
+    const changes = ch.sources
+      .filter(s=>s.stale || s.error)
+      .map(s=> s.error
+        ? `<div style="color:#9CA3AF">${esc(s.repo)}/${esc(s.path)} — ${esc(s.error)}</div>`
+        : `<div><a href="${esc(s.commit_url)}" target="_blank" rel="noopener" style="color:#1F4E79">${esc(s.repo)}/${esc(s.path)}</a>
+             <span style="color:#6B7280">· ${esc((s.last_commit||'').slice(0,10))} · ${esc(s.message||'')}</span></div>`)
+      .join('') || '<span style="color:#9CA3AF">—</span>';
+    html += `<tr>
+      <td style="${td}"><a href="/docs/handbook/#/${esc(ch.slug)}" target="_blank" rel="noopener" style="color:#0F172A;font-weight:600;text-decoration:none">${esc(ch.title)}</a></td>
+      <td style="${td}">${badge(ch.status)}</td>
+      <td style="${td};white-space:nowrap;color:#6B7280">${esc(ch.last_reviewed)}</td>
+      <td style="${td};font-size:0.78rem">${changes}</td>
+      <td style="${td};white-space:nowrap">${ch.status==='stale'
+        ? `<button onclick="copySweepPrompt('${esc(ch.slug)}')" style="background:#F3F4F6;border:1px solid #D1D5DB;border-radius:6px;padding:5px 10px;font-size:0.75rem;font-weight:600;cursor:pointer;color:#374151">📋 Copy update prompt</button>`
+        : ''}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  out.innerHTML = html;
+}
+
+function copySweepPrompt(slug){
+  const ch = (lastSweep?.chapters || []).find(c=>c.slug===slug);
+  if(!ch) return;
+  const changed = ch.sources.filter(s=>s.stale)
+    .map(s=>`- ${s.repo}/${s.path} (last commit ${(s.last_commit||'').slice(0,10)} ${s.sha||''}: "${s.message||''}" — ${s.commit_url||''})`)
+    .join('\n');
+  const prompt =
+`Update the APBG Master Handbook chapter "${ch.title}".
+
+File: skypace/apbg-billing → docs/handbook/${ch.slug}.md (last reviewed ${ch.last_reviewed}).
+These registered source documents have changed since then:
+${changed}
+
+Read the changed sources, update the chapter so it matches current reality (keep its existing structure: title line, metadata blockquote, h2/h3 sections, Related section), bump the "Last reviewed" date in the chapter's metadata line AND in docs/handbook/manifest.json for slug "${ch.slug}", and open a PR. Do not invent facts — everything must be grounded in the sources.`;
+  navigator.clipboard.writeText(prompt).then(
+    ()=>log(`Update prompt for ${slug} copied — paste into a Claude session`, 'ok'),
+    ()=>alert(prompt)
+  );
 }
 </script>
   <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
