@@ -28,11 +28,11 @@ Freshpet email ──forward──▶ freshpet@alamedapointbg.com  ──┤
                               7. "Ticket created" email → route.send_list
 
 Red Bull SF-job mapping (per Sky, 2026-07-22):
-  Customer    = FF REDBULL SERVICE (sub-customer), parent_customer =
-                FREEFLOW BEVERAGE SOLUTIONS attached on every job. ⚠ SF's
-                API has NO job-level bill-to field — set "Bill To: parent"
-                on the FF REDBULL SERVICE customer record in SF once, and
-                every WO bills the main customer.
+  Customer    = FF REDBULL SERVICE (sub-customer). SF derives the master
+                (FREEFLOW BEVERAGE SOLUTIONS) from the customer record itself —
+                sending parent_customer on POST /jobs 422s (verified live), so
+                the intake does NOT send it. Billing rolls to the master via
+                the customer record ("Invoice sub customer" unchecked).
   PO number   = "ZD <zendesk #> / SF <vendor's SF job #>"
   Description = ISSUE REPORTED + DESCRIPTION call-log + LOCATION CONTACT +
                 ZENDESK LINK + LOCATION DETAILS + NTE lines (verbatim blocks)

@@ -385,7 +385,6 @@ function buildRedBullSfJob(route, parsed) {
   return {
     customer_name: route.sf_customer_name,
     status: route.sf_job_status_initial || 'Unscheduled',
-    ...(route.sf_parent_customer ? { parent_customer: route.sf_parent_customer } : {}),
     ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
     ...(po ? { po_number: po.slice(0, 50) } : {}),
     description: description.slice(0, MAX_DESC),
@@ -424,7 +423,6 @@ function buildGenericSfJob(route, parsed, { from, subject, text, receivedAt }) {
   return {
     customer_name: route.sf_customer_name,
     status: route.sf_job_status_initial || 'Unscheduled',
-    ...(route.sf_parent_customer ? { parent_customer: route.sf_parent_customer } : {}),
     ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
     ...(parsed.reference_number ? { po_number: String(parsed.reference_number).slice(0, 50) } : {}),
     description: lines.join('\n').slice(0, MAX_DESC + 800),
@@ -437,30 +435,33 @@ function buildSfJobPayload(route, parsed, email) {
     : buildGenericSfJob(route, parsed, email);
 }
 
-// SF only ATTACHES existing categories, and the notes-array shape is spec-
-// documented but unproven live — on a 422, retry with the risky fields
-// stripped (category first, then notes) rather than losing the ticket.
-async function createSfJobWithRetries(payload) {
-  const attempts = [
-    { drop: [], warning: null },
-    { drop: ['category'], warning: `SF rejected job category "${payload.category}" — job created without it. Add the category in SF Settings → Job Categories.` },
-    { drop: ['category', 'notes'], warning: 'SF rejected the category and/or notes — job created without them; add the notes by hand.' },
-    { drop: ['category', 'notes', 'parent_customer'], warning: `SF rejected the parent customer "${payload.parent_customer}" (and/or category/notes) — job created without them. Check the parent customer name and re-attach by hand.` },
-  ].filter((a) => a.drop.every((f) => payload[f] !== undefined));
+// SF only ATTACHES existing categories, and other by-name fields can 422 on
+// a mismatch. On a 422, drop ONLY the field SF\'s error message names (falling
+// back to the riskiest remaining field) and retry — one bad value must never
+// strip the rest of the job or lose the ticket.
+const DROPPABLE_SF_FIELDS = ['category', 'notes'];
 
-  let lastErr;
-  for (const attempt of attempts) {
-    const body = { ...payload };
-    for (const f of attempt.drop) delete body[f];
+async function createSfJobWithRetries(payload) {
+  const body = { ...payload };
+  const dropped = [];
+  for (;;) {
     try {
-      return { job: await sfRequest('POST', '/jobs', body), warning: attempt.warning };
+      const job = await sfRequest('POST', '/jobs', body);
+      const warning = dropped.length
+        ? `SF rejected field(s): ${dropped.join(', ')} — job created without them. Fix the value (SF Settings / ops.vendor_email_routes) and add them to the job by hand.`
+        : null;
+      return { job, warning };
     } catch (e) {
-      lastErr = e;
-      if (!/422/.test(e.message)) throw e; // only field rejections get the ladder
-      console.warn(`SF POST /jobs 422 (dropped: ${attempt.drop.join(',') || 'nothing'}): ${e.message}`);
+      if (!/422/.test(e.message)) throw e; // only field rejections get retried
+      const present = DROPPABLE_SF_FIELDS.filter((f) => body[f] !== undefined);
+      const named = present.find((f) => new RegExp(f.replace(/_/g, '[_ ]?'), 'i').test(e.message));
+      const target = named || present[0];
+      if (!target) throw e;
+      delete body[target];
+      dropped.push(target);
+      console.warn(`SF 422 → dropping "${target}" and retrying: ${e.message}`);
     }
   }
-  throw lastErr;
 }
 
 // ─── Notification emails ───
