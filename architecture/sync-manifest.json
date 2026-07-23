@@ -573,9 +573,9 @@
     },
     {
       "name": "sf-changes-report",
-      "kind": "netlify-background-function + daily cron",
+      "kind": "netlify-background-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "daily 15:00 UTC (sf-changes-cron) + on-demand from Master Control",
+      "schedule": "on-demand (Master Control \u2192 Service Fusion Changes report button)",
       "writes": [
         "ops.sf_customer_snapshot",
         "ops.sync_log"

@@ -22,10 +22,8 @@
 // ops.sf_token_cache grant used by resq-sync is a different credential and has
 // been dead since 2026-06-29.)
 //
-// Runs as a Netlify BACKGROUND function (15-min budget — the SF scan takes
-// ~1-2 min). Invoked by the Master Control button (superadmin Bearer) or the
-// daily cron (x-sf-changes-secret = SUPABASE_SERVICE_ROLE_KEY prefix). The
-// cron path emails ONLY when something changed; the button always emails.
+// Runs as a Netlify BACKGROUND function (15-min budget). Invoked on demand
+// from the Master Control button (superadmin Bearer) — no scheduled runs.
 // Every run appends an ops.sync_log row (source='sf' — sync_log has a CHECK
 // allowlist on source — discriminated by sync_type='sf-changes-report').
 
@@ -128,14 +126,10 @@ function fmtComms(rows) {
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 export default async (req) => {
-  // Auth: superadmin Bearer (Master Control button) OR the cron's shared secret.
-  const cronSecret = req.headers.get('x-sf-changes-secret') || '';
-  const isCron = cronSecret && cronSecret === (process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 32);
-  if (!isCron) {
-    const auth = await requireAuth(req);
-    if (!auth.ok) return auth.response;
-  }
-  const quietIfUnchanged = isCron; // cron only emails on changes; button always emails
+  // Auth: superadmin Bearer (Master Control button).
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
+  const quietIfUnchanged = false; // on-demand runs always email
 
   const startedAt = new Date().toISOString();
   let logMsg = '';
@@ -238,7 +232,7 @@ export default async (req) => {
         html: `<div style="font-family:'DM Sans',Arial,sans-serif;max-width:720px">` +
           `<div style="background:#0F172A;color:#fff;padding:14px 20px;border-radius:10px 10px 0 0"><b>Service Fusion Changes</b> · ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} PT</div>` +
           `<div style="border:1px solid #E5E7EB;border-top:0;border-radius:0 0 10px 10px;padding:6px 20px 16px">${html}` +
-          `<p style="color:#9CA3AF;font-size:12px;margin-top:16px">Run from ${isCron ? 'the daily check' : 'Master Control'} · comms settings = per-email types_accepted (CONF/STATUS/PMT/INV) · SF's API is read-only for customers, so fixes happen in the SF web UI.</p></div></div>`,
+          `<p style="color:#9CA3AF;font-size:12px;margin-top:16px">Run from Master Control · comms settings = per-email types_accepted (CONF/STATUS/PMT/INV) · SF's API is read-only for customers, so fixes happen in the SF web UI.</p></div></div>`,
       });
     }
 
