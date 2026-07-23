@@ -661,13 +661,19 @@ async function finalizeSfCreation(ticketId, route, payload, parsed, email) {
       status: 'sf_created',
       error: warning || null,
     });
-    await notifySendList(
-      route,
-      `🎫 ${route.display_name} ticket created — SF job ${jobNumber || '(no number returned)'}`,
-      row('SF job #', jobNumber) +
-        ticketSummaryRows(route, parsed, email) +
-        (warning ? `<p style="margin:10px 0 0;color:#b45309">${esc(warning)}</p>` : ''),
-    );
+    // Muted on the confirm-click path (per Sky 2026-07-22): whoever clicked
+    // Create sees the result page, and the vendor acceptance email is the
+    // record — the internal copy only sends when a field was dropped (needs
+    // attention) or on auto-created jobs (nobody clicked a button).
+    if (email || warning) {
+      await notifySendList(
+        route,
+        `🎫 ${route.display_name} ticket created — SF job ${jobNumber || '(no number returned)'}`,
+        row('SF job #', jobNumber) +
+          ticketSummaryRows(route, parsed, email) +
+          (warning ? `<p style="margin:10px 0 0;color:#b45309">${esc(warning)}</p>` : ''),
+      );
+    }
     return { ok: true, ticketId, sfJob: jobNumber };
   } catch (e) {
     await sbUpdate('vendor_email_tickets', `id=eq.${ticketId}`, {
