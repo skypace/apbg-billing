@@ -917,6 +917,7 @@ async function applyStatusChange(ticket, rawStatus, { source = 'sf-notification-
     row('Work performed', job?.completion_notes) +
     row('Tech notes', job?.tech_notes) +
     row('Job total', money(job?.total)) +
+    row('Amount due', money(job?.due_total)) +
     row('Payment status', job?.payment_status) +
     row('Original request', ticket.subject);
   await sendTo(
