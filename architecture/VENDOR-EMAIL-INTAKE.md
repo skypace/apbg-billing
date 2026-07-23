@@ -2,7 +2,15 @@
 
 Red Bull and Freshpet service emails become Service Fusion jobs automatically,
 and the send list gets an email every time the SF job's status changes.
-**Fully event-driven — no crons.**
+Intake + approval are event-driven (Resend inbound webhook). Status updates
+have TWO feeds into one shared pipeline (`applyStatusChange`, deduped on
+last_sf_status): the sf-status@ notification email (instant, when SF sends
+one) and **`vendor-ticket-status-poll` — a 5-minute poller over open vendor
+tickets** added 2026-07-23 after live testing showed SF's notification
+emails cannot be relied on to fire per status change. The poller reads each
+open ticket's SF job (cap 25/tick; stops at invoiced/cancelled or 60 days)
+— so every status in the chain (Scheduled Service → … → Completed Service →
+Invoiced) is reported within ~5 minutes regardless of SF settings.
 
 ## Flow
 

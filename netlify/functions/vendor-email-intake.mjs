@@ -846,19 +846,34 @@ async function handleStatusEmail(email) {
   // SF notifies for EVERY job; only vendor-email tickets are ours to relay
   if (!ticket) return { ok: true, ignored: `job ${jobNumber} is not a vendor-email ticket` };
 
-  const newStatus = (extracted.status || '').trim();
+  return applyStatusChange(ticket, extracted.status, {
+    source: 'sf-notification-email',
+    raw: { subject: email.subject, from: email.from },
+  });
+}
+
+async function loadRouteForTicket(ticket) {
+  const routes = ticket.route_id
+    ? await sbSelect('vendor_email_routes', `id=eq.${ticket.route_id}&select=*&limit=1`)
+    : [];
+  return (
+    routes[0] ||
+    { display_name: ticket.vendor_key || 'Vendor', send_list: ['service@brixbev.com'], vendor_notify_list: [] }
+  );
+}
+
+// The ONE status-change pipeline — fed by both the SF notification email
+// (instant, when SF sends one) and the 5-minute poller (the guarantee).
+// Updates go to the vendor (submitter + configured contacts) AND the internal
+// send list — "all the way to the billing".
+async function applyStatusChange(ticket, rawStatus, { source = 'sf-notification-email', raw = {}, jobDetail = null } = {}) {
+  const jobNumber = String(ticket.sf_job_number || ticket.sf_job_id || '');
+  const newStatus = String(rawStatus || '').trim();
   if (!newStatus || newStatus.toLowerCase() === (ticket.last_sf_status || '').toLowerCase()) {
     return { ok: true, ignored: 'status unchanged' };
   }
 
-  const routes = ticket.route_id
-    ? await sbSelect('vendor_email_routes', `id=eq.${ticket.route_id}&select=*&limit=1`)
-    : [];
-  const route = routes[0]
-    || { display_name: ticket.vendor_key || 'Vendor', send_list: ['service@brixbev.com'], vendor_notify_list: [] };
-
-  // Updates go to the vendor (submitter + configured contacts) AND the
-  // internal send list — "all the way to the billing".
+  const route = await loadRouteForTicket(ticket);
   const recipients = dedupeEmails([
     ...(route.send_list || []),
     ...(route.vendor_notify_list || []),
@@ -869,8 +884,9 @@ async function handleStatusEmail(email) {
     ticket_id: ticket.id,
     sf_job_number: jobNumber,
     sf_status: newStatus,
+    source,
     notified_to: recipients,
-    raw: { subject: email.subject, from: email.from },
+    raw,
   });
   await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
     last_sf_status: newStatus,
@@ -880,11 +896,13 @@ async function handleStatusEmail(email) {
   // Enrich the update with live job detail so completion/billing emails carry
   // the actual outcome (what was done, totals), not just the status name.
   // Best-effort: a failed SF read still sends the basic update.
-  let job = null;
-  try {
-    job = await sfRequest('GET', `/jobs/${ticket.sf_job_id || jobNumber}`);
-  } catch (e) {
-    console.warn('SF job detail fetch failed (sending basic update):', e.message);
+  let job = jobDetail;
+  if (!job) {
+    try {
+      job = await sfRequest('GET', `/jobs/${ticket.sf_job_id || jobNumber}`);
+    } catch (e) {
+      console.warn('SF job detail fetch failed (sending basic update):', e.message);
+    }
   }
   const money = (v) => (v !== null && v !== undefined && v !== '' ? `$${v}` : null);
 
@@ -917,6 +935,41 @@ async function handleStatusEmail(email) {
     },
   );
   return { ok: true, ticketId: ticket.id, status: newStatus };
+}
+
+// The 5-minute safety net (called by vendor-ticket-status-poll.mjs): walk
+// every open vendor ticket, read its SF job, and relay any status change
+// through the same pipeline as the email trigger. Tickets stop polling once
+// they reach a terminal status (invoiced/cancelled) or go stale (60 days).
+const TERMINAL_STATUS = /invoiced|cancel/i;
+const POLL_MAX_PER_TICK = 25;
+const POLL_MAX_AGE_DAYS = 60;
+
+export async function pollVendorTicketStatuses() {
+  const tickets = await sbSelect(
+    'vendor_email_tickets',
+    `status=eq.sf_created&sf_job_id=not.is.null&select=*&order=last_status_at.asc.nullsfirst&limit=${POLL_MAX_PER_TICK}`,
+  );
+  const results = [];
+  let checked = 0;
+  for (const ticket of tickets) {
+    if (TERMINAL_STATUS.test(ticket.last_sf_status || '')) continue;
+    const ageDays = (Date.now() - new Date(ticket.created_at).getTime()) / 86400000;
+    if (ageDays > POLL_MAX_AGE_DAYS) continue;
+    checked++;
+    try {
+      const job = await sfRequest('GET', `/jobs/${ticket.sf_job_id}`);
+      const status = String(job?.status || '').trim();
+      if (!status) continue;
+      const r = await applyStatusChange(ticket, status, { source: 'sf-poll', jobDetail: job });
+      if (r.status) results.push({ ticketId: ticket.id, job: ticket.sf_job_id, status: r.status });
+    } catch (e) {
+      console.warn(`[vendor-poll] job ${ticket.sf_job_id} read failed: ${e.message}`);
+    }
+  }
+  const summary = { ok: true, open: tickets.length, checked, changes: results };
+  console.log('[vendor-poll]', JSON.stringify(summary));
+  return summary;
 }
 
 // ─── Entry point ───
