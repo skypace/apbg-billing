@@ -802,7 +802,12 @@ async function handleVendorEmail(route, email) {
         route,
         `📝 ${route.display_name} update — ${parsed.reference_number}${parsed.vendor_fields?.last_status ? ` (${parsed.vendor_fields.last_status})` : ''}`,
         row('Reference', parsed.reference_number) +
-          row('Our SF job #', original.sf_job_number) +
+          row(
+            'In Service Fusion',
+            original.sf_job_number
+              ? `Yes — job ${original.sf_job_number}`
+              : `NOT YET — ticket is ${original.status === 'awaiting_confirmation' ? 'awaiting your Create/Decline click' : original.status}`,
+          ) +
           row('Vendor status', parsed.vendor_fields?.last_status) +
           row('New note', parsed.vendor_fields?.note_text) +
           row('Location', parsed.location_name) +
