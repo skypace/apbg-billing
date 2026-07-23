@@ -143,6 +143,19 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔍 Service Fusion Changes report <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— comms-settings changes, new / removed customers, renames</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Re-scans every SF customer, diffs against the last snapshot, and <b>emails the report</b>
+        (communication-settings changes per customer, new customers, removed customers — SF's API can't
+        distinguish deleted from deactivated — and renames). A daily 8am check also runs automatically
+        and emails only when something changed. SF's API is read-only for customers, so fixes happen in the SF web UI.
+      </div>
+      <button id="sfChangesBtn" onclick="runSfChangesReport()" style="flex:none;background:#1F4E79;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer">Run report now →</button>
+    </div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
     <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books &amp; Service Fusion for the PACER MCP servers</span></h2>
     <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
       <div style="font-size:0.85rem;color:#374151;max-width:560px">
@@ -983,6 +996,22 @@ async function runHandbookAutoupdate(){
     alert('Failed to start: '+e.message);
     if(btn){ btn.disabled = false; btn.textContent = '🤖 Auto-update stale chapters → draft PR'; }
   }
+
+// --- Service Fusion Changes report ---
+async function runSfChangesReport(){
+  const btn=document.getElementById('sfChangesBtn');
+  btn.disabled=true; btn.textContent='Queued…';
+  try{
+    const res=await fetch(`${APBG_FN}/sf-changes-report-background`,{method:'POST',headers:authHeaders()});
+    if(res.status===202||res.ok){
+      log('SF Changes report queued — the scan takes 1-2 minutes, the report arrives by email.','ok');
+      btn.textContent='Queued ✓ — check email in ~2 min';
+      setTimeout(()=>{btn.disabled=false;btn.textContent='Run report now →';},15000);
+    } else {
+      const t=await res.text();
+      throw new Error(`HTTP ${res.status} ${t.slice(0,120)}`);
+    }
+  }catch(e){ alert('Failed to queue report: '+e.message); log('SF Changes report failed to queue: '+e.message,'error'); btn.disabled=false; btn.textContent='Run report now →'; }
 }
 </script>
   <script src="https://alamedapointbg.com/appswitcher.js" defer></script>

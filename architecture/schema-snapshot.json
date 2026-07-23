@@ -89,6 +89,7 @@
     "saved_views",
     "segments",
     "service_jobs",
+    "sf_customer_snapshot",
     "sf_token_cache",
     "site_settings",
     "staff",
