@@ -744,6 +744,12 @@ async function handleVendorEmail(route, email) {
   } catch (e) {
     parsed = { issue_summary: email.subject, parse_error: e.message };
   }
+  if (email.replyTo || email.from) {
+    parsed.vendor_fields = {
+      ...(parsed.vendor_fields || {}),
+      portal_reply_to: email.replyTo || email.from,
+    };
+  }
 
   // Vendors (ServiceChannel especially) email follow-up notes/status changes
   // for WOs we already ticketed — relay those onto the original ticket
@@ -1211,6 +1217,7 @@ export async function handler(event) {
     const emailId = d.email_id || d.id || null;
     let subject = d.subject || '';
     let from = addr(d.from);
+    let replyTo = addr(Array.isArray(d.reply_to) ? d.reply_to[0] : d.reply_to);
     let toList = (Array.isArray(d.to) ? d.to : [d.to]).map(addr).filter(Boolean);
     let text = d.text || (d.html ? stripHtml(d.html) : '');
 
@@ -1220,6 +1227,7 @@ export async function handler(event) {
       if (full) {
         subject = subject || full.subject || '';
         from = from || addr(full.from);
+        replyTo = replyTo || addr(Array.isArray(full.reply_to) ? full.reply_to[0] : full.reply_to);
         if (!toList.length) toList = (Array.isArray(full.to) ? full.to : [full.to]).map(addr).filter(Boolean);
         text = text || full.text || (full.html ? stripHtml(full.html) : '');
       }
@@ -1228,6 +1236,7 @@ export async function handler(event) {
     const email = {
       emailId,
       from,
+      replyTo,
       subject,
       text,
       receivedAt: payload.created_at || new Date().toISOString(),
