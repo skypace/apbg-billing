@@ -89,6 +89,10 @@ export async function handler(event) {
   const mode = payload.mode === 'create' ? 'create' : 'preview';
   const techUserId = payload.techUserId;
   if (!techUserId) return json(400, { error: 'techUserId is required' });
+  // Optional scope: pay only these PM ids (e.g. the Added Assets tab paying
+  // just the field-added items). Omitted = every unpaid PM, as before.
+  const pmIds = Array.isArray(payload.pmIds) ? payload.pmIds.map(Number).filter(Boolean) : null;
+  if (pmIds && !pmIds.length) return json(400, { error: 'pmIds is empty' });
 
   // ── tech profile + rate ──
   let tech;
@@ -106,12 +110,14 @@ export async function handler(event) {
   // ── payable PMs (not prev_comp, not already paid out) ──
   let rows;
   try {
-    rows = await fpGet(
-      `completed_pms?tech_user_id=eq.${encodeURIComponent(techUserId)}&prev_comp=eq.false&paid_out=eq.false&select=id,store,serial,pm_date`, jwt);
+    let path =
+      `completed_pms?tech_user_id=eq.${encodeURIComponent(techUserId)}&prev_comp=eq.false&paid_out=eq.false&select=id,store,serial,pm_date,added_asset`;
+    if (pmIds) path += `&id=in.(${pmIds.join(',')})`;
+    rows = await fpGet(path, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
-  if (!rows.length) return json(400, { error: 'No unpaid PMs for this technician' });
+  if (!rows.length) return json(400, { error: pmIds ? 'None of the selected PMs are payable for this technician' : 'No unpaid PMs for this technician' });
 
   const dates = rows.map(r => r.pm_date).filter(Boolean).sort();
   const periodLabel = dates.length ? (dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} – ${dates[dates.length - 1]}`) : '';
@@ -132,8 +138,11 @@ export async function handler(event) {
     return json(502, { error: 'QBO vendor lookup/create failed: ' + e.message });
   }
 
+  const addedCount = rows.filter(r => r.added_asset).length;
+  const addedLabel = addedCount === count && count
+    ? ' — field-added assets' : (addedCount ? ` (incl. ${addedCount} field-added)` : '');
   const description = `Freshpet PM technician pay — ${techName} — ${count} PM${count === 1 ? '' : 's'}` +
-    (periodLabel ? ` (${periodLabel})` : '');
+    addedLabel + (periodLabel ? ` (${periodLabel})` : '');
   const billPayload = {
     VendorRef: { value: vendor.Id },
     Line: [{
