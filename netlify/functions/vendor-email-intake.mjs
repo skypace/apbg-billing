@@ -350,8 +350,15 @@ function buildRedBullSfJob(route, parsed) {
     vf.vendor_sf_ref && `SF ${vf.vendor_sf_ref}`,
   ].filter(Boolean).join(' / ');
 
+  const assetLines = [
+    vf.asset_make_model && `ASSET MAKE/MODEL: ${vf.asset_make_model}`,
+    vf.asset_serial && `ASSET SERIAL: ${vf.asset_serial}`,
+    vf.asset_material_number && `ASSET MATERIAL NUMBER: ${vf.asset_material_number}`,
+  ].filter(Boolean);
+
   const description = [
     `ISSUE REPORTED: ${parsed.issue_summary || vf.headline || ''}`,
+    assetLines.length && `ASSET INFORMATION:\n${assetLines.join('\n')}`,
     vf.description_block && `DESCRIPTION:\n${vf.description_block}`,
     (parsed.contact_name || parsed.contact_phone) &&
       `LOCATION CONTACT:\n${[parsed.contact_name, parsed.contact_phone].filter(Boolean).join(' / ')}`,
