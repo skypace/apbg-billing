@@ -117,41 +117,64 @@ function buildBillPayload(r, vendor, accountId) {
   return payload;
 }
 
-// ── emails ──
+// ── branded Brixpense email shell ──
+// Dark-navy glass header with the °bx mark + Brixpense wordmark, accent strip,
+// content card, footer. accent: green=success, amber=attention, navy=info.
+function brixpenseEmail(accent, kicker, innerHtml) {
+  return `<div style="margin:0;padding:24px 12px;background:#0B1220;font-family:'DM Sans',-apple-system,Segoe UI,Arial,sans-serif">
+    <div style="max-width:640px;margin:0 auto;background:#0F172A;border:1px solid #1E293B;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+      <div style="padding:20px 24px;background:linear-gradient(135deg,#1F4E79 0%,#0F172A 100%);border-bottom:1px solid #1E293B">
+        <table role="presentation" width="100%"><tr>
+          <td style="vertical-align:middle">
+            <span style="display:inline-block;width:34px;height:34px;line-height:34px;text-align:center;background:#3B82F6;color:#fff;border-radius:9px;font-weight:800;font-size:15px;vertical-align:middle">°bx</span>
+            <span style="color:#fff;font-weight:800;font-size:18px;letter-spacing:.2px;margin-left:10px;vertical-align:middle">Brixpense</span>
+          </td>
+          <td style="text-align:right;color:#93C5FD;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;vertical-align:middle">${esc(kicker)}</td>
+        </tr></table>
+      </div>
+      <div style="height:4px;background:${accent}"></div>
+      <div style="padding:22px 24px;color:#E2E8F0;font-size:14px;line-height:1.55">${innerHtml}</div>
+      <div style="padding:14px 24px;border-top:1px solid #1E293B;color:#64748B;font-size:11px">
+        Brixpense · Service Fusion → QuickBooks expense automation · Alameda Point Beverage Group
+      </div>
+    </div>
+  </div>`;
+}
+const kvRow = (k, v) => `<tr><td style="padding:4px 0;color:#94A3B8;width:150px;vertical-align:top">${esc(k)}</td><td style="padding:4px 0;color:#F1F5F9">${v}</td></tr>`;
+const kvTable = (rows) => `<table role="presentation" style="border-collapse:collapse;width:100%;margin-top:6px">${rows}</table>`;
+
 async function emailConfirmation(r, vendor, billId, accountId) {
+  const inner = `<p style="margin:0 0 14px;color:#fff;font-size:16px;font-weight:700">Bill entered in QuickBooks ✓</p>
+    ${kvTable([
+      kvRow('Vendor', `<b style="color:#fff">${esc(vendor.DisplayName)}</b> <span style="color:#64748B">(QBO id ${esc(vendor.Id)})</span>`),
+      kvRow('Amount', `<b style="color:#4ADE80">${money(r.total_amount)}</b>`),
+      kvRow('Service Fusion job', `${esc(r.job_number || '')}${r.customer_name ? ' — ' + esc(r.customer_name) : ''}`),
+      kvRow('What it was for', esc((r.line_items && r.line_items[0] && r.line_items[0].description) || r.memo || '—')),
+      kvRow('QBO Bill ID', `<b style="color:#fff">${esc(billId)}</b>`),
+      kvRow('Account', esc(r.cogs_account_label || accountId)),
+      kvRow('Brixpense ID', esc(r.id)),
+    ].join(''))}`;
   await sendEmail({
     to: REPORT_TO,
-    subject: `✅ QBO bill posted — ${vendor.DisplayName} ${money(r.total_amount)} (SF job ${r.job_number})`,
-    html: `<div style="font-family:'DM Sans',Arial,sans-serif;max-width:640px">
-      <div style="background:#059669;color:#fff;padding:12px 18px;border-radius:10px 10px 0 0"><b>Expense posted to QuickBooks</b></div>
-      <div style="border:1px solid #E5E7EB;border-top:0;border-radius:0 0 10px 10px;padding:14px 18px;color:#111827;font-size:14px">
-        <table style="border-collapse:collapse">
-          <tr><td style="padding:3px 10px;color:#6B7280">Vendor</td><td style="padding:3px 10px"><b>${esc(vendor.DisplayName)}</b> (QBO id ${esc(vendor.Id)})</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Amount</td><td style="padding:3px 10px"><b>${money(r.total_amount)}</b></td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">SF job</td><td style="padding:3px 10px">${esc(r.job_number || '')}${r.customer_name ? ' — ' + esc(r.customer_name) : ''}</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">QBO Bill ID</td><td style="padding:3px 10px"><b>${esc(billId)}</b></td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Account</td><td style="padding:3px 10px">${esc(r.cogs_account_label || accountId)}</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Brixpense ID</td><td style="padding:3px 10px">${esc(r.id)}</td></tr>
-        </table>
-      </div></div>`,
+    subject: `✅ Brixpense — QBO bill posted: ${vendor.DisplayName} ${money(r.total_amount)} (SF job ${r.job_number})`,
+    html: brixpenseEmail('#22C55E', 'Bill posted', inner),
   });
 }
 async function emailNeedsAttention(r, reason) {
+  const inner = `<p style="margin:0 0 6px;color:#fff;font-size:16px;font-weight:700">This expense needs attention</p>
+    <p style="margin:0 0 14px;color:#CBD5E1">${esc(reason.long)}</p>
+    ${kvTable([
+      kvRow('Service Fusion job', `<b style="color:#fff">${esc(r.job_number || '')}</b>${r.customer_name ? ' — ' + esc(r.customer_name) : ''}`),
+      kvRow('What it was for', esc((r.line_items && r.line_items[0] && r.line_items[0].description) || r.memo || '—')),
+      kvRow('Vendor on record (SF)', r.vendor_name ? `<b style="color:#fff">${esc(r.vendor_name)}</b>` : '<i style="color:#FBBF24">blank — fill in “Purchased From” on the SF job expense</i>'),
+      kvRow('Amount', money(r.total_amount)),
+      kvRow('Brixpense ID', esc(r.id)),
+    ].join(''))}
+    <p style="color:#64748B;font-size:12px;margin-top:14px">Fix at the source — add the vendor to the SF expense’s “Purchased From,” or create the vendor in QuickBooks — and the next run posts it automatically. No repeat alerts for this one unless it changes.</p>`;
   await sendEmail({
     to: REPORT_TO,
-    subject: `⚠ SF expense can't post to QBO — ${r.job_number || r.id} (${reason.short})`,
-    html: `<div style="font-family:'DM Sans',Arial,sans-serif;max-width:640px">
-      <div style="background:#B45309;color:#fff;padding:12px 18px;border-radius:10px 10px 0 0"><b>Service Fusion expense needs attention</b></div>
-      <div style="border:1px solid #E5E7EB;border-top:0;border-radius:0 0 10px 10px;padding:14px 18px;color:#111827;font-size:14px">
-        <p style="margin:0 0 10px">${esc(reason.long)}</p>
-        <table style="border-collapse:collapse">
-          <tr><td style="padding:3px 10px;color:#6B7280">SF job</td><td style="padding:3px 10px"><b>${esc(r.job_number || '')}</b>${r.customer_name ? ' — ' + esc(r.customer_name) : ''}</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Vendor on record (SF)</td><td style="padding:3px 10px">${r.vendor_name ? esc(r.vendor_name) : '<i>blank — fill in "Purchased From" on the SF job expense</i>'}</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Amount</td><td style="padding:3px 10px">${money(r.total_amount)}</td></tr>
-          <tr><td style="padding:3px 10px;color:#6B7280">Brixpense ID</td><td style="padding:3px 10px">${esc(r.id)}</td></tr>
-        </table>
-        <p style="color:#6B7280;font-size:12px;margin-top:12px">Fix at the source (SF "Purchased From", or add the vendor in QuickBooks) and the next run will post it. You won't get repeat alerts for this one unless it changes.</p>
-      </div></div>`,
+    subject: `⚠ Brixpense — SF expense can't post: ${r.job_number || r.id} (${reason.short})`,
+    html: brixpenseEmail('#F59E0B', 'Needs attention', inner),
   });
 }
 
@@ -159,6 +182,7 @@ export default async (req) => {
   const url = new URL(req.url);
   const mode = (url.searchParams.get('mode') || 'preview').toLowerCase();
   const isPost = mode === 'post';
+  const isList = mode === 'list';
 
   // auth: cron secret OR superadmin bearer
   const cronSecret = req.headers.get('x-sf-autopost-secret') || '';
@@ -176,6 +200,28 @@ export default async (req) => {
   try {
     const sel = 'id,vendor_name,vendor_id,total_amount,line_items,cogs_account_id,cogs_account_label,customer_name,job_number,receipt_date,memo,tag,request_type,status,qbo_bill_id,autopost_notified_at';
     const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&created_at=gte.${sinceDate}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+
+    // LIST mode: read-only reconcile table — each unposted expense + whether its
+    // SF "purchased_from" vendor already exists in QuickBooks. No emails, no writes.
+    if (isList) {
+      const items = [];
+      for (const r of rows) {
+        const descr = (r.line_items && r.line_items[0] && r.line_items[0].description) || r.memo || null;
+        const v = r.vendor_name && String(r.vendor_name).trim() ? await findQBOVendor(r.vendor_name) : null;
+        items.push({
+          brixpense_id: r.id,
+          job_number: r.job_number,
+          customer_name: r.customer_name,
+          what_for: descr,
+          vendor_on_record_sf: r.vendor_name || null,
+          amount: Number(r.total_amount) || 0,
+          qbo_vendor_match: v ? { id: v.Id, name: v.DisplayName } : null,
+          status: !r.vendor_name ? 'NO_VENDOR_IN_SF' : (v ? 'READY_TO_POST' : 'VENDOR_NOT_IN_QBO'),
+        });
+      }
+      await logRun(started, 'success', 0, { mode: 'list', scanned: rows.length });
+      return new Response(JSON.stringify({ ok: true, count: items.length, items }, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
 
     const posted = [];
     const needVendor = [];   // blank purchased_from
@@ -215,21 +261,22 @@ export default async (req) => {
       }
     }
 
-    // Preview: one digest email of what WOULD happen.
+    // Preview: one branded digest email of what WOULD happen.
     if (!isPost) {
-      const li = (arr, f) => arr.map(f).map((x) => `<li>${x}</li>`).join('') || '<li><i>none</i></li>';
+      const li = (arr, f) => arr.map(f).map((x) => `<li style="margin:2px 0">${x}</li>`).join('') || '<li style="color:#64748B"><i>none</i></li>';
+      const inner = `<p style="margin:0 0 4px;color:#fff;font-size:16px;font-weight:700">Preview — dry run, nothing posted</p>
+        <p style="margin:0 0 14px;color:#CBD5E1">${rows.length} unposted Service Fusion expense${rows.length === 1 ? '' : 's'} in the last ${LOOKBACK_DAYS} days.</p>
+        <h3 style="color:#4ADE80;margin:14px 0 4px;font-size:14px">✅ Would post to QuickBooks (${posted.length})</h3>
+        <ul style="margin:0;padding-left:18px;color:#E2E8F0">${li(posted, (p) => `<b>${esc(p.vendor.DisplayName)}</b> — ${money(p.r.total_amount)} — SF job ${esc(p.r.job_number || '')}`)}</ul>
+        <h3 style="color:#FBBF24;margin:14px 0 4px;font-size:14px">⚠ No vendor in Service Fusion (${needVendor.length})</h3>
+        <ul style="margin:0;padding-left:18px;color:#E2E8F0">${li(needVendor, (r) => `SF job ${esc(r.job_number || '')} — ${money(r.total_amount)} — <i style="color:#94A3B8">blank Purchased From</i>`)}</ul>
+        <h3 style="color:#FBBF24;margin:14px 0 4px;font-size:14px">⚠ Vendor not in QuickBooks (${noMatch.length})</h3>
+        <ul style="margin:0;padding-left:18px;color:#E2E8F0">${li(noMatch, (r) => `"<b>${esc(r.vendor_name)}</b>" — ${money(r.total_amount)} — SF job ${esc(r.job_number || '')}`)}</ul>
+        <p style="color:#64748B;font-size:12px;margin-top:14px">This is a dry run. Use “Post now” in Master Control to create the bills and send a confirmation for each.</p>`;
       await sendEmail({
         to: REPORT_TO,
-        subject: `SF expense auto-post — PREVIEW (${posted.length} would post, ${needVendor.length + noMatch.length} need attention)`,
-        html: `<div style="font-family:'DM Sans',Arial,sans-serif;max-width:680px">
-          <div style="background:#1F4E79;color:#fff;padding:12px 18px;border-radius:10px 10px 0 0"><b>SF expense auto-post — PREVIEW (dry run, nothing posted)</b></div>
-          <div style="border:1px solid #E5E7EB;border-top:0;border-radius:0 0 10px 10px;padding:14px 18px;color:#111827;font-size:14px">
-          <p>${rows.length} unposted SF-expense drafts in the last ${LOOKBACK_DAYS} days.</p>
-          <h3 style="color:#059669;margin:12px 0 4px">✅ Would post to QBO (${posted.length})</h3><ul>${li(posted, (p) => `${esc(p.vendor.DisplayName)} — ${money(p.r.total_amount)} — SF job ${esc(p.r.job_number || '')}`)}</ul>
-          <h3 style="color:#B45309;margin:12px 0 4px">⚠ No vendor in SF (${needVendor.length})</h3><ul>${li(needVendor, (r) => `SF job ${esc(r.job_number || '')} — ${money(r.total_amount)} — <i>blank Purchased From</i>`)}</ul>
-          <h3 style="color:#B45309;margin:12px 0 4px">⚠ Vendor not in QuickBooks (${noMatch.length})</h3><ul>${li(noMatch, (r) => `"${esc(r.vendor_name)}" — ${money(r.total_amount)} — SF job ${esc(r.job_number || '')}`)}</ul>
-          <p style="color:#6B7280;font-size:12px;margin-top:12px">This is a dry run. Click "Post now" in Master Control to create the bills and send per-expense confirmations.</p>
-        </div></div>`,
+        subject: `Brixpense — SF expense auto-post PREVIEW (${posted.length} ready, ${needVendor.length + noMatch.length} need attention)`,
+        html: brixpenseEmail('#3B82F6', 'Preview', inner),
       });
     }
 
