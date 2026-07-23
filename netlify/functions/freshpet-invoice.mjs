@@ -173,7 +173,7 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -208,9 +208,15 @@ export async function handler(event) {
   const item = await resolveItemId();
   if (!item) return json(500, { error: 'No QBO service item found (tried ' + ITEM_NAME_CANDIDATES.filter(Boolean).join(', ') + ')' });
 
+  // Field-added assets are units our techs discovered on site that weren't on
+  // Freshpet's asset list — call them out on the invoice line.
+  const addedCount = eligible.filter(r => r.added_asset).length;
+  const addedLabel = addedCount === count && count
+    ? ' — newly found units added in the field'
+    : (addedCount ? ` (incl. ${addedCount} newly found unit${addedCount === 1 ? '' : 's'} added in the field)` : '');
   const description =
     `Freshpet Preventive Maintenance — ${count} completed visit${count === 1 ? '' : 's'}` +
-    (periodLabel ? ` (${periodLabel})` : '');
+    addedLabel + (periodLabel ? ` (${periodLabel})` : '');
 
   const invoicePayload = {
     CustomerRef: { value: FRESHPET_QBO_CUSTOMER_ID },
@@ -267,10 +273,10 @@ export async function handler(event) {
   }
 
   // Build CSV visit report.
-  const csvHeader = 'Store,City,Serial,PM Date,Technician,Signed At,GPS,Amount';
+  const csvHeader = 'Store,City,Serial,PM Date,Technician,Signed At,GPS,Added Asset,Amount';
   const csvBody = eligible.map(r =>
     [csvCell(r.store), csvCell(r.assets?.city || ''), csvCell(r.serial), csvCell(r.pm_date), csvCell(r.tech_name),
-     csvCell(fmtSignedAt(r.signed_at)), csvCell(fmtGps(r.gps_lat, r.gps_lng)), rate.toFixed(2)].join(',')
+     csvCell(fmtSignedAt(r.signed_at)), csvCell(fmtGps(r.gps_lat, r.gps_lng)), r.added_asset ? 'Yes' : '', rate.toFixed(2)].join(',')
   ).join('\n');
   const csvB64 = Buffer.from(`${csvHeader}\n${csvBody}\n`).toString('base64');
   const periodTag = (minDate || 'report').replace(/[^0-9]/g, '') || 'report';
