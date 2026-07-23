@@ -316,8 +316,12 @@ ${String(text || '').slice(0, 12000)}`,
 async function parseStatusEmail({ subject, text }) {
   // Cheap regex pass first — SF notification emails carry "Job #<number>"
   const blob = `${subject}\n${text}`;
-  const jobMatch = blob.match(/job\s*(?:number|no\.?|#)?\s*[:#]?\s*(\d{6,})/i);
-  const statusMatch = blob.match(/status\s*(?:changed|updated)?\s*(?:to|:)\s*["“']?([A-Za-z][A-Za-z0-9 \-\/]{2,40})/i);
+  // Known live format (the account's custom SF status template, verified
+  // 2026-07-22): "SF-JOB NUMBER: 1092930655" + "STATUS UPDATE: Completed- Service"
+  const jobMatch =
+    blob.match(/SF-?\s*JOB\s*NUMBER\s*[:#]?\s*(\d{6,})/i) ||
+    blob.match(/job\s*(?:number|no\.?|#)?\s*[:#]?\s*(\d{6,})/i);
+  const statusMatch = blob.match(/status\s*(?:changed|updated|update)?\s*(?:to|:)\s*["“']?([A-Za-z][A-Za-z0-9 \-\/]{2,40})/i);
   if (jobMatch && statusMatch) {
     return { job_number: jobMatch[1], status: statusMatch[1].trim().replace(/["”'.]+$/, '') };
   }
