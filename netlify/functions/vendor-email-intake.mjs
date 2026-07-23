@@ -280,11 +280,89 @@ function parseRedBullDeterministic(subject, text) {
   };
 }
 
+// Freshpet work orders arrive as ServiceChannel notification emails with
+// stable labeled fields (label on one line, value on the next). Covers both
+// new-WO dispatches and note/status notifications — the caller decides which
+// by matching the tracking number against existing tickets. Returns null when
+// the email doesn't look like ServiceChannel (→ Claude fallback).
+function parseFreshpetServiceChannel(subject, text) {
+  const t = String(text || '');
+  const lines = t.split('\n').map((l) => l.trim());
+  // Value(s) on the line(s) after an exact label line
+  const after = (label, count = 1) => {
+    const i = lines.findIndex((l) => l.toLowerCase() === label.toLowerCase());
+    if (i === -1) return null;
+    const vals = lines.slice(i + 1, i + 1 + count).filter(Boolean)
+      .filter((l) => !/^(click button|view work order|follow work order)/i.test(l));
+    return vals.length ? vals.join(', ') : null;
+  };
+  const tracking =
+    after('Tracking Number') ||
+    t.match(/Tracking number\s+(\d{5,})/i)?.[1] || null;
+  if (!tracking || !/servicechannel|tracking number|work order/i.test(t + subject)) return null;
+
+  const locationName = after('Location Name');
+  const address = after('Address', 2);
+  const lastStatus = after('Last Status');
+  const problem = after('Problem');
+  const problemType = after('Problem Type');
+  const problemDesc = (t.match(/Problem Description\s*\n\s*"([\s\S]*?)"\s*\n/i)?.[1] || after('Problem Description', 3) || '').trim() || null;
+  const noteMatch = t.match(/New Note\s*\n\s*"([\s\S]*?)"\s*(?:-|\n)/i);
+
+  // Asset details ride inside the problem description
+  const brand = t.match(/"Brand"\s*([^,\n]+)/i)?.[1]?.trim() || null;
+  const model = t.match(/"Model #?"\s*([^,\n\/]+)/i)?.[1]?.trim() || null;
+  const serial = t.match(/"Serial #?"\s*([^,\n\/ ]+)/i)?.[1]?.trim() || null;
+
+  return {
+    location_name: locationName,
+    address,
+    contact_name: null,
+    contact_phone: (() => {
+      const idxs = lines.map((l, i) => (l.toLowerCase() === 'phone' ? i : -1)).filter((i) => i !== -1);
+      for (const i of idxs.reverse()) {
+        const v = (lines[i + 1] || '').trim();
+        if (v && v !== '-') return v;
+      }
+      return null;
+    })(),
+    reference_number: `SC ${tracking}`,
+    equipment: [after('Asset'), brand, model, serial && `S/N ${serial}`].filter(Boolean).join(' · ') || null,
+    issue_summary: [problemType, problem].filter(Boolean).join(' — ') || subject,
+    requested_date: after('Scheduled', 2),
+    urgency: /24\s*-?\s*48|emergency|urgent/i.test(t) ? 'urgent' : 'normal',
+    vendor_fields: {
+      tracking_number: tracking,
+      po_number: after('PO#'),
+      customer: after('Customer'),
+      location_id: after('Location ID'),
+      trade: after('Trade'),
+      category: after('Category'),
+      nte: after('NTE'),
+      priority: after('Priority'),
+      last_status: lastStatus,
+      asset: after('Asset'),
+      asset_brand: brand,
+      asset_model: model,
+      asset_serial: serial,
+      problem_description: problemDesc,
+      note_text: noteMatch ? noteMatch[1].trim() : null,
+      is_note: /new note/i.test(subject + t.slice(0, 300)),
+    },
+    parser: 'deterministic-servicechannel',
+  };
+}
+
 async function parseVendorEmail(route, { from, subject, text }) {
   if (route.vendor_key === 'redbull') {
     const exact = parseRedBullDeterministic(subject, text);
     if (exact) return exact;
     console.warn('Red Bull email did not match the known format — falling back to Claude parse');
+  }
+  if (route.vendor_key === 'freshpet') {
+    const exact = parseFreshpetServiceChannel(subject, text);
+    if (exact) return exact;
+    console.warn('Freshpet email did not match the ServiceChannel format — falling back to Claude parse');
   }
   const raw = await claude(
     `You are parsing a forwarded vendor service email so a Service Fusion job ticket can be created.
@@ -405,6 +483,74 @@ function buildRedBullSfJob(route, parsed) {
   };
 }
 
+// Freshpet / ServiceChannel mapping (default — pending operator tuning):
+//   PO number   = "SC <tracking #>"
+//   Description = problem + verbatim problem description + asset info +
+//                 priority/NTE/trade + SC references + location details
+//   Job notes   = priority · NTE · SC tracking number
+// Structured job location from the ServiceChannel address block.
+function buildFreshpetSfJob(route, parsed) {
+  const vf = parsed.vendor_fields || {};
+  const assetLines = [
+    vf.asset && `ASSET: ${vf.asset}`,
+    vf.asset_brand && `BRAND: ${vf.asset_brand}`,
+    vf.asset_model && `MODEL: ${vf.asset_model}`,
+    vf.asset_serial && `SERIAL: ${vf.asset_serial}`,
+  ].filter(Boolean);
+
+  const description = [
+    `PROBLEM: ${parsed.issue_summary || ''}`,
+    vf.problem_description && `PROBLEM DESCRIPTION:\n${vf.problem_description}`,
+    assetLines.length && `ASSET INFORMATION:\n${assetLines.join('\n')}`,
+    [
+      vf.priority && `PRIORITY: ${vf.priority}`,
+      vf.nte && `NTE: ${vf.nte}`,
+      vf.trade && `TRADE: ${vf.trade}`,
+      parsed.requested_date && `SCHEDULED: ${parsed.requested_date}`,
+    ].filter(Boolean).join('\n') || false,
+    [
+      vf.tracking_number && `SC TRACKING #: ${vf.tracking_number}`,
+      vf.po_number && `SC PO#: ${vf.po_number}`,
+      vf.customer && `SC CUSTOMER: ${vf.customer}`,
+      vf.location_id && `SC LOCATION ID: ${vf.location_id}`,
+    ].filter(Boolean).join('\n') || false,
+    [
+      `LOCATION DETAILS:`,
+      parsed.location_name,
+      parsed.address,
+      parsed.contact_phone && `PHONE: ${parsed.contact_phone}`,
+    ].filter(Boolean).join('\n'),
+  ].filter(Boolean).join('\n\n');
+
+  const notes = [
+    vf.priority && { notes: `PRIORITY: ${vf.priority}` },
+    vf.nte && { notes: `NTE: ${vf.nte}` },
+    vf.tracking_number && { notes: `SERVICECHANNEL TRACKING #: ${vf.tracking_number}` },
+  ].filter(Boolean);
+
+  // "157 N. McDowell Blvd, Petaluma CA 94954" → street / city / state / zip
+  const location = {};
+  if (parsed.location_name) location.location_name = parsed.location_name;
+  const addrParts = String(parsed.address || '').split(',').map((x) => x.trim());
+  if (addrParts[0]) location.street_1 = addrParts[0];
+  const cityLine = (addrParts[1] || '').match(/^(.*?)\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (cityLine) {
+    location.city = cityLine[1];
+    location.state_prov = cityLine[2];
+    location.postal_code = cityLine[3];
+  }
+
+  return {
+    customer_name: route.sf_customer_name,
+    status: route.sf_job_status_initial || 'Unscheduled',
+    ...(route.sf_job_category ? { category: route.sf_job_category } : {}),
+    ...(vf.tracking_number ? { po_number: `SC ${vf.tracking_number}`.slice(0, 50) } : {}),
+    description: description.slice(0, MAX_DESC),
+    ...(notes.length ? { notes } : {}),
+    ...location,
+  };
+}
+
 function buildGenericSfJob(route, parsed, { from, subject, text, receivedAt }) {
   const lines = [
     `${route.display_name.toUpperCase()} — AUTOMATED EMAIL TICKET`,
@@ -441,9 +587,9 @@ function buildGenericSfJob(route, parsed, { from, subject, text, receivedAt }) {
 }
 
 function buildSfJobPayload(route, parsed, email) {
-  return parsed.parser === 'deterministic-redbull'
-    ? buildRedBullSfJob(route, parsed)
-    : buildGenericSfJob(route, parsed, email);
+  if (parsed.parser === 'deterministic-redbull') return buildRedBullSfJob(route, parsed);
+  if (parsed.parser === 'deterministic-servicechannel') return buildFreshpetSfJob(route, parsed);
+  return buildGenericSfJob(route, parsed, email);
 }
 
 // SF only ATTACHES existing categories, and other by-name fields can 422 on
@@ -598,6 +744,44 @@ async function handleVendorEmail(route, email) {
   } catch (e) {
     parsed = { issue_summary: email.subject, parse_error: e.message };
   }
+
+  // Vendors (ServiceChannel especially) email follow-up notes/status changes
+  // for WOs we already ticketed — relay those onto the original ticket
+  // instead of opening a duplicate job.
+  if (parsed.reference_number) {
+    const dupes = await sbSelect(
+      'vendor_email_tickets',
+      `route_id=eq.${route.id}&parsed->>reference_number=eq.${encodeURIComponent(parsed.reference_number)}&id=neq.${ticket.id}&order=created_at.asc&limit=1`,
+    );
+    const original = dupes[0];
+    if (original) {
+      await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
+        parsed,
+        status: 'ignored',
+        error: `follow-up for ticket ${original.id} — relayed to the send list, no new job created`,
+      });
+      await sbInsert('vendor_ticket_events', {
+        ticket_id: original.id,
+        sf_job_number: original.sf_job_number,
+        sf_status: null,
+        source: 'vendor-followup-email',
+        notified_to: route.send_list || [],
+        raw: { subject: email.subject, note: parsed.vendor_fields?.note_text || null },
+      });
+      await notifySendList(
+        route,
+        `📝 ${route.display_name} update — ${parsed.reference_number}${parsed.vendor_fields?.last_status ? ` (${parsed.vendor_fields.last_status})` : ''}`,
+        row('Reference', parsed.reference_number) +
+          row('Our SF job #', original.sf_job_number) +
+          row('Vendor status', parsed.vendor_fields?.last_status) +
+          row('New note', parsed.vendor_fields?.note_text) +
+          row('Location', parsed.location_name) +
+          row('Source email', `${email.from} — ${email.subject}`),
+      );
+      return { ok: true, ticketId: ticket.id, followUpFor: original.id };
+    }
+  }
+
   const payload = buildSfJobPayload(route, parsed, email);
 
   // Confirm-before-create (per-route; default ON): hold the built job and
