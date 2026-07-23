@@ -348,6 +348,10 @@ function parseFreshpetServiceChannel(subject, text) {
       problem_description: problemDesc,
       note_text: noteMatch ? noteMatch[1].trim() : null,
       is_note: /new note/i.test(subject + t.slice(0, 300)),
+      // Freshpet people who touch the WO get stamped into the email
+      // ("- jrogalla@Freshpet.com (via email)") — capture them so this WO's
+      // updates CC whoever is actively working it on the Freshpet side.
+      wo_contact_emails: [...new Set((t.match(/[\w.+-]+@freshpet\.com/gi) || []).map((e) => e.toLowerCase()))],
     },
     parser: 'deterministic-servicechannel',
   };
@@ -693,9 +697,14 @@ function dedupeEmails(list) {
 }
 
 // Vendor-facing recipients: the route's configured list + whoever sent the
-// original email (the submitter always hears back).
-function vendorRecipients(route, fromEmail) {
-  return dedupeEmails([...(route.vendor_notify_list || []), fromEmail]);
+// original email (the submitter always hears back) + any per-WO contacts
+// captured off the vendor's own emails (e.g. Freshpet note authors).
+function vendorRecipients(route, fromEmail, ticketParsed = null) {
+  return dedupeEmails([
+    ...(route.vendor_notify_list || []),
+    fromEmail,
+    ...(ticketParsed?.vendor_fields?.wo_contact_emails || []),
+  ]);
 }
 
 async function notifySendList(route, subject, rowsHtml, tpl = null) {
@@ -761,6 +770,21 @@ async function handleVendorEmail(route, email) {
     );
     const original = dupes[0];
     if (original) {
+      const knownContacts = original.parsed?.vendor_fields?.wo_contact_emails || [];
+      const newContacts = (parsed.vendor_fields?.wo_contact_emails || []).filter(
+        (e) => !knownContacts.includes(e),
+      );
+      if (newContacts.length) {
+        await sbUpdate('vendor_email_tickets', `id=eq.${original.id}`, {
+          parsed: {
+            ...original.parsed,
+            vendor_fields: {
+              ...(original.parsed?.vendor_fields || {}),
+              wo_contact_emails: [...knownContacts, ...newContacts],
+            },
+          },
+        });
+      }
       await sbUpdate('vendor_email_tickets', `id=eq.${ticket.id}`, {
         parsed,
         status: 'ignored',
@@ -980,7 +1004,7 @@ async function handleConfirmClick(params) {
       },
     };
     await sendTo(
-      vendorRecipients(route, ticket.from_email),
+      vendorRecipients(route, ticket.from_email, ticket.parsed),
       `Work order declined — ${ref}`,
       declineRows,
       declineTpl,
@@ -998,7 +1022,7 @@ async function handleConfirmClick(params) {
       row('Location', ticket.parsed?.location_name) +
       row('Issue', ticket.parsed?.issue_summary);
     await sendTo(
-      vendorRecipients(route, ticket.from_email),
+      vendorRecipients(route, ticket.from_email, ticket.parsed),
       `Work order accepted — ${ref}`,
       acceptRows +
         `<p style="margin:12px 0 0">Your work order has been <strong>accepted and received</strong>. You will receive email updates as the job progresses — through scheduling, completion, and billing.</p>`,
@@ -1068,6 +1092,7 @@ async function applyStatusChange(ticket, rawStatus, { source = 'sf-notification-
     ...(route.send_list || []),
     ...(route.vendor_notify_list || []),
     ticket.from_email,
+    ...(ticket.parsed?.vendor_fields?.wo_contact_emails || []),
   ]);
 
   await sbInsert('vendor_ticket_events', {
