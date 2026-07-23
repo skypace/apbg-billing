@@ -125,6 +125,11 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
+    <h2>📨 Vendor Job Intake <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— Red Bull / Freshpet emails → Service Fusion work orders (switch OFF = record emails only, no jobs, no notifications)</span></h2>
+    <div id="vendorRoutesBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
     <h2>⚙️ Linked Customers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— RESQ facility → SF/QBO customer map the live ResQ sync uses to create jobs</span></h2>
     <div id="syncCustomersBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
   </div>
@@ -270,6 +275,7 @@ APBG.auth.requireSuperadmin().then(() => {
   loadMaintenance();
   loadSyncCustomers();
   loadResqSync();
+  loadVendorRoutes();
   setInterval(refreshAll, 60000); // auto-refresh every 60s
   setInterval(loadResqSync, 60000);
 });
@@ -644,6 +650,49 @@ async function postSyncCustomer(body){
 }
 
 
+
+// --- Vendor Job Intake (Red Bull / Freshpet email -> SF work orders) ---
+async function loadVendorRoutes(){
+  const box=document.getElementById('vendorRoutesBox');
+  try{
+    const res=await fetch(`${APBG_FN}/vendor-routes-control`,{headers:authHeaders()});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    renderVendorRoutes(data.routes||[],data.counts||{});
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function renderVendorRoutes(routes,counts){
+  const box=document.getElementById('vendorRoutesBox');
+  if(!routes.length){ box.innerHTML='<span style="color:#6B7280">No vendor routes configured.</span>'; return; }
+  box.innerHTML=routes.map(r=>{
+    const c=counts[r.id]||{};
+    const on=r.active!==false;
+    const pill=on
+      ?'<span style="color:#059669;font-weight:700">● ON — creating work orders</span>'
+      :'<span style="color:#DC2626;font-weight:700">● OFF — recording emails only</span>';
+    const cust=r.sf_customer_name?esc(r.sf_customer_name):'<span style="color:#DC2626">not set</span>';
+    const stats=`last 7 days: ${c.total||0} emails · ${c.sf_created||0} jobs · ${c.awaiting||0} pending · ${c.ignored||0} recorded-only`;
+    return `<div style="background:#F9FAFB;border:1px solid ${on?'#A7F3D0':'#FCA5A5'};border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:0.95rem;font-weight:700">${esc(r.display_name)} <span style="font-weight:400;color:#6B7280;font-family:monospace;font-size:0.78rem">${esc(r.inbox)}</span></div>
+        <div style="font-size:0.85rem;margin-top:3px">${pill}</div>
+        <div style="font-size:0.75rem;color:#6B7280;margin-top:3px">SF customer: ${cust} · category: ${esc(r.sf_job_category||'—')} · ${r.require_confirmation!==false?'confirm-before-create ON':'auto-create'}</div>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:2px">${stats}</div>
+      </div>
+      <button onclick="toggleVendorRoute('${r.id}',${on?'false':'true'},'${esc(r.display_name)}')" style="${btnCss(on?'#DC2626':'#059669')}">${on?'⏻ Turn OFF':'⏻ Turn ON'}</button>
+    </div>`;
+  }).join('');
+}
+async function toggleVendorRoute(id,active,name){
+  const turningOn=active==='true'||active===true;
+  if(!confirm(`${turningOn?'Turn ON':'Turn OFF'} ${name} job intake?${turningOn?'\n\nIncoming vendor emails will create pending work orders again.':'\n\nEmails will still be recorded, but no work orders or notifications until turned back on.'}`)) return;
+  try{
+    const res=await fetch(`${APBG_FN}/vendor-routes-control`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,active:turningOn})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    loadVendorRoutes();
+  }catch(e){ alert('Failed: '+e.message); }
+}
 
 // --- ResQ Sync (edge-function engine in apbg-resq-sync) ---
 function ageStr(iso){

@@ -1208,13 +1208,18 @@ const POLL_MAX_PER_TICK = 25;
 const POLL_MAX_AGE_DAYS = 60;
 
 export async function pollVendorTicketStatuses() {
-  const tickets = await sbSelect(
-    'vendor_email_tickets',
-    `status=eq.sf_created&sf_job_id=not.is.null&select=*&order=last_status_at.asc.nullsfirst&limit=${POLL_MAX_PER_TICK}`,
-  );
+  const [tickets, routes] = await Promise.all([
+    sbSelect(
+      'vendor_email_tickets',
+      `status=eq.sf_created&sf_job_id=not.is.null&select=*&order=last_status_at.asc.nullsfirst&limit=${POLL_MAX_PER_TICK}`,
+    ),
+    sbSelect('vendor_email_routes', 'select=id,active'),
+  ]);
+  const inactiveRoutes = new Set(routes.filter((r) => r.active === false).map((r) => r.id));
   const results = [];
   let checked = 0;
   for (const ticket of tickets) {
+    if (ticket.route_id && inactiveRoutes.has(ticket.route_id)) continue; // switched OFF
     if (TERMINAL_STATUS.test(ticket.last_sf_status || '')) continue;
     const ageDays = (Date.now() - new Date(ticket.created_at).getTime()) / 86400000;
     if (ageDays > POLL_MAX_AGE_DAYS) continue;
@@ -1321,13 +1326,37 @@ export async function handler(event) {
       return { statusCode: 200, body: JSON.stringify(result) };
     }
 
-    const routes = await sbSelect('vendor_email_routes', 'active=eq.true&select=*');
+    const routes = await sbSelect('vendor_email_routes', 'select=*');
     const route = routes.find((r) => toList.includes(String(r.inbox).toLowerCase()));
     if (!route) {
       console.log('no route for recipients:', toList.join(', '));
       return { statusCode: 200, body: JSON.stringify({ ok: true, ignored: 'no matching route' }) };
     }
     email.to = toList.find((t) => t === String(route.inbox).toLowerCase());
+
+    // Master Control kill switch: an OFF route still records the email (so
+    // nothing is lost while building/paused) but creates nothing, emails
+    // nobody, and never touches SF.
+    if (route.active === false) {
+      await sbInsert(
+        'vendor_email_tickets',
+        {
+          route_id: route.id,
+          vendor_key: route.vendor_key,
+          resend_email_id: email.emailId || null,
+          from_email: email.from,
+          to_email: email.to,
+          subject: email.subject,
+          received_at: email.receivedAt,
+          raw_text: String(email.text || '').slice(0, 50000),
+          status: 'ignored',
+          error: 'route switched OFF in Master Control — recorded only',
+        },
+        { ignoreDuplicates: !!email.emailId },
+      );
+      console.log(`[intake] route ${route.inbox} is OFF — email recorded, no action`);
+      return { statusCode: 200, body: JSON.stringify({ ok: true, ignored: 'route switched off' }) };
+    }
 
     const result = await handleVendorEmail(route, email);
     return { statusCode: 200, body: JSON.stringify(result) };
