@@ -145,6 +145,19 @@ async function fetchReceivedEmail(emailId) {
   return null;
 }
 
+// Pull an "Accept"-style action link out of a vendor notification email.
+// Matches anchors whose visible text or URL says accept (never unsubscribe).
+function extractAcceptLink(html) {
+  if (!html) return null;
+  const anchors = [...String(html).matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+  for (const [, href, inner] of anchors) {
+    const label = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/unsubscribe|opt.?out/i.test(href + ' ' + label)) continue;
+    if (/\baccept\b/i.test(label) || /\baccept\b/i.test(href)) return href;
+  }
+  return null;
+}
+
 function addr(value) {
   // "Name <a@b.com>" | "a@b.com" | { email } → bare lowercase address
   if (!value) return '';
@@ -759,6 +772,13 @@ async function handleVendorEmail(route, email) {
       portal_reply_to: email.replyTo || email.from,
     };
   }
+  // ServiceChannel dispatch emails carry action buttons; if this one has an
+  // Accept link, bank it — clicking ✓ Create will fire it so the WO is
+  // accepted in the vendor's portal in the same motion.
+  const acceptUrl = extractAcceptLink(email.html);
+  if (acceptUrl) {
+    parsed.vendor_fields = { ...(parsed.vendor_fields || {}), portal_accept_url: acceptUrl };
+  }
 
   // Vendors (ServiceChannel especially) email follow-up notes/status changes
   // for WOs we already ticketed — relay those onto the original ticket
@@ -878,9 +898,30 @@ function ticketSummaryRows(route, parsed, email) {
 
 async function finalizeSfCreation(ticketId, route, payload, parsed, email) {
   try {
-    const { job, warning } = await createSfJobWithRetries(payload);
+    const { job, warning: sfWarning } = await createSfJobWithRetries(payload);
+    let warning = sfWarning;
     const jobId = job?.id ?? job?.job_id ?? null;
     const jobNumber = String(job?.number ?? job?.job_number ?? jobId ?? '');
+
+    // Fire the vendor portal's Accept link (when the dispatch email carried
+    // one) so the WO is accepted on the vendor side in the same motion.
+    // Best-effort: portals sometimes require a logged-in confirm page, which
+    // only the vendor API can automate — a failed/uncertain click never
+    // affects the SF job.
+    const acceptUrl = parsed?.vendor_fields?.portal_accept_url;
+    if (acceptUrl) {
+      try {
+        const res = await fetch(acceptUrl, { redirect: 'follow', signal: AbortSignal.timeout(10000) });
+        console.log(`[portal-accept] GET ${acceptUrl.slice(0, 120)} → ${res.status}`);
+        if (!res.ok) {
+          warning = [warning, `Vendor portal Accept link returned ${res.status} — accept the WO in the portal by hand.`]
+            .filter(Boolean).join(' ');
+        }
+      } catch (e) {
+        warning = [warning, `Vendor portal Accept link failed (${e.message}) — accept the WO in the portal by hand.`]
+          .filter(Boolean).join(' ');
+      }
+    }
     await sbUpdate('vendor_email_tickets', `id=eq.${ticketId}`, {
       parsed,
       sf_payload: payload,
@@ -1249,7 +1290,8 @@ export async function handler(event) {
     let from = addr(d.from);
     let replyTo = addr(Array.isArray(d.reply_to) ? d.reply_to[0] : d.reply_to);
     let toList = (Array.isArray(d.to) ? d.to : [d.to]).map(addr).filter(Boolean);
-    let text = d.text || (d.html ? stripHtml(d.html) : '');
+    let html = d.html || '';
+    let text = d.text || (html ? stripHtml(html) : '');
 
     // Webhook payloads don't always inline the body — pull the full email
     if ((!text || !toList.length) && emailId) {
@@ -1259,7 +1301,8 @@ export async function handler(event) {
         from = from || addr(full.from);
         replyTo = replyTo || addr(Array.isArray(full.reply_to) ? full.reply_to[0] : full.reply_to);
         if (!toList.length) toList = (Array.isArray(full.to) ? full.to : [full.to]).map(addr).filter(Boolean);
-        text = text || full.text || (full.html ? stripHtml(full.html) : '');
+        html = html || full.html || '';
+        text = text || full.text || (html ? stripHtml(html) : '');
       }
     }
 
@@ -1269,6 +1312,7 @@ export async function handler(event) {
       replyTo,
       subject,
       text,
+      html,
       receivedAt: payload.created_at || new Date().toISOString(),
     };
 
