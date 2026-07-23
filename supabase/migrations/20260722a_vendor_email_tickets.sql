@@ -110,5 +110,5 @@ values
    null, -- sf_parent_customer
    '{}', -- vendor_notify_list: set before go-live
    'Service Call',
-   'These are Freshpet service emails. Pull the store/location name and number, full street address, any Freshpet work order or reference number, the fridge/equipment identifiers, and the requested service or issue description.')
+   'These are ServiceChannel notification emails for Freshpet work orders (labeled fields: Tracking Number, Location Name, Address, Trade, Category, NTE, Problem Type, Problem, PO#, Priority, Last Status, Problem Description with Brand/Model/Serial, plus New Note blocks). Extract every labeled value exactly as written; the store address sits under Location Details.')
 on conflict (inbox) do nothing;
