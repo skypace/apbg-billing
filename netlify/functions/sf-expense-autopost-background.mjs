@@ -184,10 +184,14 @@ export default async (req) => {
   const isPost = mode === 'post';
   const isList = mode === 'list';
 
-  // auth: cron secret OR superadmin bearer
+  // auth: cron secret OR superadmin bearer. list mode also accepts a one-off
+  // read-only secret header (SF_AUTOPOST_LIST_SECRET) so the backlog can be
+  // pulled when the Supabase MCP (used to mint a JWT) is unavailable.
   const cronSecret = req.headers.get('x-sf-autopost-secret') || '';
   const isCron = cronSecret && cronSecret === (process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 32);
-  if (!isCron) {
+  const listSecret = req.headers.get('x-list-secret') || '';
+  const listSecretOk = isList && listSecret && process.env.SF_AUTOPOST_LIST_SECRET && listSecret === process.env.SF_AUTOPOST_LIST_SECRET;
+  if (!isCron && !listSecretOk) {
     const auth = await requireAuth(req);
     if (!auth.ok) return auth.response;
   }
