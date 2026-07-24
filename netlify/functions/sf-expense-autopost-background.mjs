@@ -29,7 +29,8 @@
 // + ops.sync_log (registered under brix-expense:app-and-functions in the manifest).
 
 import { requireAuth } from './lib/auth.mjs';
-import { qboRequest, qboQuery } from './qbo-helpers.mjs';
+import { qboRequest } from './qbo-helpers.mjs';
+import { findQBOVendor } from './lib/qbo-vendor-match.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
 
@@ -73,31 +74,10 @@ async function logRun(started, status, records, metadata, errorMessage = null) {
   } catch { /* best-effort */ }
 }
 
-// ── QBO vendor match + bill build — identical logic to expense-request-link-bill ──
-async function findQBOVendor(name) {
-  if (!name) return null;
-  try {
-    const safe = name.replace(/'/g, "\\'");
-    const exact = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName = '${safe}'`);
-    const v = exact.QueryResponse?.Vendor || [];
-    if (v.length > 0) return v[0];
-  } catch { /* fall through to fuzzy */ }
-  try {
-    const words = name.split(/\s+/).filter((w) => w.length > 2);
-    for (const w of words.slice(0, 3)) {
-      const clean = w.replace(/[^a-zA-Z0-9]/g, '');
-      if (!clean) continue;
-      const like = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${clean}%'`);
-      const v2 = like.QueryResponse?.Vendor || [];
-      if (v2.length === 1) return v2[0];
-      if (v2.length > 1) {
-        const best = v2.find((x) => x.DisplayName.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.DisplayName.toLowerCase()));
-        if (best) return best;
-      }
-    }
-  } catch { /* no match */ }
-  return null;
-}
+// QBO vendor matching lives in lib/qbo-vendor-match.mjs (normalization +
+// suffix-stripping + typo tolerance; ambiguous → null so we never post to the
+// wrong vendor). The old per-word LIKE matcher missed real vendors over typos,
+// trailing LLC, and plural/singular drift — verified live 2026-07-24.
 
 function buildBillPayload(r, vendor, accountId) {
   const lineItems = Array.isArray(r.line_items) ? r.line_items : [];
@@ -214,8 +194,26 @@ export default async (req) => {
     const sel = 'id,vendor_name,vendor_id,total_amount,line_items,cogs_account_id,cogs_account_label,customer_name,job_number,receipt_date,memo,tag,request_type,status,qbo_bill_id,autopost_notified_at';
     // Forward-only cutoff: receipt_date >= MIN_RECEIPT_DATE excludes the historical
     // backfill (and PostgREST gte drops NULL receipt_date rows — exactly what we want).
+    // Archived rows are always out of scope.
     const cutoff = MIN_RECEIPT_DATE ? `&receipt_date=gte.${MIN_RECEIPT_DATE}` : '';
-    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&created_at=gte.${sinceDate}${cutoff}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&created_at=gte.${sinceDate}${cutoff}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+
+    // Auto-archive the historical backfill (post mode only): pre-cutoff SF drafts
+    // are already handled in QBO by hand (or intentionally skipped) — QBO is the
+    // source of truth for them. Archiving keeps the SF Expenses tab clean as the
+    // nightly crawl backfills old jobs; the row (and its sf_expense_id dedup key)
+    // is kept, so the sync can never re-land an archived expense. Best-effort.
+    let autoArchived = 0;
+    if (isPost && MIN_RECEIPT_DATE) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&receipt_date=lt.${MIN_RECEIPT_DATE}&select=id`, {
+          method: 'PATCH',
+          headers: srHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+          body: JSON.stringify({ archived_at: new Date().toISOString(), archived_by: 'autopost (historical, pre-cutoff — see QBO)' }),
+        });
+        if (res.ok) autoArchived = (await res.json()).length;
+      } catch { /* non-fatal */ }
+    }
 
     // LIST mode: read-only reconcile table — each unposted expense + whether its
     // SF "purchased_from" vendor already exists in QuickBooks. No emails, no writes.
@@ -296,7 +294,7 @@ export default async (req) => {
       });
     }
 
-    const summary = { mode, scanned: rows.length, posted: posted.length, need_vendor: needVendor.length, no_qbo_match: noMatch.length, qbo_error: qboErr.length };
+    const summary = { mode, scanned: rows.length, posted: posted.length, need_vendor: needVendor.length, no_qbo_match: noMatch.length, qbo_error: qboErr.length, auto_archived: autoArchived };
     await logRun(started, 'success', posted.length, summary);
     return new Response(JSON.stringify({ ok: true, ...summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
