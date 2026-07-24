@@ -124,8 +124,12 @@ const SYNC_SLA = {
   'qbo:lines_backfill':     { maxAgeMs: 30 * 60 * 1000,      label: 'sync-qbo missing-line backfill (Netlify runner every 5 min)' },
   'qbo:runner_refresh_lines': { maxAgeMs: 45 * 60 * 1000,    label: 'sync-qbo rolling line refresh (edited invoices)' },
   'qbo:pl_snapshots':       { maxAgeMs: 30 * 60 * 60 * 1000, label: 'sync-qbo P&L snapshots (nightly)' },
-  // SF jobs incremental: every 30 min
-  'sf:jobs':                { maxAgeMs: 90 * 60 * 1000,      label: 'sync-sf jobs (every 30 min)' },
+  // SF crons were throttled to fix the 2026-06/07 429 outage (see CLAUDE.md →
+  // Service Fusion OAuth → Gotchas): jobs daily 09:00 UTC, receipt crawl daily
+  // 10:00 UTC + fresh 3×/day, autopost daily 10:30 UTC.
+  'sf:jobs':                   { maxAgeMs: 28 * 60 * 60 * 1000, label: 'sync-sf jobs (daily 09:00 UTC)' },
+  'sf-receipt-sync:receipts':  { maxAgeMs: 30 * 60 * 60 * 1000, label: 'SF expense landing (3×/day fresh + nightly crawl)' },
+  'sf:sf-expense-autopost':    { maxAgeMs: 28 * 60 * 60 * 1000, label: 'SF expense → QBO bill autopost (daily 10:30 UTC)' },
 };
 
 // ── Direct cache-table freshness (max(synced_at) per table) ────────────
