@@ -1,6 +1,6 @@
 # Brixpense — Expenses & Purchase Requests
 
-> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
+> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-24
 
 Brixpense is the internal app for submitting expense receipts and purchase requests, getting purchase requests approved, and pushing approved purchases into QuickBooks as Bills. This chapter is for every employee who spends company money and for the managers who approve purchase requests.
 
@@ -23,14 +23,18 @@ Brixpense is the internal app for submitting expense receipts and purchase reque
 
 There are **no magic links and no anonymous approval path**. The email an approver receives is a notification, not an authorization — approving always requires signing in to Brixpense with the shared Supabase login.
 
-## Submitting an expense
+## Submitting an expense (the phone flow)
 
-1. Click **New Expense** from the home screen.
+Put Brixpense on your phone first: open `alamedapointbg.com/expense` in your phone browser and accept the one-time **"Add to Home Screen"** banner (on iPhone: Share → Add to Home Screen). From then on it launches like an app.
+
+1. Tap **New Expense**.
 2. **Snap or drop the receipt** (phone camera, drag-and-drop, or file upload). Multiple files can attach to one expense.
-3. **Receipt OCR** runs the image/PDF through the Claude API (the `process-inbound` function) and pre-fills vendor, total, date, and line items where visible. Always glance over the pre-fill — vendor and total are usually right, line items can drift.
-4. Code the expense (see "Entity / Department / COGS coding" below).
-5. Pick the **Paid with** payment account (credit card, bank, petty cash).
-6. **Submit.** The expense auto-approves and posts to QuickBooks within seconds.
+3. **Receipt OCR** runs the image/PDF through the Claude API and pre-fills vendor, total, date, and line items where visible. Always glance over the pre-fill — vendor and total are usually right, line items can drift.
+4. Code the expense (see "Entity / Department / COGS coding" below). The form **remembers your usual choices** — entity, department, COGS, payment — from your last submission, so repeat submitters mostly just confirm.
+5. Answer **"Was this already paid?"**
+   - **Yes — already paid (Expense):** pick the card/account it was paid from. Posts to QuickBooks as a paid **Expense** against that account.
+   - **No — unpaid (create Bill):** no payment account needed. Posts as an unpaid **Bill** (vendor required) to be paid from QBO later.
+6. **Submit.** The expense auto-approves and posts to QuickBooks within seconds — **with your receipt photo(s) attached to the QBO transaction itself**, so the reviewer sees the receipt inside QuickBooks.
 
 It shows up in your **History** ("Expenses, auto-approved"), in QuickBooks with the receipt attached, and in `ops.expense_requests` with `status='posted'`.
 
@@ -98,9 +102,26 @@ Posting to QuickBooks is done by the **`expense-request-link-bill`** function (B
 
 If a post fails (usually the vendor name matched no QBO vendor), the fix is creating the vendor in QBO and re-running the post — see the troubleshooting table in the full guide.
 
-## Service Fusion expense landing
+## Service Fusion expenses → QuickBooks (automatic, since 2026-07-24)
 
-Not everything in Brixpense was typed in by hand. When an operator bills a Service Fusion job's 3rd-party receipt via the **`expense-to-bill`** function (the 💰 Bill action from the ResQ/SF workflow), the function creates the QBO bill **and** inserts a matching Brixpense row: `request_type='expense'`, `status='posted'`, `tag='Service Fusion'`, carrying the `qbo_bill_id`, job number, vendor, amount, line items, and customer, with the operator as submitter. These rows are the record of SF job expenses — don't re-submit them. (Related receipt-sweep functions `sf-receipt-*` / `sf-expense-sweep` feed the same landing.)
+Not everything in Brixpense was typed in by hand. Third-party expenses recorded on Service Fusion jobs flow through hands-free:
+
+1. A tech/operator records the expense on the SF job **with the vendor in "Purchased From"** — that field is what QuickBooks bills against; blank = held.
+2. When the job reaches **Invoiced**, the nightly `sf-receipt-sync` crawl lands it in Brixpense as a draft (`tag='Service Fusion'`), pulling the receipt image from the SF job page.
+3. Every day at **10:30 UTC**, `sf-expense-autopost` matches the vendor to QuickBooks (typo/LLC/plural-tolerant) and posts the **Bill** — then emails **whitney@alamedasoda.com** a branded confirmation per expense. Missing vendor or no QBO match → one "needs attention" email instead (fix the vendor; the next daily run posts it and retries QBO errors automatically).
+
+The **SF Expenses** tab (staff-only — gateway superadmin/admin) shows these rows. **Archive** (the box icon) hides a row from every list without deleting it — the sync can never re-land an archived expense, and once a bill is in QuickBooks, **QBO is the source of truth: edit it there, not here**. Historical pre-cutoff drafts auto-archive; only expenses dated on/after 2026-07-24 auto-post. The legacy manual path (`expense-to-bill`, the 💰 Bill action) still lands rows the same way when used.
+
+## Company-card expenses & the Monday receipt audit
+
+Company-card swipes flow into QuickBooks through the bank feed as always — this layer just holds people accountable for receipts:
+
+- **Every card's last-4 is assigned to its user** in Master Control → Card & Expense Match → **Cardholders** (a person can hold several cards — e.g. an Amex and a Capital One). New employees are created in the **gateway admin** (`alamedapointbg.com/admin.html`) first, then assigned here.
+- Each assignment carries a **"receipts expected from" date** (stamped at assignment, back-datable) — nobody is chased for swipes made before they had the app.
+- **Every Monday morning** an audit compares the card transactions in QuickBooks against submitted Brixpense receipts and emails the list of transactions still needing receipts — **attributed by cardholder name** (`💳 Marco (••1029)`), with unassigned cards surfaced so unowned spend is never invisible.
+- Cardholders clear their name by submitting the receipt through the normal phone flow above — amount + date match the swipe automatically.
+
+Nothing polls or syncs in the background: card data is read from QuickBooks on demand and once a week. QuickBooks remains the ledger; this is a lens on it.
 
 ## Admin settings
 

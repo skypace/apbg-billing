@@ -339,12 +339,19 @@ export async function handler(event) {
       if (action === 'assign_card') {
         const last4 = String(body.last4 || '').trim();
         if (!/^\d{4}$/.test(last4)) return json(400, { error: 'last4 must be exactly 4 digits' });
+        // Accountability starts at assignment: the weekly audit only expects
+        // receipts for txns dated >= receipts_from. Defaults to today;
+        // back/future-datable so someone already submitting can own history.
+        const receiptsFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(body.receipts_from || ''))
+          ? body.receipts_from
+          : new Date().toISOString().slice(0, 10);
         const row = {
           last4,
           label: body.label || null,
           user_id: body.user_id || null,
           user_email: body.user_email || null,
           user_name: body.user_name || null,
+          receipts_from: receiptsFrom,
           active: true,
           updated_at: new Date().toISOString(),
           updated_by: actorEmail,
