@@ -37,6 +37,12 @@ const REPORT_TO = process.env.SF_EXPENSE_REPORT_TO || 'whitney@alamedasoda.com';
 const DEFAULT_COGS_ACCOUNT_ID = '101'; // Service COGS — same fallback as expense-request-link-bill
 const LOOKBACK_DAYS = Number(process.env.SF_AUTOPOST_LOOKBACK_DAYS || 90);
 const MAX_PER_RUN = 50;
+// Forward-only cutoff: only auto-post/alert on expenses whose SF date (receipt_date)
+// is on/after this. Scopes automation to the "vendor-on-record habit corrected"
+// era and skips the historical blank-vendor backfill the nightly crawl lands
+// (which would otherwise flood the alert inbox AND risk duplicate bills for
+// expenses already keyed by hand). Blank/older receipt_date is skipped when set.
+const MIN_RECEIPT_DATE = (process.env.SF_AUTOPOST_MIN_RECEIPT_DATE || '').trim();
 
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -188,7 +194,10 @@ export default async (req) => {
   // read-only secret header (SF_AUTOPOST_LIST_SECRET) so the backlog can be
   // pulled when the Supabase MCP (used to mint a JWT) is unavailable.
   const cronSecret = req.headers.get('x-sf-autopost-secret') || '';
-  const isCron = cronSecret && cronSecret === (process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 32);
+  const isCron = !!cronSecret && (
+    cronSecret === (process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 32) ||
+    (!!process.env.SF_AUTOPOST_CRON_SECRET && cronSecret === process.env.SF_AUTOPOST_CRON_SECRET)
+  );
   const listSecret = req.headers.get('x-list-secret') || '';
   const listSecretOk = isList && listSecret && process.env.SF_AUTOPOST_LIST_SECRET && listSecret === process.env.SF_AUTOPOST_LIST_SECRET;
   if (!isCron && !listSecretOk) {
@@ -203,7 +212,10 @@ export default async (req) => {
   const sinceDate = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString();
   try {
     const sel = 'id,vendor_name,vendor_id,total_amount,line_items,cogs_account_id,cogs_account_label,customer_name,job_number,receipt_date,memo,tag,request_type,status,qbo_bill_id,autopost_notified_at';
-    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&created_at=gte.${sinceDate}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+    // Forward-only cutoff: receipt_date >= MIN_RECEIPT_DATE excludes the historical
+    // backfill (and PostgREST gte drops NULL receipt_date rows — exactly what we want).
+    const cutoff = MIN_RECEIPT_DATE ? `&receipt_date=gte.${MIN_RECEIPT_DATE}` : '';
+    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&created_at=gte.${sinceDate}${cutoff}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
 
     // LIST mode: read-only reconcile table — each unposted expense + whether its
     // SF "purchased_from" vendor already exists in QuickBooks. No emails, no writes.
