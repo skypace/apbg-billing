@@ -31,6 +31,7 @@
 import { requireAuth } from './lib/auth.mjs';
 import { qboRequest } from './qbo-helpers.mjs';
 import { findQBOVendor } from './lib/qbo-vendor-match.mjs';
+import { attachReceiptsToQBO } from './lib/qbo-attach.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
 
@@ -266,6 +267,9 @@ export default async (req) => {
           status: 'posted', qbo_bill_id: String(billId), vendor_id: String(vendor.Id),
           posted_at: new Date().toISOString(), autopost_error: null,
         });
+        // Push the SF receipt image(s) onto the QBO bill so the reviewer sees
+        // them in QuickBooks. Best-effort — never unwinds the posted bill.
+        try { await attachReceiptsToQBO('Bill', billId, r.id); } catch { /* non-fatal */ }
         await emailConfirmation(r, vendor, billId, DEFAULT_COGS_ACCOUNT_ID);
         await opsPatch(`expense_requests?id=eq.${r.id}`, { autopost_bill_emailed_at: new Date().toISOString() });
         posted.push({ r, vendor, billId });

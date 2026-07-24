@@ -92,6 +92,37 @@ export default function ExpenseForm() {
   // Drives `as_bill` on submit; backend routing (expense-request-notify) is
   // unchanged. Default unpaid so we never demand an account for a bill.
   const [isPaid, setIsPaid] = useState(false);
+
+  // Per-user "sticky defaults": remember the submitter's usual entity /
+  // department / COGS / payment choice on each successful submit and pre-fill
+  // the NEXT new expense with them — on a phone the form becomes photo → OCR →
+  // submit. localStorage keyed by user id (per-device, zero-backend; a wrong
+  // guess is a one-tap fix). Never applied when editing or logging a PR.
+  const defaultsKey = (uid: string) => `brixpense_defaults_v1_${uid}`;
+  const appliedDefaultsRef = useRef(false);
+  useEffect(() => {
+    if (appliedDefaultsRef.current || isEditing || fromPRId || !session) return;
+    appliedDefaultsRef.current = true;
+    try {
+      const raw = localStorage.getItem(defaultsKey(session.user.id));
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.entity) setEntity(d.entity);
+      if (d.tag) setTag(d.tag);
+      if (d.department) setDepartment(d.department);
+      if (d.qboDepartmentId) setQboDepartmentId(d.qboDepartmentId);
+      if (d.qboDepartmentName) setQboDepartmentName(d.qboDepartmentName);
+      if (d.cogsAccountId) setCogsAccountId(d.cogsAccountId);
+      if (d.cogsAccountLabel) setCogsAccountLabel(d.cogsAccountLabel);
+      if (typeof d.isPaid === 'boolean') setIsPaid(d.isPaid);
+      if (d.isPaid && d.paymentAccountId) {
+        setPaymentAccountId(d.paymentAccountId);
+        if (d.paymentAccountName) setPaymentAccountName(d.paymentAccountName);
+        if (d.paymentAccountType) setPaymentAccountType(d.paymentAccountType);
+      }
+    } catch { /* corrupt defaults are ignored */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, isEditing, fromPRId]);
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -575,6 +606,18 @@ export default function ExpenseForm() {
       } else {
         setResultMessage('Request saved but notification may have failed.');
       }
+
+      // Remember this submitter's choices as the pre-fill for their next expense.
+      try {
+        localStorage.setItem(defaultsKey(user.id), JSON.stringify({
+          entity, tag, department, qboDepartmentId, qboDepartmentName,
+          cogsAccountId, cogsAccountLabel,
+          isPaid,
+          paymentAccountId: isPaid ? paymentAccountId : '',
+          paymentAccountName: isPaid ? paymentAccountName : '',
+          paymentAccountType: isPaid ? paymentAccountType : '',
+        }));
+      } catch { /* storage full/blocked — skip */ }
 
       setStep('success');
     } catch (err: any) {

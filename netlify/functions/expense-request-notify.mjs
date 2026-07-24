@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
+import { attachReceiptsToQBO } from './lib/qbo-attach.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
 
 // Hardcoded on purpose — the anon key is a PUBLIC client identifier per
@@ -277,6 +278,8 @@ export default async function handler(req) {
       if (!qboBill?.Id) {
         return err(`QBO Bill post failed: ${qboError || 'unknown'}`, 502);
       }
+      // Receipt photos ride onto the QBO bill (best-effort, never blocks).
+      try { await attachReceiptsToQBO('Bill', qboBill.Id, requestId); } catch { /* non-fatal */ }
       const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
         status: 'posted', auto_approved: true,
         approved_by: 'auto', approved_at: now, posted_at: now,
@@ -353,6 +356,8 @@ export default async function handler(req) {
     }
 
     if (qboTxn?.Id) {
+      // Receipt photos ride onto the QBO Purchase (best-effort, never blocks).
+      try { await attachReceiptsToQBO('Purchase', qboTxn.Id, requestId); } catch { /* non-fatal */ }
       const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
         status: 'posted', auto_approved: true,
         approved_by: 'auto', approved_at: now, posted_at: now,
