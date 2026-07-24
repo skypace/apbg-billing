@@ -160,6 +160,22 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
+    <h2>🧾 SF Expenses → QuickBooks <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— post each Service Fusion job expense as a QBO bill to its "Purchased From" vendor</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Takes the Service Fusion expense drafts that haven't been billed and creates a QuickBooks bill for each
+        against the vendor on record (SF <b>Purchased From</b>) — emailing a <b>confirmation per bill</b>. Expenses with a
+        blank vendor, or a vendor that isn't in QuickBooks, are held and email a <b>needs-attention</b> alert instead.
+        <b>Preview</b> is a dry run (nothing posts) and emails a summary; <b>Post now</b> creates the bills.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="sfAutopostPreviewBtn" onclick="runSfAutopost('preview')" style="flex:none;background:#fff;color:#1F4E79;border:1px solid #1F4E79;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Preview (dry run)</button>
+        <button id="sfAutopostPostBtn" onclick="runSfAutopost('post')" style="flex:none;background:#059669;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Post now →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
     <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books &amp; Service Fusion for the PACER MCP servers</span></h2>
     <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
       <div style="font-size:0.85rem;color:#374151;max-width:560px">
@@ -211,7 +227,7 @@ const SITES = {
     labels: { qbo: 'QuickBooks', serviceFusion: 'Service Fusion', resq: 'ResQ' },
     reconnect: {
       qbo: buildQboUrl('ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK', 'https://apbg-billing.netlify.app/.netlify/functions/oauth-callback'),
-      serviceFusion: buildSfUrl('f8cqiTHnjoFS-QMeuc', 'https://apbg-billing.netlify.app/.netlify/functions/sf-oauth-callback'),
+      serviceFusion: buildSfUrl('TNpu3bVz9XAIgey_7e', 'https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-oauth-callback'), // billing SF app → Supabase callback (see CLAUDE.md → Service Fusion OAuth)
     },
   },
   melt: {
@@ -1060,6 +1076,26 @@ async function runSfChangesReport(){
       throw new Error(`HTTP ${res.status} ${t.slice(0,120)}`);
     }
   }catch(e){ alert('Failed to queue report: '+e.message); log('SF Changes report failed to queue: '+e.message,'error'); btn.disabled=false; btn.textContent='Run report now →'; }
+}
+
+// --- SF Expenses → QuickBooks auto-post ---
+async function runSfAutopost(mode){
+  const isPost = mode==='post';
+  if(isPost && !confirm('Post now will CREATE real QuickBooks bills for every SF expense with a matched vendor, and email a confirmation for each. Continue?')) return;
+  const btn=document.getElementById(isPost?'sfAutopostPostBtn':'sfAutopostPreviewBtn');
+  const label=btn.textContent;
+  btn.disabled=true; btn.textContent=isPost?'Posting…':'Previewing…';
+  try{
+    const res=await fetch(`${APBG_FN}/sf-expense-autopost-background?mode=${mode}`,{method:'POST',headers:authHeaders()});
+    if(res.status===202||res.ok){
+      log(`SF expense auto-post (${mode}) queued — takes ~1 min, results arrive by email.`, 'ok');
+      btn.textContent=isPost?'Queued ✓ — check email':'Queued ✓ — preview emailed';
+      setTimeout(()=>{btn.disabled=false;btn.textContent=label;},15000);
+    } else {
+      const t=await res.text();
+      throw new Error(`HTTP ${res.status} ${t.slice(0,160)}`);
+    }
+  }catch(e){ alert('Failed: '+e.message); log('SF expense auto-post failed to start: '+e.message,'error'); btn.disabled=false; btn.textContent=label; }
 }
 </script>
   <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
