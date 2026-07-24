@@ -39,6 +39,11 @@ export function applyTheme(t: Theme) {
 export function setTheme(t: Theme) {
   try {
     localStorage.setItem(KEY, t);
+    // Also persist to the APBG-wide key. The pre-paint script and the gateway
+    // waffle treat apbg_theme as the universal switch that WINS on load — if we
+    // don't write it, a stale apbg_theme snaps the app back on the next page
+    // load and the in-app toggle appears "not to work" (2026-07-24 bug).
+    localStorage.setItem('apbg_theme', t);
   } catch {
     /* private mode — runtime toggle still works for the session */
   }

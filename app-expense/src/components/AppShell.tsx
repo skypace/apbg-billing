@@ -62,6 +62,19 @@ export function AppShell() {
     setDrawerOpen(false);
   }, [location.pathname]);
 
+  // The gateway waffle (appswitcher.js) and other tabs can change the theme
+  // out from under us — the pre-paint script re-applies the classes, but this
+  // component's Sun/Moon icon state must follow too or it renders inverted.
+  useEffect(() => {
+    const follow = () => setTheme(currentTheme());
+    window.addEventListener('apbg:themechange', follow);
+    window.addEventListener('storage', follow);
+    return () => {
+      window.removeEventListener('apbg:themechange', follow);
+      window.removeEventListener('storage', follow);
+    };
+  }, []);
+
   // One-time "Add to Home Screen" nudge (mobile only). Android/Chrome fires
   // beforeinstallprompt — we stash it and show a real Install button. iOS has
   // no install API, so Safari gets the Share → Add to Home Screen hint.
