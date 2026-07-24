@@ -62,6 +62,37 @@ export function AppShell() {
     setDrawerOpen(false);
   }, [location.pathname]);
 
+  // One-time "Add to Home Screen" nudge (mobile only). Android/Chrome fires
+  // beforeinstallprompt — we stash it and show a real Install button. iOS has
+  // no install API, so Safari gets the Share → Add to Home Screen hint.
+  // Dismiss (or install) sets a localStorage flag and it never shows again.
+  // Never shows when already running installed (standalone display mode).
+  const [installEvt, setInstallEvt] = useState<Event | null>(null);
+  const [showInstallNudge, setShowInstallNudge] = useState(false);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  useEffect(() => {
+    const dismissed = localStorage.getItem('brixpense_install_nudge_v1');
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || (navigator as unknown as { standalone?: boolean }).standalone === true;
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (dismissed || standalone || !isMobile) return;
+    const onPrompt = (e: Event) => { e.preventDefault(); setInstallEvt(e); setShowInstallNudge(true); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    // iOS never fires the event — show the manual hint after a short delay.
+    const iosTimer = isIOS ? window.setTimeout(() => setShowInstallNudge(true), 2500) : 0;
+    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); if (iosTimer) clearTimeout(iosTimer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function dismissInstallNudge() {
+    localStorage.setItem('brixpense_install_nudge_v1', 'dismissed');
+    setShowInstallNudge(false);
+  }
+  async function triggerInstall() {
+    const evt = installEvt as unknown as { prompt?: () => Promise<void> } | null;
+    if (evt?.prompt) { try { await evt.prompt(); } catch { /* user dismissed */ } }
+    dismissInstallNudge();
+  }
+
   async function handleLogout() {
     await supabase.auth.signOut();
     navigate('/');
@@ -74,6 +105,43 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
+      {/* One-time Add-to-Home-Screen nudge (mobile only) */}
+      {showInstallNudge && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed', left: 12, right: 12, bottom: 76, zIndex: 60,
+            background: 'var(--card, #0F172A)', border: '1px solid rgba(59,130,246,.4)',
+            borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center',
+            gap: 10, boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+          }}
+        >
+          <span style={{ fontSize: 20 }} aria-hidden>📲</span>
+          <span style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}>
+            {isIOS
+              ? <>Add Brixpense to your home screen: tap <b>Share</b> then <b>&ldquo;Add to Home Screen&rdquo;</b>.</>
+              : <>Install Brixpense on your phone for one-tap expense capture.</>}
+          </span>
+          {!isIOS && installEvt && (
+            <button
+              type="button"
+              onClick={triggerInstall}
+              style={{ background: '#3B82F6', color: '#fff', border: 0, borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600 }}
+            >
+              Install
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={dismissInstallNudge}
+            style={{ background: 'transparent', border: 0, color: 'inherit', opacity: .6, padding: 4 }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Mobile top bar */}
       <header className="topbar">
         <button
