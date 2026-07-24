@@ -87,6 +87,11 @@ export default function ExpenseForm() {
   const [paymentAccountType, setPaymentAccountType] = useState('');
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
   const [paymentAccountsError, setPaymentAccountsError] = useState<string | null>(null);
+  // Explicit "was this already paid?" control. false = unpaid → QBO Bill (no
+  // payment account asked); true = paid → QBO Expense against a payment account.
+  // Drives `as_bill` on submit; backend routing (expense-request-notify) is
+  // unchanged. Default unpaid so we never demand an account for a bill.
+  const [isPaid, setIsPaid] = useState(false);
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
@@ -152,6 +157,8 @@ export default function ExpenseForm() {
       // notify-path PaymentType fallback chain.
       setPaymentAccountName(data.payment_account_name || '');
       setPaymentAccountType(data.payment_account_type || '');
+      // Paid = it was booked against a real account (not an unpaid bill).
+      setIsPaid(!data.as_bill && !!data.payment_account_id);
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
@@ -448,8 +455,8 @@ export default function ExpenseForm() {
 
   const handleSubmit = async () => {
     if (!session || readOnly) return;
-    if (!paymentAccountId) {
-      setErrorMessage('Pick a "Paid with" account before submitting — the receipt needs to post against a real QBO account.');
+    if (isPaid && (!paymentAccountId || paymentAccountId === '__bill__')) {
+      setErrorMessage('This expense is marked as already paid — pick the account it was paid from before submitting.');
       setStep('error');
       return;
     }
@@ -465,7 +472,7 @@ export default function ExpenseForm() {
       // to Bill. We don't persist payment_account_id in this case since the
       // user picked a synthetic option; expense-request-notify routes on
       // as_bill instead.
-      const asBill = paymentAccountId === '__bill__';
+      const asBill = !isPaid;
 
       // Fields written on both insert and update so the two paths can't drift.
       const fields = {
@@ -881,32 +888,56 @@ export default function ExpenseForm() {
         </div>
 
         <div>
-          <Label>
-            Paid with <span className="text-red-500">*</span>
-          </Label>
-          <SelectField
-            disabled={readOnly}
-            value={paymentAccountId}
-            onChange={(e) => setPaymentAccountId(e.target.value)}
-            placeholder={
-              paymentAccounts.length === 0
-                ? paymentAccountsError
-                  ? 'Failed to load — see error below'
-                  : 'Loading accounts…'
-                : 'Select the card or account this was paid from'
-            }
-            options={paymentAccounts.map((a) => ({
-              value: a.id,
-              label: a.id === '__bill__'
-                ? '— Not paid — create bill in QBO —'
-                : `${a.name} (${a.account_type})`,
-            }))}
-          />
-          {paymentAccountId === '__bill__' && (
-            <p className="text-xs text-amber-400 mt-1">
-              This expense will be posted as an unpaid <strong>Bill</strong> in QBO
-              (vendor required). Pay it from QBO later.
+          <Label>Was this already paid?</Label>
+          <div className="flex gap-2 mt-1" role="radiogroup" aria-label="Payment status">
+            <button
+              type="button"
+              disabled={readOnly}
+              role="radio"
+              aria-checked={!isPaid}
+              onClick={() => { setIsPaid(false); setPaymentAccountId('__bill__'); }}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${!isPaid ? 'border-amber-400 bg-amber-400/10 text-amber-300' : 'border-white/10 text-muted-foreground hover:border-white/20'}`}
+            >
+              No — unpaid (create Bill)
+            </button>
+            <button
+              type="button"
+              disabled={readOnly}
+              role="radio"
+              aria-checked={isPaid}
+              onClick={() => { setIsPaid(true); if (paymentAccountId === '__bill__') setPaymentAccountId(''); }}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition ${isPaid ? 'border-emerald-400 bg-emerald-400/10 text-emerald-300' : 'border-white/10 text-muted-foreground hover:border-white/20'}`}
+            >
+              Yes — already paid (Expense)
+            </button>
+          </div>
+
+          {!isPaid ? (
+            <p className="text-xs text-amber-400 mt-2">
+              Posts as an unpaid <strong>Bill</strong> in QBO (vendor required) — pay it from QBO
+              later. No payment account needed.
             </p>
+          ) : (
+            <div className="mt-3">
+              <Label>
+                Paid with <span className="text-red-500">*</span>
+              </Label>
+              <SelectField
+                disabled={readOnly}
+                value={paymentAccountId === '__bill__' ? '' : paymentAccountId}
+                onChange={(e) => setPaymentAccountId(e.target.value)}
+                placeholder={
+                  paymentAccounts.length === 0
+                    ? paymentAccountsError
+                      ? 'Failed to load — see error below'
+                      : 'Loading accounts…'
+                    : 'Select the card or account this was paid from'
+                }
+                options={paymentAccounts
+                  .filter((a) => a.id !== '__bill__')
+                  .map((a) => ({ value: a.id, label: `${a.name} (${a.account_type})` }))}
+              />
+            </div>
           )}
           {paymentAccountsError && (
             <p className="text-xs text-amber-600 mt-1">{paymentAccountsError}</p>
