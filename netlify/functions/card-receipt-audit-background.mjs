@@ -24,6 +24,7 @@
 
 import { requireAuth } from './lib/auth.mjs';
 import { qboQuery } from './qbo-helpers.mjs';
+import { cardLast4 } from './expense-cc-match.mjs';
 import { brixpenseEmail, esc, money } from './lib/brixpense-email.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
@@ -86,8 +87,11 @@ export default async (req) => {
       .filter((p) => !p.Credit) // skip refunds/credits — nothing to receipt
       .filter((p) => Number(p.TotalAmt || 0) >= MIN_AMOUNT);
 
-    // 2) Brixpense expense rows in a slightly wider window for fuzzy matching.
+    // 2) Brixpense expense rows in a slightly wider window for fuzzy matching,
+    //    plus the card → cardholder map for attribution.
     const rows = await opsGet(`expense_requests?request_type=eq.expense&receipt_date=gte.${new Date(Date.now() - (LOOKBACK_DAYS + 10) * 86400000).toISOString().slice(0, 10)}&select=id,qbo_bill_id,total_amount,receipt_date,vendor_name,status,submitter_name&limit=1000`);
+    const cardMap = {};
+    try { for (const c of await opsGet('expense_card_map?select=last4,user_name,user_email')) cardMap[c.last4] = c.user_name || c.user_email || null; } catch { /* attribution optional */ }
     const byQboId = new Map();
     for (const r of rows) if (r.qbo_bill_id) byQboId.set(String(r.qbo_bill_id), r);
 
@@ -105,12 +109,15 @@ export default async (req) => {
         && Math.abs(Number(r.total_amount || 0) - amt) < 0.01
         && r.receipt_date && p.TxnDate && dayDiff(r.receipt_date, p.TxnDate) <= 4);
       if (hit) { usedFuzzy.add(hit.id); fuzzy++; continue; }
+      const last4 = cardLast4(p.PrivateNote || '');
       missing.push({
         qbo_id: p.Id,
         date: p.TxnDate,
         payee: p.EntityRef?.name || '(no payee)',
         amount: amt,
         account: p.AccountRef?.name || '?',
+        card_last4: last4,
+        cardholder: (last4 && cardMap[last4]) || null,
       });
     }
     missing.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -122,14 +129,20 @@ export default async (req) => {
       const rowsHtml = missing.map((m) =>
         `<tr>
           <td style="padding:6px 10px 6px 0;color:#94A3B8;white-space:nowrap">${esc(m.date)}</td>
-          <td style="padding:6px 10px 6px 0;color:#F1F5F9"><b>${esc(m.payee)}</b><br/><span style="color:#64748B;font-size:12px">${esc(m.account)}</span></td>
+          <td style="padding:6px 10px 6px 0;color:#F1F5F9"><b>${esc(m.payee)}</b><br/><span style="color:#64748B;font-size:12px">${esc(m.account)}${m.card_last4 ? ` · 💳 ${m.cardholder ? esc(m.cardholder) : 'unassigned'} (••${esc(m.card_last4)})` : ''}</span></td>
           <td style="padding:6px 0;text-align:right;color:#FBBF24;font-weight:700;white-space:nowrap">${money(m.amount)}</td>
         </tr>`).join('');
+      // Per-cardholder rollup so it's obvious WHO owes receipts.
+      const byHolder = {};
+      for (const m of missing) { const k = m.cardholder || (m.card_last4 ? `unassigned ••${m.card_last4}` : 'no card id'); byHolder[k] = (byHolder[k] || 0) + 1; }
+      const holderLine = Object.entries(byHolder).sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${esc(k)}: ${n}`).join(' · ');
       const inner = missing.length > 0
         ? `<p style="margin:0 0 6px;color:#fff;font-size:16px;font-weight:700">Receipts needed for ${missing.length} card transaction${missing.length === 1 ? '' : 's'} — ${money(total)}</p>
            <p style="margin:0 0 14px;color:#CBD5E1">These company-card charges (last ${LOOKBACK_DAYS} days) have no matching receipt in Brixpense. Submit the receipt at <a href="https://alamedapointbg.com/expense/" style="color:#60A5FA">alamedapointbg.com/expense</a> (photo → auto-fill → submit) and it will match automatically on next week's audit.</p>
+           <p style="margin:0 0 10px;color:#93C5FD;font-size:12.5px"><b>By cardholder:</b> ${holderLine}</p>
            <table role="presentation" style="border-collapse:collapse;width:100%">${rowsHtml}</table>
-           <p style="color:#64748B;font-size:12px;margin-top:14px">Matched this week: ${exact + fuzzy} of ${purchases.length} card transactions (${exact} posted through Brixpense, ${fuzzy} matched by amount + date). Pending card swipes not yet accepted in QuickBooks aren't visible to this audit.</p>`
+           <p style="color:#64748B;font-size:12px;margin-top:14px">Matched this week: ${exact + fuzzy} of ${purchases.length} card transactions (${exact} posted through Brixpense, ${fuzzy} matched by amount + date). Assign cards to users in Master Control → Card &amp; Expense Match → Cardholders. Pending card swipes not yet accepted in QuickBooks aren't visible to this audit.</p>`
         : `<p style="margin:0 0 6px;color:#fff;font-size:16px;font-weight:700">All card transactions accounted for ✓</p>
            <p style="margin:0;color:#CBD5E1">Every company-card charge in the last ${LOOKBACK_DAYS} days (${purchases.length} transaction${purchases.length === 1 ? '' : 's'}) has a matching receipt in Brixpense. Nothing to chase this week.</p>`;
       await sendEmail({

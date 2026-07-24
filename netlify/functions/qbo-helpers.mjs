@@ -76,31 +76,12 @@ export async function getAccessToken() {
     }
   } catch(e) {}
 
-  // 1.5. Shared ops.qbo_token_cache fallback (added 2026-07-24). The edge
-  // functions keep a lease-managed QBO token for this same realm that refreshes
-  // like clockwork (sync-qbo, thousands of refreshes), while THIS chain's
-  // blob/env refresh token rots when unused and dies with invalid_grant —
-  // verified live: the Netlify QBO path had been dead since ~June 10 with
-  // nothing alerting. A valid access token is a bearer credential for the
-  // authorized realm regardless of which Intuit app minted it, so riding the
-  // healthy shared token makes every Netlify QBO function resilient. Own
-  // refresh chain below remains the fallback if the shared row is stale.
-  try {
-    const sbUrl = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (key) {
-      const r = await fetch(
-        `${sbUrl}/rest/v1/qbo_token_cache?realm_id=eq.${process.env.QBO_REALM_ID}&select=access_token,access_token_expires_at&limit=1`,
-        { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'ops' } },
-      );
-      if (r.ok) {
-        const row = (await r.json())[0];
-        if (row?.access_token && new Date(row.access_token_expires_at).getTime() > Date.now() + 60000) {
-          return row.access_token;
-        }
-      }
-    }
-  } catch (e) { /* fall through to own refresh chain */ }
+  // NOTE (2026-07-24): the shared ops.qbo_token_cache token is BREAK-GLASS
+  // ONLY (see readSharedOpsToken below) — own chain refreshes FIRST, per the
+  // multi-app architecture (separate Intuit apps, separate refresh tokens, no
+  // rotation races). An earlier revision consulted the shared token here,
+  // before the own refresh; that inverted the architecture and let this app's
+  // refresh token idle toward Intuit's 100-day expiry.
 
   // 2. Simple lock — if another function is already refreshing, wait for it
   try {
