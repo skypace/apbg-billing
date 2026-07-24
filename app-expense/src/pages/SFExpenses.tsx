@@ -5,19 +5,22 @@ import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Wrench } from 'lucide-react';
+import { Archive, ArrowLeft, Loader2, Wrench } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 
-// Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion'.
-// These are landed by the ResQ↔SF sync when a job is invoiced (🔒 Close →
-// expense-to-bill builds the row, handleCloseJob posts it). Read-only view so
-// you can see what flowed over from Service Fusion.
+// Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
+// landed by the sf-receipt-sync crawl when a job is invoiced and auto-posted to
+// QBO by sf-expense-autopost. Staff-only (RLS ops.fn_is_staff()). Archive hides
+// a row from every list without deleting it — the sync's dedup key survives, so
+// an archived expense can never re-land. Once a bill is posted, QBO is the
+// source of truth; edits happen there.
 export default function SFExpenses() {
   const navigate = useNavigate();
   const { session } = useSession();
   const [requests, setRequests] = useState<ExpenseRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [archiving, setArchiving] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -26,12 +29,28 @@ export default function SFExpenses() {
         .from('expense_requests')
         .select('*')
         .eq('tag', 'Service Fusion')
+        .is('archived_at', null)
         .order('created_at', { ascending: false });
       setRequests((data as ExpenseRequest[]) ?? []);
       setLoading(false);
     }
     load();
   }, [session]);
+
+  const archiveRow = async (req: ExpenseRequest) => {
+    if (!session) return;
+    if (!window.confirm(`Archive this ${req.status === 'posted' ? 'posted' : 'draft'} expense (${req.vendor_name || 'no vendor'})? It stays on record${req.qbo_bill_id ? ' — the QBO bill is untouched' : ''}, just leaves this list.`)) return;
+    setArchiving(req.id);
+    const { error } = await supabase
+      .from('expense_requests')
+      .update({
+        archived_at: new Date().toISOString(),
+        archived_by: session.user.email ?? session.user.id,
+      })
+      .eq('id', req.id);
+    setArchiving(null);
+    if (!error) setRequests((prev) => prev.filter((r) => r.id !== req.id));
+  };
 
   const total = requests.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
 
@@ -116,6 +135,18 @@ export default function SFExpenses() {
                 <span className="text-[15px] font-bold tabular-nums shrink-0">
                   {req.total_amount ? formatCurrency(req.total_amount) : '—'}
                 </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  title="Archive — hide from this list (kept on record; posted bills stay in QBO)"
+                  disabled={archiving === req.id}
+                  onClick={(e) => { e.stopPropagation(); archiveRow(req); }}
+                >
+                  {archiving === req.id
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Archive className="h-4 w-4" />}
+                </Button>
               </CardContent>
             </Card>
           ))}

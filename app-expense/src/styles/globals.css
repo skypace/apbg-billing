@@ -73,8 +73,8 @@
   --badge-danger-bg:  rgba(217, 58, 63, 0.12);  --badge-danger-fg:  #c01f24;
   --badge-neutral-bg: rgba(0, 0, 0, 0.06);      --badge-neutral-fg: #4d4d55;
 
-  --ff-display: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --ff-body:    'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --ff-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --ff-mono:    'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
 
   --sidebar-w:           280px;

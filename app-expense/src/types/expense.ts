@@ -71,6 +71,10 @@ export interface ExpenseRequest {
   qbo_invoice_match: string | null;
   margin_result: Record<string, unknown> | null;
 
+  // Soft-archive (SF-landed rows): hidden from lists, kept for sync dedup.
+  archived_at?: string | null;
+  archived_by?: string | null;
+
   created_at: string;
   updated_at: string;
 }

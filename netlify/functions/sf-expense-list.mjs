@@ -7,7 +7,7 @@
 // x-list-secret (SF_AUTOPOST_LIST_SECRET).
 
 import { requireAuth } from './lib/auth.mjs';
-import { qboQuery } from './qbo-helpers.mjs';
+import { findQBOVendor } from './lib/qbo-vendor-match.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 
 const LOOKBACK_DAYS = Number(process.env.SF_AUTOPOST_LOOKBACK_DAYS || 90);
@@ -16,31 +16,6 @@ function srHeaders() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY not set');
   return { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'ops' };
-}
-
-async function findQBOVendor(name) {
-  if (!name) return null;
-  try {
-    const safe = name.replace(/'/g, "\\'");
-    const exact = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName = '${safe}'`);
-    const v = exact.QueryResponse?.Vendor || [];
-    if (v.length > 0) return v[0];
-  } catch { /* fuzzy */ }
-  try {
-    const words = name.split(/\s+/).filter((w) => w.length > 2);
-    for (const w of words.slice(0, 3)) {
-      const clean = w.replace(/[^a-zA-Z0-9]/g, '');
-      if (!clean) continue;
-      const like = await qboQuery(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${clean}%'`);
-      const v2 = like.QueryResponse?.Vendor || [];
-      if (v2.length === 1) return v2[0];
-      if (v2.length > 1) {
-        const best = v2.find((x) => x.DisplayName.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.DisplayName.toLowerCase()));
-        if (best) return best;
-      }
-    }
-  } catch { /* none */ }
-  return null;
 }
 
 export default async function handler(req) {
@@ -53,7 +28,7 @@ export default async function handler(req) {
   try {
     const since = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString();
     const sel = 'id,vendor_name,total_amount,line_items,customer_name,job_number,memo,created_at';
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&created_at=gte.${since}&order=created_at.asc&limit=200&select=${sel}`, { headers: srHeaders() });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&created_at=gte.${since}&order=created_at.asc&limit=200&select=${sel}`, { headers: srHeaders() });
     if (!res.ok) throw new Error(`ops read failed (${res.status})`);
     const rows = await res.json();
     const items = [];
