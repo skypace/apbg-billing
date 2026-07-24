@@ -951,8 +951,15 @@ async function loadCcMatch(){
   btn.disabled=false; btn.textContent='Load / Refresh';
 }
 function ccPurchaseCell(p){
+  let holder='';
+  if(p.card_last4){
+    const m=((window.__ccData||{}).card_map||[]).find(c=>c.last4===p.card_last4);
+    holder=m&&(m.user_name||m.user_email)
+      ?` · <span style="color:#1F4E79;font-weight:600">💳 ${esc(m.user_name||m.user_email)} (••${esc(p.card_last4)})</span>`
+      :` · <span style="color:#B45309">💳 ••${esc(p.card_last4)} unassigned</span>`;
+  }
   return `<div><b>${esc(p.txn_date||'')}</b> ${esc(p.payee||'(no payee)')} — <b>${money(p.is_credit?-p.amount:p.amount)}</b>${p.is_credit?' <span style="color:#B45309">(credit)</span>':''}<br>
-  <span style="color:#6B7280">${esc(p.payment_type||'?')} · ${esc(p.account||'')}${p.memo?' · '+esc(p.memo.slice(0,70)):''}</span></div>`;
+  <span style="color:#6B7280">${esc(p.payment_type||'?')} · ${esc(p.account||'')}${p.memo?' · '+esc(p.memo.slice(0,70)):''}${holder}</span></div>`;
 }
 function ccExpenseCell(e){
   return `<div><b>${esc(e.receipt_date||'')}</b> ${esc(e.vendor_name||'(no vendor)')} — <b>${money(e.total_amount)}</b><br>
@@ -964,6 +971,22 @@ function renderCcMatch(d){
   const td='padding:7px 8px;vertical-align:top;border-top:1px solid #F1F3F5';
   const btn='border:0;border-radius:6px;padding:6px 12px;font-weight:600;font-size:0.78rem;cursor:pointer';
   let html='';
+  // Cardholders: every card last-4 seen in this window → assign to a user, so
+  // each swipe has an owner (drives the "whose receipt is missing" attribution).
+  if((d.card_summary||[]).length){
+    const mapBy={}; for(const c of (d.card_map||[])) mapBy[c.last4]=c;
+    html+=`<h3 style="margin:14px 0 6px;font-size:0.82rem;color:#0F172A">💳 Cardholders (${d.card_summary.length} cards seen) — assign each card's last-4 to its user
+      <a href="https://alamedapointbg.com/admin.html" target="_blank" rel="noopener" style="font-weight:400;font-size:0.72rem;color:#1F4E79;margin-left:8px">+ create a new user (gateway admin) ↗</a></h3>
+    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">Card</th><th style="${th}">Activity</th><th style="${th}">Assigned to</th><th style="${th}"></th></tr>`+
+    d.card_summary.map(c=>{
+      const m=mapBy[c.last4];
+      const who=m&&(m.user_email||m.user_name)?`<b>${esc(m.user_name||m.user_email)}</b>${m.user_name&&m.user_email?` <span style="color:#6B7280">${esc(m.user_email)}</span>`:''}`:'<span style="color:#B45309">unassigned</span>';
+      return `<tr><td style="${td};font-family:monospace;white-space:nowrap">•••• ${esc(c.last4)}</td>
+        <td style="${td};white-space:nowrap">${c.count} txns · ${money(c.amount)}</td>
+        <td style="${td}" id="ccCardWho_${esc(c.last4)}">${who}</td>
+        <td style="${td};white-space:nowrap"><button style="${btn};background:#1F4E79;color:#fff" onclick="ccAssignCard('${esc(c.last4)}')">${m&&m.user_email?'Reassign':'Assign'} →</button></td></tr>`;
+    }).join('')+'</table>';
+  }
   if(d.suggestions.length){
     html+=`<h3 style="margin:14px 0 6px;font-size:0.82rem;color:#0F172A">🤝 Suggested merges (${d.suggestions.length}) — same amount, dates within 14 days</h3>
     <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">QBO charge</th><th style="${th}">Brixpense record</th><th style="${th}">Match</th><th style="${th}"></th></tr>`+
@@ -994,6 +1017,27 @@ function renderCcMatch(d){
 async function ccLink(purchaseId, expenseId){
   try{ await ccApi('POST',{action:'link',purchaseId,expenseId}); log(`Merged charge ${purchaseId} ↔ Brixpense ${expenseId}`,'ok'); loadCcMatch(); }
   catch(e){ alert('Merge failed: '+e.message); }
+}
+// Assign a card's last-4 to a user: fetches the shared-auth user list once,
+// then a simple numbered prompt (Master Control is dialog-driven throughout).
+let __ccUsers=null;
+async function ccAssignCard(last4){
+  try{
+    if(!__ccUsers){ const r=await ccApi('POST',{action:'list_users'}); __ccUsers=r.users||[]; }
+    if(!__ccUsers.length){ alert('No users found. Create one in the gateway admin first.'); return; }
+    const menu=__ccUsers.map((u,i)=>`${i+1}. ${u.name?u.name+' — ':''}${u.email}${u.role?' ('+u.role+')':''}`).join('\n');
+    const pick=prompt(`Assign card •••• ${last4} to which user?\n(New user? Create it at alamedapointbg.com/admin.html first, then Reassign.)\n\n${menu}\n\nEnter a number (blank = cancel, 0 = unassign):`);
+    if(pick===null||pick.trim()==='') return;
+    if(pick.trim()==='0'){
+      await ccApi('POST',{action:'unassign_card',last4});
+      log(`Card ••••${last4} unassigned`,'ok'); loadCcMatch(); return;
+    }
+    const u=__ccUsers[parseInt(pick,10)-1];
+    if(!u){ alert('Invalid selection'); return; }
+    await ccApi('POST',{action:'assign_card',last4,user_id:u.id,user_email:u.email,user_name:u.name||null});
+    log(`Card ••••${last4} → ${u.name||u.email}`,'ok');
+    loadCcMatch();
+  }catch(e){ alert('Assign failed: '+e.message); }
 }
 async function ccUnlink(expenseId){
   if(!confirm('Unlink this charge from the Brixpense record?')) return;

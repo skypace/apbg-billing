@@ -20,6 +20,17 @@
 //   POST { action:'import', purchaseId }  → creates a Brixpense expense row
 //         from the QBO Purchase (status='posted', as_bill=false — it is
 //         ALREADY in the books; importing must never double-post to QBO).
+//   POST { action:'assign_card',   last4, user_id?, user_email?, user_name?, label? }
+//         → upsert ops.expense_card_map (card → cardholder)
+//   POST { action:'unassign_card', last4 }
+//   POST { action:'list_users' } → auth users (id/email/name/role) for the
+//         cardholder dropdown. New users are created in the gateway admin
+//         (alamedapointbg.com/admin.html), then assigned here.
+//
+// Card attribution: bank memos on card Purchases carry the card's last four —
+// 'XXXX1029' (Capital One) or a trailing '- 5939'. cardLast4() parses it and
+// every purchase row carries card_last4 + the GET response carries card_map,
+// so the panel (and the weekly receipt audit) can say WHOSE swipe it is.
 //
 // Superadmin-gated. Writes ops.expense_requests via the service-role key
 // (writer registered under brix-expense:app-and-functions in
@@ -88,6 +99,7 @@ async function fetchPurchases(from, to) {
     payee: p.EntityRef?.name || '',
     memo: p.PrivateNote || '',
     doc_number: p.DocNumber || '',
+    card_last4: cardLast4(p.PrivateNote || ''),
     lines: (p.Line || [])
       .filter((l) => l.Amount !== undefined && l.DetailType !== 'TaxLineDetail')
       .map((l) => ({
@@ -96,6 +108,21 @@ async function fetchPurchases(from, to) {
         account: l.AccountBasedExpenseLineDetail?.AccountRef?.name || l.ItemBasedExpenseLineDetail?.ItemRef?.name || '',
       })),
   }));
+}
+
+// ── card attribution ──
+// Bank memo formats observed live on the card feeds:
+//   Capital One: 'STATE OF CALIF DMV ISACRAMENTO CA XXXX1011'  → XXXX + last4
+//   Amex/other:  'SQ *SANTOS REFRIGERATI - 6681'               → trailing '- 1234'
+// Masked pattern wins over the trailing pattern (a trailing 4-digit group can
+// occasionally be part of a merchant name; masked is unambiguous).
+export function cardLast4(memo) {
+  if (!memo) return null;
+  const masked = /(?:[xX*]{2,})[-. ]?(\d{4})\b/.exec(memo);
+  if (masked) return masked[1];
+  const trailing = /[-–]\s?(\d{4})\s*$/.exec(memo.trim());
+  if (trailing) return trailing[1];
+  return null;
 }
 
 // ── matching ──
@@ -174,10 +201,20 @@ export async function handler(event) {
       const eTo = new Date(new Date(to + 'T00:00:00Z').getTime() + MATCH_WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
 
       const select = 'id,vendor_name,total_amount,receipt_date,status,tag,submitter_name,department,description,qbo_purchase_id,qbo_bill_id';
-      const [purchases, expenses] = await Promise.all([
+      const [purchases, expenses, cardMap] = await Promise.all([
         fetchPurchases(from, to),
         opsGet(`expense_requests?select=${select}&receipt_date=gte.${eFrom}&receipt_date=lte.${eTo}&order=receipt_date.desc&limit=2000`),
+        opsGet('expense_card_map?select=*&order=last4.asc').catch(() => []),
       ]);
+
+      // Distinct cards seen in this window (count + $ per last4) — the panel's
+      // Cardholders block assigns users to these.
+      const cardSummary = {};
+      for (const p of purchases) {
+        if (!p.card_last4) continue;
+        const c = (cardSummary[p.card_last4] ||= { last4: p.card_last4, count: 0, amount: 0 });
+        c.count++; c.amount = Math.round((c.amount + (p.is_credit ? -p.amount : p.amount)) * 100) / 100;
+      }
 
       const linkedByPurchase = new Map();
       for (const e of expenses) if (e.qbo_purchase_id) linkedByPurchase.set(String(e.qbo_purchase_id), e);
@@ -205,6 +242,8 @@ export async function handler(event) {
         suggestions,
         unmatched_purchases: unmatchedPurchases,
         unmatched_expenses: unmatchedExpenses,
+        card_map: cardMap,
+        card_summary: Object.values(cardSummary).sort((a, b) => b.count - a.count),
         totals: {
           purchases: purchases.length,
           purchases_amount: sum(purchases, (p) => (p.is_credit ? -p.amount : p.amount)),
@@ -295,6 +334,56 @@ export async function handler(event) {
         };
         const inserted = await opsWrite('POST', 'expense_requests', row);
         return json(200, { ok: true, expense_id: inserted?.[0]?.id || null });
+      }
+
+      if (action === 'assign_card') {
+        const last4 = String(body.last4 || '').trim();
+        if (!/^\d{4}$/.test(last4)) return json(400, { error: 'last4 must be exactly 4 digits' });
+        const row = {
+          last4,
+          label: body.label || null,
+          user_id: body.user_id || null,
+          user_email: body.user_email || null,
+          user_name: body.user_name || null,
+          active: true,
+          updated_at: new Date().toISOString(),
+          updated_by: actorEmail,
+        };
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/expense_card_map?on_conflict=last4`, {
+          method: 'POST',
+          headers: serviceHeaders({
+            'Content-Profile': 'ops', 'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=representation',
+          }),
+          body: JSON.stringify(row),
+        });
+        if (!res.ok) return json(502, { error: `card map write failed (${res.status}): ${(await res.text()).slice(0, 200)}` });
+        return json(200, { ok: true, card: (await res.json())[0] || row });
+      }
+
+      if (action === 'unassign_card') {
+        const last4 = String(body.last4 || '').trim();
+        if (!/^\d{4}$/.test(last4)) return json(400, { error: 'last4 must be exactly 4 digits' });
+        await opsWrite('PATCH', `expense_card_map?last4=eq.${last4}`, {
+          user_id: null, user_email: null, user_name: null,
+          updated_at: new Date().toISOString(), updated_by: actorEmail,
+        });
+        return json(200, { ok: true });
+      }
+
+      if (action === 'list_users') {
+        // Auth users for the cardholder dropdown (shared gateway auth). New
+        // users are created in the gateway admin (alamedapointbg.com/admin.html).
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=200`, { headers: serviceHeaders() });
+        if (!res.ok) return json(502, { error: `auth users read failed (${res.status})` });
+        const data = await res.json();
+        const users = (data.users || data || []).map((u) => ({
+          id: u.id,
+          email: u.email,
+          name: u.user_metadata?.full_name || u.user_metadata?.name || '',
+          role: u.user_metadata?.role || '',
+        })).sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+        return json(200, { ok: true, users });
       }
 
       return json(400, { error: `Unknown action '${action}'` });
