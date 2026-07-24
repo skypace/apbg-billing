@@ -1,0 +1,20 @@
+-- qbo_netlify_chain health check (applied live 2026-07-24 via Supabase MCP).
+--
+-- The billing site's OWN QBO token chain (Netlify Blobs) rotted silently
+-- June 10 → July 24. qbo-helpers now keeps that chain PRIMARY (per the
+-- multi-app architecture: separate Intuit apps = separate refresh tokens = no
+-- rotation races) and only break-glasses to the shared lease-managed edge
+-- token when its own refresh fails — writing a throttled ops.sync_log row
+-- (source='qbo', sync_type='netlify_token_fallback') when it does.
+--
+-- This migration re-creates ops.fn_sync_health_extra() adding the
+-- qbo_netlify_chain check: RED when a fallback signal exists in the last 24h
+-- (detail says to re-auth via Master Control → Connections), green otherwise.
+-- Full function body applied live; see Supabase migration history.
+--
+-- ⚠ Discovered while wiring this: pacerfinance's QBO connection was aligned
+-- to the SAME Intuit app as the billing Netlify chain (ABCV3BJb…) on 7/15.
+-- Intuit invalidates prior refresh tokens when the same app+realm is
+-- re-authorized — sharing one app across independent grant-holders is the
+-- likely cause of the serial QBO token deaths. Fix: give pacerfinance its own
+-- Intuit app (developer portal task, human required).

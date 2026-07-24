@@ -16,6 +16,52 @@ function getBlobStore() {
   });
 }
 
+// ── Break-glass: shared lease-managed edge token (ops.qbo_token_cache) ──
+// Read-only — the edge lease machinery is the sole refresher, so this can
+// never cause a rotation race. Used ONLY when this site's own chain fails.
+async function readSharedOpsToken() {
+  try {
+    const sbUrl = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key) return null;
+    const r = await fetch(
+      `${sbUrl}/rest/v1/qbo_token_cache?realm_id=eq.${process.env.QBO_REALM_ID}&select=access_token,access_token_expires_at&limit=1`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'ops' } },
+    );
+    if (!r.ok) return null;
+    const row = (await r.json())[0];
+    if (row?.access_token && new Date(row.access_token_expires_at).getTime() > Date.now() + 60000) {
+      return row.access_token;
+    }
+  } catch (e) { /* no shared token available */ }
+  return null;
+}
+
+// Signal the fallback into ops.sync_log (throttled to one row per 6h via blob
+// stamp) — the qbo_netlify_chain health check turns RED off this row and the
+// 15-min alerter emails: "re-auth the billing app at setup.html / Connections".
+async function noteSharedFallback(store, reason) {
+  try {
+    const last = await store.get("shared-fallback-noted");
+    if (last && Date.now() - Number(last) < 6 * 3600 * 1000) return;
+    await store.set("shared-fallback-noted", String(Date.now()));
+  } catch (e) { /* still try to log */ }
+  try {
+    const sbUrl = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key) return;
+    await fetch(`${sbUrl}/rest/v1/sync_log`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Profile': 'ops', 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        source: 'qbo', sync_type: 'netlify_token_fallback', status: 'error',
+        records_synced: 0, completed_at: new Date().toISOString(),
+        error_message: `Netlify QBO chain broken (riding shared edge token): ${String(reason).slice(0, 300)}`,
+      }),
+    });
+  } catch (e) { /* best-effort */ }
+}
+
 export async function getAccessToken() {
   const clientId = process.env.QBO_CLIENT_ID;
   const clientSecret = process.env.QBO_CLIENT_SECRET;
@@ -29,32 +75,6 @@ export async function getAccessToken() {
       if (parsed.token && parsed.expires > Date.now()) return parsed.token;
     }
   } catch(e) {}
-
-  // 1.5. Shared ops.qbo_token_cache fallback (added 2026-07-24). The edge
-  // functions keep a lease-managed QBO token for this same realm that refreshes
-  // like clockwork (sync-qbo, thousands of refreshes), while THIS chain's
-  // blob/env refresh token rots when unused and dies with invalid_grant —
-  // verified live: the Netlify QBO path had been dead since ~June 10 with
-  // nothing alerting. A valid access token is a bearer credential for the
-  // authorized realm regardless of which Intuit app minted it, so riding the
-  // healthy shared token makes every Netlify QBO function resilient. Own
-  // refresh chain below remains the fallback if the shared row is stale.
-  try {
-    const sbUrl = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (key) {
-      const r = await fetch(
-        `${sbUrl}/rest/v1/qbo_token_cache?realm_id=eq.${process.env.QBO_REALM_ID}&select=access_token,access_token_expires_at&limit=1`,
-        { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'ops' } },
-      );
-      if (r.ok) {
-        const row = (await r.json())[0];
-        if (row?.access_token && new Date(row.access_token_expires_at).getTime() > Date.now() + 60000) {
-          return row.access_token;
-        }
-      }
-    }
-  } catch (e) { /* fall through to own refresh chain */ }
 
   // 2. Simple lock — if another function is already refreshing, wait for it
   try {
@@ -85,6 +105,13 @@ export async function getAccessToken() {
 
   if (!refreshToken) {
     try { await store.delete("refresh-lock"); } catch(e) {}
+    // Break-glass: no refresh token at all (blob purged after a prior
+    // invalid_grant) — ride the shared edge token + signal red. See below.
+    const shared = await readSharedOpsToken();
+    if (shared) {
+      await noteSharedFallback(store, 'No QBO refresh token available — reconnect required');
+      return shared;
+    }
     throw new Error('No QBO refresh token available — reconnect required');
   }
 
@@ -105,6 +132,20 @@ export async function getAccessToken() {
     const err = await res.text();
     if (err.includes('invalid_grant')) {
       try { await store.delete("refresh-token"); } catch(e) {}
+    }
+    // BREAK-GLASS (2026-07-24): own chain is broken — ride the shared
+    // lease-managed edge token (ops.qbo_token_cache, same realm; a valid
+    // access token is a bearer credential regardless of which Intuit app
+    // minted it) so nothing goes down, and write a throttled sync_log signal
+    // that flips the qbo_netlify_chain health check RED. Own chain stays
+    // PRIMARY (per the multi-app architecture: separate apps, separate
+    // refresh tokens, no rotation races) — this fallback exists so a rotted
+    // chain pages a human in 15 minutes instead of silently killing expense
+    // posting for six weeks like it did June 10 → July 24.
+    const shared = await readSharedOpsToken();
+    if (shared) {
+      await noteSharedFallback(store, `Token refresh failed: ${res.status} ${err.slice(0, 200)}`);
+      return shared;
     }
     throw new Error(`Token refresh failed: ${res.status} ${err}`);
   }
