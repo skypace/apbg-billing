@@ -980,7 +980,7 @@ function renderCcMatch(d){
     <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">Card</th><th style="${th}">Activity</th><th style="${th}">Assigned to</th><th style="${th}"></th></tr>`+
     d.card_summary.map(c=>{
       const m=mapBy[c.last4];
-      const who=m&&(m.user_email||m.user_name)?`<b>${esc(m.user_name||m.user_email)}</b>${m.user_name&&m.user_email?` <span style="color:#6B7280">${esc(m.user_email)}</span>`:''}`:'<span style="color:#B45309">unassigned</span>';
+      const who=m&&(m.user_email||m.user_name)?`<b>${esc(m.user_name||m.user_email)}</b>${m.user_name&&m.user_email?` <span style="color:#6B7280">${esc(m.user_email)}</span>`:''}${m.receipts_from?`<br><span style="color:#6B7280;font-size:0.7rem">receipts expected from ${esc(m.receipts_from)}</span>`:''}`:'<span style="color:#B45309">unassigned</span>';
       return `<tr><td style="${td};font-family:monospace;white-space:nowrap">•••• ${esc(c.last4)}</td>
         <td style="${td};white-space:nowrap">${c.count} txns · ${money(c.amount)}</td>
         <td style="${td}" id="ccCardWho_${esc(c.last4)}">${who}</td>
@@ -1034,8 +1034,15 @@ async function ccAssignCard(last4){
     }
     const u=__ccUsers[parseInt(pick,10)-1];
     if(!u){ alert('Invalid selection'); return; }
-    await ccApi('POST',{action:'assign_card',last4,user_id:u.id,user_email:u.email,user_name:u.name||null});
-    log(`Card ••••${last4} → ${u.name||u.email}`,'ok');
+    // Accountability start date: the Monday audit only expects receipts for
+    // swipes ON/AFTER this — never chases pre-onboarding history.
+    const today=new Date().toISOString().slice(0,10);
+    let from=prompt(`Expect receipts from which date? (YYYY-MM-DD)\nSwipes before this are NOT chased — back-date if ${u.name||u.email} has already been submitting receipts.`,today);
+    if(from===null) return;
+    from=from.trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(from)){ alert('Invalid date — use YYYY-MM-DD'); return; }
+    await ccApi('POST',{action:'assign_card',last4,user_id:u.id,user_email:u.email,user_name:u.name||null,receipts_from:from});
+    log(`Card ••••${last4} → ${u.name||u.email} (receipts from ${from})`,'ok');
     loadCcMatch();
   }catch(e){ alert('Assign failed: '+e.message); }
 }

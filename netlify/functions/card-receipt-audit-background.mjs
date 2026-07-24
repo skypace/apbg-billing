@@ -91,7 +91,11 @@ export default async (req) => {
     //    plus the card → cardholder map for attribution.
     const rows = await opsGet(`expense_requests?request_type=eq.expense&receipt_date=gte.${new Date(Date.now() - (LOOKBACK_DAYS + 10) * 86400000).toISOString().slice(0, 10)}&select=id,qbo_bill_id,total_amount,receipt_date,vendor_name,status,submitter_name&limit=1000`);
     const cardMap = {};
-    try { for (const c of await opsGet('expense_card_map?select=last4,user_name,user_email')) cardMap[c.last4] = c.user_name || c.user_email || null; } catch { /* attribution optional */ }
+    try {
+      for (const c of await opsGet('expense_card_map?select=last4,user_name,user_email,receipts_from')) {
+        cardMap[c.last4] = { who: c.user_name || c.user_email || null, from: c.receipts_from || null };
+      }
+    } catch { /* attribution optional */ }
     const byQboId = new Map();
     for (const r of rows) if (r.qbo_bill_id) byQboId.set(String(r.qbo_bill_id), r);
 
@@ -110,6 +114,10 @@ export default async (req) => {
         && r.receipt_date && p.TxnDate && dayDiff(r.receipt_date, p.TxnDate) <= 4);
       if (hit) { usedFuzzy.add(hit.id); fuzzy++; continue; }
       const last4 = cardLast4(p.PrivateNote || '');
+      const card = (last4 && cardMap[last4]) || null;
+      // Accountability starts at assignment: swipes dated before the card's
+      // receipts_from predate the cardholder having the app — not chased.
+      if (card?.from && p.TxnDate && p.TxnDate < card.from) continue;
       missing.push({
         qbo_id: p.Id,
         date: p.TxnDate,
@@ -117,7 +125,7 @@ export default async (req) => {
         amount: amt,
         account: p.AccountRef?.name || '?',
         card_last4: last4,
-        cardholder: (last4 && cardMap[last4]) || null,
+        cardholder: card?.who || null,
       });
     }
     missing.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
