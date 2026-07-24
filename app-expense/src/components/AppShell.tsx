@@ -241,11 +241,11 @@ export function AppShell() {
             </span>
           )}
           <a
-            href="/expense/docs/brixpense/"
+            href="https://alamedapointbg.com/margin/docs/handbook/#/07-brixpense"
             target="_blank"
             rel="noopener noreferrer"
             className="nav-item"
-            title="User guide"
+            title="Brixpense chapter in the APBG Master Handbook (links to the full deep guide)"
             style={{ textDecoration: 'none' }}
           >
             <BookOpen size={18} />
