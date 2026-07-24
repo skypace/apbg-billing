@@ -1,0 +1,25 @@
+-- Credential-inventory health checks (applied live 2026-07-24 via Supabase MCP).
+--
+-- ROOT CAUSE of three silent outages found this month: alerting existed and
+-- worked, but each new integration added a new credential store WITHOUT a
+-- check — the credential that died was never the one being watched:
+--   · ops.sf_token_cache dead 6/29 → 7/24 (expense landing down; unmonitored)
+--   · Netlify Blobs QBO token dead ~6/10 → 7/24 (employee expense posting +
+--     AP-tool QBO writes down; unmonitored — while ops.qbo_token_cache, the
+--     ONE monitored QBO token of three, stayed green)
+--
+-- Structure: ops.fn_sync_health_core() carries the six pipeline checks;
+-- ops.fn_sync_health_extra() carries credential-inventory checks
+-- (resq_sf_token, sf_portal_cookie); ops.sync_health() is the union and is
+-- what the 15-min health-alert cron reads — new checks alert automatically.
+--
+-- RULE (enforced in CLAUDE.md): every new credential/token store MUST ship
+-- with a check added to ops.fn_sync_health_extra() in the same change.
+-- Deliberately NOT checked: ops.pacer_mcp_tokens (verified non-authoritative —
+-- pacerfinance's live tokens are in its own site's blob store; its qbo row was
+-- 9 days stale while the MCP worked). Monitoring pacerfinance/melt-dashboard/
+-- Pacer-outlook tokens needs an HTTP probe against those sites, not SQL.
+--
+-- (Function bodies applied live; see migration history in Supabase for the
+-- full definitions — core = the six checks from 20260724000002 unchanged,
+-- extra = resq_sf_token + sf_portal_cookie, sync_health = core ∪ extra.)
