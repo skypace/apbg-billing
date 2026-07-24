@@ -115,6 +115,11 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔗 Connections &amp; Reconnect <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— every Service Fusion + QuickBooks app: its own health light, client id, and the RIGHT reconnect link</span></h2>
+    <div id="connectionsBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:8px 20px 14px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
     <h2>🛠️ Service &amp; Maintenance <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— show a banner or fully lock out any app while you work on it</span></h2>
     <div id="maintBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
   </div>
@@ -288,13 +293,58 @@ APBG.auth.requireSuperadmin().then(() => {
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   refreshAll();
+  loadConnections();
   loadMaintenance();
   loadSyncCustomers();
   loadResqSync();
   loadVendorRoutes();
   setInterval(refreshAll, 60000); // auto-refresh every 60s
   setInterval(loadResqSync, 60000);
+  setInterval(loadConnections, 300000); // connections panel every 5 min
 });
+
+// ═══ CONNECTIONS & RECONNECT ═══
+// One row per SF/QBO app: health light (live from ops.sync_health — the same
+// feed the 15-min email alerter reads), the app's client id (so you KNOW which
+// app you're reconnecting — the 2026-07-24 SF scavenger hunt was exactly this),
+// and the correct authorize link. Gray dot = token lives in another site,
+// unmonitored from this panel.
+async function loadConnections() {
+  const box = document.getElementById('connectionsBox');
+  try {
+    const r = await fetch('/.netlify/functions/connections');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    const dot = (h) => {
+      const c = !h ? '#94A3B8' : h.status === 'green' ? '#22C55E' : h.status === 'yellow' ? '#F59E0B' : '#EF4444';
+      return `<span style="flex:none;width:12px;height:12px;border-radius:50%;background:${c};margin-top:4px;box-shadow:0 0 0 3px ${c}22"></span>`;
+    };
+    let html = '';
+    for (const g of d.groups) {
+      html += `<h3 style="margin:12px 0 2px;font-size:0.8rem;color:#0F172A">${g.label}</h3>`;
+      for (const row of g.rows) {
+        const btn = row.reconnect_url
+          ? `<a href="${row.reconnect_url}" target="_blank" rel="noopener" style="flex:none;background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.78rem;padding:7px 14px;border-radius:8px">Reconnect →</a>`
+          : (row.manage_url
+            ? `<a href="${row.manage_url}" style="flex:none;background:#64748B;color:#fff;text-decoration:none;font-weight:600;font-size:0.78rem;padding:7px 14px;border-radius:8px">Manage →</a>`
+            : '');
+        html += `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #EDF1F6">
+          ${dot(row.health)}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:0.85rem;color:#0F172A">${row.name}</div>
+            <div style="font-size:0.7rem;color:#6B7280;font-family:'JetBrains Mono',monospace;margin-top:1px">id: ${row.client_id} · ${row.token_store}</div>
+            <div style="font-size:0.75rem;color:#475569;margin-top:2px">${row.health ? row.health.detail : 'unmonitored from this panel — lives in another site'}</div>
+            ${row.note ? `<div style="font-size:0.72rem;color:#92400E;margin-top:3px">${row.note}</div>` : ''}
+          </div>
+          ${btn}
+        </div>`;
+      }
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<span style="color:#B91C1C;font-size:0.8rem">Failed to load connections: ' + (e.message || e) + '</span>';
+  }
+}
 
 // ═══ HEALTH FETCHER ═══
 // health-watchdog + pacer-health are superadmin-gated (requireAuth). Pull the

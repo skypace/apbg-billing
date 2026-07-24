@@ -98,7 +98,7 @@ There are **three separate Service Fusion Connected Apps** against the one SF ac
 | App | client_id | Registered redirect URI | Token row | Used by |
 |---|---|---|---|---|
 | **Billing / Brixpense** | `TNpu3bVz9XAIgey_7e` | `https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-oauth-callback` (Supabase edge fn) | `ops.sf_token_cache` (id=1) | `sync-sf` (job mirror), `sf-receipt-sync` (Brixpense expenses), apbg-billing SF reads |
-| **ResQ sync** | `RESQ_SF_CLIENT_ID` env (apbg-resq-sync) | `https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-connect` | `ops.resq_sf_token_cache` | `skypace/apbg-resq-sync` only |
+| **ResQ sync** | `PP8LobxMYi-SZFhI1t` (`ops.resq_sync_config.sf_app_client_id`) | `https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-connect` | `ops.resq_sf_token_cache` | `skypace/apbg-resq-sync` only |
 | **OLD ResQ updater (dead)** | `f8cqiTHnjoFS-QMeuc` ("MEUC") | (legacy Netlify redirect) | — | nothing — retired |
 
 **Re-authing the billing app** (the one Brixpense expenses depend on): sign into SF in a browser, then open
@@ -107,6 +107,7 @@ There are **three separate Service Fusion Connected Apps** against the one SF ac
 
 **Gotchas:**
 - `invalid redirect URL` = the redirect in your authorize link isn't registered on that app. `invalid_client` = the **Supabase env** `SF_CLIENT_ID`/`SF_CLIENT_SECRET` don't match the app whose code you're exchanging.
+- **QBO app-sharing trap (2026-07-24):** Intuit invalidates prior refresh tokens when the same app+realm gets re-authorized. pacerfinance's QBO was aligned to the billing Netlify app (`ABCV3BJb…`) on 7/15 — so re-authorizing either surface kills the other's refresh token. This is the likely cause of the serial QBO token deaths. Until pacerfinance gets its OWN Intuit app, expect its QBO token to die whenever the billing app is reconnected (and vice versa); the `qbo_netlify_chain` health check + break-glass fallback in `qbo-helpers.mjs` limit the blast to an email instead of an outage. **Master Control → Connections & Reconnect** (`control.html` + `netlify/functions/connections.mjs`) lists every SF/QBO app with its client id, its own health light, and the correct authorize link — use it instead of hunting for reconnect URLs.
 - SF access tokens last ~1h; the refresh token auto-rotates on each refresh. Token refresh is lease-guarded (`fn_sf_token_claim_refresh`) so concurrent functions don't race-rotate it.
 - SF rate-limits aggressively (429). SF-hitting crons are deliberately throttled: `sf-job-sync` daily 09:00 UTC, `sf-receipt-sync-crawl` daily 10:00 UTC, `sf-receipt-sync-fresh` 3×/day (03:00/15:00/21:00 UTC). Don't add high-frequency SF pollers or parallel SF scans — that's what caused the 2026-06/07 expense-sync 429 outage.
 - The pacerfinance MCP (`pacerfinance.netlify.app/servicefusion`) is a **separate** SF integration; its token is not `ops.sf_token_cache`. Under 429 pressure its `sf_get_job` silently drops the `expenses` array (returns the job with no expenses) — don't trust it for bulk expense reads.
