@@ -1,6 +1,6 @@
 {
   "$comment": "Snapshot of base tables in the ops.* schema, captured from the live Supabase project (gfsdpwiqzshhexkofiif). The lint script compares this list against sync-manifest.json to detect drift. Refresh with: node architecture/refresh-snapshot.mjs",
-  "captured_at": "2026-07-24",
+  "captured_at": "2026-07-25",
   "schema": "ops",
   "tables": [
     "alert_settings",
@@ -92,6 +92,11 @@
     "service_jobs",
     "sf_customer_snapshot",
     "sf_token_cache",
+    "shopify_item_map",
+    "shopify_sync_config",
+    "shopify_sync_orders",
+    "shopify_sync_payouts",
+    "shopify_sync_refunds",
     "site_settings",
     "staff",
     "staff_roles",
