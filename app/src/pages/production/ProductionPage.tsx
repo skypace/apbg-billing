@@ -27,8 +27,9 @@ import { BomsTab } from './BomsTab';
 import { WorkOrdersTab } from './WorkOrdersTab';
 import { PurchaseOrdersTab } from './PurchaseOrdersTab';
 import { CopackOrdersTab } from './CopackOrdersTab';
+import { ComplianceTab } from './ComplianceTab';
 
-type TabId = 'formulas' | 'boms' | 'work_orders' | 'purchase_orders' | 'copack_orders';
+type TabId = 'formulas' | 'boms' | 'work_orders' | 'purchase_orders' | 'copack_orders' | 'compliance';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
@@ -36,11 +37,12 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },
   { id: 'copack_orders',   label: 'Co-Pack (Legacy)'       },
+  { id: 'compliance',      label: 'Compliance & Safety'    },
 ];
 
 function coerceTab(value: unknown): TabId | null {
   return value === 'formulas' || value === 'boms' || value === 'work_orders'
-    || value === 'copack_orders' || value === 'purchase_orders'
+    || value === 'copack_orders' || value === 'purchase_orders' || value === 'compliance'
     ? value
     : null;
 }
@@ -248,6 +250,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           onChanged={reloadAll}
         />
       )}
+      {tab === 'compliance' && <ComplianceTab />}
       {tab === 'purchase_orders' && (
         <PurchaseOrdersTab
           vendors={vendors}
