@@ -154,96 +154,6 @@ export interface WorkOrderCosts {
   computed_at: string;
 }
 
-export type CopackOrderStatus = 'draft' | 'sent' | 'received' | 'closed' | 'void';
-export type CopackMaterialSourceMode = 'raw_materials' | 'syrup_by_gallon';
-export type CopackSyrupVarianceStatus = 'pending' | 'ok' | 'watch' | 'alert';
-
-export interface CopackOrderRow {
-  id: string;
-  order_number: string;
-  bom_id: string;
-  finished_qbo_item_id: string;
-  finished_item_name: string | null;
-  qbo_vendor_id: string;
-  vendor_name: string | null;
-  destination_location_id: string;
-  location_label: string | null;
-  status: CopackOrderStatus;
-  qty_ordered: number;
-  target_uom: string;
-  actual_yield_qty: number | null;
-  actual_yield_uom: string | null;
-  finished_units_received: number | null;
-  expected_date: string | null;
-  sent_at: string | null;
-  received_at: string | null;
-  closed_at: string | null;
-  voided_at: string | null;
-  void_reason: string | null;
-  material_source_mode: CopackMaterialSourceMode;
-  syrup_unit_cost_per_gal: number;
-  estimated_syrup_gallons: number | null;
-  estimated_syrup_cost: number | null;
-  actual_syrup_gallons: number | null;
-  actual_syrup_unit_cost_per_gal: number | null;
-  locked_syrup_gallons: number | null;
-  locked_syrup_unit_cost_per_gal: number | null;
-  locked_syrup_cost: number | null;
-  syrup_gallons_variance: number | null;
-  syrup_gallons_variance_pct: number | null;
-  syrup_cost_variance: number | null;
-  syrup_cost_variance_pct: number | null;
-  syrup_variance_status: CopackSyrupVarianceStatus | null;
-  syrup_gallons: number | null;
-  co_pack_fee: number;
-  freight_cost: number;
-  other_landed_cost: number;
-  components_cost: number;
-  services_cost: number;
-  total_cost: number;
-  unit_cost: number | null;
-  per_case: number | null;
-  per_can: number | null;
-  per_oz: number | null;
-  per_gal_finished: number | null;
-  actual_yield_pct: number | null;
-  computed_at: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CopackOrderCostDetail {
-  kind: 'component' | 'service' | 'landed_cost';
-  label: string;
-  qbo_item_id?: string | null;
-  qty: number;
-  uom?: string | null;
-  unit_cost: number | null;
-  extended_cost: number;
-  notes: string | null;
-}
-
-export interface CopackOrderCosts {
-  order_id: string;
-  components_cost: number;
-  services_cost: number;
-  co_pack_fee: number;
-  freight_cost: number;
-  other_cost: number;
-  total_cost: number;
-  unit_cost: number | null;
-  qty_finished: number;
-  per_case: number | null;
-  per_can: number | null;
-  per_oz: number | null;
-  per_gal_finished: number | null;
-  actual_yield_pct: number | null;
-  syrup_gallons: number | null;
-  detail: CopackOrderCostDetail[];
-  computed_at: string;
-}
-
 export type BomMaterialRequirementStatus = 'ok' | 'on_order' | 'short' | 'no_stock';
 
 export interface BomMaterialRequirement {
@@ -353,15 +263,6 @@ export async function fetchWorkOrderEvents(woId: string): Promise<WorkOrderEvent
 
 export async function fetchWorkOrderCosts(woId: string): Promise<WorkOrderCosts | null> {
   const rows = await sbq<WorkOrderCosts>('work_order_costs', `select=*&wo_id=eq.${woId}`);
-  return rows[0] ?? null;
-}
-
-export async function fetchCopackOrders(limit = 200): Promise<CopackOrderRow[]> {
-  return sbq<CopackOrderRow>('v_copack_orders', `select=*&order=created_at.desc&limit=${limit}`);
-}
-
-export async function fetchCopackOrderCosts(orderId: string): Promise<CopackOrderCosts | null> {
-  const rows = await sbq<CopackOrderCosts>('copack_order_costs', `select=*&order_id=eq.${orderId}`);
   return rows[0] ?? null;
 }
 
@@ -537,74 +438,6 @@ export async function setWoMaterialVendor(materialId: string, qboVendorId: strin
     p_material_id: materialId,
     p_qbo_vendor_id: qboVendorId ?? '',
   });
-}
-
-// ── Co-pack order transitions ───────────────────────────────────────────
-
-export async function createCopackOrder(args: {
-  bom_id: string;
-  qbo_vendor_id: string;
-  destination_location_id: string;
-  qty_ordered: number;
-  target_uom?: string | null;
-  expected_date?: string | null;
-  co_pack_fee?: number | null;
-  freight_cost?: number | null;
-  other_landed_cost?: number | null;
-  material_source_mode?: CopackMaterialSourceMode;
-  syrup_unit_cost_per_gal?: number | null;
-  notes?: string | null;
-}): Promise<string> {
-  return sbrpc<string>('fn_create_copack_order', {
-    p_bom_id: args.bom_id,
-    p_qbo_vendor_id: args.qbo_vendor_id,
-    p_destination_location_id: args.destination_location_id,
-    p_qty_ordered: args.qty_ordered,
-    p_target_uom: args.target_uom ?? 'gal',
-    p_expected_date: args.expected_date ?? null,
-    p_co_pack_fee: args.co_pack_fee ?? 0,
-    p_freight_cost: args.freight_cost ?? 0,
-    p_other_landed_cost: args.other_landed_cost ?? 0,
-    p_notes: args.notes ?? null,
-    p_material_source_mode: args.material_source_mode ?? 'raw_materials',
-    p_syrup_unit_cost_per_gal: args.syrup_unit_cost_per_gal ?? 0,
-  });
-}
-
-export async function sendCopackOrder(orderId: string): Promise<void> {
-  await sbrpc('fn_send_copack_order', { p_order_id: orderId });
-}
-
-export async function receiveCopackOrder(args: {
-  order_id: string;
-  actual_yield_qty: number;
-  actual_yield_uom?: string | null;
-  co_pack_fee?: number | null;
-  freight_cost?: number | null;
-  other_landed_cost?: number | null;
-  received_at?: string | null;
-  syrup_gallons?: number | null;
-  syrup_unit_cost_per_gal?: number | null;
-}): Promise<void> {
-  await sbrpc('fn_receive_copack_order', {
-    p_order_id: args.order_id,
-    p_actual_yield_qty: args.actual_yield_qty,
-    p_actual_yield_uom: args.actual_yield_uom ?? null,
-    p_co_pack_fee: args.co_pack_fee ?? null,
-    p_freight_cost: args.freight_cost ?? null,
-    p_other_landed_cost: args.other_landed_cost ?? null,
-    p_received_at: args.received_at ?? null,
-    p_syrup_gallons: args.syrup_gallons ?? null,
-    p_syrup_unit_cost_per_gal: args.syrup_unit_cost_per_gal ?? null,
-  });
-}
-
-export async function closeCopackOrder(orderId: string): Promise<void> {
-  await sbrpc('fn_close_copack_order', { p_order_id: orderId });
-}
-
-export async function voidCopackOrder(orderId: string, reason: string): Promise<void> {
-  await sbrpc('fn_void_copack_order', { p_order_id: orderId, p_reason: reason });
 }
 
 // ── QBO writeback for closed work orders ────────────────────────────────

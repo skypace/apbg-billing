@@ -563,7 +563,7 @@
     {
       "name": "brix-production:app-and-rpcs",
       "kind": "manual-ui",
-      "description": "BRIX Margin Control Production section (app/src/pages/production/*) via ops SECURITY DEFINER RPCs: formula library (fn_formula_save), BOMs (fn_create_bom/fn_replace_bom_lines + header updates), the work-order pipeline (fn_wo_create_pipeline / fn_wo_generate_pos / fn_wo_advance / fn_wo_set_material_vendor), purchase orders (fn_create_purchase_order / fn_receive_purchase_order_line / close / void), and legacy co-pack orders. Movement rows these RPCs post are covered by the brix-stock writer entry (shared inventory_movements ledger).",
+      "description": "BRIX Margin Control Production section (app/src/pages/production/*) via ops SECURITY DEFINER RPCs: formula library (fn_formula_save), BOMs (fn_create_bom/fn_replace_bom_lines + header updates), the work-order pipeline (fn_wo_create_pipeline / fn_wo_generate_pos / fn_wo_advance / fn_wo_set_material_vendor), purchase orders (fn_create_purchase_order / fn_receive_purchase_order_line / close / void). Legacy co-pack orders removed 2026-07-26 (tables now orphans). Movement rows these RPCs post are covered by the brix-stock writer entry (shared inventory_movements ledger).",
       "writes": [
         "ops.product_formulas",
         "ops.product_formula_ingredients",
@@ -574,11 +574,23 @@
         "ops.work_order_costs",
         "ops.work_order_materials",
         "ops.work_order_events",
-        "ops.copack_orders",
-        "ops.copack_order_costs",
         "ops.purchase_orders",
         "ops.purchase_order_lines"
       ]
+    },
+    {
+      "name": "brix-compliance:app",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Refractor → Production → Compliance & Safety)",
+      "writes": [
+        "ops.compliance_documents",
+        "ops.insured_parties"
+      ],
+      "multi_writer": false,
+      "external_inputs": [],
+      "notes": "Compliance & Safety document vault (Phase 1). Staff CRUD via direct PostgREST under ops.fn_is_staff() RLS from app/src/pages/production/ComplianceTab.tsx; files in private staff-gated bucket compliance-docs. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only — emails an expired/expiring-≤60d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). Phase 2 (contractor COI upload portal + requirements + ACORD extraction) will add its own writer entry. Migration: 20260726a_compliance_docs.sql (applied live 2026-07-26).",
+      "last_verified": "2026-07-26"
     },
     {
       "name": "push-qbo-item:vendors",
@@ -602,6 +614,14 @@
     }
   ],
   "orphans": [
+    {
+      "table": "ops.copack_orders",
+      "reason": "Legacy co-pack order flow. Superseded by the formula-driven work-order pipeline (2026-07-21 production redesign); the 'Co-Pack (Legacy)' Refractor tab was removed 2026-07-26 (operator decision — not needed). Tables + fn_*_copack_order RPCs retained read-only for historical cost data; drop in a future cleanup."
+    },
+    {
+      "table": "ops.copack_order_costs",
+      "reason": "Cost snapshots for legacy co-pack orders (see ops.copack_orders). Retained read-only; drop in a future cleanup."
+    },
     {
       "table": "ops.resq_sf_links",
       "reason": "Legacy ResQ↔SF sync decommissioned 2026-06-28 (resq-sf-sync* functions + public/sync.html deleted; 5-min cron removed). Replaced by the focused edge-function sync in skypace/apbg-resq-sync, which keeps its own state in ops.resq_sync_state (registered in that repo, not here). This mirror table is retained read-only for historical audit; drop in a future cleanup."
