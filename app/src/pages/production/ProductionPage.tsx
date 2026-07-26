@@ -13,8 +13,8 @@ import {
   fetchLocations, InventoryLocation,
 } from '../../lib/inventoryControl';
 import {
-  CopackOrderRow, ProductBom, WorkOrderView,
-  fetchBoms, fetchCopackOrders, fetchWorkOrderViews,
+  ProductBom, WorkOrderView,
+  fetchBoms, fetchWorkOrderViews,
 } from '../../lib/production';
 import { ProductFormula, fetchFormulas } from '../../lib/formulas';
 import {
@@ -26,23 +26,21 @@ import { FormulasTab } from './FormulasTab';
 import { BomsTab } from './BomsTab';
 import { WorkOrdersTab } from './WorkOrdersTab';
 import { PurchaseOrdersTab } from './PurchaseOrdersTab';
-import { CopackOrdersTab } from './CopackOrdersTab';
 import { ComplianceTab } from './ComplianceTab';
 
-type TabId = 'formulas' | 'boms' | 'work_orders' | 'purchase_orders' | 'copack_orders' | 'compliance';
+type TabId = 'formulas' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
   { id: 'boms',            label: 'Bills of Materials'     },
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },
-  { id: 'copack_orders',   label: 'Co-Pack (Legacy)'       },
   { id: 'compliance',      label: 'Compliance & Safety'    },
 ];
 
 function coerceTab(value: unknown): TabId | null {
   return value === 'formulas' || value === 'boms' || value === 'work_orders'
-    || value === 'copack_orders' || value === 'purchase_orders' || value === 'compliance'
+    || value === 'purchase_orders' || value === 'compliance'
     ? value
     : null;
 }
@@ -78,7 +76,6 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [formulas, setFormulas] = useState<ProductFormula[] | null>(null);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
   const [wos, setWos] = useState<WorkOrderView[] | null>(null);
-  const [copacks, setCopacks] = useState<CopackOrderRow[] | null>(null);
   const [items, setItems] = useState<InventoryHealthRow[] | null>(null);
   const [locations, setLocations] = useState<InventoryLocation[] | null>(null);
   const [vendors, setVendors] = useState<QboVendor[] | null>(null);
@@ -86,11 +83,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [poLines, setPoLines] = useState<PurchaseOrderLineSummary[] | null>(null);
 
   function reloadAll() {
-    setFormulas(null); setBoms(null); setWos(null); setCopacks(null); setPos(null); setPoLines(null);
+    setFormulas(null); setBoms(null); setWos(null); setPos(null); setPoLines(null);
     fetchFormulas().then(setFormulas).catch(() => setFormulas([]));
     fetchBoms().then(setBoms).catch(() => setBoms([]));
     fetchWorkOrderViews().then(setWos).catch(() => setWos([]));
-    fetchCopackOrders().then(setCopacks).catch(() => setCopacks([]));
     fetchInventoryHealth({ lookback: 90 }).then(setItems).catch(() => setItems([]));
     fetchLocations().then(setLocations).catch(() => setLocations([]));
     fetchVendors().then(setVendors).catch(() => setVendors([]));
@@ -148,12 +144,6 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     return m;
   }, [locations]);
 
-  const bomById = useMemo(() => {
-    const m = new Map<string, ProductBom>();
-    for (const b of boms ?? []) m.set(b.id, b);
-    return m;
-  }, [boms]);
-
   const filteredBoms = useMemo(
     () => boms ? boms.filter((b) => itemLookup.byId.get(b.finished_qbo_item_id)?.inventory_lane === lane) : null,
     [boms, itemLookup, lane],
@@ -161,10 +151,6 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const filteredWos = useMemo(
     () => wos ? wos.filter((w) => itemLookup.byId.get(w.finished_qbo_item_id)?.inventory_lane === lane) : null,
     [wos, itemLookup, lane],
-  );
-  const filteredCopacks = useMemo(
-    () => copacks ? copacks.filter((o) => itemLookup.byId.get(o.finished_qbo_item_id)?.inventory_lane === lane) : null,
-    [copacks, itemLookup, lane],
   );
   const lanePoIds = useMemo(() => {
     const ids = new Set<string>();
@@ -186,7 +172,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Co-Packer Pipeline</div>
+          <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Compliance</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
             {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
@@ -234,18 +220,6 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           formulas={formulas}
           vendors={vendors}
           locations={locations ?? []}
-          itemLookup={itemLookup}
-          onChanged={reloadAll}
-        />
-      )}
-      {tab === 'copack_orders' && (
-        <CopackOrdersTab
-          orders={filteredCopacks}
-          boms={filteredBoms ?? []}
-          bomById={bomById}
-          vendors={vendors}
-          locations={locations ?? []}
-          locById={locById}
           itemLookup={itemLookup}
           onChanged={reloadAll}
         />
