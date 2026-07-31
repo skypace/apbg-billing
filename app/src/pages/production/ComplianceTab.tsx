@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, Paperclip, Archive } from 'lucide-react';
+import { Plus, X as XIcon, Paperclip, Archive, Download, UploadCloud } from 'lucide-react';
 import {
   ComplianceCategory, ComplianceDocument, ComplianceDocumentInput,
   HolderEntity, InsuredParty, PartyType,
-  CATEGORY_LABEL, ENTITY_LABEL, PARTY_TYPE_LABEL,
+  CATEGORY_LABEL, ENTITY_LABEL, PARTY_TYPE_LABEL, MAX_FILE_BYTES,
   archiveComplianceDocument, createComplianceDocument, createInsuredParty,
   daysUntil, expiryStatus, fetchComplianceDocuments, fetchInsuredParties,
-  openComplianceFile, updateComplianceDocument, uploadComplianceFile,
+  guessFromFilename, openComplianceFile, updateComplianceDocument, uploadComplianceFile,
 } from '../../lib/compliance';
 import { sbAuth } from '../../lib/supabase';
 import { useToast } from '../../lib/toast';
@@ -29,6 +29,10 @@ export function ComplianceTab() {
   const [parties, setParties] = useState<InsuredParty[] | null>(null);
   const [category, setCategory] = useState<ComplianceCategory | 'all'>('all');
   const [editing, setEditing] = useState<ComplianceDocument | 'new' | null>(null);
+  // Files dropped onto the tab are filed one at a time; the rest wait here.
+  const [queue, setQueue] = useState<File[]>([]);
+  const [dropping, setDropping] = useState(false);
+  const dragDepth = useRef(0);
 
   function reload() {
     setDocs(null);
@@ -54,6 +58,90 @@ export function ComplianceTab() {
     return s === 'expired' || s === 'expiring';
   }).length;
 
+  // ── Drag-and-drop ───────────────────────────────────────────────────────
+  // Drop ON a row  → attach/replace that document's file (one gesture, no form).
+  // Drop anywhere else → open a pre-filled New Document form per dropped file.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [hoverRowId, setHoverRowId] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
+
+  function acceptFiles(list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => {
+      if (f.size > MAX_FILE_BYTES) { toast.error(`${f.name} exceeds the 25MB limit`); return false; }
+      return true;
+    });
+    if (!files.length) return;
+    setQueue(files.slice(1));
+    setPendingFile(files[0]);
+    setEditing('new');
+  }
+
+  /** MUI renders each grid row with a data-id attribute — use it to resolve the drop target. */
+  function rowIdFromEvent(e: React.DragEvent): string | null {
+    const el = (e.target as HTMLElement | null)?.closest?.('.MuiDataGrid-row');
+    return el?.getAttribute('data-id') ?? null;
+  }
+
+  async function attachToRow(rowId: string, file: File) {
+    const target = (docs ?? []).find((d) => d.id === rowId);
+    if (!target) return;
+    if (file.size > MAX_FILE_BYTES) { toast.error('File exceeds the 25MB limit'); return; }
+    setAttaching(true);
+    try {
+      const path = await uploadComplianceFile(rowId, file);
+      await updateComplianceDocument(rowId, { storage_path: path, file_name: file.name });
+      toast.success(`Attached ${file.name} to ${target.doc_type}`);
+      reload();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setAttaching(false); }
+  }
+
+  function onDragEnter(e: React.DragEvent) {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    dragDepth.current += 1;
+    setDropping(true);
+  }
+  function onDragOver(e: React.DragEvent) {
+    if (!dropping) return;
+    e.preventDefault();
+    setHoverRowId(rowIdFromEvent(e));
+  }
+  function onDragLeave() {
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) { setDropping(false); setHoverRowId(null); }
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropping(false);
+    const rowId = rowIdFromEvent(e);
+    setHoverRowId(null);
+    const first = e.dataTransfer.files?.[0];
+    // A row drop attaches exactly one file to that document.
+    if (rowId && first) { void attachToRow(rowId, first); return; }
+    acceptFiles(e.dataTransfer.files);
+  }
+
+  // After saving, pull the next queued file straight into a fresh modal.
+  function afterSaved() {
+    reload();
+    if (queue.length) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      setPendingFile(next);
+      setEditing('new');
+    } else {
+      setPendingFile(null);
+      setEditing(null);
+    }
+  }
+
+  function closeModal() {
+    setEditing(null);
+    setPendingFile(null);
+    setQueue([]);
+  }
+
   const columns: GridColDef[] = useMemo(() => [
     {
       field: 'doc_type', headerName: 'Document', flex: 1, minWidth: 190,
@@ -69,7 +157,7 @@ export function ComplianceTab() {
       valueFormatter: (v) => CATEGORY_LABEL[v as ComplianceCategory] ?? String(v ?? ''),
     },
     {
-      field: 'holder', headerName: 'Belongs to', width: 180,
+      field: 'holder', headerName: 'Belongs to', width: 190,
       valueGetter: (_v, row) => {
         const d = row as ComplianceDocument;
         if (d.party_id) return partyById.get(d.party_id)?.name ?? 'Third party';
@@ -80,7 +168,7 @@ export function ComplianceTab() {
       valueFormatter: (v) => v ? String(v) : '—' },
     { field: 'issuer', headerName: 'Issuer', width: 150,
       valueFormatter: (v) => v ? String(v) : '—' },
-    { field: 'reference_number', headerName: 'Ref #', width: 110, cellClassName: 'mn',
+    { field: 'reference_number', headerName: 'Ref #', width: 115, cellClassName: 'mn',
       valueFormatter: (v) => v ? String(v) : '—' },
     {
       field: 'expiration_date', headerName: 'Expires', width: 170,
@@ -106,13 +194,14 @@ export function ComplianceTab() {
       },
     },
     {
-      field: 'storage_path', headerName: 'File', width: 170,
+      field: 'storage_path', headerName: 'File', width: 180,
       renderCell: (p) => p.value
         ? <button
             onClick={() => openComplianceFile(String(p.value)).catch((e) => toast.error(errMsg(e)))}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', fontSize: 11, padding: 0 }}
-          ><Paperclip size={10} style={{ verticalAlign: -1, marginRight: 4 }} />{String(p.row.file_name ?? 'download')}</button>
-        : <span style={{ color: 'var(--mt)' }}>—</span>,
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ac)', fontSize: 11, padding: 0 }}
+            title="Download this document"
+          ><Download size={11} style={{ verticalAlign: -1, marginRight: 4 }} />{String(p.row.file_name ?? 'download')}</button>
+        : <span style={{ color: 'var(--mt)', fontSize: 11 }}>— drop a file to attach</span>,
     },
   ], [partyById, toast]);
 
@@ -122,7 +211,13 @@ export function ComplianceTab() {
   ];
 
   return (
-    <div>
+    <div
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{ position: 'relative' }}
+    >
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {chips.map((c) => (
@@ -137,7 +232,11 @@ export function ComplianceTab() {
               ⚠ {attention} document{attention === 1 ? '' : 's'} expired / expiring soon
             </span>
           )}
-          <button onClick={() => setEditing('new')} style={btnPrimary()}>
+          <span style={{ fontSize: 10.5, color: 'var(--mt)' }}>
+            <UploadCloud size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
+            drag files anywhere to file them
+          </span>
+          <button onClick={() => { setPendingFile(null); setEditing('new'); }} style={btnPrimary()}>
             <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New Document
           </button>
         </div>
@@ -148,19 +247,54 @@ export function ComplianceTab() {
           rows={filtered}
           columns={columns}
           {...GRID_DEFAULTS}
-          sx={GRID_SX}
+          sx={{
+            ...GRID_SX,
+            // Highlight the row a dragged file is hovering over.
+            ...(hoverRowId ? {
+              [`& .MuiDataGrid-row[data-id="${hoverRowId}"]`]: {
+                outline: '2px solid var(--ac)', outlineOffset: -2,
+                background: 'rgba(59,130,246,0.14) !important',
+              },
+            } : {}),
+          }}
           density="compact"
-          loading={docs === null}
+          loading={docs === null || attaching}
           disableRowSelectionOnClick
         />
       </div>
+
+      {dropping && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none',
+          background: hoverRowId ? 'transparent' : 'rgba(31,78,121,0.22)',
+          border: `2px dashed ${hoverRowId ? 'transparent' : 'var(--ac)'}`, borderRadius: 8,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 40,
+        }}>
+          <div style={{
+            background: 'var(--sf)', border: '1px solid var(--ac)', borderRadius: 8,
+            padding: '12px 20px', textAlign: 'center', boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          }}>
+            <UploadCloud size={24} style={{ color: 'var(--ac)' }} />
+            <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6 }}>
+              {hoverRowId ? 'Drop to attach the file to this document' : 'Drop to file compliance documents'}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--mt)', marginTop: 2 }}>
+              {hoverRowId
+                ? 'Replaces whatever file is on that row'
+                : 'Drop on a row to attach · anywhere else files a new document · up to 25MB each'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <DocEditModal
           doc={editing === 'new' ? null : editing}
           parties={parties ?? []}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); reload(); }}
+          initialFile={pendingFile}
+          queuedCount={queue.length}
+          onClose={closeModal}
+          onSaved={afterSaved}
         />
       )}
     </div>
@@ -169,16 +303,19 @@ export function ComplianceTab() {
 
 // ── Edit / create modal ──────────────────────────────────────────────────
 
-function DocEditModal({ doc, parties, onClose, onSaved }: {
+function DocEditModal({ doc, parties, initialFile, queuedCount, onClose, onSaved }: {
   doc: ComplianceDocument | null;
   parties: InsuredParty[];
+  initialFile: File | null;
+  queuedCount: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const toast = useToast();
   const isNew = doc === null;
-  const [category, setCategory] = useState<ComplianceCategory>(doc?.category ?? 'insurance');
-  const [docType, setDocType] = useState(doc?.doc_type ?? '');
+  const seed = initialFile ? guessFromFilename(initialFile.name) : null;
+  const [category, setCategory] = useState<ComplianceCategory>(doc?.category ?? seed?.category ?? 'insurance');
+  const [docType, setDocType] = useState(doc?.doc_type ?? seed?.doc_type ?? '');
   const [ownerKind, setOwnerKind] = useState<'ours' | 'party'>(doc?.party_id ? 'party' : 'ours');
   const [entity, setEntity] = useState<HolderEntity>(doc?.holder_entity ?? 'shared');
   const [partyId, setPartyId] = useState<string>(doc?.party_id ?? '');
@@ -188,17 +325,18 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
   const [issueDate, setIssueDate] = useState(doc?.issue_date ?? '');
   const [expDate, setExpDate] = useState(doc?.expiration_date ?? '');
   const [notes, setNotes] = useState(doc?.notes ?? '');
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [saving, setSaving] = useState(false);
   const [addingParty, setAddingParty] = useState(false);
   const [newPartyName, setNewPartyName] = useState('');
   const [newPartyType, setNewPartyType] = useState<PartyType>('contractor');
   const [localParties, setLocalParties] = useState<InsuredParty[]>(parties);
+  const [fileHover, setFileHover] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setLocalParties(parties), [parties]);
 
-  const canSave = docType.trim().length > 0 && (ownerKind === 'ours' || partyId);
+  const canSave = docType.trim().length > 0 && (ownerKind === 'ours' || !!partyId);
 
   async function addParty() {
     if (!newPartyName.trim()) return;
@@ -212,6 +350,18 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
     } catch (e) { toast.error(errMsg(e)); }
   }
 
+  function pickFile(f: File | null) {
+    if (!f) return;
+    if (f.size > MAX_FILE_BYTES) { toast.error('File exceeds the 25MB limit'); return; }
+    setFile(f);
+    // Only auto-fill an empty form — never clobber what the operator typed.
+    if (!docType.trim()) {
+      const g = guessFromFilename(f.name);
+      setCategory(g.category);
+      setDocType(g.doc_type);
+    }
+  }
+
   async function submit() {
     if (!canSave) return;
     setSaving(true);
@@ -219,7 +369,7 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
       let storagePath = doc?.storage_path ?? null;
       let fileName = doc?.file_name ?? null;
       if (file) {
-        storagePath = await uploadComplianceFile(doc?.id ?? 'new', file);
+        storagePath = await uploadComplianceFile(doc?.id ?? 'inbox', file);
         fileName = file.name;
       }
       const input: ComplianceDocumentInput = {
@@ -238,7 +388,7 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
       };
       if (isNew) await createComplianceDocument(input);
       else await updateComplianceDocument(doc.id, input);
-      toast.success(isNew ? 'Document added' : 'Document saved');
+      toast.success(isNew ? 'Document filed' : 'Document saved');
       onSaved();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setSaving(false); }
@@ -261,6 +411,11 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
             {isNew ? 'New Compliance Document' : `Edit · ${doc?.doc_type}`}
+            {queuedCount > 0 && (
+              <span style={{ color: 'var(--ac)', marginLeft: 8 }}>
+                · {queuedCount} more file{queuedCount === 1 ? '' : 's'} queued
+              </span>
+            )}
           </div>
           <button onClick={onClose} style={xBtn}><XIcon size={16} /></button>
         </div>
@@ -324,7 +479,7 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
             <input style={inp()} value={facility} onChange={(e) => setFacility(e.target.value)} placeholder="1951 Monarch St, Alameda" />
           </LField>
           <LField label="Issuer / carrier / auditor">
-            <input style={inp()} value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="Alameda County EH / AIB" />
+            <input style={inp()} value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="Alameda County EH / PJRFSI" />
           </LField>
           <LField label="Reference / policy #">
             <input style={inp()} value={refNum} onChange={(e) => setRefNum(e.target.value)} />
@@ -344,13 +499,52 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
           </LField>
         </div>
 
-        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Drop zone / file picker — drag a file here or click to browse. */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setFileHover(true); }}
+          onDragLeave={() => setFileHover(false)}
+          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setFileHover(false); pickFile(e.dataTransfer.files?.[0] ?? null); }}
+          onClick={() => fileRef.current?.click()}
+          style={{
+            marginTop: 12, padding: '14px 16px', borderRadius: 6, cursor: 'pointer',
+            border: `1px dashed ${fileHover ? 'var(--ac)' : 'var(--bd)'}`,
+            background: fileHover ? 'rgba(59,130,246,0.08)' : 'transparent',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}
+        >
           <input ref={fileRef} type="file" style={{ display: 'none' }}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <button onClick={() => fileRef.current?.click()} style={btnSecondary()}>
-            <Paperclip size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
-            {file ? file.name : (doc?.file_name ? `Replace file (${doc.file_name})` : 'Attach file')}
-          </button>
+            onChange={(e) => pickFile(e.target.files?.[0] ?? null)} />
+          <UploadCloud size={18} style={{ color: fileHover ? 'var(--ac)' : 'var(--mt)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>
+              {file
+                ? file.name
+                : doc?.storage_path
+                  ? (doc.file_name ?? 'Attached document')
+                  : doc?.file_name
+                    // Filed ahead of the file itself: name the document we're waiting on.
+                    ? `Waiting on: ${doc.file_name}`
+                    : 'Drag a file here, or click to browse'}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
+              {file
+                ? `${(file.size / 1024 / 1024).toFixed(2)} MB · uploads when you save`
+                : doc?.storage_path
+                  ? 'Attached — drop a new file to replace it'
+                  : 'PDF, image, or spreadsheet · up to 25MB'}
+            </div>
+          </div>
+          {doc?.storage_path && !file && (
+            <button
+              onClick={(e) => { e.stopPropagation(); openComplianceFile(doc.storage_path as string).catch((err) => toast.error(errMsg(err))); }}
+              style={{ ...btnSecondary(), flexShrink: 0 }}
+            >
+              <Download size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Download
+            </button>
+          )}
+        </div>
+
+        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }} />
           {!isNew && (
             <button onClick={archive} style={{ ...btnSecondary(), color: '#ef4444' }}>
@@ -359,7 +553,7 @@ function DocEditModal({ doc, parties, onClose, onSaved }: {
           )}
           <button onClick={onClose} style={btnSecondary()}>Cancel</button>
           <button onClick={submit} style={btnPrimary()} disabled={!canSave || saving}>
-            {saving ? 'Saving…' : (isNew ? 'Add Document' : 'Save')}
+            {saving ? 'Saving…' : (isNew ? 'File Document' : 'Save')}
           </button>
         </div>
       </div>
