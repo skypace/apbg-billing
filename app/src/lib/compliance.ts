@@ -140,7 +140,44 @@ export async function createInsuredParty(input: {
   return (rows as unknown as InsuredParty[])[0];
 }
 
+// ── Filename → document guess (shared by the drop zone + the edit modal) ─
+// Drag-and-drop should land a document 80% filled in. The operator corrects
+// the rest; nothing here is authoritative.
+
+export interface DocGuess {
+  category: ComplianceCategory;
+  doc_type: string;
+}
+
+const GUESSES: { re: RegExp; guess: DocGuess }[] = [
+  { re: /auditor.?feedback|corrective.?action|ncr\b/i, guess: { category: 'food_safety', doc_type: 'Audit corrective actions' } },
+  { re: /audit.*report|final.?audit/i,                 guess: { category: 'food_safety', doc_type: 'GMP audit report' } },
+  { re: /gfsi|sqf|brc|fssc/i,                          guess: { category: 'food_safety', doc_type: 'GFSI audit report' } },
+  { re: /haccp/i,                                      guess: { category: 'food_safety', doc_type: 'HACCP plan' } },
+  { re: /kosher|\bou\b|halal/i,                        guess: { category: 'food_safety', doc_type: 'Kosher certification' } },
+  { re: /cert/i,                                       guess: { category: 'food_safety', doc_type: 'GMP certificate' } },
+  { re: /manufactur.*licen[cs]e/i,                     guess: { category: 'permit',      doc_type: 'Manufacturing license' } },
+  { re: /health.?permit|food.?facility.?permit/i,      guess: { category: 'permit',      doc_type: 'Health permit' } },
+  { re: /cers|cupa/i,                                  guess: { category: 'permit',      doc_type: 'CERS / CUPA registration' } },
+  { re: /\bfda\b/i,                                    guess: { category: 'permit',      doc_type: 'FDA food facility registration' } },
+  { re: /licen[cs]e|permit|registration/i,             guess: { category: 'permit',      doc_type: 'Operating permit / registration' } },
+  { re: /\bcoi\b|certificate.?of.?insurance/i,         guess: { category: 'insurance',   doc_type: 'Certificate of insurance (COI)' } },
+  { re: /workers.?comp/i,                              guess: { category: 'insurance',   doc_type: 'Workers compensation COI' } },
+  { re: /liability|umbrella|\bauto\b/i,                guess: { category: 'insurance',   doc_type: 'Liability COI' } },
+  { re: /resale/i,                                     guess: { category: 'tax',         doc_type: 'Resale certificate' } },
+  { re: /w-?9/i,                                       guess: { category: 'tax',         doc_type: 'W-9' } },
+  { re: /iipp|safety.?program|sds/i,                   guess: { category: 'safety',      doc_type: 'Safety program' } },
+];
+
+export function guessFromFilename(filename: string): DocGuess {
+  const clean = filename.replace(/[_-]+/g, ' ');
+  for (const { re, guess } of GUESSES) if (re.test(clean)) return guess;
+  return { category: 'other', doc_type: '' };
+}
+
 // ── Files (private bucket compliance-docs, staff-gated storage RLS) ──────
+
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 export async function uploadComplianceFile(docContext: string, file: File): Promise<string> {
   const token = await _sbToken();
