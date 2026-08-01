@@ -78,6 +78,15 @@
 # so they ARE at /.netlify/functions/<name>. Explicit rules cover both shapes
 # below (must be BEFORE the wildcard so the wildcard doesn't snatch them).
 
+# OAuth 2.1 consent page (Supabase Auth OAuth server on the shared project).
+# The authorization path configured in Supabase is https://alamedapointbg.com/oauth/consent
+# (extension-less); the gateway proxies /oauth/* to this site, and this rule
+# maps the pretty URL onto the static page.
+[[redirects]]
+  from = "/oauth/consent"
+  to = "/oauth/consent.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"
