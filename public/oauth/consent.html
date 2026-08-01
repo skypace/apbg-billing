@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Authorize access — APBG</title>
+<!--
+  OAuth 2.1 consent page for the Supabase Auth authorization server on the
+  shared APBG project (gfsdpwiqzshhexkofiif). Supabase redirects here with an
+  ?authorization_id= query param after a client (e.g. a Claude MCP connector
+  that registered via dynamic client registration) starts an authorization
+  request. The logged-in user reviews the client + scopes and approves/denies:
+    supabase.auth.oauth.getAuthorizationDetails(id)
+    supabase.auth.oauth.approveAuthorization(id) / denyAuthorization(id)
+  Configure in Supabase: Authentication -> OAuth Server -> authorization path
+  must point at this page.
+
+  Static page, no build step. The anon key below is the public client key
+  (already shipped in every app bundle on this project) — not a secret.
+  Authorization for the MCP servers themselves is enforced server-side by
+  each resource's MCP_ALLOWED_EMAILS allowlist, NOT by this page: any
+  project login can approve a client for their own account, but tokens for
+  non-allowlisted users are rejected by the protected endpoints.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #0b1220; color: #e6ecf5;
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .card {
+    width: min(440px, calc(100vw - 32px)); background: #111a2e;
+    border: 1px solid #223052; border-radius: 14px; padding: 28px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  h1 { font-size: 19px; margin: 0 0 6px; }
+  .sub { color: #93a3bf; font-size: 13px; margin: 0 0 20px; }
+  .row { margin: 12px 0; }
+  label { display: block; font-size: 12px; color: #93a3bf; margin-bottom: 4px; }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #2a3a60; background: #0b1220; color: #e6ecf5; font-size: 15px;
+  }
+  button {
+    width: 100%; padding: 11px 14px; border-radius: 9px; border: 0;
+    font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 10px;
+  }
+  .primary { background: #3b82f6; color: #fff; }
+  .danger  { background: transparent; color: #f28b8b; border: 1px solid #5b2a2a; }
+  .ghost   { background: transparent; color: #93a3bf; border: 1px solid #2a3a60; }
+  button:disabled { opacity: .5; cursor: default; }
+  .client { background: #0b1220; border: 1px solid #223052; border-radius: 10px; padding: 14px 16px; margin: 16px 0; }
+  .client b { font-size: 16px; }
+  .scopes { margin: 10px 0 0; padding: 0; list-style: none; }
+  .scopes li { font-size: 13px; color: #b7c4da; padding: 2px 0 2px 20px; position: relative; }
+  .scopes li::before { content: "✓"; position: absolute; left: 2px; color: #4ade80; }
+  .err { color: #f28b8b; font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+  .ok  { color: #4ade80; font-size: 14px; }
+  .who { font-size: 12px; color: #93a3bf; margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .who button { width: auto; margin: 0; padding: 4px 10px; font-size: 12px; font-weight: 500; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1 id="title">Authorize access</h1>
+  <p class="sub" id="subtitle">An application is requesting access to your APBG account.</p>
+
+  <div id="loading">Loading…</div>
+
+  <!-- Sign-in (shown when no session) -->
+  <div id="login" class="hidden">
+    <div class="row"><label for="email">Email</label><input id="email" type="email" autocomplete="username"></div>
+    <div class="row"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
+    <button class="primary" id="signin">Sign in</button>
+  </div>
+
+  <!-- Consent (shown when session + authorization details loaded) -->
+  <div id="consent" class="hidden">
+    <div class="client">
+      <b id="client-name">Unknown client</b>
+      <div id="client-uri" style="font-size:12px;color:#93a3bf;word-break:break-all;"></div>
+      <ul class="scopes" id="scopes"></ul>
+    </div>
+    <button class="primary" id="approve">Approve</button>
+    <button class="danger" id="deny">Deny</button>
+    <div class="who">
+      <span id="who"></span>
+      <button class="ghost" id="signout">Switch account</button>
+    </div>
+  </div>
+
+  <div id="done" class="hidden ok"></div>
+  <div id="error" class="err hidden"></div>
+</div>
+
+<script>
+(function () {
+  var SUPABASE_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+  var ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+
+  var sb = window.supabase.createClient(SUPABASE_URL, ANON_KEY);
+  var authorizationId = new URLSearchParams(location.search).get('authorization_id');
+
+  var el = function (id) { return document.getElementById(id); };
+  function show(id) {
+    ['loading','login','consent','done'].forEach(function (s) { el(s).classList.toggle('hidden', s !== id); });
+  }
+  function fail(msg) {
+    el('error').textContent = msg;
+    el('error').classList.remove('hidden');
+  }
+  function clearError() {
+    el('error').textContent = '';
+    el('error').classList.add('hidden');
+  }
+
+  if (!authorizationId) {
+    show('done');
+    el('done').classList.remove('ok');
+    fail('Missing authorization_id — this page is only reached via the authorization server redirect. Start again from the connecting application.');
+    return;
+  }
+  if (!sb.auth.oauth || !sb.auth.oauth.getAuthorizationDetails) {
+    show('done');
+    fail('This supabase-js build has no OAuth server client API (auth.oauth.*). Pin a newer @supabase/supabase-js v2 in the script tag.');
+    return;
+  }
+
+  function redirectTo(data) {
+    var url = data && (data.redirect_to || data.redirectTo || (data.data && (data.data.redirect_to || data.data.redirectTo)));
+    if (url) { location.href = url; return true; }
+    return false;
+  }
+
+  function loadConsent(session) {
+    el('who').textContent = 'Signed in as ' + (session.user.email || session.user.id);
+    sb.auth.oauth.getAuthorizationDetails(authorizationId).then(function (res) {
+      if (res.error) { show('done'); fail('Could not load the authorization request:\n' + res.error.message); return; }
+      var d = res.data || {};
+      var client = d.client || d;
+      el('client-name').textContent = client.client_name || client.name || d.client_id || 'Unregistered client';
+      el('client-uri').textContent = client.client_uri || client.website || '';
+      var scope = (typeof d.scope === 'string' && d.scope) ? d.scope : 'openid email profile';
+      var scopesEl = el('scopes');
+      scopesEl.innerHTML = '';
+      scope.split(/\s+/).filter(Boolean).forEach(function (s) {
+        var li = document.createElement('li');
+        li.textContent = s;
+        scopesEl.appendChild(li);
+      });
+      show('consent');
+    }).catch(function (e) { show('done'); fail('Could not load the authorization request:\n' + (e && e.message ? e.message : e)); });
+  }
+
+  function decide(action) {
+    clearError();
+    el('approve').disabled = true;
+    el('deny').disabled = true;
+    var call = action === 'approve'
+      ? sb.auth.oauth.approveAuthorization(authorizationId)
+      : sb.auth.oauth.denyAuthorization(authorizationId);
+    call.then(function (res) {
+      if (res.error) { fail(res.error.message); el('approve').disabled = false; el('deny').disabled = false; return; }
+      if (!redirectTo(res.data)) {
+        show('done');
+        el('done').textContent = action === 'approve'
+          ? 'Access approved. You can close this tab and return to the application.'
+          : 'Access denied. You can close this tab.';
+      }
+    }).catch(function (e) { fail(e && e.message ? e.message : String(e)); el('approve').disabled = false; el('deny').disabled = false; });
+  }
+
+  el('signin').addEventListener('click', function () {
+    clearError();
+    el('signin').disabled = true;
+    sb.auth.signInWithPassword({ email: el('email').value.trim(), password: el('password').value })
+      .then(function (res) {
+        el('signin').disabled = false;
+        if (res.error) { fail(res.error.message); return; }
+        show('loading');
+        loadConsent(res.data.session);
+      });
+  });
+  el('password').addEventListener('keydown', function (e) { if (e.key === 'Enter') el('signin').click(); });
+  el('approve').addEventListener('click', function () { decide('approve'); });
+  el('deny').addEventListener('click', function () { decide('deny'); });
+  el('signout').addEventListener('click', function () {
+    sb.auth.signOut().then(function () { show('login'); });
+  });
+
+  sb.auth.getSession().then(function (res) {
+    var session = res.data && res.data.session;
+    if (!session) { show('login'); return; }
+    loadConsent(session);
+  });
+})();
+</script>
+</body>
+</html>
