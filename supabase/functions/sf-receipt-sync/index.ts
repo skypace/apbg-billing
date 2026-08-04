@@ -11,6 +11,12 @@
 // The admin portal needs the orders.sf_portal_session cookie; when it's stale we
 // auto-refresh it by calling the Make login hook (SF_PORTAL_REFRESH_HOOK) and
 // writing the fresh cookie back to the DB.
+//
+// 2026-07-24: success runs now log status='success' (was 'ok' — which violated
+// ops.sync_log's status CHECK constraint, so EVERY success insert was silently
+// rejected since day one: no success visibility AND the crawl cursor — which
+// resumes from the last success row's next_page — never advanced, so the
+// historical backfill restarted at the newest page forever).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -228,6 +234,32 @@ function receiptRefs(ex: any): string[] {
   for (const k of ["receipt", "receipt_url", "file_location", "picture", "image", "photo"]) { const r = refOf(ex[k]); if (r) out.push(r); }
   return [...new Set(out)];
 }
+// SF writes the UNIX EPOCH ("1970-01-01...") — not null — into date fields it has
+// no value for. An expense that has never been EDITED since it was created comes
+// back with `updated_at: "1970-01-01T00:00:00+00:00"`, and `date` is epoch unless
+// a human typed one in. The sweep's date gate used to read
+// `ex.updated_at || ex.created_at`, so epoch won the `||` and every never-edited
+// expense tested as 1970 < START_DATE and was silently skipped — i.e. the sweep
+// only ever landed expenses somebody had gone back and edited. (SF job 1093536433,
+// $650 Arturo.s d&a restaurant repair, was dropped on all 24 sweeps between
+// 2026-07-28 and 2026-08-04 for exactly this reason.)
+//
+// So: ignore epoch values entirely and gate on the NEWEST real date we can find.
+// An expense with no usable date at all returns null and is NOT skipped — landing
+// a reviewable draft is always cheaper than silently losing a receipt.
+const EPOCH_PREFIX = "1970-01-01";
+function realDateMs(v: any): number | null {
+  if (!v) return null;
+  const str = String(v);
+  if (str.startsWith(EPOCH_PREFIX)) return null;
+  const ms = Date.parse(str);
+  return Number.isFinite(ms) ? ms : null;
+}
+function newestRealDate(ex: any): number | null {
+  const all = [ex.updated_at, ex.created_at, ex.date].map(realDateMs).filter((v): v is number => v !== null);
+  return all.length ? Math.max(...all) : null;
+}
+
 function expenseKey(jobId: string | number, ex: any): string {
   if (ex.id) return String(ex.id);
   const v = (ex.purchased_from || ex.vendor_name || ex.vendor || "").toString().trim().toLowerCase();
@@ -253,7 +285,7 @@ async function attachReceipt(s: any, reqId: string, url: string, idx: number): P
   return true;
 }
 
-async function logReceiptSync(s: any, started: string, status: "ok" | "error", records: number, metadata: any, errorMessage: string | null = null): Promise<void> {
+async function logReceiptSync(s: any, started: string, status: "success" | "error", records: number, metadata: any, errorMessage: string | null = null): Promise<void> {
   try {
     await s.from("sync_log").insert({
       source: "sf-receipt-sync",
@@ -283,8 +315,8 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
   for (const ex of expenses) {
     const exKey = expenseKey(full.id || job.id, ex);
     if (opts.gateByDate) {
-      const exDate = ex.updated_at || ex.created_at || null;
-      if (exDate && Date.parse(exDate) < startMs) continue;
+      const exDate = newestRealDate(ex);
+      if (exDate && exDate < startMs) continue;
     }
     const { data: dup } = await s.from("expense_requests").select("id, sf_admin_job_id").eq("sf_expense_id", exKey).limit(1);
 
@@ -296,7 +328,10 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
       const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
       const acct = ACCOUNT_MAP[String(ex.category || "").toLowerCase()] || null;
       const vendor = ex.purchased_from || ex.vendor_name || ex.vendor || null;
-      const rdate = (ex.date && ex.date !== "1970-01-01") ? ex.date : (ex.created_at ? String(ex.created_at).slice(0, 10) : null);
+      // Same epoch trap as the date gate — never stamp 1970 onto a draft.
+      const rdate = realDateMs(ex.date) !== null
+        ? String(ex.date).slice(0, 10)
+        : (realDateMs(ex.created_at) !== null ? String(ex.created_at).slice(0, 10) : null);
       const { data: ins, error } = await s.from("expense_requests").insert({
         request_type: "expense", status: "draft", as_bill: true, tag: "Service Fusion",
         sf_expense_id: exKey, submitted_by: SUBMITTER_ID, submitter_name: "Service Fusion (system)",
@@ -362,6 +397,20 @@ Deno.serve(async (req: Request) => {
     try { const c = await getPortalCookie(s, true); return json({ refreshed: !!c, len: c.length }); } catch (e: any) { return json({ error: e.message }, 500); }
   }
 
+  // ?landJob=<sfJobId> — land ONE job straight off its SF id. No page scanning,
+  // so it returns in seconds instead of dying on the 150s edge wall clock the way
+  // ?job=<number> does (that path walks up to 40 pages of the Invoiced list).
+  // Use this to repair a single job an operator reports as missing; the date gate
+  // is off, and the sf_expense_id dedup makes it safe to re-run.
+  if (u.searchParams.get("landJob")) {
+    const id = u.searchParams.get("landJob")!.trim();
+    try {
+      const full = await sfGet(s, `/jobs/${encodeURIComponent(id)}?expand=expenses`);
+      const r = await landJob(s, full, log, { gateByDate: false });
+      return json({ landJob: id, number: full.number ?? null, status: full.status ?? null, result: r, log });
+    } catch (e: any) { return json({ landJob: id, error: e.message }, 500); }
+  }
+
   // ?job=<number> — find & process one invoiced job by number (lands + attaches).
   if (u.searchParams.get("job")) {
     const target = u.searchParams.get("job")!.trim().toLowerCase();
@@ -398,14 +447,22 @@ Deno.serve(async (req: Request) => {
   if (fresh) {
     page = pageCount;
   } else if (page === 0) {
-    const { data: last } = await s.from("sync_log").select("metadata").eq("source", "sf-receipt-sync").eq("status", "ok").order("completed_at", { ascending: false }).limit(1);
+    const { data: last } = await s.from("sync_log").select("metadata").eq("source", "sf-receipt-sync").eq("status", "success").order("completed_at", { ascending: false }).limit(1);
     const lp = last?.[0]?.metadata?.next_page;
     page = (lp && lp >= 1) ? lp : pageCount;
   }
   const span = fresh ? Math.max(1, parseInt(freshParam || "3") || 3) : page;
   let drafts = 0, attached = 0, jobsSeen = 0, detail = 0;
   const lo = Math.max(1, page - span + 1);
-  const budgetMs = 110000; const t0 = Date.now();
+  // The edge runtime hard-kills a request at 150s (504). The budget has to leave
+  // room for the slowest single job still in flight (an admin-portal scrape plus
+  // a receipt download runs 10-40s) AND the closing sync_log write — otherwise the
+  // run is killed mid-flight, logs NOTHING, and the crawl cursor (which resumes
+  // from the last success row's next_page) never advances. That is exactly what
+  // happened to the daily 10:00 crawl: at 110s it never once logged a run between
+  // 2026-07-26 and 2026-08-04, so it restarted from the newest page every day and
+  // the historical backfill never moved. 75s leaves ~75s of headroom.
+  const budgetMs = 75000; const t0 = Date.now();
   let lastCompleted = page + 1; let budgetHit = false;
   let fatalError = "";
   try {
@@ -414,11 +471,17 @@ Deno.serve(async (req: Request) => {
       const d = await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=50&page=${p}`);
       const jobs = d.items || [];
       for (const j of jobs) {
+        // Mid-page budget check: a page dense with expense jobs — each needing SF
+        // detail calls + admin-portal receipt scrapes — could blow past the wall
+        // clock inside a single page. Exiting here returns a LOGGED partial run;
+        // the cursor stays on this page so the next run resumes where we stopped.
+        if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push(`time budget mid-page ${p}`); break; }
         jobsSeen++;
         if (!Array.isArray(j.expenses)) detail++;
         const r = await landJob(s, j, log, { gateByDate: true });
         drafts += r.landed; attached += r.attached;
       }
+      if (budgetHit) break;
       lastCompleted = p;
     }
   } catch (e: any) { fatalError = e.message; log.push("FATAL " + fatalError); }
@@ -426,6 +489,6 @@ Deno.serve(async (req: Request) => {
   const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", pageCount, fromPage: page, lastCompleted, budgetHit, jobsSeen, detail, drafts, attached };
   if (fatalError) result.error = fatalError;
   if (nextPage !== null) result.next_page = nextPage;
-  await logReceiptSync(s, started, fatalError ? "error" : "ok", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
+  await logReceiptSync(s, started, fatalError ? "error" : "success", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
   return json({ ...result, log }, fatalError ? 500 : 200);
 });
