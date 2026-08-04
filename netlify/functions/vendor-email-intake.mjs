@@ -5,6 +5,9 @@
 //   freshpet@alamedapointbg.com    → Freshpet emails  → parse → SF job → notify send list
 //   sf-status@alamedapointbg.com   → Service Fusion's own job-status notification
 //                                    emails → parse job # + status → notify send list
+//                                    AND, when the job goes Invoiced, pull that
+//                                    job's expenses into Brixpense immediately
+//                                    (see pullJobExpenses)
 //
 // Routing config (send lists, SF customer, category, parser hints) lives in
 // ops.vendor_email_routes — seeded by migration 20260722a, editable via SQL.
@@ -24,6 +27,8 @@
 //   VENDOR_INTAKE_MODEL    — parser model override (default claude-sonnet-5)
 //   VENDOR_STATUS_INBOX    — status-notification inbox override
 //                            (default sf-status@alamedapointbg.com)
+//   SF_RECEIPT_SYNC_URL    — sf-receipt-sync edge function (default derives from
+//                            SUPABASE_URL); the invoice-email expense hook
 
 import crypto from 'node:crypto';
 import { sfRequest } from './sf-helpers.mjs';
@@ -1087,6 +1092,56 @@ async function handleConfirmClick(params) {
   return page('Creation failed', 'Service Fusion rejected the job — the send list got the error details, and the ticket is saved for retry.', 502);
 }
 
+// ─── Invoiced → pull that job's expenses into Brixpense, now ───
+//
+// SF has no webhooks, but it DOES email us on every job-status change, and that
+// email is the event (same premise as the status relay below). When a job goes
+// Invoiced — the exact point sf-receipt-sync cares about, since its scope is
+// Invoiced jobs — we call sf-receipt-sync for that ONE job instead of waiting
+// for a sweep to page its way to it.
+//
+// This is the difference between "the expense shows up when a cron happens to
+// reach it" and "the expense shows up when the job is invoiced". The sweeps stay
+// as the safety net for jobs whose email we never get (SF's notification
+// template has to be pointed at sf-status@ per status, and a missed email must
+// not mean a lost expense).
+//
+// Safe to fire on every invoiced job: landing is idempotent (deduped on
+// sf_expense_id), it never posts to QBO, and a job with no expenses is a no-op.
+const RECEIPT_SYNC_URL =
+  process.env.SF_RECEIPT_SYNC_URL || `${SUPABASE_URL}/functions/v1/sf-receipt-sync`;
+const INVOICED_RE = /invoic/i;
+const EXPENSE_PULL_TIMEOUT_MS = 25000;
+
+async function pullJobExpenses(jobNumber, sfJobId = null) {
+  // ?landJob= takes the SF job ID. Most jobs on this account are auto-numbered,
+  // so number === id and the first call succeeds; for a job with a custom number
+  // (e.g. "M-PMS-56280") fall back to ?job=, which scans newest-first.
+  const attempts = [];
+  for (const id of [sfJobId, jobNumber].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i)) {
+    attempts.push(`${RECEIPT_SYNC_URL}?landJob=${encodeURIComponent(id)}`);
+  }
+  attempts.push(`${RECEIPT_SYNC_URL}?job=${encodeURIComponent(jobNumber)}`);
+
+  for (const url of attempts) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(EXPENSE_PULL_TIMEOUT_MS) });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && !body.error) {
+        const r = body.result || {};
+        console.log(`[expense-hook] job ${jobNumber}: landed=${r.landed ?? 0} attached=${r.attached ?? 0} seen=${r.seen ?? 0}`);
+        return { ok: true, via: url.includes('landJob') ? 'landJob' : 'job', ...r };
+      }
+    } catch (e) {
+      console.warn(`[expense-hook] ${url} failed: ${e.message}`);
+    }
+  }
+  // Never fatal — the sweeps are the backstop. Log loudly so a persistently
+  // failing hook is visible rather than quietly doing nothing.
+  console.warn(`[expense-hook] could not pull expenses for job ${jobNumber}`);
+  return { ok: false };
+}
+
 async function handleStatusEmail(email) {
   let extracted;
   try {
@@ -1098,18 +1153,30 @@ async function handleStatusEmail(email) {
   if (!extracted?.job_number) return { ok: true, ignored: 'no job number found' };
 
   const jobNumber = String(extracted.job_number);
+
+  // Expense hook runs for EVERY job, not just vendor-email tickets — an invoiced
+  // job's receipts belong in Brixpense regardless of how the job was created.
+  // This happens before the vendor-ticket gate below precisely because most
+  // invoiced jobs are NOT vendor-email tickets.
+  let expensePull = null;
+  if (INVOICED_RE.test(String(extracted.status || ''))) {
+    expensePull = await pullJobExpenses(jobNumber);
+  }
+
   const tickets = await sbSelect(
     'vendor_email_tickets',
     `or=(sf_job_number.eq.${jobNumber},sf_job_id.eq.${jobNumber})&select=*&limit=1`,
   );
   const ticket = tickets[0];
-  // SF notifies for EVERY job; only vendor-email tickets are ours to relay
-  if (!ticket) return { ok: true, ignored: `job ${jobNumber} is not a vendor-email ticket` };
+  // SF notifies for EVERY job; only vendor-email tickets are ours to RELAY
+  // (the expense pull above already ran for this job either way).
+  if (!ticket) return { ok: true, ignored: `job ${jobNumber} is not a vendor-email ticket`, expensePull };
 
-  return applyStatusChange(ticket, extracted.status, {
+  const relayed = await applyStatusChange(ticket, extracted.status, {
     source: 'sf-notification-email',
     raw: { subject: email.subject, from: email.from },
   });
+  return { ...relayed, expensePull };
 }
 
 async function loadRouteForTicket(ticket) {
