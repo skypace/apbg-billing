@@ -32,7 +32,7 @@
 The `netlify/functions/` directory contains Whitney's vendor bill processing system. These are production functions used daily. Do not modify them.
 
 ### Existing Frontend (DO NOT TOUCH)
-`public/` contains the billing portal pages: `index.html`, `approve.html`, `customer-approve.html`, `control.html`, `sync.html`, `setup.html`. These are used by the operations team daily.
+`public/` contains the billing portal pages: `index.html`, `approve.html`, `control.html`, `sync.html`, `setup.html`. These are used by the operations team daily.
 
 ### Placeholder Dashboard
 `public/ops/index.html` is a single-file React+Babel prototype. It connects to Supabase and renders live data. **Replace this** with a proper Next.js or Vite app.

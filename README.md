@@ -31,7 +31,6 @@ apbg-billing/
 ├── public/                  ← Netlify publish dir (everything below is served)
 │   ├── index.html           ← AP tool: PDF drop zone
 │   ├── approve.html         ← AP tool: bill approval form
-│   ├── customer-approve.html
 │   ├── setup.html           ← AP tool: OAuth setup
 │   ├── sync.html            ← ResQ ↔ Service Fusion sync dashboard
 │   ├── control.html         ← Master control (health + tokens)
@@ -134,7 +133,6 @@ NO MATCH → Warning email: "No invoice on file"
 |---|---|
 | `process-inbound.mjs` | Receives vendor bills (email/web upload), scans PDF with Claude AI, extracts vendor/amount/items, sends approval email with signed URL |
 | `approve-bill.mjs` | Creates bill in QBO from approval form, matches against invoices, calculates margin |
-| `approve-customer.mjs` | Creates new customer in QBO from approval form |
 | `create-vendor.mjs` | Creates vendor in QBO on the fly |
 | `create-invoice.mjs` | Creates QBO invoice |
 | `decode-token.mjs` | Decodes HMAC-signed approval URL tokens |
@@ -186,7 +184,6 @@ NO MATCH → Warning email: "No invoice on file"
 |---|---|
 | `index.html` | PDF drop zone for uploading vendor bills |
 | `approve.html` | Bill approval form (vendor, line items, account, job number) |
-| `customer-approve.html` | New customer creation form |
 | `setup.html` | OAuth connection management (QBO + Service Fusion) |
 | `sync.html` | ResQ ↔ SF sync dashboard with status, work orders, and logs |
 | `control.html` | Master control dashboard (health, token monitoring) |

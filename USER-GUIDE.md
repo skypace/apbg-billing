@@ -49,18 +49,7 @@ AI-powered vendor bill processing for Alameda Point Beverage Group. Upload a bil
 
 ## Adding New Customers
 
-**URL:** `customer-approve.html`
-
-Use this form to create a new customer in QuickBooks Online.
-
-**Fields:**
-- Business name and legal name
-- Contact info: name, phone, email
-- Address: street, city, state, ZIP
-- Payment terms: COD, Net 15, Net 30, Net 60, Credit Card
-- Notes
-
-On submit, the customer is created in QBO with the specified sales terms. A confirmation email is sent to the team.
+**Retired (2026-08-03).** The old QuestionScout → `customer-approve.html` flow (which created customers directly in QBO) has been removed. New customers now apply at **orders.brixbev.com/apply**; applications are reviewed and approved in the Brix Order portal at **/admin/onboarding**, which creates the customer in Service Fusion (QuickBooks follows via the SF sync when the $0 setup ticket is invoiced).
 
 ---
 
