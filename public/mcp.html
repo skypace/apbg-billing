@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Legacy global maintenance banner. Absolute /billing/ path (not the bare
+     relative one control.html uses) because this page is served at
+     alamedapointbg.com/mcp, where a relative src resolves against the GATEWAY
+     root and 404s. Per-app banners/lockouts come from appswitcher.js below. -->
+<script src="/billing/maintenance-banner.js"></script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/mcp'+location.search);</script>
+<title>MCP Servers — APBG Systems</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/billing/auth.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#F5F7FA;color:#0F172A;min-height:100vh}
+.gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.gate-card{background:#FFFFFF;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;border:1px solid #E4E9F0;box-shadow:0 10px 30px rgba(15,23,42,0.06)}
+.gate-card h1{color:#0F172A;font-size:1.3rem;margin-bottom:8px}
+.gate-card p{color:#64748B;font-size:0.85rem}
+
+header{background:#FFFFFF;color:#0F172A;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E4E9F0;flex-wrap:wrap;gap:10px}
+header h1{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:10px}
+header .links a{color:#64748B;text-decoration:none;font-size:0.82rem;margin-left:16px;transition:color 0.15s}
+header .links a:hover{color:#1F4E79}
+
+.container{max-width:1100px;margin:0 auto;padding:28px}
+.section{background:#FFFFFF;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(15,23,42,0.04)}
+.section h2{font-size:0.9rem;font-weight:700;color:#0F172A;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.section h2 .sub{font-weight:400;font-size:0.75rem;color:#94A3B8}
+.prose{font-size:0.85rem;color:#374151;line-height:1.55;max-width:820px}
+.prose code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:0.8rem;font-family:'JetBrains Mono',monospace}
+.prose a{color:#1F4E79;font-weight:600}
+.btn{background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px;border:0;cursor:pointer;display:inline-block}
+.btn:hover{background:#2A5E92}
+.btn.ghost{background:#fff;color:#1F4E79;border:1px solid #1F4E79}
+.btn.ghost:hover{background:#EEF2F7}
+.btn:disabled{background:#CBD5E1;color:#fff;border-color:#CBD5E1;cursor:not-allowed}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+table.grid{width:100%;border-collapse:collapse;font-size:0.82rem}
+table.grid thead tr{text-align:left;color:#6B7280;font-size:0.68rem;text-transform:uppercase}
+table.grid th,table.grid td{padding:7px 8px}
+table.grid tbody tr{border-top:1px solid #F1F3F5}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+.muted{color:#94A3B8;font-size:0.7rem}
+.callout{border-left:3px solid #1F4E79;background:#F8FAFC;border-radius:0 8px 8px 0;padding:12px 16px;margin-top:14px;font-size:0.82rem;color:#374151;line-height:1.5}
+.callout b{color:#0F172A}
+</style>
+</head>
+<body>
+
+<div id="authLoading" class="gate"><div class="gate-card"><h1>MCP Servers</h1><p>Checking access…</p></div></div>
+
+<div id="app" style="display:none">
+<header>
+  <h1>🔌 MCP Servers — APBG Systems</h1>
+  <div class="links">
+    <a href="https://alamedapointbg.com/control">Master Control</a>
+    <a href="https://alamedapointbg.com/margin/docs/handbook/#/09-master-control" target="_blank">Handbook</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="section">
+    <h2>How MCP auth works now <span class="sub">— OAuth 2.1 via Supabase Auth (the 2026-08 connector-auth conversion)</span></h2>
+    <div class="prose">
+      Every MCP server authenticates callers with <b>OAuth 2.1 through Supabase Auth</b>.
+      The authorization server is <code>gfsdpwiqzshhexkofiif.supabase.co/auth/v1</code>, consent is granted at
+      <a href="https://alamedapointbg.com/oauth/consent" target="_blank" rel="noopener">/oauth/consent</a>
+      with your normal gateway login, and each server enforces its own
+      <code>MCP_ALLOWED_EMAILS</code> allowlist (fail closed — an address that isn't listed is refused).
+    </div>
+    <div class="callout">
+      <b>Two different reconnects — don't mix them up.</b><br>
+      <b>1. A Claude connector lost access</b> (tools vanished, or Claude says the connector needs authorization):
+      remove and re-add the connector in <b>claude.ai → Settings → Connectors</b>, then approve at the consent page
+      with your gateway login. This is client-initiated — there is nothing to click here.<br>
+      <b>2. A server lost its provider tokens</b> (QuickBooks / Zoho / Service Fusion expired or were revoked):
+      use <b>Provider Connections</b> below. That re-runs the provider OAuth dance; it has nothing to do with
+      Claude's access to the server.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Server status <span class="sub">— discovery metadata + endpoint probe, checked server-side</span></h2>
+    <div id="mcpStatus" class="prose" style="color:#6B7280">Loading server status…</div>
+    <div class="actions">
+      <button onclick="loadMcpStatus()" id="mcpRefreshBtn" class="btn ghost">↻ Refresh status</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>PACER Finance endpoints <span class="sub">— per-endpoint OAuth enforcement check (/qbo · /zoho)</span></h2>
+    <div class="prose" style="margin-bottom:12px">
+      A healthy endpoint <b>rejects</b> an unauthenticated call with an OAuth challenge. An anonymous
+      <code>200</code> here is a <b>failure</b>, not a pass — it would mean auth isn't being enforced.
+    </div>
+    <div id="pacerStatus" class="prose" style="color:#6B7280">Loading endpoint status…</div>
+    <div class="actions">
+      <button onclick="loadPacerHealth()" id="pacerRefreshBtn" class="btn ghost">↻ Re-probe endpoints</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Reconnect</h2>
+    <div class="prose">
+      Provider tokens (QuickBooks · Zoho · Service Fusion) are re-authorized on the PACER connect page.
+      Claude connector access is re-authorized in claude.ai, then approved at the consent page.
+    </div>
+    <div class="actions">
+      <a href="/pacer/connect.html" class="btn">Provider Connections (QBO · Zoho · SF) →</a>
+      <a href="https://alamedapointbg.com/oauth/consent" target="_blank" rel="noopener" class="btn ghost">Consent page →</a>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const APBG_FN = 'https://apbg-billing.netlify.app/.netlify/functions';
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dotColor(c){ return {green:'#16a34a',amber:'#d97706',red:'#dc2626'}[c] || '#9CA3AF'; }
+
+// ═══ AUTH GATE ═══
+const fetch = (...args) => APBG.auth.authedFetch(...args);
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  loadMcpStatus();
+  loadPacerHealth();
+});
+
+// ═══ MCP SERVER AUTH STATUS ═══
+// One row per MCP resource server: is the RFC 9728 discovery metadata being
+// served, does it point at OUR Supabase authorization server, and does the
+// endpoint respond. Probed server-side (mcp-auth-status) — the well-known
+// endpoints send no CORS headers, so the browser can't check them directly.
+async function loadMcpStatus(){
+  const out = document.getElementById('mcpStatus');
+  const btn = document.getElementById('mcpRefreshBtn');
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch(APBG_FN + '/mcp-auth-status');
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    out.innerHTML = `<table class="grid">
+      <thead><tr><th></th><th>Server</th><th>Discovery</th><th>Auth server</th><th>Endpoint</th></tr></thead>
+      <tbody>${d.servers.map(sv=>`<tr>
+        <td><span class="dot" style="background:${dotColor(sv.status)}"></span></td>
+        <td><strong>${esc(sv.name)}</strong><div class="muted">${esc(sv.endpoint)}</div></td>
+        <td style="white-space:nowrap">${sv.well_known==='ok'?'✓ served':esc(sv.well_known)}</td>
+        <td style="white-space:nowrap">${sv.auth_server_ok?'✓ Supabase':'—'}</td>
+        <td style="color:#6B7280">${esc(sv.probe_note||'—')}</td>
+      </tr>`).join('')}</tbody></table>
+      <div class="muted" style="margin-top:8px">Checked ${new Date(d.checked_at).toLocaleString()} · green = discovery served + pointing at our authorization server · amber = partially converted or discovery missing · red = unreachable</div>`;
+  }catch(e){
+    out.innerHTML = `<span style="color:#DC2626">Status check failed: ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+// ═══ PACER FINANCE ENDPOINT HEALTH ═══
+// pacer-health POSTs tools/list anonymously to /qbo and /zoho: a 401 carrying
+// an OAuth challenge is the healthy answer. Also folds in the discovery check.
+async function loadPacerHealth(){
+  const out = document.getElementById('pacerStatus');
+  const btn = document.getElementById('pacerRefreshBtn');
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch(APBG_FN + '/pacer-health');
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    const rows = [
+      ['OAuth discovery', d.discovery],
+      ['/qbo endpoint', d.qbo],
+      ['/zoho endpoint', d.zoho],
+    ];
+    const badge = d.overall === 'healthy' ? ['#DCFCE7','#15803D','Healthy']
+      : d.overall === 'degraded' ? ['#FEF3C7','#B45309','Degraded']
+      : ['#FEE2E2','#B91C1C','Down'];
+    out.innerHTML = `<div style="margin-bottom:10px"><span style="background:${badge[0]};color:${badge[1]};font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px">${badge[2]}</span></div>
+      <table class="grid"><tbody>${rows.map(([label,res])=>`<tr>
+        <td style="width:22px"><span class="dot" style="background:${res && res.ok ? '#16a34a' : '#dc2626'}"></span></td>
+        <td style="width:170px"><strong>${esc(label)}</strong></td>
+        <td style="color:#6B7280">${esc((res && res.message) || '—')}</td>
+      </tr>`).join('')}</tbody></table>
+      <div class="muted" style="margin-top:8px">Checked ${new Date(d.checkedAt).toLocaleString()}</div>`;
+  }catch(e){
+    out.innerHTML = `<span style="color:#DC2626">Endpoint probe failed: ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled = false; }
+}
+</script>
+  <script src="https://alamedapointbg.com/appswitcher.js" data-app="mcp" defer></script>
+</body>
+</html>
