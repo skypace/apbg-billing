@@ -11,6 +11,12 @@
 // The admin portal needs the orders.sf_portal_session cookie; when it's stale we
 // auto-refresh it by calling the Make login hook (SF_PORTAL_REFRESH_HOOK) and
 // writing the fresh cookie back to the DB.
+//
+// 2026-07-24: success runs now log status='success' (was 'ok' — which violated
+// ops.sync_log's status CHECK constraint, so EVERY success insert was silently
+// rejected since day one: no success visibility AND the crawl cursor — which
+// resumes from the last success row's next_page — never advanced, so the
+// historical backfill restarted at the newest page forever).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -18,6 +24,12 @@ const SF_API = "https://api.servicefusion.com/v1";
 const SF_TOKEN_URL = "https://api.servicefusion.com/oauth/access_token";
 const ADMIN_BASE = "https://admin.servicefusion.com";
 const PORTAL_HOOK = Deno.env.get("SF_PORTAL_REFRESH_HOOK") || "https://hook.us1.make.celonis.com/l9jobjd5bx7gob8icc06ncv981anl4ki";
+// Per-call network caps. Without these a single hung admin-portal scrape or S3
+// receipt download can burn the whole 150s request wall, and the run dies before
+// it can write its sync_log row (invisible failure — see the crawl note below).
+const PORTAL_TIMEOUT_MS = 20000;
+const RECEIPT_TIMEOUT_MS = 25000;
+const HOOK_TIMEOUT_MS = 20000;
 const ATTACH_BUCKET = "expense-attachments";
 const SUBMITTER_ID = "2da634b7-623d-4f73-b667-cf87975fcdb6"; // skypace@brixbev.com (system)
 const START_DATE = Deno.env.get("SF_SWEEP_START_DATE") || "2026-06-03";
@@ -170,7 +182,7 @@ function buildCookie(r: any): string {
 async function refreshPortalCookie(s: any): Promise<string> {
   // The Make hook logs into SF and returns the cookie as "k=v;k=v;..." — it does
   // NOT write the DB, so we parse + persist it here.
-  const res = await fetch(PORTAL_HOOK, { method: "GET" });
+  const res = await fetch(PORTAL_HOOK, { method: "GET", signal: AbortSignal.timeout(HOOK_TIMEOUT_MS) });
   const raw = (await res.text()).trim();
   const pairs: Record<string, string> = {};
   for (const part of raw.split(";")) { const seg = part.trim(); const i = seg.indexOf("="); if (i > 0) { const k = seg.slice(0, i).trim(); if (!(k in pairs)) pairs[k] = seg.slice(i + 1).trim(); } }
@@ -193,7 +205,7 @@ function looksLoggedOut(status: number, body: string): boolean {
 // Admin request with one auto-refresh retry on a logged-out response.
 async function adminReq(s: any, path: string, init?: RequestInit): Promise<{ status: number; body: string }> {
   let cookie = await getPortalCookie(s);
-  const doFetch = (c: string) => fetch(ADMIN_BASE + path, { ...init, headers: { ...(init?.headers || {}), Cookie: c }, redirect: "manual" });
+  const doFetch = (c: string) => fetch(ADMIN_BASE + path, { ...init, headers: { ...(init?.headers || {}), Cookie: c }, redirect: "manual", signal: AbortSignal.timeout(PORTAL_TIMEOUT_MS) });
   let r = await doFetch(cookie);
   let body = await r.text();
   if (looksLoggedOut(r.status, body)) { cookie = await getPortalCookie(s, true); r = await doFetch(cookie); body = await r.text(); }
@@ -222,12 +234,52 @@ async function resolveJobAssets(s: any, jobNumber: string): Promise<{ encId: str
   return { encId: enc, urls };
 }
 
+// SF's GET /jobs HANGS (20s..2min+) on any query that relies on its DEFAULT sort —
+// an SF-side query-plan problem on our ~22k-row jobs table, first hit in brix-order
+// (session 1.18). An EXPLICIT sort returns in under a second. The pageCount probe
+// here carried no sort and was burning ~100s of the 150s request wall on its own,
+// which is why sweeps kept dying before they could write their sync_log row.
+//
+// `sort=-id` means page 1 is the NEWEST page, so both sweep modes read forward:
+// fresh takes pages 1..N, and the crawl walks 1,2,3... back through history and
+// wraps when it runs dry. No pageCount probe is needed at all — an empty page IS
+// the end. Note `per-page` is HYPHENATED; SF silently ignores `per_page` and falls
+// back to its default page size (which is why a "50/page" sweep only ever saw ~10).
+const JOB_LIST = "/jobs?filters[status]=Invoiced&sort=-id&per-page=50";
+const jobListPath = (page: number) => `${JOB_LIST}&page=${page}`;
+
 function receiptRefs(ex: any): string[] {
   const refOf = (v: any) => { if (!v) return null; if (typeof v === "string") return v; if (typeof v === "object") return v.file_location || v.url || v.receipt_url || v.path || v.location || null; return null; };
   const out: string[] = [];
   for (const k of ["receipt", "receipt_url", "file_location", "picture", "image", "photo"]) { const r = refOf(ex[k]); if (r) out.push(r); }
   return [...new Set(out)];
 }
+// SF writes the UNIX EPOCH ("1970-01-01...") — not null — into date fields it has
+// no value for. An expense that has never been EDITED since it was created comes
+// back with `updated_at: "1970-01-01T00:00:00+00:00"`, and `date` is epoch unless
+// a human typed one in. The sweep's date gate used to read
+// `ex.updated_at || ex.created_at`, so epoch won the `||` and every never-edited
+// expense tested as 1970 < START_DATE and was silently skipped — i.e. the sweep
+// only ever landed expenses somebody had gone back and edited. (SF job 1093536433,
+// $650 Arturo.s d&a restaurant repair, was dropped on all 24 sweeps between
+// 2026-07-28 and 2026-08-04 for exactly this reason.)
+//
+// So: ignore epoch values entirely and gate on the NEWEST real date we can find.
+// An expense with no usable date at all returns null and is NOT skipped — landing
+// a reviewable draft is always cheaper than silently losing a receipt.
+const EPOCH_PREFIX = "1970-01-01";
+function realDateMs(v: any): number | null {
+  if (!v) return null;
+  const str = String(v);
+  if (str.startsWith(EPOCH_PREFIX)) return null;
+  const ms = Date.parse(str);
+  return Number.isFinite(ms) ? ms : null;
+}
+function newestRealDate(ex: any): number | null {
+  const all = [ex.updated_at, ex.created_at, ex.date].map(realDateMs).filter((v): v is number => v !== null);
+  return all.length ? Math.max(...all) : null;
+}
+
 function expenseKey(jobId: string | number, ex: any): string {
   if (ex.id) return String(ex.id);
   const v = (ex.purchased_from || ex.vendor_name || ex.vendor || "").toString().trim().toLowerCase();
@@ -239,8 +291,8 @@ function expenseKey(jobId: string | number, ex: any): string {
 async function attachReceipt(s: any, reqId: string, url: string, idx: number): Promise<boolean> {
   let bytes: Uint8Array | null = null; let ct = "application/octet-stream";
   try {
-    let rr = await fetch(url);
-    if ((rr.status === 401 || rr.status === 403) && /servicefusion/i.test(url)) { const ck = await getPortalCookie(s); rr = await fetch(url, { headers: { Cookie: ck } }); }
+    let rr = await fetch(url, { signal: AbortSignal.timeout(RECEIPT_TIMEOUT_MS) });
+    if ((rr.status === 401 || rr.status === 403) && /servicefusion/i.test(url)) { const ck = await getPortalCookie(s); rr = await fetch(url, { headers: { Cookie: ck }, signal: AbortSignal.timeout(RECEIPT_TIMEOUT_MS) }); }
     if (rr.ok) { ct = rr.headers.get("content-type") || ct; bytes = new Uint8Array(await rr.arrayBuffer()); }
   } catch (_e) { /* skip */ }
   if (!bytes || !bytes.length) return false;
@@ -253,7 +305,7 @@ async function attachReceipt(s: any, reqId: string, url: string, idx: number): P
   return true;
 }
 
-async function logReceiptSync(s: any, started: string, status: "ok" | "error", records: number, metadata: any, errorMessage: string | null = null): Promise<void> {
+async function logReceiptSync(s: any, started: string, status: "success" | "error", records: number, metadata: any, errorMessage: string | null = null): Promise<void> {
   try {
     await s.from("sync_log").insert({
       source: "sf-receipt-sync",
@@ -268,35 +320,73 @@ async function logReceiptSync(s: any, started: string, status: "ok" | "error", r
   } catch (_e) { /**/ }
 }
 
-async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boolean } = {}): Promise<{ landed: number; attached: number; skipped?: string }> {
+// Every counter here exists so a silent drop can't happen again. The epoch bug
+// was invisible for two months because the only number the sweep reported was
+// `drafts` — and "drafts: 0" reads identically whether SF genuinely had nothing
+// new or the gate was throwing away every expense it saw. So we now also count
+// what we LOOKED at and what we THREW AWAY, and ops.fn_sync_health_extra() goes
+// red when those disagree. Rule for anyone adding a future filter here: if you
+// `continue`, increment a counter.
+type LandStats = { landed: number; attached: number; seen: number; skippedByDate: number; skippedEmpty: number; dup: number; skipped?: string; timedOut?: boolean };
+
+// SF happily stores a completely blank expense row (no vendor, no amount, no notes,
+// no category) — they show up on ordinary delivery jobs and carry no information.
+// The epoch bug used to hide them as a side effect; once the gate was fixed they
+// arrived as ~14 empty drafts in the first sweep. Skip them, but COUNT them: a
+// filter that drops rows without a number next to it is how this whole outage
+// started. Blank vendor WITH an amount still lands (operators fill the vendor in
+// later — see the dedup note in CLAUDE.md).
+function isEmptyExpense(ex: any): boolean {
+  const vendor = String(ex.purchased_from ?? ex.vendor_name ?? ex.vendor ?? "").trim();
+  const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
+  const notes = String(ex.notes ?? "").trim();
+  const category = String(ex.category ?? "").trim();
+  return !vendor && amt === 0 && !notes && !category;
+}
+
+// `deadline` is an ABSOLUTE timestamp, checked per EXPENSE — not per job. Landing
+// one expense costs an admin-portal scrape plus a receipt download, so a single
+// multi-expense job can run well past a whole sweep's budget. Checking only
+// between jobs (the original design) let one job overrun the 150s request wall,
+// which kills the run before it writes its sync_log row and leaves the crawl
+// cursor stuck. Bail mid-job instead and report it.
+async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boolean; deadline?: number } = {}): Promise<LandStats> {
   let full = job;
   if (!Array.isArray(job.expenses)) { try { full = await sfGet(s, `/jobs/${job.id}?expand=expenses`); } catch { full = job; } }
   const expenses = Array.isArray(full.expenses) ? full.expenses : [];
-  if (!expenses.length) return { landed: 0, attached: 0, skipped: "no expenses" };
+  if (!expenses.length) return { landed: 0, attached: 0, seen: 0, skippedByDate: 0, skippedEmpty: 0, dup: 0, skipped: "no expenses" };
+  const outOfTime = () => !!opts.deadline && Date.now() > opts.deadline;
   const startMs = Date.parse(START_DATE + "T00:00:00Z") || 0;
   const jobNumber = String(full.number || job.id);
-  let landed = 0, attached = 0;
+  let landed = 0, attached = 0, skippedByDate = 0, skippedEmpty = 0, dupCount = 0, timedOut = false;
+  const seen = expenses.length;
   // Resolve the admin encId + receipt URLs once per job, lazily (only when needed).
   let resolved: { encId: string; urls: string[] } | null = null;
   const resolve = async () => { if (resolved === null) { try { resolved = await resolveJobAssets(s, jobNumber); } catch (e: any) { resolved = { encId: "", urls: [] }; log.push(`recv ${jobNumber}: ${String(e.message).slice(0, 80)}`); } } return resolved; };
 
   for (const ex of expenses) {
+    if (outOfTime()) { timedOut = true; log.push(`deadline mid-job ${jobNumber}`); break; }
+    if (isEmptyExpense(ex)) { skippedEmpty++; continue; }
     const exKey = expenseKey(full.id || job.id, ex);
     if (opts.gateByDate) {
-      const exDate = ex.updated_at || ex.created_at || null;
-      if (exDate && Date.parse(exDate) < startMs) continue;
+      const exDate = newestRealDate(ex);
+      if (exDate && exDate < startMs) { skippedByDate++; continue; }
     }
     const { data: dup } = await s.from("expense_requests").select("id, sf_admin_job_id").eq("sf_expense_id", exKey).limit(1);
 
     let reqId: string | null = null;
     let hasEnc = false;
     if (dup && dup.length) {
+      dupCount++;
       reqId = dup[0].id; hasEnc = !!dup[0].sf_admin_job_id; // already landed — backfill receipt/encId
     } else {
       const amt = Number(ex.amount ?? ex.total ?? 0) || 0;
       const acct = ACCOUNT_MAP[String(ex.category || "").toLowerCase()] || null;
       const vendor = ex.purchased_from || ex.vendor_name || ex.vendor || null;
-      const rdate = (ex.date && ex.date !== "1970-01-01") ? ex.date : (ex.created_at ? String(ex.created_at).slice(0, 10) : null);
+      // Same epoch trap as the date gate — never stamp 1970 onto a draft.
+      const rdate = realDateMs(ex.date) !== null
+        ? String(ex.date).slice(0, 10)
+        : (realDateMs(ex.created_at) !== null ? String(ex.created_at).slice(0, 10) : null);
       const { data: ins, error } = await s.from("expense_requests").insert({
         request_type: "expense", status: "draft", as_bill: true, tag: "Service Fusion",
         sf_expense_id: exKey, submitted_by: SUBMITTER_ID, submitter_name: "Service Fusion (system)",
@@ -333,7 +423,7 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
       for (const u of urls) { if (await attachReceipt(s, reqId, u, i++)) attached++; }
     }
   }
-  return { landed, attached };
+  return { landed, attached, seen, skippedByDate, skippedEmpty, dup: dupCount, timedOut };
 }
 
 Deno.serve(async (req: Request) => {
@@ -362,70 +452,113 @@ Deno.serve(async (req: Request) => {
     try { const c = await getPortalCookie(s, true); return json({ refreshed: !!c, len: c.length }); } catch (e: any) { return json({ error: e.message }, 500); }
   }
 
-  // ?job=<number> — find & process one invoiced job by number (lands + attaches).
+  // ?landJob=<sfJobId> — land ONE job straight off its SF id. No page scanning,
+  // so it returns in seconds instead of dying on the 150s edge wall clock the way
+  // ?job=<number> does (that path walks up to 40 pages of the Invoiced list).
+  // Use this to repair a single job an operator reports as missing; the date gate
+  // is off, and the sf_expense_id dedup makes it safe to re-run.
+  if (u.searchParams.get("landJob")) {
+    const id = u.searchParams.get("landJob")!.trim();
+    try {
+      const full = await sfGet(s, `/jobs/${encodeURIComponent(id)}?expand=expenses`);
+      const r = await landJob(s, full, log, { gateByDate: false });
+      return json({ landJob: id, number: full.number ?? null, status: full.status ?? null, result: r, log });
+    } catch (e: any) { return json({ landJob: id, error: e.message }, 500); }
+  }
+
+  // ?job=<number> — find & process one invoiced job by NUMBER (lands + attaches).
+  // Prefer ?landJob=<sfJobId> when you have the id: it is a single GET. This path
+  // has to scan because SF gives no working by-number lookup, but it now scans
+  // newest-first with an explicit sort and a wall-clock cap, so it degrades into a
+  // "not found in the last N pages" answer instead of a 504.
   if (u.searchParams.get("job")) {
     const target = u.searchParams.get("job")!.trim().toLowerCase();
+    const scanStart = Date.now();
     try {
-      const meta = (await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=1`))._meta || {};
-      const pageCount = meta.pageCount || 1;
       let found = null; let scanned = 0;
-      for (let p = pageCount; p >= Math.max(1, pageCount - 40) && !found; p--) {
-        const d = await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=50&page=${p}`);
+      for (let p = 1; p <= 40 && !found; p++) {
+        if (Date.now() - scanStart > 60000) break;
+        const d = await sfGet(s, jobListPath(p));
+        const items = d.items || [];
         scanned++;
-        found = (d.items || []).find((j: any) => String(j.number || "").toLowerCase() === target) || null;
+        if (!items.length) break;
+        found = items.find((j: any) => String(j.number || "").toLowerCase() === target) || null;
       }
-      if (!found) return json({ job: target, found: false, pagesScanned: scanned, pageCount });
+      if (!found) return json({ job: target, found: false, pagesScanned: scanned, hint: "use ?landJob=<sfJobId> for an older job" });
       const r = await landJob(s, found, log, { gateByDate: false });
       return json({ job: target, id: found.id, number: found.number, status: found.status, result: r, log });
     } catch (e: any) { return json({ job: target, error: e.message }, 500); }
   }
 
-  // Sweep modes: ?fresh=N (newest N pages, fast) or default crawl (time-bounded,
-  // cursor only advances past fully-processed pages — no silent skips).
+  // Sweep modes: ?fresh=N (the N newest pages) or default crawl (walks back through
+  // history from a stored cursor). Both now page NEWEST-FIRST — see JOB_LIST below.
   const freshParam = u.searchParams.get("fresh");
   const fresh = freshParam !== null;
-  let meta: any = {};
-  try {
-    meta = (await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=1`))._meta || {};
-  } catch (e: any) {
-    const message = "SF: " + e.message;
-    await logReceiptSync(s, started, "error", 0, { ok: false, stage: "list-meta", error: message }, message);
-    return json({ error: message }, 500);
-  }
-  const pageCount = meta.pageCount || 1;
+
+  // Start the clock BEFORE the first SF call. It used to start after the pageCount
+  // probe, so the probe's time was invisible to the budget — and that probe was the
+  // whole problem (see JOB_LIST). A budget that doesn't cover every call it is
+  // meant to bound is not a budget.
+  const t0 = Date.now();
 
   let page = parseInt(u.searchParams.get("page") || "0");
-  if (fresh) {
-    page = pageCount;
-  } else if (page === 0) {
-    const { data: last } = await s.from("sync_log").select("metadata").eq("source", "sf-receipt-sync").eq("status", "ok").order("completed_at", { ascending: false }).limit(1);
-    const lp = last?.[0]?.metadata?.next_page;
-    page = (lp && lp >= 1) ? lp : pageCount;
+  if (fresh || page === 0) {
+    if (fresh) {
+      page = 1;                       // page 1 IS the newest page now
+    } else {
+      const { data: last } = await s.from("sync_log").select("metadata").eq("source", "sf-receipt-sync").eq("status", "success").order("completed_at", { ascending: false }).limit(1);
+      const lp = last?.[0]?.metadata?.next_page;
+      page = (lp && lp >= 1) ? lp : 1;
+    }
   }
-  const span = fresh ? Math.max(1, parseInt(freshParam || "3") || 3) : page;
+  // crawl has no page span of its own — it runs until the budget or an empty page.
+  const span = fresh ? Math.max(1, parseInt(freshParam || "3") || 3) : 0;
   let drafts = 0, attached = 0, jobsSeen = 0, detail = 0;
-  const lo = Math.max(1, page - span + 1);
-  const budgetMs = 110000; const t0 = Date.now();
-  let lastCompleted = page + 1; let budgetHit = false;
+  let expensesSeen = 0, skippedByDate = 0, skippedEmpty = 0, alreadyLanded = 0;
+  let ranDry = false;
+  // The edge runtime hard-kills a request at 150s (504). The budget has to leave
+  // room for the slowest single job still in flight (an admin-portal scrape plus
+  // a receipt download runs 10-40s) AND the closing sync_log write — otherwise the
+  // run is killed mid-flight, logs NOTHING, and the crawl cursor (which resumes
+  // from the last success row's next_page) never advances. That is exactly what
+  // happened to the daily 10:00 crawl: at 110s it never once logged a run between
+  // 2026-07-26 and 2026-08-04, so it restarted from the newest page every day and
+  // the historical backfill never moved. 60s + per-call network caps + a per-expense
+  // deadline leave ~90s of headroom for whatever is still in flight.
+  const budgetMs = 60000;
+  let lastCompleted = page - 1; let budgetHit = false;
   let fatalError = "";
   try {
-    for (let p = page; p >= lo; p--) {
+    for (let p = page; span === 0 || p < page + span; p++) {
       if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push("time budget"); break; }
-      const d = await sfGet(s, `/jobs?filters[status]=Invoiced&per_page=50&page=${p}`);
+      const d = await sfGet(s, jobListPath(p));
       const jobs = d.items || [];
+      if (!jobs.length) { ranDry = true; break; }   // walked off the end of history
       for (const j of jobs) {
+        // Mid-page budget check: a page dense with expense jobs — each needing SF
+        // detail calls + admin-portal receipt scrapes — could blow past the wall
+        // clock inside a single page. Exiting here returns a LOGGED partial run;
+        // the cursor stays on this page so the next run resumes where we stopped.
+        if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push(`time budget mid-page ${p}`); break; }
         jobsSeen++;
         if (!Array.isArray(j.expenses)) detail++;
-        const r = await landJob(s, j, log, { gateByDate: true });
+        const r = await landJob(s, j, log, { gateByDate: true, deadline: t0 + budgetMs });
         drafts += r.landed; attached += r.attached;
+        expensesSeen += r.seen; skippedByDate += r.skippedByDate; skippedEmpty += r.skippedEmpty; alreadyLanded += r.dup;
+        if (r.timedOut) { budgetHit = true; break; }
       }
+      if (budgetHit) break;
       lastCompleted = p;
     }
   } catch (e: any) { fatalError = e.message; log.push("FATAL " + fatalError); }
-  const nextPage = fresh ? null : (lastCompleted <= 1 ? pageCount : lastCompleted - 1);
-  const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", pageCount, fromPage: page, lastCompleted, budgetHit, jobsSeen, detail, drafts, attached };
+  // Crawl cursor walks FORWARD into history and wraps to page 1 when it runs dry.
+  // Resume AFTER the last fully-processed page; if none completed, retry the same
+  // page rather than stepping over it (a page that always times out must not be
+  // silently skipped — that is how work disappears without an error).
+  const nextPage = fresh ? null : (ranDry ? 1 : (lastCompleted >= page ? lastCompleted + 1 : page));
+  const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", fromPage: page, lastCompleted, ranDry, budgetHit, jobsSeen, detail, drafts, attached, expensesSeen, skippedByDate, skippedEmpty, alreadyLanded, elapsedMs: Date.now() - t0 };
   if (fatalError) result.error = fatalError;
   if (nextPage !== null) result.next_page = nextPage;
-  await logReceiptSync(s, started, fatalError ? "error" : "ok", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
+  await logReceiptSync(s, started, fatalError ? "error" : "success", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
   return json({ ...result, log }, fatalError ? 500 : 200);
 });
