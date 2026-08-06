@@ -181,14 +181,22 @@ header .links a:hover{color:#1F4E79}
   </div>
 
   <div class="keepalive-section" style="margin-top:24px">
-    <h2>🔌 MCP Connectors <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— authorize QuickBooks, Zoho Books &amp; Service Fusion for the PACER MCP servers</span></h2>
-    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-      <div style="font-size:0.85rem;color:#374151;max-width:560px">
-        Connect or reconnect the accounting / field-service systems the
-        <code>pacerfinance</code> MCP servers (QBO, Zoho, Service Fusion) authenticate against.
-        Tokens are stored server-side in Supabase and refresh automatically — reconnect only if a connection goes red.
+    <h2>🔌 MCP Servers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— OAuth 2.1 via Supabase Auth (the 2026-08 connector-auth conversion): server status + both reconnect paths</span></h2>
+    <div id="mcpBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
+      <div style="font-size:0.85rem;color:#374151;margin-bottom:12px;max-width:760px">
+        Every MCP server now authenticates callers with <b>OAuth 2.1 through Supabase Auth</b>
+        (authorization server <code>gfsdpwiqzshhexkofiif.supabase.co/auth/v1</code>, consent at
+        <a href="https://alamedapointbg.com/oauth/consent" target="_blank" rel="noopener" style="color:#1F4E79;font-weight:600">/oauth/consent</a>,
+        per-server <code>MCP_ALLOWED_EMAILS</code> allowlist). Two different reconnects:
+        <b>a Claude connector lost access</b> → remove &amp; re-add the connector in claude.ai → Settings → Connectors,
+        approve at the consent page with your gateway login (nothing to click here);
+        <b>the server lost its QBO/Zoho/SF tokens</b> → use Provider Connections below.
       </div>
-      <a href="/pacer/connect.html" style="flex:none;background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Manage MCP Connections →</a>
+      <div id="mcpStatus" style="font-size:0.85rem;color:#6B7280">Loading server status…</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <a href="/pacer/connect.html" style="background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Provider Connections (QBO · Zoho · SF) →</a>
+        <button onclick="loadMcpStatus()" id="mcpRefreshBtn" style="background:#fff;color:#1F4E79;border:1px solid #1F4E79;border-radius:8px;padding:10px 18px;font-weight:600;font-size:0.85rem;cursor:pointer">↻ Refresh status</button>
+      </div>
     </div>
   </div>
 
@@ -246,17 +254,8 @@ const SITES = {
       qbo: buildQboUrl('ABcbkH2VkVLsWzXS2UuOdAg9DmXG6UecHk938uNEqe3ir5v6N1', 'https://melt-dashboard.netlify.app/.netlify/functions/oauth-callback'),
     },
   },
-  pacer: {
-    name: 'MCP Pacer Finance',
-    icon: '💰',
-    url: 'https://pacerfinance.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/pacer-health',
-    checks: ['qbo', 'zoho'],
-    labels: { qbo: 'QuickBooks', zoho: 'Zoho Books' },
-    reconnect: {
-      qbo: null,
-    },
-  },
+  // MCP Pacer Finance card removed 2026-08-06 — MCP server health + both
+  // reconnect paths live in the MCP Servers panel below (mcp-auth-status).
 };
 
 function buildQboUrl(clientId, redirectUri) {
@@ -295,6 +294,7 @@ APBG.auth.requireSuperadmin().then(() => {
   refreshAll();
   loadConnections();
   loadMaintenance();
+  loadMcpStatus();
   loadSyncCustomers();
   loadResqSync();
   loadVendorRoutes();
@@ -1057,6 +1057,38 @@ async function ccImport(purchaseId){
   catch(e){ alert('Import failed: '+e.message); }
 }
 
+// ═══ MCP SERVER AUTH STATUS ═══
+// One row per MCP resource server: is the RFC 9728 discovery metadata being
+// served, does it point at OUR Supabase authorization server, and does the
+// endpoint respond. Probed server-side (mcp-auth-status) — the well-known
+// endpoints have no CORS headers.
+async function loadMcpStatus(){
+  const out=document.getElementById('mcpStatus');
+  const btn=document.getElementById('mcpRefreshBtn');
+  if(btn) btn.disabled=true;
+  try{
+    const r=await fetch(APBG_FN+'/mcp-auth-status',{headers:authHeaders()});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+    const dot=(c)=>({green:'#16a34a',amber:'#d97706',red:'#dc2626'}[c]||'#9CA3AF');
+    out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.68rem;text-transform:uppercase">
+        <th style="padding:6px 8px"></th><th style="padding:6px 8px">Server</th><th style="padding:6px 8px">Discovery</th><th style="padding:6px 8px">Auth server</th><th style="padding:6px 8px">Endpoint</th></tr></thead>
+      <tbody>${d.servers.map(sv=>`<tr style="border-top:1px solid #F1F3F5">
+        <td style="padding:7px 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dot(sv.status)}"></span></td>
+        <td style="padding:7px 8px"><strong>${esc(sv.name)}</strong><div style="color:#9CA3AF;font-size:0.68rem">${esc(sv.endpoint)}</div></td>
+        <td style="padding:7px 8px;white-space:nowrap">${sv.well_known==='ok'?'✓ served':esc(sv.well_known)}</td>
+        <td style="padding:7px 8px;white-space:nowrap">${sv.auth_server_ok?'✓ Supabase':'—'}</td>
+        <td style="padding:7px 8px;color:#6B7280">${esc(sv.probe_note||'—')}</td>
+      </tr>`).join('')}</tbody></table>
+      <div style="color:#9CA3AF;font-size:0.7rem;margin-top:8px">Checked ${new Date(d.checked_at).toLocaleString()} · green = discovery served + pointing at our authorization server · amber = partially converted or discovery missing · red = unreachable</div>`;
+    const bad=d.servers.filter(sv=>sv.status!=='green').length;
+    log(`MCP server status: ${d.servers.length-bad} green / ${bad} attention`, bad? 'warn':'ok');
+  }catch(e){
+    out.innerHTML=`<span style="color:#DC2626">Status check failed: ${esc(e.message)}</span>`;
+  }finally{ if(btn) btn.disabled=false; }
+}
+
 // ═══ HANDBOOK SWEEP ═══
 let lastSweep = null;
 
@@ -1161,6 +1193,7 @@ async function runHandbookAutoupdate(){
     alert('Failed to start: '+e.message);
     if(btn){ btn.disabled = false; btn.textContent = '🤖 Auto-update stale chapters → draft PR'; }
   }
+}
 
 // --- Service Fusion Changes report ---
 async function runSfChangesReport(){

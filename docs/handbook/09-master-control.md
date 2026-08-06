@@ -14,7 +14,8 @@ The top of the page is a card grid, one card per monitored system, each with an 
 |---|---|---|
 | APBG 3rd Party Billing | `apbg-billing` `health-watchdog` function | QuickBooks · Service Fusion · ResQ |
 | Melt Equipment Dashboard | `melt-dashboard` `/api/health` | QuickBooks · Data Cache · ResQ |
-| MCP Pacer Finance | `apbg-billing` `pacer-health` function | QuickBooks · Zoho Books |
+
+MCP server health is **not** in this grid — it lives in the [MCP Servers](#mcp-servers) panel below, which checks each server's OAuth discovery + endpoint against the new Supabase authorization server. (The gateway hub's status dots still read `pacer-health`, which was rewritten for the OAuth era: healthy now means "endpoint up and rejecting unauthenticated calls with the OAuth challenge".)
 
 - **↻ Refresh All** re-probes everything on demand; the "Last check" stamp updates. Probes also run automatically every 60 s.
 - `health-watchdog` and `pacer-health` are superadmin-gated; the page sends your session token. A 401/403 renders a neutral "Sign in as superadmin to view" state — it is **not** an outage.
@@ -100,9 +101,18 @@ Merges the **QBO credit-card/expense feed** with **Brixpense** records so every 
 
 See [Brixpense](#/07-brixpense) and [SOP-7 · Expenses & Purchasing](#/27-sop-expenses-purchasing) for the policy side.
 
-## MCP Connectors
+## MCP Servers
 
-Authorizes the accounting / field-service systems the `pacerfinance` MCP servers (QuickBooks, Zoho Books, Service Fusion) authenticate against. Tokens are stored server-side in Supabase and refresh automatically — **reconnect only when a connection goes red** in the health grid. Click **Manage MCP Connections →** (opens `/pacer/connect.html`). See [Companion Apps](#/11-companion-apps) for what the MCP servers are.
+The MCP servers (PACER Finance QBO/Zoho/SF, Pacer Outlook, ASM MCP Tools, the Retell voice bridge) authenticate callers with **OAuth 2.1 through Supabase Auth** on the shared project — each server publishes discovery metadata at `/.well-known/oauth-protected-resource`, consent happens at `alamedapointbg.com/oauth/consent` with your gateway login, and each server enforces its own `MCP_ALLOWED_EMAILS` allowlist (a valid login alone is not enough).
+
+The panel shows a **live status row per server**: green = discovery served and pointing at our authorization server; amber = partially converted or discovery missing; red = unreachable.
+
+Two different "reconnects" — pick the right one:
+
+1. **A Claude connector lost access** (claude.ai says the connector needs authorization): remove & re-add the connector in claude.ai → Settings → Connectors, then approve at the consent page when the browser lands there. Nothing to click in Master Control — the flow is client-initiated.
+2. **A server lost its provider tokens** (QBO/Zoho/SF calls failing inside the MCP): **Provider Connections →** (`/pacer/connect.html`) re-runs the provider OAuth the server itself holds. Those tokens are stored server-side and refresh automatically — reconnect only when a light goes red.
+
+See [Companion Apps](#/11-companion-apps) for what the MCP servers are.
 
 ## APBG Handbook & SOP Sweep
 

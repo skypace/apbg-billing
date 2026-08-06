@@ -15,7 +15,7 @@
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
   # 4. Build the Brix Expense app; output goes to public/expense/.
-  command = "node architecture/lint-manifest.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
+  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
   publish = "public"
   functions = "netlify/functions"
 
