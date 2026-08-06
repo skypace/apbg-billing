@@ -254,17 +254,8 @@ const SITES = {
       qbo: buildQboUrl('ABcbkH2VkVLsWzXS2UuOdAg9DmXG6UecHk938uNEqe3ir5v6N1', 'https://melt-dashboard.netlify.app/.netlify/functions/oauth-callback'),
     },
   },
-  pacer: {
-    name: 'MCP Pacer Finance',
-    icon: '💰',
-    url: 'https://pacerfinance.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/pacer-health',
-    checks: ['qbo', 'zoho'],
-    labels: { qbo: 'QuickBooks', zoho: 'Zoho Books' },
-    reconnect: {
-      qbo: null,
-    },
-  },
+  // MCP Pacer Finance card removed 2026-08-06 — MCP server health + both
+  // reconnect paths live in the MCP Servers panel below (mcp-auth-status).
 };
 
 function buildQboUrl(clientId, redirectUri) {
