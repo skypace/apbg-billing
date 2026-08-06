@@ -14,7 +14,8 @@ The top of the page is a card grid, one card per monitored system, each with an 
 |---|---|---|
 | APBG 3rd Party Billing | `apbg-billing` `health-watchdog` function | QuickBooks · Service Fusion · ResQ |
 | Melt Equipment Dashboard | `melt-dashboard` `/api/health` | QuickBooks · Data Cache · ResQ |
-| MCP Pacer Finance | `apbg-billing` `pacer-health` function | QuickBooks · Zoho Books |
+
+MCP server health is **not** in this grid — it lives in the [MCP Servers](#mcp-servers) panel below, which checks each server's OAuth discovery + endpoint against the new Supabase authorization server. (The gateway hub's status dots still read `pacer-health`, which was rewritten for the OAuth era: healthy now means "endpoint up and rejecting unauthenticated calls with the OAuth challenge".)
 
 - **↻ Refresh All** re-probes everything on demand; the "Last check" stamp updates. Probes also run automatically every 60 s.
 - `health-watchdog` and `pacer-health` are superadmin-gated; the page sends your session token. A 401/403 renders a neutral "Sign in as superadmin to view" state — it is **not** an outage.

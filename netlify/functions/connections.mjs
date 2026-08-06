@@ -65,13 +65,8 @@ export default async (req) => {
             reconnect_url: resqClientId ? sfAuthorizeUrl(resqClientId, `${SUPA_FN}/sf-connect`) : null,
             note: 'Separate Connected App so its token can never race the billing one.',
           },
-          {
-            key: 'sf_pacer', name: 'PACER MCP (voice agent / HQ tools)',
-            client_id: '(managed in pacerfinance)', token_store: 'pacerfinance site',
-            health: null, // not visible from this DB
-            reconnect_url: null, manage_url: '/pacer/connect.html',
-            note: 'Unmonitored from here — token lives in the pacerfinance site. Reconnect via Manage MCP Connections.',
-          },
+          // sf_pacer row removed 2026-08-06 — MCP servers (incl. their SF/QBO/Zoho
+          // provider tokens) are managed from the MCP Servers panel in control.html.
         ],
       },
       {
