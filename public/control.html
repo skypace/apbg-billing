@@ -180,22 +180,19 @@ header .links a:hover{color:#1F4E79}
     </div>
   </div>
 
+  <!-- MCP moved out 2026-08-06 — every MCP control (server status, endpoint
+       probes, connector re-auth guidance, provider reconnect) now lives in the
+       MCP Servers app at /mcp. Master Control keeps only this pointer so there
+       is exactly ONE place to operate MCP from. -->
   <div class="keepalive-section" style="margin-top:24px">
-    <h2>🔌 MCP Servers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— OAuth 2.1 via Supabase Auth (the 2026-08 connector-auth conversion): server status + both reconnect paths</span></h2>
-    <div id="mcpBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
-      <div style="font-size:0.85rem;color:#374151;margin-bottom:12px;max-width:760px">
-        Every MCP server now authenticates callers with <b>OAuth 2.1 through Supabase Auth</b>
-        (authorization server <code>gfsdpwiqzshhexkofiif.supabase.co/auth/v1</code>, consent at
-        <a href="https://alamedapointbg.com/oauth/consent" target="_blank" rel="noopener" style="color:#1F4E79;font-weight:600">/oauth/consent</a>,
-        per-server <code>MCP_ALLOWED_EMAILS</code> allowlist). Two different reconnects:
-        <b>a Claude connector lost access</b> → remove &amp; re-add the connector in claude.ai → Settings → Connectors,
-        approve at the consent page with your gateway login (nothing to click here);
-        <b>the server lost its QBO/Zoho/SF tokens</b> → use Provider Connections below.
+    <h2>🔌 MCP Servers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— managed in its own app</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
+      <div style="font-size:0.85rem;color:#374151;max-width:760px">
+        MCP server status and both reconnect paths (Claude connector re-auth and QBO/Zoho/SF provider tokens)
+        live in the <b>MCP Servers</b> app — not here.
       </div>
-      <div id="mcpStatus" style="font-size:0.85rem;color:#6B7280">Loading server status…</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-        <a href="/pacer/connect.html" style="background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Provider Connections (QBO · Zoho · SF) →</a>
-        <button onclick="loadMcpStatus()" id="mcpRefreshBtn" style="background:#fff;color:#1F4E79;border:1px solid #1F4E79;border-radius:8px;padding:10px 18px;font-weight:600;font-size:0.85rem;cursor:pointer">↻ Refresh status</button>
+      <div style="margin-top:14px">
+        <a href="https://alamedapointbg.com/mcp" style="background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Open MCP Servers →</a>
       </div>
     </div>
   </div>
@@ -294,7 +291,6 @@ APBG.auth.requireSuperadmin().then(() => {
   refreshAll();
   loadConnections();
   loadMaintenance();
-  loadMcpStatus();
   loadSyncCustomers();
   loadResqSync();
   loadVendorRoutes();
@@ -552,13 +548,14 @@ const MAINT_CORE = [
   {key:'leasing',   label:'Brix ERLS / Leasing'},
   {key:'operations',label:'APBG Ops (KPIs)'},
   {key:'handbook',  label:'Handbook (User Guides + SOPs)'},
+  {key:'mcp',       label:'MCP Servers'},
 ];
 // Registry app_key → enforcement key. null = no lockable surface (external
 // third-party sites, placeholder cards); duplicates collapse onto one row.
 const MAINT_KEY_MAP = {
   brixOrder:'order', marginCtrl:'margin', inventory:'margin', brixKpi:'operations',
   erls:'leasing', userguides:'handbook', sop:'handbook',
-  users:'gateway', appMgr:'gateway', pacerConnect:'gateway',
+  users:'gateway', appMgr:'gateway', pacerConnect:'mcp',
   trello:null, serviceDash:null, cylinder:null, sales:null, starbird:null,
 };
 let MAINT_APPS = MAINT_CORE.slice();
@@ -1057,37 +1054,9 @@ async function ccImport(purchaseId){
   catch(e){ alert('Import failed: '+e.message); }
 }
 
-// ═══ MCP SERVER AUTH STATUS ═══
-// One row per MCP resource server: is the RFC 9728 discovery metadata being
-// served, does it point at OUR Supabase authorization server, and does the
-// endpoint respond. Probed server-side (mcp-auth-status) — the well-known
-// endpoints have no CORS headers.
-async function loadMcpStatus(){
-  const out=document.getElementById('mcpStatus');
-  const btn=document.getElementById('mcpRefreshBtn');
-  if(btn) btn.disabled=true;
-  try{
-    const r=await fetch(APBG_FN+'/mcp-auth-status',{headers:authHeaders()});
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
-    const dot=(c)=>({green:'#16a34a',amber:'#d97706',red:'#dc2626'}[c]||'#9CA3AF');
-    out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.82rem">
-      <thead><tr style="text-align:left;color:#6B7280;font-size:0.68rem;text-transform:uppercase">
-        <th style="padding:6px 8px"></th><th style="padding:6px 8px">Server</th><th style="padding:6px 8px">Discovery</th><th style="padding:6px 8px">Auth server</th><th style="padding:6px 8px">Endpoint</th></tr></thead>
-      <tbody>${d.servers.map(sv=>`<tr style="border-top:1px solid #F1F3F5">
-        <td style="padding:7px 8px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dot(sv.status)}"></span></td>
-        <td style="padding:7px 8px"><strong>${esc(sv.name)}</strong><div style="color:#9CA3AF;font-size:0.68rem">${esc(sv.endpoint)}</div></td>
-        <td style="padding:7px 8px;white-space:nowrap">${sv.well_known==='ok'?'✓ served':esc(sv.well_known)}</td>
-        <td style="padding:7px 8px;white-space:nowrap">${sv.auth_server_ok?'✓ Supabase':'—'}</td>
-        <td style="padding:7px 8px;color:#6B7280">${esc(sv.probe_note||'—')}</td>
-      </tr>`).join('')}</tbody></table>
-      <div style="color:#9CA3AF;font-size:0.7rem;margin-top:8px">Checked ${new Date(d.checked_at).toLocaleString()} · green = discovery served + pointing at our authorization server · amber = partially converted or discovery missing · red = unreachable</div>`;
-    const bad=d.servers.filter(sv=>sv.status!=='green').length;
-    log(`MCP server status: ${d.servers.length-bad} green / ${bad} attention`, bad? 'warn':'ok');
-  }catch(e){
-    out.innerHTML=`<span style="color:#DC2626">Status check failed: ${esc(e.message)}</span>`;
-  }finally{ if(btn) btn.disabled=false; }
-}
+// MCP server status moved to the MCP Servers app (public/mcp.html, served at
+// /mcp) on 2026-08-06 — loadMcpStatus() lives there now. Master Control only
+// links to it, so there is exactly one place to operate MCP from.
 
 // ═══ HANDBOOK SWEEP ═══
 let lastSweep = null;

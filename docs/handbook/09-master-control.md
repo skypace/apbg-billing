@@ -2,7 +2,7 @@
 
 > Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
 
-Master Control at **https://alamedapointbg.com/control** is the superadmin operations panel for the whole APBG stack: system health, OAuth token status, per-app maintenance banners/lockouts, the ResQ ↔ Service Fusion sync engine, the ResQ facility → customer map, credit-card/expense reconciliation, MCP connector authorization, and (new this release) the handbook staleness sweep. This chapter walks each section top to bottom. It is for superadmins only — the page gates on `requireSuperadmin()` and every backing endpoint re-checks the same.
+Master Control at **https://alamedapointbg.com/control** is the superadmin operations panel for the whole APBG stack: system health, OAuth token status, per-app maintenance banners/lockouts, the ResQ ↔ Service Fusion sync engine, the ResQ facility → customer map, credit-card/expense reconciliation, and the handbook staleness sweep. (MCP moved out to its own app at `/mcp` — see [MCP Servers](#mcp-servers--its-own-app).) This chapter walks each section top to bottom. It is for superadmins only — the page gates on `requireSuperadmin()` and every backing endpoint re-checks the same.
 
 The page itself lives in `apbg-billing` (`public/control.html`), served through the gateway. It auto-refreshes health and ResQ sync status every 60 seconds.
 
@@ -15,7 +15,7 @@ The top of the page is a card grid, one card per monitored system, each with an 
 | APBG 3rd Party Billing | `apbg-billing` `health-watchdog` function | QuickBooks · Service Fusion · ResQ |
 | Melt Equipment Dashboard | `melt-dashboard` `/api/health` | QuickBooks · Data Cache · ResQ |
 
-MCP server health is **not** in this grid — it lives in the [MCP Servers](#mcp-servers) panel below, which checks each server's OAuth discovery + endpoint against the new Supabase authorization server. (The gateway hub's status dots still read `pacer-health`, which was rewritten for the OAuth era: healthy now means "endpoint up and rejecting unauthenticated calls with the OAuth challenge".)
+MCP server health is **not** in this grid, and no longer in this page at all — it moved to the [MCP Servers app](#mcp-servers--its-own-app) at `/mcp` on 2026-08-06. (The gateway hub's status dots still read `pacer-health`, which was rewritten for the OAuth era: healthy now means "endpoint up and rejecting unauthenticated calls with the OAuth challenge".)
 
 - **↻ Refresh All** re-probes everything on demand; the "Last check" stamp updates. Probes also run automatically every 60 s.
 - `health-watchdog` and `pacer-health` are superadmin-gated; the page sends your session token. A 401/403 renders a neutral "Sign in as superadmin to view" state — it is **not** an outage.
@@ -101,16 +101,23 @@ Merges the **QBO credit-card/expense feed** with **Brixpense** records so every 
 
 See [Brixpense](#/07-brixpense) and [SOP-7 · Expenses & Purchasing](#/27-sop-expenses-purchasing) for the policy side.
 
-## MCP Servers
+## MCP Servers → its own app
+
+**MCP is no longer operated from Master Control** (moved 2026-08-06). Master Control keeps a single **Open MCP Servers →** button; everything else lives in the **MCP Servers** app at **https://alamedapointbg.com/mcp** (also the *MCP Servers* tile under Admin in the hub and waffle). One place to look, one place to fix.
 
 The MCP servers (PACER Finance QBO/Zoho/SF, Pacer Outlook, ASM MCP Tools, the Retell voice bridge) authenticate callers with **OAuth 2.1 through Supabase Auth** on the shared project — each server publishes discovery metadata at `/.well-known/oauth-protected-resource`, consent happens at `alamedapointbg.com/oauth/consent` with your gateway login, and each server enforces its own `MCP_ALLOWED_EMAILS` allowlist (a valid login alone is not enough).
 
-The panel shows a **live status row per server**: green = discovery served and pointing at our authorization server; amber = partially converted or discovery missing; red = unreachable.
+What the MCP Servers app shows:
+
+- **Server status** — a live row per server: green = discovery served and pointing at our authorization server; amber = partially converted or discovery missing; red = unreachable. Probed server-side (`mcp-auth-status`) because the well-known endpoints send no CORS headers.
+- **PACER Finance endpoints** — `/qbo` and `/zoho` probed individually (`pacer-health`). A healthy endpoint **rejects** an anonymous call with an OAuth challenge; an anonymous `200` is reported as a **failure**, because it would mean auth isn't being enforced.
 
 Two different "reconnects" — pick the right one:
 
-1. **A Claude connector lost access** (claude.ai says the connector needs authorization): remove & re-add the connector in claude.ai → Settings → Connectors, then approve at the consent page when the browser lands there. Nothing to click in Master Control — the flow is client-initiated.
-2. **A server lost its provider tokens** (QBO/Zoho/SF calls failing inside the MCP): **Provider Connections →** (`/pacer/connect.html`) re-runs the provider OAuth the server itself holds. Those tokens are stored server-side and refresh automatically — reconnect only when a light goes red.
+1. **A Claude connector lost access** (claude.ai says the connector needs authorization): remove & re-add the connector in claude.ai → Settings → Connectors, then approve at the consent page when the browser lands there. Nothing to click in the app — the flow is client-initiated.
+2. **A server lost its provider tokens** (QBO/Zoho/SF calls failing inside the MCP): **Provider Connections →** (`/pacer/connect.html`, served from pacerfinance) re-runs the provider OAuth the server itself holds. Those tokens are stored server-side and refresh automatically — reconnect only when a light goes red.
+
+The app is superadmin-gated like Master Control, and it is lockable from **Service & Maintenance** under the `mcp` key.
 
 See [Companion Apps](#/11-companion-apps) for what the MCP servers are.
 

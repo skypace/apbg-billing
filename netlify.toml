@@ -87,6 +87,14 @@
   to = "/oauth/consent.html"
   status = 200
 
+# MCP Servers app — the single place MCP is operated from (server status,
+# endpoint probes, connector re-auth guidance, provider reconnect). Master
+# Control only links here. The gateway proxies /mcp to this page.
+[[redirects]]
+  from = "/mcp"
+  to = "/mcp.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"
