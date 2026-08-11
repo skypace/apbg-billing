@@ -40,16 +40,20 @@ function PriceCell({ value, onSave }: { value: number; onSave: (v: number) => Pr
   );
 }
 
-export function PricingPage() {
+export function PricingPage({ routeParams }: { routeParams?: Record<string, string> } = {}) {
+  // Deep links (used by brix-order's /admin Company → Pricing panel):
+  //   #pricing?tab=contracts&contract=<id>  → open that contract's editor
+  //   #pricing?tab=contracts&new=1          → open the New Contract dialog
+  const wantsContracts = routeParams?.tab === 'contracts' || !!routeParams?.contract || routeParams?.new === '1';
   const [data, setData] = useState<PricingData | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(wantsContracts ? 1 : 0);
   const [toast, setToast] = useState<string | null>(null);
   const [pct, setPct] = useState('5');
   const [eff, setEff] = useState(todayStr());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [contractId, setContractId] = useState<string>('');
-  const [newContractOpen, setNewContractOpen] = useState(false);
+  const [contractId, setContractId] = useState<string>(routeParams?.contract ?? '');
+  const [newContractOpen, setNewContractOpen] = useState(routeParams?.new === '1');
   const [newBookOpen, setNewBookOpen] = useState(false);
   const [itemMeta, setItemMeta] = useState<ItemMeta>(new Map());
 
@@ -66,7 +70,11 @@ export function PricingPage() {
       const m: ItemMeta = new Map();
       for (const h of health) m.set(h.qbo_item_id, { family: h.product_family_label, type: h.product_type_label });
       setItemMeta(m);
-      if (!contractId && d.contracts.length) setContractId(d.contracts[0]!.id);
+      // Keep a valid selection: honor a deep-linked contract id when it exists,
+      // otherwise (empty or stale id) fall back to the first contract.
+      if (d.contracts.length && (!contractId || !d.contracts.some((c) => c.id === contractId))) {
+        setContractId(d.contracts[0]!.id);
+      }
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to load pricing'); }
   }
   useEffect(() => { void reload(); /* eslint-disable-next-line */ }, []);

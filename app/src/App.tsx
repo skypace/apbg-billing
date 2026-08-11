@@ -96,7 +96,7 @@ export function App() {
       body = <PlaceholderPage title="Fleet" legacyHash="operations" />;
       break;
     case 'pricing':
-      body = <PricingPage />;
+      body = <PricingPage routeParams={route.params} />;
       break;
     case 'proposal-builder':
       body = <ProposalBuilderPage />;
