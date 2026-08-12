@@ -116,7 +116,17 @@ export async function requireAuth(reqOrEvent, allowedRoles = DEFAULT_ROLES) {
     return { ok: false, response: makeError(reqOrEvent, 401, 'Invalid token') };
   }
 
-  const role = user.app_metadata?.role || null;
+  // Role lives in user_metadata.role — that is where the gateway admin
+  // (admin-users.mjs), the cross-app Staff console (brix-order admin-staff),
+  // and the gateway's own client-side gate (auth.js) all WRITE and READ it.
+  // This file previously read ONLY app_metadata.role, which the writers never
+  // populate, so every staff account managed through the current tooling
+  // resolved to role "none" and 403'd every authed Master Control panel
+  // (cardholder user list, Connections, health-watchdog). Prefer the stronger
+  // app_metadata claim when present, but fall back to user_metadata so the
+  // reader matches the writers. brix-order's admin-staff gate already trusts
+  // user_metadata.role server-side, so this only aligns with the live posture.
+  const role = user.app_metadata?.role || user.user_metadata?.role || null;
   if (allowedRoles && !allowedRoles.includes(role)) {
     return {
       ok: false,
