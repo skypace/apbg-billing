@@ -56,6 +56,13 @@ export default function ExpenseForm() {
   const [loadingExisting, setLoadingExisting] = useState(isEditing);
 
   const [vendorName, setVendorName] = useState('');
+  const [billNumber, setBillNumber] = useState('');
+  // SF-landed drafts only: why the automated OCR gate held this one back from
+  // auto-posting (null once it's cleared, or for any non-SF expense). Purely
+  // informational — editing/submitting here always posts gate-free, since a
+  // human is looking at it.
+  const [sfOcrStatus, setSfOcrStatus] = useState<string | null>(null);
+  const [sfOcrErrorMsg, setSfOcrErrorMsg] = useState<string | null>(null);
   const [totalAmount, setTotalAmount] = useState('');
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -167,6 +174,9 @@ export default function ExpenseForm() {
       setExistingStatus(data.status);
       setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
+      setBillNumber(data.bill_number || '');
+      setSfOcrStatus(data.ocr_status || null);
+      setSfOcrErrorMsg(data.ocr_error || null);
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
       setCogsAccountLabel(data.cogs_account_label || '');
@@ -378,6 +388,11 @@ export default function ExpenseForm() {
           const ocr = await res.json();
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
+          if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          // A fresh attachment + a fresh OCR pass supersedes whatever held this
+          // draft before — clear the old hold reason so the banner disappears.
+          setSfOcrStatus(null);
+          setSfOcrErrorMsg(null);
           if (ocr.total != null) setTotalAmount(String(ocr.total));
           if (ocr.date) setReceiptDate(ocr.date);
           if (Array.isArray(ocr.line_items) && ocr.line_items.length > 0) {
@@ -509,6 +524,7 @@ export default function ExpenseForm() {
       const fields = {
         entity,
         vendor_name: vendorName || null,
+        bill_number: billNumber || null,
         total_amount: totalNum || 0,
         receipt_date: receiptDate || null,
         cogs_account_id: cogsAccountId || null,
@@ -746,6 +762,15 @@ export default function ExpenseForm() {
           </div>
         )}
 
+        {sfOcrStatus && sfOcrStatus !== 'processed' && (
+          <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            {sfOcrStatus === 'no_attachment' &&
+              'Held from auto-posting — Service Fusion had no receipt on this expense. Attach one below (or fill in the details and Bill # by hand), then submit to post it now.'}
+            {sfOcrStatus === 'failed' &&
+              `Held from auto-posting — the attached receipt couldn't be read${sfOcrErrorMsg ? `: ${sfOcrErrorMsg}` : '.'} Double-check the details below and submit to post it now.`}
+          </div>
+        )}
+
         {receiptPreview && (
           <div className="relative">
             <img
@@ -791,6 +816,16 @@ export default function ExpenseForm() {
             placeholder="e.g. Home Depot, AutoZone"
             value={vendorName}
             onChange={(e) => setVendorName(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <Label>Bill / Invoice #</Label>
+          <Input
+            disabled={readOnly}
+            placeholder="From the vendor's invoice — auto-filled by OCR when a receipt is attached"
+            value={billNumber}
+            onChange={(e) => setBillNumber(e.target.value)}
           />
         </div>
 
