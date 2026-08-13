@@ -71,6 +71,15 @@ export interface ExpenseRequest {
   qbo_invoice_match: string | null;
   margin_result: Record<string, unknown> | null;
 
+  /** Vendor's own invoice/bill number — OCR-extracted or hand-entered. Flows
+   *  to QBO's "Bill no." (DocNumber) when the bill is created. */
+  bill_number?: string | null;
+  /** OCR gate state for SF-landed drafts (null = not yet run). SF drafts only
+   *  auto-post once this is 'processed' AND bill_number is set — anything
+   *  else ('no_attachment' | 'failed') holds the draft for manual review. */
+  ocr_status?: 'processed' | 'no_attachment' | 'failed' | null;
+  ocr_error?: string | null;
+
   // Soft-archive (SF-landed rows): hidden from lists, kept for sync dedup.
   archived_at?: string | null;
   archived_by?: string | null;

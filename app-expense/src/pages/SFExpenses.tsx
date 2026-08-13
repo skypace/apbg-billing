@@ -10,11 +10,17 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 
 // Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
-// landed by the sf-receipt-sync crawl when a job is invoiced and auto-posted to
-// QBO by sf-expense-autopost. Staff-only (RLS ops.fn_is_staff()). Archive hides
-// a row from every list without deleting it — the sync's dedup key survives, so
-// an archived expense can never re-land. Once a bill is posted, QBO is the
-// source of truth; edits happen there.
+// landed by the sf-receipt-sync crawl when a job is invoiced. Each draft goes
+// through OCR (sf-expense-ocr-background) against its attached receipt; only
+// ones that come out with a real bill number auto-post to QBO
+// (sf-expense-autopost-background). Anything held ("Needs review…") has no
+// receipt, a failed OCR read, or no bill number found — open it (tap the
+// card → the normal edit form), attach/fix the receipt or type the bill
+// number in by hand, and Submit posts it immediately, gate-free. Staff-only
+// (RLS ops.fn_is_staff()). Archive hides a row from every list without
+// deleting it — the sync's dedup key survives, so an archived expense can
+// never re-land. Once a bill is posted, QBO is the source of truth; edits
+// happen there.
 export default function SFExpenses() {
   const navigate = useNavigate();
   const { session } = useSession();
@@ -53,6 +59,18 @@ export default function SFExpenses() {
   };
 
   const total = requests.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+
+  // Mirrors the gate in sf-expense-autopost-background.mjs: only OCR'd drafts
+  // with a real bill number auto-post. Everything else needs a human to open
+  // it, review/attach/adjust, and submit — which posts immediately, gate-free.
+  function draftBadge(req: ExpenseRequest): { label: string; variant: 'success' | 'secondary' | 'warning' } {
+    if (req.status === 'posted') return { label: 'Posted', variant: 'success' };
+    if (req.ocr_status === 'no_attachment') return { label: 'Needs review — no receipt', variant: 'warning' };
+    if (req.ocr_status === 'failed') return { label: 'Needs review — OCR failed', variant: 'warning' };
+    if (req.ocr_status === 'processed' && !req.bill_number) return { label: 'Needs review — no bill #', variant: 'warning' };
+    if (req.ocr_status === 'processed' && req.bill_number) return { label: 'Ready — auto-posting', variant: 'secondary' };
+    return { label: 'Draft — pending OCR', variant: 'secondary' };
+  }
 
   return (
     <div className="space-y-4">
@@ -104,8 +122,8 @@ export default function SFExpenses() {
                     <p className="text-[15px] font-semibold truncate">
                       {req.vendor_name || 'No vendor'}
                     </p>
-                    <Badge variant={req.status === 'posted' ? 'success' : 'secondary'}>
-                      {req.status === 'posted' ? 'Posted' : 'Draft'}
+                    <Badge variant={draftBadge(req).variant}>
+                      {draftBadge(req).label}
                     </Badge>
                   </div>
                   <p className="text-[13px] text-muted-foreground mt-1 truncate">

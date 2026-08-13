@@ -103,6 +103,9 @@ function buildBillPayload(request, vendor, departmentRef, fallbackAccountId) {
   };
   if (request.receipt_date) payload.TxnDate = request.receipt_date;
   if (departmentRef) payload.DepartmentRef = { value: departmentRef.value };
+  // Vendor invoice/bill number (OCR-extracted or hand-entered) → QBO's "Bill no.".
+  // QBO's DocNumber caps at 21 chars.
+  if (request.bill_number) payload.DocNumber = String(request.bill_number).trim().slice(0, 21);
   return payload;
 }
 

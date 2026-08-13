@@ -125,6 +125,9 @@ function buildBillPayload(r, vendor, fallback, prApproval) {
   // QBO Location tracking — "Department" line on the bill.
   if (r.qbo_department_id) payload.DepartmentRef = { value: String(r.qbo_department_id) };
   if (r.receipt_date) payload.TxnDate = r.receipt_date;
+  // Vendor invoice/bill number — OCR-extracted (sf-expense-ocr-background) or
+  // typed in by hand on the form → QBO's "Bill no." QBO's DocNumber caps at 21 chars.
+  if (r.bill_number) payload.DocNumber = String(r.bill_number).trim().slice(0, 21);
   return payload;
 }
 
