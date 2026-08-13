@@ -8,8 +8,9 @@
 // contract (BX-3) → price book (BX-1 standard) → list. Increases are
 // effective-dated inserts on price_book_items (no destructive overwrite).
 //
-// Actions: get | createPriceBook | setBookItemPrice | removeBookItem | bulkIncrease |
-//          createContract | setContractDates | addContractItem |
+// Actions: get | createPriceBook | updatePriceBook | setBookItemPrice | removeBookItem |
+//          bulkIncrease | bulkAddBookItems | setCustomerPriceBook |
+//          createContract | setContractDates | addContractItem | bulkAddContractItems |
 //          removeContractItem | addContractCustomer | removeContractCustomer |
 //          uploadContractFile | contractFileUrl
 
@@ -53,6 +54,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 const dayBefore = (d) => { const dt = new Date(`${d}T00:00:00Z`); dt.setUTCDate(dt.getUTCDate() - 1); return dt.toISOString().slice(0, 10); };
 const round2 = (n) => Math.round(Number(n) * 100) / 100;
 const first = (x) => (Array.isArray(x) ? x[0] : x);
+// Quote each value for a PostgREST in.(...) filter on a text column — qbo item
+// ids are plain alnum today, but this is cheap insurance against a stray comma.
+const pgInList = (values) => values.map((v) => `"${String(v).replace(/"/g, '\\"')}"`).join(',');
 
 async function bookIdByCode(code) {
   const books = await og(`price_books?code=eq.${encodeURIComponent(code)}&select=id`);
@@ -71,7 +75,7 @@ export async function handler(event) {
 
     if (event.httpMethod === 'GET' || action === 'get') {
       const t = today();
-      const [books, standard, contracts, citems, ccusts, items, customers] = await Promise.all([
+      const [books, standard, contracts, citems, ccusts, items, customers, customerBooks] = await Promise.all([
         og('price_books?select=id,code,name,active&order=code'),
         og(`price_book_items?select=id,price_book_id,qbo_item_id,item_name,unit_price,effective_from,effective_to&effective_from=lte.${t}&or=(effective_to.is.null,effective_to.gte.${t})&order=item_name`),
         og('pricing_contracts?select=id,name,kind,start_date,end_date,active,contract_file_name&order=name'),
@@ -79,6 +83,7 @@ export async function handler(event) {
         og('pricing_contract_customers?select=contract_id,qbo_customer_id'),
         og('qbo_items?active=eq.true&select=qbo_item_id,name&order=name'),
         og('qbo_customers?select=qbo_customer_id,display_name&display_name=not.ilike.*(deleted)*&order=display_name'),
+        og('customer_price_book?select=qbo_customer_id,price_book_id&order=updated_at.desc'),
       ]);
       const pick = (id, arr, fn) => arr.filter((r) => r.contract_id === id).map(fn);
       const contractsOut = contracts.map((c) => ({
@@ -86,7 +91,7 @@ export async function handler(event) {
         items: pick(c.id, citems, (r) => ({ qbo_item_id: r.qbo_item_id, item_name: r.item_name, unit_price: Number(r.unit_price) })),
         locations: pick(c.id, ccusts, (r) => r.qbo_customer_id),
       }));
-      return json(200, { ok: true, books, standard, contracts: contractsOut, items, customers });
+      return json(200, { ok: true, books, standard, contracts: contractsOut, items, customers, customerBooks });
     }
 
     if (action === 'createPriceBook') {
@@ -95,6 +100,36 @@ export async function handler(event) {
       if (!code || !name) return json(400, { ok: false, error: 'code + name required' });
       const row = await op('POST', 'price_books', { code, name, active: true });
       return json(200, { ok: true, book: first(row) });
+    }
+
+    if (action === 'updatePriceBook') {
+      const { id } = body;
+      if (!id) return json(400, { ok: false, error: 'id required' });
+      const patch = { updated_at: new Date().toISOString() };
+      if ('name' in body) {
+        const name = String(body.name || '').trim();
+        if (!name) return json(400, { ok: false, error: 'name required' });
+        patch.name = name;
+      }
+      if ('active' in body) patch.active = !!body.active;
+      await op('PATCH', `price_books?id=eq.${id}`, patch, 'return=minimal');
+      return json(200, { ok: true });
+    }
+
+    if (action === 'setCustomerPriceBook') {
+      // Assigns a customer to a non-default price book WITHOUT a contract — the
+      // resolver (ops.resolve_price) checks this table between contracts and the
+      // BX-1 default. price_book_id: null reverts the customer to the default.
+      const { qbo_customer_id, price_book_id } = body;
+      if (!qbo_customer_id) return json(400, { ok: false, error: 'qbo_customer_id required' });
+      if (price_book_id) {
+        await op('POST', 'customer_price_book',
+          [{ qbo_customer_id: String(qbo_customer_id), price_book_id, updated_at: new Date().toISOString() }],
+          'return=minimal,resolution=merge-duplicates');
+      } else {
+        await op('DELETE', `customer_price_book?qbo_customer_id=eq.${encodeURIComponent(qbo_customer_id)}`, null, 'return=minimal');
+      }
+      return json(200, { ok: true });
     }
 
     if (action === 'setBookItemPrice') {
@@ -148,6 +183,32 @@ export async function handler(event) {
       return json(200, { ok: true, updated: rows.length });
     }
 
+    if (action === 'bulkAddBookItems') {
+      // Add many items to a book at once (e.g. every item in a Family/Type) —
+      // same insert-first-close-prior pattern as setBookItemPrice, batched.
+      const items = Array.isArray(body.items) ? body.items : [];
+      const eff = body.effective_from || today();
+      const code = body.book_code || 'BX-1';
+      if (!items.length) return json(400, { ok: false, error: 'items required' });
+      for (const it of items) {
+        if (!it.qbo_item_id || !Number.isFinite(Number(it.unit_price)) || Number(it.unit_price) < 0) {
+          return json(400, { ok: false, error: 'each item needs qbo_item_id + non-negative unit_price' });
+        }
+      }
+      const book = await bookIdByCode(code);
+      const rows = items.map((it) => ({
+        price_book_id: book, qbo_item_id: String(it.qbo_item_id), item_name: it.item_name ?? null,
+        unit_price: round2(it.unit_price), effective_from: eff,
+      }));
+      const inserted = await op('POST', 'price_book_items', rows, 'return=representation');
+      const newIds = (Array.isArray(inserted) ? inserted : [inserted]).map((r) => r.id);
+      const idList = pgInList(items.map((it) => it.qbo_item_id));
+      await op('PATCH',
+        `price_book_items?price_book_id=eq.${book}&qbo_item_id=in.(${idList})&effective_to=is.null&id=not.in.(${newIds.join(',')})`,
+        { effective_to: dayBefore(eff) }, 'return=minimal');
+      return json(200, { ok: true, added: rows.length });
+    }
+
     if (action === 'createContract') {
       const name = (body.name || '').trim();
       if (!name || !body.start_date) return json(400, { ok: false, error: 'name + start_date required' });
@@ -194,6 +255,22 @@ export async function handler(event) {
         [{ contract_id, qbo_item_id: String(qbo_item_id), item_name: item_name ?? null, unit_price: round2(unit_price), updated_at: new Date().toISOString() }],
         'return=minimal,resolution=merge-duplicates');
       return json(200, { ok: true });
+    }
+
+    if (action === 'bulkAddContractItems') {
+      // Add many items to a contract at once (e.g. every item in a Family/Type).
+      const { contract_id } = body;
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!contract_id || !items.length) return json(400, { ok: false, error: 'contract_id + items required' });
+      for (const it of items) {
+        if (!it.qbo_item_id || !Number.isFinite(Number(it.unit_price)) || Number(it.unit_price) < 0) {
+          return json(400, { ok: false, error: 'each item needs qbo_item_id + non-negative unit_price' });
+        }
+      }
+      await op('POST', 'pricing_contract_items',
+        items.map((it) => ({ contract_id, qbo_item_id: String(it.qbo_item_id), item_name: it.item_name ?? null, unit_price: round2(it.unit_price), updated_at: new Date().toISOString() })),
+        'return=minimal,resolution=merge-duplicates');
+      return json(200, { ok: true, added: items.length });
     }
 
     if (action === 'removeContractItem') {
