@@ -1,4 +1,7 @@
-// Company Cards & QBO Match — moved here from Master Control (2026-08-14).
+// Card Connection Services — moved here from Master Control (2026-08-14).
+// Superadmin-only, reachable ONLY from Settings → Card Connection Services
+// (deliberately no sidebar nav entry — it's module configuration, not a
+// daily-driver page).
 //
 // Every posted card swipe / cash expense / check in QuickBooks is a Purchase
 // transaction; Brixpense (ops.expense_requests) holds the human side of the
@@ -264,7 +267,7 @@ export default function CardMatch() {
   if (!isSuperadmin) {
     return (
       <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
-        Company Cards is superadmin-only.
+        Card Connection Services is superadmin-only.
       </CardContent></Card>
     );
   }
@@ -275,12 +278,12 @@ export default function CardMatch() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/settings')} title="Back to Settings">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-            <CreditCard className="h-5 w-5" /> Company Cards &amp; QBO Match
+            <CreditCard className="h-5 w-5" /> Card Connection Services
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Assign card last-4s to their users and merge the QBO credit-card/expense feed with Brixpense records.
