@@ -113,6 +113,20 @@
   to = "/.netlify/functions/qbo-pos-import"
   status = 200
 
+# expense-cc-match — v1 function at /.netlify/functions/ (no config.path);
+# drives the Brixpense "Company Cards" page (moved out of Master Control
+# 2026-08-14). Both shapes needed, same as qbo-pos-*: direct-site traffic
+# arrives at /expense/api/…, gateway traffic arrives with the /expense/
+# prefix already stripped (/api/…).
+[[redirects]]
+  from = "/expense/api/expense-cc-match"
+  to = "/.netlify/functions/expense-cc-match"
+  status = 200
+[[redirects]]
+  from = "/api/expense-cc-match"
+  to = "/.netlify/functions/expense-cc-match"
+  status = 200
+
 # Brixpense expense-* — wildcard to the real function path (/api/<name>)
 [[redirects]]
   from = "/expense/api/*"

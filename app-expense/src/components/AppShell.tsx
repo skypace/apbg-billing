@@ -33,6 +33,8 @@ const navGroups: {
     items: [{ path: 'settings', icon: SettingsIcon, label: 'Settings' }],
   },
 ];
+// Card Connection Services (route 'cards') deliberately has NO sidebar entry —
+// it's superadmin-only and reachable from Settings → Card Connection Services.
 
 // Primary destinations for the mobile bottom tab bar.
 const tabItems = [

@@ -3,7 +3,9 @@
 // Every posted card swipe / cash expense / check in QuickBooks is a Purchase
 // transaction. Brixpense (ops.expense_requests) holds the human side of the
 // same spend: who bought it, the receipt, the department/COGS tagging. This
-// endpoint joins the two so operators can reconcile them from Master Control:
+// endpoint joins the two so operators can reconcile them from Brixpense →
+// Company Cards (/expense/cards, app-expense/src/pages/CardMatch.tsx — moved
+// out of Master Control 2026-08-14; control.html only links here now):
 //
 //   GET  ?from=YYYY-MM-DD&to=YYYY-MM-DD
 //     → { linked, suggestions, unmatched_purchases, unmatched_expenses, totals }
@@ -24,8 +26,12 @@
 //         → upsert ops.expense_card_map (card → cardholder)
 //   POST { action:'unassign_card', last4 }
 //   POST { action:'list_users' } → auth users (id/email/name/role) for the
-//         cardholder dropdown. New users are created in the gateway admin
-//         (alamedapointbg.com/admin.html), then assigned here.
+//         cardholder dropdown — ONLY internal users whose gateway role/modules
+//         grant Brixpense access (the 'billing' bucket: superadmin/admin/
+//         finance, or a modules override containing 'billing'). The shared
+//         auth project also holds customer/melt/driver logins; those never
+//         hold company cards and are filtered out. New users are created in
+//         the gateway admin (alamedapointbg.com/admin.html), then assigned here.
 //
 // Card attribution: bank memos on card Purchases carry the card's last four —
 // 'XXXX1029' (Capital One) or a trailing '- 5939'. cardLast4() parses it and
@@ -381,10 +387,35 @@ export async function handler(event) {
       if (action === 'list_users') {
         // Auth users for the cardholder dropdown (shared gateway auth). New
         // users are created in the gateway admin (alamedapointbg.com/admin.html).
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=200`, { headers: serviceHeaders() });
-        if (!res.ok) return json(502, { error: `auth users read failed (${res.status})` });
-        const data = await res.json();
-        const users = (data.users || data || []).map((u) => ({
+        //
+        // The shared Supabase project also holds brix-order CUSTOMER logins,
+        // melt users, drivers, etc. — company cards only belong to internal
+        // staff who can use Brixpense, so filter to users whose gateway role/
+        // modules grant Brixpense's access bucket ('billing'). Mirrors the
+        // gateway's grantsAccess() in apbg-gateway/netlify/functions/apps.mjs:
+        // superadmin → always; explicit user_metadata.modules → must include
+        // 'billing'; otherwise the legacy role→access map (admin + finance
+        // are the only other roles carrying 'billing').
+        const BILLING_ROLES = new Set(['superadmin', 'admin', 'finance']);
+        const hasBrixpenseAccess = (u) => {
+          const md = u.user_metadata || {};
+          if (md.role === 'superadmin') return true;
+          const mods = Array.isArray(md.modules) ? md.modules : null;
+          if (mods) return mods.includes('billing');
+          return BILLING_ROLES.has(md.role);
+        };
+        // Paginate — with every customer login on the shared project the list
+        // is well past one page, and a truncated page could drop staff.
+        const all = [];
+        for (let page = 1; page <= 10; page++) {
+          const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=200`, { headers: serviceHeaders() });
+          if (!res.ok) return json(502, { error: `auth users read failed (${res.status})` });
+          const data = await res.json();
+          const batch = data.users || (Array.isArray(data) ? data : []);
+          all.push(...batch);
+          if (batch.length < 200) break;
+        }
+        const users = all.filter(hasBrixpenseAccess).map((u) => ({
           id: u.id,
           email: u.email,
           name: u.user_metadata?.full_name || u.user_metadata?.name || '',
