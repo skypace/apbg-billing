@@ -33,7 +33,6 @@ const HOOK_TIMEOUT_MS = 20000;
 const ATTACH_BUCKET = "expense-attachments";
 const SUBMITTER_ID = "2da634b7-623d-4f73-b667-cf87975fcdb6"; // skypace@brixbev.com (system)
 const START_DATE = Deno.env.get("SF_SWEEP_START_DATE") || "2026-06-03";
-const PAGES_PER_RUN = 8;
 const TOKEN_LOCK_SECONDS = 45;
 const TOKEN_LOCK_WAIT_MS = 2500;
 const ACCOUNT_MAP: Record<string, { id: string; name: string }> = {
@@ -240,13 +239,24 @@ async function resolveJobAssets(s: any, jobNumber: string): Promise<{ encId: str
 // here carried no sort and was burning ~100s of the 150s request wall on its own,
 // which is why sweeps kept dying before they could write their sync_log row.
 //
-// `sort=-id` means page 1 is the NEWEST page, so both sweep modes read forward:
-// fresh takes pages 1..N, and the crawl walks 1,2,3... back through history and
-// wraps when it runs dry. No pageCount probe is needed at all — an empty page IS
-// the end. Note `per-page` is HYPHENATED; SF silently ignores `per_page` and falls
-// back to its default page size (which is why a "50/page" sweep only ever saw ~10).
+// `sort=-id` means page 1 is the NEWEST-CREATED page. The crawl walks 1,2,3...
+// back through history on this sort and wraps when it runs dry — id order is
+// stable, so the walk can't shuffle underneath the cursor. No pageCount probe is
+// needed at all — an empty page IS the end. Note `per-page` is HYPHENATED; SF
+// silently ignores `per_page` and falls back to its default page size (which is
+// why a "50/page" sweep only ever saw ~10).
 const JOB_LIST = "/jobs?filters[status]=Invoiced&sort=-id&per-page=50";
-const jobListPath = (page: number) => `${JOB_LIST}&page=${page}`;
+// The FRESH sweep sorts by -updated_at instead: adding or editing an EXPENSE
+// bumps the JOB's updated_at (verified live 2026-08-14 — job 1091248795, created
+// 6/23, read back updated_at 8/13T14:20 right after its expense landed at 14:15),
+// so an expense added to a months-old, already-Invoiced job surfaces on page 1 of
+// this sort within one sweep cycle. Sorted by -id that job sits hundreds of jobs
+// deep and NO sweep ever revisits it — that's how 12 expenses (~$9k, incl. both
+// DESERT BEVERAGE jobs) sat invisible until an operator noticed. A brand-new job
+// is also recently *updated*, so this sort strictly dominates -id for freshness;
+// -id stays only where a stable page walk matters (crawl, ?job= scan).
+const JOB_LIST_UPDATED = "/jobs?filters[status]=Invoiced&sort=-updated_at&per-page=50";
+const jobListPath = (page: number, byUpdated = false) => `${byUpdated ? JOB_LIST_UPDATED : JOB_LIST}&page=${page}`;
 
 function receiptRefs(ex: any): string[] {
   const refOf = (v: any) => { if (!v) return null; if (typeof v === "string") return v; if (typeof v === "object") return v.file_location || v.url || v.receipt_url || v.path || v.location || null; return null; };
@@ -490,8 +500,9 @@ Deno.serve(async (req: Request) => {
     } catch (e: any) { return json({ job: target, error: e.message }, 500); }
   }
 
-  // Sweep modes: ?fresh=N (the N newest pages) or default crawl (walks back through
-  // history from a stored cursor). Both now page NEWEST-FIRST — see JOB_LIST below.
+  // Sweep modes: ?fresh=N (the N most-recently-UPDATED pages — catches new jobs
+  // AND old jobs that just had an expense added) or default crawl (walks back
+  // through creation history from a stored cursor). See JOB_LIST/_UPDATED below.
   const freshParam = u.searchParams.get("fresh");
   const fresh = freshParam !== null;
 
@@ -531,7 +542,9 @@ Deno.serve(async (req: Request) => {
   try {
     for (let p = page; span === 0 || p < page + span; p++) {
       if (Date.now() - t0 > budgetMs) { budgetHit = true; log.push("time budget"); break; }
-      const d = await sfGet(s, jobListPath(p));
+      // fresh reads by -updated_at (catches expenses added to old invoiced jobs);
+      // the crawl keeps the stable -id walk. See JOB_LIST_UPDATED above.
+      const d = await sfGet(s, jobListPath(p, fresh));
       const jobs = d.items || [];
       if (!jobs.length) { ranDry = true; break; }   // walked off the end of history
       for (const j of jobs) {
