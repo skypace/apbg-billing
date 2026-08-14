@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/lib/hooks';
+import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Clock, Receipt } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock, Receipt, Send } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 
@@ -14,6 +15,8 @@ export default function PendingList() {
   const { session } = useSession();
   const [requests, setRequests] = useState<ExpenseRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -28,6 +31,32 @@ export default function PendingList() {
     }
     load();
   }, [session]);
+
+  // Expenses only auto-approve now — nothing reaches QuickBooks until someone
+  // explicitly posts it here. This IS the "pay attention to the bill" gate:
+  // one deliberate click, separate from Submit, per expense.
+  const postToQuickBooks = async (req: ExpenseRequest) => {
+    setPostingId(req.id);
+    setPostError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch('/expense/api/expense-request-link-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ requestId: req.id, mode: 'create' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        setPostError(data.message || data.error || 'Could not post to QuickBooks.');
+        return;
+      }
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id } : r)));
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+    } finally {
+      setPostingId(null);
+    }
+  };
 
   const statusVariant: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'secondary'> = {
     draft: 'secondary',
@@ -58,6 +87,12 @@ export default function PendingList() {
         <h1 className="text-xl font-bold tracking-tight">My Submissions</h1>
       </div>
 
+      {postError && (
+        <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
+          {postError}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -83,6 +118,10 @@ export default function PendingList() {
             // they actually buy the thing. Receipt + payment account close the loop.
             const isReadyForReceipt =
               req.request_type === 'purchase_request' && req.status === 'awaiting_invoice';
+            // Auto-approve no longer posts to QBO — every 'approved' expense
+            // sits here until someone deliberately posts it.
+            const isReadyToPost =
+              req.request_type === 'expense' && req.status === 'approved' && !req.qbo_bill_id;
             return (
               <Card
                 key={req.id}
@@ -119,6 +158,22 @@ export default function PendingList() {
                     >
                       <Receipt className="h-4 w-4 mr-1" />
                       Log Receipt
+                    </Button>
+                  )}
+                  {isReadyToPost && (
+                    <Button
+                      size="sm"
+                      disabled={postingId === req.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        postToQuickBooks(req);
+                      }}
+                      title="Review complete — send this to QuickBooks"
+                    >
+                      {postingId === req.id
+                        ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        : <Send className="h-4 w-4 mr-1" />}
+                      Post to QuickBooks
                     </Button>
                   )}
                 </CardContent>

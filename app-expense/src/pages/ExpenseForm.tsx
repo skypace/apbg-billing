@@ -145,6 +145,13 @@ export default function ExpenseForm() {
   const [resultBillId] = useState<string | null>(null);
   const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  // Gate (Sky, 2026-08-13): Submit only auto-approves — it never touches QBO.
+  // readyToPost tracks whether THIS request is still waiting on the separate,
+  // explicit "Post to QuickBooks" click.
+  const [readyToPostId, setReadyToPostId] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [postedInfo, setPostedInfo] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
 
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
@@ -611,8 +618,10 @@ export default function ExpenseForm() {
 
       if (notifyRes.ok) {
         const notifyData = await notifyRes.json();
-        if (notifyData.margin_match) setMarginMatch(notifyData.margin_match);
-        if (notifyData.auto_approved) {
+        if (notifyData.ready_to_post) {
+          setResultMessage('Approved — review the bill below, then post it to QuickBooks.');
+          setReadyToPostId(req.id);
+        } else if (notifyData.auto_approved) {
           setResultMessage('Expense auto-approved and logged.');
         } else {
           setResultMessage(
@@ -620,7 +629,8 @@ export default function ExpenseForm() {
           );
         }
       } else {
-        setResultMessage('Request saved but notification may have failed.');
+        const notifyErr = await notifyRes.json().catch(() => ({}));
+        setResultMessage(notifyErr.error || 'Request saved but could not be approved.');
       }
 
       // Remember this submitter's choices as the pre-fill for their next expense.
@@ -642,6 +652,34 @@ export default function ExpenseForm() {
       setStep('error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // The separate, explicit second step — nothing reaches QuickBooks without
+  // this deliberate click, even for a plain auto-approved expense.
+  const postToQuickBooks = async () => {
+    if (!readyToPostId) return;
+    setPosting(true);
+    setPostError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch('/expense/api/expense-request-link-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ requestId: readyToPostId, mode: 'create' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        setPostError(data.message || data.error || 'Could not post to QuickBooks.');
+        return;
+      }
+      if (data.margin_match) setMarginMatch(data.margin_match);
+      setPostedInfo(`Posted to QuickBooks as ${data.kind === 'purchase' ? 'Purchase' : 'Bill'} ${data.qbo_doc_number || data.qbo_bill_id || data.qbo_purchase_id}.`);
+      setReadyToPostId(null);
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -1228,6 +1266,26 @@ export default function ExpenseForm() {
           <div className="text-xs rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200 max-w-sm">
             No QBO invoice found referencing Job #{marginMatch.job_number}. Either the invoice hasn't been created yet, or the job number doesn't appear on any recent invoice.
           </div>
+        )}
+
+        {readyToPostId && !postedInfo && (
+          <div className="w-full max-w-sm text-left space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Nothing has been sent to QuickBooks yet. Double-check the vendor, amount, and line items above, then post it.
+            </p>
+            {postError && (
+              <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
+                {postError}
+              </div>
+            )}
+            <Button className="w-full" disabled={posting} onClick={postToQuickBooks}>
+              {posting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Post to QuickBooks
+            </Button>
+          </div>
+        )}
+        {postedInfo && (
+          <p className="text-sm text-emerald-500 font-medium">{postedInfo}</p>
         )}
 
         <div className="flex gap-2 mt-4">
