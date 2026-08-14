@@ -1016,15 +1016,17 @@ async function ccLink(purchaseId, expenseId){
   try{ await ccApi('POST',{action:'link',purchaseId,expenseId}); log(`Merged charge ${purchaseId} ↔ Brixpense ${expenseId}`,'ok'); loadCcMatch(); }
   catch(e){ alert('Merge failed: '+e.message); }
 }
-// Assign a card's last-4 to a user: fetches the shared-auth user list once,
+// Assign a card's last-4 to a user: fetches the internal-user list once
+// (server-filtered to users whose gateway role grants Brixpense access —
+// customer/melt/driver logins on the shared auth never appear here),
 // then a simple numbered prompt (Master Control is dialog-driven throughout).
 let __ccUsers=null;
 async function ccAssignCard(last4){
   try{
     if(!__ccUsers){ const r=await ccApi('POST',{action:'list_users'}); __ccUsers=r.users||[]; }
-    if(!__ccUsers.length){ alert('No users found. Create one in the gateway admin first.'); return; }
+    if(!__ccUsers.length){ alert('No Brixpense-access users found. Create one in the gateway admin (role with billing access) first.'); return; }
     const menu=__ccUsers.map((u,i)=>`${i+1}. ${u.name?u.name+' — ':''}${u.email}${u.role?' ('+u.role+')':''}`).join('\n');
-    const pick=prompt(`Assign card •••• ${last4} to which user?\n(New user? Create it at alamedapointbg.com/admin.html first, then Reassign.)\n\n${menu}\n\nEnter a number (blank = cancel, 0 = unassign):`);
+    const pick=prompt(`Assign card •••• ${last4} to which user?\n(Only internal users with Brixpense access are listed. New user? Create it at alamedapointbg.com/admin.html first, then Reassign.)\n\n${menu}\n\nEnter a number (blank = cancel, 0 = unassign):`);
     if(pick===null||pick.trim()==='') return;
     if(pick.trim()==='0'){
       await ccApi('POST',{action:'unassign_card',last4});
