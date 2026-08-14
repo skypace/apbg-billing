@@ -13,11 +13,15 @@ import { createClient } from '@supabase/supabase-js';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 import { attachReceiptsToQBO } from './lib/qbo-attach.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
+import { brixpenseEmail, kvRow, kvTable, esc, money } from './lib/brixpense-email.mjs';
+import { sendEmail } from './email-helpers.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY =
   process.env.SUPABASE_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const REPORT_TO = process.env.SF_EXPENSE_REPORT_TO || 'whitney@alamedasoda.com';
+const SITE_URL = process.env.URL || 'https://alamedapointbg.com';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -32,6 +36,53 @@ const DEFAULT_COGS_ACCOUNT_ID = '101';
 function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, headers: CORS }); }
 function err(m, s = 400) { return json({ error: m }, s); }
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
+
+// qboRequest throws `Error("QBO API error: <status> " + rawResponseText)` —
+// rawResponseText is QBO's Fault JSON. Pull out the actual human message
+// ("Account Period Closed…") instead of surfacing the raw blob to a person
+// trying to figure out why their bill won't post.
+function qboFaultMessage(e) {
+  const msg = e?.message || String(e);
+  const jsonStart = msg.indexOf('{');
+  if (jsonStart === -1) return msg;
+  try {
+    const parsed = JSON.parse(msg.slice(jsonStart));
+    const fault = parsed?.Fault?.Error?.[0];
+    if (fault) return [fault.Message, fault.Detail].filter(Boolean).join(' — ');
+  } catch { /* not JSON, or not the shape we expect — fall through */ }
+  return msg;
+}
+
+// A failed/blocked post is easy to miss if the person who clicked the button
+// just closes the tab. This mails REPORT_TO (same convention as the SF
+// autopost/OCR alerts) so it doesn't depend on anyone staring at the screen,
+// and stamps the reason onto the row (autopost_error) so it's also visible
+// in the Brixpense list without opening the email.
+async function notifyPostFailure(supabase, request, reason) {
+  try {
+    await supabase.from('expense_requests').update({ autopost_error: reason.slice(0, 500) }).eq('id', request.id);
+  } catch { /* best-effort */ }
+  try {
+    const editUrl = `${SITE_URL.replace(/\/$/, '')}/expense/edit/${request.id}`;
+    const inner = `<p style="margin:0 0 6px;color:#fff;font-size:16px;font-weight:700">Couldn't post to QuickBooks</p>
+      <p style="margin:0 0 14px;color:#CBD5E1">${esc(reason)}</p>
+      ${kvTable([
+        kvRow('Vendor', esc(request.vendor_name || '(blank)')),
+        kvRow('Amount', money(request.total_amount)),
+        kvRow('Job / customer', [request.job_number, request.customer_name].filter(Boolean).map(esc).join(' — ') || '—'),
+        kvRow('Brixpense ID', esc(request.id)),
+      ].join(''))}
+      <p style="margin-top:14px"><a href="${editUrl}" style="color:#60A5FA">Open in Brixpense →</a></p>
+      <p style="color:#64748B;font-size:12px;margin-top:14px">The expense stays "Approved" and untouched in QuickBooks — fix the issue (date, vendor, etc.) and post it again.</p>`;
+    await sendEmail({
+      to: REPORT_TO,
+      subject: `⚠ Brixpense — QuickBooks post failed: ${request.vendor_name || request.id} (${money(request.total_amount)})`,
+      html: brixpenseEmail('#F59E0B', 'Post failed', inner),
+    });
+  } catch (e) {
+    console.warn('notifyPostFailure email failed (non-fatal):', e?.message);
+  }
+}
 
 async function findQBOVendor(name) {
   if (!name) return null;
@@ -227,7 +278,9 @@ export default async function handler(req) {
   // ── Paid expense -> QBO Purchase ──────────────────────────────────────
   if (isPaidExpense) {
     if (!request.payment_account_id) {
-      return err('This expense has no "Paid with" account on record. Edit it in Brixpense and pick one before posting.', 422);
+      const reason = 'This expense has no "Paid with" account on record.';
+      await notifyPostFailure(supabase, request, reason);
+      return err(`${reason} Edit it in Brixpense and pick one before posting.`, 422);
     }
     let optionalVendor = null;
     try { optionalVendor = await findQBOVendor(request.vendor_name); } catch {}
@@ -253,10 +306,15 @@ export default async function handler(req) {
       const qboRes = await qboRequest('POST', '/purchase', payload);
       qboTxn = qboRes?.Purchase;
     } catch (e) {
-      console.error('QBO Purchase post failed:', e);
-      return err('QBO Purchase post failed: ' + e.message, 502);
+      const reason = qboFaultMessage(e);
+      console.error('QBO Purchase post failed:', reason);
+      await notifyPostFailure(supabase, request, reason);
+      return err('QBO Purchase post failed: ' + reason, 502);
     }
-    if (!qboTxn?.Id) return err('QBO did not return a Purchase ID', 502);
+    if (!qboTxn?.Id) {
+      await notifyPostFailure(supabase, request, 'QBO did not return a Purchase ID');
+      return err('QBO did not return a Purchase ID', 502);
+    }
 
     try { await attachReceiptsToQBO('Purchase', qboTxn.Id, requestId); } catch { /* non-fatal */ }
 
@@ -266,6 +324,7 @@ export default async function handler(req) {
     const { error: updateErr } = await supabase.from('expense_requests').update({
       status: 'posted', posted_at: now, qbo_bill_id: qboTxn.Id,
       vendor_id: optionalVendor?.Id || request.vendor_id || null,
+      autopost_error: null,
     }).eq('id', requestId);
     if (updateErr) {
       return json({ success: true, partial: true, message: 'Purchase created in QBO but local status update failed.', request_id: requestId, qbo_purchase_id: qboTxn.Id, update_error: updateErr.message }, 207);
@@ -299,9 +358,11 @@ export default async function handler(req) {
   // ── Unpaid bill (expense as_bill=true, or a purchase_request fulfillment) -> QBO Bill ──
   const vendor = await findQBOVendor(request.vendor_name);
   if (!vendor) {
+    const reason = `Could not match vendor "${request.vendor_name || '(blank)'}" in QuickBooks.`;
+    await notifyPostFailure(supabase, request, reason);
     return json({
       success: false, needs_vendor: true,
-      message: `Could not match vendor "${request.vendor_name || '(blank)'}" in QuickBooks.`,
+      message: reason,
       request_id: requestId,
     });
   }
@@ -322,11 +383,16 @@ export default async function handler(req) {
     const qboRes = await qboRequest('POST', '/bill', payload);
     billResult = qboRes.Bill;
   } catch (e) {
-    console.error('QBO bill creation failed:', e);
-    return err('QBO bill creation failed: ' + e.message, 502);
+    const reason = qboFaultMessage(e);
+    console.error('QBO bill creation failed:', reason);
+    await notifyPostFailure(supabase, request, reason);
+    return err('QBO bill creation failed: ' + reason, 502);
   }
 
-  if (!billResult || !billResult.Id) return err('QBO did not return a bill ID', 502);
+  if (!billResult || !billResult.Id) {
+    await notifyPostFailure(supabase, request, 'QBO did not return a bill ID');
+    return err('QBO did not return a bill ID', 502);
+  }
 
   try { await attachReceiptsToQBO('Bill', billResult.Id, requestId); } catch { /* non-fatal */ }
 
@@ -337,6 +403,7 @@ export default async function handler(req) {
       vendor_id: vendor.Id,
       status: 'posted',
       posted_at: new Date().toISOString(),
+      autopost_error: null,
     })
     .eq('id', requestId);
 

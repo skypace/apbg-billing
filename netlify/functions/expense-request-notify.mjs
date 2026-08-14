@@ -91,7 +91,14 @@ export default async function handler(req) {
     console.error('notify: lookup failed', { requestId, fetchErr });
     return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
   }
-  if (request.status !== 'draft') return err(`Request is already "${request.status}", cannot submit`, 409);
+  // Expenses can be re-submitted from 'approved' (not just 'draft') — a
+  // human editing an approved-but-unposted expense to fix a bad field (wrong
+  // date, wrong vendor) needs Submit to re-validate it, not reject it because
+  // it was already approved once. PRs keep the stricter 'draft'-only gate —
+  // that flow moves through manager decide/fulfill, never back through here.
+  const resubmittableStatuses = request.request_type === 'expense' ? ['draft', 'approved'] : ['draft'];
+  if (!resubmittableStatuses.includes(request.status)) return err(`Request is already "${request.status}", cannot submit`, 409);
+  const wasAlreadyApproved = request.status === 'approved';
 
   if (request.request_type === 'expense') {
     const now = new Date().toISOString();
@@ -124,7 +131,9 @@ export default async function handler(req) {
     await sb.schema('ops').from('expense_approvals').insert({
       request_id: requestId, action: 'approved',
       decided_by: 'system (auto-approve)',
-      notes: 'Auto-approved — awaiting manual post to QuickBooks.',
+      notes: wasAlreadyApproved
+        ? 'Re-validated after edit — still awaiting manual post to QuickBooks.'
+        : 'Auto-approved — awaiting manual post to QuickBooks.',
       token_used: null,
     });
     return json({

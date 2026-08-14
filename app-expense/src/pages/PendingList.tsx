@@ -47,10 +47,12 @@ export default function PendingList() {
       });
       const data = await res.json();
       if (!res.ok || data.success === false) {
-        setPostError(data.message || data.error || 'Could not post to QuickBooks.');
+        const reason = data.message || data.error || 'Could not post to QuickBooks.';
+        setPostError(reason);
+        setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
         return;
       }
-      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id } : r)));
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id, autopost_error: null } : r)));
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
     } finally {
@@ -143,6 +145,11 @@ export default function PendingList() {
                       {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                       {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                     </p>
+                    {req.status === 'approved' && req.autopost_error && (
+                      <p className="text-[12px] text-amber-500 mt-1 truncate" title={req.autopost_error}>
+                        ⚠ Last post attempt failed: {req.autopost_error}
+                      </p>
+                    )}
                   </div>
                   <span className="text-[15px] font-bold tabular-nums shrink-0">
                     {req.total_amount ? formatCurrency(req.total_amount) : '—'}

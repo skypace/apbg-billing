@@ -156,7 +156,12 @@ export default function ExpenseForm() {
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
   const needsApproval = totalNum > threshold;
-  const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
+  // 'approved' (auto-approved, not yet posted to QuickBooks) stays editable —
+  // that's exactly the state where a human catches a bad field (wrong date,
+  // wrong vendor) before it becomes a real QBO transaction. Everything past
+  // that (posted/denied/fulfilled/awaiting_invoice) is locked; QBO or a
+  // manager decision is the source of truth at that point.
+  const readOnly = isEditing && existingStatus !== null && !['draft', 'approved'].includes(existingStatus);
 
   useEffect(() => {
     if (!id) return;
@@ -789,6 +794,14 @@ export default function ExpenseForm() {
           <div className="text-xs bg-secondary/40 border border-border rounded-md p-3">
             This submission has already been processed and is read-only.
             Use <strong>New Expense</strong> from the dashboard to file a new one.
+          </div>
+        )}
+
+        {isEditing && existingStatus === 'approved' && (
+          <div className="text-xs rounded-md p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            Approved, but nothing has been sent to QuickBooks yet. If something's
+            wrong (date, vendor, amount), fix it and hit Submit to re-check it —
+            then use "Post to QuickBooks" wherever this expense is listed.
           </div>
         )}
 
