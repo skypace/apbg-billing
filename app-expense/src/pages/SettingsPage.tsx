@@ -11,7 +11,8 @@
 //      read-only to clients).
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, RefreshCw, Save, Plus, Trash2, Search, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Check, RefreshCw, Save, Plus, Trash2, Search, X, CreditCard } from 'lucide-react';
 
 /** Per-AccountType visual treatment for the COGS/Expense picker pills. */
 const ACCT_TYPE_STYLE: Record<string, { short: string; pill: string }> = {
@@ -105,6 +106,7 @@ function StringListEditor({
 }
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   // ── Personal payment accounts ──
   const [allAccounts, setAllAccounts] = useState<QboAccount[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -116,6 +118,9 @@ export default function SettingsPage() {
 
   // ── Organization settings (admin only) ──
   const [isAdmin, setIsAdmin] = useState(false);
+  // Card Connection Services entry (superadmin only — matches the backend
+  // gate on expense-cc-match; admins see Organization but not this).
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [threshold, setThreshold] = useState('500');
   const [managerEmails, setManagerEmails] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
@@ -169,6 +174,7 @@ export default function SettingsPage() {
         '';
       const admin = ['superadmin', 'admin'].includes(role);
       setIsAdmin(admin);
+      setIsSuperadmin(role === 'superadmin');
 
       if (admin) {
         const { data: rows } = await supabase
@@ -797,6 +803,33 @@ export default function SettingsPage() {
             >
               <Save size={14} />
               {orgSaving ? 'Saving…' : 'Save organization settings'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Card Connection Services (superadmin only) ──
+          Company card → user assignment + the QBO charge ↔ Brixpense merge.
+          Lives on its own page (heavy QBO loads, big tables); Settings is the
+          only way in — no sidebar entry. Moved from Master Control 2026-08-14. */}
+      {isSuperadmin && !loading && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex-1 min-w-[240px]">
+              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                <CreditCard size={18} /> Card Connection Services
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Assign each company card's last-4 to its user and reconcile the QBO
+                credit-card/expense feed with Brixpense records (merge, import, unlink).
+                Superadmin only.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/cards')}
+              className="inline-flex items-center gap-2 rounded bg-slate-700 hover:bg-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 transition"
+            >
+              Open Card Connection Services →
             </button>
           </div>
         </div>

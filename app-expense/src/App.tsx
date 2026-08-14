@@ -12,6 +12,7 @@ const ManagerQueue = lazy(() => import('@/pages/ManagerQueue'));
 const ApprovalPage = lazy(() => import('@/pages/ApprovalPage'));
 const ThirdPartyBills = lazy(() => import('@/pages/ThirdPartyBills'));
 const SFExpenses = lazy(() => import('@/pages/SFExpenses'));
+const CardMatch = lazy(() => import('@/pages/CardMatch'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function LoadingFallback() {
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="queue" element={<ManagerQueue />} />
             <Route path="third-party" element={<ThirdPartyBills />} />
             <Route path="sf-expenses" element={<SFExpenses />} />
+            <Route path="cards" element={<CardMatch />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="edit/:id" element={<ExpenseForm />} />
             <Route path="review/:id" element={<ApprovalPage />} />
