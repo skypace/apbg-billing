@@ -623,7 +623,28 @@ export default function ExpenseForm() {
 
       if (notifyRes.ok) {
         const notifyData = await notifyRes.json();
-        if (notifyData.ready_to_post) {
+        if (notifyData.ready_to_post && notifyData.mode === 'purchase') {
+          // Already paid — nothing left to double-check that Submit didn't
+          // already validate (payment account on file), so post it to
+          // QuickBooks right now instead of making the user come back for a
+          // second click. A failed post still lands exactly like a manual
+          // one would (autopost_error stamped + REPORT_TO emailed) and this
+          // row stays approved + editable, with the same "Post to
+          // QuickBooks" button as a retry.
+          try {
+            const postData = await attemptPostToQuickBooks(req.id);
+            if (postData.margin_match) setMarginMatch(postData.margin_match);
+            setResultMessage(
+              `Posted to QuickBooks as Purchase ${postData.qbo_doc_number || postData.qbo_purchase_id}.`,
+            );
+          } catch (e) {
+            setResultMessage('Approved, but the QuickBooks post failed — fix the issue below and try again.');
+            setReadyToPostId(req.id);
+            setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+          }
+        } else if (notifyData.ready_to_post) {
+          // Unpaid bill — approve now, post whenever it's actually ready
+          // (e.g. once it's paid); that's a deliberate separate click.
           setResultMessage('Approved — review the bill below, then post it to QuickBooks.');
           setReadyToPostId(req.id);
         } else if (notifyData.auto_approved) {
@@ -660,26 +681,34 @@ export default function ExpenseForm() {
     }
   };
 
-  // The separate, explicit second step — nothing reaches QuickBooks without
-  // this deliberate click, even for a plain auto-approved expense.
+  // Shared with the auto-post-on-submit path above (paid expenses) — this is
+  // the one place that actually calls expense-request-link-bill. Throws on
+  // any failure so both callers can each decide how to surface it.
+  const attemptPostToQuickBooks = async (id: string) => {
+    const token = await getAccessToken();
+    const res = await fetch('/expense/api/expense-request-link-bill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ requestId: id, mode: 'create' }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
+    }
+    return data;
+  };
+
+  // The manual fallback — unpaid bills wait here deliberately ("post later,
+  // once it's actually paid"); paid expenses only land here as a retry after
+  // an auto-post attempt failed.
   const postToQuickBooks = async () => {
     if (!readyToPostId) return;
     setPosting(true);
     setPostError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: readyToPostId, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        setPostError(data.message || data.error || 'Could not post to QuickBooks.');
-        return;
-      }
-      if (data.margin_match) setMarginMatch(data.margin_match);
+      const data = await attemptPostToQuickBooks(readyToPostId);
       setPostedInfo(`Posted to QuickBooks as ${data.kind === 'purchase' ? 'Purchase' : 'Bill'} ${data.qbo_doc_number || data.qbo_bill_id || data.qbo_purchase_id}.`);
+      if (data.margin_match) setMarginMatch(data.margin_match);
       setReadyToPostId(null);
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
@@ -799,9 +828,9 @@ export default function ExpenseForm() {
 
         {isEditing && existingStatus === 'approved' && (
           <div className="text-xs rounded-md p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
-            Approved, but nothing has been sent to QuickBooks yet. If something's
-            wrong (date, vendor, amount), fix it and hit Submit to re-check it —
-            then use "Post to QuickBooks" wherever this expense is listed.
+            {isPaid
+              ? "Approved, but the QuickBooks post hasn't gone through yet. Fix whatever's wrong (date, vendor, account) and hit Submit — it will try posting to QuickBooks again right away."
+              : 'Approved, but nothing has been sent to QuickBooks yet. If something\'s wrong (date, vendor, amount), fix it and hit Submit to re-check it — then use "Post to QuickBooks" wherever this expense is listed once it\'s ready.'}
           </div>
         )}
 
@@ -1217,7 +1246,9 @@ export default function ExpenseForm() {
               >
                 {needsApproval
                   ? 'Submit for Approval'
-                  : `Submit — ${formatCurrency(totalNum)}`}
+                  : isPaid
+                    ? `Submit & Post to QuickBooks — ${formatCurrency(totalNum)}`
+                    : `Submit — ${formatCurrency(totalNum)}`}
               </Button>
             </div>
           </div>
@@ -1233,7 +1264,9 @@ export default function ExpenseForm() {
         <p className="text-sm text-muted-foreground">
           {needsApproval
             ? 'Submitting and notifying manager…'
-            : 'Processing expense…'}
+            : isPaid
+              ? 'Submitting and posting to QuickBooks…'
+              : 'Processing expense…'}
         </p>
       </div>
     );
