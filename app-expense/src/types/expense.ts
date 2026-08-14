@@ -80,6 +80,10 @@ export interface ExpenseRequest {
   ocr_status?: 'processed' | 'no_attachment' | 'failed' | null;
   ocr_error?: string | null;
 
+  /** Reason the last "Post to QuickBooks" attempt failed (e.g. a closed QBO
+   *  accounting period, no vendor match). Cleared on a successful post. */
+  autopost_error?: string | null;
+
   // Soft-archive (SF-landed rows): hidden from lists, kept for sync dedup.
   archived_at?: string | null;
   archived_by?: string | null;
