@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
   ChevronLeft, ChevronRight,
-  Menu, X, BookOpen, Sun, Moon, Wrench,
+  Menu, X, BookOpen, Sun, Moon, Wrench, CreditCard,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
@@ -34,6 +34,15 @@ const navGroups: {
   },
 ];
 
+// Superadmin-only nav group — Company Cards (card→user assignment + QBO
+// charge ↔ Brixpense reconciliation, moved here from Master Control
+// 2026-08-14). The backend (expense-cc-match) is superadmin-gated; hiding
+// the nav for everyone else just keeps the sidebar honest.
+const superadminNavGroup = {
+  label: 'Admin',
+  items: [{ path: 'cards', icon: CreditCard, label: 'Company Cards' }],
+};
+
 // Primary destinations for the mobile bottom tab bar.
 const tabItems = [
   { path: '', icon: Receipt, label: 'Home' },
@@ -48,6 +57,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   const currentPath = location.pathname.replace(/^\/expense\/?/, '');
@@ -55,8 +65,18 @@ export function AppShell() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? null);
+      const role =
+        (data.user?.app_metadata as { role?: string } | undefined)?.role ||
+        (data.user?.user_metadata as { role?: string } | undefined)?.role ||
+        '';
+      setIsSuperadmin(role === 'superadmin');
     });
   }, []);
+
+  // Insert the Admin group before Account for superadmins only.
+  const groups = isSuperadmin
+    ? [...navGroups.slice(0, -1), superadminNavGroup, navGroups[navGroups.length - 1]]
+    : navGroups;
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -220,7 +240,7 @@ export function AppShell() {
         </div>
 
         <nav className="nav">
-          {navGroups.map((group, gi) => (
+          {groups.map((group, gi) => (
             <div key={group.label ?? `g${gi}`}>
               {group.label && !collapsed && (
                 <div className="nav-section">{group.label}</div>

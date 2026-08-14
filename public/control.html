@@ -140,16 +140,17 @@ header .links a:hover{color:#1F4E79}
     <div id="syncCustomersBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
   </div>
 
+  <!-- Card & Expense Match moved to Brixpense → Company Cards (2026-08-14).
+       Cardholder assignment + QBO charge ↔ Brixpense reconciliation now live
+       inside the module they configure; Master Control only links there. -->
   <div class="keepalive-section" style="margin-top:24px">
-    <h2>💳 Card &amp; Expense Match <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— merge the QBO credit-card/expense feed with Brixpense records</span></h2>
-    <div id="ccMatchBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
-        <label style="font-size:0.8rem;color:#6B7280">From <input type="date" id="ccFrom" style="padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px"></label>
-        <label style="font-size:0.8rem;color:#6B7280">To <input type="date" id="ccTo" style="padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px"></label>
-        <button onclick="loadCcMatch()" id="ccLoadBtn" style="background:#1F4E79;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:600;font-size:0.85rem;cursor:pointer">Load / Refresh</button>
-        <span id="ccSummary" style="font-size:0.8rem;color:#6B7280"></span>
+    <h2>💳 Card &amp; Expense Match <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— moved to Brixpense</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Cardholder assignment and the QBO credit-card/expense ↔ Brixpense merge now live in
+        <b>Brixpense → Company Cards</b> (superadmin only), inside the module they configure.
       </div>
-      <div id="ccResults" style="font-size:0.85rem"></div>
+      <a href="/expense/cards" style="flex:none;background:#1F4E79;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;text-decoration:none">Open Company Cards →</a>
     </div>
   </div>
 
@@ -918,145 +919,10 @@ async function driveResqWo(){
   await postResqControl({action:'drive',codes:[code]}, `Drove ${code}`);
 }
 
-// --- Card & Expense Match (QBO Purchase feed ↔ Brixpense) ---
-(function initCcDates(){
-  const to=new Date(), from=new Date(Date.now()-45*86400000);
-  const f=d=>d.toISOString().slice(0,10);
-  document.getElementById('ccFrom').value=f(from);
-  document.getElementById('ccTo').value=f(to);
-})();
-const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-async function ccApi(method, body, qs){
-  const res=await fetch(`${APBG_FN}/expense-cc-match${qs||''}`,{
-    method, headers:{'Content-Type':'application/json',...authHeaders()},
-    body: body?JSON.stringify(body):undefined,
-  });
-  const data=await res.json();
-  if(!res.ok) throw new Error(data.error||('HTTP '+res.status));
-  return data;
-}
-async function loadCcMatch(){
-  const btn=document.getElementById('ccLoadBtn'), out=document.getElementById('ccResults'), sum=document.getElementById('ccSummary');
-  btn.disabled=true; btn.textContent='Loading… (QBO can take ~20s)';
-  try{
-    const from=document.getElementById('ccFrom').value, to=document.getElementById('ccTo').value;
-    const d=await ccApi('GET',null,`?from=${from}&to=${to}`);
-    window.__ccData=d;
-    sum.textContent=`${d.totals.purchases} QBO charges (${money(d.totals.purchases_amount)}) · ${d.totals.linked} merged · ${d.totals.suggestions} suggested · ${d.totals.unmatched_purchases} charges w/o Brixpense record (${money(d.totals.unmatched_purchases_amount)}) · ${d.totals.unmatched_expenses} Brixpense w/o charge`;
-    renderCcMatch(d);
-    log(`Card match loaded: ${d.totals.purchases} charges, ${d.totals.suggestions} suggestions`,'ok');
-  }catch(e){ out.innerHTML=`<div style="color:#DC2626;padding:8px 0">Failed: ${esc(e.message)}</div>`; log('Card match failed: '+e.message,'error'); }
-  btn.disabled=false; btn.textContent='Load / Refresh';
-}
-function ccPurchaseCell(p){
-  let holder='';
-  if(p.card_last4){
-    const m=((window.__ccData||{}).card_map||[]).find(c=>c.last4===p.card_last4);
-    holder=m&&(m.user_name||m.user_email)
-      ?` · <span style="color:#1F4E79;font-weight:600">💳 ${esc(m.user_name||m.user_email)} (••${esc(p.card_last4)})</span>`
-      :` · <span style="color:#B45309">💳 ••${esc(p.card_last4)} unassigned</span>`;
-  }
-  return `<div><b>${esc(p.txn_date||'')}</b> ${esc(p.payee||'(no payee)')} — <b>${money(p.is_credit?-p.amount:p.amount)}</b>${p.is_credit?' <span style="color:#B45309">(credit)</span>':''}<br>
-  <span style="color:#6B7280">${esc(p.payment_type||'?')} · ${esc(p.account||'')}${p.memo?' · '+esc(p.memo.slice(0,70)):''}${holder}</span></div>`;
-}
-function ccExpenseCell(e){
-  return `<div><b>${esc(e.receipt_date||'')}</b> ${esc(e.vendor_name||'(no vendor)')} — <b>${money(e.total_amount)}</b><br>
-  <span style="color:#6B7280">${esc(e.status||'')}${e.tag?' · '+esc(e.tag):''}${e.submitter_name?' · '+esc(e.submitter_name):''}${e.department?' · '+esc(e.department):''}</span></div>`;
-}
-function renderCcMatch(d){
-  const out=document.getElementById('ccResults');
-  const th='padding:6px 8px;text-align:left;color:#6B7280;font-size:0.72rem;text-transform:uppercase';
-  const td='padding:7px 8px;vertical-align:top;border-top:1px solid #F1F3F5';
-  const btn='border:0;border-radius:6px;padding:6px 12px;font-weight:600;font-size:0.78rem;cursor:pointer';
-  let html='';
-  // Cardholders: every card last-4 seen in this window → assign to a user, so
-  // each swipe has an owner (drives the "whose receipt is missing" attribution).
-  if((d.card_summary||[]).length){
-    const mapBy={}; for(const c of (d.card_map||[])) mapBy[c.last4]=c;
-    html+=`<h3 style="margin:14px 0 6px;font-size:0.82rem;color:#0F172A">💳 Cardholders (${d.card_summary.length} cards seen) — assign each card's last-4 to its user
-      <a href="https://alamedapointbg.com/admin.html" target="_blank" rel="noopener" style="font-weight:400;font-size:0.72rem;color:#1F4E79;margin-left:8px">+ create a new user (gateway admin) ↗</a></h3>
-    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">Card</th><th style="${th}">Activity</th><th style="${th}">Assigned to</th><th style="${th}"></th></tr>`+
-    d.card_summary.map(c=>{
-      const m=mapBy[c.last4];
-      const who=m&&(m.user_email||m.user_name)?`<b>${esc(m.user_name||m.user_email)}</b>${m.user_name&&m.user_email?` <span style="color:#6B7280">${esc(m.user_email)}</span>`:''}${m.receipts_from?`<br><span style="color:#6B7280;font-size:0.7rem">receipts expected from ${esc(m.receipts_from)}</span>`:''}`:'<span style="color:#B45309">unassigned</span>';
-      return `<tr><td style="${td};font-family:monospace;white-space:nowrap">•••• ${esc(c.last4)}</td>
-        <td style="${td};white-space:nowrap">${c.count} txns · ${money(c.amount)}</td>
-        <td style="${td}" id="ccCardWho_${esc(c.last4)}">${who}</td>
-        <td style="${td};white-space:nowrap"><button style="${btn};background:#1F4E79;color:#fff" onclick="ccAssignCard('${esc(c.last4)}')">${m&&m.user_email?'Reassign':'Assign'} →</button></td></tr>`;
-    }).join('')+'</table>';
-  }
-  if(d.suggestions.length){
-    html+=`<h3 style="margin:14px 0 6px;font-size:0.82rem;color:#0F172A">🤝 Suggested merges (${d.suggestions.length}) — same amount, dates within 14 days</h3>
-    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">QBO charge</th><th style="${th}">Brixpense record</th><th style="${th}">Match</th><th style="${th}"></th></tr>`+
-    d.suggestions.map(s=>`<tr><td style="${td}">${ccPurchaseCell(s.purchase)}</td><td style="${td}">${ccExpenseCell(s.expense)}</td>
-      <td style="${td};white-space:nowrap">${s.days_apart}d apart · vendor ${s.vendor_similarity}%</td>
-      <td style="${td};white-space:nowrap"><button style="${btn};background:#059669;color:#fff" onclick="ccLink('${s.purchase.id}','${s.expense.id}')">Merge ✓</button></td></tr>`).join('')+'</table>';
-  }
-  if(d.unmatched_purchases.length){
-    html+=`<h3 style="margin:16px 0 6px;font-size:0.82rem;color:#0F172A">🧾 Charges with NO Brixpense record (${d.unmatched_purchases.length}) — no receipt/context on file</h3>
-    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">QBO charge</th><th style="${th}"></th></tr>`+
-    d.unmatched_purchases.map(p=>`<tr><td style="${td}">${ccPurchaseCell(p)}</td>
-      <td style="${td};white-space:nowrap"><button style="${btn};background:#1F4E79;color:#fff" onclick="ccImport('${p.id}')">Import to Brixpense →</button></td></tr>`).join('')+'</table>';
-  }
-  if(d.unmatched_expenses.length){
-    html+=`<h3 style="margin:16px 0 6px;font-size:0.82rem;color:#0F172A">📭 Brixpense records with no QBO charge (${d.unmatched_expenses.length}) — submitted but never hit the books as a Purchase</h3>
-    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">Brixpense record</th></tr>`+
-    d.unmatched_expenses.map(e=>`<tr><td style="${td}">${ccExpenseCell(e)}</td></tr>`).join('')+'</table>';
-  }
-  if(d.linked.length){
-    html+=`<h3 style="margin:16px 0 6px;font-size:0.82rem;color:#0F172A">✅ Already merged (${d.linked.length})</h3>
-    <table style="width:100%;border-collapse:collapse"><tr><th style="${th}">QBO charge</th><th style="${th}">Brixpense record</th><th style="${th}"></th></tr>`+
-    d.linked.map(l=>`<tr><td style="${td}">${ccPurchaseCell(l.purchase)}</td><td style="${td}">${ccExpenseCell(l.expense)}</td>
-      <td style="${td};white-space:nowrap"><button style="${btn};background:#F3F4F6;color:#6B7280" onclick="ccUnlink('${l.expense.id}')">Unlink</button></td></tr>`).join('')+'</table>';
-  }
-  if(!html) html='<div style="color:#6B7280;padding:8px 0">Nothing in this window — pick a range and Load.</div>';
-  out.innerHTML=html;
-}
-async function ccLink(purchaseId, expenseId){
-  try{ await ccApi('POST',{action:'link',purchaseId,expenseId}); log(`Merged charge ${purchaseId} ↔ Brixpense ${expenseId}`,'ok'); loadCcMatch(); }
-  catch(e){ alert('Merge failed: '+e.message); }
-}
-// Assign a card's last-4 to a user: fetches the internal-user list once
-// (server-filtered to users whose gateway role grants Brixpense access —
-// customer/melt/driver logins on the shared auth never appear here),
-// then a simple numbered prompt (Master Control is dialog-driven throughout).
-let __ccUsers=null;
-async function ccAssignCard(last4){
-  try{
-    if(!__ccUsers){ const r=await ccApi('POST',{action:'list_users'}); __ccUsers=r.users||[]; }
-    if(!__ccUsers.length){ alert('No Brixpense-access users found. Create one in the gateway admin (role with billing access) first.'); return; }
-    const menu=__ccUsers.map((u,i)=>`${i+1}. ${u.name?u.name+' — ':''}${u.email}${u.role?' ('+u.role+')':''}`).join('\n');
-    const pick=prompt(`Assign card •••• ${last4} to which user?\n(Only internal users with Brixpense access are listed. New user? Create it at alamedapointbg.com/admin.html first, then Reassign.)\n\n${menu}\n\nEnter a number (blank = cancel, 0 = unassign):`);
-    if(pick===null||pick.trim()==='') return;
-    if(pick.trim()==='0'){
-      await ccApi('POST',{action:'unassign_card',last4});
-      log(`Card ••••${last4} unassigned`,'ok'); loadCcMatch(); return;
-    }
-    const u=__ccUsers[parseInt(pick,10)-1];
-    if(!u){ alert('Invalid selection'); return; }
-    // Accountability start date: the Monday audit only expects receipts for
-    // swipes ON/AFTER this — never chases pre-onboarding history.
-    const today=new Date().toISOString().slice(0,10);
-    let from=prompt(`Expect receipts from which date? (YYYY-MM-DD)\nSwipes before this are NOT chased — back-date if ${u.name||u.email} has already been submitting receipts.`,today);
-    if(from===null) return;
-    from=from.trim();
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(from)){ alert('Invalid date — use YYYY-MM-DD'); return; }
-    await ccApi('POST',{action:'assign_card',last4,user_id:u.id,user_email:u.email,user_name:u.name||null,receipts_from:from});
-    log(`Card ••••${last4} → ${u.name||u.email} (receipts from ${from})`,'ok');
-    loadCcMatch();
-  }catch(e){ alert('Assign failed: '+e.message); }
-}
-async function ccUnlink(expenseId){
-  if(!confirm('Unlink this charge from the Brixpense record?')) return;
-  try{ await ccApi('POST',{action:'unlink',expenseId}); log(`Unlinked Brixpense ${expenseId}`,'ok'); loadCcMatch(); }
-  catch(e){ alert('Unlink failed: '+e.message); }
-}
-async function ccImport(purchaseId){
-  if(!confirm('Create a Brixpense record from this QBO charge? (It lands as already-posted — nothing re-posts to QuickBooks.)')) return;
-  try{ const r=await ccApi('POST',{action:'import',purchaseId}); log(`Imported charge ${purchaseId} → Brixpense ${r.expense_id}`,'ok'); loadCcMatch(); }
-  catch(e){ alert('Import failed: '+e.message); }
-}
-
+// Card & Expense Match moved to Brixpense → Company Cards (/expense/cards)
+// on 2026-08-14 — cardholder assignment + the QBO↔Brixpense merge UI live
+// there now (backend unchanged: netlify/functions/expense-cc-match.mjs).
+// Master Control only links to it.
 // MCP server status moved to the MCP Servers app (public/mcp.html, served at
 // /mcp) on 2026-08-06 — loadMcpStatus() lives there now. Master Control only
 // links to it, so there is exactly one place to operate MCP from.

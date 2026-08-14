@@ -3,7 +3,9 @@
 // Every posted card swipe / cash expense / check in QuickBooks is a Purchase
 // transaction. Brixpense (ops.expense_requests) holds the human side of the
 // same spend: who bought it, the receipt, the department/COGS tagging. This
-// endpoint joins the two so operators can reconcile them from Master Control:
+// endpoint joins the two so operators can reconcile them from Brixpense →
+// Company Cards (/expense/cards, app-expense/src/pages/CardMatch.tsx — moved
+// out of Master Control 2026-08-14; control.html only links here now):
 //
 //   GET  ?from=YYYY-MM-DD&to=YYYY-MM-DD
 //     → { linked, suggestions, unmatched_purchases, unmatched_expenses, totals }
