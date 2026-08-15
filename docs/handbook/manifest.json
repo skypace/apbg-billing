@@ -2,7 +2,7 @@
   "$comment": "APBG Master Handbook manifest. The viewer (public/docs/handbook/index.html) renders the chapter list from this file; the sweep function (netlify/functions/handbook-sweep.mjs) compares each chapter's last_reviewed date against the latest commit touching its registered sources. Update last_reviewed whenever a chapter is re-verified against its sources.",
   "title": "APBG Master Handbook",
   "version": "1.0.0",
-  "updated": "2026-07-22",
+  "updated": "2026-08-15",
   "parts": [
     {
       "id": "intro",
@@ -61,7 +61,7 @@
       "title": "Brix Order Portal — Customer Ordering, Billing & Resources",
       "part": "guide",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-07-22",
+      "last_reviewed": "2026-08-15",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
@@ -78,7 +78,7 @@
       "title": "Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)",
       "part": "guide",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-07-22",
+      "last_reviewed": "2026-08-15",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
