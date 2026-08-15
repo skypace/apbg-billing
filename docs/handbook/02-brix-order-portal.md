@@ -59,8 +59,12 @@ Access is membership-based: one user can belong to many customers (`orders.custo
 
 1. Add items and quantities, open the **Cart**.
 2. **Preview** (dry-run) shows prices and an estimated total including fee lines, without submitting.
-3. **Review & submit.** If the cart contains gas, the portal asks **"Empty tanks to return?"** — No goes straight to the submit modal; Yes opens per-type steppers over the seven `PU*` pickup items, then a confirmation ("You have selected N tanks for return & pickup"). Confirmed pickups ride the order as $0 lines.
-4. Submit. On-screen confirmation plus a confirmation email with a permanent order-status link (`/orders/:order_id`).
+3. **Delivery date.** Customers on a **delivery schedule** (e.g. Tuesdays & Fridays, or every two weeks — set by staff on the admin customer page) see a Delivery date picker defaulted to their next scheduled delivery day, with the cutoff shown ("order by 4:00 PM the day before"). Off-schedule dates warn but never block. Unscheduled customers see no date picker.
+4. **Or will-call pickup.** A green nudge in the cart offers **Switch to Will-Call Pickup** — pick a weekday pickup date (warehouse window 9:30 AM–3:00 PM M–F; same-day closes at 12 PM). Will-call orders skip delivery surcharges in the estimate and get pickup-worded emails (confirmed / day-of reminder / picked up).
+5. **Review & submit.** If the cart contains gas, the portal asks **"Empty tanks to return?"** — No goes straight to the submit modal; Yes opens per-type steppers over the seven `PU*` pickup items, then a confirmation ("You have selected N tanks for return & pickup"). Confirmed pickups ride the order as $0 lines.
+6. Submit. On-screen confirmation plus a confirmation email with a permanent order-status link (`/orders/:order_id`).
+
+> **Staff note — the cutoff reminder.** For scheduled customers, a cron (`order-reminder-check`, every 30 min) watches each location: no order in by ~9am PT on the cutoff day (the day before a delivery day) → one friendly reminder email — "order by 4:00 PM today or it moves to your next delivery day… not ordering this week? no problem." Exactly once per location per delivery date (`orders.order_reminder_log`); recipients are the schedule's reminder list → the EDI order-notify list → the Primary email.
 
 > **Staff note — fees are ESTIMATES.** The portal computes fee lines (fuel, hazmat, CRV, SSB, etc.) for the on-screen estimate, order record, and confirmation email only. They are **never sent to Service Fusion** — SF's own job-level fee engine bills them natively (sending them both broke every order for two weeks in June 2026 AND would double-charge). The invoice is the final word on what's billed.
 
@@ -81,7 +85,7 @@ Behind it, the `order-lifecycle-check` poller runs **every 5 minutes** (SF has n
 
 Cancelled SF jobs (or jobs deleted in SF) flip the portal order to Cancelled within one poller tick and stop further emails.
 
-> **Staff note — recipients.** All lifecycle emails go to the **submitter + the customer's Primary email (`billing_email`), deduped**, BCC service@brixbev.com. So an order you enter on a customer's behalf still notifies the customer's contact. `email_events` claims each send exactly-once.
+> **Staff note — recipients.** All lifecycle emails go to the **submitter + the customer's Primary email (`billing_email`), deduped**, BCC service@brixbev.com. So an order you enter on a customer's behalf still notifies the customer's contact. EDI email-PO orders instead send to the PO sender + the customer's order-notify list (`orders.notify_emails`); orders with no submitter (phone/EDI) fall back to the Primary email rather than going silent. `email_events` claims each send exactly-once.
 
 ## Invoices & statements
 
