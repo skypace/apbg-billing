@@ -157,10 +157,19 @@ async function sfToken(s: any): Promise<string> {
     await releaseRefreshLock(s, owner);
   }
 }
+// Hard cap on every SF API call. SF's query planner has a history of hanging
+// list queries for 20s-2min+ (the "frozen API" incidents — always a query that
+// fell into the bad plan). All our queries carry an explicit sort, which avoids
+// the known trigger, but if SF ever regresses server-side this cap turns a hung
+// call into a thrown, LOGGED error (the sweep writes its sync_log row and the
+// health check flags it) instead of silently eating the 150s wall and dying
+// with no trace. Well above the ~2s an explicitly-sorted query actually takes.
+const SF_API_TIMEOUT_MS = 30000;
 async function sfGet(s: any, ep: string): Promise<any> {
   const t = await sfToken(s);
-  let r = await fetch(SF_API + ep, { headers: { Authorization: "Bearer " + t, Accept: "application/json" } });
-  if (r.status === 401) { accessToken = ""; tokenExpires = 0; const t2 = await sfToken(s); r = await fetch(SF_API + ep, { headers: { Authorization: "Bearer " + t2, Accept: "application/json" } }); }
+  const opts = (tok: string) => ({ headers: { Authorization: "Bearer " + tok, Accept: "application/json" }, signal: AbortSignal.timeout(SF_API_TIMEOUT_MS) });
+  let r = await fetch(SF_API + ep, opts(t));
+  if (r.status === 401) { accessToken = ""; tokenExpires = 0; const t2 = await sfToken(s); r = await fetch(SF_API + ep, opts(t2)); }
   if (!r.ok) throw new Error("SF " + r.status + " " + (await r.text()).slice(0, 150));
   const txt = await r.text(); return txt.trim() ? JSON.parse(txt) : {};
 }
