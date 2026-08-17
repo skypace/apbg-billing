@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight,
   Menu, X, BookOpen, Sun, Moon, Wrench,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
@@ -109,7 +109,9 @@ export function AppShell() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    // Local-only: a global signOut would revoke the SHARED gateway token
+    // chain and kill the hub + every other APBG app/device (see supabase.ts).
+    await signOutLocal();
     navigate('/');
   }
 
