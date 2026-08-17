@@ -2,7 +2,7 @@
   "$comment": "APBG Master Handbook manifest. The viewer (public/docs/handbook/index.html) renders the chapter list from this file; the sweep function (netlify/functions/handbook-sweep.mjs) compares each chapter's last_reviewed date against the latest commit touching its registered sources. Update last_reviewed whenever a chapter is re-verified against its sources.",
   "title": "APBG Master Handbook",
   "version": "1.0.0",
-  "updated": "2026-08-15",
+  "updated": "2026-08-17",
   "parts": [
     {
       "id": "intro",
@@ -388,6 +388,40 @@
         {
           "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
           "path": "ARCHITECTURE.md"
+        }
+      ]
+    },
+    {
+      "slug": "30-sop-cupa-compliance",
+      "title": "SOP-10 · CUPA & Health Inspection Readiness — Hazmat Records, SDS, Inspections",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/lib/compliance.ts"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "supabase/migrations/20260817a_compliance_sds_training.sql"
+        }
+      ]
+    },
+    {
+      "slug": "31-safety-training-handbook",
+      "title": "Health & Safety Training Handbook — OSHA/CUPA, CO₂, Forklift, Chemicals (sign-off required)",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/safety-handbook.html"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "supabase/migrations/20260817b_safety_handbook_acks.sql"
         }
       ]
     },

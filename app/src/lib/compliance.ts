@@ -175,6 +175,145 @@ export function guessFromFilename(filename: string): DocGuess {
   return { category: 'other', doc_type: '' };
 }
 
+// ── SDS library (ops.compliance_sds) ──────────────────────────────────────
+// One row per hazardous chemical PRODUCT on site. Deliberately a longer list
+// than the CERS inventory: Cal/OSHA HazCom (8 CCR §5194) requires an SDS for
+// every hazardous chemical regardless of quantity — small paints, cleaners,
+// aerosols, lubricants included. cers_reported marks the rows that also
+// appear on the CERS Hazardous Materials Inventory.
+
+export type PhysicalState = 'liquid' | 'solid' | 'gas' | 'aerosol';
+
+export const PHYSICAL_STATE_LABEL: Record<PhysicalState, string> = {
+  liquid: 'Liquid', solid: 'Solid', gas: 'Gas', aerosol: 'Aerosol',
+};
+
+export interface SdsRow {
+  id: string;
+  product_name: string;
+  manufacturer: string | null;
+  cas_number: string | null;
+  physical_state: PhysicalState | null;
+  hazard_summary: string | null;
+  storage_location: string | null;
+  container_desc: string | null;
+  max_quantity: number | null;
+  quantity_units: string | null;
+  cers_reported: boolean;
+  sds_revision_date: string | null;
+  storage_path: string | null;
+  file_name: string | null;
+  entity: HolderEntity | null;
+  notes: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SdsInput {
+  product_name: string;
+  manufacturer?: string | null;
+  cas_number?: string | null;
+  physical_state?: PhysicalState | null;
+  hazard_summary?: string | null;
+  storage_location?: string | null;
+  container_desc?: string | null;
+  max_quantity?: number | null;
+  quantity_units?: string | null;
+  cers_reported?: boolean;
+  sds_revision_date?: string | null;
+  storage_path?: string | null;
+  file_name?: string | null;
+  entity?: HolderEntity | null;
+  notes?: string | null;
+}
+
+export async function fetchSdsRows(): Promise<SdsRow[]> {
+  return sbq<SdsRow>('compliance_sds',
+    'select=*&archived_at=is.null&order=product_name.asc');
+}
+
+export async function createSdsRow(input: SdsInput): Promise<SdsRow> {
+  const rows = await sbInsert<SdsInput>('compliance_sds', input);
+  return (rows as unknown as SdsRow[])[0];
+}
+
+export async function updateSdsRow(id: string, patch: Partial<SdsInput>): Promise<void> {
+  await sbUpdate('compliance_sds', `id=eq.${id}`, patch);
+}
+
+export async function archiveSdsRow(id: string, by: string): Promise<void> {
+  await sbUpdate('compliance_sds', `id=eq.${id}`,
+    { archived_at: new Date().toISOString(), archived_by: by } as never);
+}
+
+// ── Safety training log (ops.compliance_training) ─────────────────────────
+// ERCP §I: within 6 months of hire, refreshed annually. One row per SESSION;
+// the signed roster is the attached file.
+
+export type TrainingType = 'hmbp_annual' | 'new_hire' | 'tailgate' | 'drill' | 'other';
+
+export const TRAINING_TYPE_LABEL: Record<TrainingType, string> = {
+  hmbp_annual: 'HMBP annual refresher',
+  new_hire: 'New hire (within 6 months)',
+  tailgate: 'Safety / tailgate meeting',
+  drill: 'Drill / access drill',
+  other: 'Other',
+};
+
+export interface TrainingRow {
+  id: string;
+  training_date: string;
+  training_type: TrainingType;
+  topics: string | null;
+  trainer: string | null;
+  attendees: string | null;
+  storage_path: string | null;
+  file_name: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrainingInput {
+  training_date: string;
+  training_type: TrainingType;
+  topics?: string | null;
+  trainer?: string | null;
+  attendees?: string | null;
+  storage_path?: string | null;
+  file_name?: string | null;
+  notes?: string | null;
+}
+
+export async function fetchTrainingRows(): Promise<TrainingRow[]> {
+  return sbq<TrainingRow>('compliance_training', 'select=*&order=training_date.desc');
+}
+
+export async function createTrainingRow(input: TrainingInput): Promise<TrainingRow> {
+  const rows = await sbInsert<TrainingInput>('compliance_training', input);
+  return (rows as unknown as TrainingRow[])[0];
+}
+
+export async function updateTrainingRow(id: string, patch: Partial<TrainingInput>): Promise<void> {
+  await sbUpdate('compliance_training', `id=eq.${id}`, patch);
+}
+
+/** Annual refresher due date: one year after the newest hmbp_annual/new_hire session. */
+export function trainingDue(rows: TrainingRow[]): { due: string | null; overdue: boolean } {
+  const anchor = rows
+    .filter((r) => r.training_type === 'hmbp_annual' || r.training_type === 'new_hire')
+    .map((r) => r.training_date)
+    .sort()
+    .pop();
+  if (!anchor) return { due: null, overdue: true };
+  const d = new Date(anchor + 'T00:00:00');
+  d.setFullYear(d.getFullYear() + 1);
+  const due = d.toISOString().slice(0, 10);
+  return { due, overdue: daysUntil(due) < 0 };
+}
+
 // ── Files (private bucket compliance-docs, staff-gated storage RLS) ──────
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;

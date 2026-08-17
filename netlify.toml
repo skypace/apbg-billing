@@ -95,6 +95,14 @@
   to = "/mcp.html"
   status = 200
 
+# Compliance & Safety app — Inspector Mode (records + SDS read view) and the
+# safety-handbook digital sign-off. The gateway proxies /compliance here.
+# Editing stays in the Refractor vault (Production → Compliance & Safety).
+[[redirects]]
+  from = "/compliance"
+  to = "/compliance.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"
