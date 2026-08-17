@@ -132,10 +132,22 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
 
     <div class="section">
-      <h2>Compliance documents <span class="sub" id="docCount"></span></h2>
+      <h2>Our documents — Brix Beverage &amp; affiliates <span class="sub" id="docCount"></span></h2>
       <div class="twrap"><table class="grid" id="docTable">
-        <thead><tr><th>Document</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th></tr></thead>
-        <tbody><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Vendor &amp; third-party documents <span class="sub" id="vendorCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Paper we hold FOR other companies — co-packer audits, contractor and vendor COIs, their
+        certificates. Kept current by us, but it's their compliance, not ours.
+      </div>
+      <div class="twrap"><table class="grid" id="vendorTable">
+        <thead><tr><th>Document</th><th>Vendor / party</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
@@ -369,8 +381,10 @@ if(location.hash === '#handbook') showTab('handbook');
 if(location.hash === '#inspection' || location.hash === '#day') showTab('day');
 
 // ═══ INSPECTOR MODE ═══
-let DOCS = [], SDS = [];
+let DOCS = [], SDS = [], PARTIES = {};
 const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
+const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
+const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
 
 function expiryChip(d){
   if(!d.expiration_date) return '<span class="chip dim">No expiry</span>';
@@ -383,10 +397,14 @@ function firstUrl(s){ const m = String(s||'').match(/https?:\/\/[^\s)"]+/); retu
 
 async function loadInspector(){
   try{
-    [DOCS, SDS] = await Promise.all([
+    let parties;
+    [DOCS, SDS, parties] = await Promise.all([
       opsGet('compliance_documents?select=*&archived_at=is.null&order=expiration_date.asc.nullslast'),
       opsGet('compliance_sds?select=*&archived_at=is.null&order=product_name.asc'),
+      opsGet('insured_parties?select=id,name,party_type&active=eq.true'),
     ]);
+    PARTIES = {};
+    for(const p of parties) PARTIES[p.id] = p;
   }catch(e){
     document.querySelector('#docTable tbody').innerHTML =
       '<tr><td colspan="5" class="muted">Could not load records (' + esc(e.message) + '). Records are staff-visible; employees only need the Handbook tab.</td></tr>';
@@ -403,18 +421,38 @@ async function loadInspector(){
   document.getElementById('q').addEventListener('input', e => renderTables(e.target.value.trim().toLowerCase()));
 }
 
+function docRow(d, whoCell){
+  return '<tr>' +
+    '<td><strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : '') + '</td>' +
+    '<td>' + whoCell + '</td>' +
+    '<td><span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span></td>' +
+    '<td>' + esc(d.reference_number || '—') + '</td>' +
+    '<td>' + esc(d.expiration_date || '—') + '</td>' +
+    '<td>' + expiryChip(d) + '</td>' +
+  '</tr>';
+}
+
 function renderTables(q){
-  const docs = DOCS.filter(d => !q || JSON.stringify(d).toLowerCase().includes(q));
-  const sds  = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().includes(q));
-  document.getElementById('docCount').textContent = docs.length + ' of ' + DOCS.length;
-  document.getElementById('sdsCount').textContent = sds.length + ' of ' + SDS.length;
-  document.querySelector('#docTable tbody').innerHTML = docs.length ? docs.map(d => '<tr>' +
-      '<td><strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : '') + '</td>' +
-      '<td><span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span></td>' +
-      '<td>' + esc(d.reference_number || '—') + '</td>' +
-      '<td>' + esc(d.expiration_date || '—') + '</td>' +
-      '<td>' + expiryChip(d) + '</td>' +
-    '</tr>').join('') : '<tr><td colspan="5" class="muted">No matches.</td></tr>';
+  // Segregation: a document with a party_id is a VENDOR/third-party document
+  // (their compliance, held by us); everything else is ours, labeled by entity.
+  const match = d => !q || (JSON.stringify(d) + (d.party_id && PARTIES[d.party_id] ? PARTIES[d.party_id].name : '')).toLowerCase().includes(q);
+  const ours    = DOCS.filter(d => !d.party_id).filter(match);
+  const theirs  = DOCS.filter(d => d.party_id).filter(match);
+  const sds     = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().includes(q));
+  document.getElementById('docCount').textContent    = ours.length   + ' of ' + DOCS.filter(d => !d.party_id).length;
+  document.getElementById('vendorCount').textContent = theirs.length + ' of ' + DOCS.filter(d => d.party_id).length;
+  document.getElementById('sdsCount').textContent    = sds.length + ' of ' + SDS.length;
+  document.querySelector('#docTable tbody').innerHTML = ours.length
+    ? ours.map(d => docRow(d, '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>')).join('')
+    : '<tr><td colspan="6" class="muted">No matches.</td></tr>';
+  document.querySelector('#vendorTable tbody').innerHTML = theirs.length
+    ? theirs.map(d => {
+        const p = PARTIES[d.party_id];
+        const who = p ? '<strong>' + esc(p.name) + '</strong><div class="muted">' + esc(PTYLABEL[p.party_type] || p.party_type || '') + '</div>'
+                      : '<span class="muted">Unknown party</span>';
+        return docRow(d, who);
+      }).join('')
+    : '<tr><td colspan="6" class="muted">No vendor documents match.</td></tr>';
   document.querySelector('#sdsTable tbody').innerHTML = sds.length ? sds.map(s => {
     const url = firstUrl(s.notes);
     return '<tr>' +

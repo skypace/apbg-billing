@@ -38,7 +38,9 @@ This section mirrors our signed Emergency Response / Contingency Plan (CERS ID 1
 - **Airgas 24-hr emergency (CO₂ tank):** (866) 734-3438
 - **Alameda County Environmental Health (CUPA):** (510) 567-6702
 - **Poison Control:** (800) 222-1222 · **Cal OES state warning center:** (800) 852-7550
-- **Nearest hospital:** Alameda Hospital, 2070 Clinton Ave — (510) 522-3700
+- **Nearest hospital (emergencies):** Alameda Hospital, 2070 Clinton Ave — (510) 522-3700
+- **Work injuries (non-emergency) — Concentra Oakland:** downtown 384 Embarcadero W, Oakland — (510) 465-9565
+  (Mon–Fri 8–5) · airport 333 Hegenberger Rd Ste 100 — (510) 638-0701. See §16 for the injury flow.
 
 **Evacuation:** alarm is horns/sirens plus verbal. Assembly areas are the **north and south parking
 lots — primary: south lot by the fire hydrant**. Go there, stay there, get counted. Never leave the
@@ -162,6 +164,8 @@ Rules for certified operators:
 - **Housekeeping is safety:** aisles and exits clear, cords and hoses out of walkways, spills wiped
   immediately or coned until they are, pallets stored flat, nothing stored within 18 inches of
   sprinkler heads or blocking extinguishers, eyewash, panels, or the CO₂ shutoff.
+- **Pallet jacks:** load balanced and low; pull on flats, push down ramps (never downhill in front
+  of a load); watch your feet and everyone else's — steel toes don't beat a loaded pallet.
 - **Racking:** damaged racking gets reported, not "watched." Never climb racking.
 
 ## 8. Fire safety
@@ -200,34 +204,100 @@ Rules for certified operators:
 - Dismantling work follows the posted procedure: de-energize, verify, refrigerant recovered, oil
   drained, then cut. Lockout applies (§11).
 
-## 11. Equipment service basics (lockout / de-energize)
+## 11. Equipment service, lockout, electrical & tools
 
 - Before servicing anything with moving parts or stored energy: **unplug it or lock out the
   breaker, and verify it's dead** (try the start button). Cord-and-plug equipment: the plug stays
   under your control while you work.
 - Never bypass a guard, interlock, or pressure relief. Never work on a pressurized line.
-- Company vehicles: seatbelts always; no phone in hand while driving; daily walk-around (tires,
-  lights, leaks, cylinder securement); report any incident same-day, however minor.
+- **Electrical:** damaged cords and cracked plugs get tagged out, not taped; extension cords are
+  temporary, never through doorways or under mats, never daisy-chained; keep panels clear (36");
+  wet hands/wet floors and electricity don't mix — dry first; GFCI-protected outlets for anything
+  used near water. Only qualified people open equipment beyond the plug.
+- **Power tools:** guards stay on; blades and bits sharp and rated for the material; eye protection
+  always; unplug to change accessories. Compressed air is for tools and parts — never for dusting
+  off clothing or skin, and never pointed at anyone.
+- **Knives/box cutters:** cut away from your body, retract the blade the moment the cut ends,
+  replace dull blades — dull blades cause more injuries than sharp ones.
 
-## 12. Injury, illness, and near-miss reporting
+## 12. Vehicles & driving
+
+- Seatbelts always, everyone, every trip. **No phone in hand while driving** — pull over or let it
+  ring; no texting at lights.
+- Daily walk-around before first use: tires, lights, leaks, mirrors, and **cylinder securement**
+  (upright, valve closed, cap on, ventilation — see §3).
+- Back in when arriving where practical (backing out into unknown traffic is where incidents
+  happen); use a spotter in tight spots.
+- Adjust for conditions: rain doubles following distance. Fatigued or medicated in a way that
+  impairs — say so and don't drive; that conversation is always safe to have.
+- Any vehicle incident, however minor, is reported the same day (§16). Photos at the scene, no
+  fault admissions, exchange info, call the office.
+
+## 13. Heat illness prevention (Cal/OSHA §3395)
+
+Warehouse work in summer, outdoor CO₂ fills, and delivery routes all count.
+
+- **Water, rest, shade:** drink water often (a cup every 15–20 min in heat — don't wait for
+  thirst); rest breaks in shade or the cooled office whenever you need them, no permission needed.
+- Know the signs: heavy sweating, headache, dizziness, cramps = **heat exhaustion** — stop, shade,
+  water, tell someone. Confusion, no sweating, hot red skin = **heat stroke** — call 911, cool them
+  aggressively, do not leave them alone.
+- New to the heat (first week, or a heat wave)? You acclimatize gradually — pace yourself and say
+  so; supervisors schedule accordingly.
+- Never leave anyone alone in a hot enclosed space (truck cabs, containers).
+
+## 14. Earthquake & natural events
+
+- **During shaking: drop, cover, hold on.** Away from racking, stacked kegs, and cylinder storage —
+  the injury risk here is falling objects, not the ground.
+- **After shaking stops:** evacuate to the assembly areas (§2) and get counted. Do NOT walk the
+  warehouse to "check things" first.
+- The CO₂ tank and cylinder racks are our earthquake-vulnerable systems (ERCP §H) — after any
+  significant quake they get inspected by the Emergency Coordinator before anyone works near them.
+  If you hear the tank alarm or hissing, that's a §3 evacuation, upwind.
+- Power outage: emergency lighting leads to exits; forklift and fill operations stop until power
+  and the CO₂ monitor are back.
+
+## 15. Workplace violence & security (SB 553)
+
+California requires a Workplace Violence Prevention Plan, and this is your part of it:
+
+- Threats, intimidation, or violence — from anyone: coworker, customer, delivery driver, stranger —
+  get reported to your supervisor or the EH&S Lead immediately. Like injuries, reports are
+  retaliation-protected, and "I wasn't sure it was serious enough" is exactly what we want reported.
+- An angry or erratic person on site: don't engage or block them — create distance, get to another
+  area, alert a supervisor; 911 for anything physical or any weapon.
+- Doors and gates stay controlled: don't badge in strangers, don't leave the warehouse open and
+  unattended. Visitors are escorted (§17).
+- After any incident we log it, investigate it, and adjust the plan — same near-miss philosophy
+  as §16.
+
+## 16. Injury, illness, and near-miss reporting — and where to get treated
 
 - **Every injury gets reported the same day** — including "it's nothing" cuts and tweaks. Late
   reporting hurts your workers'-comp claim and hides hazards.
-- First aid: kits in the inner hallway; eyewash in the main bathroom (know it before you need it —
-  chemical in the eye = 15 minutes of flushing, then medical care).
+- **Where you go for treatment:**
+  - **Life- or limb-threatening → 9-1-1** (nearest ER: Alameda Hospital, 2070 Clinton Ave).
+  - **Everything else work-related → Concentra in Oakland** — our occupational clinic:
+    downtown **384 Embarcadero W, (510) 465-9565** (Mon–Fri 8–5) or airport
+    **333 Hegenberger Rd Ste 100, (510) 638-0701**. Tell your supervisor first so the visit is
+    logged and the workers'-comp claim form (DWC-1) goes with you — we provide it within one
+    working day of learning about the injury.
+  - First aid on site: kits in the inner hallway; eyewash in the main bathroom (chemical in the
+    eye = 15 minutes of flushing, then Concentra or the ER).
 - Serious injury or hospitalization: the EH&S Lead must know immediately — Cal/OSHA requires our
   report within 8 hours.
 - **Near-misses are free lessons.** The pallet that almost fell teaches the same thing as the one
   that did, without the ambulance. Report them; nobody gets blamed for a near-miss report.
 
-## 13. Inspections and visitors
+## 17. Inspections and visitors
 
 - If a regulator or inspector arrives, page the designated escort (front office) — don't answer
   agency questions yourself; that's not secrecy, it's accuracy (see SOP-10).
 - Visitors and contractors on the warehouse floor: escorted, high-vis vest, briefed on the CO₂
   alarm and assembly areas.
 
-## 14. Training schedule
+## 18. Training schedule
 
 | Training | Who | When |
 |---|---|---|
