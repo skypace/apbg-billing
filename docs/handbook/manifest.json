@@ -410,14 +410,14 @@
     },
     {
       "slug": "31-safety-training-handbook",
-      "title": "Health & Safety Training Handbook — OSHA/CUPA, CO₂, Forklift, Chemicals (sign-off required)",
+      "title": "Health & Safety Training Handbook — v2.0: road, customer accounts, warehouse, trades (sign-off required)",
       "part": "sop",
       "owner": "Sky Pace",
       "last_reviewed": "2026-08-17",
       "sources": [
         {
           "repo": "skypace/apbg-billing",
-          "path": "public/safety-handbook.html"
+          "path": "public/compliance.html"
         },
         {
           "repo": "skypace/apbg-billing",

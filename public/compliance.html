@@ -64,7 +64,18 @@ table.grid tr:last-child td{border-bottom:none}
 .hb{font-size:.9rem;line-height:1.65;color:#1F2937;max-width:56rem}
 .hb h1{font-size:1.5rem;margin:0 0 12px}
 .hb h2{font-size:1.12rem;margin:26px 0 8px;color:#1F4E79;border-bottom:2px solid #1F4E79;padding-bottom:4px}
-.hb h3{font-size:.95rem;margin:16px 0 6px}
+.hb h3{font-size:.95rem;margin:18px 0 6px;color:#1F4E79}
+.hb h4{font-size:.88rem;margin:14px 0 4px;color:#334155}
+/* Handbook table of contents — 30+ pages needs navigation */
+.hbtoc{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:16px 18px;margin:0 0 20px;max-width:56rem}
+.hbtoc h3{margin:0 0 10px;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#1F4E79}
+.hbtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
+.hbtoc li{margin:0 0 3px;break-inside:avoid;font-size:.82rem}
+.hbtoc li.part{font-weight:700;margin-top:8px;column-break-after:avoid}
+.hbtoc li.part:first-child{margin-top:0}
+.hbtoc a{color:#334155;text-decoration:none}
+.hbtoc a:hover{color:#1F4E79;text-decoration:underline}
+@media(max-width:700px){.hbtoc ol{columns:1}}
 .hb p{margin:8px 0}
 .hb ul,.hb ol{margin:8px 0 8px 22px}
 .hb li{margin:4px 0}
@@ -173,6 +184,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   <!-- ═══ HANDBOOK + SIGNING ═══ -->
   <div class="container" id="paneHandbook" style="display:none">
     <div class="section">
+      <div id="hbToc" class="hbtoc" style="display:none"></div>
       <div id="hbDoc" class="hb"><span class="muted">Loading handbook…</span></div>
     </div>
 
@@ -310,7 +322,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
 <script>
 // ═══ CONFIG ═══
-const HANDBOOK_VERSION = '1.0 (2026-08-17)';
+const HANDBOOK_VERSION = '2.0 (2026-08-17)';
 const HANDBOOK_MD_URL = '/billing/docs/handbook/31-safety-training-handbook.md';
 const SB_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
@@ -475,10 +487,32 @@ async function loadHandbook(){
     if(!r.ok) throw new Error('HTTP ' + r.status);
     const md = await r.text();
     marked.setOptions({ gfm: true, breaks: false });
-    el.innerHTML = DOMPurify.sanitize(marked.parse(md), { ADD_ATTR: ['target','rel'] });
+    el.innerHTML = DOMPurify.sanitize(marked.parse(md), { ADD_ATTR: ['target','rel','id'] });
+    buildToc(el);
   }catch(e){
     el.innerHTML = '<span class="err">Could not load the handbook text (' + esc(e.message) + '). Try a hard refresh.</span>';
   }
+}
+
+// A 30-page handbook needs navigation. marked v12 dropped headerIds, so assign
+// our own from the heading text and build the contents list from what rendered
+// — no hand-written anchors in the markdown to drift out of sync.
+function buildToc(root){
+  const heads = root.querySelectorAll('h2, h3');
+  if(heads.length < 5) return;
+  const seen = {};
+  const items = [];
+  heads.forEach(h => {
+    let slug = h.textContent.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'section';
+    if(seen[slug]) { seen[slug]++; slug += '-' + seen[slug]; } else { seen[slug] = 1; }
+    h.id = slug;
+    items.push({ slug: slug, text: h.textContent, part: h.tagName === 'H2' });
+  });
+  const toc = document.getElementById('hbToc');
+  toc.innerHTML = '<h3>What\'s in this handbook</h3><ol>' + items.map(i =>
+    '<li class="' + (i.part ? 'part' : '') + '"><a href="#' + esc(i.slug) + '">' + esc(i.text) + '</a></li>'
+  ).join('') + '</ol>';
+  toc.style.display = 'block';
 }
 
 // ═══ SIGNATURE PAD ═══
