@@ -585,12 +585,14 @@
       "schedule": "on-demand (Refractor → Production → Compliance & Safety)",
       "writes": [
         "ops.compliance_documents",
-        "ops.insured_parties"
+        "ops.insured_parties",
+        "ops.compliance_sds",
+        "ops.compliance_training"
       ],
       "multi_writer": false,
       "external_inputs": [],
-      "notes": "Compliance & Safety document vault (Phase 1). Staff CRUD via direct PostgREST under ops.fn_is_staff() RLS from app/src/pages/production/ComplianceTab.tsx; files in private staff-gated bucket compliance-docs. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only — emails an expired/expiring-≤60d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). Phase 2 (contractor COI upload portal + requirements + ACORD extraction) will add its own writer entry. Migration: 20260726a_compliance_docs.sql (applied live 2026-07-26).",
-      "last_verified": "2026-07-26"
+      "notes": "Compliance & Safety document vault (Phase 1) + SDS library and safety-training log (Phase 1.5, 2026-08-17 CUPA inspection prep). Staff CRUD via direct PostgREST under ops.fn_is_staff() RLS from app/src/pages/production/ComplianceTab.tsx; files in private staff-gated bucket compliance-docs (SDS under sds/*, rosters under training/*). compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only — emails an expired/expiring-≤60d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). Phase 2 (contractor COI upload portal + requirements + ACORD extraction) will add its own writer entry. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql (both applied live).",
+      "last_verified": "2026-08-17"
     },
     {
       "name": "push-qbo-item:vendors",

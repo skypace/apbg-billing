@@ -392,6 +392,23 @@
       ]
     },
     {
+      "slug": "30-sop-cupa-compliance",
+      "title": "SOP-10 · CUPA & Health Inspection Readiness — Hazmat Records, SDS, Inspections",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/lib/compliance.ts"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "supabase/migrations/20260817a_compliance_sds_training.sql"
+        }
+      ]
+    },
+    {
       "slug": "90-change-log",
       "title": "Change Log — What Shipped Across Every APBG Repo",
       "part": "log",
