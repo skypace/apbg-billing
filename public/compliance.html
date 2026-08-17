@@ -111,6 +111,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   <nav class="tabs">
     <button class="tab active" id="tabInspector" onclick="showTab('inspector')">Inspector Mode</button>
     <button class="tab" id="tabHandbook" onclick="showTab('handbook')">Safety Handbook &amp; Sign-off</button>
+    <button class="tab" id="tabDay" onclick="showTab('day')">Inspection Day</button>
   </nav>
 
   <!-- ═══ INSPECTOR MODE ═══ -->
@@ -194,6 +195,104 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
+  <!-- ═══ INSPECTION DAY — user guide + runbook (SOP-10 companion) ═══ -->
+  <div class="container" id="paneDay" style="display:none">
+
+    <div class="section">
+      <h2>How to run the inspection with this app <span class="sub">60-second user guide</span></h2>
+      <div class="prose">
+        <ol style="margin:8px 0 8px 22px;line-height:1.8">
+          <li><b>Open Inspector Mode on the tablet</b> (first tab) and hand it over, or drive it yourself.
+              Volunteering the digital setup up front reframes it as a strength.</li>
+          <li><b>Inspector asks for a record</b> → type a word in the search box (try <code>CO2</code>,
+              <code>insurance</code>, <code>permit</code>). Documents and SDS filter together, instantly.</li>
+          <li><b>Inspector asks for a chemical's SDS</b> → search the product name → <b>Open SDS →</b>
+              opens the manufacturer sheet. Offline fallbacks if internet drops: the SDS zip pack on this
+              tablet, then the paper binder in the front office.</li>
+          <li><b>Inspector asks about training</b> → Safety Handbook &amp; Sign-off tab → the signature
+              roster IS the training record (name, date, version, signature). The handbook text above it
+              is the training content.</li>
+          <li><b>Need paper</b> → 🖨 Print record index (Inspector Mode) prints clean.</li>
+          <li><b>Editing during the walk: don't.</b> Fix records after they leave — edits live in
+              Refractor (link top-right), corrections to CERS at cers.calepa.ca.gov.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="section" style="border-left:4px solid #B45309">
+      <h2>Say these two things FIRST — self-report before they find it</h2>
+      <div class="prose">
+        <p style="margin-bottom:10px"><b>1 · The CO₂ inventory line understates the bulk tank.</b>
+        "Our CERS inventory line says 1,000 lb max in cylinders — it should read our 6-ton Airgas-managed
+        bulk tank, 12,000 lb, aboveground tank plus cylinders, 365 days on site. Here's the tank's ASME
+        U-1A data report (National Board #4319). The correction is being filed in CERS this week."</p>
+        <p style="margin-bottom:10px"><b>2 · The Business Activities page needs a used-oil update.</b>
+        "We've started dismantling coolers on site — compressor oil drained from that work makes us a
+        used-oil generator, and our 8/10 filing answered 'No' on hazardous waste. We're correcting that,
+        the oil is in labeled closed containers on containment, and here are the hauler receipts."</p>
+        <p class="muted">A correction the inspector hears from you first is diligence; the same fact
+        discovered on the walk is a finding. Everything else in the filing is consistent — say these two
+        and stop.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>At the gate</h2>
+      <div class="prose">
+        <ul style="margin:4px 0 4px 22px;line-height:1.8">
+          <li><b>Verify and log:</b> name, agency, badge number, arrival time.</li>
+          <li><b>Notify Sky + Sloan by text immediately</b>, whoever is on site escorts — nobody walks unescorted.</li>
+          <li><b>Seat them at the records first</b> (this app, Inspector Mode) before the physical walk.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>During the walk</h2>
+      <div class="prose">
+        <ul style="margin:4px 0 4px 22px;line-height:1.8">
+          <li><b>Answer what is asked.</b> "I'll confirm and get back to you" is a complete answer. Don't narrate history.</li>
+          <li><b>Never guess a quantity</b> — pull it up in this app.</li>
+          <li><b>Photograph everything they photograph.</b> Write down each flagged item in their words, in the moment.</li>
+          <li><b>Correct trivially fixable things on the spot</b> (open container → close it while they watch). Never move or conceal anything.</li>
+          <li><b>Never sign an admission of fault.</b> Signing receipt of a report is fine.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Before they leave — ask these four</h2>
+      <div class="prose">
+        <ol style="margin:4px 0 4px 22px;line-height:1.8">
+          <li>Which findings are <b>violations</b> vs <b>observations</b>?</li>
+          <li>Is anything <b>Class I</b>, and on what basis?</li>
+          <li>What's the <b>correction deadline</b>, and what proof do you want?</li>
+          <li>Will there be a <b>reinspection</b>, or is documentary proof enough?</li>
+        </ol>
+        <p class="muted" style="margin-top:8px">Afterwards: file their report + your notes in the vault same-day;
+        every finding becomes a tracked corrective action within 48 hours; root-cause anything that traces to a
+        gap in SOP-10 and amend it (full post-inspection table in SOP-10 §5).</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Morning-of checklist</h2>
+      <div class="prose">
+        <ul style="margin:4px 0 4px 22px;line-height:1.8">
+          <li>Tablet charged, signed in, this app open; SDS zip pack + inspection packet on it</li>
+          <li>CO₂ monitor + cellular backup showing normal (verified 8/17 — glance again)</li>
+          <li>Used-oil containers: labeled "Used Oil" + start date, closed, on containment; hauler receipts in one folder</li>
+          <li>Cylinders upright, chained, caps on; full/empty segregated; the indoor one-or-two within monitor coverage</li>
+          <li>Eyewash (main bathroom) clear and working; extinguishers tagged + unobstructed</li>
+          <li>Kem-Tek chlorine tablets stored dry, away from the acid ice-machine cleaners and bleach</li>
+          <li>Site map A1 + training signature sheet located and photographed</li>
+          <li>Aisles/exits clear; nothing stored against the CO₂ shutoff (#4461)</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
   <script src="https://alamedapointbg.com/appswitcher.js" data-app="compliance" defer></script>
 </div>
 
@@ -257,14 +356,17 @@ if(!SESSION){
   loadAckState();
 }
 
+const PANES = { inspector: 'paneInspector', handbook: 'paneHandbook', day: 'paneDay' };
+const TABS  = { inspector: 'tabInspector',  handbook: 'tabHandbook',  day: 'tabDay' };
 function showTab(which){
-  const inspector = which === 'inspector';
-  document.getElementById('paneInspector').style.display = inspector ? 'block' : 'none';
-  document.getElementById('paneHandbook').style.display = inspector ? 'none' : 'block';
-  document.getElementById('tabInspector').classList.toggle('active', inspector);
-  document.getElementById('tabHandbook').classList.toggle('active', !inspector);
+  if(!PANES[which]) which = 'inspector';
+  for(const k in PANES){
+    document.getElementById(PANES[k]).style.display = k === which ? 'block' : 'none';
+    document.getElementById(TABS[k]).classList.toggle('active', k === which);
+  }
 }
 if(location.hash === '#handbook') showTab('handbook');
+if(location.hash === '#inspection' || location.hash === '#day') showTab('day');
 
 // ═══ INSPECTOR MODE ═══
 let DOCS = [], SDS = [];
