@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { sbAuth, adoptGatewaySession } from './lib/supabase';
+import { sbAuth, adoptGatewaySession, signOutLocal } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
@@ -116,7 +116,7 @@ export function App() {
       current={route.view === 'customer-detail' ? 'customers' : route.view}
       onNav={navTo}
       userEmail={session.user.email}
-      onLogout={() => sbAuth.auth.signOut()}
+      onLogout={() => signOutLocal()}
     >
       <Suspense fallback={<div className="ld">Loading…</div>}>{body}</Suspense>
     </Layout>
