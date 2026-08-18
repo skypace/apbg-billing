@@ -9,6 +9,9 @@
 <title>Compliance &amp; Safety — APBG Systems</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<!-- QR encoder is vendored, not CDN-loaded: the posting board runs on a
+     break-room monitor and must come up even when the CDN does not. -->
+<script src="/billing/vendor/qrcode-generator.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#F5F7FA;color:#0F172A;min-height:100vh}
@@ -32,6 +35,7 @@ header .links a:hover{color:#1F4E79}
 .subtab:hover{border-color:#1F4E79;color:#1F4E79}
 .subtab.active{background:#1F4E79;border-color:#1F4E79;color:#fff}
 .container{max-width:1180px;margin:0 auto;padding:28px}
+.container.wide{max-width:1700px}  /* the posting board is meant for a wall monitor */
 .section{background:#fff;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
 .section h2{font-size:.95rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .section h2 .sub{font-weight:400;font-size:.75rem;color:#94A3B8}
@@ -128,6 +132,49 @@ table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .filepick{border:1px dashed #94A3B8;border-radius:8px;padding:12px;background:#F8FBFE;font-size:.82rem}
 .filepick input[type=file]{font-size:.8rem;width:100%}
 @media(max-width:640px){.modal-body{grid-template-columns:1fr}}
+/* Posting board — designed to be readable on a monitor across a room */
+.board{background:#0B1B26;border-radius:14px;padding:24px;color:#E8F0F5;border:1px solid #163446}
+.board-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-bottom:1px solid #1E4257;padding-bottom:16px}
+.board-head h2{font-size:1.5rem;font-weight:800;margin:0;color:#fff;letter-spacing:-.01em}
+.board-head .where{font-size:.85rem;color:#8FB3C4;margin-top:4px}
+.board-head .when{font-size:.85rem;color:#8FB3C4;text-align:right}
+.board-group{margin-top:26px}
+.board-group h3{font-size:.76rem;text-transform:uppercase;letter-spacing:.1em;color:#F4B400;margin:0 0 12px;font-weight:800}
+.board-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:14px}
+.ptile{background:#122A38;border:1px solid #1E4257;border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;text-align:left;color:inherit;font:inherit;width:100%}
+.ptile:hover,.ptile:focus{border-color:#4F9BC4;background:#16344E;outline:none}
+.ptile .pt-body{flex:1;min-width:0}
+.ptile .pt-t{font-weight:700;font-size:.95rem;line-height:1.3;color:#fff}
+.ptile .pt-m{font-size:.75rem;color:#8FB3C4;margin-top:5px;line-height:1.4}
+.ptile .pt-tag{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;margin-top:8px;background:#1E4257;color:#9FD0E8}
+.ptile .pt-tag.doc{background:#14532D;color:#86EFAC}
+.ptile canvas{background:#fff;border-radius:6px;padding:4px;flex-shrink:0}
+/* Kiosk / display mode */
+.kiosk{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9500;display:flex;flex-direction:column}
+.kiosk-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid #16344E;flex-wrap:wrap}
+.kiosk-head .kbrand{font-size:1.05rem;font-weight:800;color:#fff}
+.kiosk-head .kbrand span{display:block;font-size:.78rem;font-weight:400;color:#8FB3C4;margin-top:2px}
+.kiosk-head .kclock{font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:#8FB3C4;text-align:right}
+.kiosk-body{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;padding:22px 32px}
+.kiosk-body iframe,.kiosk-body img{width:100%;height:100%;border:0;border-radius:10px;background:#fff;object-fit:contain}
+.knote{max-width:62rem;width:100%;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.knote .kjur{font-size:.82rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#F4B400}
+.knote h1{font-size:clamp(1.9rem,4.4vw,3.4rem);line-height:1.1;font-weight:800;color:#fff;letter-spacing:-.02em}
+.knote .kform{font-family:'JetBrains Mono',monospace;font-size:1rem;color:#9FD0E8}
+.knote .kapplies{font-size:clamp(1rem,1.7vw,1.35rem);color:#E8F0F5;line-height:1.45}
+.knote .knotes{font-size:clamp(.85rem,1.2vw,1.05rem);color:#A8C3D2;line-height:1.6;max-height:32vh;overflow:hidden}
+.knote .kwhere{font-size:.95rem;color:#8FB3C4}
+.knote .kqr{display:flex;align-items:center;gap:16px;margin-top:6px}
+.knote .kqr canvas{background:#fff;border-radius:10px;padding:8px}
+.knote .kqr span{font-size:.9rem;color:#8FB3C4;max-width:22rem;line-height:1.4}
+.kiosk-foot{padding:0 32px 20px}
+.kbar{height:4px;background:#16344E;border-radius:4px;overflow:hidden;margin-bottom:14px}
+.kbar i{display:block;height:100%;background:#F4B400;width:0}
+.kctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.kctl button{border:1px solid #1E4257;background:#122A38;color:#E8F0F5;font:inherit;font-size:.85rem;font-weight:600;padding:8px 14px;border-radius:8px;cursor:pointer}
+.kctl button:hover{border-color:#4F9BC4;background:#16344E}
+.kctl .kpos{margin-left:auto;font-family:'JetBrains Mono',monospace;color:#8FB3C4;font-size:.9rem}
+@media(max-width:700px){.kiosk-head,.kiosk-body,.kiosk-foot{padding-left:16px;padding-right:16px}}
 /* Checklists */
 .ck{list-style:none;margin:0;padding:0}
 .ck li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem;line-height:1.5}
@@ -208,7 +255,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <button class="tab" id="tabInspector"   onclick="showTab('inspector')">Records &amp; SDS</button>
     <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
     <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
-    <button class="tab" id="tabPostings"    onclick="showTab('postings')">Required Postings</button>
+    <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
     <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
   </nav>
@@ -226,7 +273,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
       <h2>Jump to</h2>
       <div class="quicklinks">
         <button onclick="showTab('inspector')">📋 Records &amp; SDS</button>
-        <button onclick="showTab('postings')">📌 Required postings</button>
+        <button onclick="showTab('postings')">📺 Posting board</button>
         <button onclick="showTab('inspections');showIns('cupa')">🔍 CUPA checklist</button>
         <button onclick="showTab('inspections');showIns('osha')">🦺 Cal/OSHA checklist</button>
         <button onclick="showTab('handbook')">📕 Safety manual &amp; sign-off</button>
@@ -569,21 +616,37 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </div>
 
   <!-- ═══════════════ REQUIRED POSTINGS ═══════════════ -->
-  <div class="container" id="panePostings" style="display:none">
+  <div class="container wide" id="panePostings" style="display:none">
+    <div class="subtabs noprint">
+      <button class="subtab pvtab active" data-pv="board"  onclick="showPost('board')">📺 Posting board</button>
+      <button class="subtab pvtab"        data-pv="manage" onclick="showPost('manage')">Manage postings</button>
+    </div>
+
+    <div id="postBoardView">
+      <div class="section noprint" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn" onclick="startKiosk(true)">⛶ Put this on the monitor</button>
+        <button class="btn ghost" onclick="startKiosk(false)">▶ Play in this window</button>
+        <label class="muted" style="display:flex;align-items:center;gap:6px">Seconds per notice
+          <input type="number" id="kioskSecs" value="20" min="5" max="180" style="width:5.5rem">
+        </label>
+        <span class="muted" style="flex:1 1 16rem">Tap any notice to read it full screen. Every notice carries a QR code so anyone can pull it up on their phone.</span>
+      </div>
+      <div class="board" id="boardWrap"><div class="muted">Loading the board…</div></div>
+    </div>
+
+    <div id="postManageView" style="display:none">
     <div class="section">
       <div class="toolbar">
         <h2 style="margin:0">Required workplace postings <span class="sub" id="postCount"></span></h2>
         <div class="noprint">
-          <button class="btn ghost sm" onclick="window.print()">🖨 Print the board list</button>
+          <button class="btn ghost sm" onclick="window.print()">🖨 Print the list</button>
           <button class="btn sm" onclick="openEditor('postings')">+ Add posting</button>
         </div>
       </div>
       <div class="prose">
-        Everything that has to hang on the board at Hangar 200, plus the notices that are
-        <b>distribution</b> duties rather than postings — those are called out in the notes and are
-        the ones most often missed. <b>Source</b> opens the agency's official PDF so you can print a
-        current copy; <b>Upload</b> stores the copy we actually posted, so the vault shows the exact
-        version on the wall.
+        <b>Source</b> opens the agency's official PDF. <b>Upload</b> stores the copy we actually
+        posted — that copy is what the Posting board displays, so uploading each one turns the board
+        into the real notices rather than summaries of them.
       </div>
       <div class="statrow" style="margin:16px 0 0" id="postStats"></div>
     </div>
@@ -626,6 +689,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           <li><b>Time Off to Vote is seasonal</b> — up about ten days before each statewide election (next: post by ~Oct 24, 2026 for the Nov 3 general).</li>
         </ul>
       </div>
+    </div>
     </div>
   </div>
   <!-- ═══════════════ INSPECTIONS ═══════════════ -->
@@ -963,6 +1027,25 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
+  <!-- ═══════════════ POSTING BOARD — DISPLAY MODE ═══════════════ -->
+  <div class="kiosk" id="kiosk" style="display:none">
+    <div class="kiosk-head">
+      <div class="kbrand">Employee Notices<span>Alameda Point Beverage Group · Hangar 200, 1951 Monarch St, Alameda CA</span></div>
+      <div class="kclock" id="kioskClock"></div>
+    </div>
+    <div class="kiosk-body" id="kioskBody"></div>
+    <div class="kiosk-foot">
+      <div class="kbar"><i id="kioskBar"></i></div>
+      <div class="kctl">
+        <button onclick="kioskStep(-1)" aria-label="Previous">◀ Back</button>
+        <button id="kioskPlay" onclick="kioskToggle()">⏸ Pause</button>
+        <button onclick="kioskStep(1)" aria-label="Next">Next ▶</button>
+        <span class="kpos" id="kioskPos"></span>
+        <button onclick="stopKiosk()">✕ Exit</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════ RECORD EDITOR ═══════════════ -->
   <div class="modal" id="editModal" style="display:none">
     <div class="modal-card">
@@ -1164,7 +1247,7 @@ const INS = { cupa:'insCupa', osha:'insOsha', wc:'insWc', insurance:'insInsuranc
 function showIns(which){
   if(!INS[which]) which = 'cupa';
   for(const k in INS) document.getElementById(INS[k]).style.display = k === which ? 'block' : 'none';
-  document.querySelectorAll('.subtab').forEach(b =>
+  document.querySelectorAll('.subtab[data-ins]').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-ins') === which));
 }
 // Deep links: #dashboard, #handbook, #inspections/osha, #postings, #contacts (→ dashboard), …
@@ -1173,14 +1256,14 @@ function showIns(which){
   if(!h) return;
   const [main, sub] = h.split('/');
   const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
-                contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings',
+                contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings', board:'postings',
                 insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector' };
   if(map[main]) showTab(map[main]);
   if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
 })();
 
 // ═══ DATA ═══
-let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {};
+let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, STAFF = true;
 const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
 const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
 const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
@@ -1231,31 +1314,45 @@ function rowsInto(id, specKey, list, cols, empty, span){
 }
 function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 
+// allSettled, not all: the postings table is readable by every authenticated
+// employee (that is the point of a posting board) while the rest of the vault is
+// staff-only. One rejected read must not blank the board.
 async function reloadAll(){
   const arch = showArchived();
-  try{
-    const [docs, sds, postings, parties] = await Promise.all([
-      opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
-      opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
-      opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
-      opsGet('insured_parties?select=*&order=name.asc'),
-    ]);
-    DOCS = docs; SDS = sds; POSTINGS = postings; PARTY_LIST = parties;
+  const [docs, sds, postings, parties] = await Promise.allSettled([
+    opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
+    opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
+    opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
+    opsGet('insured_parties?select=*&order=name.asc'),
+  ]);
+  POSTINGS = postings.status === 'fulfilled' ? postings.value : [];
+  STAFF = docs.status === 'fulfilled';
+  if(STAFF){
+    DOCS = docs.value;
+    SDS = sds.status === 'fulfilled' ? sds.value : [];
+    PARTY_LIST = parties.status === 'fulfilled' ? parties.value : [];
     PARTIES = {};
-    for(const p of parties) PARTIES[p.id] = p;
-  }catch(e){
-    const msg = '<tr><td colspan="8" class="muted">Could not load records (' + esc(e.message) +
-      '). Records are staff-only; employees only need the Safety Manual tab.</td></tr>';
-    ['docTable','insTable','vpTable','viTable','ciTable','otTable','sdsTable','partyTable','taxTable',
-     'postFedTable','postStateTable','postLocalTable'].forEach(id => {
-      const t = document.querySelector('#' + id + ' tbody'); if(t) t.innerHTML = msg;
-    });
-    document.getElementById('attnList').innerHTML = '<li class="muted">Records are staff-only — nothing to show on this login.</li>';
-    document.getElementById('attnCount').textContent = '';
+    for(const p of PARTY_LIST) PARTIES[p.id] = p;
+    renderDashboard();
+    renderAll(document.getElementById('q').value.trim().toLowerCase());
     return;
   }
-  renderDashboard();
-  renderAll(document.getElementById('q').value.trim().toLowerCase());
+  applyEmployeeMode();
+  renderPostings('');
+}
+
+// Someone signed in who is not staff — a driver or a new warehouse hire. They
+// still need the notices and the handbook, so hide the vault tabs rather than
+// showing them a wall of permission errors.
+let EMPLOYEE_MODE_DONE = false;
+function applyEmployeeMode(){
+  if(EMPLOYEE_MODE_DONE) return;
+  EMPLOYEE_MODE_DONE = true;
+  ['dashboard','inspector','insurance','vendors','inspections'].forEach(k => {
+    const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
+  });
+  showTab('postings');
+  document.querySelectorAll('#postManageView, #panePostings .subtabs').forEach(el => el.style.display = 'none');
 }
 document.getElementById('q').addEventListener('input', e => renderAll(e.target.value.trim().toLowerCase()));
 
@@ -1432,6 +1529,7 @@ function renderPostings(q){
     document.getElementById(cid).textContent = rows.length + ' posting' + (rows.length === 1 ? '' : 's');
     rowsInto(tid, 'postings', rows, cols, 'Nothing tracked here yet.');
   });
+  renderBoard();
 }
 
 // ═══ ROW ACTIONS — one delegated handler covers Open, Edit, Upload, Archive
@@ -1615,6 +1713,185 @@ async function saveEditor(){
     errEl.textContent = 'Could not save: ' + String(e.message).slice(0, 300);
   }finally{ btn.disabled = false; btn.textContent = was; }
 }
+
+// ═══ POSTING BOARD — the screen that goes on the break-room monitor ═══
+// Board = every notice as a tile with a QR code. Display mode = one notice at a
+// time, full screen, auto-advancing — the digital equivalent of the wall board.
+const JURTITLE = { federal:'Federal notices', state:'California — state notices', local:'City of Alameda — local notices' };
+function boardPostings(){
+  return POSTINGS.filter(p => !p.archived_at && p.required !== false);
+}
+function showPost(which){
+  const board = which !== 'manage';
+  document.getElementById('postBoardView').style.display = board ? 'block' : 'none';
+  document.getElementById('postManageView').style.display = board ? 'none' : 'block';
+  document.querySelectorAll('.subtab[data-pv]').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-pv') === (board ? 'board' : 'manage')));
+}
+
+// Draws a QR into a canvas from the vendored encoder. Degrades to nothing if
+// anything goes wrong — a missing QR must never take the board down with it.
+function drawQr(canvas, text, size){
+  if(!text || typeof qrcode === 'undefined'){ canvas.style.display = 'none'; return; }
+  try{
+    const q = qrcode(0, 'M');           // 0 = smallest type that fits the data
+    q.addData(text); q.make();
+    const n = q.getModuleCount(), quiet = 2, total = n + quiet * 2;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const c = canvas.getContext('2d');
+    const px = (size * dpr) / total;
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, canvas.width, canvas.height);
+    c.fillStyle = '#0B1B26';
+    for(let r = 0; r < n; r++) for(let col = 0; col < n; col++)
+      if(q.isDark(r, col)) c.fillRect(Math.round((col + quiet) * px), Math.round((r + quiet) * px), Math.ceil(px), Math.ceil(px));
+    canvas.style.display = '';
+  }catch(e){ canvas.style.display = 'none'; }
+}
+
+function renderBoard(){
+  const wrap = document.getElementById('boardWrap');
+  if(!wrap) return;
+  const list = boardPostings();
+  const today = new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  let html =
+    '<div class="board-head">' +
+      '<div><h2>Employee Notices</h2><div class="where">Alameda Point Beverage Group · Hangar 200, 1951 Monarch St, Alameda CA 94501</div></div>' +
+      '<div class="when">' + esc(today) + '<br>' + list.length + ' notices posted</div>' +
+    '</div>';
+  ['federal','state','local'].forEach(j => {
+    const rows = list.filter(p => p.jurisdiction === j);
+    if(!rows.length) return;
+    html += '<div class="board-group"><h3>' + esc(JURTITLE[j]) + ' · ' + rows.length + '</h3><div class="board-tiles">' +
+      rows.map(p => {
+        const i = list.indexOf(p);
+        return '<button class="ptile" data-kiosk="' + i + '">' +
+          '<div class="pt-body">' +
+            '<div class="pt-t">' + esc(p.title) + '</div>' +
+            '<div class="pt-m">' + esc(p.agency || '') + (p.form_code ? ' · ' + esc(p.form_code) : '') + '</div>' +
+            '<span class="pt-tag' + (p.storage_path ? ' doc' : '') + '">' + (p.storage_path ? 'Notice on file' : 'Scan for official copy') + '</span>' +
+          '</div>' +
+          '<canvas class="pt-qr" width="88" height="88" data-qr="' + esc(p.source_url || '') + '"></canvas>' +
+        '</button>';
+      }).join('') + '</div></div>';
+  });
+  if(!list.length) html += '<div class="muted" style="margin-top:20px">No notices are marked required yet — add them under Manage postings.</div>';
+  wrap.innerHTML = html;
+  // A dedicated break-room machine opens /compliance?kiosk=1 and starts playing
+  // on its own. Fullscreen still needs a click — browsers require a gesture —
+  // so the operator presses "Put this on the monitor" once per boot.
+  if(!KIOSK_AUTOSTARTED && list.length && /(^|[?&])kiosk=1/.test(location.search)){
+    KIOSK_AUTOSTARTED = true;
+    showTab('postings'); showPost('board');
+    startKiosk(false, 0);
+  }
+  wrap.querySelectorAll('canvas.pt-qr').forEach(c => drawQr(c, c.getAttribute('data-qr'), 88));
+  wrap.querySelectorAll('.ptile').forEach(b =>
+    b.addEventListener('click', () => startKiosk(false, Number(b.getAttribute('data-kiosk')), true)));
+}
+
+// ─── Display mode ───
+let KIOSK = { list: [], i: 0, playing: true, t0: 0, timer: null, clock: null };
+let KIOSK_AUTOSTARTED = false;
+const FILE_URL_CACHE = {};
+
+async function fileFor(p){
+  if(!p.storage_path) return null;
+  if(FILE_URL_CACHE[p.id]) return FILE_URL_CACHE[p.id];
+  try{
+    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/' + BUCKET + '/' + p.storage_path, { headers: sbHeaders() });
+    if(!r.ok) return null;
+    const blob = await r.blob();
+    FILE_URL_CACHE[p.id] = { url: URL.createObjectURL(blob), type: blob.type || '' };
+    return FILE_URL_CACHE[p.id];
+  }catch(e){ return null; }
+}
+
+function kioskSecs(){
+  const el = document.getElementById('kioskSecs');
+  const n = el ? Number(el.value) : 20;
+  return Math.min(180, Math.max(5, isFinite(n) ? n : 20)) * 1000;
+}
+
+function startKiosk(fullscreen, index, paused){
+  KIOSK.list = boardPostings();
+  if(!KIOSK.list.length) return;
+  KIOSK.i = index || 0;
+  KIOSK.playing = !paused;
+  document.getElementById('kiosk').style.display = 'flex';
+  document.getElementById('kioskPlay').textContent = KIOSK.playing ? '⏸ Pause' : '▶ Play';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  kioskClock();
+  KIOSK.clock = setInterval(kioskClock, 1000);
+  kioskShow();
+}
+function stopKiosk(){
+  document.getElementById('kiosk').style.display = 'none';
+  clearInterval(KIOSK.timer); clearInterval(KIOSK.clock);
+  KIOSK.timer = KIOSK.clock = null;
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+function kioskClock(){
+  const el = document.getElementById('kioskClock');
+  if(el) el.textContent = new Date().toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+function kioskToggle(){
+  KIOSK.playing = !KIOSK.playing;
+  document.getElementById('kioskPlay').textContent = KIOSK.playing ? '⏸ Pause' : '▶ Play';
+  if(KIOSK.playing) kioskShow(); else clearInterval(KIOSK.timer);
+}
+function kioskStep(d){
+  KIOSK.i = (KIOSK.i + d + KIOSK.list.length) % KIOSK.list.length;
+  kioskShow();
+}
+async function kioskShow(){
+  const p = KIOSK.list[KIOSK.i];
+  if(!p) return;
+  document.getElementById('kioskPos').textContent = (KIOSK.i + 1) + ' / ' + KIOSK.list.length;
+  const body = document.getElementById('kioskBody');
+  const file = await fileFor(p);
+  if(KIOSK.list[KIOSK.i] !== p) return;  // stepped away while the file loaded
+
+  if(file && /^image\//.test(file.type)){
+    body.innerHTML = '<img alt="' + esc(p.title) + '" src="' + file.url + '">';
+  }else if(file && /pdf/.test(file.type)){
+    body.innerHTML = '<iframe title="' + esc(p.title) + '" src="' + file.url + '#toolbar=0&navpanes=0&view=FitH"></iframe>';
+  }else{
+    body.innerHTML =
+      '<div class="knote">' +
+        '<div class="kjur">' + esc((JURLABEL[p.jurisdiction] || p.jurisdiction) + (p.agency ? ' · ' + p.agency : '')) + '</div>' +
+        '<h1>' + esc(p.title) + '</h1>' +
+        (p.form_code || p.version_label ? '<div class="kform">' + esc([p.form_code, p.version_label].filter(Boolean).join(' · ')) + '</div>' : '') +
+        (p.applies_when ? '<p class="kapplies">' + esc(p.applies_when) + '</p>' : '') +
+        (p.notes ? '<p class="knotes">' + esc(p.notes) + '</p>' : '') +
+        (p.posted_location ? '<div class="kwhere">Posted at: ' + esc(p.posted_location) + '</div>' : '') +
+        (p.source_url ? '<div class="kqr"><canvas id="kioskQr" width="160" height="160"></canvas>' +
+          '<span>Scan to open the official notice from ' + esc(p.agency || 'the issuing agency') + '.</span></div>' : '') +
+      '</div>';
+    const qc = document.getElementById('kioskQr');
+    if(qc) drawQr(qc, p.source_url, 160);
+  }
+
+  clearInterval(KIOSK.timer);
+  const bar = document.getElementById('kioskBar');
+  if(!KIOSK.playing){ bar.style.width = '0'; return; }
+  const span = kioskSecs();
+  KIOSK.t0 = Date.now();
+  KIOSK.timer = setInterval(() => {
+    const pct = (Date.now() - KIOSK.t0) / span;
+    bar.style.width = Math.min(100, pct * 100) + '%';
+    if(pct >= 1) kioskStep(1);
+  }, 120);
+}
+document.addEventListener('keydown', e => {
+  if(document.getElementById('kiosk').style.display !== 'flex') return;
+  if(e.key === 'Escape') stopKiosk();
+  else if(e.key === 'ArrowRight') kioskStep(1);
+  else if(e.key === 'ArrowLeft') kioskStep(-1);
+  else if(e.key === ' '){ e.preventDefault(); kioskToggle(); }
+});
 
 // ═══ HANDBOOK ═══
 async function loadHandbook(){
