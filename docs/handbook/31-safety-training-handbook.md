@@ -130,6 +130,8 @@ If a task seems to need PPE we don't stock, stop and ask before starting.
 
 ### B2. Lifting, carrying, and your back
 
+![Correct lifting posture: back straight, knees bent, load close to the body — versus bending at the waist. Plus when to get a team lift.](/billing/safety/lifting.svg)
+
 This is our most common injury and it's the one that follows you home for thirty years. A 5-gallon
 BIB is 40–50 lb of shifting liquid. A 20 lb CO₂ cylinder is 50+ lb full. A full keg is 160 lb.
 
@@ -180,6 +182,8 @@ The hand truck is the most-used tool in this company and the one people get lazy
 - Park hand trucks and jacks out of walkways, forks down.
 
 ### B4. Ladders and working at height
+
+![Ladder set at the 4-to-1 angle, extending 3 feet past the landing, with the climber's belt buckle kept between the rails.](/billing/safety/ladder-angle.svg)
 
 You will be on a ladder in a customer's kitchen, in a cellar, at a dispenser tower, or at a
 warehouse rack. Falls from a 4-foot ladder kill people.
@@ -272,6 +276,8 @@ We work around electricity in wet places — that combination is why this sectio
 
 ### B8. Fire prevention and extinguishers
 
+![PASS: Pull the pin, Aim at the base of the fire, Squeeze the handle, Sweep side to side.](/billing/safety/pass-extinguisher.svg)
+
 - Extinguishers at Hangar 200 are mounted **every 100 feet**; know the two nearest your work area
   and keep them unobstructed. Know where they are at every customer account you work regularly.
 - **PASS: Pull the pin, Aim at the base of the fire, Squeeze, Sweep side to side.**
@@ -314,6 +320,8 @@ backup. **Small quantities count**: a single can of spray paint has an SDS.
   and there's a 30-day clock on it.
 
 ### B10. Compressed gas — CO₂, nitrogen, and beer gas
+
+![Cylinders stored upright, chained, and capped, with full and empty segregated — versus freestanding or lying loose.](/billing/safety/cylinder-handling.svg)
 
 Compressed gas is our signature hazard. It is invisible, it is under enormous pressure, and it
 does not smell like anything.
@@ -483,6 +491,8 @@ avoidable.
 - Respect posted weight limits on ramps, docks, and older loading areas.
 
 ### C5. Parking, double parking, cones, and the bike lane
+
+![Overhead view of a temporary lane stop: hazard flashers, cones set front and rear before unloading, work from the curb side, bike lane kept clear.](/billing/safety/double-park-cones.svg)
 
 City delivery is where our drivers face the most exposure. These rules exist because the street is
 the most dangerous workplace we have.
@@ -674,6 +684,8 @@ We are guests in someone else's workplace, and their hazards become ours the mom
 
 ### D4. Basements, cellars, and CO₂ accumulation — read this twice
 
+![Cross-section of a bar cellar: CO₂ sinks and fills the space from the floor up, displacing oxygen. Stop at the top of the stairs; if someone is down, do not go in.](/billing/safety/co2-cellar.svg)
+
 **This is the section most likely to save your life.**
 
 CO₂ is heavier than air. When it leaks — from a cylinder, a regulator, a line, or a bulk tank — it
@@ -782,6 +794,8 @@ Many of our stops are solo, early, or late.
 ## Part E — Warehouse and fill station (Hangar 200)
 
 ### E1. Forklift and powered industrial trucks
+
+![Load centre and stability: capacity drops as the load moves out on the forks. If the truck tips, stay in the seat and lean away from the fall.](/billing/safety/forklift-load.svg)
 
 Governed by Cal/OSHA 8 CCR §3650–3669 and federal 29 CFR 1910.178.
 
@@ -930,6 +944,8 @@ Never bypass an interlock "just to see it run."
 - Log leak repairs and recovery per our records requirements.
 
 ### F3. Brazing, soldering, and hot work
+
+![Hot work zone: 35 feet of clearance, extinguisher within arm's reach, and a 30-minute fire watch after the last flame.](/billing/safety/hot-work-zone.svg)
 
 Hot work causes fires hours after the torch is off. That's why the fire watch exists.
 

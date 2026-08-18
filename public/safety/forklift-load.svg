@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" role="img" aria-label="Forklift load centre and stability: capacity falls as the load moves out on the forks, and tip-over protocol is to stay in the seat">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .lbl{font:600 13px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 13px system-ui,sans-serif;fill:#15803D}
+</style>
+<text x="16" y="26" class="ttl">Load centre: the further out the load sits, the less the truck can carry</text>
+
+<!-- seesaw metaphor -->
+<line x1="60" y1="150" x2="420" y2="150" stroke="#1F4E79" stroke-width="4"/>
+<path d="M232 150 l-14 26 h28 Z" fill="#1F4E79"/>
+<text x="196" y="196" class="sub">front axle = fulcrum</text>
+<!-- counterweight -->
+<rect x="72" y="112" width="58" height="38" fill="#1F4E79"/>
+<text x="66" y="106" class="sub">counterweight</text>
+<!-- load near -->
+<rect x="290" y="118" width="34" height="32" fill="#F4B400" stroke="#B45309"/>
+<text x="272" y="110" class="ok">near = safe</text>
+<!-- load far -->
+<rect x="378" y="118" width="34" height="32" fill="#B91C1C" opacity=".85"/>
+<text x="352" y="110" class="dgr">far = tips</text>
+<path d="M330 168 h74" stroke="#B91C1C" stroke-width="2" marker-end="url(#a)"/>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#B91C1C"/></marker></defs>
+<text x="300" y="188" class="sub">capacity drops as load centre moves out</text>
+
+<!-- travel height -->
+<line x1="60" y1="270" x2="420" y2="270" stroke="#1F4E79" stroke-width="3"/>
+<rect x="120" y="248" width="40" height="18" fill="#F4B400" stroke="#B45309"/>
+<line x1="120" y1="266" x2="160" y2="266" stroke="#15803D" stroke-width="3"/>
+<text x="176" y="262" class="ok">travel with forks 4–6 in. off the floor, mast tilted back</text>
+<text x="176" y="280" class="sub">load blocking your view → travel in reverse</text>
+
+<!-- tip over -->
+<rect x="470" y="60" width="220" height="230" rx="10" fill="#FEF2F2" stroke="#FCA5A5"/>
+<text x="486" y="86" class="dgr">If it starts to tip over</text>
+<circle cx="530" cy="140" r="14" fill="#B91C1C"/>
+<path d="M530 154 v30 M530 162 l-16 12 M530 162 l16 12 M530 184 l-12 18 M530 184 l12 18" stroke="#B91C1C" stroke-width="3" fill="none"/>
+<text x="486" y="228" class="lbl">STAY IN THE SEAT</text>
+<text x="486" y="246" class="sub">Brace. Lean away from the fall.</text>
+<text x="486" y="264" class="sub">Never jump — the overhead</text>
+<text x="486" y="280" class="sub">guard is what saves you.</text>
+<text x="16" y="322" class="sub">Seatbelt before the truck moves · pre-op inspection every shift · no riders · never walk under raised forks</text>
+</svg>
