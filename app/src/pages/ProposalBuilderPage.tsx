@@ -36,7 +36,9 @@ import {
   selectTemplateProducts,
   uploadBrandAsset,
   generateAiProposal,
+  checkGammaProposal,
   generateGammaProposal,
+  type GammaProposalResult,
   getSavedProposal,
   getBrandAssets,
   getBrandLibrary,
@@ -527,10 +529,43 @@ export function ProposalBuilderPage() {
   async function exportGamma() {
     setBusy('gamma');
     try {
-      const result = await generateGammaProposal(proposalData);
-      setGammaUrl(result.gammaUrl || null);
-      setPdfUrl(result.pdfUrl || null);
-      setToast(result.message || (result.status === 'created' ? 'Gamma deck created.' : 'Gamma generation started.'));
+      const started = await generateGammaProposal(proposalData);
+      if (started.status === 'created') {
+        setGammaUrl(started.gammaUrl || null);
+        setPdfUrl(started.pdfUrl || null);
+        setToast(started.message || 'Gamma deck created.');
+        return;
+      }
+      if (started.status === 'error' || !started.generationId) {
+        throw new Error(started.message || 'Gamma did not start a generation.');
+      }
+      // Gamma builds asynchronously (usually 1–3 minutes) — poll until the
+      // deck URL exists. Tolerate a few transient poll failures before giving up.
+      setToast('Gamma is building the deck — usually takes 1–3 minutes…');
+      const deadline = Date.now() + 5 * 60 * 1000;
+      let pollErrors = 0;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        let check: GammaProposalResult;
+        try {
+          check = await checkGammaProposal(started.generationId);
+          pollErrors = 0;
+        } catch (e) {
+          pollErrors += 1;
+          if (pollErrors >= 3) throw e;
+          continue;
+        }
+        if (check.status === 'created') {
+          setGammaUrl(check.gammaUrl || null);
+          setPdfUrl(check.pdfUrl || null);
+          setToast(check.message || 'Gamma deck created.');
+          return;
+        }
+        if (check.status === 'error') {
+          throw new Error(check.message || 'Gamma generation failed.');
+        }
+      }
+      throw new Error('Gamma is taking longer than expected — press Generate again in a minute to retry.');
     } catch (e) {
       setToast(messageFrom(e));
     } finally {
