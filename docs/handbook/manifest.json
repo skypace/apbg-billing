@@ -426,6 +426,19 @@
       ]
     },
     {
+      "slug": "32-sop-insurance",
+      "title": "SOP-11 · Insurance, Certificates & Claims — policies, COIs, renewals, what to do when something happens",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/compliance.html"
+        }
+      ]
+    },
+    {
       "slug": "90-change-log",
       "title": "Change Log — What Shipped Across Every APBG Repo",
       "part": "log",
