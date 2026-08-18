@@ -6,7 +6,7 @@
 <script src="/billing/maintenance-banner.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/compliance'+location.search+location.hash);</script>
-<title>Compliance & Safety — APBG Systems</title>
+<title>Compliance &amp; Safety — APBG Systems</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
 <style>
@@ -31,7 +31,7 @@ header .links a:hover{color:#1F4E79}
 .subtab{border:1px solid #D6DEE8;background:#fff;font:inherit;font-size:.82rem;font-weight:600;color:#475569;padding:8px 14px;border-radius:20px;cursor:pointer}
 .subtab:hover{border-color:#1F4E79;color:#1F4E79}
 .subtab.active{background:#1F4E79;border-color:#1F4E79;color:#fff}
-.container{max-width:1100px;margin:0 auto;padding:28px}
+.container{max-width:1180px;margin:0 auto;padding:28px}
 .section{background:#fff;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
 .section h2{font-size:.95rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .section h2 .sub{font-weight:400;font-size:.75rem;color:#94A3B8}
@@ -42,13 +42,16 @@ header .links a:hover{color:#1F4E79}
 .btn:hover{background:#2A5E92}
 .btn.ghost{background:#fff;color:#1F4E79;border:1px solid #1F4E79}
 .btn.ghost:hover{background:#EEF2F7}
+.btn.sm{font-size:.78rem;padding:7px 12px}
 .btn:disabled{background:#CBD5E1;color:#fff;border-color:#CBD5E1;cursor:not-allowed}
-input[type=search],input[type=text]{font:inherit;font-size:.86rem;padding:9px 12px;border:1px solid #D6DEE8;border-radius:8px;background:#fff;color:#0F172A}
-input[type=search]:focus,input[type=text]:focus{outline:2px solid #93B8DB;border-color:#1F4E79}
+input[type=search],input[type=text],input[type=date],input[type=number],select,textarea{font:inherit;font-size:.86rem;padding:9px 12px;border:1px solid #D6DEE8;border-radius:8px;background:#fff;color:#0F172A;width:100%}
+textarea{resize:vertical;min-height:70px;line-height:1.45}
+input:focus,select:focus,textarea:focus{outline:2px solid #93B8DB;border-color:#1F4E79}
 table.grid{width:100%;border-collapse:collapse;font-size:.83rem}
 table.grid th{text-align:left;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:#94A3B8;font-weight:700;padding:8px 10px;border-bottom:1px solid #E4E9F0;white-space:nowrap}
 table.grid td{padding:10px;border-bottom:1px solid #F0F3F7;vertical-align:top}
 table.grid tr:last-child td{border-bottom:none}
+table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .twrap{overflow-x:auto}
 .muted{color:#94A3B8;font-size:.78rem}
 .chip{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:20px;white-space:nowrap}
@@ -57,22 +60,74 @@ table.grid tr:last-child td{border-bottom:none}
 .chip.crit{background:#FEE2E2;color:#B91C1C}
 .chip.info{background:#E0EAF4;color:#1F4E79}
 .chip.dim{background:#EEF2F7;color:#64748B}
+.chip.fed{background:#EDE9FE;color:#6D28D9}
+.chip.st{background:#DBEAFE;color:#1D4ED8}
+.chip.loc{background:#FFEDD5;color:#C2410C}
 .statrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
 .stat{background:#fff;border:1px solid #E4E9F0;border-radius:12px;padding:14px 18px;flex:1 1 130px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
 .stat b{display:block;font-size:1.3rem;font-variant-numeric:tabular-nums}
 .stat span{font-size:.72rem;color:#94A3B8}
+.stat.click{cursor:pointer}
+.stat.click:hover{border-color:#1F4E79}
+.stat.red b{color:#B91C1C}
+.stat.amber b{color:#B45309}
 .contactbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
 .ccard{background:#0F2A38;color:#E6EEF1;border-radius:10px;padding:10px 14px;font-size:.78rem}
 .ccard b{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#8FB3C4}
 .ccard a{color:#F4B400;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:600}
 .filebtn{border:1px solid #1F4E79;background:#fff;color:#1F4E79;font:inherit;font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .filebtn:hover{background:#EEF2F7}
+.actbtn{border:1px solid #D6DEE8;background:#fff;color:#475569;font:inherit;font-size:.73rem;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-right:4px}
+.actbtn:hover{border-color:#1F4E79;color:#1F4E79;background:#F8FBFE}
+.actbtn.danger:hover{border-color:#B91C1C;color:#B91C1C;background:#FEF2F2}
+.acts{white-space:nowrap}
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar .grow{flex:1 1 14rem;min-width:0}
 .idgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:12px}
 .idcard{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:12px 14px}
 .idcard b{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#64748B;margin-bottom:4px}
 .idcard .v{display:block;font-size:1rem;font-weight:700;color:#0F172A}
 .idcard .m{display:block;font-size:.74rem;color:#94A3B8;margin-top:2px}
 .mono,.idcard .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+/* Dashboard */
+.dashgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:16px}
+.phonecard{border:1px solid #E4E9F0;border-radius:10px;padding:0;overflow:hidden;background:#fff}
+.phonecard h3{margin:0;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;padding:10px 14px;background:#F8FBFE;color:#1F4E79;border-bottom:1px solid #E4E9F0}
+.phonecard.urgent h3{background:#FEF2F2;color:#B91C1C;border-bottom-color:#FECACA}
+.phonelist{list-style:none;margin:0;padding:0}
+.phonelist li{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:9px 14px;border-bottom:1px solid #F4F6F9;font-size:.83rem}
+.phonelist li:last-child{border-bottom:none}
+.phonelist .who{min-width:0}
+.phonelist .who b{display:block;font-weight:600}
+.phonelist .who span{display:block;color:#94A3B8;font-size:.73rem;line-height:1.35}
+.phonelist a{color:#1F4E79;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;white-space:nowrap}
+.phonelist a:hover{text-decoration:underline}
+.quicklinks{display:flex;gap:8px;flex-wrap:wrap}
+.quicklinks button,.quicklinks a{border:1px solid #D6DEE8;background:#fff;color:#334155;font:inherit;font-size:.82rem;font-weight:600;padding:9px 14px;border-radius:8px;cursor:pointer;text-decoration:none}
+.quicklinks button:hover,.quicklinks a:hover{border-color:#1F4E79;color:#1F4E79;background:#F8FBFE}
+.attn{list-style:none;margin:0;padding:0}
+.attn li{display:flex;gap:10px;align-items:baseline;padding:9px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem}
+.attn li:last-child{border-bottom:none}
+.attn .t{flex:1}
+/* Modal editor */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto;z-index:9000}
+.modal-card{background:#fff;border-radius:14px;width:100%;max-width:44rem;box-shadow:0 24px 60px rgba(15,23,42,.3)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid #E4E9F0}
+.modal-head h3{font-size:1rem;font-weight:700}
+.modal-body{padding:20px 22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.modal-foot{padding:16px 22px;border-top:1px solid #E4E9F0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field.full{grid-column:1 / -1}
+.field label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748B}
+.field .hint{font-size:.72rem;color:#94A3B8}
+.field.cb{flex-direction:row;align-items:center;gap:8px}
+.field.cb input{width:16px;height:16px;accent-color:#1F4E79;cursor:pointer}
+.field.cb label{text-transform:none;letter-spacing:0;font-size:.83rem;font-weight:600;color:#334155;cursor:pointer}
+.xbtn{border:0;background:none;font-size:1.4rem;line-height:1;color:#94A3B8;cursor:pointer;padding:0 4px}
+.xbtn:hover{color:#0F172A}
+.filepick{border:1px dashed #94A3B8;border-radius:8px;padding:12px;background:#F8FBFE;font-size:.82rem}
+.filepick input[type=file]{font-size:.8rem;width:100%}
+@media(max-width:640px){.modal-body{grid-template-columns:1fr}}
 /* Checklists */
 .ck{list-style:none;margin:0;padding:0}
 .ck li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem;line-height:1.5}
@@ -95,7 +150,6 @@ table.grid tr:last-child td{border-bottom:none}
 .hb code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:.8rem;font-family:'JetBrains Mono',monospace}
 .hb hr{border:0;border-top:1px solid #E4E9F0;margin:20px 0}
 .hb img{max-width:100%;height:auto;display:block;margin:16px 0;border:1px solid #E4E9F0;border-radius:8px;background:#fff}
-/* Handbook table of contents */
 .hbtoc{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:16px 18px;margin:0 0 20px;max-width:56rem}
 .hbtoc h3{margin:0 0 10px;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#1F4E79}
 .hbtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
@@ -112,14 +166,14 @@ table.grid tr:last-child td{border-bottom:none}
 .signrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
 .signed-banner{background:#DCFCE7;border:1px solid #86EFAC;color:#15803D;border-radius:10px;padding:14px 18px;font-size:.9rem;font-weight:600;max-width:56rem}
 .err{color:#B91C1C;font-size:.82rem;margin-top:8px}
+.okmsg{color:#15803D;font-size:.82rem;margin-top:8px;font-weight:600}
 img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#fff}
 
 @media print{
-  header,.tabs,.subtabs,.contactbar,.signrow,.noprint{display:none!important}
+  header,.tabs,.subtabs,.contactbar,.signrow,.noprint,.acts,.toolbar .btn,.modal{display:none!important}
   body{background:#fff}
   .section{border:none;box-shadow:none;padding:0;margin-bottom:14px}
   .container{max-width:none;padding:0}
-  /* Print the safety manual as a standalone manual */
   body.print-manual .container{display:none!important}
   body.print-manual #paneHandbook{display:block!important}
   body.print-manual #signSection,body.print-manual #rosterSection,body.print-manual #hbToc{display:none!important}
@@ -144,22 +198,129 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   <header>
     <h1>🧯 Compliance &amp; Safety <span class="cers">CERS 10666381</span></h1>
     <div class="links">
-      <a href="/margin/#production" target="_blank" rel="noopener">Edit vault (Refractor) →</a>
-      <a href="/margin/docs/handbook/#/30-sop-cupa-compliance" target="_blank" rel="noopener">SOP-10 →</a>
+      <a href="/margin/docs/handbook/#/30-sop-cupa-compliance" target="_blank" rel="noopener">SOP-10 CUPA →</a>
+      <a href="/margin/docs/handbook/#/32-sop-insurance" target="_blank" rel="noopener">SOP-11 Insurance →</a>
       <a href="https://cers.calepa.ca.gov" target="_blank" rel="noopener">CERS →</a>
     </div>
   </header>
   <nav class="tabs">
-    <button class="tab active" id="tabInspector" onclick="showTab('inspector')">Inspector Mode</button>
-    <button class="tab" id="tabInsurance"  onclick="showTab('insurance')">Insurance &amp; Company Docs</button>
-    <button class="tab" id="tabVendors"    onclick="showTab('vendors')">Vendors &amp; Contractors</button>
-    <button class="tab" id="tabContacts"   onclick="showTab('contacts')">Emergency Contacts</button>
+    <button class="tab active" id="tabDashboard" onclick="showTab('dashboard')">Dashboard</button>
+    <button class="tab" id="tabInspector"   onclick="showTab('inspector')">Records &amp; SDS</button>
+    <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
+    <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
+    <button class="tab" id="tabPostings"    onclick="showTab('postings')">Required Postings</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
-    <button class="tab" id="tabHandbook"   onclick="showTab('handbook')">Safety Manual</button>
+    <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
   </nav>
 
-  <!-- ═══════════════ INSPECTOR MODE ═══════════════ -->
-  <div class="container" id="paneInspector">
+  <!-- ═══════════════ DASHBOARD ═══════════════ -->
+  <div class="container" id="paneDashboard">
+    <div class="statrow" id="dashStats"></div>
+
+    <div class="section">
+      <h2>Needs attention <span class="sub" id="attnCount">checking…</span></h2>
+      <ul class="attn" id="attnList"><li class="muted">Loading…</li></ul>
+    </div>
+
+    <div class="section noprint">
+      <h2>Jump to</h2>
+      <div class="quicklinks">
+        <button onclick="showTab('inspector')">📋 Records &amp; SDS</button>
+        <button onclick="showTab('postings')">📌 Required postings</button>
+        <button onclick="showTab('inspections');showIns('cupa')">🔍 CUPA checklist</button>
+        <button onclick="showTab('inspections');showIns('osha')">🦺 Cal/OSHA checklist</button>
+        <button onclick="showTab('handbook')">📕 Safety manual &amp; sign-off</button>
+        <button onclick="showTab('insurance')">🛡 Our insurance</button>
+        <a href="https://cers.calepa.ca.gov" target="_blank" rel="noopener">CERS portal ↗</a>
+        <button onclick="window.print()">🖨 Print this dashboard</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Facility <span class="sub">what an inspector asks for in the first two minutes</span></h2>
+      <div class="idgrid">
+        <div class="idcard"><b>Facility</b><span class="v">Hangar 200</span><span class="m">1951 Monarch St, Suite 200 · Alameda, CA 94501</span></div>
+        <div class="idcard"><b>CERS ID</b><span class="v mono">10666381</span><span class="m">Alameda County Dept. of Environmental Health (our CUPA)</span></div>
+        <div class="idcard"><b>Legal name</b><span class="v">Alameda Point Beverage Group</span><span class="m">S corporation · DBA Brix Beverage</span></div>
+        <div class="idcard"><b>EIN</b><span class="v mono">82-1580658</span><span class="m">Seller's permit 103104468</span></div>
+        <div class="idcard"><b>Bulk CO₂</b><span class="v">6 tons · Airgas-leased</span><span class="m">Tank #4461 · alarm + cell backup verified</span></div>
+        <div class="idcard"><b>EPA §608 / Clean Air</b><span class="v mono">PA620014460</span><span class="m">Refrigerant handling certification</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Emergency &amp; agency phone numbers <span class="sub">the same set the CERS Emergency Response / Contingency Plan commits to</span></h2>
+      <div class="dashgrid">
+
+        <div class="phonecard urgent">
+          <h3>Immediate — life safety</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Ambulance · Fire · Police · CHP</b><span>Any life-threatening emergency, fire, or release</span></div><a href="tel:911">9-1-1</a></li>
+            <li><div class="who"><b>Poison Control Center</b><span>Chemical exposure, ingestion, eye contact</span></div><a href="tel:+18002221222">(800) 222-1222</a></li>
+            <li><div class="who"><b>Alameda Hospital — nearest ER</b><span>2070 Clinton Ave, Alameda CA 94501</span></div><a href="tel:+15105223700">(510) 522-3700</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Work injuries — Concentra Oakland</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Concentra — downtown</b><span>384 Embarcadero W · non-emergency work injuries · Mon–Fri 8–5</span></div><a href="tel:+15104659565">(510) 465-9565</a></li>
+            <li><div class="who"><b>Concentra — airport</b><span>333 Hegenberger Rd Ste 100</span></div><a href="tel:+15106380701">(510) 638-0701</a></li>
+            <li><div class="who"><b>Cal/OSHA — serious injury</b><span>Report immediately, no later than 8 hours. Same line an employee may use to report a hazard.</span></div><a href="tel:+18335790927">1-833-579-0927</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Company — 24-hour</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Sky Pace — CEO / Owner</b><span>Primary emergency &amp; environmental contact · skypace@brixbev.com</span></div><a href="tel:+14157133318">(415) 713-3318</a></li>
+            <li><div class="who"><b>Anthony Sloan — CFO</b><span>Secondary contact · asloan@brixbev.com · ⚠ 24-hr number blank on the CERS filing</span></div><a href="tel:+14157167028">(415) 716-7028</a></li>
+            <li><div class="who"><b>Airgas — bulk CO₂ tank</b><span>24-hour emergency response · tank #4461</span></div><a href="tel:+18667343438">(866) 734-3438</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Agencies — notification</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Alameda County Env. Health (CUPA)</b><span>HMBP, hazmat, hazardous waste</span></div><a href="tel:+15105676702">(510) 567-6702</a></li>
+            <li><div class="who"><b>Cal OES — State Warning Center</b><span>Required release notification (Cal/EMA on the ERCP)</span></div><a href="tel:+18008527550">(800) 852-7550</a></li>
+            <li><div class="who"><b>National Response Center</b><span>Federal release reporting</span></div><a href="tel:+18004248802">(800) 424-8802</a></li>
+            <li><div class="who"><b>Cal/OSHA — Sacramento</b><span>The number printed on our ERCP. General enquiries — not the serious-injury line.</span></div><a href="tel:+19162632800">(916) 263-2800</a></li>
+            <li><div class="who"><b>DTSC</b><span>Hazardous waste</span></div><a href="tel:+19162553545">(916) 255-3545</a></li>
+            <li><div class="who"><b>Regional Water Quality Control Board</b><span>Anything reaching a drain or the Bay</span></div><a href="tel:+15106222300">(510) 622-2300</a></li>
+            <li><div class="who"><b>U.S. EPA</b><span>—</span></div><a href="tel:+18003002193">(800) 300-2193</a></li>
+            <li><div class="who"><b>CA Fish and Wildlife</b><span>Listed as Fish and Game on the ERCP</span></div><a href="tel:+19163582900">(916) 358-2900</a></li>
+            <li><div class="who"><b>U.S. Coast Guard</b><span>Navigable waters</span></div><a href="tel:+12022672180">(202) 267-2180</a></li>
+            <li><div class="who"><b>State Fire Marshal</b><span>—</span></div><a href="tel:+19164458200">(916) 445-8200</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Insurance &amp; brokers</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Thimble / Coterie — general liability</b><span>Spinnaker NAIC 24376 · CSB-00128559-00</span></div><a href="tel:+18555661011">855-566-1011</a></li>
+            <li><div class="who"><b>Progressive Commercial — auto</b><span>NAIC 10193 · policy 975506554</span></div><a href="tel:+18004444487">1-800-444-4487</a></li>
+            <li><div class="who"><b>Embroker — workers' comp</b><span>AmTrust / Security National NAIC 19879 · SWC1470931 · Julie Noonan</span></div><a href="tel:+18444362765">(844) 436-2765</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Labor &amp; wage agencies</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>City of Alameda — minimum wage</b><span>950 West Mall Square Rm 205 · minimumwage@alamedaca.gov</span></div><a href="tel:+15107476859">(510) 747-6859</a></li>
+            <li><div class="who"><b>EDD — employer assistance</b><span>Payroll tax, UI, SDI, PFL</span></div><a href="tel:+18887453886">1-888-745-3886</a></li>
+            <li><div class="who"><b>CA Civil Rights Department</b><span>Discrimination, harassment, CFRA/PDL</span></div><a href="tel:+18008841684">(800) 884-1684</a></li>
+            <li><div class="who"><b>CA Labor Commissioner (DLSE)</b><span>Nearest office via the DIR locator — <a href="https://www.dir.ca.gov/dlse/DistrictOffices.htm" target="_blank" rel="noopener">dir.ca.gov office list</a></span></div><span class="muted">by office</span></li>
+          </ul>
+        </div>
+
+      </div>
+      <div class="muted" style="margin-top:12px">Print this page and it becomes the sheet that fills in the Cal/OSHA <b>S-500 Emergency Phone Numbers</b> poster (see Required Postings).</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ RECORDS & SDS ═══════════════ -->
+  <div class="container" id="paneInspector" style="display:none">
     <div class="contactbar noprint">
       <div class="ccard"><b>Emergency</b><a href="tel:911">9-1-1</a></div>
       <div class="ccard"><b>Sky Pace · 24-hr</b><a href="tel:+14157133318">(415) 713-3318</a></div>
@@ -168,86 +329,98 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
       <div class="ccard"><b>Facility</b>1951 Monarch St, Hangar 200</div>
     </div>
 
-    <div class="statrow" id="statRow"></div>
-
     <div class="section">
       <h2>Find a record <span class="sub">searches our documents and the SDS library together</span></h2>
-      <input type="search" id="q" placeholder="Try: CO2, forklift, insurance, acetone, permit…" style="width:100%;max-width:32rem">
+      <input type="search" id="q" placeholder="Try: CO2, forklift, insurance, acetone, permit…" style="max-width:32rem">
     </div>
 
     <div class="section">
-      <h2>Our documents — Brix Beverage &amp; affiliates <span class="sub" id="docCount"></span></h2>
+      <div class="toolbar">
+        <h2 style="margin:0">Our documents — Brix Beverage &amp; affiliates <span class="sub" id="docCount"></span></h2>
+        <div class="noprint">
+          <label class="muted" style="margin-right:10px"><input type="checkbox" id="showArch" onchange="reloadAll()"> Show archived</label>
+          <button class="btn sm" onclick="openEditor('documents')">+ Add document</button>
+        </div>
+      </div>
       <div class="twrap"><table class="grid" id="docTable">
-        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
-      <div class="muted" style="margin-top:8px">Vendor and contractor paper lives on the Vendors &amp; Contractors tab.</div>
+      <div class="muted" style="margin-top:8px">Vendor and contractor paper lives on the Vendors &amp; Contractors tab — a document with a party attached is somebody else's.</div>
     </div>
 
     <div class="section">
-      <h2>SDS library <span class="sub" id="sdsCount"></span></h2>
+      <div class="toolbar">
+        <h2 style="margin:0">SDS library <span class="sub" id="sdsCount"></span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('sds')">+ Add SDS</button></div>
+      </div>
       <div class="prose" style="margin-bottom:10px">
         One row per hazardous chemical product on site — deliberately a longer list than the CERS
         inventory (SDS are required regardless of quantity; 55 gal / 500 lb / 200 cu ft are CERS
         <em>reporting</em> thresholds only). Paper binder in the front office is the offline backup.
       </div>
       <div class="twrap"><table class="grid" id="sdsTable">
-        <thead><tr><th>Product</th><th>Manufacturer</th><th>Hazard</th><th>SDS rev</th><th>Sheet</th></tr></thead>
+        <thead><tr><th>Product</th><th>Manufacturer</th><th>Hazard</th><th>CERS</th><th>SDS rev</th><th>Sheet</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Vendors, contractors &amp; other parties <span class="sub" id="partyCount"></span></h2>
+        <div><button class="btn sm" onclick="openEditor('parties')">+ Add party</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:10px">
+        Every third party whose paper we hold. Add the party here first, then file their documents
+        against it — that is what routes a document to the Vendors &amp; Contractors tab.
+      </div>
+      <div class="twrap"><table class="grid" id="partyTable">
+        <thead><tr><th>Party</th><th>Type</th><th>Contact</th><th>Documents</th><th>Actions</th></tr></thead>
         <tbody><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
     <div class="section noprint">
-      <div class="prose">Records are edited in the Refractor vault (Production → Compliance &amp; Safety); this page is the read-fast surface for inspections.</div>
-      <div style="margin-top:10px"><button class="btn ghost" onclick="window.print()">🖨 Print record index</button></div>
+      <button class="btn ghost" onclick="window.print()">🖨 Print record index</button>
     </div>
   </div>
 
-  <!-- ═══════════════ OUR INSURANCE ═══════════════ -->
+  <!-- ═══════════════ OUR INSURANCE & COMPANY DOCS ═══════════════ -->
   <div class="container" id="paneInsurance" style="display:none">
     <div class="section">
-      <h2>Our insurance <span class="sub" id="insCount"></span></h2>
+      <div class="toolbar">
+        <h2 style="margin:0">Our insurance <span class="sub" id="insCount"></span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('documents',{category:'insurance'})">+ Add policy / COI</button></div>
+      </div>
       <div class="prose" style="margin-bottom:12px">
         Policies and certificates carried by <b>us</b> — Brix Beverage, Alameda Soda, FreeFlow.
         General liability, property, auto/fleet, workers' compensation, umbrella, product liability,
         cyber. This is what you produce when a customer, landlord, or auditor asks for our COI.
       </div>
       <div class="twrap"><table class="grid" id="insTable">
-        <thead><tr><th>Policy / document</th><th>Entity</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Policy / document</th><th>Entity</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
+
     <div class="section">
-      <h2>Company identity &amp; tax <span class="sub">what vendors and customers ask us for</span></h2>
+      <div class="toolbar">
+        <h2 style="margin:0">Company identity &amp; tax <span class="sub">what vendors and customers ask us for</span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('documents',{category:'tax'})">+ Add company document</button></div>
+      </div>
       <div class="prose" style="margin-bottom:12px">
-        The numbers are here so you can read them off without opening a file. Attach the PDFs in
-        Refractor and the <b>Open</b> buttons hand over the actual document.
+        The numbers are here so you can read them off without opening a file. Use <b>Upload</b> on a
+        row to attach the actual PDF — it goes straight into the private vault from this page.
       </div>
       <div class="idgrid">
-        <div class="idcard">
-          <b>Legal name</b>
-          <span class="v">Alameda Point Beverage Group</span>
-          <span class="m">S corporation · DBA Brix Beverage</span>
-        </div>
-        <div class="idcard">
-          <b>EIN (federal tax ID)</b>
-          <span class="v mono">82-1580658</span>
-          <span class="m">from the signed W-9, 08/30/2024</span>
-        </div>
-        <div class="idcard">
-          <b>CA seller's permit</b>
-          <span class="v mono">103104468</span>
-          <span class="m">resale certificate CDTFA-230</span>
-        </div>
-        <div class="idcard">
-          <b>Address of record</b>
-          <span class="v">1951 Monarch St, Suite 200</span>
-          <span class="m">Alameda, CA 94501 · (510) 564-2700</span>
-        </div>
+        <div class="idcard"><b>Legal name</b><span class="v">Alameda Point Beverage Group</span><span class="m">S corporation · DBA Brix Beverage</span></div>
+        <div class="idcard"><b>EIN (federal tax ID)</b><span class="v mono">82-1580658</span><span class="m">from the signed W-9, 08/30/2024</span></div>
+        <div class="idcard"><b>CA seller's permit</b><span class="v mono">103104468</span><span class="m">resale certificate CDTFA-230</span></div>
+        <div class="idcard"><b>Address of record</b><span class="v">1951 Monarch St, Suite 200</span><span class="m">Alameda, CA 94501 · (510) 564-2700</span></div>
       </div>
       <div class="twrap" style="margin-top:16px"><table class="grid" id="taxTable">
-        <thead><tr><th>Document</th><th>Issuer</th><th>Reference</th><th>Signed</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Issuer</th><th>Reference</th><th>Signed</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
@@ -326,7 +499,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           <li><b>Cyber / crime</b>, <b>EPLI</b>, and any bonds</li>
           <li><b>Additional-insured endorsements</b> we've issued to customers or landlords</li>
         </ul>
-        <p style="margin-top:10px">Add or edit these in Refractor → Production → Compliance &amp; Safety with category <b>Insurance</b> and <b>no party</b> — a document with a party attached is somebody else's insurance and belongs on the Vendors tab.</p>
+        <p style="margin-top:10px">Add these with category <b>Insurance</b> and <b>no party</b> — a document with a party attached is somebody else's insurance and belongs on the Vendors tab.</p>
       </div>
     </div>
   </div>
@@ -334,11 +507,17 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   <!-- ═══════════════ VENDORS & CONTRACTORS ═══════════════ -->
   <div class="container" id="paneVendors" style="display:none">
     <div class="section">
-      <h2>Vendor &amp; third-party documents <span class="sub">their compliance, held by us</span></h2>
+      <div class="toolbar">
+        <h2 style="margin:0">Vendor &amp; third-party documents <span class="sub">their compliance, held by us</span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="openEditor('parties')">+ Add party</button>
+          <button class="btn sm" onclick="openEditor('documents',{party_id:'__pick__'})">+ Add their document</button>
+        </div>
+      </div>
       <div class="prose">
         Paper we hold <b>for other companies</b> — co-packer production and food-safety records, vendor
         insurance, contractor insurance. We keep it current because our own compliance depends on it,
-        but it is their obligation. Click <b>Open</b> to pull the file from the private vault.
+        but it is their obligation. <b>Open</b> pulls the file from the private vault; <b>Upload</b> puts one in.
       </div>
     </div>
 
@@ -349,8 +528,8 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         actions, manufacturing licenses, FDA registrations, HACCP plans, kosher letters, specs.
       </div>
       <div class="twrap"><table class="grid" id="vpTable">
-        <thead><tr><th>Document</th><th>Vendor</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Vendor</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
@@ -362,8 +541,8 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         requires them.
       </div>
       <div class="twrap"><table class="grid" id="viTable">
-        <thead><tr><th>Document</th><th>Vendor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Vendor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
@@ -375,77 +554,80 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         real invoice later, not just a filing gap.
       </div>
       <div class="twrap"><table class="grid" id="ciTable">
-        <thead><tr><th>Document</th><th>Contractor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Contractor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
     <div class="section">
       <h2>Other third-party documents <span class="sub" id="otCount"></span></h2>
       <div class="twrap"><table class="grid" id="otTable">
-        <thead><tr><th>Document</th><th>Party</th><th>Type</th><th>Category</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
-        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Party</th><th>Type</th><th>Category</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
   </div>
 
-  <!-- ═══════════════ EMERGENCY CONTACTS ═══════════════ -->
-  <div class="container" id="paneContacts" style="display:none">
+  <!-- ═══════════════ REQUIRED POSTINGS ═══════════════ -->
+  <div class="container" id="panePostings" style="display:none">
     <div class="section">
-      <h2>Emergency contacts <span class="sub">as filed on the CERS Emergency Response / Contingency Plan</span></h2>
-      <div class="prose">Post this list. It is the same set of numbers an inspector will ask you to produce, and the same set your ERCP commits to.</div>
+      <div class="toolbar">
+        <h2 style="margin:0">Required workplace postings <span class="sub" id="postCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="window.print()">🖨 Print the board list</button>
+          <button class="btn sm" onclick="openEditor('postings')">+ Add posting</button>
+        </div>
+      </div>
+      <div class="prose">
+        Everything that has to hang on the board at Hangar 200, plus the notices that are
+        <b>distribution</b> duties rather than postings — those are called out in the notes and are
+        the ones most often missed. <b>Source</b> opens the agency's official PDF so you can print a
+        current copy; <b>Upload</b> stores the copy we actually posted, so the vault shows the exact
+        version on the wall.
+      </div>
+      <div class="statrow" style="margin:16px 0 0" id="postStats"></div>
     </div>
 
-    <div class="section">
-      <h2>Immediate — life safety</h2>
-      <div class="twrap"><table class="grid">
-        <tbody>
-          <tr><td><b>Ambulance · Fire · Police · CHP</b></td><td><a href="tel:911">9-1-1</a></td><td class="muted">Any life-threatening emergency, fire, or release</td></tr>
-          <tr><td><b>Poison Control Center</b></td><td><a href="tel:+18002221222">(800) 222-1222</a></td><td class="muted">Chemical exposure, ingestion, eye contact</td></tr>
-          <tr><td><b>Alameda Hospital</b> — nearest ER</td><td><a href="tel:+15105223700">(510) 522-3700</a></td><td class="muted">2070 Clinton Ave, Alameda CA 94501</td></tr>
-          <tr><td><b>Concentra Oakland — downtown</b></td><td><a href="tel:+15104659565">(510) 465-9565</a></td><td class="muted">384 Embarcadero W · non-emergency work injuries · Mon–Fri 8–5</td></tr>
-          <tr><td><b>Concentra Oakland — airport</b></td><td><a href="tel:+15106380701">(510) 638-0701</a></td><td class="muted">333 Hegenberger Rd Ste 100</td></tr>
-        </tbody>
+    <div class="section" id="postFedSec">
+      <h2>Federal <span class="sub" id="postFedCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postFedTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
-    <div class="section">
-      <h2>Company — 24-hour emergency contacts</h2>
-      <div class="twrap"><table class="grid">
-        <tbody>
-          <tr><td><b>Sky Pace</b> — CEO / Owner<br><span class="muted">Primary emergency contact &amp; environmental contact</span></td><td><a href="tel:+14157133318">(415) 713-3318</a></td><td class="muted">24-hour · skypace@brixbev.com</td></tr>
-          <tr><td><b>Anthony Sloan</b> — CFO<br><span class="muted">Secondary emergency contact</span></td><td><a href="tel:+14157167028">(415) 716-7028</a></td><td class="muted">asloan@brixbev.com · ⚠ 24-hr number blank on the CERS filing — add it</td></tr>
-          <tr><td><b>Airgas</b> — bulk CO₂ tank</td><td><a href="tel:+18667343438">(866) 734-3438</a></td><td class="muted">24-hour emergency response · tank #4461</td></tr>
-        </tbody>
+    <div class="section" id="postStateSec">
+      <h2>California — state <span class="sub" id="postStateCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postStateTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
 
-    <div class="section">
-      <h2>Agencies — notification numbers</h2>
-      <div class="twrap"><table class="grid">
-        <tbody>
-          <tr><td><b>Alameda County Dept. of Environmental Health</b> (our CUPA)</td><td><a href="tel:+15105676702">(510) 567-6702</a></td><td class="muted">HMBP, hazmat, hazardous waste</td></tr>
-          <tr><td><b>Cal OES</b> — State Warning Center</td><td><a href="tel:+18008527550">(800) 852-7550</a></td><td class="muted">Required release notification (listed as Cal/EMA on the ERCP)</td></tr>
-          <tr><td><b>National Response Center (NRC)</b></td><td><a href="tel:+18004248802">(800) 424-8802</a></td><td class="muted">Federal release reporting</td></tr>
-          <tr><td><b>Cal/OSHA — statewide line</b><br><span class="muted">Use this one for a serious injury</span></td><td><a href="tel:+18335790927">1-833-579-0927</a></td><td class="muted"><b>Mandatory report of any serious injury, illness, or fatality — immediately, and no later than 8 hours.</b> Same line any employee may use to report a hazard directly, without retaliation.</td></tr>
-          <tr><td><b>Cal/OSHA — Sacramento</b></td><td><a href="tel:+19162632800">(916) 263-2800</a></td><td class="muted">The number printed on our ERCP. General enquiries — not the serious-injury reporting line.</td></tr>
-          <tr><td><b>Dept. of Toxic Substances Control (DTSC)</b></td><td><a href="tel:+19162553545">(916) 255-3545</a></td><td class="muted">Hazardous waste</td></tr>
-          <tr><td><b>Regional Water Quality Control Board</b></td><td><a href="tel:+15106222300">(510) 622-2300</a></td><td class="muted">Anything reaching a drain or the Bay</td></tr>
-          <tr><td><b>U.S. EPA</b></td><td><a href="tel:+18003002193">(800) 300-2193</a></td><td class="muted">—</td></tr>
-          <tr><td><b>CA Dept. of Fish and Wildlife</b></td><td><a href="tel:+19163582900">(916) 358-2900</a></td><td class="muted">Listed as Fish and Game on the ERCP</td></tr>
-          <tr><td><b>U.S. Coast Guard</b></td><td><a href="tel:+12022672180">(202) 267-2180</a></td><td class="muted">Navigable waters</td></tr>
-          <tr><td><b>State Fire Marshal</b></td><td><a href="tel:+19164458200">(916) 445-8200</a></td><td class="muted">—</td></tr>
-        </tbody>
+    <div class="section" id="postLocalSec">
+      <h2>Local — City of Alameda / Alameda County <span class="sub" id="postLocalCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postLocalTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
+      <div class="muted" style="margin-top:8px">Alameda <b>County</b> has no minimum-wage ordinance — the state rate is the floor in unincorporated areas, and we are inside city limits anyway.</div>
     </div>
 
-    <div class="section noprint">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="window.print()">🖨 Print contact sheet</button>
+    <div class="section">
+      <h2>Read this before you print the board</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li><b>Which IWC Wage Order applies is still open.</b> Order 1 (Manufacturing) indexes "Bottling (soft drinks)"; Order 7 (Mercantile) indexes "Wholesale houses"; Order 9 (Transportation) covers firms in the business of transport/warehousing <em>for others</em> — our own delivery drivers don't by themselves pull us in. DIR's test is the <b>principal purpose</b> of the business, and only one order applies unless operations are separately managed at every level. Confirm with DLSE before printing one.</li>
+          <li><b>Whistleblowers Are Protected must be on 8.5 × 14 legal paper</b> with margins no wider than half an inch, so the type exceeds 14 point. A letter-size printout is non-compliant.</li>
+          <li><b>Form 300A posts February 1 – April 30</b> covering the prior year, even with zero injuries, and must be mailed or handed to route drivers and field techs who don't report weekly to the posting location.</li>
+          <li><b>"California Workplace — Know Your Rights" (SB 294) is a distribution duty.</b> Every employee gets it by Feb 1 each year, in the language we normally use with them. Up to $500 per employee if we miss it.</li>
+          <li><b>Fill-in posters count only when filled in</b> — Payday Notice, S-500 Emergency Phone Numbers, DWC-7 claims administrator, and the workers' comp carrier notice.</li>
+          <li><b>SB 553 workplace violence has no poster.</b> The duty is a written plan, a violent-incident log, training, and records — the plan must be easily accessible to employees at all times.</li>
+          <li><b>Time Off to Vote is seasonal</b> — up about ten days before each statewide election (next: post by ~Oct 24, 2026 for the Nov 3 general).</li>
+        </ul>
       </div>
     </div>
   </div>
-
   <!-- ═══════════════ INSPECTIONS ═══════════════ -->
   <div class="container" id="paneInspections" style="display:none">
     <div class="subtabs noprint">
@@ -739,7 +921,6 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
       </div>
     </div>
   </div>
-
   <!-- ═══════════════ SAFETY MANUAL ═══════════════ -->
   <div class="container" id="paneHandbook" style="display:none">
     <div class="section noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -782,6 +963,23 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
+  <!-- ═══════════════ RECORD EDITOR ═══════════════ -->
+  <div class="modal" id="editModal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="edTitle">Edit</h3>
+        <button class="xbtn" onclick="closeEditor()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="edBody"></div>
+      <div class="modal-foot">
+        <button class="btn" id="edSave" onclick="saveEditor()">Save</button>
+        <button class="btn ghost" onclick="closeEditor()">Cancel</button>
+        <span class="err" id="edErr" style="margin:0"></span>
+        <span class="okmsg" id="edOk" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
   <script src="https://alamedapointbg.com/appswitcher.js" data-app="compliance" defer></script>
 </div>
 
@@ -791,12 +989,14 @@ const HANDBOOK_VERSION = '2.0 (2026-08-17)';
 const HANDBOOK_MD_URL = '/billing/docs/handbook/31-safety-training-handbook.md';
 const SB_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const BUCKET = 'compliance-docs';
+const MAX_UPLOAD = 25 * 1024 * 1024;
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ═══ SESSION — any authenticated APBG login (deliberately NOT the superadmin
 // gate in auth.js: warehouse hires sign this handbook on day one, and RLS is
-// the real enforcement — insert self-only, read own-or-staff). ═══
+// the real enforcement — records are staff-only, acks are insert-self/read-own). ═══
 function readSession(){
   try{
     const raw = localStorage.getItem('apbg_session');
@@ -812,48 +1012,126 @@ function readSession(){
 const SESSION = readSession();
 
 // ═══ PostgREST helpers (ops schema) ═══
+function sbHeaders(extra){
+  return Object.assign({ apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token }, extra || {});
+}
 async function opsGet(path){
-  const r = await fetch(SB_URL + '/rest/v1/' + path, {
-    headers: { apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token, 'Accept-Profile': 'ops' },
-  });
+  const r = await fetch(SB_URL + '/rest/v1/' + path, { headers: sbHeaders({ 'Accept-Profile': 'ops' }) });
   if(!r.ok) throw new Error('HTTP ' + r.status + ' on ' + path.split('?')[0]);
   return r.json();
 }
-async function opsInsert(table, row){
-  const r = await fetch(SB_URL + '/rest/v1/' + table, {
-    method: 'POST',
-    headers: { apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token,
-      'Content-Profile': 'ops', 'Content-Type': 'application/json', Prefer: 'return=representation' },
-    body: JSON.stringify(row),
+async function opsWrite(method, path, body){
+  const r = await fetch(SB_URL + '/rest/v1/' + path, {
+    method: method,
+    headers: sbHeaders({ 'Content-Profile': 'ops', 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: JSON.stringify(body),
   });
   const text = await r.text();
   if(!r.ok) throw new Error(text || ('HTTP ' + r.status));
   return text ? JSON.parse(text) : null;
 }
+const opsInsert = (table, row) => opsWrite('POST', table, row);
+const opsPatch  = (table, id, row) => opsWrite('PATCH', table + '?id=eq.' + encodeURIComponent(id), row);
 
-// ═══ Private-bucket file open. The compliance-docs bucket is staff-gated, so
-// the browser can't hit a plain URL — fetch it with the session bearer and
-// hand the bytes over as a blob. Delegated click so paths with odd characters
-// never end up inside an inline onclick attribute. ═══
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.filebtn');
-  if(!btn) return;
-  const path = btn.getAttribute('data-path');
-  const name = btn.getAttribute('data-name') || (path || '').split('/').pop() || 'document';
-  btn.disabled = true; const was = btn.textContent; btn.textContent = 'Opening…';
-  try{
-    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/compliance-docs/' + path, {
-      headers: { apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token },
-    });
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    const url = URL.createObjectURL(await r.blob());
-    const a = document.createElement('a');
-    a.href = url; a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-  }catch(err){
-    alert('Could not open the file: ' + err.message + '\n\nIf this says 400 or 404 the file may not be attached yet — attach it in Refractor → Production → Compliance & Safety.');
-  }finally{ btn.disabled = false; btn.textContent = was; }
-});
+// ═══ Private-bucket upload / download. The compliance-docs bucket is
+// staff-gated (insert/select/update/delete all behind ops.fn_is_staff()), so
+// everything goes through the signed-in user's own bearer — no service key
+// ever reaches the browser and no separate admin surface is needed. ═══
+function safeName(n){ return String(n || 'file').replace(/[^A-Za-z0-9._-]/g, '_').slice(-80); }
+async function uploadToBucket(prefix, rowId, file){
+  if(file.size > MAX_UPLOAD) throw new Error('File is ' + Math.round(file.size/1048576) + ' MB — the limit is 25 MB.');
+  const path = prefix + '/' + rowId + '/' + Date.now() + '-' + safeName(file.name);
+  const r = await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + path, {
+    method: 'POST',
+    headers: sbHeaders({ 'x-upsert': 'true', 'Content-Type': file.type || 'application/octet-stream' }),
+    body: file,
+  });
+  if(!r.ok) throw new Error('Upload failed (HTTP ' + r.status + '): ' + (await r.text()).slice(0, 200));
+  return { storage_path: path, file_name: file.name };
+}
+async function deleteFromBucket(path){
+  try{ await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + path, { method: 'DELETE', headers: sbHeaders() }); }
+  catch(e){ /* best effort — the row pointer is what matters */ }
+}
+
+// ═══ SPECS — one entry per editable table drives the toolbar Add button, the
+// modal form, the row Edit/Upload/Archive actions, and the file prefix. Adding
+// a column to a table means adding one line here, nothing else. ═══
+const ENTITY_OPTS = [['brix','Brix Beverage'],['alameda_soda','Alameda Soda'],['freeflow','FreeFlow'],['shared','Shared / all entities']];
+const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['other','Other']];
+const PARTY_TYPE_OPTS = [['co_packer','Co-packer'],['contractor','Contractor'],['vendor','Vendor'],['landlord','Landlord'],['customer','Customer'],['other','Other']];
+const JUR_OPTS = [['federal','Federal'],['state','California — state'],['local','Local (City of Alameda / county)']];
+
+const SPECS = {
+  documents: {
+    table: 'compliance_documents', prefix: 'documents', label: 'document', file: true, archive: 'archived_at',
+    order: 'expiration_date.asc.nullslast',
+    fields: [
+      { k:'doc_type', l:'Document type', t:'text', req:true, full:true, hint:'e.g. General liability policy, Seller’s permit, GMP audit report' },
+      { k:'category', l:'Category', t:'select', opts:CAT_OPTS, req:true },
+      { k:'holder_entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— none / not ours —' },
+      { k:'party_id', l:'Third party', t:'select', optsFrom:'parties', blank:'— ours (no third party) —', hint:'Set this and the document moves to the Vendors & Contractors tab.' },
+      { k:'issuer', l:'Issuer / carrier', t:'text' },
+      { k:'reference_number', l:'Reference / policy #', t:'text' },
+      { k:'issue_date', l:'Issued', t:'date' },
+      { k:'expiration_date', l:'Expires', t:'date' },
+      { k:'facility', l:'Facility', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true, hint:'A https:// link in here becomes the row’s fallback Link button when no file is attached.' },
+    ],
+  },
+  sds: {
+    table: 'compliance_sds', prefix: 'sds', label: 'SDS', file: true, archive: 'archived_at',
+    order: 'product_name.asc',
+    fields: [
+      { k:'product_name', l:'Product', t:'text', req:true, full:true },
+      { k:'manufacturer', l:'Manufacturer', t:'text' },
+      { k:'cas_number', l:'CAS number', t:'text' },
+      { k:'physical_state', l:'Physical state', t:'text', hint:'solid / liquid / gas' },
+      { k:'storage_location', l:'Where it is stored', t:'text' },
+      { k:'container_desc', l:'Container', t:'text' },
+      { k:'max_quantity', l:'Max quantity on site', t:'number' },
+      { k:'quantity_units', l:'Units', t:'text', hint:'gal, lb, cu ft…' },
+      { k:'sds_revision_date', l:'SDS revision date', t:'date' },
+      { k:'entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— unassigned —' },
+      { k:'cers_reported', l:'Reported on the CERS chemical inventory', t:'checkbox', full:true, hint:'Crossing 55 gal / 500 lb / 200 cu ft means a CERS update within 30 days.' },
+      { k:'hazard_summary', l:'Hazard summary', t:'textarea', full:true },
+      { k:'notes', l:'Notes', t:'textarea', full:true, hint:'A https:// link here is used as the manufacturer SDS link when no PDF is attached.' },
+    ],
+  },
+  parties: {
+    table: 'insured_parties', prefix: null, label: 'party', file: false, archive: 'active',
+    order: 'name.asc',
+    fields: [
+      { k:'name', l:'Party name', t:'text', req:true, full:true, hint:'Legal name — the one on their certificate.' },
+      { k:'party_type', l:'Type', t:'select', opts:PARTY_TYPE_OPTS, req:true },
+      { k:'contact_name', l:'Contact', t:'text' },
+      { k:'contact_email', l:'Email', t:'text' },
+      { k:'contact_phone', l:'Phone', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+  postings: {
+    table: 'compliance_postings', prefix: 'postings', label: 'posting', file: true, archive: 'archived_at',
+    order: 'jurisdiction.asc,title.asc',
+    fields: [
+      { k:'title', l:'Posting title', t:'text', req:true, full:true },
+      { k:'jurisdiction', l:'Jurisdiction', t:'select', opts:JUR_OPTS, req:true },
+      { k:'agency', l:'Agency', t:'text' },
+      { k:'form_code', l:'Form / publication #', t:'text' },
+      { k:'version_label', l:'Version on the wall', t:'text', hint:'e.g. REV 04/23, MW-2026' },
+      { k:'source_url', l:'Official source URL', t:'text', full:true },
+      { k:'applies_when', l:'Who must post it', t:'text', full:true },
+      { k:'posted_location', l:'Where we post it', t:'text', full:true },
+      { k:'effective_date', l:'Effective', t:'date' },
+      { k:'review_by', l:'Review / swap by', t:'date', hint:'Annual rate changes, seasonal windows.' },
+      { k:'verified_on', l:'Last verified on the wall', t:'date' },
+      { k:'verified_by', l:'Verified by', t:'text' },
+      { k:'languages', l:'Languages available', t:'text', full:true },
+      { k:'required', l:'Required for us right now', t:'checkbox', full:true, hint:'Uncheck for postings we track but are below the threshold for.' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+};
 
 // ═══ BOOT ═══
 if(!SESSION){
@@ -863,21 +1141,23 @@ if(!SESSION){
 }else{
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadRecords();
+  reloadAll();
   loadHandbook();
   loadAckState();
 }
 
-const PANES = { inspector:'paneInspector', insurance:'paneInsurance', vendors:'paneVendors',
-                contacts:'paneContacts', inspections:'paneInspections', handbook:'paneHandbook' };
-const TABS  = { inspector:'tabInspector', insurance:'tabInsurance', vendors:'tabVendors',
-                contacts:'tabContacts', inspections:'tabInspections', handbook:'tabHandbook' };
+// ═══ TABS ═══
+const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
+                vendors:'paneVendors', postings:'panePostings', inspections:'paneInspections', handbook:'paneHandbook' };
+const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
+                vendors:'tabVendors', postings:'tabPostings', inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
-  if(!PANES[which]) which = 'inspector';
+  if(!PANES[which]) which = 'dashboard';
   for(const k in PANES){
     document.getElementById(PANES[k]).style.display = k === which ? 'block' : 'none';
     document.getElementById(TABS[k]).classList.toggle('active', k === which);
   }
+  window.scrollTo({ top: 0 });
 }
 const INS = { cupa:'insCupa', osha:'insOsha', wc:'insWc', insurance:'insInsurance',
               kosher:'insKosher', other:'insOther', runbook:'insRunbook' };
@@ -887,28 +1167,38 @@ function showIns(which){
   document.querySelectorAll('.subtab').forEach(b =>
     b.classList.toggle('active', b.getAttribute('data-ins') === which));
 }
-// Deep links: #handbook, #inspection(s), #contacts, #insurance, #vendors, and #inspections/osha
+// Deep links: #dashboard, #handbook, #inspections/osha, #postings, #contacts (→ dashboard), …
 (function(){
   const h = (location.hash || '').replace('#','');
   if(!h) return;
   const [main, sub] = h.split('/');
   const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
-                contacts:'contacts', insurance:'insurance', vendors:'vendors', inspector:'inspector' };
+                contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings',
+                insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector' };
   if(map[main]) showTab(map[main]);
   if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
 })();
 
-// ═══ RECORDS ═══
-let DOCS = [], SDS = [], PARTIES = {};
+// ═══ DATA ═══
+let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {};
 const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
 const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
 const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
+const JURLABEL = { federal:'Federal', state:'State', local:'Local' };
+// Function declaration, not a const arrow: reloadAll() runs from the boot block
+// above and calls this synchronously — an arrow declared here would still be in
+// its temporal dead zone and the whole page would render empty.
+function showArchived(){ const el = document.getElementById('showArch'); return !!(el && el.checked); }
 
+function daysLeft(d){
+  if(!d) return null;
+  return Math.round((new Date(d + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000);
+}
 function expiryChip(d){
-  if(!d.expiration_date) return '<span class="chip dim">No expiry</span>';
-  const days = Math.round((new Date(d.expiration_date + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000);
-  if(days < 0)  return '<span class="chip crit">Expired</span>';
-  if(days <= 60) return '<span class="chip warn">' + days + 'd left</span>';
+  const n = daysLeft(d.expiration_date);
+  if(n === null) return '<span class="chip dim">No expiry</span>';
+  if(n < 0)   return '<span class="chip crit">Expired</span>';
+  if(n <= 60) return '<span class="chip warn">' + n + 'd left</span>';
   return '<span class="chip ok">Current</span>';
 }
 function firstUrl(s){ const m = String(s||'').match(/https?:\/\/[^\s)"]+/); return m ? m[0] : null; }
@@ -916,100 +1206,159 @@ function fileCell(d){
   if(d.storage_path) return '<button class="filebtn" data-path="' + esc(d.storage_path) + '" data-name="' + esc(d.file_name || '') + '">Open</button>';
   const u = firstUrl(d.notes);
   if(u) return '<a href="' + esc(u) + '" target="_blank" rel="noopener">Link →</a>';
-  return '<span class="chip warn" title="Drag the PDF onto this row in Refractor to attach it">Attach PDF</span>';
+  return '<span class="chip warn">No file</span>';
+}
+function acts(specKey, d){
+  const sp = SPECS[specKey];
+  let h = '<span class="acts noprint">';
+  h += '<button class="actbtn" data-act="edit" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">Edit</button>';
+  if(sp.file) h += '<button class="actbtn" data-act="up" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">' + (d.storage_path ? 'Replace' : 'Upload') + '</button>';
+  const archived = sp.archive === 'active' ? d.active === false : !!d.archived_at;
+  h += '<button class="actbtn' + (archived ? '' : ' danger') + '" data-act="' + (archived ? 'unarch' : 'arch') + '" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">' + (archived ? 'Restore' : 'Archive') + '</button>';
+  return h + '</span>';
+}
+function rowClass(specKey, d){
+  const sp = SPECS[specKey];
+  const archived = sp.archive === 'active' ? d.active === false : !!d.archived_at;
+  return archived ? ' class="arch"' : '';
+}
+function rowsInto(id, specKey, list, cols, empty, span){
+  const tb = document.querySelector('#' + id + ' tbody');
+  if(!tb) return;
+  tb.innerHTML = list.length
+    ? list.map(d => '<tr' + rowClass(specKey, d) + '>' + cols(d).map(c => '<td>' + c + '</td>').join('') + '<td class="noprint">' + acts(specKey, d) + '</td></tr>').join('')
+    : '<tr><td colspan="' + (span || 8) + '" class="muted">' + empty + '</td></tr>';
 }
 function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 
-async function loadRecords(){
+async function reloadAll(){
+  const arch = showArchived();
   try{
-    let parties;
-    [DOCS, SDS, parties] = await Promise.all([
-      opsGet('compliance_documents?select=*&archived_at=is.null&order=expiration_date.asc.nullslast'),
-      opsGet('compliance_sds?select=*&archived_at=is.null&order=product_name.asc'),
-      opsGet('insured_parties?select=id,name,party_type&active=eq.true'),
+    const [docs, sds, postings, parties] = await Promise.all([
+      opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
+      opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
+      opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
+      opsGet('insured_parties?select=*&order=name.asc'),
     ]);
+    DOCS = docs; SDS = sds; POSTINGS = postings; PARTY_LIST = parties;
     PARTIES = {};
     for(const p of parties) PARTIES[p.id] = p;
   }catch(e){
-    const msg = '<tr><td colspan="7" class="muted">Could not load records (' + esc(e.message) +
-      '). Records are staff-visible; employees only need the Safety Manual tab.</td></tr>';
-    ['docTable','insTable','vpTable','viTable','ciTable','otTable'].forEach(id => {
+    const msg = '<tr><td colspan="8" class="muted">Could not load records (' + esc(e.message) +
+      '). Records are staff-only; employees only need the Safety Manual tab.</td></tr>';
+    ['docTable','insTable','vpTable','viTable','ciTable','otTable','sdsTable','partyTable','taxTable',
+     'postFedTable','postStateTable','postLocalTable'].forEach(id => {
       const t = document.querySelector('#' + id + ' tbody'); if(t) t.innerHTML = msg;
     });
-    const s = document.querySelector('#sdsTable tbody'); if(s) s.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
+    document.getElementById('attnList').innerHTML = '<li class="muted">Records are staff-only — nothing to show on this login.</li>';
+    document.getElementById('attnCount').textContent = '';
     return;
   }
-  const attention = DOCS.filter(d => { const c = expiryChip(d); return c.indexOf('crit') > -1 || c.indexOf('warn') > -1; }).length;
-  document.getElementById('statRow').innerHTML =
-    '<div class="stat"><b>' + DOCS.filter(d => !d.party_id).length + '</b><span>our documents</span></div>' +
-    '<div class="stat"><b>' + DOCS.filter(d => d.party_id).length + '</b><span>vendor / third-party</span></div>' +
-    '<div class="stat"><b>' + SDS.length + '</b><span>SDS library entries</span></div>' +
-    '<div class="stat"><b>' + attention + '</b><span>expired / expiring ≤60d</span></div>';
-  renderAll('');
-  document.getElementById('q').addEventListener('input', e => renderAll(e.target.value.trim().toLowerCase()));
+  renderDashboard();
+  renderAll(document.getElementById('q').value.trim().toLowerCase());
+}
+document.getElementById('q').addEventListener('input', e => renderAll(e.target.value.trim().toLowerCase()));
+
+// ═══ DASHBOARD ═══
+function renderDashboard(){
+  const live = DOCS.filter(d => !d.archived_at);
+  const expired = live.filter(d => { const n = daysLeft(d.expiration_date); return n !== null && n < 0; });
+  const soon    = live.filter(d => { const n = daysLeft(d.expiration_date); return n !== null && n >= 0 && n <= 60; });
+  const noFile  = live.filter(d => !d.storage_path && !firstUrl(d.notes));
+  const sdsLive = SDS.filter(s => !s.archived_at);
+  const sdsGap  = sdsLive.filter(s => !s.storage_path && !firstUrl(s.notes));
+  const postLive = POSTINGS.filter(p => !p.archived_at && p.required !== false);
+  const postDue = postLive.filter(p => { const n = daysLeft(p.review_by); return n !== null && n <= 45; });
+
+  document.getElementById('dashStats').innerHTML =
+    '<div class="stat click' + (expired.length ? ' red' : '') + '" onclick="showTab(\'inspector\')"><b>' + expired.length + '</b><span>expired documents</span></div>' +
+    '<div class="stat click' + (soon.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + soon.length + '</b><span>expiring within 60 days</span></div>' +
+    '<div class="stat click' + (noFile.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + noFile.length + '</b><span>documents with no file attached</span></div>' +
+    '<div class="stat click' + (sdsGap.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + sdsGap.length + ' / ' + sdsLive.length + '</b><span>SDS with no sheet on file</span></div>' +
+    '<div class="stat click" onclick="showTab(\'postings\')"><b>' + postLive.length + '</b><span>required postings tracked</span></div>' +
+    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>';
+
+  const items = [];
+  expired.forEach(d => items.push({ p:0, chip:'<span class="chip crit">Expired</span>',
+    t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expired ' + esc(d.expiration_date), tab:'inspector' }));
+  soon.forEach(d => items.push({ p:1, chip:'<span class="chip warn">' + daysLeft(d.expiration_date) + 'd</span>',
+    t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expires ' + esc(d.expiration_date), tab:'inspector' }));
+  postDue.forEach(p => items.push({ p:2, chip:'<span class="chip warn">Posting</span>',
+    t: esc(p.title) + ' — review or swap by ' + esc(p.review_by), tab:'postings' }));
+  if(sdsGap.length) items.push({ p:3, chip:'<span class="chip warn">SDS</span>',
+    t: sdsGap.length + ' chemical product' + (sdsGap.length === 1 ? '' : 's') + ' with no safety data sheet on file — Cal/OSHA HazCom requires one regardless of quantity', tab:'inspector' });
+  if(noFile.length) items.push({ p:4, chip:'<span class="chip dim">File</span>',
+    t: noFile.length + ' document' + (noFile.length === 1 ? '' : 's') + ' filed with no PDF attached — use Upload on the row', tab:'inspector' });
+
+  items.sort((a,b) => a.p - b.p);
+  const list = document.getElementById('attnList');
+  document.getElementById('attnCount').textContent = items.length ? items.length + ' open item' + (items.length === 1 ? '' : 's') : 'all clear';
+  list.innerHTML = items.length
+    ? items.slice(0, 25).map(i => '<li>' + i.chip + '<span class="t">' + i.t + '</span>' +
+        '<button class="actbtn noprint" onclick="showTab(\'' + i.tab + '\')">Open</button></li>').join('')
+    : '<li class="muted">Nothing expired, nothing expiring inside 60 days, every SDS has a sheet. Good.</li>';
 }
 
-function rowsInto(id, list, cols, empty){
-  const tb = document.querySelector('#' + id + ' tbody');
-  if(!tb) return;
-  tb.innerHTML = list.length ? list.map(d => '<tr>' + cols(d).map(c => '<td>' + c + '</td>').join('') + '</tr>').join('')
-                            : '<tr><td colspan="7" class="muted">' + empty + '</td></tr>';
-}
-
+// ═══ TABLES ═══
 function renderAll(q){
   const hay = d => (JSON.stringify(d) + (partyOf(d) ? partyOf(d).name : '')).toLowerCase();
   const match = d => !q || hay(d).indexOf(q) > -1;
   const ours = DOCS.filter(d => !d.party_id);
   const theirs = DOCS.filter(d => d.party_id);
 
-  // Inspector Mode — our documents
   const oursF = ours.filter(match);
   document.getElementById('docCount').textContent = oursF.length + ' of ' + ours.length;
-  rowsInto('docTable', oursF, d => [
+  rowsInto('docTable', 'documents', oursF, d => [
     '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
     '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
     '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
     esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'No matches.');
 
-  // SDS
-  const sds = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().indexOf(q) > -1);
-  document.getElementById('sdsCount').textContent = sds.length + ' of ' + SDS.length;
-  const st = document.querySelector('#sdsTable tbody');
-  st.innerHTML = sds.length ? sds.map(s => {
+  const sdsF = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().indexOf(q) > -1);
+  document.getElementById('sdsCount').textContent = sdsF.length + ' of ' + SDS.length;
+  rowsInto('sdsTable', 'sds', sdsF, s => {
     const url = firstUrl(s.notes);
-    return '<tr>' +
-      '<td><strong>' + esc(s.product_name) + '</strong>' + (s.storage_location ? '<div class="muted">' + esc(s.storage_location) + '</div>' : '') + '</td>' +
-      '<td>' + esc(s.manufacturer || '—') + '</td>' +
-      '<td class="muted">' + esc((s.hazard_summary || '—').slice(0, 90)) + '</td>' +
-      '<td>' + esc(s.sds_revision_date || '—') + '</td>' +
-      '<td>' + (s.storage_path ? '<button class="filebtn" data-path="' + esc(s.storage_path) + '" data-name="' + esc(s.file_name || '') + '">Open</button>'
-              : url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open SDS →</a>'
-              : '<span class="chip warn">Missing</span>') + '</td>' +
-    '</tr>';
-  }).join('') : '<tr><td colspan="5" class="muted">No matches.</td></tr>';
+    return [
+      '<strong>' + esc(s.product_name) + '</strong>' + (s.storage_location ? '<div class="muted">' + esc(s.storage_location) + '</div>' : ''),
+      esc(s.manufacturer || '—'),
+      '<span class="muted">' + esc((s.hazard_summary || '—').slice(0, 90)) + '</span>',
+      s.cers_reported ? '<span class="chip info">Reported</span>' : '<span class="chip dim">No</span>',
+      esc(s.sds_revision_date || '—'),
+      s.storage_path ? '<button class="filebtn" data-path="' + esc(s.storage_path) + '" data-name="' + esc(s.file_name || '') + '">Open</button>'
+        : url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open SDS →</a>'
+        : '<span class="chip warn">Missing</span>',
+    ];
+  }, 'No matches.', 7);
 
-  // Company identity & tax documents
+  const partyF = PARTY_LIST.filter(p => (showArchived() || p.active !== false) && (!q || JSON.stringify(p).toLowerCase().indexOf(q) > -1));
+  document.getElementById('partyCount').textContent = partyF.length + ' part' + (partyF.length === 1 ? 'y' : 'ies');
+  rowsInto('partyTable', 'parties', partyF, p => {
+    const n = DOCS.filter(d => d.party_id === p.id).length;
+    return [
+      '<strong>' + esc(p.name) + '</strong>',
+      '<span class="chip dim">' + esc(PTYLABEL[p.party_type] || p.party_type) + '</span>',
+      (p.contact_name ? esc(p.contact_name) : '') +
+        (p.contact_email ? '<div class="muted">' + esc(p.contact_email) + '</div>' : '') +
+        (p.contact_phone ? '<div class="muted">' + esc(p.contact_phone) + '</div>' : '') || '<span class="muted">—</span>',
+      n ? n + ' on file' : '<span class="chip warn">None on file</span>',
+    ];
+  }, 'No parties yet — add one before filing their paperwork.', 5);
+
   const tax = ours.filter(d => d.category === 'tax');
-  const tt = document.querySelector('#taxTable tbody');
-  if(tt) tt.innerHTML = tax.length ? tax.map(d => '<tr>' +
-      '<td><strong>' + esc(d.doc_type) + '</strong></td>' +
-      '<td>' + esc(d.issuer || '—') + '</td>' +
-      '<td class="mono">' + esc(d.reference_number || '—') + '</td>' +
-      '<td>' + esc(d.issue_date || '—') + '</td>' +
-      '<td>' + fileCell(d) + '</td>' +
-    '</tr>').join('') : '<tr><td colspan="5" class="muted">No company documents filed yet.</td></tr>';
+  rowsInto('taxTable', 'documents', tax, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', esc(d.issuer || '—'),
+    '<span class="mono">' + esc(d.reference_number || '—') + '</span>', esc(d.issue_date || '—'), fileCell(d),
+  ], 'No company documents filed yet.', 6);
 
-  // Our insurance
   const ins = ours.filter(d => d.category === 'insurance');
   document.getElementById('insCount').textContent = ins.length + (ins.length === 1 ? ' policy / certificate' : ' policies / certificates');
-  rowsInto('insTable', ins, d => [
+  rowsInto('insTable', 'documents', ins, d => [
     '<strong>' + esc(d.doc_type) + '</strong>',
     '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
     esc(d.issuer || '—'), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
-  ], 'No insurance documents filed yet — add them in Refractor with category Insurance and no party.');
+  ], 'No insurance documents filed yet — use + Add policy / COI above.');
 
-  // Vendors & contractors
   const isCon = d => { const p = partyOf(d); return p && p.party_type === 'contractor'; };
   const vendorProd = theirs.filter(d => !isCon(d) && d.category !== 'insurance');
   const vendorIns  = theirs.filter(d => !isCon(d) && d.category === 'insurance');
@@ -1019,29 +1368,252 @@ function renderAll(q){
   const ptype = d => { const p = partyOf(d); return p ? esc(PTYLABEL[p.party_type] || p.party_type) : '—'; };
 
   document.getElementById('vpCount').textContent = vendorProd.length + ' document' + (vendorProd.length === 1 ? '' : 's');
-  rowsInto('vpTable', vendorProd, d => [
+  rowsInto('vpTable', 'documents', vendorProd, d => [
     '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
     pname(d), ptype(d), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'No vendor production documents yet.');
 
   document.getElementById('viCount').textContent = vendorIns.length + ' COI' + (vendorIns.length === 1 ? '' : 's');
-  rowsInto('viTable', vendorIns, d => [
+  rowsInto('viTable', 'documents', vendorIns, d => [
     '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
     esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'No vendor COIs on file yet.');
 
   document.getElementById('ciCount').textContent = conIns.length + ' COI' + (conIns.length === 1 ? '' : 's');
-  rowsInto('ciTable', conIns, d => [
+  rowsInto('ciTable', 'documents', conIns, d => [
     '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
     esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'No contractor COIs on file yet — every contractor working for us needs one before they start.');
 
   document.getElementById('otCount').textContent = otherTP.length + ' document' + (otherTP.length === 1 ? '' : 's');
-  rowsInto('otTable', otherTP, d => [
+  rowsInto('otTable', 'documents', otherTP, d => [
     '<strong>' + esc(d.doc_type) + '</strong>', pname(d), ptype(d),
     '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
     esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'Nothing else filed against a third party.');
+
+  renderPostings(q);
+}
+
+function reviewChip(p){
+  const n = daysLeft(p.review_by);
+  if(n === null) return '<span class="muted">—</span>';
+  if(n < 0)   return '<span class="chip crit">Overdue ' + esc(p.review_by) + '</span>';
+  if(n <= 45) return '<span class="chip warn">' + esc(p.review_by) + '</span>';
+  return '<span class="muted">' + esc(p.review_by) + '</span>';
+}
+function renderPostings(q){
+  const f = POSTINGS.filter(p => !q || JSON.stringify(p).toLowerCase().indexOf(q) > -1);
+  document.getElementById('postCount').textContent = f.length + ' tracked';
+  const live = POSTINGS.filter(p => !p.archived_at);
+  const req = live.filter(p => p.required !== false);
+  const withFile = req.filter(p => p.storage_path).length;
+  document.getElementById('postStats').innerHTML =
+    '<div class="stat"><b>' + req.length + '</b><span>required of us</span></div>' +
+    '<div class="stat"><b>' + (live.length - req.length) + '</b><span>tracked, below threshold</span></div>' +
+    '<div class="stat' + (withFile < req.length ? ' amber' : '') + '"><b>' + withFile + ' / ' + req.length + '</b><span>with our posted copy filed</span></div>' +
+    '<div class="stat"><b>' + live.filter(p => p.jurisdiction === 'local').length + '</b><span>local (City of Alameda)</span></div>';
+
+  const cols = p => [
+    '<strong>' + esc(p.title) + '</strong>' +
+      (p.required === false ? ' <span class="chip dim">not required of us</span>' : '') +
+      (p.version_label ? '<div class="muted">version on the wall: ' + esc(p.version_label) + '</div>' : '') +
+      (p.notes ? '<div class="muted">' + esc(p.notes) + '</div>' : ''),
+    esc(p.agency || '—') + (p.languages ? '<div class="muted">' + esc(p.languages) + '</div>' : ''),
+    p.form_code ? '<span class="mono">' + esc(p.form_code) + '</span>' : '<span class="muted">—</span>',
+    '<span class="muted">' + esc(p.applies_when || '—') + '</span>',
+    '<span class="muted">' + esc(p.posted_location || '—') + '</span>',
+    reviewChip(p),
+    (p.storage_path ? '<button class="filebtn" data-path="' + esc(p.storage_path) + '" data-name="' + esc(p.file_name || '') + '">Our copy</button>' : '') +
+      (p.source_url ? (p.storage_path ? '<div style="margin-top:4px">' : '') + '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener">Source →</a>' + (p.storage_path ? '</div>' : '') : (p.storage_path ? '' : '<span class="chip warn">No source</span>')),
+  ];
+  [['federal','postFedTable','postFedCount'],['state','postStateTable','postStateCount'],['local','postLocalTable','postLocalCount']].forEach(([j, tid, cid]) => {
+    const rows = f.filter(p => p.jurisdiction === j);
+    document.getElementById(cid).textContent = rows.length + ' posting' + (rows.length === 1 ? '' : 's');
+    rowsInto(tid, 'postings', rows, cols, 'Nothing tracked here yet.');
+  });
+}
+
+// ═══ ROW ACTIONS — one delegated handler covers Open, Edit, Upload, Archive
+// across every table on the page. ═══
+const hiddenFile = document.createElement('input');
+hiddenFile.type = 'file';
+hiddenFile.style.display = 'none';
+document.body.appendChild(hiddenFile);
+
+document.addEventListener('click', async (e) => {
+  const fb = e.target.closest('.filebtn');
+  if(fb){
+    const path = fb.getAttribute('data-path');
+    const name = fb.getAttribute('data-name') || (path || '').split('/').pop() || 'document';
+    fb.disabled = true; const was = fb.textContent; fb.textContent = 'Opening…';
+    try{
+      const r = await fetch(SB_URL + '/storage/v1/object/authenticated/' + BUCKET + '/' + path, { headers: sbHeaders() });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }catch(err){
+      alert('Could not open the file: ' + err.message);
+    }finally{ fb.disabled = false; fb.textContent = was; }
+    return;
+  }
+
+  const ab = e.target.closest('.actbtn[data-act]');
+  if(!ab) return;
+  const act = ab.getAttribute('data-act');
+  const specKey = ab.getAttribute('data-spec');
+  const id = ab.getAttribute('data-id');
+  const sp = SPECS[specKey];
+  const row = rowById(specKey, id);
+  if(!row) return;
+
+  if(act === 'edit'){ openEditor(specKey, row); return; }
+
+  if(act === 'up'){
+    hiddenFile.value = '';
+    hiddenFile.onchange = async () => {
+      const file = hiddenFile.files[0];
+      if(!file) return;
+      ab.disabled = true; const was = ab.textContent; ab.textContent = 'Uploading…';
+      try{
+        const old = row.storage_path;
+        const meta = await uploadToBucket(sp.prefix, id, file);
+        await opsPatch(sp.table, id, meta);
+        if(old && old !== meta.storage_path) await deleteFromBucket(old);
+        await reloadAll();
+      }catch(err){ alert('Upload failed: ' + err.message); }
+      finally{ ab.disabled = false; ab.textContent = was; }
+    };
+    hiddenFile.click();
+    return;
+  }
+
+  if(act === 'arch' || act === 'unarch'){
+    const on = act === 'arch';
+    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || '') + '"';
+    if(on && !confirm('Archive this ' + what + '?\n\nIt is hidden from the normal view but nothing is deleted — tick "Show archived" to bring it back.')) return;
+    ab.disabled = true;
+    try{
+      const patch = sp.archive === 'active'
+        ? { active: !on }
+        : { archived_at: on ? new Date().toISOString() : null, archived_by: on ? SESSION.email : null };
+      await opsPatch(sp.table, id, patch);
+      await reloadAll();
+    }catch(err){ alert('Could not update: ' + err.message); }
+    finally{ ab.disabled = false; }
+  }
+});
+
+function rowById(specKey, id){
+  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST }[specKey] || [];
+  return src.find(r => String(r.id) === String(id));
+}
+
+// ═══ EDITOR MODAL ═══
+let EDIT = { spec: null, id: null };
+function openEditor(specKey, seed){
+  const sp = SPECS[specKey];
+  if(!sp) return;
+  const row = (seed && seed.id) ? seed : {};
+  const pre = (seed && !seed.id) ? seed : {};
+  EDIT = { spec: specKey, id: row.id || null };
+  document.getElementById('edTitle').textContent = (row.id ? 'Edit ' : 'New ') + sp.label;
+  document.getElementById('edErr').textContent = '';
+  document.getElementById('edOk').textContent = '';
+
+  const body = document.getElementById('edBody');
+  body.innerHTML = sp.fields.map(f => {
+    let v = row[f.k];
+    if(v === undefined || v === null) v = (pre[f.k] === '__pick__' ? '' : pre[f.k]);
+    if(v === undefined || v === null) v = (f.t === 'checkbox' ? (f.k === 'required') : '');
+    const idA = 'ed_' + f.k;
+    const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
+    if(f.t === 'checkbox'){
+      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + '>' +
+             '<label for="' + idA + '">' + esc(f.l) + (hint ? ' <span class="hint">— ' + esc(f.hint) + '</span>' : '') + '</label></div>';
+    }
+    let input;
+    if(f.t === 'textarea'){
+      input = '<textarea id="' + idA + '">' + esc(v) + '</textarea>';
+    }else if(f.t === 'select'){
+      const opts = f.optsFrom === 'parties'
+        ? PARTY_LIST.filter(p => p.active !== false).map(p => [p.id, p.name + ' (' + (PTYLABEL[p.party_type] || p.party_type) + ')'])
+        : f.opts;
+      input = '<select id="' + idA + '">' +
+        (f.blank !== undefined || !f.req ? '<option value="">' + esc(f.blank || '— none —') + '</option>' : '') +
+        opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') +
+        '</select>';
+    }else{
+      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '">';
+    }
+    return '<div class="field' + (f.full ? ' full' : '') + '"><label for="' + idA + '">' + esc(f.l) + (f.req ? ' *' : '') + '</label>' + input + hint + '</div>';
+  }).join('');
+
+  if(sp.file){
+    body.insertAdjacentHTML('beforeend',
+      '<div class="field full"><label>Attach a file</label><div class="filepick">' +
+      '<input type="file" id="edFile">' +
+      '<div class="muted" style="margin-top:6px">' +
+      (row.storage_path ? 'Currently attached: <b>' + esc(row.file_name || row.storage_path.split('/').pop()) + '</b> — choosing a new file replaces it.'
+                        : 'PDF, image, or Office file, up to 25 MB. Stored in the private compliance vault.') +
+      '</div></div></div>');
+  }
+  document.getElementById('editModal').style.display = 'flex';
+}
+function closeEditor(){ document.getElementById('editModal').style.display = 'none'; EDIT = { spec: null, id: null }; }
+document.getElementById('editModal').addEventListener('click', e => { if(e.target.id === 'editModal') closeEditor(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && document.getElementById('editModal').style.display === 'flex') closeEditor(); });
+
+async function saveEditor(){
+  const sp = SPECS[EDIT.spec];
+  if(!sp) return;
+  const errEl = document.getElementById('edErr');
+  const okEl = document.getElementById('edOk');
+  errEl.textContent = ''; okEl.textContent = '';
+  const payload = {};
+  for(const f of sp.fields){
+    const el = document.getElementById('ed_' + f.k);
+    if(!el) continue;
+    let v;
+    if(f.t === 'checkbox') v = el.checked;
+    else{
+      v = el.value.trim();
+      if(v === '') v = null;
+      else if(f.t === 'number') v = Number(v);
+    }
+    if(f.req && (v === null || v === '')){ errEl.textContent = f.l + ' is required.'; return; }
+    payload[f.k] = v;
+  }
+  const fileEl = document.getElementById('edFile');
+  const file = fileEl && fileEl.files && fileEl.files[0];
+
+  const btn = document.getElementById('edSave');
+  btn.disabled = true; const was = btn.textContent; btn.textContent = 'Saving…';
+  try{
+    let id = EDIT.id;
+    let existingPath = null;
+    if(id){
+      const cur = rowById(EDIT.spec, id);
+      existingPath = cur && cur.storage_path;
+      await opsPatch(sp.table, id, payload);
+    }else{
+      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.table !== 'insured_parties' ? { created_by: SESSION.uid } : {}));
+      id = created && created[0] && created[0].id;
+      if(!id) throw new Error('The row saved but returned no id — reload and check.');
+    }
+    if(file && sp.file){
+      btn.textContent = 'Uploading…';
+      const meta = await uploadToBucket(sp.prefix, id, file);
+      await opsPatch(sp.table, id, meta);
+      if(existingPath && existingPath !== meta.storage_path) await deleteFromBucket(existingPath);
+    }
+    await reloadAll();
+    closeEditor();
+  }catch(e){
+    errEl.textContent = 'Could not save: ' + String(e.message).slice(0, 300);
+  }finally{ btn.disabled = false; btn.textContent = was; }
 }
 
 // ═══ HANDBOOK ═══
