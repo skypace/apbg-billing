@@ -78,15 +78,56 @@ function proposalMarkdown(data) {
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders(), body: '' };
-  if (event.httpMethod !== 'POST') return json({ error: 'POST only', status: 'error' }, 405);
+  if (event.httpMethod !== 'POST' && event.httpMethod !== 'GET') {
+    return json({ error: 'POST or GET only', status: 'error' }, 405);
+  }
 
   const auth = await requireAuth(event, ALLOWED_ROLES);
   if (!auth.ok) return auth.response;
 
   const key = process.env.GAMMA_API_KEY;
-  if (!key) return json({ status: 'error', message: 'GAMMA_API_KEY is not configured' }, 503);
+  if (!key) {
+    return json({ status: 'error', error: 'GAMMA_API_KEY is not configured on Netlify', message: 'GAMMA_API_KEY is not configured on Netlify' }, 503);
+  }
 
   try {
+    // Gamma's Generations API is asynchronous: POST returns only a
+    // generationId; the deck URL exists only once GET .../{id} reports
+    // status "completed". The client starts with POST here and then polls
+    // this same function with ?generationId= until we hand back the URLs.
+    if (event.httpMethod === 'GET') {
+      const generationId = event.queryStringParameters?.generationId;
+      if (!generationId) {
+        return json({ status: 'error', error: 'generationId is required', message: 'generationId is required' }, 400);
+      }
+      const res = await fetch(`${GAMMA_GENERATIONS_URL}/${encodeURIComponent(generationId)}`, {
+        headers: { 'X-API-KEY': key },
+      });
+      const text = await res.text();
+      let out = {};
+      try { out = text ? JSON.parse(text) : {}; } catch { out = {}; }
+      if (!res.ok) {
+        const message = out?.message || out?.error || text || `Gamma returned ${res.status}`;
+        return json({ status: 'error', error: message, message }, 502);
+      }
+      if (out.status === 'completed') {
+        return json({
+          status: 'created',
+          generationId,
+          gammaUrl: out.gammaUrl,
+          pdfUrl: out.exportUrl || out.pdfUrl,
+          message: 'Gamma deck created.',
+        });
+      }
+      if (out.status === 'failed') {
+        // Definitive failure from Gamma — report it as data (200) so the
+        // client can tell it apart from a transient infra error and stop
+        // polling instead of retrying.
+        return json({ status: 'error', generationId, message: out.message || out.error || 'Gamma generation failed.' });
+      }
+      return json({ status: 'pending', generationId, message: 'Gamma is still generating the deck.' });
+    }
+
     const data = JSON.parse(event.body || '{}');
     const gammaPayload = {
       inputText: proposalMarkdown(data),
@@ -105,20 +146,25 @@ export async function handler(event) {
       body: JSON.stringify(gammaPayload),
     });
     const text = await res.text();
-    const out = text ? JSON.parse(text) : {};
+    let out = {};
+    try { out = text ? JSON.parse(text) : {}; } catch { out = {}; }
     if (!res.ok) {
-      return json({ status: 'error', message: out?.message || out?.error || text || `Gamma returned ${res.status}` }, 502);
+      const message = out?.message || out?.error || text || `Gamma returned ${res.status}`;
+      return json({ status: 'error', error: message, message }, 502);
+    }
+    if (!out.generationId) {
+      const message = 'Gamma accepted the request but returned no generationId.';
+      return json({ status: 'error', error: message, message }, 502);
     }
 
     return json({
-      status: out.gammaUrl ? 'created' : 'pending',
+      status: 'pending',
       generationId: out.generationId,
-      gammaUrl: out.gammaUrl,
-      pdfUrl: out.exportUrl,
-      message: out.gammaUrl ? 'Gamma deck created.' : 'Gamma generation started.',
+      message: 'Gamma generation started.',
     });
   } catch (e) {
     console.error('proposal-gamma error:', e);
-    return json({ status: 'error', message: e instanceof Error ? e.message : String(e) }, 500);
+    const message = e instanceof Error ? e.message : String(e);
+    return json({ status: 'error', error: message, message }, 500);
   }
 }
