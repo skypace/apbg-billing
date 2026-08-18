@@ -103,6 +103,15 @@
   to = "/compliance.html"
   status = 200
 
+# Visitor sign-in kiosk — the tablet at the front door. DELIBERATELY PUBLIC: a
+# visitor cannot log in, so the page is open and its two writes go through
+# service-role functions (visitor-signin / visitor-signout). The visitor LOG is
+# staff-only, read from /compliance → Visitors. The gateway proxies /visitors here.
+[[redirects]]
+  from = "/visitors"
+  to = "/visitors.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"
