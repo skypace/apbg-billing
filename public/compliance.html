@@ -23,14 +23,19 @@ header h1 .cers{font-family:'JetBrains Mono',monospace;font-size:.7rem;font-weig
 header .links{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 header .links a{color:#64748B;text-decoration:none;font-size:.82rem;margin-left:14px}
 header .links a:hover{color:#1F4E79}
-.tabs{background:#fff;border-bottom:1px solid #E4E9F0;padding:0 28px;display:flex;gap:4px;flex-wrap:wrap}
+.tabs{background:#fff;border-bottom:1px solid #E4E9F0;padding:0 28px;display:flex;gap:2px;flex-wrap:wrap}
 .tab{border:0;background:none;font:inherit;font-size:.86rem;font-weight:600;color:#64748B;padding:12px 14px;cursor:pointer;border-bottom:2px solid transparent}
 .tab:hover{color:#0F172A}
 .tab.active{color:#1F4E79;border-bottom-color:#1F4E79}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px}
+.subtab{border:1px solid #D6DEE8;background:#fff;font:inherit;font-size:.82rem;font-weight:600;color:#475569;padding:8px 14px;border-radius:20px;cursor:pointer}
+.subtab:hover{border-color:#1F4E79;color:#1F4E79}
+.subtab.active{background:#1F4E79;border-color:#1F4E79;color:#fff}
 .container{max-width:1100px;margin:0 auto;padding:28px}
 .section{background:#fff;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
 .section h2{font-size:.95rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .section h2 .sub{font-weight:400;font-size:.75rem;color:#94A3B8}
+.section h3{font-size:.86rem;font-weight:700;margin:18px 0 8px;color:#1F4E79}
 .prose{font-size:.85rem;color:#374151;line-height:1.55}
 .prose code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:.8rem;font-family:'JetBrains Mono',monospace}
 .btn{background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:.85rem;padding:10px 18px;border-radius:8px;border:0;cursor:pointer;display:inline-block}
@@ -60,22 +65,20 @@ table.grid tr:last-child td{border-bottom:none}
 .ccard{background:#0F2A38;color:#E6EEF1;border-radius:10px;padding:10px 14px;font-size:.78rem}
 .ccard b{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#8FB3C4}
 .ccard a{color:#F4B400;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:600}
+.filebtn{border:1px solid #1F4E79;background:#fff;color:#1F4E79;font:inherit;font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.filebtn:hover{background:#EEF2F7}
+/* Checklists */
+.ck{list-style:none;margin:0;padding:0}
+.ck li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem;line-height:1.5}
+.ck li:last-child{border-bottom:none}
+.ck input[type=checkbox]{width:16px;height:16px;margin-top:3px;flex-shrink:0;accent-color:#1F4E79;cursor:pointer}
+.ck .note{display:block;color:#94A3B8;font-size:.76rem;margin-top:2px}
 /* Handbook rendering */
 .hb{font-size:.9rem;line-height:1.65;color:#1F2937;max-width:56rem}
 .hb h1{font-size:1.5rem;margin:0 0 12px}
 .hb h2{font-size:1.12rem;margin:26px 0 8px;color:#1F4E79;border-bottom:2px solid #1F4E79;padding-bottom:4px}
 .hb h3{font-size:.95rem;margin:18px 0 6px;color:#1F4E79}
 .hb h4{font-size:.88rem;margin:14px 0 4px;color:#334155}
-/* Handbook table of contents — 30+ pages needs navigation */
-.hbtoc{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:16px 18px;margin:0 0 20px;max-width:56rem}
-.hbtoc h3{margin:0 0 10px;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#1F4E79}
-.hbtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
-.hbtoc li{margin:0 0 3px;break-inside:avoid;font-size:.82rem}
-.hbtoc li.part{font-weight:700;margin-top:8px;column-break-after:avoid}
-.hbtoc li.part:first-child{margin-top:0}
-.hbtoc a{color:#334155;text-decoration:none}
-.hbtoc a:hover{color:#1F4E79;text-decoration:underline}
-@media(max-width:700px){.hbtoc ol{columns:1}}
 .hb p{margin:8px 0}
 .hb ul,.hb ol{margin:8px 0 8px 22px}
 .hb li{margin:4px 0}
@@ -85,19 +88,40 @@ table.grid tr:last-child td{border-bottom:none}
 .hb td{padding:7px 10px;border:1px solid #E4E9F0}
 .hb code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:.8rem;font-family:'JetBrains Mono',monospace}
 .hb hr{border:0;border-top:1px solid #E4E9F0;margin:20px 0}
-/* Signing block */
+.hb img{max-width:100%;height:auto;display:block;margin:16px 0;border:1px solid #E4E9F0;border-radius:8px;background:#fff}
+/* Handbook table of contents */
+.hbtoc{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:16px 18px;margin:0 0 20px;max-width:56rem}
+.hbtoc h3{margin:0 0 10px;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#1F4E79}
+.hbtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
+.hbtoc li{margin:0 0 3px;break-inside:avoid;font-size:.82rem}
+.hbtoc li.part{font-weight:700;margin-top:8px;column-break-after:avoid}
+.hbtoc li.part:first-child{margin-top:0}
+.hbtoc a{color:#334155;text-decoration:none}
+.hbtoc a:hover{color:#1F4E79;text-decoration:underline}
+@media(max-width:700px){.hbtoc ol{columns:1}}
+/* Signing */
 .signbox{border:2px solid #1F4E79;border-radius:12px;padding:20px;background:#F8FBFE;max-width:56rem}
-.signbox h3{font-size:1rem;margin-bottom:10px}
+.signbox h3{font-size:1rem;margin-bottom:10px;color:#0F172A}
 .sigpad{border:1px dashed #94A3B8;border-radius:8px;background:#fff;touch-action:none;display:block;width:100%;max-width:560px;height:170px;cursor:crosshair}
 .signrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
 .signed-banner{background:#DCFCE7;border:1px solid #86EFAC;color:#15803D;border-radius:10px;padding:14px 18px;font-size:.9rem;font-weight:600;max-width:56rem}
 .err{color:#B91C1C;font-size:.82rem;margin-top:8px}
 img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#fff}
+
 @media print{
-  header,.tabs,.contactbar,.signrow,.noprint{display:none!important}
+  header,.tabs,.subtabs,.contactbar,.signrow,.noprint{display:none!important}
   body{background:#fff}
-  .section{border:none;box-shadow:none;padding:0}
+  .section{border:none;box-shadow:none;padding:0;margin-bottom:14px}
   .container{max-width:none;padding:0}
+  /* Print the safety manual as a standalone manual */
+  body.print-manual .container{display:none!important}
+  body.print-manual #paneHandbook{display:block!important}
+  body.print-manual #signSection,body.print-manual #rosterSection,body.print-manual #hbToc{display:none!important}
+  body.print-manual .hb h2{break-before:page;page-break-before:always}
+  body.print-manual .hb h2:first-of-type{break-before:auto;page-break-before:auto}
+  body.print-manual .hb h3,body.print-manual .hb h4{break-after:avoid;page-break-after:avoid}
+  body.print-manual .hb img,body.print-manual .hb table,body.print-manual .hb blockquote{break-inside:avoid;page-break-inside:avoid}
+  body.print-manual .hb{max-width:none;font-size:10.5pt}
 }
 </style>
 </head>
@@ -121,11 +145,14 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </header>
   <nav class="tabs">
     <button class="tab active" id="tabInspector" onclick="showTab('inspector')">Inspector Mode</button>
-    <button class="tab" id="tabHandbook" onclick="showTab('handbook')">Safety Handbook &amp; Sign-off</button>
-    <button class="tab" id="tabDay" onclick="showTab('day')">Inspection Day</button>
+    <button class="tab" id="tabInsurance"  onclick="showTab('insurance')">Our Insurance</button>
+    <button class="tab" id="tabVendors"    onclick="showTab('vendors')">Vendors &amp; Contractors</button>
+    <button class="tab" id="tabContacts"   onclick="showTab('contacts')">Emergency Contacts</button>
+    <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
+    <button class="tab" id="tabHandbook"   onclick="showTab('handbook')">Safety Manual</button>
   </nav>
 
-  <!-- ═══ INSPECTOR MODE ═══ -->
+  <!-- ═══════════════ INSPECTOR MODE ═══════════════ -->
   <div class="container" id="paneInspector">
     <div class="contactbar noprint">
       <div class="ccard"><b>Emergency</b><a href="tel:911">9-1-1</a></div>
@@ -138,28 +165,17 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <div class="statrow" id="statRow"></div>
 
     <div class="section">
-      <h2>Find a record <span class="sub">searches documents and the SDS library together</span></h2>
+      <h2>Find a record <span class="sub">searches our documents and the SDS library together</span></h2>
       <input type="search" id="q" placeholder="Try: CO2, forklift, insurance, acetone, permit…" style="width:100%;max-width:32rem">
     </div>
 
     <div class="section">
       <h2>Our documents — Brix Beverage &amp; affiliates <span class="sub" id="docCount"></span></h2>
       <div class="twrap"><table class="grid" id="docTable">
-        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th></tr></thead>
-        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table></div>
-    </div>
-
-    <div class="section">
-      <h2>Vendor &amp; third-party documents <span class="sub" id="vendorCount"></span></h2>
-      <div class="prose" style="margin-bottom:10px">
-        Paper we hold FOR other companies — co-packer audits, contractor and vendor COIs, their
-        certificates. Kept current by us, but it's their compliance, not ours.
-      </div>
-      <div class="twrap"><table class="grid" id="vendorTable">
-        <thead><tr><th>Document</th><th>Vendor / party</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th></tr></thead>
-        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
-      </table></div>
+      <div class="muted" style="margin-top:8px">Vendor and contractor paper lives on the Vendors &amp; Contractors tab.</div>
     </div>
 
     <div class="section">
@@ -176,13 +192,458 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
 
     <div class="section noprint">
-      <div class="prose">Records are edited in the Refractor vault (Production → Compliance &amp; Safety); this page is the read-fast surface for inspections. </div>
+      <div class="prose">Records are edited in the Refractor vault (Production → Compliance &amp; Safety); this page is the read-fast surface for inspections.</div>
       <div style="margin-top:10px"><button class="btn ghost" onclick="window.print()">🖨 Print record index</button></div>
     </div>
   </div>
 
-  <!-- ═══ HANDBOOK + SIGNING ═══ -->
+  <!-- ═══════════════ OUR INSURANCE ═══════════════ -->
+  <div class="container" id="paneInsurance" style="display:none">
+    <div class="section">
+      <h2>Our insurance <span class="sub" id="insCount"></span></h2>
+      <div class="prose" style="margin-bottom:12px">
+        Policies and certificates carried by <b>us</b> — Brix Beverage, Alameda Soda, FreeFlow.
+        General liability, property, auto/fleet, workers' compensation, umbrella, product liability,
+        cyber. This is what you produce when a customer, landlord, or auditor asks for our COI.
+      </div>
+      <div class="twrap"><table class="grid" id="insTable">
+        <thead><tr><th>Policy / document</th><th>Entity</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+    <div class="section noprint">
+      <h2>What belongs here</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.8">
+          <li><b>Commercial general liability (CGL)</b> — policy + current COI</li>
+          <li><b>Commercial auto / fleet</b> — policy, vehicle schedule, driver list</li>
+          <li><b>Workers' compensation</b> — policy, current COI, experience mod worksheet</li>
+          <li><b>Property / inland marine</b> — building contents, equipment schedules, values</li>
+          <li><b>Umbrella / excess liability</b></li>
+          <li><b>Product liability</b> — critical for the beverage side and for Compass/Foodbuy-type onboarding</li>
+          <li><b>Cyber / crime</b>, <b>EPLI</b>, and any bonds</li>
+          <li><b>Additional-insured endorsements</b> we've issued to customers or landlords</li>
+        </ul>
+        <p style="margin-top:10px">Add or edit these in Refractor → Production → Compliance &amp; Safety with category <b>Insurance</b> and <b>no party</b> — a document with a party attached is somebody else's insurance and belongs on the Vendors tab.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ VENDORS & CONTRACTORS ═══════════════ -->
+  <div class="container" id="paneVendors" style="display:none">
+    <div class="section">
+      <h2>Vendor &amp; third-party documents <span class="sub">their compliance, held by us</span></h2>
+      <div class="prose">
+        Paper we hold <b>for other companies</b> — co-packer production and food-safety records, vendor
+        insurance, contractor insurance. We keep it current because our own compliance depends on it,
+        but it is their obligation. Click <b>Open</b> to pull the file from the private vault.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Vendor production &amp; food safety <span class="sub" id="vpCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Co-packer and ingredient-supplier paper: GMP/GFSI audit reports, certificates, corrective
+        actions, manufacturing licenses, FDA registrations, HACCP plans, kosher letters, specs.
+      </div>
+      <div class="twrap"><table class="grid" id="vpTable">
+        <thead><tr><th>Document</th><th>Vendor</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Vendor insurance <span class="sub" id="viCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        COIs from co-packers, suppliers, landlords, and service vendors. Watch for: current dates,
+        adequate limits, <b>additional insured</b> and <b>waiver of subrogation</b> where our contract
+        requires them.
+      </div>
+      <div class="twrap"><table class="grid" id="viTable">
+        <thead><tr><th>Document</th><th>Vendor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Contractor insurance <span class="sub" id="ciCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Trade contractors working at Hangar 200 or on our behalf at customer sites. <b>An uninsured
+        contractor gets charged to our workers'-comp policy at audit</b> — a missing COI here is a
+        real invoice later, not just a filing gap.
+      </div>
+      <div class="twrap"><table class="grid" id="ciTable">
+        <thead><tr><th>Document</th><th>Contractor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Other third-party documents <span class="sub" id="otCount"></span></h2>
+      <div class="twrap"><table class="grid" id="otTable">
+        <thead><tr><th>Document</th><th>Party</th><th>Type</th><th>Category</th><th>Expires</th><th>Status</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ EMERGENCY CONTACTS ═══════════════ -->
+  <div class="container" id="paneContacts" style="display:none">
+    <div class="section">
+      <h2>Emergency contacts <span class="sub">as filed on the CERS Emergency Response / Contingency Plan</span></h2>
+      <div class="prose">Post this list. It is the same set of numbers an inspector will ask you to produce, and the same set your ERCP commits to.</div>
+    </div>
+
+    <div class="section">
+      <h2>Immediate — life safety</h2>
+      <div class="twrap"><table class="grid">
+        <tbody>
+          <tr><td><b>Ambulance · Fire · Police · CHP</b></td><td><a href="tel:911">9-1-1</a></td><td class="muted">Any life-threatening emergency, fire, or release</td></tr>
+          <tr><td><b>Poison Control Center</b></td><td><a href="tel:+18002221222">(800) 222-1222</a></td><td class="muted">Chemical exposure, ingestion, eye contact</td></tr>
+          <tr><td><b>Alameda Hospital</b> — nearest ER</td><td><a href="tel:+15105223700">(510) 522-3700</a></td><td class="muted">2070 Clinton Ave, Alameda CA 94501</td></tr>
+          <tr><td><b>Concentra Oakland — downtown</b></td><td><a href="tel:+15104659565">(510) 465-9565</a></td><td class="muted">384 Embarcadero W · non-emergency work injuries · Mon–Fri 8–5</td></tr>
+          <tr><td><b>Concentra Oakland — airport</b></td><td><a href="tel:+15106380701">(510) 638-0701</a></td><td class="muted">333 Hegenberger Rd Ste 100</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Company — 24-hour emergency contacts</h2>
+      <div class="twrap"><table class="grid">
+        <tbody>
+          <tr><td><b>Sky Pace</b> — CEO / Owner<br><span class="muted">Primary emergency contact &amp; environmental contact</span></td><td><a href="tel:+14157133318">(415) 713-3318</a></td><td class="muted">24-hour · skypace@brixbev.com</td></tr>
+          <tr><td><b>Anthony Sloan</b> — CFO<br><span class="muted">Secondary emergency contact</span></td><td><a href="tel:+14157167028">(415) 716-7028</a></td><td class="muted">asloan@brixbev.com · ⚠ 24-hr number blank on the CERS filing — add it</td></tr>
+          <tr><td><b>Airgas</b> — bulk CO₂ tank</td><td><a href="tel:+18667343438">(866) 734-3438</a></td><td class="muted">24-hour emergency response · tank #4461</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Agencies — notification numbers</h2>
+      <div class="twrap"><table class="grid">
+        <tbody>
+          <tr><td><b>Alameda County Dept. of Environmental Health</b> (our CUPA)</td><td><a href="tel:+15105676702">(510) 567-6702</a></td><td class="muted">HMBP, hazmat, hazardous waste</td></tr>
+          <tr><td><b>Cal OES</b> — State Warning Center</td><td><a href="tel:+18008527550">(800) 852-7550</a></td><td class="muted">Required release notification (listed as Cal/EMA on the ERCP)</td></tr>
+          <tr><td><b>National Response Center (NRC)</b></td><td><a href="tel:+18004248802">(800) 424-8802</a></td><td class="muted">Federal release reporting</td></tr>
+          <tr><td><b>Cal/OSHA</b></td><td><a href="tel:+19162632800">(916) 263-2800</a></td><td class="muted">Serious injury reporting within 8 hours</td></tr>
+          <tr><td><b>Cal/OSHA — employee hotline</b></td><td><a href="tel:+18335790927">1-833-579-0927</a></td><td class="muted">Any employee may report a hazard directly, without retaliation</td></tr>
+          <tr><td><b>Dept. of Toxic Substances Control (DTSC)</b></td><td><a href="tel:+19162553545">(916) 255-3545</a></td><td class="muted">Hazardous waste</td></tr>
+          <tr><td><b>Regional Water Quality Control Board</b></td><td><a href="tel:+15106222300">(510) 622-2300</a></td><td class="muted">Anything reaching a drain or the Bay</td></tr>
+          <tr><td><b>U.S. EPA</b></td><td><a href="tel:+18003002193">(800) 300-2193</a></td><td class="muted">—</td></tr>
+          <tr><td><b>CA Dept. of Fish and Wildlife</b></td><td><a href="tel:+19163582900">(916) 358-2900</a></td><td class="muted">Listed as Fish and Game on the ERCP</td></tr>
+          <tr><td><b>U.S. Coast Guard</b></td><td><a href="tel:+12022672180">(202) 267-2180</a></td><td class="muted">Navigable waters</td></tr>
+          <tr><td><b>State Fire Marshal</b></td><td><a href="tel:+19164458200">(916) 445-8200</a></td><td class="muted">—</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="window.print()">🖨 Print contact sheet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ INSPECTIONS ═══════════════ -->
+  <div class="container" id="paneInspections" style="display:none">
+    <div class="subtabs noprint">
+      <button class="subtab active" data-ins="cupa"   onclick="showIns('cupa')">CUPA</button>
+      <button class="subtab" data-ins="osha"          onclick="showIns('osha')">Cal/OSHA</button>
+      <button class="subtab" data-ins="wc"            onclick="showIns('wc')">Workers' Comp</button>
+      <button class="subtab" data-ins="insurance"     onclick="showIns('insurance')">Insurance</button>
+      <button class="subtab" data-ins="kosher"        onclick="showIns('kosher')">OU Kosher</button>
+      <button class="subtab" data-ins="other"         onclick="showIns('other')">Other</button>
+      <button class="subtab" data-ins="runbook"       onclick="showIns('runbook')">Visit runbook</button>
+    </div>
+
+    <!-- CUPA -->
+    <div class="insp" id="insCupa">
+      <div class="section">
+        <h2>CUPA inspection — Alameda County Environmental Health <span class="sub">CERS 10666381 · unannounced</span></h2>
+        <div class="prose">Hazardous materials, hazardous waste, and emergency planning at Hangar 200. Typically every 1–3 years, unannounced. Our HMBP was accepted 2026-08-12; next full annual submittal 2027-08-10.</div>
+      </div>
+      <div class="section">
+        <h3>Records they will ask for</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>HMBP current in CERS and certified annually<span class="note">Business Activities · Owner/Operator · Chemical Inventory · Site Map · Emergency Response Plan</span></label></li>
+          <li><input type="checkbox"><label>Chemical inventory matches what is physically on site<span class="note">Names, max daily amount, largest container, days on site, container type, and location — this is the line they check hardest</span></label></li>
+          <li><input type="checkbox"><label>Facility site map current<span class="note">Storage areas, exits, shutoffs, emergency equipment, north arrow</span></label></li>
+          <li><input type="checkbox"><label>Signed Emergency Response / Contingency Plan available on site</label></li>
+          <li><input type="checkbox"><label>Annual HMBP training records with signatures<span class="note">Within 6 months of hire, annually after; date, topics, trainer, attendees</span></label></li>
+          <li><input type="checkbox"><label>24-hour emergency contacts current on the filing</label></li>
+          <li><input type="checkbox"><label>Hazardous waste: generator status, EPA ID, manifests retained 3 years</label></li>
+          <li><input type="checkbox"><label>Weekly waste accumulation area inspection log, no gaps</label></li>
+          <li><input type="checkbox"><label>Used oil: hauler receipts and registration on file</label></li>
+          <li><input type="checkbox"><label>SDS accessible for every hazardous material on site</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Physical walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Bulk CO₂ tank and cylinders: secured, capped, full/empty segregated</label></li>
+          <li><input type="checkbox"><label>CO₂ monitor and cellular backup powered and normal<span class="note">Especially any cylinder stored indoors</span></label></li>
+          <li><input type="checkbox"><label>Every container labeled with contents and hazard</label></li>
+          <li><input type="checkbox"><label>Hazardous waste containers closed, labeled "Hazardous Waste" with accumulation start date</label></li>
+          <li><input type="checkbox"><label>Used oil containers labeled "Used Oil", closed, on secondary containment</label></li>
+          <li><input type="checkbox"><label>Universal waste (lamps, batteries, aerosols, e-waste) labeled and dated, none over 1 year</label></li>
+          <li><input type="checkbox"><label>Secondary containment intact — no cracks, no standing liquid</label></li>
+          <li><input type="checkbox"><label>Aisle space maintained; nothing blocking the CO₂ shutoff (#4461)</label></li>
+          <li><input type="checkbox"><label>Eyewash accessible and flushed; extinguishers tagged current and unobstructed</label></li>
+          <li><input type="checkbox"><label>Spill kit stocked and unexpired</label></li>
+          <li><input type="checkbox"><label>Nothing disposed to a floor drain, storm drain, or sewer</label></li>
+          <li><input type="checkbox"><label>Permit and 24-hour emergency contact posted and legible</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Cal/OSHA -->
+    <div class="insp" id="insOsha" style="display:none">
+      <div class="section">
+        <h2>Cal/OSHA inspection <span class="sub">Division of Occupational Safety and Health</span></h2>
+        <div class="prose">Usually complaint-driven, accident-driven, or programmed. They will review written programs, records, and the physical site — and <b>they will interview employees privately</b>, which is their right and ours to accommodate without interference.</div>
+      </div>
+      <div class="section">
+        <h3>Written programs they will ask for</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Injury &amp; Illness Prevention Program (IIPP), 8 CCR §3203<span class="note">All 8 elements, plus evidence it actually runs — inspections, investigations, corrections</span></label></li>
+          <li><input type="checkbox"><label>Hazard Communication program + SDS + labeling + training (§5194)</label></li>
+          <li><input type="checkbox"><label>Heat Illness Prevention Plan (§3395)<span class="note">Water, shade, acclimatization, high-heat procedures, emergency response</span></label></li>
+          <li><input type="checkbox"><label>Workplace Violence Prevention Plan + violent incident log (SB 553 / LC §6401.9)</label></li>
+          <li><input type="checkbox"><label>Emergency Action Plan and Fire Prevention Plan (§3220 / §3221)</label></li>
+          <li><input type="checkbox"><label>Lockout/tagout written procedures (§3314)</label></li>
+          <li><input type="checkbox"><label>PPE hazard assessment; PPE provided at no cost (§3380)</label></li>
+          <li><input type="checkbox"><label>Respiratory protection program — only if respirators are used (§5144)</label></li>
+          <li><input type="checkbox"><label>Hearing conservation — if noise exposure warrants</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Records</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Cal/OSHA Form 300 log, 301 incident reports, 300A summary<span class="note">300A posted February 1 – April 30</span></label></li>
+          <li><input type="checkbox"><label>Training records: who, when, topic, trainer, signature — including this handbook</label></li>
+          <li><input type="checkbox"><label>Forklift operator certification + evaluation within 3 years + daily pre-op checks</label></li>
+          <li><input type="checkbox"><label>Employee access to exposure and medical records (§3204)</label></li>
+          <li><input type="checkbox"><label>Cal/OSHA workplace poster displayed</label></li>
+          <li><input type="checkbox"><label>Serious-injury reporting within 8 hours — evidence of the procedure</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Physical walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Exits unobstructed, marked, unlocked from inside</label></li>
+          <li><input type="checkbox"><label>Electrical: 36" panel clearance, no open knockouts, cords in good condition, GFCI where required</label></li>
+          <li><input type="checkbox"><label>Machine guarding in place on all shop equipment</label></li>
+          <li><input type="checkbox"><label>Ladders in good condition, right type for the work</label></li>
+          <li><input type="checkbox"><label>Racking undamaged, loads stable, nothing within 18" of sprinkler heads</label></li>
+          <li><input type="checkbox"><label>First aid supplies stocked; eyewash accessible and flushed (§5162)</label></li>
+          <li><input type="checkbox"><label>Compressed gas cylinders secured upright with caps</label></li>
+          <li><input type="checkbox"><label>Housekeeping: aisles clear, no trip hazards, spills cleaned</label></li>
+          <li><input type="checkbox"><label>PPE actually in use where the assessment requires it</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Workers' Comp -->
+    <div class="insp" id="insWc" style="display:none">
+      <div class="section">
+        <h2>Workers' compensation <span class="sub">premium audit &amp; loss-control survey</span></h2>
+        <div class="prose">Two different visits. The <b>premium audit</b> is the carrier verifying payroll and classifications — it decides what you pay. The <b>loss control survey</b> is a safety consultant deciding whether to keep writing you.</div>
+      </div>
+      <div class="section">
+        <h3>Premium audit — records</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Payroll records by class code for the policy period<span class="note">Quarterly returns (DE-9), general ledger, payroll journal</span></label></li>
+          <li><input type="checkbox"><label>Job descriptions and actual duties per employee<span class="note">Misclassified drivers vs. warehouse vs. office moves the premium a lot</span></label></li>
+          <li><input type="checkbox"><label><b>Certificates of insurance from every subcontractor and independent contractor</b><span class="note">Any uninsured sub gets charged to our policy as if they were our employee — this is the single most expensive gap</span></label></li>
+          <li><input type="checkbox"><label>1099s and subcontractor payment detail</label></li>
+          <li><input type="checkbox"><label>Overtime records (excess portion is often excludable)</label></li>
+          <li><input type="checkbox"><label>Officer inclusion/exclusion elections on file</label></li>
+          <li><input type="checkbox"><label>Cash payroll, bonuses, per diem, and tool allowances documented</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Loss control survey</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Written IIPP and evidence of safety meetings / tailgate talks</label></li>
+          <li><input type="checkbox"><label>Claims history and what changed after each one</label></li>
+          <li><input type="checkbox"><label>Return-to-work / modified duty program in writing</label></li>
+          <li><input type="checkbox"><label>New-hire safety onboarding — this handbook and its signature roster</label></li>
+          <li><input type="checkbox"><label>Ergonomics / lifting program (our highest-frequency injury)</label></li>
+          <li><input type="checkbox"><label>Fleet: driver qualification, MVR pulls, vehicle maintenance records</label></li>
+          <li><input type="checkbox"><label>Post-injury procedure and medical provider network posting<span class="note">Concentra Oakland is our designated occupational clinic — make sure the MPN/posting matches</span></label></li>
+          <li><input type="checkbox"><label>Required postings: workers' comp notice, MPN notice, DWC-1 availability</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Insurance -->
+    <div class="insp" id="insInsurance" style="display:none">
+      <div class="section">
+        <h2>Insurance inspection <span class="sub">general liability · property · fleet · product</span></h2>
+        <div class="prose">A carrier loss-control representative surveying the risk — at renewal, after a claim, or when adding a line. What they write up becomes a recommendation you must close or lose coverage terms.</div>
+      </div>
+      <div class="section">
+        <h3>Property &amp; premises</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Sprinkler system, fire alarm, and extinguishers inspected and tagged current</label></li>
+          <li><input type="checkbox"><label>Electrical panels, wiring, and equipment in good condition</label></li>
+          <li><input type="checkbox"><label>Housekeeping, storage practices, racking condition, aisle clearance</label></li>
+          <li><input type="checkbox"><label>Security: alarm, cameras, exterior lighting, fencing, access control</label></li>
+          <li><input type="checkbox"><label>Roof, drainage, and building maintenance</label></li>
+          <li><input type="checkbox"><label>Equipment schedules and inventory values current for the property limit</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Operations &amp; liability</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>CO₂ fill station</b> — procedure, operator training, cylinder inspection program</label></li>
+          <li><input type="checkbox"><label>Hot work / brazing controls and fire watch procedure</label></li>
+          <li><input type="checkbox"><label>Fleet: vehicle schedule, driver list, MVRs, maintenance, telematics</label></li>
+          <li><input type="checkbox"><label>Product liability: batch traceability, recall plan, co-packer agreements</label></li>
+          <li><input type="checkbox"><label>Contracts: hold-harmless / indemnity language, additional-insured endorsements</label></li>
+          <li><input type="checkbox"><label><b>COIs on file from every vendor and contractor</b> (Vendors &amp; Contractors tab)</label></li>
+          <li><input type="checkbox"><label>Customer-site work practices — ladders, lifting, equipment installs</label></li>
+          <li><input type="checkbox"><label>Prior loss runs and corrective actions taken</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- OU Kosher -->
+    <div class="insp" id="insKosher" style="display:none">
+      <div class="section">
+        <h2>OU Kosher inspection <span class="sub">Orthodox Union rabbinic field representative</span></h2>
+        <div class="prose">Unannounced visits are a condition of certification. The RFR verifies that what is actually produced matches exactly what was approved — ingredients, equipment, and labels. For co-packed product, the co-packer's own certification and schedule are part of the file.</div>
+      </div>
+      <div class="section">
+        <h3>Documents</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Current OU certificate and approved product schedule (Schedule A)<span class="note">Every certified product listed, and nothing produced that isn't</span></label></li>
+          <li><input type="checkbox"><label><b>Letter of certification (LOC) for every single ingredient</b>, current and on file<span class="note">Expired LOCs are the most common finding</span></label></li>
+          <li><input type="checkbox"><label>Approved-supplier list matches the ingredients actually received</label></li>
+          <li><input type="checkbox"><label>Co-packer's own kosher certification current (Quantum J's Canning)</label></li>
+          <li><input type="checkbox"><label>Batch / production records tying finished goods to approved ingredients</label></li>
+          <li><input type="checkbox"><label>Label artwork approved — OU symbol correct, Pareve/D/DE designation correct</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Plant walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>No unapproved or uncertified ingredient anywhere on site<span class="note">Including samples, trials, and R&amp;D material</span></label></li>
+          <li><input type="checkbox"><label>Ingredient labels on containers match the approved brand, manufacturer, and plant</label></li>
+          <li><input type="checkbox"><label>Equipment dedicated, or kashering procedure documented and followed</label></li>
+          <li><input type="checkbox"><label>Cleaning and changeover procedure between runs</label></li>
+          <li><input type="checkbox"><label>Storage segregation and receiving procedure prevent commingling</label></li>
+          <li><input type="checkbox"><label>Bulk-tank and line cleaning records where shared</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Other -->
+    <div class="insp" id="insOther" style="display:none">
+      <div class="section">
+        <h2>Other inspections <span class="sub">who else can walk in</span></h2>
+      </div>
+      <div class="section">
+        <h3>Fire — Alameda Fire Department / Fire Marshal</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Extinguishers tagged, sprinklers and alarms serviced, exits and egress clear</label></li>
+          <li><input type="checkbox"><label><b>CO₂ system permit and gas detection</b> (CFC/IFC 5307) where required for the bulk tank and indoor cylinders</label></li>
+          <li><input type="checkbox"><label>Hazardous materials permits, storage quantities, and signage</label></li>
+          <li><input type="checkbox"><label>Nothing within 18" of sprinkler heads; 36" electrical panel clearance</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>FDA / food safety</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>FDA Food Facility Registration current (renews even-numbered years)</label></li>
+          <li><input type="checkbox"><label>Preventive controls / food safety plan (21 CFR 117, FSMA) where applicable</label></li>
+          <li><input type="checkbox"><label>Supplier verification, allergen controls, sanitation records</label></li>
+          <li><input type="checkbox"><label>Traceability records — one step forward, one step back</label></li>
+          <li><input type="checkbox"><label>CDPH processed food registration for the beverage side</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Fleet — CHP</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>BIT inspection</b> (Biennial Inspection of Terminals) if our fleet is subject<span class="note">Driver records, vehicle maintenance files, 90-day inspections, hours of service</span></label></li>
+          <li><input type="checkbox"><label>Driver pull-notice program enrollment and MVRs</label></li>
+          <li><input type="checkbox"><label>Vehicle registration, insurance, and DOT numbers current where applicable</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Weights &amp; Measures — county sealer</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>Scales used for CO₂ cylinder filling</b> registered and sealed<span class="note">Any scale used to determine a quantity sold is a commercial device</span></label></li>
+          <li><input type="checkbox"><label>Net-content labeling accurate on packaged product</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Also possible</h3>
+        <div class="prose">
+          <ul style="margin:6px 0 0 20px;line-height:1.8">
+            <li>Alameda County Environmental Health — retail/food facility program (separate from CUPA)</li>
+            <li>Air district (BAAQMD) — if any permitted equipment is added</li>
+            <li>DIR / Labor Commissioner — wage and hour, posting requirements</li>
+            <li>EDD — employment tax audit, worker classification</li>
+            <li>Building &amp; planning / ADA — occupancy and accessibility</li>
+            <li>Customer &amp; supplier audits — Compass/Foodbuy supplier QA, chain customer audits</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Runbook -->
+    <div class="insp" id="insRunbook" style="display:none">
+      <div class="section">
+        <h2>Any inspection — how to run the visit</h2>
+        <div class="prose">
+          <ol style="margin:8px 0 8px 22px;line-height:1.8">
+            <li><b>At the gate:</b> ask for credentials. Log name, agency, badge number, arrival time.</li>
+            <li><b>Page the escort</b> and notify Sky (415) 713-3318. Nobody walks the site unescorted.</li>
+            <li><b>Seat them at the records first</b> — open Inspector Mode on the tablet and let them search. Volunteering the digital setup reframes it as a strength.</li>
+            <li><b>Answer what is asked.</b> "I'll confirm that and get back to you" is a complete answer. Don't narrate history or speculate.</li>
+            <li><b>Never guess a quantity</b> — pull the number up in the app.</li>
+            <li><b>Photograph what they photograph.</b> Write down each flagged item in their own words, in the moment.</li>
+            <li><b>Correct trivially fixable things on the spot</b> — an open container gets closed while they watch. Never move or conceal anything.</li>
+            <li><b>Never sign an admission of fault.</b> Signing receipt of a report is fine.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Before they leave — ask these four</h3>
+        <div class="prose">
+          <ol style="margin:6px 0 0 22px;line-height:1.8">
+            <li>Which findings are <b>violations</b> and which are <b>observations</b>?</li>
+            <li>Is anything classified <b>serious / Class I</b>, and on what basis?</li>
+            <li>What is the <b>correction deadline</b>, and what proof of correction do you want?</li>
+            <li>Will there be a <b>reinspection</b>, or is documentary proof sufficient?</li>
+          </ol>
+        </div>
+      </div>
+      <div class="section">
+        <h3>After</h3>
+        <div class="twrap"><table class="grid">
+          <thead><tr><th>When</th><th>Action</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td><b>Same day</b></td><td>File their report, your notes, and photos into the vault. Debrief the EH&amp;S Lead.</td><td>Escort</td></tr>
+            <tr><td><b>Within 48 hrs</b></td><td>Every finding becomes a tracked corrective action with an owner and a due date ahead of the agency deadline.</td><td>EH&amp;S Lead</td></tr>
+            <tr><td><b>Before deadline</b></td><td>Submit proof of correction in the format requested.</td><td>EH&amp;S Lead</td></tr>
+            <tr><td><b>Within 30 days</b></td><td>Root-cause review; if a finding traces to a gap in SOP-10 or this handbook, amend and reissue.</td><td>EH&amp;S Lead + CEO</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="section noprint">
+        <button class="btn ghost" onclick="window.print()">🖨 Print this checklist</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ SAFETY MANUAL ═══════════════ -->
   <div class="container" id="paneHandbook" style="display:none">
+    <div class="section noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn" onclick="printManual()">🖨 Print the manual</button>
+      <span class="muted">Prints as a standalone manual — each Part starts on a new page, diagrams kept whole, sign-off panel omitted.</span>
+    </div>
     <div class="section">
       <div id="hbToc" class="hbtoc" style="display:none"></div>
       <div id="hbDoc" class="hb"><span class="muted">Loading handbook…</span></div>
@@ -219,104 +680,6 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
-  <!-- ═══ INSPECTION DAY — user guide + runbook (SOP-10 companion) ═══ -->
-  <div class="container" id="paneDay" style="display:none">
-
-    <div class="section">
-      <h2>How to run the inspection with this app <span class="sub">60-second user guide</span></h2>
-      <div class="prose">
-        <ol style="margin:8px 0 8px 22px;line-height:1.8">
-          <li><b>Open Inspector Mode on the tablet</b> (first tab) and hand it over, or drive it yourself.
-              Volunteering the digital setup up front reframes it as a strength.</li>
-          <li><b>Inspector asks for a record</b> → type a word in the search box (try <code>CO2</code>,
-              <code>insurance</code>, <code>permit</code>). Documents and SDS filter together, instantly.</li>
-          <li><b>Inspector asks for a chemical's SDS</b> → search the product name → <b>Open SDS →</b>
-              opens the manufacturer sheet. Offline fallbacks if internet drops: the SDS zip pack on this
-              tablet, then the paper binder in the front office.</li>
-          <li><b>Inspector asks about training</b> → Safety Handbook &amp; Sign-off tab → the signature
-              roster IS the training record (name, date, version, signature). The handbook text above it
-              is the training content.</li>
-          <li><b>Need paper</b> → 🖨 Print record index (Inspector Mode) prints clean.</li>
-          <li><b>Editing during the walk: don't.</b> Fix records after they leave — edits live in
-              Refractor (link top-right), corrections to CERS at cers.calepa.ca.gov.</li>
-        </ol>
-      </div>
-    </div>
-
-    <div class="section" style="border-left:4px solid #B45309">
-      <h2>Say these two things FIRST — self-report before they find it</h2>
-      <div class="prose">
-        <p style="margin-bottom:10px"><b>1 · The CO₂ inventory line understates the bulk tank.</b>
-        "Our CERS inventory line says 1,000 lb max in cylinders — it should read our 6-ton Airgas-managed
-        bulk tank, 12,000 lb, aboveground tank plus cylinders, 365 days on site. Here's the tank's ASME
-        U-1A data report (National Board #4319). The correction is being filed in CERS this week."</p>
-        <p style="margin-bottom:10px"><b>2 · The Business Activities page needs a used-oil update.</b>
-        "We've started dismantling coolers on site — compressor oil drained from that work makes us a
-        used-oil generator, and our 8/10 filing answered 'No' on hazardous waste. We're correcting that,
-        the oil is in labeled closed containers on containment, and here are the hauler receipts."</p>
-        <p class="muted">A correction the inspector hears from you first is diligence; the same fact
-        discovered on the walk is a finding. Everything else in the filing is consistent — say these two
-        and stop.</p>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>At the gate</h2>
-      <div class="prose">
-        <ul style="margin:4px 0 4px 22px;line-height:1.8">
-          <li><b>Verify and log:</b> name, agency, badge number, arrival time.</li>
-          <li><b>Notify Sky + Sloan by text immediately</b>, whoever is on site escorts — nobody walks unescorted.</li>
-          <li><b>Seat them at the records first</b> (this app, Inspector Mode) before the physical walk.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>During the walk</h2>
-      <div class="prose">
-        <ul style="margin:4px 0 4px 22px;line-height:1.8">
-          <li><b>Answer what is asked.</b> "I'll confirm and get back to you" is a complete answer. Don't narrate history.</li>
-          <li><b>Never guess a quantity</b> — pull it up in this app.</li>
-          <li><b>Photograph everything they photograph.</b> Write down each flagged item in their words, in the moment.</li>
-          <li><b>Correct trivially fixable things on the spot</b> (open container → close it while they watch). Never move or conceal anything.</li>
-          <li><b>Never sign an admission of fault.</b> Signing receipt of a report is fine.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>Before they leave — ask these four</h2>
-      <div class="prose">
-        <ol style="margin:4px 0 4px 22px;line-height:1.8">
-          <li>Which findings are <b>violations</b> vs <b>observations</b>?</li>
-          <li>Is anything <b>Class I</b>, and on what basis?</li>
-          <li>What's the <b>correction deadline</b>, and what proof do you want?</li>
-          <li>Will there be a <b>reinspection</b>, or is documentary proof enough?</li>
-        </ol>
-        <p class="muted" style="margin-top:8px">Afterwards: file their report + your notes in the vault same-day;
-        every finding becomes a tracked corrective action within 48 hours; root-cause anything that traces to a
-        gap in SOP-10 and amend it (full post-inspection table in SOP-10 §5).</p>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>Morning-of checklist</h2>
-      <div class="prose">
-        <ul style="margin:4px 0 4px 22px;line-height:1.8">
-          <li>Tablet charged, signed in, this app open; SDS zip pack + inspection packet on it</li>
-          <li>CO₂ monitor + cellular backup showing normal (verified 8/17 — glance again)</li>
-          <li>Used-oil containers: labeled "Used Oil" + start date, closed, on containment; hauler receipts in one folder</li>
-          <li>Cylinders upright, chained, caps on; full/empty segregated; the indoor one-or-two within monitor coverage</li>
-          <li>Eyewash (main bathroom) clear and working; extinguishers tagged + unobstructed</li>
-          <li>Kem-Tek chlorine tablets stored dry, away from the acid ice-machine cleaners and bleach</li>
-          <li>Site map A1 + training signature sheet located and photographed</li>
-          <li>Aisles/exits clear; nothing stored against the CO₂ shutoff (#4461)</li>
-        </ul>
-      </div>
-    </div>
-
-  </div>
-
   <script src="https://alamedapointbg.com/appswitcher.js" data-app="compliance" defer></script>
 </div>
 
@@ -331,8 +694,7 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;'
 
 // ═══ SESSION — any authenticated APBG login (deliberately NOT the superadmin
 // gate in auth.js: warehouse hires sign this handbook on day one, and RLS is
-// the real enforcement — insert self-only, read own-or-staff). Same
-// localStorage contract the gateway writes. ═══
+// the real enforcement — insert self-only, read own-or-staff). ═══
 function readSession(){
   try{
     const raw = localStorage.getItem('apbg_session');
@@ -367,6 +729,30 @@ async function opsInsert(table, row){
   return text ? JSON.parse(text) : null;
 }
 
+// ═══ Private-bucket file open. The compliance-docs bucket is staff-gated, so
+// the browser can't hit a plain URL — fetch it with the session bearer and
+// hand the bytes over as a blob. Delegated click so paths with odd characters
+// never end up inside an inline onclick attribute. ═══
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.filebtn');
+  if(!btn) return;
+  const path = btn.getAttribute('data-path');
+  const name = btn.getAttribute('data-name') || (path || '').split('/').pop() || 'document';
+  btn.disabled = true; const was = btn.textContent; btn.textContent = 'Opening…';
+  try{
+    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/compliance-docs/' + path, {
+      headers: { apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token },
+    });
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }catch(err){
+    alert('Could not open the file: ' + err.message + '\n\nIf this says 400 or 404 the file may not be attached yet — attach it in Refractor → Production → Compliance & Safety.');
+  }finally{ btn.disabled = false; btn.textContent = was; }
+});
+
 // ═══ BOOT ═══
 if(!SESSION){
   document.getElementById('gateMsg').innerHTML =
@@ -375,13 +761,15 @@ if(!SESSION){
 }else{
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadInspector();
+  loadRecords();
   loadHandbook();
   loadAckState();
 }
 
-const PANES = { inspector: 'paneInspector', handbook: 'paneHandbook', day: 'paneDay' };
-const TABS  = { inspector: 'tabInspector',  handbook: 'tabHandbook',  day: 'tabDay' };
+const PANES = { inspector:'paneInspector', insurance:'paneInsurance', vendors:'paneVendors',
+                contacts:'paneContacts', inspections:'paneInspections', handbook:'paneHandbook' };
+const TABS  = { inspector:'tabInspector', insurance:'tabInsurance', vendors:'tabVendors',
+                contacts:'tabContacts', inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
   if(!PANES[which]) which = 'inspector';
   for(const k in PANES){
@@ -389,10 +777,26 @@ function showTab(which){
     document.getElementById(TABS[k]).classList.toggle('active', k === which);
   }
 }
-if(location.hash === '#handbook') showTab('handbook');
-if(location.hash === '#inspection' || location.hash === '#day') showTab('day');
+const INS = { cupa:'insCupa', osha:'insOsha', wc:'insWc', insurance:'insInsurance',
+              kosher:'insKosher', other:'insOther', runbook:'insRunbook' };
+function showIns(which){
+  if(!INS[which]) which = 'cupa';
+  for(const k in INS) document.getElementById(INS[k]).style.display = k === which ? 'block' : 'none';
+  document.querySelectorAll('.subtab').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-ins') === which));
+}
+// Deep links: #handbook, #inspection(s), #contacts, #insurance, #vendors, and #inspections/osha
+(function(){
+  const h = (location.hash || '').replace('#','');
+  if(!h) return;
+  const [main, sub] = h.split('/');
+  const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
+                contacts:'contacts', insurance:'insurance', vendors:'vendors', inspector:'inspector' };
+  if(map[main]) showTab(map[main]);
+  if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
+})();
 
-// ═══ INSPECTOR MODE ═══
+// ═══ RECORDS ═══
 let DOCS = [], SDS = [], PARTIES = {};
 const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
 const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
@@ -406,8 +810,15 @@ function expiryChip(d){
   return '<span class="chip ok">Current</span>';
 }
 function firstUrl(s){ const m = String(s||'').match(/https?:\/\/[^\s)"]+/); return m ? m[0] : null; }
+function fileCell(d){
+  if(d.storage_path) return '<button class="filebtn" data-path="' + esc(d.storage_path) + '" data-name="' + esc(d.file_name || '') + '">Open</button>';
+  const u = firstUrl(d.notes);
+  if(u) return '<a href="' + esc(u) + '" target="_blank" rel="noopener">Link →</a>';
+  return '<span class="chip warn">No file</span>';
+}
+function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 
-async function loadInspector(){
+async function loadRecords(){
   try{
     let parties;
     [DOCS, SDS, parties] = await Promise.all([
@@ -418,68 +829,109 @@ async function loadInspector(){
     PARTIES = {};
     for(const p of parties) PARTIES[p.id] = p;
   }catch(e){
-    document.querySelector('#docTable tbody').innerHTML =
-      '<tr><td colspan="5" class="muted">Could not load records (' + esc(e.message) + '). Records are staff-visible; employees only need the Handbook tab.</td></tr>';
-    document.querySelector('#sdsTable tbody').innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
+    const msg = '<tr><td colspan="7" class="muted">Could not load records (' + esc(e.message) +
+      '). Records are staff-visible; employees only need the Safety Manual tab.</td></tr>';
+    ['docTable','insTable','vpTable','viTable','ciTable','otTable'].forEach(id => {
+      const t = document.querySelector('#' + id + ' tbody'); if(t) t.innerHTML = msg;
+    });
+    const s = document.querySelector('#sdsTable tbody'); if(s) s.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
     return;
   }
-  const expiring = DOCS.filter(d => { const c = expiryChip(d); return c.includes('crit') || c.includes('warn'); }).length;
+  const attention = DOCS.filter(d => { const c = expiryChip(d); return c.indexOf('crit') > -1 || c.indexOf('warn') > -1; }).length;
   document.getElementById('statRow').innerHTML =
-    '<div class="stat"><b>' + DOCS.length + '</b><span>compliance documents</span></div>' +
+    '<div class="stat"><b>' + DOCS.filter(d => !d.party_id).length + '</b><span>our documents</span></div>' +
+    '<div class="stat"><b>' + DOCS.filter(d => d.party_id).length + '</b><span>vendor / third-party</span></div>' +
     '<div class="stat"><b>' + SDS.length + '</b><span>SDS library entries</span></div>' +
-    '<div class="stat"><b>' + expiring + '</b><span>expired / expiring ≤60d</span></div>' +
-    '<div class="stat"><b>' + SDS.filter(s => s.cers_reported).length + '</b><span>CERS-reported chemicals</span></div>';
-  renderTables('');
-  document.getElementById('q').addEventListener('input', e => renderTables(e.target.value.trim().toLowerCase()));
+    '<div class="stat"><b>' + attention + '</b><span>expired / expiring ≤60d</span></div>';
+  renderAll('');
+  document.getElementById('q').addEventListener('input', e => renderAll(e.target.value.trim().toLowerCase()));
 }
 
-function docRow(d, whoCell){
-  return '<tr>' +
-    '<td><strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : '') + '</td>' +
-    '<td>' + whoCell + '</td>' +
-    '<td><span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span></td>' +
-    '<td>' + esc(d.reference_number || '—') + '</td>' +
-    '<td>' + esc(d.expiration_date || '—') + '</td>' +
-    '<td>' + expiryChip(d) + '</td>' +
-  '</tr>';
+function rowsInto(id, list, cols, empty){
+  const tb = document.querySelector('#' + id + ' tbody');
+  if(!tb) return;
+  tb.innerHTML = list.length ? list.map(d => '<tr>' + cols(d).map(c => '<td>' + c + '</td>').join('') + '</tr>').join('')
+                            : '<tr><td colspan="7" class="muted">' + empty + '</td></tr>';
 }
 
-function renderTables(q){
-  // Segregation: a document with a party_id is a VENDOR/third-party document
-  // (their compliance, held by us); everything else is ours, labeled by entity.
-  const match = d => !q || (JSON.stringify(d) + (d.party_id && PARTIES[d.party_id] ? PARTIES[d.party_id].name : '')).toLowerCase().includes(q);
-  const ours    = DOCS.filter(d => !d.party_id).filter(match);
-  const theirs  = DOCS.filter(d => d.party_id).filter(match);
-  const sds     = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().includes(q));
-  document.getElementById('docCount').textContent    = ours.length   + ' of ' + DOCS.filter(d => !d.party_id).length;
-  document.getElementById('vendorCount').textContent = theirs.length + ' of ' + DOCS.filter(d => d.party_id).length;
-  document.getElementById('sdsCount').textContent    = sds.length + ' of ' + SDS.length;
-  document.querySelector('#docTable tbody').innerHTML = ours.length
-    ? ours.map(d => docRow(d, '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>')).join('')
-    : '<tr><td colspan="6" class="muted">No matches.</td></tr>';
-  document.querySelector('#vendorTable tbody').innerHTML = theirs.length
-    ? theirs.map(d => {
-        const p = PARTIES[d.party_id];
-        const who = p ? '<strong>' + esc(p.name) + '</strong><div class="muted">' + esc(PTYLABEL[p.party_type] || p.party_type || '') + '</div>'
-                      : '<span class="muted">Unknown party</span>';
-        return docRow(d, who);
-      }).join('')
-    : '<tr><td colspan="6" class="muted">No vendor documents match.</td></tr>';
-  document.querySelector('#sdsTable tbody').innerHTML = sds.length ? sds.map(s => {
+function renderAll(q){
+  const hay = d => (JSON.stringify(d) + (partyOf(d) ? partyOf(d).name : '')).toLowerCase();
+  const match = d => !q || hay(d).indexOf(q) > -1;
+  const ours = DOCS.filter(d => !d.party_id);
+  const theirs = DOCS.filter(d => d.party_id);
+
+  // Inspector Mode — our documents
+  const oursF = ours.filter(match);
+  document.getElementById('docCount').textContent = oursF.length + ' of ' + ours.length;
+  rowsInto('docTable', oursF, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No matches.');
+
+  // SDS
+  const sds = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().indexOf(q) > -1);
+  document.getElementById('sdsCount').textContent = sds.length + ' of ' + SDS.length;
+  const st = document.querySelector('#sdsTable tbody');
+  st.innerHTML = sds.length ? sds.map(s => {
     const url = firstUrl(s.notes);
     return '<tr>' +
       '<td><strong>' + esc(s.product_name) + '</strong>' + (s.storage_location ? '<div class="muted">' + esc(s.storage_location) + '</div>' : '') + '</td>' +
       '<td>' + esc(s.manufacturer || '—') + '</td>' +
       '<td class="muted">' + esc((s.hazard_summary || '—').slice(0, 90)) + '</td>' +
       '<td>' + esc(s.sds_revision_date || '—') + '</td>' +
-      '<td>' + (s.storage_path ? '<span class="chip ok">On file</span> '
+      '<td>' + (s.storage_path ? '<button class="filebtn" data-path="' + esc(s.storage_path) + '" data-name="' + esc(s.file_name || '') + '">Open</button>'
               : url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open SDS →</a>'
               : '<span class="chip warn">Missing</span>') + '</td>' +
     '</tr>';
   }).join('') : '<tr><td colspan="5" class="muted">No matches.</td></tr>';
+
+  // Our insurance
+  const ins = ours.filter(d => d.category === 'insurance');
+  document.getElementById('insCount').textContent = ins.length + (ins.length === 1 ? ' policy / certificate' : ' policies / certificates');
+  rowsInto('insTable', ins, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>',
+    '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
+    esc(d.issuer || '—'), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No insurance documents filed yet — add them in Refractor with category Insurance and no party.');
+
+  // Vendors & contractors
+  const isCon = d => { const p = partyOf(d); return p && p.party_type === 'contractor'; };
+  const vendorProd = theirs.filter(d => !isCon(d) && d.category !== 'insurance');
+  const vendorIns  = theirs.filter(d => !isCon(d) && d.category === 'insurance');
+  const conIns     = theirs.filter(d => isCon(d) && d.category === 'insurance');
+  const otherTP    = theirs.filter(d => isCon(d) && d.category !== 'insurance');
+  const pname = d => { const p = partyOf(d); return p ? '<strong>' + esc(p.name) + '</strong>' : '<span class="muted">Unknown party</span>'; };
+  const ptype = d => { const p = partyOf(d); return p ? esc(PTYLABEL[p.party_type] || p.party_type) : '—'; };
+
+  document.getElementById('vpCount').textContent = vendorProd.length + ' document' + (vendorProd.length === 1 ? '' : 's');
+  rowsInto('vpTable', vendorProd, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    pname(d), ptype(d), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No vendor production documents yet.');
+
+  document.getElementById('viCount').textContent = vendorIns.length + ' COI' + (vendorIns.length === 1 ? '' : 's');
+  rowsInto('viTable', vendorIns, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No vendor COIs on file yet.');
+
+  document.getElementById('ciCount').textContent = conIns.length + ' COI' + (conIns.length === 1 ? '' : 's');
+  rowsInto('ciTable', conIns, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No contractor COIs on file yet — every contractor working for us needs one before they start.');
+
+  document.getElementById('otCount').textContent = otherTP.length + ' document' + (otherTP.length === 1 ? '' : 's');
+  rowsInto('otTable', otherTP, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), ptype(d),
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'Nothing else filed against a third party.');
 }
 
-// ═══ HANDBOOK RENDER ═══
+// ═══ HANDBOOK ═══
 async function loadHandbook(){
   const el = document.getElementById('hbDoc');
   try{
@@ -500,8 +952,7 @@ async function loadHandbook(){
 function buildToc(root){
   const heads = root.querySelectorAll('h2, h3');
   if(heads.length < 5) return;
-  const seen = {};
-  const items = [];
+  const seen = {}; const items = [];
   heads.forEach(h => {
     let slug = h.textContent.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'section';
     if(seen[slug]) { seen[slug]++; slug += '-' + seen[slug]; } else { seen[slug] = 1; }
@@ -514,6 +965,12 @@ function buildToc(root){
   ).join('') + '</ol>';
   toc.style.display = 'block';
 }
+
+function printManual(){
+  document.body.classList.add('print-manual');
+  window.print();
+}
+window.addEventListener('afterprint', () => document.body.classList.remove('print-manual'));
 
 // ═══ SIGNATURE PAD ═══
 const pad = document.getElementById('sigpad');
@@ -562,7 +1019,7 @@ async function submitAck(){
   const errEl = document.getElementById('signErr');
   errEl.textContent = '';
   const name = document.getElementById('signerName').value.trim();
-  if(name.length < 3 || !name.includes(' ')){ errEl.textContent = 'Type your full legal name (first and last).'; return; }
+  if(name.length < 3 || name.indexOf(' ') === -1){ errEl.textContent = 'Type your full legal name (first and last).'; return; }
   if(!hasInk){ errEl.textContent = 'Draw your signature in the box.'; return; }
   const btn = document.getElementById('signBtn');
   btn.disabled = true;
