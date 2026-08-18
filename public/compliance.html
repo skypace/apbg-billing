@@ -149,6 +149,35 @@ table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .ptile .pt-tag{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;margin-top:8px;background:#1E4257;color:#9FD0E8}
 .ptile .pt-tag.doc{background:#14532D;color:#86EFAC}
 .ptile canvas{background:#fff;border-radius:6px;padding:4px;flex-shrink:0}
+/* One-page TV board. Everything sizes in em off a root set in vh, so the
+   physical size is identical on a 1080p and a 4K panel of the same diagonal,
+   and tvFit() shrinks that root until the tallest column stops overflowing —
+   the page therefore always fits on one screen whatever the notice count. */
+.tv{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9600;display:flex;flex-direction:column;
+    overflow:hidden;font-size:1.6vh;padding:1.6em 1.9em 1.1em}
+.tv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1.5em;flex-wrap:wrap;
+         border-bottom:.18em solid #F4B400;padding-bottom:.7em;margin-bottom:1em}
+.tv-head h1{font-size:3.1em;font-weight:800;letter-spacing:-.02em;line-height:1;color:#fff}
+.tv-head .sub{font-size:1.15em;color:#8FB3C4;margin-top:.35em}
+.tv-head .rt{text-align:right;font-size:1.15em;color:#8FB3C4;line-height:1.45}
+.tv-head .rt b{display:block;color:#F4B400;font-size:1.25em}
+.tv-cols{flex:1;min-height:0;column-gap:1.9em;column-fill:balance;overflow:hidden}
+.tv-grp{font-size:1.25em;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#F4B400;
+        border-bottom:.09em solid #1E4257;padding-bottom:.25em;margin:.85em 0 .5em;
+        break-inside:avoid;break-after:avoid;page-break-after:avoid}
+.tv-cols > .tv-grp:first-child{margin-top:0}
+.tv-item{display:flex;align-items:center;gap:.8em;padding:.34em 0;border-bottom:.06em solid #12293A;
+         break-inside:avoid;page-break-inside:avoid}
+.tv-item .tx{flex:1;min-width:0}
+.tv-item .t{font-size:1.72em;font-weight:700;line-height:1.14;color:#fff}
+.tv-item .m{font-size:1.02em;color:#8FB3C4;margin-top:.15em;line-height:1.2}
+.tv-item canvas{background:#fff;border-radius:.25em;padding:.16em;flex:0 0 auto;width:4.6em;height:4.6em}
+.tv-foot{border-top:.09em solid #1E4257;margin-top:.8em;padding-top:.6em;display:flex;justify-content:space-between;
+         gap:1.5em;flex-wrap:wrap;font-size:1.12em;color:#8FB3C4}
+.tv-foot b{color:#E8F0F5}
+.tv-exit{position:fixed;top:.8em;right:.9em;border:1px solid #1E4257;background:rgba(18,42,56,.85);color:#8FB3C4;
+         font:inherit;font-size:.95em;padding:.4em .8em;border-radius:.4em;cursor:pointer;opacity:.25}
+.tv-exit:hover{opacity:1;color:#fff}
 /* Kiosk / display mode */
 .kiosk{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9500;display:flex;flex-direction:column}
 .kiosk-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid #16344E;flex-wrap:wrap}
@@ -624,12 +653,13 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
     <div id="postBoardView">
       <div class="section noprint" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn" onclick="startKiosk(true)">⛶ Put this on the monitor</button>
+        <button class="btn" onclick="startTv(true)">📺 One page on the TV</button>
+        <button class="btn ghost" onclick="startKiosk(true)">⛶ One at a time, full screen</button>
         <button class="btn ghost" onclick="startKiosk(false)">▶ Play in this window</button>
         <label class="muted" style="display:flex;align-items:center;gap:6px">Seconds per notice
           <input type="number" id="kioskSecs" value="20" min="5" max="180" style="width:5.5rem">
         </label>
-        <span class="muted" style="flex:1 1 16rem">Tap any notice to read it full screen. Every notice carries a QR code so anyone can pull it up on their phone.</span>
+        <span class="muted" style="flex:1 1 16rem"><b>One page on the TV</b> fits every notice on a single screen at a size you can read across a break room. <b>One at a time</b> shows the actual poster, full screen, auto-advancing. Tap any tile below to read one now.</span>
       </div>
       <div class="board" id="boardWrap"><div class="muted">Loading the board…</div></div>
     </div>
@@ -1046,6 +1076,23 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
+  <!-- ═══════════════ POSTING BOARD — ONE-PAGE TV VIEW ═══════════════ -->
+  <div class="tv" id="tvBoard" style="display:none">
+    <div class="tv-head">
+      <div>
+        <h1>EMPLOYEE NOTICES</h1>
+        <div class="sub">Alameda Point Beverage Group &middot; Hangar 200, 1951 Monarch St, Alameda CA 94501</div>
+      </div>
+      <div class="rt"><b id="tvCount"></b><span id="tvDate"></span></div>
+    </div>
+    <div class="tv-cols" id="tvCols"></div>
+    <div class="tv-foot">
+      <div><b>Scan any code</b> to read the full notice on your phone &mdash; or ask for a printed copy.</div>
+      <div>Questions about anything on this board: <b>Sky Pace (415) 713-3318</b></div>
+    </div>
+    <button class="tv-exit" onclick="stopTv()">&times; Exit</button>
+  </div>
+
   <!-- ═══════════════ RECORD EDITOR ═══════════════ -->
   <div class="modal" id="editModal" style="display:none">
     <div class="modal-card">
@@ -1202,6 +1249,7 @@ const SPECS = {
     order: 'jurisdiction.asc,title.asc',
     fields: [
       { k:'title', l:'Posting title', t:'text', req:true, full:true },
+      { k:'short_title', l:'Short label for the TV board', t:'text', full:true, hint:'Two lines at most — the one-page TV view has about 34 characters per line. Falls back to the full title.' },
       { k:'jurisdiction', l:'Jurisdiction', t:'select', opts:JUR_OPTS, req:true },
       { k:'agency', l:'Agency', t:'text' },
       { k:'form_code', l:'Form / publication #', t:'text' },
@@ -1790,15 +1838,97 @@ function renderBoard(){
   // A dedicated break-room machine opens /compliance?kiosk=1 and starts playing
   // on its own. Fullscreen still needs a click — browsers require a gesture —
   // so the operator presses "Put this on the monitor" once per boot.
-  if(!KIOSK_AUTOSTARTED && list.length && /(^|[?&])kiosk=1/.test(location.search)){
+  if(!KIOSK_AUTOSTARTED && list.length && /(^|[?&])(kiosk|tv)=1/.test(location.search)){
     KIOSK_AUTOSTARTED = true;
     showTab('postings'); showPost('board');
-    startKiosk(false, 0);
+    if(/(^|[?&])tv=1/.test(location.search)) startTv(false); else startKiosk(false, 0);
   }
   wrap.querySelectorAll('canvas.pt-qr').forEach(c => drawQr(c, c.getAttribute('data-qr'), 88));
   wrap.querySelectorAll('.ptile').forEach(b =>
     b.addEventListener('click', () => startKiosk(false, Number(b.getAttribute('data-kiosk')), true)));
 }
+
+// ─── One-page TV view ───
+// Every notice on a single screen, sized to be read across a break room. The
+// full poster text cannot fit — 30 dense legal pages on one 1080p panel is a
+// thumbnail each — so this is the directory: a legible label per notice plus a
+// QR to the real document, which display mode shows one at a time.
+const TVGRP = { federal:'Federal', state:'California', local:'City of Alameda' };
+
+function tvColumnsFor(n){ return n <= 12 ? 2 : n <= 34 ? 3 : 4; }
+
+function renderTv(){
+  const list = boardPostings();
+  const cols = tvColumnsFor(list.length);
+  document.getElementById('tvCount').textContent = list.length + ' notices posted';
+  document.getElementById('tvDate').textContent =
+    new Date().toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+
+  let html = '';
+  ['federal','state','local'].forEach(j => {
+    const rows = list.filter(p => p.jurisdiction === j);
+    if(!rows.length) return;
+    html += '<div class="tv-grp">' + esc(TVGRP[j]) + ' &middot; ' + rows.length + '</div>';
+    rows.forEach(p => { html +=
+      '<div class="tv-item">' +
+        '<div class="tx">' +
+          '<div class="t">' + esc(p.short_title || p.title) + '</div>' +
+          '<div class="m">' + esc(p.agency || '') + (p.form_code ? ' &middot; ' + esc(p.form_code) : '') + '</div>' +
+        '</div>' +
+        '<canvas class="tv-qr" data-qr="' + esc(p.source_url || '') + '"></canvas>' +
+      '</div>'; });
+  });
+
+  const wrap = document.getElementById('tvCols');
+  wrap.style.columnCount = cols;
+  wrap.innerHTML = html;
+  tvFit();
+}
+
+// Shrink the root em until the tallest column stops overflowing. Two passes,
+// because dropping the size reflows the titles onto fewer lines.
+// The browser balances the columns; we only choose the type size. In a
+// fixed-height multi-column box, content that will not fit spills sideways into
+// an extra column — so scrollWidth, not scrollHeight, is what says "too big".
+function tvFit(){
+  const root = document.getElementById('tvBoard');
+  const wrap = document.getElementById('tvCols');
+  if(!wrap || !wrap.children.length) return;
+  const over = () => wrap.scrollWidth > wrap.clientWidth + 1 || wrap.scrollHeight > wrap.clientHeight + 1;
+  let size = 2.0;
+  root.style.fontSize = size + 'vh';
+  for(let i = 0; i < 60 && over() && size > 0.62; i++){
+    size = Math.round((size - 0.03) * 100) / 100;
+    root.style.fontSize = size + 'vh';
+  }
+  document.querySelectorAll('#tvCols canvas.tv-qr').forEach(c => {
+    const px = Math.round(c.getBoundingClientRect().width) || 60;
+    drawQr(c, c.getAttribute('data-qr'), px);
+  });
+}
+
+let TV_RESIZE = null;
+function startTv(fullscreen){
+  if(!boardPostings().length) return;
+  document.getElementById('tvBoard').style.display = 'flex';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  renderTv();
+  // Re-fit once the fullscreen transition has actually resized the viewport,
+  // and on any later resize — a TV that reports a different size on wake would
+  // otherwise leave the board clipped.
+  setTimeout(renderTv, 350);
+  TV_RESIZE = () => renderTv();
+  window.addEventListener('resize', TV_RESIZE);
+}
+function stopTv(){
+  document.getElementById('tvBoard').style.display = 'none';
+  if(TV_RESIZE){ window.removeEventListener('resize', TV_RESIZE); TV_RESIZE = null; }
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && document.getElementById('tvBoard').style.display === 'flex') stopTv();
+});
 
 // ─── Display mode ───
 let KIOSK = { list: [], i: 0, playing: true, t0: 0, timer: null, clock: null };
