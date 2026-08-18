@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Served at alamedapointbg.com/visitors via the gateway proxy — asset paths
+     must be absolute /billing/… (same constraint as compliance.html).
+     DELIBERATELY PUBLIC: a visitor cannot log in. Writes go through
+     /api/visitor-signin on the service-role key; nothing here reads the log. -->
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/visitors'+location.search+location.hash);</script>
+<title>Visitor sign-in — Alameda Point Beverage Group</title>
+<script src="/billing/vendor/qrcode-generator.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',system-ui,-apple-system,sans-serif;background:#0B1B26;color:#E8F0F5;min-height:100vh;
+     display:flex;flex-direction:column;overscroll-behavior:none}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 28px;
+       border-bottom:1px solid #16344E;flex-wrap:wrap}
+header .brand{font-size:1.25rem;font-weight:800;color:#fff;letter-spacing:-.01em}
+header .brand span{display:block;font-size:.8rem;font-weight:400;color:#8FB3C4;margin-top:3px}
+header .clock{font-family:'JetBrains Mono',ui-monospace,monospace;color:#8FB3C4;font-size:1rem;text-align:right}
+main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:28px 20px 40px}
+.card{width:100%;max-width:44rem;background:#122A38;border:1px solid #1E4257;border-radius:18px;padding:30px 32px;
+      box-shadow:0 20px 50px rgba(0,0,0,.4)}
+h1{font-size:2rem;font-weight:800;line-height:1.12;color:#fff;letter-spacing:-.02em;margin-bottom:8px}
+h2{font-size:1.15rem;font-weight:700;color:#fff;margin-bottom:6px}
+p.lead{font-size:1.02rem;color:#A8C3D2;line-height:1.55}
+.step{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#F4B400;margin-bottom:10px}
+label{display:block;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8FB3C4;margin:16px 0 6px}
+input[type=text],input[type=email],input[type=tel],select,textarea{width:100%;font:inherit;font-size:1.05rem;padding:14px 15px;
+  border:1px solid #24506B;border-radius:11px;background:#0E2230;color:#fff}
+textarea{min-height:88px;resize:vertical;line-height:1.5}
+input:focus,select:focus,textarea:focus{outline:2px solid #4F9BC4;border-color:#4F9BC4}
+input::placeholder,textarea::placeholder{color:#5B7F94}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+@media(max-width:620px){.row{grid-template-columns:1fr}}
+.btn{border:0;font:inherit;font-size:1.08rem;font-weight:700;padding:16px 26px;border-radius:12px;cursor:pointer;
+     background:#F4B400;color:#0B1B26;display:inline-flex;align-items:center;gap:9px;justify-content:center}
+.btn:hover{background:#FFC629}
+.btn:disabled{background:#3A5E74;color:#8FB3C4;cursor:not-allowed}
+.btn.ghost{background:transparent;color:#9FD0E8;border:1px solid #24506B}
+.btn.ghost:hover{background:#16344E;color:#fff}
+.btn.big{width:100%;font-size:1.2rem;padding:20px}
+.acts{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+.acts .btn{flex:1 1 12rem}
+.types{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:12px;margin-top:6px}
+.type{border:1px solid #24506B;background:#0E2230;color:#E8F0F5;font:inherit;font-size:1rem;font-weight:700;
+      padding:18px 14px;border-radius:12px;cursor:pointer;text-align:center;line-height:1.3}
+.type:hover{border-color:#4F9BC4}
+.type.on{background:#F4B400;border-color:#F4B400;color:#0B1B26}
+.type small{display:block;font-weight:400;font-size:.76rem;margin-top:4px;opacity:.75}
+.agree{background:#0E2230;border:1px solid #24506B;border-radius:12px;padding:18px 20px;max-height:38vh;overflow-y:auto;
+       font-size:.93rem;line-height:1.6;color:#C9DCE7;-webkit-overflow-scrolling:touch}
+.agree h3{font-size:.95rem;color:#F4B400;margin:16px 0 6px;font-weight:700}
+.agree h3:first-child{margin-top:0}
+.agree b{color:#fff}
+.check{display:flex;gap:12px;align-items:flex-start;margin-top:18px;background:#0E2230;border:1px solid #24506B;
+       border-radius:12px;padding:16px 18px;cursor:pointer}
+.check input{width:26px;height:26px;flex-shrink:0;accent-color:#F4B400;cursor:pointer;margin-top:1px}
+.check span{font-size:1rem;line-height:1.45;color:#E8F0F5;font-weight:600}
+.pad{border:2px dashed #4F9BC4;border-radius:12px;background:#fff;touch-action:none;display:block;width:100%;height:190px;cursor:crosshair}
+.cam{border:1px solid #24506B;border-radius:12px;background:#0E2230;overflow:hidden;position:relative;aspect-ratio:4/3;
+     display:flex;align-items:center;justify-content:center}
+.cam video,.cam canvas,.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.cam .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+           color:#8FB3C4;font-size:.95rem;padding:20px;line-height:1.5}
+.err{background:#3B1418;border:1px solid #7F2A31;color:#FFC9CE;border-radius:11px;padding:14px 16px;font-size:.95rem;
+     line-height:1.5;margin-top:18px}
+.warn{background:#3A2E10;border:1px solid #7A6015;color:#FFE6A8;border-radius:11px;padding:14px 16px;font-size:.92rem;
+      line-height:1.5;margin-top:16px}
+.muted{color:#8FB3C4;font-size:.88rem;line-height:1.5}
+/* The badge, sized for a 4x3 in label and printed on its own page. */
+.badge{background:#fff;color:#0B1B26;border-radius:12px;width:4in;height:3in;padding:.18in .2in;display:flex;
+       flex-direction:column;margin:0 auto;overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.badge .top{display:flex;justify-content:space-between;align-items:flex-start;gap:.12in;
+            border-bottom:.035in solid #0B1B26;padding-bottom:.07in}
+.badge .vis{font-size:15pt;font-weight:800;letter-spacing:.03em;line-height:1;color:#B91C1C}
+.badge .co{font-size:6pt;color:#475569;line-height:1.3;text-align:right;max-width:1.45in}
+.badge .mid{flex:1;display:flex;gap:.14in;padding-top:.1in;min-height:0}
+.badge .who{flex:1;min-width:0;display:flex;flex-direction:column}
+.badge .nm{font-size:17pt;font-weight:800;line-height:1.02;letter-spacing:-.01em;word-break:break-word}
+.badge .cmp{font-size:8.5pt;color:#334155;margin-top:.03in;font-weight:600}
+.badge .meta{margin-top:auto;font-size:7pt;color:#475569;line-height:1.42}
+.badge .meta b{color:#0B1B26}
+.badge .shot{width:1.02in;flex:0 0 auto;display:flex;flex-direction:column;gap:.05in;align-items:center}
+.badge .shot img{width:1.02in;height:1.12in;object-fit:cover;border:1px solid #CBD5E1;border-radius:.04in;background:#EEF2F7}
+.badge .shot canvas{width:.58in;height:.58in}
+.badge .bot{border-top:1px solid #CBD5E1;margin-top:.06in;padding-top:.05in;display:flex;justify-content:space-between;
+            font-size:6.5pt;color:#475569}
+.badge .bot b{font-family:'JetBrains Mono',ui-monospace,monospace;color:#0B1B26;font-size:7.5pt}
+.done{text-align:center}
+.done .tick{font-size:3rem;line-height:1}
+@media print{
+  @page{size:4in 3in;margin:0}
+  body{background:#fff!important;color:#0B1B26!important;display:block!important}
+  header,.noprint{display:none!important}
+  main{padding:0!important;display:block!important}
+  .card{max-width:none!important;width:auto!important;background:#fff!important;border:0!important;padding:0!important;
+        box-shadow:none!important;border-radius:0!important}
+  /* #badgeWrap's on-screen margin is a quarter inch — on a 3in label that is
+     the difference between one badge and two pages. */
+  #badgeWrap{margin:0!important;padding:0!important}
+  .badge{box-shadow:none!important;border-radius:0!important;width:4in!important;height:3in!important;
+         margin:0!important;overflow:hidden!important;break-inside:avoid;page-break-inside:avoid;
+         break-after:avoid;page-break-after:avoid}
+}
+</style>
+</head>
+<body>
+
+<header class="noprint">
+  <div class="brand">Alameda Point Beverage Group<span>Hangar 200 &middot; 1951 Monarch St, Alameda CA</span></div>
+  <div class="clock" id="clock"></div>
+</header>
+
+<main>
+  <div class="card">
+
+    <section id="s-welcome" class="noprint">
+      <h1>Welcome to Hangar 200</h1>
+      <p class="lead">Everyone who comes on site signs in. It takes about a minute, and it means we know
+        who is in the building if we ever have to clear it.</p>
+      <div class="acts">
+        <button class="btn" onclick="go('who')">Sign in &rarr;</button>
+        <button class="btn ghost" onclick="go('out')">I'm leaving &mdash; sign me out</button>
+      </div>
+    </section>
+
+    <section id="s-who" class="noprint" style="display:none">
+      <div class="step">Step 1 of 4</div>
+      <h2>Who's visiting?</h2>
+      <div class="types" id="typeBtns"></div>
+      <div class="row">
+        <div><label for="f_name">Full name *</label><input id="f_name" type="text" autocomplete="name" placeholder="First and last"></div>
+        <div><label for="f_company">Company</label><input id="f_company" type="text" autocomplete="organization" placeholder="Who you're with"></div>
+        <div><label for="f_email">Email</label><input id="f_email" type="email" autocomplete="email" inputmode="email" placeholder="you@company.com"></div>
+        <div><label for="f_phone">Mobile</label><input id="f_phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(555) 555-5555"></div>
+      </div>
+      <div class="acts">
+        <button class="btn ghost" onclick="go('welcome')">&larr; Back</button>
+        <button class="btn" onclick="go('why')">Continue &rarr;</button>
+      </div>
+      <div class="err" id="e-who" style="display:none"></div>
+    </section>
+
+    <section id="s-why" class="noprint" style="display:none">
+      <div class="step">Step 2 of 4</div>
+      <h2>Who are you here to see?</h2>
+      <label for="f_host">Host</label>
+      <select id="f_host"></select>
+      <label for="f_purpose">Reason for the visit</label>
+      <textarea id="f_purpose" placeholder="Tour, delivery, service call, inspection, meeting&hellip;"></textarea>
+      <div class="row">
+        <div><label for="f_vehicle">Vehicle (plate or description)</label><input id="f_vehicle" type="text" placeholder="Optional"></div>
+        <div><label for="f_areas">Areas you'll be in</label><input id="f_areas" type="text" placeholder="Office, warehouse, production&hellip;"></div>
+      </div>
+      <div class="acts">
+        <button class="btn ghost" onclick="go('who')">&larr; Back</button>
+        <button class="btn" onclick="go('agree')">Continue &rarr;</button>
+      </div>
+      <div class="err" id="e-why" style="display:none"></div>
+    </section>
+
+    <section id="s-agree" class="noprint" style="display:none">
+      <div class="step">Step 3 of 4</div>
+      <h2>Visitor agreement</h2>
+      <p class="muted" style="margin-bottom:14px">Please read this. It is short, and the CO&#8322; paragraph matters more than it looks.</p>
+      <div class="agree" id="agreeText"></div>
+      <label class="check" for="f_agree">
+        <input type="checkbox" id="f_agree">
+        <span>I have read and accept this agreement, and I consent to my photo being taken for a visitor badge.</span>
+      </label>
+      <label for="sigpad">Sign here</label>
+      <canvas class="pad" id="sigpad" width="700" height="190"></canvas>
+      <div class="acts">
+        <button class="btn ghost" onclick="padClear()">Clear signature</button>
+        <button class="btn ghost" onclick="go('why')">&larr; Back</button>
+        <button class="btn" onclick="go('photo')">Continue &rarr;</button>
+      </div>
+      <div class="err" id="e-agree" style="display:none"></div>
+    </section>
+
+    <section id="s-photo" class="noprint" style="display:none">
+      <div class="step">Step 4 of 4</div>
+      <h2>Photo for your badge</h2>
+      <p class="muted" style="margin-bottom:14px">Look at the camera and tap Take photo. It goes on your badge and on the visit record.</p>
+      <div class="cam" id="cam">
+        <video id="vid" autoplay playsinline muted></video>
+        <canvas id="shot" style="display:none"></canvas>
+        <div class="hint" id="camHint">Starting the camera&hellip;</div>
+      </div>
+      <div class="acts">
+        <button class="btn" id="btnShot" onclick="takeShot()">&#128247; Take photo</button>
+        <button class="btn ghost" id="btnRetake" onclick="retake()" style="display:none">Retake</button>
+        <button class="btn ghost" onclick="go('agree')">&larr; Back</button>
+      </div>
+      <div class="warn" id="camWarn" style="display:none"></div>
+      <button class="btn big" id="btnFinish" style="margin-top:22px" onclick="submitVisit()">Finish and print my badge</button>
+      <div class="err" id="e-photo" style="display:none"></div>
+    </section>
+
+    <section id="s-done" style="display:none">
+      <div class="done noprint">
+        <div class="tick">&#10003;</div>
+        <h1 style="margin-top:10px">You're signed in</h1>
+        <p class="lead" id="doneMsg"></p>
+      </div>
+      <div id="badgeWrap" style="margin:26px 0"></div>
+      <div class="acts noprint">
+        <button class="btn" onclick="window.print()">&#128424; Print my badge</button>
+        <button class="btn ghost" onclick="location.reload()">Done</button>
+      </div>
+      <div class="warn noprint" id="doneWarn" style="display:none"></div>
+      <p class="muted noprint" style="margin-top:20px">Keep the badge visible while you're on site, and sign out on your way past this screen &mdash; scan the code on the badge or tap <b>I'm leaving</b>.</p>
+    </section>
+
+    <section id="s-out" class="noprint" style="display:none">
+      <h1>Signing out</h1>
+      <p class="lead">Enter the badge number from your pass &mdash; it looks like <b>V-20260818-004</b>.</p>
+      <label for="f_badge">Badge number</label>
+      <input id="f_badge" type="text" autocapitalize="characters" placeholder="V-&hellip;">
+      <div class="acts">
+        <button class="btn ghost" onclick="go('welcome')">&larr; Back</button>
+        <button class="btn" onclick="signOut()">Sign me out</button>
+      </div>
+      <div class="err" id="e-out" style="display:none"></div>
+    </section>
+
+    <section id="s-outdone" class="noprint" style="display:none">
+      <div class="done">
+        <div class="tick">&#128075;</div>
+        <h1 style="margin-top:10px" id="outName">Signed out</h1>
+        <p class="lead" id="outMsg"></p>
+      </div>
+      <div class="acts"><button class="btn" onclick="location.reload()">Done</button></div>
+    </section>
+
+  </div>
+</main>
+
+<script>
+// CONFIG
+var AGREEMENT_VERSION = '1.0 (2026-08-18)';
+var API_IN  = '/billing/.netlify/functions/visitor-signin';
+var API_OUT = '/billing/.netlify/functions/visitor-signout';
+
+var HOSTS = [
+  { name: 'Sky Pace', email: 'skypace@brixbev.com' },
+  { name: 'Anthony Sloan', email: 'asloan@brixbev.com' },
+  { name: 'Front office', email: 'service@brixbev.com' }
+];
+var TYPES = [
+  ['visitor',    'Visitor',           'Tour, meeting, guest'],
+  ['contractor', 'Contractor',        'Working on site'],
+  ['vendor',     'Vendor / delivery', 'Dropping off or picking up'],
+  ['inspector',  'Inspector',         'Regulator or auditor'],
+  ['driver',     'Driver',            'Freight or courier'],
+  ['interview',  'Interview',         'Here about a job']
+];
+
+// The agreement. Written for a beverage warehouse with a bulk CO2 system, a
+// forklift aisle and a production floor - the hazards a guest actually walks
+// into here. The never-enter-to-rescue rule is the one that saves a life.
+var AGREEMENT = [
+'<h3>1. You are escorted</h3>',
+'<p>Stay with your host or an employee at all times. Do not enter the warehouse, production floor,',
+'cooler, or CO&#8322; area alone, and do not go past a closed door or a marked line without someone with you.</p>',
+'<h3>2. Carbon dioxide &mdash; read this one</h3>',
+'<p>We store and dispense <b>bulk carbon dioxide</b>. CO&#8322; is heavier than air, has no smell, and displaces',
+'oxygen in low or enclosed spaces. If an alarm sounds, <b>leave the area immediately</b> and go outside.',
+'<b>If you see someone down in the CO&#8322; area, do not go in after them.</b> Call 9-1-1, tell an employee,',
+'and wait outside &mdash; people who enter to rescue become the second casualty.</p>',
+'<h3>3. Forklifts and moving equipment</h3>',
+'<p>Forklifts and pallet jacks operate here. Stay in marked walkways, make eye contact with an operator',
+'before crossing their path, never walk under a raised load, and assume a driver has not seen you.</p>',
+'<h3>4. If you have to get out</h3>',
+'<p>On any alarm, leave by the nearest exit and go to the assembly point your host shows you. Do not go',
+'back inside for a bag, a phone, or a vehicle. Your host accounts for you &mdash; that is why you signed in.</p>',
+'<h3>5. Personal protective equipment</h3>',
+'<p>Wear what is posted for the area you are entering &mdash; safety glasses, closed-toe shoes, hearing',
+'protection, hi-visibility vest. No open-toe or open-heel shoes past the warehouse door. If you are',
+'entering production you will also be asked for a hair covering, and to remove loose jewellery.</p>',
+'<h3>6. Food safety</h3>',
+'<p>We make and pack beverages here. Do not touch product, ingredients, packaging, or equipment. No food,',
+'drink, gum, or tobacco on the production floor. <b>If you have vomiting, diarrhoea, jaundice, a sore',
+'throat with fever, or an infected wound on an exposed area, please do not enter production areas</b> &mdash;',
+'tell your host and we will meet you in the office.</p>',
+'<h3>7. No smoking, no vaping</h3>',
+'<p>Smoking, vaping, and cannabis are prohibited in every enclosed space, in vehicles, and near any',
+'entrance. Compressed gas and flammables are stored here.</p>',
+'<h3>8. Injuries, spills and near misses</h3>',
+'<p>Report any injury, spill, or close call to your host immediately, however minor. Do not clean up a',
+'spill yourself.</p>',
+'<h3>9. Photography and confidentiality</h3>',
+'<p>No photography or recording inside the facility without permission from your host. Anything you see',
+'about our processes, formulas, customers, pricing, or equipment is confidential &mdash; please do not share',
+'or reproduce it.</p>',
+'<h3>10. Contractors</h3>',
+'<p>If you are here to perform work, you confirm you carry your own general liability and workers&rsquo;',
+'compensation insurance, that a current certificate is on file with us or attached to your work order,',
+'and that your people are trained and licensed for the work. <b>An uninsured contractor is charged to',
+'our workers&rsquo; compensation policy at audit</b> &mdash; we will ask for the certificate.</p>',
+'<h3>11. Acknowledgement</h3>',
+'<p>You are entering an industrial facility and accept the ordinary risks of doing so while following',
+'these rules and the directions of our staff. Nothing here limits any right you have under law. We keep',
+'your name, contact details, photo, and signature as a visitor record for safety, security, and',
+'regulatory purposes, and we do not sell it or use it for marketing.</p>'
+].join('\n');
+
+// STATE
+var STATE = { type: 'visitor', photo: null, badge: null };
+var SECTIONS = ['welcome','who','why','agree','photo','done','out','outdone'];
+var stream = null;
+
+function show(id){ var el = document.getElementById(id); if(el) el.style.display = 'block'; }
+function hide(id){ var el = document.getElementById(id); if(el) el.style.display = 'none'; }
+function err(where, msg){
+  var el = document.getElementById('e-' + where);
+  if(!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? 'block' : 'none';
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+
+function go(step){
+  // Gate forward moves; going back is always free.
+  if(step === 'why'){
+    var n = document.getElementById('f_name').value.trim();
+    if(n.length < 3 || n.indexOf(' ') === -1){ err('who', 'Please enter your first and last name.'); return; }
+    var em = document.getElementById('f_email').value.trim();
+    if(em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ err('who', 'That email address does not look right.'); return; }
+    err('who', '');
+  }
+  if(step === 'agree'){
+    if(!document.getElementById('f_purpose').value.trim()){ err('why', 'A short reason for the visit, please.'); return; }
+    err('why', '');
+  }
+  if(step === 'photo'){
+    if(!document.getElementById('f_agree').checked){ err('agree', 'Please tick the box to accept the agreement.'); return; }
+    if(!hasInk){ err('agree', 'Please sign in the box.'); return; }
+    err('agree', '');
+    startCam();
+  }
+  for(var i = 0; i < SECTIONS.length; i++) hide('s-' + SECTIONS[i]);
+  show('s-' + step);
+  window.scrollTo({ top: 0 });
+}
+
+// BOOT
+(function(){
+  document.getElementById('agreeText').innerHTML = AGREEMENT;
+  document.getElementById('typeBtns').innerHTML = TYPES.map(function(t){
+    return '<button class="type' + (t[0] === 'visitor' ? ' on' : '') + '" data-type="' + t[0] + '">' +
+      esc(t[1]) + '<small>' + esc(t[2]) + '</small></button>';
+  }).join('');
+  document.getElementById('typeBtns').addEventListener('click', function(e){
+    var b = e.target.closest('.type'); if(!b) return;
+    STATE.type = b.getAttribute('data-type');
+    var all = document.querySelectorAll('.type');
+    for(var i = 0; i < all.length; i++) all[i].classList.toggle('on', all[i] === b);
+  });
+  document.getElementById('f_host').innerHTML =
+    '<option value="">&mdash; I do not know / whoever is available &mdash;</option>' +
+    HOSTS.map(function(h){ return '<option value="' + esc(h.email) + '">' + esc(h.name) + '</option>'; }).join('');
+  tick(); setInterval(tick, 1000);
+})();
+function tick(){
+  document.getElementById('clock').textContent =
+    new Date().toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
+// SIGNATURE PAD
+var pad = document.getElementById('sigpad');
+var ctx = pad.getContext('2d');
+ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0F172A';
+var drawing = false, hasInk = false;
+function padPos(e){
+  var r = pad.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (pad.width / r.width), y: (e.clientY - r.top) * (pad.height / r.height) };
+}
+pad.addEventListener('pointerdown', function(e){ drawing = true; hasInk = true; var p = padPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); pad.setPointerCapture(e.pointerId); });
+pad.addEventListener('pointermove', function(e){ if(!drawing) return; var p = padPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+pad.addEventListener('pointerup', function(){ drawing = false; });
+pad.addEventListener('pointercancel', function(){ drawing = false; });
+function padClear(){ ctx.clearRect(0, 0, pad.width, pad.height); hasInk = false; err('agree', ''); }
+
+// CAMERA
+// A broken or blocked camera must never strand someone at the front door, so
+// every failure here degrades to "carry on without a photo".
+function startCam(){
+  var hint = document.getElementById('camHint');
+  var warn = document.getElementById('camWarn');
+  if(stream || STATE.photo) return;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    hint.textContent = 'This device has no camera we can use.';
+    warn.style.display = 'block';
+    warn.textContent = 'No camera available - you can finish without a photo and we will take one at the office.';
+    document.getElementById('btnShot').disabled = true;
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 } }, audio: false })
+    .then(function(s){
+      stream = s;
+      var v = document.getElementById('vid');
+      v.srcObject = s;
+      hint.style.display = 'none';
+    })
+    .catch(function(e){
+      hint.textContent = 'Camera blocked';
+      warn.style.display = 'block';
+      warn.textContent = 'The camera is blocked on this device (' + e.name + '). You can finish without a photo - allow camera access in the browser settings to enable badge photos.';
+      document.getElementById('btnShot').disabled = true;
+    });
+}
+function takeShot(){
+  var v = document.getElementById('vid'), c = document.getElementById('shot');
+  if(!v.videoWidth) return;
+  // 3:4 portrait crop from the centre - badge photos are portrait.
+  var targetW = 480, targetH = 640;
+  c.width = targetW; c.height = targetH;
+  var scale = Math.max(targetW / v.videoWidth, targetH / v.videoHeight);
+  var w = v.videoWidth * scale, h = v.videoHeight * scale;
+  c.getContext('2d').drawImage(v, (targetW - w) / 2, (targetH - h) / 2, w, h);
+  STATE.photo = c.toDataURL('image/jpeg', 0.82);
+  v.style.display = 'none'; c.style.display = 'block';
+  document.getElementById('btnShot').style.display = 'none';
+  document.getElementById('btnRetake').style.display = '';
+  stopCam();
+}
+function retake(){
+  STATE.photo = null;
+  document.getElementById('shot').style.display = 'none';
+  document.getElementById('vid').style.display = 'block';
+  document.getElementById('btnShot').style.display = '';
+  document.getElementById('btnRetake').style.display = 'none';
+  startCam();
+}
+function stopCam(){
+  if(stream){ stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
+}
+window.addEventListener('pagehide', stopCam);
+
+// SUBMIT
+function submitVisit(){
+  err('photo', '');
+  var btn = document.getElementById('btnFinish');
+  btn.disabled = true; var was = btn.textContent; btn.textContent = 'Signing you in...';
+  var hostSel = document.getElementById('f_host');
+  var payload = {
+    full_name: document.getElementById('f_name').value.trim(),
+    company: document.getElementById('f_company').value.trim(),
+    email: document.getElementById('f_email').value.trim(),
+    phone: document.getElementById('f_phone').value.trim(),
+    visitor_type: STATE.type,
+    visit_purpose: document.getElementById('f_purpose').value.trim(),
+    host_email: hostSel.value,
+    host_name: hostSel.value ? hostSel.options[hostSel.selectedIndex].text : '',
+    vehicle: document.getElementById('f_vehicle').value.trim(),
+    areas: document.getElementById('f_areas').value.trim(),
+    agreement_version: AGREEMENT_VERSION,
+    signature_data: pad.toDataURL('image/png'),
+    photo_data: STATE.photo || null,
+    agree: document.getElementById('f_agree').checked
+  };
+  fetch(API_IN, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Sign-in failed');
+      STATE.badge = res.data;
+      renderBadge(res.data);
+      go('done');
+      stopCam();
+    })
+    .catch(function(e){
+      err('photo', 'Could not sign you in: ' + e.message + ' - please tell someone at the office.');
+    })
+    .then(function(){ btn.disabled = false; btn.textContent = was; });
+}
+
+function renderBadge(data){
+  var now = new Date(data.signed_in_at || Date.now());
+  var t = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  var d = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  var found = TYPES.filter(function(x){ return x[0] === data.visitor_type; })[0];
+  var typeLabel = found ? found[1] : 'Visitor';
+
+  document.getElementById('doneMsg').innerHTML =
+    'Badge <b>' + esc(data.badge_number) + '</b>. ' +
+    (data.notified ? 'We have let ' + esc(data.host_name || 'the office') + ' know you are here.'
+                   : 'Please let someone at the office know you have arrived.');
+  var dw = document.getElementById('doneWarn');
+  var notes = [];
+  if(data.photo_warning) notes.push('Your badge photo did not save (' + esc(data.photo_warning) + ').');
+  if(data.notify_error) notes.push('We could not email your host automatically - please check in at the office.');
+  dw.style.display = notes.length ? 'block' : 'none';
+  dw.innerHTML = notes.join(' ');
+
+  document.getElementById('badgeWrap').innerHTML =
+    '<div class="badge">' +
+      '<div class="top">' +
+        '<div class="vis">' + esc(typeLabel.toUpperCase()) + '</div>' +
+        '<div class="co"><b>Alameda Point Beverage Group</b><br>Hangar 200 &middot; 1951 Monarch St<br>Alameda CA 94501</div>' +
+      '</div>' +
+      '<div class="mid">' +
+        '<div class="who">' +
+          '<div class="nm">' + esc(data.full_name) + '</div>' +
+          (data.company ? '<div class="cmp">' + esc(data.company) + '</div>' : '') +
+          '<div class="meta">' +
+            '<div>Here to see <b>' + esc(data.host_name || 'the office') + '</b></div>' +
+            '<div>In at <b>' + esc(t) + '</b> &middot; ' + esc(d) + '</div>' +
+            '<div>Escort required &middot; valid today only</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="shot">' +
+          (STATE.photo ? '<img alt="" src="' + STATE.photo + '">' : '') +
+          '<canvas id="badgeQr" width="60" height="60"></canvas>' +
+        '</div>' +
+      '</div>' +
+      '<div class="bot"><span>Sign out with this number</span><b>' + esc(data.badge_number) + '</b></div>' +
+    '</div>';
+
+  var qc = document.getElementById('badgeQr');
+  if(qc && typeof qrcode !== 'undefined'){
+    try{
+      var q = qrcode(0, 'M');
+      q.addData(location.origin + '/visitors?out=' + encodeURIComponent(data.badge_number));
+      q.make();
+      var n = q.getModuleCount(), quiet = 2, total = n + quiet * 2, px = 120 / total;
+      qc.width = 120; qc.height = 120;
+      var c2 = qc.getContext('2d');
+      c2.fillStyle = '#fff'; c2.fillRect(0, 0, 120, 120);
+      c2.fillStyle = '#0B1B26';
+      for(var r = 0; r < n; r++) for(var col = 0; col < n; col++)
+        if(q.isDark(r, col)) c2.fillRect(Math.round((col + quiet) * px), Math.round((r + quiet) * px), Math.ceil(px), Math.ceil(px));
+    }catch(e){ qc.style.display = 'none'; }
+  }else if(qc){ qc.style.display = 'none'; }
+}
+
+// SIGN OUT
+function signOut(){
+  err('out', '');
+  var badge = document.getElementById('f_badge').value.trim().toUpperCase();
+  if(badge.length < 5){ err('out', 'Enter the badge number from your pass.'); return; }
+  fetch(API_OUT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ badge_number: badge }) })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Sign-out failed');
+      var data = res.data;
+      document.getElementById('outName').textContent = 'Thanks, ' + String(data.full_name || '').split(' ')[0] + '!';
+      document.getElementById('outMsg').textContent = data.already
+        ? 'You were already signed out at ' + new Date(data.signed_out_at).toLocaleTimeString() + '. Safe travels.'
+        : 'Signed out at ' + new Date(data.signed_out_at).toLocaleTimeString() + '. Please leave your badge in the tray on your way out.';
+      go('outdone');
+    })
+    .catch(function(e){ err('out', e.message); });
+}
+
+// The badge QR lands here: /visitors?out=V-20260818-004
+(function(){
+  var m = /[?&]out=([^&]+)/.exec(location.search);
+  if(!m) return;
+  go('out');
+  document.getElementById('f_badge').value = decodeURIComponent(m[1]).toUpperCase();
+})();
+</script>
+</body>
+</html>

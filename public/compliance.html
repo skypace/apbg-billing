@@ -340,6 +340,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
     <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
     <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
+    <button class="tab" id="tabVisitors"    onclick="showTab('visitors')">Visitors</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
     <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
   </nav>
@@ -781,6 +782,52 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
     </div>
   </div>
+  <!-- ═══════════════ VISITORS ═══════════════ -->
+  <div class="container" id="paneVisitors" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">On site right now <span class="sub" id="onsiteCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="printView('onsite')">🖨 Evacuation list</button>
+          <a class="btn sm" style="text-decoration:none" href="/visitors" target="_blank" rel="noopener">Open the kiosk ↗</a>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Everyone who signed in at the front-door kiosk and has not signed out. <b>This list is the
+        head-count an evacuation runs on</b> — print it on the way out, and sign people out when they leave.
+      </div>
+      <div class="twrap"><table class="grid" id="onsiteTable">
+        <thead><tr><th>Visitor</th><th>Type</th><th>Here to see</th><th>Purpose</th><th>Signed in</th><th>Contact</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Visitor log <span class="sub" id="visLogCount"></span></h2>
+        <div><input type="search" id="visQ" placeholder="Name, company, host…" style="max-width:18rem"></div>
+      </div>
+      <div class="twrap"><table class="grid" id="visLogTable">
+        <thead><tr><th>Visitor</th><th>Type</th><th>Host</th><th>In</th><th>Out</th><th>Agreement</th><th>Photo</th><th>Notified</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">Last 200 visits. Signatures and photos are on the record; the photo opens from the private vault.</div>
+    </div>
+
+    <div class="section noprint">
+      <h2>How the kiosk works</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li>The tablet at the door runs <b>alamedapointbg.com/visitors</b> — no login, because a visitor cannot have one. Bookmark it and leave it open.</li>
+          <li>Sign-in takes four steps: who they are, who they're seeing, the safety agreement with a signature, and a photo. It ends on a <b>4&nbsp;×&nbsp;3 in badge</b> that prints from the tablet.</li>
+          <li>The host and the notify list get an email the moment someone signs in. Set the host list and the notify list in <code>ops.visitor_settings</code>.</li>
+          <li>Sign-out: the visitor scans the QR on their badge, types the badge number on the kiosk, or you close it from the table above.</li>
+          <li>The agreement covers escort, <b>CO₂ never-enter-to-rescue</b>, forklift traffic, evacuation, PPE, food safety, no smoking, incident reporting, confidentiality, and the contractor insurance confirmation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════ INSPECTIONS ═══════════════ -->
   <div class="container" id="paneInspections" style="display:none">
     <div class="subtabs noprint">
@@ -1076,6 +1123,10 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </div>
   <!-- ═══════════════ SAFETY MANUAL ═══════════════ -->
   <div class="container" id="paneHandbook" style="display:none">
+    <!-- Acknowledgment status sits ABOVE the handbook. The sign-off panel is at
+         the bottom, correctly — you sign after reading — but a 30-page document
+         between the tab and your own status reads as if signing vanished. -->
+    <div class="section noprint" id="ackStrip" style="display:none"></div>
     <div class="section noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="printManual()">🖨 Print the manual</button>
       <span class="muted">Prints as a standalone manual — each Part starts on a new page, diagrams kept whole, sign-off panel omitted.</span>
@@ -1366,9 +1417,11 @@ if(!SESSION){
 
 // ═══ TABS ═══
 const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
-                vendors:'paneVendors', postings:'panePostings', inspections:'paneInspections', handbook:'paneHandbook' };
+                vendors:'paneVendors', postings:'panePostings', visitors:'paneVisitors',
+                inspections:'paneInspections', handbook:'paneHandbook' };
 const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
-                vendors:'tabVendors', postings:'tabPostings', inspections:'tabInspections', handbook:'tabHandbook' };
+                vendors:'tabVendors', postings:'tabPostings', visitors:'tabVisitors',
+                inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
   if(!PANES[which]) which = 'dashboard';
   for(const k in PANES){
@@ -1392,7 +1445,8 @@ function showIns(which){
   const [main, sub] = h.split('/');
   const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
                 contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings', board:'postings',
-                insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector' };
+                insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector',
+                visitors:'visitors', visitor:'visitors' };
   if(map[main]) showTab(map[main]);
   if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
 })();
@@ -1470,6 +1524,7 @@ async function reloadAll(){
     for(const p of PARTY_LIST) PARTIES[p.id] = p;
     renderDashboard();
     renderAll(document.getElementById('q').value.trim().toLowerCase());
+    loadVisitors();
     return;
   }
   applyEmployeeMode();
@@ -1483,7 +1538,7 @@ let EMPLOYEE_MODE_DONE = false;
 function applyEmployeeMode(){
   if(EMPLOYEE_MODE_DONE) return;
   EMPLOYEE_MODE_DONE = true;
-  ['dashboard','inspector','insurance','vendors','inspections'].forEach(k => {
+  ['dashboard','inspector','insurance','vendors','visitors','inspections'].forEach(k => {
     const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
   });
   showTab('postings');
@@ -1853,6 +1908,101 @@ async function saveEditor(){
   }finally{ btn.disabled = false; btn.textContent = was; }
 }
 
+// ═══ VISITORS ═══
+// The kiosk at the front door writes through service-role functions; this is
+// the staff read of that log. The on-site list is the evacuation head-count,
+// which is why it is the first thing on the tab and why it prints.
+let VISITS = [];
+const VTYPE = { visitor:'Visitor', contractor:'Contractor', vendor:'Vendor', inspector:'Inspector',
+                driver:'Driver', interview:'Interview', other:'Other' };
+
+function fmtTime(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })
+               : d.toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+function durationSince(ts){
+  const mins = Math.round((Date.now() - new Date(ts)) / 60000);
+  if(mins < 60) return mins + ' min';
+  return Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm';
+}
+
+async function loadVisitors(){
+  try{
+    VISITS = await opsGet('visitor_visits?select=*&order=signed_in_at.desc&limit=200');
+  }catch(e){
+    const msg = '<tr><td colspan="8" class="muted">Could not load the visitor log (' + esc(e.message) + ').</td></tr>';
+    ['onsiteTable','visLogTable'].forEach(id => {
+      const t = document.querySelector('#' + id + ' tbody'); if(t) t.innerHTML = msg;
+    });
+    return;
+  }
+  renderVisitors(document.getElementById('visQ').value.trim().toLowerCase());
+}
+
+function renderVisitors(q){
+  const onsite = VISITS.filter(v => !v.signed_out_at);
+  document.getElementById('onsiteCount').textContent =
+    onsite.length ? onsite.length + ' on site' : 'nobody signed in';
+  const ot = document.querySelector('#onsiteTable tbody');
+  ot.innerHTML = onsite.length ? onsite.map(v => '<tr>' +
+    '<td><strong>' + esc(v.full_name) + '</strong>' + (v.company ? '<div class="muted">' + esc(v.company) + '</div>' : '') + '</td>' +
+    '<td><span class="chip info">' + esc(VTYPE[v.visitor_type] || v.visitor_type) + '</span></td>' +
+    '<td>' + esc(v.host_name || '—') + '</td>' +
+    '<td class="muted">' + esc((v.visit_purpose || '—').slice(0, 70)) + '</td>' +
+    '<td>' + esc(fmtTime(v.signed_in_at)) + '<div class="muted">' + esc(durationSince(v.signed_in_at)) + ' ago</div></td>' +
+    '<td class="muted">' + esc(v.phone || v.email || '—') + (v.vehicle ? '<div class="muted">' + esc(v.vehicle) + '</div>' : '') + '</td>' +
+    '<td class="noprint"><button class="actbtn" data-signout="' + esc(v.id) + '">Sign out</button></td>' +
+  '</tr>').join('') : '<tr><td colspan="7" class="muted">Nobody is signed in right now.</td></tr>';
+
+  const f = VISITS.filter(v => !q || JSON.stringify(v).toLowerCase().indexOf(q) > -1);
+  document.getElementById('visLogCount').textContent = f.length + ' of ' + VISITS.length;
+  const lt = document.querySelector('#visLogTable tbody');
+  lt.innerHTML = f.length ? f.map(v => '<tr' + (v.signed_out_at ? '' : ' class="arch"') + '>' +
+    '<td><strong>' + esc(v.full_name) + '</strong>' + (v.company ? '<div class="muted">' + esc(v.company) + '</div>' : '') +
+      '<div class="muted mono">' + esc(v.badge_number) + '</div></td>' +
+    '<td>' + esc(VTYPE[v.visitor_type] || v.visitor_type) + '</td>' +
+    '<td>' + esc(v.host_name || '—') + '</td>' +
+    '<td>' + esc(fmtTime(v.signed_in_at)) + '</td>' +
+    '<td>' + (v.signed_out_at ? esc(fmtTime(v.signed_out_at)) : '<span class="chip warn">Still on site</span>') + '</td>' +
+    '<td class="muted">' + esc(v.agreement_version || '—') + '</td>' +
+    '<td>' + (v.photo_path ? '<button class="filebtn" data-vphoto="' + esc(v.photo_path) + '">Photo</button>' : '<span class="muted">—</span>') + '</td>' +
+    '<td>' + (v.notified_at ? '<span class="chip ok">Sent</span>'
+            : v.notify_error ? '<span class="chip crit" title="' + esc(v.notify_error) + '">Failed</span>'
+            : '<span class="chip dim">—</span>') + '</td>' +
+  '</tr>').join('') : '<tr><td colspan="8" class="muted">No visits recorded yet.</td></tr>';
+}
+
+// Sign-out and photo open, delegated like every other row action on the page.
+document.addEventListener('click', async (e) => {
+  const so = e.target.closest('[data-signout]');
+  if(so){
+    const id = so.getAttribute('data-signout');
+    const v = VISITS.find(x => String(x.id) === id);
+    if(!v || !confirm('Sign out ' + v.full_name + '?')) return;
+    so.disabled = true;
+    try{
+      await opsPatch('visitor_visits', id, { signed_out_at: new Date().toISOString(), signed_out_by: SESSION.email });
+      await loadVisitors();
+    }catch(err){ alert('Could not sign them out: ' + err.message); so.disabled = false; }
+    return;
+  }
+  const ph = e.target.closest('[data-vphoto]');
+  if(ph){
+    const path = ph.getAttribute('data-vphoto');
+    ph.disabled = true; const was = ph.textContent; ph.textContent = 'Opening…';
+    try{
+      const r = await fetch(SB_URL + '/storage/v1/object/authenticated/visitor-photos/' + path, { headers: sbHeaders() });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      window.open(URL.createObjectURL(await r.blob()), '_blank');
+    }catch(err){ alert('Could not open the photo: ' + err.message); }
+    finally{ ph.disabled = false; ph.textContent = was; }
+  }
+});
+document.getElementById('visQ').addEventListener('input', e => renderVisitors(e.target.value.trim().toLowerCase()));
+
 // ═══ POSTING BOARD — the screen that goes on the break-room monitor ═══
 // Board = every notice as a tile with a QR code. Display mode = one notice at a
 // time, full screen, auto-advancing — the digital equivalent of the wall board.
@@ -2035,7 +2185,9 @@ document.addEventListener('keydown', e => {
 // from a fullscreen document gives Chrome a viewport it renders badly.
 function printView(kind){
   if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-  document.body.classList.add('printing', 'printing-' + kind);
+  // The evacuation list is a normal page section, not an overlay — it prints
+  // through the ordinary print stylesheet, so don't stamp the overlay classes.
+  if(kind !== 'onsite') document.body.classList.add('printing', 'printing-' + kind);
   setTimeout(() => window.print(), 250);
 }
 window.addEventListener('afterprint', () =>
@@ -2271,6 +2423,14 @@ function printManual(){
   document.body.classList.add('print-manual');
   window.print();
 }
+function jumpTo(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.style.transition = 'box-shadow .25s';
+  el.style.boxShadow = '0 0 0 3px #93B8DB';
+  setTimeout(() => { el.style.boxShadow = ''; }, 1600);
+}
 window.addEventListener('afterprint', () => document.body.classList.remove('print-manual'));
 
 // ═══ SIGNATURE PAD ═══
@@ -2303,6 +2463,27 @@ async function loadAckState(){
       '✓ Signed by ' + mine.signer_name + ' on ' + new Date(mine.signed_at).toLocaleDateString() +
       ' — version ' + HANDBOOK_VERSION + ' is on file. Nothing more to do until a new version is issued.';
   }
+
+  // Status strip at the top of the tab, so you never have to scroll the whole
+  // manual to find out where you stand.
+  const onVer = rows.filter(a => a.handbook_version === HANDBOOK_VERSION).length;
+  const strip = document.getElementById('ackStrip');
+  strip.style.display = 'block';
+  strip.innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between">' +
+      '<div>' +
+        (mine
+          ? '<div style="font-weight:700;color:#15803D">✓ You signed version ' + esc(HANDBOOK_VERSION) + ' on ' + new Date(mine.signed_at).toLocaleDateString() + '</div>'
+          : '<div style="font-weight:700;color:#B45309">⚠ You have not signed version ' + esc(HANDBOOK_VERSION) + ' yet</div>') +
+        '<div class="muted">' + onVer + ' signature' + (onVer === 1 ? '' : 's') + ' on file for this version' +
+          (rows.length > onVer ? ' · ' + (rows.length - onVer) + ' on an older version, who need to re-sign' : '') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn' + (mine ? ' ghost' : '') + '" onclick="jumpTo(\'signSection\')">' +
+          (mine ? 'View my sign-off' : '✍ Sign the acknowledgment') + '</button>' +
+        (rows.length ? '<button class="btn ghost" onclick="jumpTo(\'rosterSection\')">Who has signed</button>' : '') +
+      '</div>' +
+    '</div>';
   if(rows.length){
     document.getElementById('rosterSection').style.display = 'block';
     document.getElementById('rosterCount').textContent = rows.length + ' signature' + (rows.length === 1 ? '' : 's');
