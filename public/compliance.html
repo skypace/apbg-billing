@@ -149,6 +149,33 @@ table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .ptile .pt-tag{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;margin-top:8px;background:#1E4257;color:#9FD0E8}
 .ptile .pt-tag.doc{background:#14532D;color:#86EFAC}
 .ptile canvas{background:#fff;border-radius:6px;padding:4px;flex-shrink:0}
+/* Poster wall — the actual notices tiled, the way the physical board looks.
+   Tiles are pre-rendered page-1 JPEGs (public/postings/thumbs/); thirty PDF
+   iframes would flatten a TV browser. Tap one to open the real document. */
+.wall{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9600;display:flex;flex-direction:column;
+      overflow:hidden;padding:1.1vh 1.4vw}
+.wall-head{display:flex;justify-content:space-between;align-items:center;gap:1.2vw;flex-wrap:wrap;
+           border-bottom:2px solid #F4B400;padding-bottom:.7vh;margin-bottom:1vh}
+.wall-head h1{font-size:2.6vh;font-weight:800;letter-spacing:-.01em;line-height:1.05;color:#fff}
+.wall-head .sub{font-size:1.25vh;color:#8FB3C4;margin-top:.25vh}
+.wall-ctl{display:flex;gap:.5vw;align-items:center;flex-wrap:wrap}
+.wall-ctl button{border:1px solid #1E4257;background:#122A38;color:#E8F0F5;font:inherit;font-size:1.5vh;
+                 font-weight:600;padding:.7vh 1vw;border-radius:.5vh;cursor:pointer;white-space:nowrap}
+.wall-ctl button:hover{border-color:#4F9BC4;background:#16344E}
+.wall-ctl button.on{background:#F4B400;border-color:#F4B400;color:#0B1B26}
+.wall-ctl .pos{font-family:'JetBrains Mono',monospace;color:#8FB3C4;font-size:1.4vh;padding:0 .4vw}
+.wall-grid{flex:1;min-height:0;display:grid;gap:1vh 1vw;align-content:start;justify-content:center}
+.ptile2{background:#fff;border:0;border-radius:.5vh;padding:0;cursor:pointer;display:flex;flex-direction:column;
+        overflow:hidden;font:inherit;box-shadow:0 .4vh 1.2vh rgba(0,0,0,.45)}
+.ptile2:hover,.ptile2:focus{outline:.35vh solid #F4B400;outline-offset:.2vh}
+.ptile2 img{flex:1;min-height:0;width:100%;object-fit:contain;object-position:top center;background:#fff;display:block}
+.ptile2 .cap{background:#0B1B26;color:#E8F0F5;font-size:1.25vh;font-weight:700;line-height:1.2;padding:.45vh .5vh;
+             text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptile2 .nodoc{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748B;
+               font-size:1.3vh;font-weight:600;padding:1vh;line-height:1.35}
+.wall-foot{border-top:1px solid #1E4257;margin-top:1vh;padding-top:.7vh;display:flex;justify-content:space-between;
+           gap:1.2vw;flex-wrap:wrap;font-size:1.3vh;color:#8FB3C4}
+.wall-foot b{color:#E8F0F5}
 /* One-page TV board. Everything sizes in em off a root set in vh, so the
    physical size is identical on a 1080p and a 4K panel of the same diagonal,
    and tvFit() shrinks that root until the tallest column stops overflowing —
@@ -247,6 +274,34 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
 @media print{
   header,.tabs,.subtabs,.contactbar,.signrow,.noprint,.acts,.toolbar .btn,.modal{display:none!important}
+  /* Each screen has a printable twin. The overlays are position:fixed, which
+     would print only the first page, so they go static and light for paper. */
+  body.printing .container,body.printing header,body.printing .tabs,body.printing .kiosk{display:none!important}
+  /* Only the view being printed unfolds — the other overlay stays hidden, or
+     its header and footer leak onto the page above the real content. */
+  body.printing .wall,body.printing .tv{display:none!important}
+  body.printing-wall .wall,body.printing-tv .tv{position:static!important;inset:auto!important;height:auto!important;
+    overflow:visible!important;background:#fff!important;color:#0B1B26!important;padding:0!important;display:block!important}
+  body.printing .wall-head,body.printing .tv-head{border-bottom:2px solid #0B1B26!important;margin-bottom:10pt}
+  body.printing .wall-head h1,body.printing .tv-head h1{font-size:20pt!important;color:#0B1B26!important}
+  body.printing .wall-head .sub,body.printing .tv-head .sub,body.printing .tv-head .rt{font-size:8.5pt!important;color:#475569!important}
+  body.printing .wall-foot,body.printing .tv-foot{font-size:8pt!important;color:#334155!important;border-top:1px solid #94A3B8!important}
+  body.printing .wall-foot b,body.printing .tv-foot b,body.printing .tv-head .rt b{color:#0B1B26!important}
+  /* Poster wall prints as a contact sheet, three across */
+  body.printing .wall-grid{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:10pt!important}
+  body.printing .ptile2{break-inside:avoid;page-break-inside:avoid;box-shadow:none!important;border:1px solid #CBD5E1!important}
+  body.printing .ptile2 img{max-height:2.9in!important;object-fit:contain!important}
+  body.printing .ptile2 .cap{background:#EEF2F7!important;color:#0B1B26!important;font-size:7.5pt!important;white-space:normal!important}
+  body.printing .ptile2 .nodoc{font-size:8pt!important;min-height:1.6in}
+  /* The one-page TV board prints as one landscape sheet */
+  body.printing-tv .tv{font-size:9pt!important}
+  body.printing-tv .tv-grp{color:#1F4E79!important;border-bottom-color:#94A3B8!important}
+  body.printing-tv .tv-item{border-bottom-color:#E4E9F0!important}
+  body.printing-tv .tv-item .t{color:#0B1B26!important;font-size:1.35em!important}
+  body.printing-tv .tv-item .m{color:#64748B!important}
+  body.printing-tv .tv-cols{column-count:3!important;overflow:visible!important}
+  body.printing-tv .tv-item canvas{width:3.4em!important;height:3.4em!important}
+  body.printing-tv{--x:0}
   body{background:#fff}
   .section{border:none;box-shadow:none;padding:0;margin-bottom:14px}
   .container{max-width:none;padding:0}
@@ -653,13 +708,17 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
     <div id="postBoardView">
       <div class="section noprint" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn" onclick="startTv(true)">📺 One page on the TV</button>
+        <button class="btn" onclick="startWall(true, 1)">🧱 Poster wall — all on one screen</button>
+        <button class="btn ghost" onclick="startWall(true, 2)">🧱 Poster wall — two screens</button>
+        <button class="btn ghost" onclick="startTv(true)">📺 Index, one page</button>
         <button class="btn ghost" onclick="startKiosk(true)">⛶ One at a time, full screen</button>
-        <button class="btn ghost" onclick="startKiosk(false)">▶ Play in this window</button>
+        <a class="btn ghost" style="text-decoration:none" href="/billing/postings/APBG-required-postings-packet.pdf" target="_blank" rel="noopener">🖨 Print the whole board (PDF)</a>
         <label class="muted" style="display:flex;align-items:center;gap:6px">Seconds per notice
           <input type="number" id="kioskSecs" value="20" min="5" max="180" style="width:5.5rem">
         </label>
-        <span class="muted" style="flex:1 1 16rem"><b>One page on the TV</b> fits every notice on a single screen at a size you can read across a break room. <b>One at a time</b> shows the actual poster, full screen, auto-advancing. Tap any tile below to read one now.</span>
+        <span class="muted" style="flex:1 1 22rem"><b>Poster wall</b> shows the real notices tiled the way the physical board looks — one screen, or two for bigger tiles; tap any to open it.
+        <b>Index</b> fits every title on one screen at a size you can read across the room. <b>One at a time</b> plays each poster full screen.
+        Every view has its own 🖨 Print, and <b>Print the whole board</b> is a 40-page PDF with a cover index.</span>
       </div>
       <div class="board" id="boardWrap"><div class="muted">Loading the board…</div></div>
     </div>
@@ -1076,6 +1135,29 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     </div>
   </div>
 
+  <!-- ═══════════════ POSTING BOARD — POSTER WALL ═══════════════ -->
+  <div class="wall" id="wall" style="display:none">
+    <div class="wall-head">
+      <div>
+        <h1>EMPLOYEE NOTICES</h1>
+        <div class="sub">Alameda Point Beverage Group &middot; Hangar 200, 1951 Monarch St, Alameda CA 94501 &middot; <span id="wallDate"></span></div>
+      </div>
+      <div class="wall-ctl noprint">
+        <button id="wall1" onclick="wallPages(1)">All on one screen</button>
+        <button id="wall2" onclick="wallPages(2)">Two screens</button>
+        <span class="pos" id="wallPos"></span>
+        <button id="wallNext" onclick="wallStep(1)">Next ▶</button>
+        <button onclick="printView('wall')">🖨 Print</button>
+        <button onclick="stopWall()">&times; Exit</button>
+      </div>
+    </div>
+    <div class="wall-grid" id="wallGrid"></div>
+    <div class="wall-foot">
+      <div><b>Tap any notice</b> to open the full document &mdash; or scan it from the index board.</div>
+      <div>Questions: <b>Sky Pace (415) 713-3318</b></div>
+    </div>
+  </div>
+
   <!-- ═══════════════ POSTING BOARD — ONE-PAGE TV VIEW ═══════════════ -->
   <div class="tv" id="tvBoard" style="display:none">
     <div class="tv-head">
@@ -1090,7 +1172,8 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
       <div><b>Scan any code</b> to read the full notice on your phone &mdash; or ask for a printed copy.</div>
       <div>Questions about anything on this board: <b>Sky Pace (415) 713-3318</b></div>
     </div>
-    <button class="tv-exit" onclick="stopTv()">&times; Exit</button>
+    <button class="tv-exit noprint" onclick="printView('tv')" style="right:6.4em">🖨 Print</button>
+    <button class="tv-exit noprint" onclick="stopTv()">&times; Exit</button>
   </div>
 
   <!-- ═══════════════ RECORD EDITOR ═══════════════ -->
@@ -1838,15 +1921,125 @@ function renderBoard(){
   // A dedicated break-room machine opens /compliance?kiosk=1 and starts playing
   // on its own. Fullscreen still needs a click — browsers require a gesture —
   // so the operator presses "Put this on the monitor" once per boot.
-  if(!KIOSK_AUTOSTARTED && list.length && /(^|[?&])(kiosk|tv)=1/.test(location.search)){
+  const auto = (location.search.match(/(?:^|[?&])(kiosk|tv|wall)=(\d+)/) || []);
+  if(!KIOSK_AUTOSTARTED && list.length && auto[1]){
     KIOSK_AUTOSTARTED = true;
     showTab('postings'); showPost('board');
-    if(/(^|[?&])tv=1/.test(location.search)) startTv(false); else startKiosk(false, 0);
+    if(auto[1] === 'tv') startTv(false);
+    else if(auto[1] === 'wall') startWall(false, auto[2] === '2' ? 2 : 1);
+    else startKiosk(false, 0);
   }
   wrap.querySelectorAll('canvas.pt-qr').forEach(c => drawQr(c, c.getAttribute('data-qr'), 88));
   wrap.querySelectorAll('.ptile').forEach(b =>
     b.addEventListener('click', () => startKiosk(false, Number(b.getAttribute('data-kiosk')), true)));
 }
+
+// ─── Poster wall — the actual notices, tiled ───
+// The physical board, reproduced. Thirty full posters on one 1080p screen give
+// each about 190x245 px, which is enough to recognise a notice, not to read it
+// — so "Two screens" halves the count and doubles the tile, and tapping one
+// opens the real document. Tiles are pre-rendered page-1 JPEGs; thirty PDF
+// iframes would flatten a TV browser.
+const THUMB_BASE = '/billing/postings/thumbs/';
+function thumbFor(p){ return p.mirror_path ? THUMB_BASE + p.mirror_path.replace(/\.pdf$/i, '.jpg') : null; }
+
+let WALL = { pages: 1, page: 0, list: [], resize: null };
+
+// Largest tile that fits n cells in the box. Tiles are portrait-ish, so search
+// every column count rather than assuming one.
+function bestGrid(n, boxW, boxH, gapX, gapY, aspect, capPx){
+  let best = { cols: 1, h: 0 };
+  for(let cols = 1; cols <= n; cols++){
+    const rows = Math.ceil(n / cols);
+    const w = (boxW - gapX * (cols - 1)) / cols;
+    const h = Math.min((boxH - gapY * (rows - 1)) / rows, w / aspect + capPx);
+    if(h > best.h && w > 40) best = { cols, h, w };
+  }
+  return best;
+}
+
+function renderWall(){
+  const grid = document.getElementById('wallGrid');
+  if(!grid) return;
+  const all = boardPostings();
+  WALL.list = all;
+  const pages = Math.max(1, WALL.pages);
+  const per = Math.ceil(all.length / pages);
+  if(WALL.page >= pages) WALL.page = 0;
+  const slice = all.slice(WALL.page * per, WALL.page * per + per);
+
+  document.getElementById('wallDate').textContent =
+    new Date().toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+  document.getElementById('wallPos').textContent = pages > 1
+    ? 'Screen ' + (WALL.page + 1) + ' of ' + pages + ' · ' + slice.length + ' of ' + all.length
+    : all.length + ' notices';
+  document.getElementById('wallNext').style.display = pages > 1 ? '' : 'none';
+  document.getElementById('wall1').classList.toggle('on', pages === 1);
+  document.getElementById('wall2').classList.toggle('on', pages > 1);
+
+  grid.innerHTML = slice.map(p => {
+    const src = thumbFor(p);
+    const label = esc(p.short_title || p.title);
+    return '<button class="ptile2" data-wall="' + esc(p.id) + '" title="' + esc(p.title) + '">' +
+      (src ? '<img loading="eager" alt="' + label + '" src="' + src + '">'
+           : '<span class="nodoc">' + label + '<br><small>copy not on file yet</small></span>') +
+      '<span class="cap">' + label + '</span></button>';
+  }).join('');
+
+  // Size the grid to the space actually available after the header and footer.
+  const box = grid.getBoundingClientRect();
+  const gapX = window.innerWidth * 0.01, gapY = window.innerHeight * 0.01;
+  const capPx = window.innerHeight * 0.028;
+  const g = bestGrid(slice.length, box.width, box.height, gapX, gapY, 0.78, capPx);
+  grid.style.gridTemplateColumns = 'repeat(' + g.cols + ', ' + Math.floor(g.h * 0.78) + 'px)';
+  grid.style.gridAutoRows = Math.floor(g.h) + 'px';
+
+  grid.querySelectorAll('.ptile2').forEach(btn => btn.addEventListener('click', () => {
+    const i = boardPostings().findIndex(x => String(x.id) === btn.getAttribute('data-wall'));
+    if(i < 0) return;
+    stopWall();
+    startKiosk(false, i, true);
+  }));
+}
+
+function wallPages(n){ WALL.pages = n; WALL.page = 0; renderWall(); }
+function wallStep(d){
+  const pages = Math.max(1, WALL.pages);
+  WALL.page = (WALL.page + d + pages) % pages;
+  renderWall();
+}
+function startWall(fullscreen, pages){
+  if(!boardPostings().length) return;
+  WALL.pages = pages || 1; WALL.page = 0;
+  document.getElementById('wall').style.display = 'flex';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  renderWall();
+  setTimeout(renderWall, 350);
+  WALL.resize = () => renderWall();
+  window.addEventListener('resize', WALL.resize);
+}
+function stopWall(){
+  document.getElementById('wall').style.display = 'none';
+  if(WALL.resize){ window.removeEventListener('resize', WALL.resize); WALL.resize = null; }
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if(document.getElementById('wall').style.display !== 'flex') return;
+  if(e.key === 'Escape') stopWall();
+  else if(e.key === 'ArrowRight') wallStep(1);
+  else if(e.key === 'ArrowLeft') wallStep(-1);
+});
+
+// Every screen has a printable twin. Fullscreen is dropped first — printing
+// from a fullscreen document gives Chrome a viewport it renders badly.
+function printView(kind){
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  document.body.classList.add('printing', 'printing-' + kind);
+  setTimeout(() => window.print(), 250);
+}
+window.addEventListener('afterprint', () =>
+  document.body.classList.remove('printing', 'printing-tv', 'printing-wall'));
 
 // ─── One-page TV view ───
 // Every notice on a single screen, sized to be read across a break room. The
