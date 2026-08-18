@@ -1070,7 +1070,9 @@ Late reporting hurts *your* workers'-comp claim and hides a hazard from the next
 3. **We give you a DWC-1 workers'-comp claim form within one working day** of learning about the
    injury. Fill out the employee section and return it. Your treatment is covered.
 4. **Serious injury, amputation, loss of an eye, or any hospitalization: the EH&S Lead is notified
-   immediately** — Cal/OSHA requires our report within 8 hours.
+   immediately** — Cal/OSHA requires our report **immediately, and no later than 8 hours**, on the
+   statewide line **1-833-579-0927**. (The (916) 263-2800 number on our ERCP is a general
+   Sacramento line, not the reporting line.)
 5. **The scene stays as-is** where practical until it's photographed, unless leaving it is unsafe.
 
 You will not be disciplined for getting hurt. You may be disciplined for hiding it.
@@ -1083,6 +1085,7 @@ You will not be disciplined for getting hurt. You may be disciplined for hiding 
 - **Airgas 24-hr (CO₂ tank):** **(866) 734-3438**
 - **Alameda County Environmental Health (CUPA):** (510) 567-6702
 - **Poison Control:** (800) 222-1222 · **Cal OES state warning center:** (800) 852-7550
+- **Cal/OSHA — serious injury (≤8 hrs), also the employee hazard line:** **1-833-579-0927**
 
 **Evacuation:** the alarm is horns/sirens plus verbal. Assembly areas are the **north and south
 parking lots — primary: the south lot by the fire hydrant.** Go there, stay there, get counted.
