@@ -15,7 +15,7 @@
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
   # 4. Build the Brix Expense app; output goes to public/expense/.
-  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
+  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense && npm install --prefix app-distributor && npm run build --prefix app-distributor"
   publish = "public"
   functions = "netlify/functions"
 
@@ -166,6 +166,23 @@
 [[redirects]]
   from = "/expense/*"
   to = "/expense/index.html"
+  status = 200
+
+# ── Sub-Distributor Portal (app-distributor/ → public/distributor/) ──
+# External partner portal (Origins Soda Co., Desert Beverage). Same dual-shape
+# API pattern as Brixpense: direct-site traffic arrives at /distributor/api/…,
+# gateway traffic arrives with the prefix stripped. No functions use these
+# routes yet — the portal is pure PostgREST + RPC today — but the rule keeps
+# the pattern consistent for when one lands.
+[[redirects]]
+  from = "/distributor/api/*"
+  to = "/api/:splat"
+  status = 200
+
+# SPA fallback (must come after the api rule).
+[[redirects]]
+  from = "/distributor/*"
+  to = "/distributor/index.html"
   status = 200
 
 # Old /ops/ path → /sales/ (kept for any saved bookmarks)
