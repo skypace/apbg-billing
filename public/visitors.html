@@ -240,8 +240,11 @@ input::placeholder,textarea::placeholder{color:#5B7F94}
 <script>
 // CONFIG
 var AGREEMENT_VERSION = '1.0 (2026-08-18)';
-var API_IN  = '/billing/.netlify/functions/visitor-signin';
-var API_OUT = '/billing/.netlify/functions/visitor-signout';
+// Both functions declare `export const config = { path: '/api/…' }`, so Netlify
+// serves them THERE and not at /.netlify/functions/<name>. Through the gateway
+// that is /billing/api/… — verified live; the bare functions path 404s.
+var API_IN  = '/billing/api/visitor-signin';
+var API_OUT = '/billing/api/visitor-signout';
 
 var HOSTS = [
   { name: 'Sky Pace', email: 'skypace@brixbev.com' },
