@@ -582,18 +582,19 @@
       "name": "brix-compliance:app",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (Refractor \u2192 Production \u2192 Compliance & Safety)",
+      "schedule": "on-demand (Compliance & Safety app at /compliance; legacy vault UI in Refractor \u2192 Production)",
       "writes": [
         "ops.compliance_documents",
         "ops.insured_parties",
         "ops.compliance_sds",
         "ops.compliance_training",
-        "ops.safety_handbook_acks"
+        "ops.safety_handbook_acks",
+        "ops.compliance_postings"
       ],
       "multi_writer": false,
       "external_inputs": [],
-      "notes": "Compliance & Safety document vault (Phase 1) + SDS library and safety-training log (Phase 1.5, 2026-08-17 CUPA inspection prep). Staff CRUD via direct PostgREST under ops.fn_is_staff() RLS from app/src/pages/production/ComplianceTab.tsx; files in private staff-gated bucket compliance-docs (SDS under sds/*, rosters under training/*). compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only \u2014 emails an expired/expiring-\u226460d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). Phase 2 (contractor COI upload portal + requirements + ACORD extraction) will add its own writer entry. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql (both applied live).",
-      "last_verified": "2026-08-17"
+      "notes": "Compliance & Safety vault: our documents + third-party (vendor/contractor) documents, the SDS library, the training log, the required workplace-postings board, and the signed safety-handbook acknowledgments. Primary UI is now the standalone app public/compliance.html (served at alamedapointbg.com/compliance) \u2014 full CRUD straight from the browser over PostgREST under ops.fn_is_staff() RLS, with file upload/replace/download against the private staff-gated bucket compliance-docs (documents/*, sds/*, postings/*, training/*). The Refractor tab app/src/pages/production/ComplianceTab.tsx still writes the same tables. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only \u2014 emails an expired/expiring-\u226460d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). safety_handbook_acks is insert-self-only / read-own-or-staff and has no UPDATE or DELETE policy \u2014 acknowledgments are immutable. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql, 20260817b_safety_handbook_acks.sql, 20260817c_compliance_postings.sql, 20260818a_compliance_postings_seed.sql (all applied live).",
+      "last_verified": "2026-08-18"
     },
     {
       "name": "push-qbo-item:vendors",

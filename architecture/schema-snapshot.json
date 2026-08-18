@@ -9,6 +9,7 @@
     "channels",
     "cogs_accounts",
     "compliance_documents",
+    "compliance_postings",
     "compliance_sds",
     "compliance_training",
     "copack_order_costs",
