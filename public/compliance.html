@@ -67,6 +67,12 @@ table.grid tr:last-child td{border-bottom:none}
 .ccard a{color:#F4B400;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:600}
 .filebtn{border:1px solid #1F4E79;background:#fff;color:#1F4E79;font:inherit;font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .filebtn:hover{background:#EEF2F7}
+.idgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:12px}
+.idcard{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:12px 14px}
+.idcard b{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#64748B;margin-bottom:4px}
+.idcard .v{display:block;font-size:1rem;font-weight:700;color:#0F172A}
+.idcard .m{display:block;font-size:.74rem;color:#94A3B8;margin-top:2px}
+.mono,.idcard .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
 /* Checklists */
 .ck{list-style:none;margin:0;padding:0}
 .ck li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem;line-height:1.5}
@@ -145,7 +151,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </header>
   <nav class="tabs">
     <button class="tab active" id="tabInspector" onclick="showTab('inspector')">Inspector Mode</button>
-    <button class="tab" id="tabInsurance"  onclick="showTab('insurance')">Our Insurance</button>
+    <button class="tab" id="tabInsurance"  onclick="showTab('insurance')">Insurance &amp; Company Docs</button>
     <button class="tab" id="tabVendors"    onclick="showTab('vendors')">Vendors &amp; Contractors</button>
     <button class="tab" id="tabContacts"   onclick="showTab('contacts')">Emergency Contacts</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
@@ -211,6 +217,102 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table></div>
     </div>
+    <div class="section">
+      <h2>Company identity &amp; tax <span class="sub">what vendors and customers ask us for</span></h2>
+      <div class="prose" style="margin-bottom:12px">
+        The numbers are here so you can read them off without opening a file. Attach the PDFs in
+        Refractor and the <b>Open</b> buttons hand over the actual document.
+      </div>
+      <div class="idgrid">
+        <div class="idcard">
+          <b>Legal name</b>
+          <span class="v">Alameda Point Beverage Group</span>
+          <span class="m">S corporation · DBA Brix Beverage</span>
+        </div>
+        <div class="idcard">
+          <b>EIN (federal tax ID)</b>
+          <span class="v mono">82-1580658</span>
+          <span class="m">from the signed W-9, 08/30/2024</span>
+        </div>
+        <div class="idcard">
+          <b>CA seller's permit</b>
+          <span class="v mono">103104468</span>
+          <span class="m">resale certificate CDTFA-230</span>
+        </div>
+        <div class="idcard">
+          <b>Address of record</b>
+          <span class="v">1951 Monarch St, Suite 200</span>
+          <span class="m">Alameda, CA 94501 · (510) 564-2700</span>
+        </div>
+      </div>
+      <div class="twrap" style="margin-top:16px"><table class="grid" id="taxTable">
+        <thead><tr><th>Document</th><th>Issuer</th><th>Reference</th><th>Signed</th><th>File</th></tr></thead>
+        <tbody><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <h2>Carriers, brokers &amp; quick links</h2>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Line</th><th>Carrier</th><th>Broker / servicing</th><th>Contact</th><th>Portal</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>General liability</b><div class="muted">CSB-00128559-00</div></td>
+            <td>Spinnaker Insurance Co.<div class="muted">NAIC 24376</div></td>
+            <td>Thimble / Coterie</td>
+            <td><a href="tel:+18555661011">855-566-1011</a><div class="muted">support@thimble.com</div></td>
+            <td><a href="https://www.thimble.com" target="_blank" rel="noopener">Thimble →</a><div class="muted"><a href="https://www.coterieinsurance.com" target="_blank" rel="noopener">Coterie →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Commercial auto</b><div class="muted">975506554</div></td>
+            <td>Progressive Express<div class="muted">NAIC 10193</div></td>
+            <td>Progressive Commercial (direct)</td>
+            <td><a href="tel:+18004444487">1-800-444-4487</a></td>
+            <td><a href="https://www.progressivecommercial.com" target="_blank" rel="noopener">Progressive Commercial →</a><div class="muted"><a href="https://account.apps.progressive.com/access/login" target="_blank" rel="noopener">Policy login →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Workers' compensation</b><div class="muted">SWC1470931</div></td>
+            <td>AmTrust — Security National<div class="muted">NAIC 19879</div></td>
+            <td>Embroker · Julie Noonan</td>
+            <td><a href="tel:+18444362765">(844) 436-2765</a><div class="muted">certificates@embroker.com</div></td>
+            <td><a href="https://www.amtrustfinancial.com" target="_blank" rel="noopener">AmTrust →</a><div class="muted"><a href="https://www.embroker.com" target="_blank" rel="noopener">Embroker →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Work injuries</b><div class="muted">occupational clinic</div></td>
+            <td>Concentra Oakland</td>
+            <td>—</td>
+            <td><a href="tel:+15104659565">(510) 465-9565</a><div class="muted">airport <a href="tel:+15106380701">(510) 638-0701</a></div></td>
+            <td><a href="https://www.concentra.com/urgent-care-centers/california/bay-area/oakland-urgent-care/" target="_blank" rel="noopener">Concentra →</a></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">
+        GEICO isn't on any certificate in the current packet — if there's a GEICO commercial policy, send the COI and it gets a row here.
+      </div>
+    </div>
+
+    <div class="section noprint">
+      <h2>Fleet on the auto policy <span class="sub">7 scheduled vehicles · $3,500 comp/collision deductible each</span></h2>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Year / make / model</th><th>VIN</th></tr></thead>
+        <tbody>
+          <tr><td>2017 Mercedes-Benz Metris</td><td class="mono">WD3PG2EA7H3208761</td></tr>
+          <tr><td>2017 Mercedes-Benz Metris</td><td class="mono">WD3PG2EA8H3209479</td></tr>
+          <tr><td>2018 Ford Transit Connect</td><td class="mono">NM0LS6E71J1347796</td></tr>
+          <tr><td>2018 Ford F250</td><td class="mono">1FDBF2A63JED06728</td></tr>
+          <tr><td>2017 Ford C-Max</td><td class="mono">1FADP5EU0HL118281</td></tr>
+          <tr><td>2023 Ford Transit</td><td class="mono">1FTBR1C89PKB65386</td></tr>
+          <tr><td>2022 Mercedes-Benz Metris</td><td class="mono">W1YV0BEY9N4162186</td></tr>
+        </tbody>
+      </table></div>
+      <div class="prose" style="margin-top:10px">
+        <b>Adding or removing a vehicle is a same-day call to Progressive</b> — an unscheduled vehicle
+        in an at-fault collision is the expensive kind of paperwork gap. The ACORD 101 also notes
+        <b>"liability coverage may not apply to all scheduled vehicles"</b> — worth confirming which of
+        the seven carry liability.
+      </div>
+    </div>
+
     <div class="section noprint">
       <h2>What belongs here</h2>
       <div class="prose">
@@ -814,7 +916,7 @@ function fileCell(d){
   if(d.storage_path) return '<button class="filebtn" data-path="' + esc(d.storage_path) + '" data-name="' + esc(d.file_name || '') + '">Open</button>';
   const u = firstUrl(d.notes);
   if(u) return '<a href="' + esc(u) + '" target="_blank" rel="noopener">Link →</a>';
-  return '<span class="chip warn">No file</span>';
+  return '<span class="chip warn" title="Drag the PDF onto this row in Refractor to attach it">Attach PDF</span>';
 }
 function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 
@@ -886,6 +988,17 @@ function renderAll(q){
               : '<span class="chip warn">Missing</span>') + '</td>' +
     '</tr>';
   }).join('') : '<tr><td colspan="5" class="muted">No matches.</td></tr>';
+
+  // Company identity & tax documents
+  const tax = ours.filter(d => d.category === 'tax');
+  const tt = document.querySelector('#taxTable tbody');
+  if(tt) tt.innerHTML = tax.length ? tax.map(d => '<tr>' +
+      '<td><strong>' + esc(d.doc_type) + '</strong></td>' +
+      '<td>' + esc(d.issuer || '—') + '</td>' +
+      '<td class="mono">' + esc(d.reference_number || '—') + '</td>' +
+      '<td>' + esc(d.issue_date || '—') + '</td>' +
+      '<td>' + fileCell(d) + '</td>' +
+    '</tr>').join('') : '<tr><td colspan="5" class="muted">No company documents filed yet.</td></tr>';
 
   // Our insurance
   const ins = ours.filter(d => d.category === 'insurance');
