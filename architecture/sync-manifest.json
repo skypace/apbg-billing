@@ -519,8 +519,30 @@
         "ops.inventory_transfer_lines",
         "ops.inventory_movements"
       ],
-      "notes": "BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
+      "multi_writer": true,
+      "notes": "Multi-writer with sub-distributors:app-and-rpcs (2026-08-18) — both write transfers/lines/movements exclusively through the same SECURITY DEFINER RPC family, so the ledger stays append-only and single-pathed. BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
       "last_verified": "2026-05-13"
+    },
+    {
+      "name": "sub-distributors:app-and-rpcs",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Refractor Sub-Distributors page + the /distributor partner portal)",
+      "writes": [
+        "ops.sub_distributors",
+        "ops.sub_distributor_users",
+        "ops.sub_distributor_agreements",
+        "ops.sub_distributor_accounts",
+        "ops.sub_distributor_orders",
+        "ops.sub_distributor_order_lines",
+        "ops.sub_distributor_depletions",
+        "ops.inventory_movements",
+        "ops.inventory_transfers",
+        "ops.inventory_transfer_lines"
+      ],
+      "multi_writer": true,
+      "notes": "Sub-distributor program (Origins Soda Co., Desert Beverage → The Melt/Starbird territories). Staff manage the registry/agreements/accounts from Refractor → Sub-Distributors under fn_is_staff RLS; distributor logins (ops.sub_distributor_users, matched by user_id or JWT email) act ONLY through SECURITY DEFINER RPCs: fn_distributor_create_order / fn_distributor_cancel_order / fn_fulfill_distributor_order (staff) / fn_distributor_receive_transfer (per-line counts; shortfall stays in TRANSIT + has_discrepancy flag) / fn_distributor_sign_agreement / fn_distributor_record_depletion (posts 'shipment' movements out of the distributor location + consignment fee snapshot). Transfer/movement writes ride the same RPC ledger as brix-stock (hence multi_writer). External access is scoped by AS RESTRICTIVE policies added in the same migration — distributor logins are narrowed to their own slice across ~100 previously open-read ops tables. Migration: 20260818f_sub_distributors.sql.",
+      "last_verified": "2026-08-18"
     },
     {
       "name": "qbo-pos-import",
