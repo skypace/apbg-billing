@@ -1074,6 +1074,10 @@ const SB_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
 const BUCKET = 'compliance-docs';
 const MAX_UPLOAD = 25 * 1024 * 1024;
+// Official notices mirrored into this repo (public/postings/) so the Posting
+// board can render the real document on a monitor — agency hosts refuse to be
+// framed, and a break-room screen should not depend on one being reachable.
+const MIRROR_BASE = '/billing/postings/';
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -1504,7 +1508,7 @@ function renderPostings(q){
   document.getElementById('postCount').textContent = f.length + ' tracked';
   const live = POSTINGS.filter(p => !p.archived_at);
   const req = live.filter(p => p.required !== false);
-  const withFile = req.filter(p => p.storage_path).length;
+  const withFile = req.filter(p => p.storage_path || p.mirror_path).length;
   document.getElementById('postStats').innerHTML =
     '<div class="stat"><b>' + req.length + '</b><span>required of us</span></div>' +
     '<div class="stat"><b>' + (live.length - req.length) + '</b><span>tracked, below threshold</span></div>' +
@@ -1521,8 +1525,12 @@ function renderPostings(q){
     '<span class="muted">' + esc(p.applies_when || '—') + '</span>',
     '<span class="muted">' + esc(p.posted_location || '—') + '</span>',
     reviewChip(p),
-    (p.storage_path ? '<button class="filebtn" data-path="' + esc(p.storage_path) + '" data-name="' + esc(p.file_name || '') + '">Our copy</button>' : '') +
-      (p.source_url ? (p.storage_path ? '<div style="margin-top:4px">' : '') + '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener">Source →</a>' + (p.storage_path ? '</div>' : '') : (p.storage_path ? '' : '<span class="chip warn">No source</span>')),
+    (p.storage_path
+        ? '<button class="filebtn" data-path="' + esc(p.storage_path) + '" data-name="' + esc(p.file_name || '') + '">Our copy</button>'
+        : p.mirror_path
+          ? '<a class="filebtn" style="text-decoration:none" href="' + MIRROR_BASE + esc(p.mirror_path) + '" target="_blank" rel="noopener">Posted copy</a>'
+          : '<span class="chip warn">No copy</span>') +
+      (p.source_url ? '<div style="margin-top:4px"><a href="' + esc(p.source_url) + '" target="_blank" rel="noopener">Source →</a></div>' : ''),
   ];
   [['federal','postFedTable','postFedCount'],['state','postStateTable','postStateCount'],['local','postLocalTable','postLocalCount']].forEach(([j, tid, cid]) => {
     const rows = f.filter(p => p.jurisdiction === j);
@@ -1770,7 +1778,8 @@ function renderBoard(){
           '<div class="pt-body">' +
             '<div class="pt-t">' + esc(p.title) + '</div>' +
             '<div class="pt-m">' + esc(p.agency || '') + (p.form_code ? ' · ' + esc(p.form_code) : '') + '</div>' +
-            '<span class="pt-tag' + (p.storage_path ? ' doc' : '') + '">' + (p.storage_path ? 'Notice on file' : 'Scan for official copy') + '</span>' +
+            '<span class="pt-tag' + (p.storage_path || p.mirror_path ? ' doc' : '') + '">' +
+              (p.storage_path || p.mirror_path ? 'Notice on file' : 'Scan for official copy') + '</span>' +
           '</div>' +
           '<canvas class="pt-qr" width="88" height="88" data-qr="' + esc(p.source_url || '') + '"></canvas>' +
         '</button>';
@@ -1797,7 +1806,14 @@ let KIOSK_AUTOSTARTED = false;
 const FILE_URL_CACHE = {};
 
 async function fileFor(p){
-  if(!p.storage_path) return null;
+  // A staff upload always wins — that is a deliberate human action. Otherwise
+  // fall back to our repo-served mirror of the official notice, which needs no
+  // auth and no round trip, so the monitor paints instantly and keeps working
+  // even if the agency site is down or refuses to be framed.
+  if(!p.storage_path){
+    if(p.mirror_path) return { url: MIRROR_BASE + p.mirror_path, type: 'application/pdf' };
+    return null;
+  }
   if(FILE_URL_CACHE[p.id]) return FILE_URL_CACHE[p.id];
   try{
     const r = await fetch(SB_URL + '/storage/v1/object/authenticated/' + BUCKET + '/' + p.storage_path, { headers: sbHeaders() });
