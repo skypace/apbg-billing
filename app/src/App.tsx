@@ -19,6 +19,7 @@ const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ defa
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const StockPage = lazy(() => import('./pages/stock/StockPage').then((m) => ({ default: m.StockPage })));
 const ProductionPage = lazy(() => import('./pages/production/ProductionPage').then((m) => ({ default: m.ProductionPage })));
+const DistributorsPage = lazy(() => import('./pages/distributors/DistributorsPage').then((m) => ({ default: m.DistributorsPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })));
 const ProposalBuilderPage = lazy(() => import('./pages/ProposalBuilderPage').then((m) => ({ default: m.ProposalBuilderPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
@@ -85,6 +86,9 @@ export function App() {
       break;
     case 'production':
       body = <ProductionPage routeParams={route.params} />;
+      break;
+    case 'distributors':
+      body = <DistributorsPage />;
       break;
     case 'operations':
       // Operations moved to APBG-OPS (alamedapointbg.com/operations). Stub
