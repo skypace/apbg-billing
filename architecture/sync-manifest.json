@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-08-17",
+  "last_updated": "2026-08-20",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
   "writers": [
     {
@@ -520,7 +520,7 @@
         "ops.inventory_movements"
       ],
       "multi_writer": true,
-      "notes": "Multi-writer with sub-distributors:app-and-rpcs (2026-08-18) — both write transfers/lines/movements exclusively through the same SECURITY DEFINER RPC family, so the ledger stays append-only and single-pathed. BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
+      "notes": "Multi-writer with sub-distributors:app-and-rpcs (2026-08-18) \u2014 both write transfers/lines/movements exclusively through the same SECURITY DEFINER RPC family, so the ledger stays append-only and single-pathed. BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
       "last_verified": "2026-05-13"
     },
     {
@@ -541,7 +541,7 @@
         "ops.inventory_transfer_lines"
       ],
       "multi_writer": true,
-      "notes": "Sub-distributor program (Origins Soda Co., Desert Beverage → The Melt/Starbird territories). Staff manage the registry/agreements/accounts from Refractor → Sub-Distributors under fn_is_staff RLS; distributor logins (ops.sub_distributor_users, matched by user_id or JWT email) act ONLY through SECURITY DEFINER RPCs: fn_distributor_create_order / fn_distributor_cancel_order / fn_fulfill_distributor_order (staff) / fn_distributor_receive_transfer (per-line counts; shortfall stays in TRANSIT + has_discrepancy flag) / fn_distributor_sign_agreement / fn_distributor_record_depletion (posts 'shipment' movements out of the distributor location + consignment fee snapshot). Transfer/movement writes ride the same RPC ledger as brix-stock (hence multi_writer). External access is scoped by AS RESTRICTIVE policies added in the same migration — distributor logins are narrowed to their own slice across ~100 previously open-read ops tables. Migration: 20260818f_sub_distributors.sql.",
+      "notes": "Sub-distributor program (Origins Soda Co., Desert Beverage \u2192 The Melt/Starbird territories). Staff manage the registry/agreements/accounts from Refractor \u2192 Sub-Distributors under fn_is_staff RLS; distributor logins (ops.sub_distributor_users, matched by user_id or JWT email) act ONLY through SECURITY DEFINER RPCs: fn_distributor_create_order / fn_distributor_cancel_order / fn_fulfill_distributor_order (staff) / fn_distributor_receive_transfer (per-line counts; shortfall stays in TRANSIT + has_discrepancy flag) / fn_distributor_sign_agreement / fn_distributor_record_depletion (posts 'shipment' movements out of the distributor location + consignment fee snapshot). Transfer/movement writes ride the same RPC ledger as brix-stock (hence multi_writer). External access is scoped by AS RESTRICTIVE policies added in the same migration \u2014 distributor logins are narrowed to their own slice across ~100 previously open-read ops tables. Migration: 20260818f_sub_distributors.sql.",
       "last_verified": "2026-08-18"
     },
     {
@@ -613,10 +613,24 @@
         "ops.safety_handbook_acks",
         "ops.compliance_postings"
       ],
-      "multi_writer": false,
+      "multi_writer": true,
       "external_inputs": [],
-      "notes": "Compliance & Safety vault: our documents + third-party (vendor/contractor) documents, the SDS library, the training log, the required workplace-postings board, and the signed safety-handbook acknowledgments. Primary UI is now the standalone app public/compliance.html (served at alamedapointbg.com/compliance) \u2014 full CRUD straight from the browser over PostgREST under ops.fn_is_staff() RLS, with file upload/replace/download against the private staff-gated bucket compliance-docs (documents/*, sds/*, postings/*, training/*). The Refractor tab app/src/pages/production/ComplianceTab.tsx still writes the same tables. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only \u2014 emails an expired/expiring-\u226460d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). compliance_postings.short_title is the label the one-page TV board uses (a 65-inch screen affords about two lines per notice); mirror_path names a copy of the notice committed to public/postings/ and served at /billing/postings/<file>, which is what the board renders on a monitor (agency hosts refuse to be framed); a staff upload to the bucket takes precedence over it. compliance_postings additionally carries a SELECT-to-authenticated policy and postings/* in the bucket is readable by any signed-in employee (migration 20260818b) \u2014 required workplace notices are public by law and the Posting board is the screen employees read them on. safety_handbook_acks is insert-self-only / read-own-or-staff and has no UPDATE or DELETE policy \u2014 acknowledgments are immutable. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql, 20260817b_safety_handbook_acks.sql, 20260817c_compliance_postings.sql, 20260818a_compliance_postings_seed.sql, 20260818b_posting_board_read.sql, 20260818c_posting_mirror.sql, 20260818d_posting_short_title.sql (all applied live).",
+      "notes": "Compliance & Safety vault: our documents + third-party (vendor/contractor) documents, the SDS library, the training log, the required workplace-postings board, and the signed safety-handbook acknowledgments. Primary UI is now the standalone app public/compliance.html (served at alamedapointbg.com/compliance) \u2014 full CRUD straight from the browser over PostgREST under ops.fn_is_staff() RLS, with file upload/replace/download against the private staff-gated bucket compliance-docs (documents/*, sds/*, postings/*, training/*). The Refractor tab app/src/pages/production/ComplianceTab.tsx still writes the same tables. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only \u2014 emails an expired/expiring-\u226460d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). compliance_postings.short_title is the label the one-page TV board uses (a 65-inch screen affords about two lines per notice); mirror_path names a copy of the notice committed to public/postings/ and served at /billing/postings/<file>, which is what the board renders on a monitor (agency hosts refuse to be framed); a staff upload to the bucket takes precedence over it. compliance_postings additionally carries a SELECT-to-authenticated policy and postings/* in the bucket is readable by any signed-in employee (migration 20260818b) \u2014 required workplace notices are public by law and the Posting board is the screen employees read them on. safety_handbook_acks is insert-self-only / read-own-or-staff and has no UPDATE or DELETE policy \u2014 acknowledgments are immutable. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql, 20260817b_safety_handbook_acks.sql, 20260817c_compliance_postings.sql, 20260818a_compliance_postings_seed.sql, 20260818b_posting_board_read.sql, 20260818c_posting_mirror.sql, 20260818d_posting_short_title.sql (all applied live). Multi-writer on ops.insured_parties since 2026-08-20: brixpense-vendors:app-and-fn auto-creates party rows when registering a vendor.",
       "last_verified": "2026-08-18"
+    },
+    {
+      "name": "brixpense-vendors:app-and-fn",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Brixpense \u2192 Vendors at /expense/vendors; superadmin/admin)",
+      "writes": [
+        "ops.vendors",
+        "ops.insured_parties"
+      ],
+      "multi_writer": true,
+      "external_inputs": [],
+      "notes": "Vendor Portal Phase 1 (architecture/VENDOR-PORTAL-PLAN.md, migration 20260820a_ops_vendors.sql). The Brixpense Vendors pages CRUD ops.vendors directly via PostgREST on the user's bearer under staff-only RLS (vendors_staff_all / ops.fn_is_staff(), both directions), and auto-create the linked ops.insured_parties row when a vendor has none \u2014 hence multi_writer with brix-compliance:app on insured_parties. Companion Netlify function expense-vendors.mjs (requireAuth superadmin/admin) handles ONLY the QBO calls: live Vendor search and Vendor create; on create it also self-heals the ops.qbo_vendors mirror row (same-shape upsert as push-qbo-item:vendors, which remains that mirror's primary writer). Payment fields store preference + Venmo/PayPal handle ONLY \u2014 bank details never land in this schema; EIN stored as last-4 only.",
+      "last_verified": "2026-08-20"
     },
     {
       "name": "push-qbo-item:vendors",
@@ -624,7 +638,9 @@
       "description": "push-qbo-item edge function action=syncVendors mirrors QBO Vendors into ops.qbo_vendors. (Its postPurchaseOrder / postInventoryAdjustment actions only stamp qbo_* writeback columns on rows owned by brix-production.)",
       "writes": [
         "ops.qbo_vendors"
-      ]
+      ],
+      "multi_writer": true,
+      "notes": " Multi-writer on ops.qbo_vendors since 2026-08-20: expense-vendors.mjs self-heals the mirror row after creating a QBO Vendor (same conflict key); this writer remains primary."
     },
     {
       "name": "sf-changes-report",

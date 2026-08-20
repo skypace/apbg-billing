@@ -116,6 +116,7 @@
     "vendor_email_routes",
     "vendor_email_tickets",
     "vendor_ticket_events",
+    "vendors",
     "visitor_settings",
     "visitor_visits",
     "work_order_costs",
