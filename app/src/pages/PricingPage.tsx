@@ -10,7 +10,7 @@ import {
   type BookItem, type BulkItemInput, type Contract, type ContractKind, type CustomerOpt,
   type ItemOpt, type PriceBook, type PricingData,
   getPricing, setBookItemPrice, removeBookItem, bulkIncrease, bulkAddBookItems, updatePriceBook,
-  setCustomerPriceBook, addContractItem, bulkAddContractItems, removeContractItem,
+  setCustomerPriceBook, bulkAttachDefaultBook, addContractItem, bulkAddContractItems, removeContractItem,
   addContractCustomer, removeContractCustomer, setContractMeta, createPriceBook,
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
@@ -501,64 +501,108 @@ function BulkAddItemsDialog({ title, options, itemMeta, onClose, onAdd, onErr }:
 function CustomerBooksTab({ data, custName, onOk, onErr }: {
   data: PricingData; custName: Map<string, string>; onOk: (m: string) => void; onErr: (e: string) => void;
 }) {
-  const [addCust, setAddCust] = useState<CustomerOpt | null>(null);
-  const [addBook, setAddBook] = useState<string>(data.books[0]?.id ?? '');
-  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState('');
+  const [attaching, setAttaching] = useState(false);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const today = todayStr();
 
   const bookName = (id: string) => data.books.find((b) => b.id === id)?.name ?? id;
-  const assigned = [...data.customerBooks].sort((a, b) =>
-    (custName.get(a.qbo_customer_id) ?? a.qbo_customer_id).localeCompare(custName.get(b.qbo_customer_id) ?? b.qbo_customer_id));
+  const assignedMap = useMemo(() => new Map(data.customerBooks.map((a) => [a.qbo_customer_id, a.price_book_id])), [data.customerBooks]);
+
+  // Which customers are covered by an active contract right now (via chain
+  // membership) — a contract always wins over any book assignment, so these
+  // rows show read-only "Covered by contract" instead of a book picker.
+  const activeContractByCustomer = useMemo(() => {
+    const m = new Map<string, Contract>();
+    for (const c of data.contracts) {
+      if (!c.active) continue;
+      if (c.start_date > today) continue;
+      if (c.end_date && c.end_date < today) continue;
+      for (const loc of c.locations) if (!m.has(loc)) m.set(loc, c);
+    }
+    return m;
+  }, [data.contracts, today]);
+
+  const unassignedCount = useMemo(() => data.customers.filter((c) =>
+    !activeContractByCustomer.has(c.qbo_customer_id) && !assignedMap.has(c.qbo_customer_id)).length,
+  [data.customers, activeContractByCustomer, assignedMap]);
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return data.customers
+      .filter((c) => !q || c.display_name.toLowerCase().includes(q))
+      .map((c) => ({
+        customer: c,
+        contract: activeContractByCustomer.get(c.qbo_customer_id) ?? null,
+        bookId: assignedMap.get(c.qbo_customer_id) ?? null,
+      }))
+      .sort((a, b) => a.customer.display_name.localeCompare(b.customer.display_name));
+  }, [data.customers, search, activeContractByCustomer, assignedMap]);
 
   return (
     <Stack spacing={2}>
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Assign a customer to a price level</Typography>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Customer → price level roster</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          A customer with no contract and no assignment here gets the default BX-1 Standard
-          book automatically. Assign a customer to a different price level here to move them
-          off standard pricing without writing a full contract.
+          Every customer resolves in this order: an active contract, then an explicit price-level
+          assignment below, then the BX-1 Standard default. Attach everyone who isn't on a contract
+          to BX-1 first — after that, add a new price level on the Price books tab and move customers
+          onto it one at a time below.
         </Typography>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-          <Autocomplete size="small" sx={{ minWidth: 300, flex: 1 }} options={data.customers} value={addCust}
-            getOptionLabel={(o) => o.display_name} isOptionEqualToValue={(a, b) => a.qbo_customer_id === b.qbo_customer_id}
-            onChange={(_, v) => setAddCust(v)} renderInput={(p) => <TextField {...p} label="Customer" />} />
-          <FormControl size="small" sx={{ minWidth: 220 }}>
-            <InputLabel>Price level</InputLabel>
-            <Select label="Price level" value={addBook} onChange={(e) => setAddBook(e.target.value)}>
-              {data.books.map((b) => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <Button variant="contained" startIcon={<Plus size={16} />} disabled={busy || !addCust || !addBook}
+        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+          <Button variant="contained" disabled={attaching || unassignedCount === 0}
             onClick={async () => {
-              if (!addCust) return;
-              setBusy(true);
-              try { await setCustomerPriceBook(addCust.qbo_customer_id, addBook); setAddCust(null); onOk(`${addCust.display_name} assigned to ${bookName(addBook)}`); }
-              catch (e) { onErr(e instanceof Error ? e.message : 'Assign failed'); } finally { setBusy(false); }
-            }}>Assign</Button>
+              if (!window.confirm(`Attach ${unassignedCount} customer(s) with no contract and no existing assignment to BX-1 Standard?`)) return;
+              setAttaching(true);
+              try { const r = await bulkAttachDefaultBook('BX-1'); onOk(`Attached ${r.attached} customer(s) to BX-1`); }
+              catch (e) { onErr(e instanceof Error ? e.message : 'Attach failed'); } finally { setAttaching(false); }
+            }}>{attaching ? 'Attaching…' : `Attach ${unassignedCount} unassigned customer(s) to BX-1`}</Button>
+          {unassignedCount === 0 && <Typography variant="body2" color="text.secondary">Every customer is covered by a contract or an explicit price level.</Typography>}
         </Stack>
       </Paper>
 
-      <Paper variant="outlined">
-        <Table size="small">
-          <TableHead><TableRow><TableCell>Customer</TableCell><TableCell>Price level</TableCell><TableCell width={160} /></TableRow></TableHead>
+      <TextField size="small" placeholder="Search customers…" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 260 }} />
+
+      <Paper variant="outlined" sx={{ maxHeight: 560, overflow: 'auto' }}>
+        <Table size="small" stickyHeader>
+          <TableHead><TableRow><TableCell>Customer</TableCell><TableCell>Coverage</TableCell><TableCell width={260} /></TableRow></TableHead>
           <TableBody>
-            {assigned.map((a) => (
-              <TableRow key={a.qbo_customer_id} hover>
-                <TableCell>{custName.get(a.qbo_customer_id) ?? a.qbo_customer_id}</TableCell>
-                <TableCell>{bookName(a.price_book_id)}</TableCell>
+            {rows.map(({ customer, contract, bookId }) => (
+              <TableRow key={customer.qbo_customer_id} hover>
+                <TableCell>{customer.display_name}</TableCell>
+                <TableCell>
+                  {contract ? (
+                    <Chip size="small" label={`Contract: ${contract.name}`} />
+                  ) : bookId ? (
+                    <Chip size="small" color="primary" variant="outlined" label={bookName(bookId)} />
+                  ) : (
+                    <Chip size="small" variant="outlined" label="Unassigned (defaults to BX-1)" />
+                  )}
+                </TableCell>
                 <TableCell align="right">
-                  <Button size="small" onClick={async () => {
-                    if (!window.confirm('Revert this customer to the default BX-1 Standard price level?')) return;
-                    try { await setCustomerPriceBook(a.qbo_customer_id, null); onOk('Reverted to default'); }
-                    catch (e) { onErr(e instanceof Error ? e.message : 'Revert failed'); }
-                  }}>Revert to default</Button>
+                  {contract ? (
+                    <Typography variant="body2" color="text.secondary">Covered by contract</Typography>
+                  ) : (
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                      <Select value={bookId ?? ''} displayEmpty disabled={rowBusy === customer.qbo_customer_id}
+                        onChange={async (e) => {
+                          const v = (e.target.value as string) || null;
+                          setRowBusy(customer.qbo_customer_id);
+                          try {
+                            await setCustomerPriceBook(customer.qbo_customer_id, v);
+                            onOk(v ? `${customer.display_name} → ${bookName(v)}` : `${customer.display_name} reverted to default`);
+                          } catch (er) { onErr(er instanceof Error ? er.message : 'Assign failed'); } finally { setRowBusy(null); }
+                        }}>
+                        <MenuItem value="">Default (BX-1)</MenuItem>
+                        {data.books.map((b) => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
-            {assigned.length === 0 && (
-              <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
-                No customers assigned yet — everyone is on the default BX-1 Standard price level (or a contract).
-              </TableCell></TableRow>
+            {rows.length === 0 && (
+              <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>No customers match your search.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>

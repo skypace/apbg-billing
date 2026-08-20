@@ -116,6 +116,9 @@ export const updatePriceBook = (id: string, patch: { name?: string; active?: boo
 export const setCustomerPriceBook = (qbo_customer_id: string, price_book_id: string | null) =>
   post({ action: 'setCustomerPriceBook', qbo_customer_id, price_book_id });
 
+export const bulkAttachDefaultBook = (book_code?: string) =>
+  post({ action: 'bulkAttachDefaultBook', book_code }) as Promise<{ attached: number }>;
+
 export const bulkAddBookItems = (items: BulkItemInput[], book_code?: string, effective_from?: string) =>
   post({ action: 'bulkAddBookItems', items, book_code, effective_from }) as Promise<{ added: number }>;
 

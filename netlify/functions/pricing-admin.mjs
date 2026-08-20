@@ -9,7 +9,7 @@
 // effective-dated inserts on price_book_items (no destructive overwrite).
 //
 // Actions: get | createPriceBook | updatePriceBook | setBookItemPrice | removeBookItem |
-//          bulkIncrease | bulkAddBookItems | setCustomerPriceBook |
+//          bulkIncrease | bulkAddBookItems | setCustomerPriceBook | bulkAttachDefaultBook |
 //          createContract | setContractDates | addContractItem | bulkAddContractItems |
 //          removeContractItem | addContractCustomer | removeContractCustomer |
 //          uploadContractFile | contractFileUrl
@@ -130,6 +130,36 @@ export async function handler(event) {
         await op('DELETE', `customer_price_book?qbo_customer_id=eq.${encodeURIComponent(qbo_customer_id)}`, null, 'return=minimal');
       }
       return json(200, { ok: true });
+    }
+
+    if (action === 'bulkAttachDefaultBook') {
+      // Explicitly attaches every customer to a price book (default BX-1) EXCEPT
+      // those already covered by an active contract or already assigned to some
+      // book — normalizes the roster to explicit rows instead of relying on the
+      // resolver's implicit BX-1 fallback for customers nobody has looked at yet.
+      const code = body.book_code || 'BX-1';
+      const book = await bookIdByCode(code);
+      const t = today();
+      const [activeContracts, assigned, allCustomers] = await Promise.all([
+        og(`pricing_contracts?select=id&active=eq.true&start_date=lte.${t}&or=(end_date.is.null,end_date.gte.${t})`),
+        og('customer_price_book?select=qbo_customer_id'),
+        og('qbo_customers?select=qbo_customer_id&display_name=not.ilike.*(deleted)*'),
+      ]);
+      const contractIds = activeContracts.map((c) => c.id);
+      let contractCustIds = new Set();
+      if (contractIds.length) {
+        const ccusts = await og(`pricing_contract_customers?select=qbo_customer_id&contract_id=in.(${contractIds.join(',')})`);
+        contractCustIds = new Set(ccusts.map((r) => r.qbo_customer_id));
+      }
+      const assignedIds = new Set(assigned.map((r) => r.qbo_customer_id));
+      const toAttach = allCustomers
+        .map((c) => c.qbo_customer_id)
+        .filter((id) => !contractCustIds.has(id) && !assignedIds.has(id));
+      if (!toAttach.length) return json(200, { ok: true, attached: 0 });
+      await op('POST', 'customer_price_book',
+        toAttach.map((id) => ({ qbo_customer_id: id, price_book_id: book, updated_at: new Date().toISOString() })),
+        'return=minimal,resolution=merge-duplicates');
+      return json(200, { ok: true, attached: toAttach.length });
     }
 
     if (action === 'setBookItemPrice') {
