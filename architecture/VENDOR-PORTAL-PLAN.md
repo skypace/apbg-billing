@@ -1,7 +1,11 @@
 # Vendor Portal & Vendor Payments — Project Plan
 
-> Status: **Phase 1 SHIPPED** (PR #384, merged 2026-08-20 — `ops.vendors` +
-> Brixpense Vendors module live). **Payment rail decided 2026-08-20 (Sky): Stripe** —
+> Status: **Phases 1 + 2 SHIPPED** (PR #384 and #385, merged 2026-08-20 —
+> `ops.vendors` + Brixpense Vendors module, then the token-gated vendor intake
+> at `/vendor-onboarding` with ACORD/W-9 OCR and the Monday auto-chase).
+> **Phase 3 built** on the same branch: `ops.vendor_payments`, `vendor-pay.mjs`
+> (superadmin), `stripe-payout-webhook.mjs`, and the Pay UI — code-complete and
+> **dark until `STRIPE_PAYOUTS_KEY` + `STRIPE_PAYOUT_WEBHOOK_SECRET` are set**. **Payment rail decided 2026-08-20 (Sky): Stripe** —
 > "I wanna use stripe payments as i already have stripe." Phase 3 rewritten below
 > around **Stripe Global Payouts**; PayPal/Venmo are no longer planned rails
 > (Stripe cannot send to Venmo/PayPal — those stay manual-record).

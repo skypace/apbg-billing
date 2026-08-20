@@ -689,6 +689,24 @@
       ],
       "notes": "Vendor Portal Phase 2 (migration 20260820b_vendor_onboard_tokens.sql). Three service-role surfaces share this writer: vendor-request-docs.mjs (staff mints a one-time link, superadmin/admin), vendor-onboard.mjs (the PUBLIC token-gated intake at /vendor-onboarding — visitor-kiosk posture: the sha256-hashed 14-day token is the gate, all writes service-role), and the Monday chase inside compliance-expiry-cron.mjs (expiring/missing-COI vendors get a fresh docs_refresh link, ≤1/vendor/week, run logged to ops.sync_log source=vendors sync_type=vendor_doc_chase → vendor_doc_chase health check). Files land in the compliance-docs bucket under vendors/<party_id>/; document rows go to ops.compliance_documents (multi_writer with brix-compliance:app). Vendor patches touch w9_status/ein_last4(last-4 ONLY)/legal_name/contact/payment pref+handle/onboard_status — never bank details.",
       "last_verified": "2026-08-20"
+    },
+    {
+      "name": "vendor-payments:pay-and-webhook",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (superadmin Pay click) + Stripe webhook on payout settlement",
+      "writes": [
+        "ops.vendor_payments",
+        "ops.vendors"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "Stripe Global Payouts API v2 (recipients, outbound payments)",
+        "Stripe webhook events",
+        "QBO BillPayment writeback"
+      ],
+      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase.",
+      "last_verified": "2026-08-20"
     }
   ],
   "orphans": [

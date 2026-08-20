@@ -17,8 +17,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/ui/select-field';
-import { Archive, ArchiveRestore, ArrowLeft, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
+import { Archive, ArchiveRestore, ArrowLeft, Banknote, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck } from 'lucide-react';
+import { formatCurrency, formatDate } from '@/lib/utils';
+import {
+  stripeStatus, stripeSetup, vendorPayments, statusLabel, RAIL_LABEL,
+  type StripeStatus, type VendorPayment,
+} from '@/lib/vendorPay';
 import type { Vendor, VendorType, VendorPaymentPref, VendorRequirements, VendorComplianceDoc, QboVendorMirror } from '@/types/expense';
 import {
   getVendor, updateVendor, archiveVendor, unarchiveVendor, partyDocuments,
@@ -63,6 +67,13 @@ export default function VendorDetail() {
   const [invite, setInvite] = useState<VendorInvite | null>(null);
   const [requestMsg, setRequestMsg] = useState<string | null>(null);
 
+  // Payments (Phase 3). Superadmin-only actions — /api/vendor-pay is the gate;
+  // the buttons stay hidden for admins so nobody clicks into a 403.
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [stripe, setStripe] = useState<StripeStatus | null>(null);
+  const [ledger, setLedger] = useState<VendorPayment[]>([]);
+  const [payMsg, setPayMsg] = useState<string | null>(null);
+
   // QBO link editor
   const [linking, setLinking] = useState(false);
   const [linkTerm, setLinkTerm] = useState('');
@@ -70,8 +81,22 @@ export default function VendorDetail() {
   const [linkSearching, setLinkSearching] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? ''));
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? '');
+      const role =
+        (data.user?.app_metadata as { role?: string } | undefined)?.role ||
+        (data.user?.user_metadata as { role?: string } | undefined)?.role || '';
+      setIsSuperadmin(role === 'superadmin');
+    });
   }, []);
+
+  // Payment state loads for superadmins only (the Stripe probe is a
+  // privileged call; the ledger read is staff-RLS but pointless without it).
+  useEffect(() => {
+    if (!isSuperadmin || !id) return;
+    vendorPayments(id).then(setLedger).catch(() => { /* history is best-effort */ });
+    stripeStatus(id).then(setStripe).catch((e) => setStripe({ configured: true, ready: false, error: String(e.message || e) }));
+  }, [isSuperadmin, id]);
 
   useEffect(() => {
     (async () => {
@@ -186,6 +211,24 @@ export default function VendorDetail() {
       if (vendor.onboard_status === 'new') setVendor({ ...vendor, onboard_status: 'invited' });
     } catch (e) {
       setRequestMsg(e instanceof Error ? e.message : 'Could not send the request.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendStripeSetup = async () => {
+    if (!vendor) return;
+    const to = vendor.contact_email || draft.contact_email;
+    if (!to) { setPayMsg('Add a contact email first — the Stripe link goes out by email.'); return; }
+    if (!window.confirm(`Email ${to} a secure Stripe link to add their bank details?\n\nThey enter their account numbers with Stripe — we never see them.`)) return;
+    setBusy('stripe');
+    setPayMsg(null);
+    try {
+      const r = await stripeSetup(vendor.id);
+      setPayMsg(`Sent to ${r.sent_to}. The Stripe link expires in about ${r.link_expires_minutes} minutes — re-send if they miss it.`);
+      stripeStatus(vendor.id).then(setStripe).catch(() => { /* refreshes on next visit */ });
+    } catch (e) {
+      setPayMsg(e instanceof Error ? e.message : 'Could not send the Stripe setup link.');
     } finally {
       setBusy(null);
     }
@@ -550,6 +593,70 @@ export default function VendorDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Payments (Phase 3, superadmin only) ── */}
+      {isSuperadmin && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Banknote className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-bold tracking-tight flex-1">Payments</h2>
+              {stripe && !stripe.configured && <Badge variant="secondary">Stripe not configured</Badge>}
+              {stripe?.configured && stripe.ready && <Badge variant="success">Bank payouts ready</Badge>}
+              {stripe?.configured && !stripe.ready && vendor.stripe_recipient_id && <Badge variant="warning">Stripe setup incomplete</Badge>}
+            </div>
+
+            {payMsg && <p className="text-xs text-emerald-500">{payMsg}</p>}
+
+            {stripe?.error && (
+              <p className="text-xs text-amber-500">Stripe check failed: {stripe.error}</p>
+            )}
+
+            {stripe?.configured && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  {stripe.ready
+                    ? `Bank details are on file with Stripe (${stripe.payout_methods} payout method${stripe.payout_methods === 1 ? '' : 's'}). Pay their posted bills from SF Expenses.`
+                    : vendor.stripe_recipient_id
+                      ? 'Stripe recipient created, but bank details aren’t finished — re-send the setup link.'
+                      : 'This vendor isn’t set up for bank payouts yet.'}
+                </p>
+                <Button size="sm" variant="outline" disabled={busy === 'stripe'} onClick={sendStripeSetup}>
+                  {busy === 'stripe' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
+                  {vendor.stripe_recipient_id ? 'Re-send bank setup link' : 'Set up bank payouts'}
+                </Button>
+                {typeof stripe.balance_cents === 'number' && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Stripe payout balance: {formatCurrency(stripe.balance_cents / 100)} — top it up in the Stripe Dashboard
+                    (Balances → Financial accounts) before large payouts.
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  The vendor enters their account numbers on Stripe&rsquo;s own secure page — bank details never reach
+                  this database. Venmo, Zelle and checks stay manual: send them yourself, then record the payment.
+                </p>
+              </div>
+            )}
+
+            {ledger.length > 0 && (
+              <div className="pt-2 border-t border-border space-y-1.5">
+                <p className="text-[13px] font-semibold">Payment history</p>
+                {ledger.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 text-sm rounded-md border border-border p-2">
+                    <span className="flex-1 min-w-0 truncate">
+                      <span className="font-semibold tabular-nums">{formatCurrency(p.amount)}</span>
+                      <span className="text-muted-foreground"> · {RAIL_LABEL[p.rail]} · {formatDate(p.created_at)}</span>
+                      {p.reference ? <span className="text-muted-foreground"> · ref {p.reference}</span> : null}
+                      {p.failure_reason ? <span className="block text-[12px] text-amber-500 truncate" title={p.failure_reason}>⚠ {p.failure_reason}</span> : null}
+                    </span>
+                    <Badge variant={statusLabel(p).variant}>{statusLabel(p).label}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

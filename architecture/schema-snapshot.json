@@ -116,6 +116,7 @@
     "vendor_email_routes",
     "vendor_email_tickets",
     "vendor_onboard_tokens",
+    "vendor_payments",
     "vendor_ticket_events",
     "vendors",
     "visitor_settings",

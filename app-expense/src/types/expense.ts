@@ -175,6 +175,10 @@ export interface Vendor {
   /** → ops.insured_parties.id — the compliance-vault party whose COI/W-9 docs
    *  this vendor's compliance chips read. Null until document filing is set up. */
   insured_party_id: string | null;
+  /** Stripe Global Payouts recipient Account id (acct_…) — the ONLY Stripe
+   *  datum stored. Bank details live with Stripe, collected on their hosted
+   *  onboarding page, never here. */
+  stripe_recipient_id?: string | null;
   payment_method_pref: VendorPaymentPref | null;
   /** Venmo @handle or PayPal email — the ONLY payment datum stored.
    *  Bank account numbers live with the payment rail, never here. */
