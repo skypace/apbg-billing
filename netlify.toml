@@ -43,6 +43,9 @@
 [functions."health-watchdog"]
   timeout = 60
 
+[functions."health-watchdog-cron"]
+  timeout = 60
+
 [functions."master-health"]
   timeout = 30
 

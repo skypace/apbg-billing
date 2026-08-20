@@ -13,6 +13,11 @@ function getBlobStore() {
     name: "qbo-tokens",
     siteID: process.env.NETLIFY_SITE_ID,
     token: process.env.NETLIFY_ACCESS_TOKEN,
+    // Blobs default to EVENTUAL consistency — a read moments after a write
+    // returns the previous value. Intuit rotates the refresh token (~24h), so
+    // a stale read here hands Intuit a rotated-out token → invalid_grant →
+    // dead chain (2026-08-19). Strong reads are mandatory for this store.
+    consistency: "strong",
   });
 }
 
@@ -37,10 +42,11 @@ async function readSharedOpsToken() {
   return null;
 }
 
-// Signal the fallback into ops.sync_log (throttled to one row per 6h via blob
-// stamp) — the qbo_netlify_chain health check turns RED off this row and the
-// 15-min alerter emails: "re-auth the billing app at setup.html / Connections".
-async function noteSharedFallback(store, reason) {
+// Signal a chain problem into ops.sync_log (throttled to one row per 6h via
+// blob stamp) — the qbo_netlify_chain health check turns RED off this row and
+// the 15-min alerter emails: "re-auth the billing app at setup.html /
+// Connections". Callers pass the full human-readable message.
+async function noteChainSignal(store, message) {
   try {
     const last = await store.get("shared-fallback-noted");
     if (last && Date.now() - Number(last) < 6 * 3600 * 1000) return;
@@ -56,18 +62,17 @@ async function noteSharedFallback(store, reason) {
       body: JSON.stringify({
         source: 'qbo', sync_type: 'netlify_token_fallback', status: 'error',
         records_synced: 0, completed_at: new Date().toISOString(),
-        error_message: `Netlify QBO chain broken (riding shared edge token): ${String(reason).slice(0, 300)}`,
+        error_message: String(message).slice(0, 380),
       }),
     });
   } catch (e) { /* best-effort */ }
 }
 
-export async function getAccessToken() {
-  const clientId = process.env.QBO_CLIENT_ID;
-  const clientSecret = process.env.QBO_CLIENT_SECRET;
-  const store = getBlobStore();
+const LOCK_TTL_MS = 15000;
 
-  // 1. Return cached access token if still valid
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function readCachedAccessToken(store) {
   try {
     const cached = await store.get("access-token");
     if (cached) {
@@ -75,6 +80,57 @@ export async function getAccessToken() {
       if (parsed.token && parsed.expires > Date.now()) return parsed.token;
     }
   } catch(e) {}
+  return null;
+}
+
+// Wait for another function's in-flight refresh to land its access token.
+async function waitForAccessToken(store, budgetMs) {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    await sleep(1500);
+    const token = await readCachedAccessToken(store);
+    if (token) return token;
+  }
+  return null;
+}
+
+// Best-effort mutex over blobs. Blobs have no compare-and-swap, so: write our
+// id, wait a beat, read back — last writer wins, everyone else backs off.
+// consistency:"strong" on the store is what makes the read-back meaningful.
+async function acquireRefreshLock(store, lockId) {
+  try {
+    const raw = await store.get("refresh-lock");
+    if (raw) {
+      const lock = JSON.parse(raw);
+      if (lock.ts && Date.now() - lock.ts < LOCK_TTL_MS) return false;
+    }
+    await store.set("refresh-lock", JSON.stringify({ ts: Date.now(), id: lockId }));
+    await sleep(150 + Math.floor(Math.random() * 250));
+    const back = await store.get("refresh-lock");
+    const lock = JSON.parse(back || "{}");
+    return lock.id === lockId;
+  } catch(e) {
+    return true; // blobs unreachable — proceed, same as the pre-lock era
+  }
+}
+
+async function releaseRefreshLock(store, lockId) {
+  try {
+    const raw = await store.get("refresh-lock");
+    if (raw) {
+      const lock = JSON.parse(raw);
+      if (lock.id && lock.id !== lockId) return; // another function owns it now
+    }
+    await store.delete("refresh-lock");
+  } catch(e) {}
+}
+
+export async function getAccessToken() {
+  const store = getBlobStore();
+
+  // 1. Return cached access token if still valid
+  const cached = await readCachedAccessToken(store);
+  if (cached) return cached;
 
   // NOTE (2026-07-24): the shared ops.qbo_token_cache token is BREAK-GLASS
   // ONLY (see readSharedOpsToken below) — own chain refreshes FIRST, per the
@@ -83,26 +139,31 @@ export async function getAccessToken() {
   // before the own refresh; that inverted the architecture and let this app's
   // refresh token idle toward Intuit's 100-day expiry.
 
-  // 2. Simple lock — if another function is already refreshing, wait for it
+  // 2. Serialize the refresh. Intuit ROTATES the refresh token (~24h), so two
+  // concurrent refreshes — or one racing a just-persisted rotation — leaves a
+  // one-generation-stale token in play, which is exactly the invalid_grant
+  // that killed the chain on 2026-08-19. Losers wait for the winner's token.
+  const lockId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const acquired = await acquireRefreshLock(store, lockId);
+  if (!acquired) {
+    const waited = await waitForAccessToken(store, 12000);
+    if (waited) return waited;
+    // Lock holder died or is slow — refresh ourselves; the invalid_grant
+    // retry below tolerates a collision if it is in fact still running.
+  }
+
   try {
-    const lockRaw = await store.get("refresh-lock");
-    if (lockRaw) {
-      const lock = JSON.parse(lockRaw);
-      if (lock.ts && Date.now() - lock.ts < 15000) {
-        await new Promise(r => setTimeout(r, 3000));
-        const retryCache = await store.get("access-token");
-        if (retryCache) {
-          const parsed = JSON.parse(retryCache);
-          if (parsed.token && parsed.expires > Date.now()) return parsed.token;
-        }
-      }
-    }
-  } catch(e) {}
+    return await refreshAccessToken(store);
+  } finally {
+    await releaseRefreshLock(store, lockId);
+  }
+}
 
-  // 3. Acquire lock
-  try { await store.set("refresh-lock", JSON.stringify({ ts: Date.now() })); } catch(e) {}
+async function refreshAccessToken(store) {
+  const clientId = process.env.QBO_CLIENT_ID;
+  const clientSecret = process.env.QBO_CLIENT_SECRET;
 
-  // 4. Get refresh token — blob first, then env var fallback
+  // Refresh token — blob first, then env var fallback
   let refreshToken;
   try {
     const blobRT = await store.get("refresh-token");
@@ -111,35 +172,57 @@ export async function getAccessToken() {
   if (!refreshToken) refreshToken = process.env.QBO_REFRESH_TOKEN;
 
   if (!refreshToken) {
-    try { await store.delete("refresh-lock"); } catch(e) {}
     // Break-glass: no refresh token at all (blob purged after a prior
     // invalid_grant) — ride the shared edge token + signal red. See below.
     const shared = await readSharedOpsToken();
     if (shared) {
-      await noteSharedFallback(store, 'No QBO refresh token available — reconnect required');
+      await noteChainSignal(store, 'Netlify QBO chain broken (riding shared edge token): No QBO refresh token available — reconnect required');
       return shared;
     }
     throw new Error('No QBO refresh token available — reconnect required');
   }
 
-  // 5. Exchange refresh token for new access + refresh tokens
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: `grant_type=refresh_token&refresh_token=${refreshToken}`,
-  });
+  // Up to 2 attempts: an invalid_grant on attempt 1 may only mean another
+  // function rotated the token while we held a stale copy — re-read the blob
+  // (strong consistency) and retry with the newer token before declaring the
+  // chain dead. Only a token that fails while ALSO being the freshest stored
+  // one is genuinely dead.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `grant_type=refresh_token&refresh_token=${refreshToken}`,
+    });
 
-  if (!res.ok) {
-    try { await store.delete("refresh-lock"); } catch(e) {}
+    if (res.ok) {
+      const data = await res.json();
+      await persistRefreshedTokens(store, data, refreshToken);
+      return data.access_token;
+    }
+
     const err = await res.text();
+
+    if (err.includes('invalid_grant') && attempt === 1) {
+      try {
+        const latest = await store.get("refresh-token");
+        if (latest && latest !== refreshToken) {
+          refreshToken = latest;
+          continue;
+        }
+      } catch(e) {}
+    }
+
+    // Genuinely dead token: purge it so the next caller goes straight to
+    // break-glass instead of hammering Intuit with a known-bad grant.
     if (err.includes('invalid_grant')) {
       try { await store.delete("refresh-token"); } catch(e) {}
     }
+
     // BREAK-GLASS (2026-07-24): own chain is broken — ride the shared
     // lease-managed edge token (ops.qbo_token_cache, same realm; a valid
     // access token is a bearer credential regardless of which Intuit app
@@ -151,43 +234,53 @@ export async function getAccessToken() {
     // posting for six weeks like it did June 10 → July 24.
     const shared = await readSharedOpsToken();
     if (shared) {
-      await noteSharedFallback(store, `Token refresh failed: ${res.status} ${err.slice(0, 200)}`);
+      await noteChainSignal(store, `Netlify QBO chain broken (riding shared edge token): Token refresh failed: ${res.status} ${err.slice(0, 200)}`);
       return shared;
     }
     throw new Error(`Token refresh failed: ${res.status} ${err}`);
   }
+  throw new Error('QBO token refresh: unreachable'); // loop always returns/throws
+}
 
-  const data = await res.json();
+async function persistRefreshedTokens(store, data, previousRefreshToken) {
+  // Refresh token FIRST — losing a rotated refresh token kills the chain on
+  // the NEXT refresh, so this write retries and, if it still fails, flips
+  // qbo_netlify_chain RED now instead of failing silently and dying tomorrow.
+  if (data.refresh_token) {
+    let persisted = false;
+    for (let i = 0; i < 3 && !persisted; i++) {
+      try {
+        await store.set("refresh-token", data.refresh_token);
+        await store.set("refresh-token-updated", new Date().toISOString());
+        persisted = true;
+      } catch(e) {
+        console.error(`refresh-token persist attempt ${i + 1} failed:`, e.message);
+        await sleep(400);
+      }
+    }
+    if (!persisted && data.refresh_token !== previousRefreshToken) {
+      await noteChainSignal(store, 'Netlify QBO chain AT RISK: rotated refresh token could not be persisted to blobs — the chain will break on its next refresh. Re-auth via Master Control → Connections.');
+    }
+  }
 
-  // 6. Cache access token in blobs (50 min)
+  // Cache access token in blobs (50 min)
   try {
     await store.set("access-token", JSON.stringify({
       token: data.access_token,
       expires: Date.now() + 50 * 60 * 1000,
     }));
-  } catch(e) {}
-
-  // 7. Store new refresh token in blobs (instant, no redeploy!)
-  if (data.refresh_token) {
-    try {
-      await store.set("refresh-token", data.refresh_token);
-      await store.set("refresh-token-updated", new Date().toISOString());
-    } catch(e) {}
+  } catch(e) {
+    console.error('access-token cache write failed:', e.message);
   }
 
-  // 8. Also update env var as backup
-  if (data.refresh_token && data.refresh_token !== refreshToken) {
+  // Also update env var as backup
+  if (data.refresh_token && data.refresh_token !== previousRefreshToken) {
     try {
       await updateNetlifyEnvVar('QBO_REFRESH_TOKEN', data.refresh_token);
     } catch (e) {
       console.error('Failed to update refresh token env var:', e.message);
     }
   }
-
-  // 9. Release lock
-  try { await store.delete("refresh-lock"); } catch(e) {}
-
-  return data.access_token;
 }
 
 async function updateNetlifyEnvVar(key, value) {

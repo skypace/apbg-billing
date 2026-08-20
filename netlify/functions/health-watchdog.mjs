@@ -9,7 +9,11 @@ import { resqLogin, resqGql } from './resq-helpers.mjs';
 import { sendEmail, APPROVAL_EMAIL } from './email-helpers.mjs';
 import { createClient } from '@supabase/supabase-js';
 
-export const config = { schedule: '*/30 * * * *' };
+// NOTE: the 30-min schedule lives in health-watchdog-cron.mjs, NOT here.
+// Netlify returns a bare platform 403 to any external HTTP request aimed at a
+// function that carries a `schedule` — which made this endpoint unreachable
+// from control.html / the gateway hub, and their fetch failure rendered as a
+// permanent "Down" card no matter how healthy the app was (2026-08-20).
 
 // ── Mutations and enum values the sync depends on ──
 const REQUIRED_MUTATIONS = [
@@ -79,29 +83,12 @@ async function checkResQ() {
   }
 }
 
-async function checkSyncFreshness() {
-  try {
-    const store = await getBlobStore('resq-sf-sync');
-    if (!store) return { status: 'warn', detail: 'Blob store unavailable' };
-
-    const raw = await store.get('last-sync');
-    if (!raw) return { status: 'warn', detail: 'No last-sync record found' };
-
-    const data = JSON.parse(raw);
-    const ts = data.completed || data.finishedAt || data.started || data.startedAt || data.ts;
-    if (!ts) return { status: 'warn', detail: 'last-sync blob has no timestamp' };
-
-    const age = Date.now() - new Date(ts).getTime();
-    const ageMin = Math.round(age / 60000);
-
-    if (age > 15 * 60 * 1000) {
-      return { status: 'error', detail: `Last sync was ${ageMin} minutes ago (threshold: 15 min)` };
-    }
-    return { status: 'ok', detail: `Last sync ${ageMin} min ago` };
-  } catch (e) {
-    return { status: 'error', detail: e.message };
-  }
-}
+// checkSyncFreshness (legacy resq-sf-sync blob) was RETIRED 2026-08-20: the
+// in-repo ResQ↔SF sync it watched was decommissioned 2026-06-28 (moved to
+// skypace/apbg-resq-sync), so its blob never updates again and the check
+// dragged `overall` to a permanent warn. The live replacement is
+// checkOpsSyncFreshness below (per-source SLAs on ops.sync_log) plus the
+// resq_sync_* checks inside ops.sync_health().
 
 // ── Per-source freshness from ops.sync_log ──────────────────────────────
 //
@@ -452,17 +439,20 @@ async function checkResqSchema(session) {
 
 function buildAlertEmail(results, timestamp) {
   const rows = Object.entries(results).map(([name, r]) => {
-    const color = r.status === 'ok' ? '#065F46'
-      : r.status === 'warn' ? '#92400E'
-      : r.status === 'skip' ? '#6B7280'
+    // Deliberately-skipped checks report status 'skipped' — normalize so they
+    // render gray SKIP instead of red FAIL in the alert email.
+    const st = r.status === 'skipped' ? 'skip' : r.status;
+    const color = st === 'ok' ? '#065F46'
+      : st === 'warn' ? '#92400E'
+      : st === 'skip' ? '#6B7280'
       : '#991B1B';
-    const bg = r.status === 'ok' ? '#D1FAE5'
-      : r.status === 'warn' ? '#FEF3C7'
-      : r.status === 'skip' ? '#F3F4F6'
+    const bg = st === 'ok' ? '#D1FAE5'
+      : st === 'warn' ? '#FEF3C7'
+      : st === 'skip' ? '#F3F4F6'
       : '#FEE2E2';
-    const icon = r.status === 'ok' ? 'OK'
-      : r.status === 'warn' ? 'WARN'
-      : r.status === 'skip' ? 'SKIP'
+    const icon = st === 'ok' ? 'OK'
+      : st === 'warn' ? 'WARN'
+      : st === 'skip' ? 'SKIP'
       : 'FAIL';
     return `<tr>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;">${name}</td>
@@ -572,11 +562,10 @@ export default async function handler(req, context) {
   const resqSkipped = { status: 'skipped', detail: 'ResQ health check disabled to avoid auto-login (append ?resq=1 to run it)', session: null };
 
   // Run all checks concurrently (ResQ schema depends on ResQ login)
-  const [qbo, sf, resq, syncFreshness, opsSyncFreshness, cacheTableFreshness, pgNetFailures] = await Promise.all([
+  const [qbo, sf, resq, opsSyncFreshness, cacheTableFreshness, pgNetFailures] = await Promise.all([
     checkQBO(),
     checkSF(),
     includeResq ? checkResQ() : Promise.resolve(resqSkipped),
-    checkSyncFreshness(),
     checkOpsSyncFreshness(),
     checkCacheTableFreshness(),
     checkPgNetFailures(),
@@ -594,7 +583,6 @@ export default async function handler(req, context) {
     qbo,
     serviceFusion: sf,
     resq: resqClean,
-    syncFreshness,           // resq-sf blob (legacy)
     opsSyncFreshness,        // per-source SLA on ops.sync_log
     cacheTableFreshness,     // max(synced_at) on each cache table — catches silent no-op writes
     pgNetFailures,           // any pg_net 4xx/5xx/timeout in last 35min — catches cron-triggered HTTP failures

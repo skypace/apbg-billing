@@ -432,10 +432,15 @@ function getCheckStatus(siteKey, checkName) {
   if (!site || site.status === 'error') return { ok: false, status: 'unknown', message: 'Unreachable' };
   const d = site.data;
 
-  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'error', detail:'...'}, ... } }
+  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'warn'|'error'|'skipped', detail:'...'}, ... } }
   if (d.checks && d.checks[checkName]) {
     const c = d.checks[checkName];
     const isOk = c.ok === true || c.status === 'ok';
+    // 'skipped' is deliberate (e.g. ResQ auto-login disabled) — render it
+    // neutral gray, not a red fail that reads as an outage.
+    if (!isOk && c.status === 'skipped') {
+      return { ok: false, status: 'unknown', message: c.detail || c.message || 'Check skipped' };
+    }
     return { ok: isOk, status: isOk ? 'ok' : (c.status === 'warn' ? 'warn' : 'fail'), message: c.detail || c.message || '' };
   }
   // Melt health-check format: { qbo: {ok,message}, cache: {...}, resq: {...} }
@@ -452,7 +457,15 @@ function getOverall(siteKey) {
   if (site.status === 'auth') return 'auth';
   if (site.status === 'error') return 'down';
   const d = site.data;
-  if (d.overall) return d.overall === 'ok' ? 'healthy' : d.overall;
+  // Translate the health-watchdog vocabulary (ok/warn/error) onto the pill
+  // classes (healthy/degraded/down) — melt's health-check already speaks the
+  // pill vocabulary and passes through untouched.
+  if (d.overall) {
+    if (d.overall === 'ok') return 'healthy';
+    if (d.overall === 'warn') return 'degraded';
+    if (d.overall === 'error') return 'down';
+    return d.overall;
+  }
   return 'unknown';
 }
 
@@ -506,7 +519,7 @@ function renderKeepalive() {
     if (sd?.status === 'ok') {
       const d = sd.data;
       // Melt format has cache.lastRefresh
-      const lr = d.cache?.lastRefresh || d.checks?.syncFreshness?.lastSync || d.timestamp || d.checkedAt;
+      const lr = d.cache?.lastRefresh || d.timestamp || d.checkedAt;
       if (lr) {
         lastRefresh = new Date(lr).toLocaleString();
         const mins = Math.round((Date.now() - new Date(lr).getTime()) / 60000);
