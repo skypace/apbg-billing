@@ -26,9 +26,17 @@ export async function latestCommit(repo, path, ref = '') {
   const params = new URLSearchParams({ per_page: '1' });
   if (path) params.set('path', path);
   if (ref) params.set('sha', ref);
-  const res = await fetch(`https://api.github.com/repos/${repo}/commits?${params}`, {
-    headers: ghHeaders(),
-  });
+  let res;
+  try {
+    // Cap each GitHub round trip — one hung call must degrade to an 'unknown'
+    // source, never eat the whole function's time budget.
+    res = await fetch(`https://api.github.com/repos/${repo}/commits?${params}`, {
+      headers: ghHeaders(),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    return { error: e.name === 'TimeoutError' || e.name === 'AbortError' ? 'GitHub timed out (8s)' : `GitHub fetch failed: ${e.message}` };
+  }
   if (res.status === 404) {
     return { error: GH_TOKEN ? 'not found' : 'not found (private repo? set GITHUB_TOKEN)' };
   }
@@ -91,13 +99,34 @@ export async function loadManifest() {
 
 // Sweep core: per-chapter freshness vs registered sources. Remote (live)
 // chapters have no static file to go stale, so they're skipped.
+//
+// GitHub lookups run with BOUNDED PARALLELISM, resolved up front. The
+// original serial walk paid ~40 GitHub round trips one at a time, blew
+// straight past Netlify's 10s default function timeout, and the platform
+// kill (no CORS, no body) surfaced in Master Control as "failed to fetch"
+// (2026-08-20). 8-way concurrency finishes the same sweep in a few seconds.
+const SWEEP_CONCURRENCY = 8;
+
 export async function computeSweep(manifest) {
   const cache = new Map();
-  const commitFor = (src) => {
-    const key = `${src.repo}::${src.path}`;
-    if (!cache.has(key)) cache.set(key, latestCommit(src.repo, src.path));
-    return cache.get(key);
-  };
+  const keyOf = (src) => `${src.repo}::${src.path}`;
+  for (const ch of manifest.chapters || []) {
+    if (ch.remote) continue;
+    for (const src of ch.sources || []) {
+      if (!cache.has(keyOf(src))) cache.set(keyOf(src), { repo: src.repo, path: src.path });
+    }
+  }
+  const keys = [...cache.keys()];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(SWEEP_CONCURRENCY, keys.length) }, async () => {
+      while (next < keys.length) {
+        const key = keys[next++];
+        const { repo, path } = cache.get(key);
+        cache.set(key, await latestCommit(repo, path));
+      }
+    })
+  );
 
   const chapters = [];
   for (const ch of manifest.chapters || []) {
@@ -107,7 +136,7 @@ export async function computeSweep(manifest) {
     let anyStale = false;
     let anyError = false;
     for (const src of ch.sources || []) {
-      const info = await commitFor(src);
+      const info = cache.get(keyOf(src));
       if (info.error) {
         anyError = true;
         sources.push({ ...src, error: info.error });

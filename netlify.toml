@@ -40,6 +40,9 @@
 [functions."sf-receipt-pull"]
   timeout = 26
 
+[functions."handbook-sweep"]
+  timeout = 26
+
 [functions."health-watchdog"]
   timeout = 60
 
