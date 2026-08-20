@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Vendor documents — Brix Beverage</title>
+<!--
+  Vendor onboarding intake (Vendor Portal Phase 2). Deliberately PUBLIC — a
+  vendor cannot log in. The one-time token in ?t= (from the emailed link) is
+  the gate; every server call revalidates it and all writes go through the
+  service-role function /api/vendor-onboard. Nothing on this page can read
+  anything beyond the linked vendor's own name and status.
+-->
+<style>
+  :root { --navy:#1F4E79; --bg:#0F172A; --card:#16223A; --line:#2A3A55; --ink:#E7EDF5;
+          --muted:#93A5BD; --blue:#3B82F6; --amber:#F4B400; --green:#34D399; --red:#F87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font-family:'DM Sans',-apple-system,'Segoe UI',Arial,sans-serif; line-height:1.55; }
+  .wrap { max-width:640px; margin:0 auto; padding:28px 16px 80px; }
+  .brand { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .brand .mark { width:44px; height:44px; border-radius:50%; background:var(--navy);
+                 display:flex; align-items:center; justify-content:center; font-weight:800; color:#fff; font-size:15px; }
+  .brand .t1 { font-weight:800; font-size:17px; }
+  .brand .t2 { font-size:12px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin-bottom:14px; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  h2 { font-size:15px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  h2 .n { width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff;
+          font-size:12px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  p { margin:0 0 10px; font-size:14px; }
+  .muted { color:var(--muted); font-size:13px; }
+  label { display:block; font-size:12px; color:var(--muted); font-weight:700; margin:10px 0 4px; letter-spacing:.04em; text-transform:uppercase; }
+  input[type=text], input[type=email], input[type=tel] {
+    width:100%; padding:11px 12px; border-radius:9px; border:1px solid var(--line);
+    background:#0D1830; color:var(--ink); font-size:15px; }
+  input:focus { outline:2px solid var(--blue); border-color:transparent; }
+  .btn { display:inline-flex; align-items:center; gap:8px; background:var(--blue); color:#fff; border:0;
+         border-radius:9px; padding:11px 18px; font-size:15px; font-weight:700; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .filebox { border:2px dashed var(--line); border-radius:12px; padding:18px; text-align:center; cursor:pointer; }
+  .filebox:hover { border-color:var(--blue); }
+  .chip { display:inline-block; font-size:12px; font-weight:700; border-radius:999px; padding:3px 10px; margin:2px 4px 2px 0; }
+  .chip.ok { background:rgba(52,211,153,.15); color:var(--green); }
+  .chip.warn { background:rgba(244,180,0,.15); color:var(--amber); }
+  .chip.bad { background:rgba(248,113,113,.15); color:var(--red); }
+  .note { border-left:3px solid var(--amber); background:rgba(244,180,0,.08); border-radius:0 8px 8px 0;
+          padding:10px 12px; font-size:13px; margin:10px 0; }
+  .err { border-left:3px solid var(--red); background:rgba(248,113,113,.08); border-radius:0 8px 8px 0;
+         padding:10px 12px; font-size:13px; margin:10px 0; color:#FECACA; }
+  .payopt { display:flex; align-items:flex-start; gap:10px; border:1px solid var(--line); border-radius:10px;
+            padding:12px; margin:8px 0; cursor:pointer; }
+  .payopt input { margin-top:3px; }
+  .payopt b { display:block; font-size:14px; }
+  .payopt span { font-size:12.5px; color:var(--muted); }
+  .spin { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.35);
+          border-top-color:#fff; border-radius:50%; animation:sp 0.8s linear infinite; vertical-align:-3px; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .done-icon { font-size:44px; }
+  ul { margin:6px 0 10px; padding-left:20px; font-size:13.5px; }
+  li { margin:3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="mark">°bx</div>
+    <div><div class="t1">Brix Beverage · Alameda Point Beverage Group</div>
+    <div class="t2">Vendor documents — secure link</div></div>
+  </div>
+
+  <div id="loading" class="card"><p><span class="spin"></span> &nbsp;Checking your link…</p></div>
+
+  <div id="badlink" class="card" style="display:none">
+    <h1>This link isn't working</h1>
+    <p id="badlinkMsg" class="muted"></p>
+    <p class="muted">If you need a fresh link, reply to the email that brought you here or contact
+      <a href="mailto:service@brixbev.com" style="color:var(--blue)">service@brixbev.com</a>.</p>
+  </div>
+
+  <div id="flow" style="display:none">
+    <div class="card">
+      <h1 id="hello"></h1>
+      <p class="muted">This takes about five minutes. We need three things — your W-9, a current certificate
+        of insurance, and how you'd like to be paid. <b>We never ask for bank account numbers here.</b></p>
+      <div id="reqList"></div>
+    </div>
+
+    <div class="card" id="stepContact">
+      <h2><span class="n">1</span> Confirm your contact info</h2>
+      <label for="cName">Contact name</label><input type="text" id="cName" maxlength="120" autocomplete="name">
+      <label for="cEmail">Email</label><input type="email" id="cEmail" maxlength="160" autocomplete="email">
+      <label for="cPhone">Phone</label><input type="tel" id="cPhone" maxlength="40" autocomplete="tel">
+    </div>
+
+    <div class="card" id="stepW9">
+      <h2><span class="n">2</span> Your W-9</h2>
+      <p class="muted">A completed, signed IRS Form W-9 (PDF or a clear photo, up to 4&nbsp;MB).
+        Need a blank one? <a href="https://www.irs.gov/pub/irs-pdf/fw9.pdf" target="_blank" rel="noopener" style="color:var(--blue)">irs.gov/fw9</a></p>
+      <div id="w9Status"></div>
+      <div class="filebox" id="w9Box">📄 Tap to choose your W-9 (PDF or photo)</div>
+      <input type="file" id="w9File" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none">
+      <div id="w9Result"></div>
+    </div>
+
+    <div class="card" id="stepCoi">
+      <h2><span class="n">3</span> Your certificate of insurance</h2>
+      <p class="muted">A current ACORD 25 certificate from your broker (PDF or a clear photo, up to 4&nbsp;MB).
+        Ask your insurance agent for "a COI for Brix Beverage / Alameda Point Beverage Group" — they do this every day.</p>
+      <div id="coiStatus"></div>
+      <div class="filebox" id="coiBox">🛡 Tap to choose your COI (PDF or photo)</div>
+      <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none">
+      <div id="coiResult"></div>
+    </div>
+
+    <div class="card" id="stepPay">
+      <h2><span class="n">4</span> How would you like to be paid?</h2>
+      <label class="payopt"><input type="radio" name="pay" value="ach">
+        <span><b>Bank transfer (ACH)</b><span>Fastest for most vendors. Our payment provider will send you a secure
+        link to add your bank details — we never collect account numbers ourselves.</span></span></label>
+      <label class="payopt"><input type="radio" name="pay" value="check_manual">
+        <span><b>Paper check</b><span>Mailed to your business address.</span></span></label>
+      <label class="payopt"><input type="radio" name="pay" value="venmo">
+        <span><b>Venmo</b><span>We'll send to your business @handle.</span></span></label>
+      <label class="payopt"><input type="radio" name="pay" value="paypal">
+        <span><b>PayPal</b><span>We'll send to your PayPal email.</span></span></label>
+      <div id="handleWrap" style="display:none">
+        <label id="handleLabel" for="payHandle">Venmo @handle</label>
+        <input type="text" id="payHandle" maxlength="160">
+      </div>
+    </div>
+
+    <div class="card">
+      <div id="finishErr"></div>
+      <button class="btn" id="finishBtn">Finish — send to Brix Beverage</button>
+      <p class="muted" style="margin-top:10px">Documents you've already uploaded above are saved even if you stop here.</p>
+    </div>
+  </div>
+
+  <div id="doneCard" class="card" style="display:none; text-align:center">
+    <div class="done-icon">✅</div>
+    <h1>All set — thank you!</h1>
+    <p id="doneMsg" class="muted"></p>
+    <p class="muted">We'll reach out if anything else is needed. You can close this page.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var API = '/api/vendor-onboard';
+  var token = new URLSearchParams(location.search).get('t') || '';
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { docs: {}, uploadedW9: false, uploadedCoi: false };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function api(body) {
+    body.token = token;
+    return fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        return data;
+      });
+    });
+  }
+
+  function showBadLink(msg) {
+    $('loading').style.display = 'none';
+    $('flow').style.display = 'none';
+    $('badlink').style.display = 'block';
+    $('badlinkMsg').textContent = msg || 'The link is missing or malformed.';
+  }
+
+  function statusChips(docs) {
+    var out = '';
+    if (docs.has_w9) out += '<span class="chip ok">W-9 already on file ✓</span>';
+    if (docs.has_coi) {
+      out += docs.coi_expiration
+        ? '<span class="chip ok">COI on file → expires ' + esc(docs.coi_expiration) + '</span>'
+        : '<span class="chip ok">COI on file ✓</span>';
+    }
+    return out;
+  }
+
+  function boot() {
+    if (!token) { showBadLink('The link is missing its code.'); return; }
+    api({ action: 'info' }).then(function (info) {
+      $('loading').style.display = 'none';
+      $('flow').style.display = 'block';
+      state.docs = info.docs || {};
+      $('hello').textContent = 'Documents for ' + info.vendor.display_name;
+      if (info.requirements && info.requirements.length) {
+        $('reqList').innerHTML = '<p class="muted" style="margin-top:8px"><b>What we need on your certificate:</b></p><ul>'
+          + info.requirements.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul>';
+      }
+      $('cName').value = info.vendor.contact_name || '';
+      $('cEmail').value = info.vendor.contact_email || '';
+      $('cPhone').value = info.vendor.contact_phone || '';
+      $('w9Status').innerHTML = statusChips({ has_w9: state.docs.has_w9 });
+      $('coiStatus').innerHTML = statusChips({ has_coi: state.docs.has_coi, coi_expiration: state.docs.coi_expiration });
+      if (info.vendor.payment_method_pref) {
+        var r = document.querySelector('input[name=pay][value="' + info.vendor.payment_method_pref + '"]');
+        if (r) { r.checked = true; onPayChange(); }
+        if (info.vendor.payment_handle) $('payHandle').value = info.vendor.payment_handle;
+      }
+    }).catch(function (e) { showBadLink(e.message); });
+  }
+
+  function wireUpload(boxId, fileId, resultId, kind) {
+    var box = $(boxId), file = $(fileId), result = $(resultId);
+    box.addEventListener('click', function () { file.click(); });
+    file.addEventListener('change', function () {
+      var f = file.files && file.files[0];
+      if (!f) return;
+      if (f.size > 4 * 1024 * 1024) {
+        result.innerHTML = '<div class="err">That file is over 4 MB — a phone photo or smaller PDF works best.</div>';
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        var base64 = String(reader.result).split(',')[1] || '';
+        box.innerHTML = '<span class="spin"></span> &nbsp;Uploading and reading ' + esc(f.name) + '…';
+        result.innerHTML = '';
+        api({ action: 'upload', kind: kind, file_name: f.name, media_type: f.type || 'application/pdf', file_base64: base64 })
+          .then(function (r) {
+            box.innerHTML = '✅ ' + esc(f.name) + ' received — tap to replace';
+            if (kind === 'w9') {
+              state.uploadedW9 = true;
+              var s = r.summary;
+              result.innerHTML = s
+                ? '<p class="muted" style="margin-top:8px">We read: <b>' + esc(s.legal_name || '—') + '</b>'
+                  + (s.entity_type ? ' · ' + esc(s.entity_type) : '')
+                  + (s.tin_last4 ? ' · TIN •••' + esc(s.tin_last4) : '')
+                  + (s.signed ? ' · signed ✓' : ' · <span class="chip warn">no signature found — make sure it\'s signed</span>') + '</p>'
+                : '<p class="muted" style="margin-top:8px">Received — we\'ll review it by hand.</p>';
+            } else {
+              state.uploadedCoi = true;
+              var c = r.summary;
+              var html = c
+                ? '<p class="muted" style="margin-top:8px">We read: '
+                  + (c.carriers && c.carriers.length ? '<b>' + esc(c.carriers[0]) + '</b> · ' : '')
+                  + (c.gl_each_occurrence ? 'GL $' + Number(c.gl_each_occurrence).toLocaleString() + '/occ' : 'GL limit not found')
+                  + (c.gl_expiration ? ' · expires ' + esc(c.gl_expiration) : '')
+                  + (c.wc ? ' · WC ✓' : '') + (c.auto ? ' · Auto ✓' : '')
+                  + (c.additional_insured ? ' · additional insured ✓' : '') + '</p>'
+                : '<p class="muted" style="margin-top:8px">Received — we\'ll review it by hand.</p>';
+              if (r.shortfalls && r.shortfalls.length) {
+                html += '<div class="note"><b>Heads up:</b> ' + r.shortfalls.map(esc).join('<br>')
+                  + '<br><span class="muted">Your certificate is still filed — our team will follow up if anything needs fixing.</span></div>';
+              }
+              result.innerHTML = html;
+            }
+          })
+          .catch(function (e) {
+            box.innerHTML = (kind === 'w9' ? '📄' : '🛡') + ' Tap to choose your ' + (kind === 'w9' ? 'W-9' : 'COI') + ' (PDF or photo)';
+            result.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+          });
+      };
+      reader.readAsDataURL(f);
+    });
+  }
+
+  function onPayChange() {
+    var sel = document.querySelector('input[name=pay]:checked');
+    var v = sel ? sel.value : '';
+    var wrap = $('handleWrap');
+    if (v === 'venmo' || v === 'paypal') {
+      wrap.style.display = 'block';
+      $('handleLabel').textContent = v === 'venmo' ? 'Venmo @handle' : 'PayPal email';
+      $('payHandle').placeholder = v === 'venmo' ? '@your-business' : 'you@business.com';
+    } else {
+      wrap.style.display = 'none';
+    }
+  }
+
+  function finish() {
+    var sel = document.querySelector('input[name=pay]:checked');
+    var payload = {
+      action: 'complete',
+      contact_name: $('cName').value,
+      contact_email: $('cEmail').value,
+      contact_phone: $('cPhone').value,
+    };
+    if (sel) {
+      payload.payment_method_pref = sel.value;
+      payload.payment_handle = $('payHandle').value;
+    }
+    var btn = $('finishBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span>&nbsp; Sending…';
+    $('finishErr').innerHTML = '';
+    api(payload).then(function (r) {
+      $('flow').style.display = 'none';
+      $('doneCard').style.display = 'block';
+      $('doneMsg').textContent = r.onboard_status === 'complete'
+        ? 'Everything we need is on file.'
+        : 'Your info is saved. We\'re still missing a document — our team will follow up with a fresh link.';
+    }).catch(function (e) {
+      btn.disabled = false;
+      btn.textContent = 'Finish — send to Brix Beverage';
+      $('finishErr').innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    });
+  }
+
+  wireUpload('w9Box', 'w9File', 'w9Result', 'w9');
+  wireUpload('coiBox', 'coiFile', 'coiResult', 'coi');
+  document.querySelectorAll('input[name=pay]').forEach(function (r) { r.addEventListener('change', onPayChange); });
+  $('finishBtn').addEventListener('click', finish);
+  boot();
+})();
+</script>
+</body>
+</html>

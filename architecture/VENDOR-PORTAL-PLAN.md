@@ -1,6 +1,10 @@
 # Vendor Portal & Vendor Payments — Project Plan
 
-> Status: **PLAN — approved scope pending Sky's sign-off on the Phase-0 decisions below.**
+> Status: **Phase 1 SHIPPED** (PR #384, merged 2026-08-20 — `ops.vendors` +
+> Brixpense Vendors module live). **Payment rail decided 2026-08-20 (Sky): Stripe** —
+> "I wanna use stripe payments as i already have stripe." Phase 3 rewritten below
+> around **Stripe Global Payouts**; PayPal/Venmo are no longer planned rails
+> (Stripe cannot send to Venmo/PayPal — those stay manual-record).
 > Home: Brixpense (`app-expense/`) + apbg-billing Netlify functions + `ops.*`.
 > ⚠ Companion rows for `ARCHITECTURE.md` + `projects/vendor-portal/` in
 > `activespacescience/Skilliosis_Mytosis_Architecture` need manual apply — that repo
@@ -42,12 +46,11 @@ anon key).
 
 ## Phase 0 — Sky's decisions & accounts (blockers only for Phase 3)
 
-| # | Decision | Default if you just say "go" |
+| # | Decision | Status / default |
 |---|---|---|
-| 1 | **PayPal/Venmo rail**: create a PayPal Business app (developer.paypal.com) and hand me `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` (Netlify env) | Rail ships code-complete but dark until creds land |
-| 2 | **ACH rail**: sign up for Melio (free ACH, native QBO sync) — or skip and pay ACH/checks through QBO Bill Pay manually | Manual: pay in QBO Bill Pay, record in portal |
-| 3 | **Who can click Pay** | Superadmin only |
-| 4 | **COI gate** | Soft (file + flag) |
+| 1 | **Payment rail** | **DECIDED (2026-08-20): Stripe.** Phase 3 uses **Stripe Global Payouts** — enable it on the existing Stripe account (Dashboard → Global Payouts; US senders GA) and put the account's secret key on the apbg-billing Netlify site as `STRIPE_SECRET_KEY` (brix-order holds its own copy — sites don't share env). Recipient bank details are collected by STRIPE (hosted recipient onboarding / payout links), never by us. Venmo/PayPal are not Stripe destinations → manual-record rails. |
+| 2 | **Who can click Pay** | Superadmin only |
+| 3 | **COI gate** | Soft (file + flag) |
 
 Phases 1–2 have **zero blockers** — buildable immediately.
 
@@ -120,24 +123,28 @@ recipe (same Claude client, new ACORD-25 + W-9 schemas/prompts).
 ## Phase 3 — Payments (~1–2 sessions once Phase-0 creds exist)
 
 **Migration `ops.vendor_payments`** (ledger; staff-only RLS): `vendor_id`,
-`expense_request_id`, `qbo_bill_id`, `rail` ('paypal' | 'venmo' | 'ach_melio' |
+`expense_request_id`, `qbo_bill_id`, `rail` ('stripe_payout' | 'venmo_manual' |
 'zelle_manual' | 'check_manual' | 'qbo_billpay'), `amount`, `status` (initiated /
 settled / failed / recorded), external payout id, `qbo_billpayment_id`, actor,
-timestamps, `failure_reason`.
+timestamps, `failure_reason`. `ops.vendors` gains `stripe_recipient_id` (the only
+Stripe datum we hold — never bank details).
 
 **"Pay" action** on approved/posted bills (PendingList, SFExpenses, vendor detail),
 routed by the vendor's preference:
 
-- **PayPal / Venmo** — `vendor-pay-paypal.mjs` → Payouts API (recipient = stored
-  handle). Webhook `paypal-payout-webhook.mjs` (signature-verified, same posture as
-  the Resend/Svix intakes) flips ledger status; on success the function records a
-  **QBO BillPayment** against the bill through the hardened billing token chain and
-  nudges the mirror — books close themselves.
-- **Manual rails** (Zelle sent from Chase, paper check, QBO Bill Pay) — "Record
+- **Stripe (ACH / debit / local rails)** — `vendor-pay-stripe.mjs` → **Stripe Global
+  Payouts** on Sky's existing Stripe account. Recipient setup uses Stripe's hosted
+  onboarding (or a payout link for one-offs): the VENDOR gives their bank details to
+  Stripe directly; we store only the Stripe recipient id on `ops.vendors`. Webhook
+  `stripe-payout-webhook.mjs` (signature-verified, same posture as the Resend/Svix
+  intakes) flips ledger status; on success the function records a **QBO BillPayment**
+  against the bill through the hardened billing token chain and nudges the mirror —
+  books close themselves. Note: Global Payouts sends from a Stripe payments/top-up
+  balance, so funding that balance is part of the ops runbook.
+- **Manual rails** (Venmo/Zelle sent by hand, paper check, QBO Bill Pay) — "Record
   payment" dialog: writes the QBO BillPayment + ledger row so the bill reads paid
-  everywhere. Zelle stays a human act in the Chase app by design (no API exists).
-- **Melio ACH** — decision-dependent: if Melio lands, its native QBO sync marks
-  bills paid and we only mirror into the ledger; until then ACH = manual rail.
+  everywhere. Venmo and Zelle stay human acts by design — Stripe cannot send to
+  them and Zelle has no business API at all.
 
 **Guardrails**: explicit click only; duplicate guard (refuse when the bill already
 has a BillPayment or a live ledger row); confirm dialog restates vendor + handle +
@@ -145,9 +152,10 @@ amount; superadmin-only; every payment audit-trailed and comm-logged. Failed
 payouts email `REPORT_TO` (same pattern as failed bill posts, #357) and land red in
 a new `vendor_payments` health check.
 
-**1099 note**: rail is recorded per payment, so year-end can split NEC-eligible
-payments (ACH/check/Zelle) from platform-reported ones (PayPal/Venmo → 1099-K).
-Confirm treatment with the bookkeeper before relying on it.
+**1099 note**: rail is recorded per payment. Stripe Global Payouts are direct bank
+transfers (like ACH/check/Zelle) — they count toward OUR 1099-NEC duty, unlike
+platform-reported PayPal/Venmo business payments. Confirm treatment with the
+bookkeeper before relying on it.
 
 ## Phase 4 — later / optional
 
@@ -161,13 +169,13 @@ SOP update (vendor onboarding runbook).
 |---|---|---|
 | 1 — registry + module | nothing | ~1 session |
 | 2 — onboarding page + OCR + chase | Phase 1 | ~1–2 sessions |
-| 3 — payments | Phase 0 creds (PayPal), Phase 1 | ~1–2 sessions |
+| 3 — payments | Stripe Global Payouts enabled + `STRIPE_SECRET_KEY` on this site, Phase 1 | ~1–2 sessions |
 
 Phases 1–2 deliver the thing you asked for first (insurance, W-9, payment info
 stored, vendor-fed); Phase 3 turns "payment info" into "payment button".
 
 ## New env vars (Phase 3)
 
-`PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_PAYOUT_WEBHOOK_ID`
-(+ `MELIO_*` if that path is chosen). Each lands with its health check per the
-repo's no-unmonitored-credentials rule.
+`STRIPE_SECRET_KEY` (this Netlify site — brix-order's copy doesn't carry over) +
+`STRIPE_PAYOUT_WEBHOOK_SECRET`. Each lands with its health check per the repo's
+no-unmonitored-credentials rule.

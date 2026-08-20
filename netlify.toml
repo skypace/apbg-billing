@@ -118,6 +118,15 @@
   to = "/visitors.html"
   status = 200
 
+# Vendor onboarding intake — the one-time link vendors get by email (Vendor
+# Portal Phase 2). DELIBERATELY PUBLIC (kiosk recipe): a vendor cannot log in;
+# the token in ?t= is the gate and all writes go through the service-role
+# function vendor-onboard. The gateway proxies /vendor-onboarding here.
+[[redirects]]
+  from = "/vendor-onboarding"
+  to = "/vendor-onboard.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"

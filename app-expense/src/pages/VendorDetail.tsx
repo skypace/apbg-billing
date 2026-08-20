@@ -17,12 +17,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/ui/select-field';
-import { Archive, ArchiveRestore, ArrowLeft, ExternalLink, FileText, Link2, Loader2, Save, Search, ShieldCheck } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import type { Vendor, VendorType, VendorPaymentPref, VendorRequirements, VendorComplianceDoc, QboVendorMirror } from '@/types/expense';
 import {
   getVendor, updateVendor, archiveVendor, unarchiveVendor, partyDocuments,
   ensureInsuredParty, searchQboMirror, searchQboLive, vendorCompliance,
+  requestDocs, latestInvite, type VendorInvite,
   VENDOR_TYPE_LABEL, PAYMENT_PREF_LABEL, ONBOARD_LABEL,
 } from '@/lib/vendors';
 
@@ -57,6 +58,10 @@ export default function VendorDetail() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Request-documents (Phase 2 one-time link)
+  const [invite, setInvite] = useState<VendorInvite | null>(null);
+  const [requestMsg, setRequestMsg] = useState<string | null>(null);
 
   // QBO link editor
   const [linking, setLinking] = useState(false);
@@ -94,6 +99,7 @@ export default function VendorDetail() {
         });
         setReq(v.requirements ?? {});
         if (v.insured_party_id) setDocs(await partyDocuments(v.insured_party_id));
+        latestInvite(v.id).then(setInvite).catch(() => { /* status line is best-effort */ });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not load the vendor.');
       } finally {
@@ -161,6 +167,25 @@ export default function VendorDetail() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Archive failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendDocsRequest = async () => {
+    if (!vendor) return;
+    const to = vendor.contact_email || draft.contact_email;
+    if (!to) { setRequestMsg('Add a contact email first — the link goes out by email.'); return; }
+    if (!window.confirm(`Email ${to} a secure one-time link to upload their W-9 and COI and pick how they're paid?`)) return;
+    setBusy('request');
+    setRequestMsg(null);
+    try {
+      const r = await requestDocs(vendor.id);
+      setRequestMsg(`Sent to ${r.sent_to} — the link is good for 14 days.`);
+      latestInvite(vendor.id).then(setInvite).catch(() => { /* best-effort */ });
+      if (vendor.onboard_status === 'new') setVendor({ ...vendor, onboard_status: 'invited' });
+    } catch (e) {
+      setRequestMsg(e instanceof Error ? e.message : 'Could not send the request.');
     } finally {
       setBusy(null);
     }
@@ -492,11 +517,37 @@ export default function VendorDetail() {
                 File documents in Compliance &amp; Safety <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <p className="text-[11px] text-muted-foreground">
-                Filing is read-only here — upload the actual PDFs in the Compliance &amp; Safety app under this
-                vendor&rsquo;s party. A vendor-facing upload link is coming in Phase 2.
+                Staff filing happens in the Compliance &amp; Safety app under this vendor&rsquo;s party —
+                or let the vendor do it themselves with the request link below.
               </p>
             </>
           )}
+
+          {/* Request documents — the Phase 2 one-time link */}
+          <div className="pt-2 border-t border-border space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button size="sm" disabled={busy === 'request'} onClick={sendDocsRequest}>
+                {busy === 'request' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
+                Request documents by email
+              </Button>
+              {invite && (
+                <span className="text-xs text-muted-foreground">
+                  Last link: {formatDate(invite.created_at)} to {invite.sent_to || '—'}
+                  {invite.used_at
+                    ? ` · completed ${formatDate(invite.used_at)} ✓`
+                    : new Date(invite.expires_at).getTime() < Date.now()
+                      ? ' · expired'
+                      : ` · open until ${formatDate(invite.expires_at)}`}
+                </span>
+              )}
+            </div>
+            {requestMsg && <p className="text-xs text-emerald-500">{requestMsg}</p>}
+            <p className="text-[11px] text-muted-foreground">
+              Sends a secure one-time link (14 days) where the vendor uploads their W-9 and COI and picks how
+              they&rsquo;re paid — the documents file straight into the vault and shortfalls get flagged. Vendors with
+              an expiring or missing COI also get chased automatically every Monday.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>
