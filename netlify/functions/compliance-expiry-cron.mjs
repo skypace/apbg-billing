@@ -1,19 +1,27 @@
 // compliance-expiry-cron.mjs — the smoke detector on the compliance filing cabinet.
 //
-// Every Monday 15:30 UTC (8:30am PT) this reads ops.compliance_documents and
-// emails a digest to COMPLIANCE_ALERT_TO (default service@brixbev.com) when any
-// non-archived document is expired or expires within 60 days — health permits,
-// COIs, co-packer GMP audit reports, CERS/CUPA, FDA registrations. Quiet when
-// everything is current — no noise. Read-only: it never writes ops.*.
+// Every Monday 15:30 UTC (8:30am PT):
+//  1. STAFF DIGEST — reads ops.compliance_documents and emails a digest to
+//     COMPLIANCE_ALERT_TO (default service@brixbev.com) when any non-archived
+//     document is expired or expires within 60 days. Quiet when current.
+//  2. VENDOR CHASE (Vendor Portal Phase 2) — vendors whose COI is expired,
+//     expiring within 30 days, or missing against their requirements get a
+//     DIRECT chase email with a fresh one-time docs_refresh link
+//     (/vendor-onboarding). Throttled to one chase per vendor per 7 days
+//     (keyed on the last docs_refresh token minted). Every run — chases or
+//     not — logs to ops.sync_log (source 'vendors', sync_type
+//     'vendor_doc_chase'), which feeds the vendor_doc_chase health check.
 //
-// Documents live in Refractor → Production → Compliance & Safety.
+// Documents live in Refractor → Production → Compliance & Safety; vendors in
+// Brixpense → Vendors.
 //
-// Env: SUPABASE_SERVICE_ROLE_KEY (read past RLS), RESEND_API_KEY/SENDGRID_API_KEY,
+// Env: SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY/SENDGRID_API_KEY,
 //      COMPLIANCE_ALERT_TO (optional recipient override).
 
 import { requireScheduled } from './lib/auth.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
+import { ops, mintToken, requestDocsEmailHtml } from './lib/vendor-onboard-lib.mjs';
 
 const ALERT_TO = process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
@@ -66,7 +74,10 @@ export default async function handler(req, context) {
     );
   } catch (e) {
     console.error('[compliance-expiry-cron] read failed:', e.message);
-    return new Response(JSON.stringify({ ok: false, error: e.message }), {
+    // The vendor chase still runs — a broken digest read must not silently
+    // skip the chase week after week.
+    const chase = await runVendorChase();
+    return new Response(JSON.stringify({ ok: false, error: e.message, chase }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -77,7 +88,8 @@ export default async function handler(req, context) {
   console.log(`[compliance-expiry-cron] ${expired.length} expired / ${expiring.length} expiring within ${WINDOW_DAYS}d`);
 
   if (docs.length === 0) {
-    return new Response(JSON.stringify({ ok: true, expired: 0, expiring: 0 }), {
+    const chase = await runVendorChase();
+    return new Response(JSON.stringify({ ok: true, expired: 0, expiring: 0, chase }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -136,9 +148,112 @@ export default async function handler(req, context) {
     console.error('[compliance-expiry-cron] email failed (results still in logs):', e.message);
   }
 
-  return new Response(JSON.stringify({ ok: true, expired: expired.length, expiring: expiring.length, emailed: ALERT_TO }), {
+  const chase = await runVendorChase();
+  return new Response(JSON.stringify({ ok: true, expired: expired.length, expiring: expiring.length, emailed: ALERT_TO, chase }), {
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// ── Vendor document chase (Vendor Portal Phase 2) ───────────────────────────
+// Chase = the vendor's governing COI (latest-expiring live insurance doc in
+// the vault) is expired or expires within 30 days, OR they have coverage
+// requirements set and no COI at all. One chase per vendor per 7 days,
+// throttled on the last docs_refresh token minted (mint = attempt). Every run
+// logs to ops.sync_log so the vendor_doc_chase health check can see a missed
+// Monday; per-vendor email failures only flip the run to 'error' when NOTHING
+// went out (one transient bounce must not page red for a week).
+const CHASE_WINDOW_DAYS = 30;
+const CHASE_THROTTLE_DAYS = 7;
+
+function vendorRequirementsSet(req) {
+  const r = req || {};
+  return Boolean(r.gl_each_occurrence || r.wc_required || r.auto_required || r.additional_insured_required);
+}
+
+async function runVendorChase() {
+  const result = { checked: 0, chased: 0, throttled: 0, skipped_no_email: 0, errors: [] };
+  let attempted = 0;
+  try {
+    const vendors = await opsGet('vendors?select=id,display_name,contact_email,insured_party_id,requirements&archived_at=is.null');
+    result.checked = vendors.length;
+    const partyIds = vendors.map((v) => v.insured_party_id).filter(Boolean);
+    const insDocs = partyIds.length > 0
+      ? await opsGet(`compliance_documents?select=party_id,expiration_date&archived_at=is.null&category=eq.insurance&party_id=in.(${partyIds.join(',')})`)
+      : [];
+    const byParty = new Map();
+    for (const d of insDocs) {
+      const list = byParty.get(d.party_id) || [];
+      list.push(d);
+      byParty.set(d.party_id, list);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + CHASE_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+    const throttleSince = new Date(Date.now() - CHASE_THROTTLE_DAYS * 86_400_000).toISOString();
+
+    for (const v of vendors) {
+      const ins = v.insured_party_id ? (byParty.get(v.insured_party_id) || []) : [];
+      // Governing certificate = the one that expires last; a no-expiry doc
+      // counts as evergreen coverage and suppresses the chase.
+      let exp = null, evergreen = false;
+      for (const d of ins) {
+        if (!d.expiration_date) evergreen = true;
+        else if (!exp || d.expiration_date > exp) exp = d.expiration_date;
+      }
+      let reason = null;
+      if (ins.length === 0) {
+        if (vendorRequirementsSet(v.requirements)) reason = 'we do not have a certificate of insurance on file for you';
+      } else if (!evergreen && exp) {
+        if (exp < today) reason = `the certificate of insurance we have on file expired ${exp}`;
+        else if (exp <= soon) reason = `the certificate of insurance we have on file expires ${exp}`;
+      }
+      if (!reason) continue;
+      if (!v.contact_email) { result.skipped_no_email++; continue; }
+
+      const recent = await opsGet(
+        `vendor_onboard_tokens?select=id&vendor_id=eq.${v.id}&purpose=eq.docs_refresh&created_at=gte.${encodeURIComponent(throttleSince)}&limit=1`,
+      );
+      if (recent && recent.length > 0) { result.throttled++; continue; }
+
+      attempted++;
+      try {
+        const { link } = await mintToken({
+          vendorId: v.id, purpose: 'docs_refresh', sentTo: v.contact_email, createdBy: 'chase-cron',
+        });
+        await sendEmail({
+          to: v.contact_email,
+          subject: `${v.display_name} — insurance certificate update needed (Brix Beverage)`,
+          html: requestDocsEmailHtml({ vendorName: v.display_name, link, mode: 'chase', reason }),
+          text: `Hello — ${reason}. Please send us an updated certificate using this secure link (expires in 14 days): ${link}`,
+        });
+        result.chased++;
+      } catch (e) {
+        result.errors.push(`${v.display_name}: ${String(e.message || e).slice(0, 120)}`);
+      }
+    }
+
+    const status = result.errors.length > 0 && result.chased === 0 && attempted > 0 ? 'error' : 'success';
+    await ops('POST', 'sync_log', {
+      source: 'vendors',
+      sync_type: 'vendor_doc_chase',
+      status,
+      error_message: result.errors.length ? result.errors.join(' | ').slice(0, 400) : null,
+      metadata: result,
+      completed_at: new Date().toISOString(),
+    });
+    console.log(`[compliance-expiry-cron] vendor chase: ${result.chased} chased / ${result.throttled} throttled / ${result.checked} checked`);
+  } catch (e) {
+    console.error('[compliance-expiry-cron] vendor chase failed:', e.message);
+    result.errors.push(String(e.message || e).slice(0, 200));
+    try {
+      await ops('POST', 'sync_log', {
+        source: 'vendors', sync_type: 'vendor_doc_chase', status: 'error',
+        error_message: String(e.message || e).slice(0, 400), metadata: result,
+        completed_at: new Date().toISOString(),
+      });
+    } catch { /* the health check's yellow >8d rule catches a run that could not even log */ }
+  }
+  return result;
 }
 
 export const config = {

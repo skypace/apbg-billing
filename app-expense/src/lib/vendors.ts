@@ -152,6 +152,43 @@ export async function vendorsApi<T>(body: Record<string, unknown>): Promise<T> {
 export const searchQboLive = (term: string) =>
   vendorsApi<{ vendors: QboLiveVendor[] }>({ action: 'qbo_search', term }).then((r) => r.vendors);
 
+/** Staff-triggered "Request documents" — mints a one-time onboarding link and
+ *  emails it to the vendor (Phase 2). */
+export async function requestDocs(vendorId: string, email?: string): Promise<{ sent_to: string; expires_at: string }> {
+  const token = await getAccessToken();
+  const res = await fetch('/expense/api/vendor-request-docs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ vendor_id: vendorId, ...(email ? { email } : {}) }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  return data as { sent_to: string; expires_at: string };
+}
+
+export interface VendorInvite {
+  purpose: 'onboard' | 'docs_refresh';
+  sent_to: string | null;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+}
+
+/** Latest invite/chase link minted for a vendor (staff-readable — hashes only,
+ *  never the raw token). */
+export async function latestInvite(vendorId: string): Promise<VendorInvite | null> {
+  const { data, error } = await supabase
+    .from('vendor_onboard_tokens')
+    .select('purpose, sent_to, created_by, created_at, expires_at, used_at')
+    .eq('vendor_id', vendorId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as VendorInvite) ?? null;
+}
+
 export const createQboVendor = (fields: { display_name: string; company_name?: string; email?: string; phone?: string }) =>
   vendorsApi<{ vendor: QboLiveVendor; existed?: boolean }>({ action: 'qbo_create', ...fields });
 
