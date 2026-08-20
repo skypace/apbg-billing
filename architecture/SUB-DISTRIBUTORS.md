@@ -120,16 +120,22 @@ USING (ops.fn_is_staff() OR NOT ops.fn_is_distributor() OR <scope>)
 - Verified live at ship time with a temporary membership: 1 registry row,
   1 location, catalog names, zero invoices/formulas/costs.
 
-### Known limits (pre-existing, flagged 2026-08-18 — do these before
-### onboarding a partner you don't trust)
+### Known limits — CLOSED 2026-08-20 (migration `20260820b`)
 
-1. **SECURITY DEFINER RPCs granted to `authenticated`** (e.g.
-   `fn_items_master`, returns purchase costs) are callable by ANY login on
-   the project — also true for brix-order customers today. Needs an
-   RPC-guard pass (`IF ops.fn_is_distributor() AND NOT ops.fn_is_staff()
-   THEN RAISE` in the leaky ones).
-2. **`ops.qbo_invoices`/`_lines` carry ANON read policies** — the invoice
-   mirror is readable with the public anon key alone. Separate decision.
+1. ~~SECURITY DEFINER RPCs callable by any login~~ — **closed**: a
+   guard-wrapper generator wrapped all 130 exposed functions
+   (`fn_assert_internal` blocks distributor logins; the SF-token lease
+   functions + `qbo_token_diagnostics` got the stricter
+   `fn_assert_staff_or_service`, closing a live token-theft path). EXECUTE
+   revoked from PUBLIC/anon across the schema. ⚠ Maintenance rule: a later
+   `CREATE OR REPLACE` on a wrapped name replaces the wrapper — edit the
+   `<name>__i` inner instead, or re-run the 20260820b generator (idempotent).
+2. ~~Anon-readable invoice mirror~~ — **closed**: anon policies dropped +
+   anon SELECT revoked on `qbo_invoices`/`_lines`; `public/dashboard.html`
+   now rides the signed-in superadmin's bearer.
+3. Deny-list restrictive policies upgraded FOR SELECT → FOR ALL (write
+   coverage), and the notification scan is health-checked
+   (`distributor_notify` in `ops.sync_health()`).
 
 ## Notifications (`distributor-notify.mjs`)
 
