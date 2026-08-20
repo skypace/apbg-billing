@@ -2,7 +2,7 @@
   "$comment": "APBG Master Handbook manifest. The viewer (public/docs/handbook/index.html) renders the chapter list from this file; the sweep function (netlify/functions/handbook-sweep.mjs) compares each chapter's last_reviewed date against the latest commit touching its registered sources. Update last_reviewed whenever a chapter is re-verified against its sources.",
   "title": "APBG Master Handbook",
   "version": "1.0.0",
-  "updated": "2026-08-17",
+  "updated": "2026-08-20",
   "parts": [
     {
       "id": "intro",
@@ -207,6 +207,23 @@
         {
           "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
           "path": "ARCHITECTURE.md"
+        }
+      ]
+    },
+    {
+      "slug": "14-sub-distributors",
+      "title": "Sub-Distributors — Partner Program, Portal, Agreements & Fee Settlement",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-20",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/SUB-DISTRIBUTORS.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
         }
       ]
     },
