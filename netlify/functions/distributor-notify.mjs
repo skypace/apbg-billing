@@ -307,17 +307,36 @@ async function runScan() {
   return result;
 }
 
+// Every run — quiet or not — logs to ops.sync_log so the distributor_notify
+// check in ops.fn_sync_health_extra() can go yellow/red when the scan stops
+// running (the silent-outage rule: no pipeline without a watcher).
+async function logRun(status, result, errMsg) {
+  try {
+    await ops('POST', 'sync_log', {
+      source: 'distributor',
+      sync_type: 'distributor_notify',
+      status,
+      error_message: errMsg ? String(errMsg).slice(0, 400) : null,
+      metadata: result || null,
+      completed_at: new Date().toISOString(),
+    });
+  } catch { /* health check's staleness rule catches a run that cannot even log */ }
+}
+
 export default async function handler(req, context) {
   const gate = await requireScheduledOrAuth(req, context);
   if (!gate.ok) return gate.response;
   try {
     const result = await runScan();
+    await logRun(result.failed > 0 ? 'error' : 'success', result,
+      result.failed > 0 ? `${result.failed} send(s) failed — will retry next tick` : null);
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
     console.error('[distributor-notify]', e);
+    await logRun('error', null, e.message || e);
     return new Response(JSON.stringify({ error: String(e.message || e).slice(0, 400) }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

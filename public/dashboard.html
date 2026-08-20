@@ -34,9 +34,24 @@
 <div id="app"></div>
 <script>
 const { createClient } = supabase;
+// The data client rides the signed-in superadmin's session bearer (the page
+// is gated by requireSuperadmin below) and targets the ops schema explicitly.
+// The old client sent the bare anon key against the default public schema —
+// it depended on anon read policies (closed by 20260820b) and queried the
+// wrong schema anyway.
+const APBG_TOKEN = (function () {
+  try {
+    const s = JSON.parse(localStorage.getItem('apbg_session') || 'null');
+    return s && s.token ? s.token : null;
+  } catch (e) { return null; }
+})();
 const sb = createClient(
   'https://gfsdpwiqzshhexkofiif.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY',
+  {
+    db: { schema: 'ops' },
+    global: APBG_TOKEN ? { headers: { Authorization: 'Bearer ' + APBG_TOKEN } } : {}
+  }
 );
 
 const app = document.getElementById('app');

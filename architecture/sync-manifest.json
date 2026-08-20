@@ -552,13 +552,14 @@
       "source_repo": "skypace/apbg-billing",
       "schedule": "Netlify scheduled function every 15 min (+ on-demand staff kick)",
       "writes": [
-        "ops.sub_distributor_notifications"
+        "ops.sub_distributor_notifications",
+        "ops.sync_log"
       ],
-      "multi_writer": false,
+      "multi_writer": true,
       "external_inputs": [
         "Resend/SendGrid (outbound notification emails)"
       ],
-      "notes": "Sub-distributor notification scan: order_submitted \u2192 staff (DISTRIBUTOR_ALERT_TO, default service@brixbev.com), order_fulfilled + transfer_shipped \u2192 partner (contact_email \u222a active portal users), transfer received with discrepancy \u2192 staff, agreement_sent \u2192 partner with the portal sign link, agreement_signed \u2192 both. Exactly-once via UNIQUE(event_type, ref_id) on ops.sub_distributor_notifications (failed sends recorded and retried next tick); scans capped to the last 30 days so a fresh deploy can never blast history. Service-role only table. Source: netlify/functions/distributor-notify.mjs; table from migration 20260820a.",
+      "notes": "Sub-distributor notification scan: order_submitted \u2192 staff (DISTRIBUTOR_ALERT_TO, default service@brixbev.com), order_fulfilled + transfer_shipped \u2192 partner (contact_email \u222a active portal users), transfer received with discrepancy \u2192 staff, agreement_sent \u2192 partner with the portal sign link, agreement_signed \u2192 both. Exactly-once via UNIQUE(event_type, ref_id) on ops.sub_distributor_notifications (failed sends recorded and retried next tick); scans capped to the last 30 days so a fresh deploy can never blast history. Service-role only table. Every run logs to ops.sync_log (source 'distributor', sync_type 'distributor_notify') feeding the distributor_notify check in ops.fn_sync_health_extra (yellow >2h, red >12h or logged error — added 20260820b). Source: netlify/functions/distributor-notify.mjs; table from migration 20260820a.",
       "last_verified": "2026-08-20"
     },
     {
