@@ -99,7 +99,15 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
             {(rows ?? []).map((a) => (
               <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                 <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>v{a.version}</code></Td>
-                <Td><span style={{ fontWeight: 600 }}>{a.title ?? '—'}</span></Td>
+                <Td>
+                  <span style={{ fontWeight: 600 }}>{a.title ?? '—'}</span>
+                  {a.scope && (
+                    <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2, maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      title={a.scope}>
+                      Scope: {a.scope}
+                    </div>
+                  )}
+                </Td>
                 <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>
                   {a.model === 'sell_in' ? 'Sell-In' : 'Consignment'}
                 </span></Td>
@@ -139,18 +147,29 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
         </table>
       </div>
 
-      {/* Signed signature preview */}
-      {(rows ?? []).filter((a) => a.status === 'signed' && a.signature_data).map((a) => (
+      {/* Signed signature preview + audit trail */}
+      {(rows ?? []).filter((a) => a.status === 'signed').map((a) => (
         <div key={a.id} className="cd" style={{ padding: 12, marginTop: 12 }}>
           <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
-            v{a.version} signature — {a.signer_name} ({a.signer_email ?? 'no email'})
-            {a.signed_at ? ` · ${new Date(a.signed_at).toLocaleString()}` : ''}
+            v{a.version} signature record
           </div>
-          <img
-            src={a.signature_data as string}
-            alt={`Signature of ${a.signer_name ?? 'signer'}`}
-            style={{ maxWidth: 320, maxHeight: 110, background: '#fff', borderRadius: 4, padding: 6 }}
-          />
+          <div style={{ fontSize: 11, marginBottom: 8 }}>
+            Signed by <strong>{a.signer_name ?? '—'}</strong> ({a.signer_email ?? 'no email'})
+            {a.signed_at ? ` on ${new Date(a.signed_at).toLocaleString()}` : ''}
+            {a.signer_ip ? <> · IP <code style={{ fontFamily: 'var(--ff-mono)', fontSize: 10 }}>{a.signer_ip}</code></> : ''}
+            {a.signer_user_agent ? (
+              <span style={{ color: 'var(--mt)' }} title={a.signer_user_agent}>
+                {' '}· browser {a.signer_user_agent.length > 60 ? a.signer_user_agent.slice(0, 60) + '…' : a.signer_user_agent}
+              </span>
+            ) : ''}
+          </div>
+          {a.signature_data && (
+            <img
+              src={a.signature_data}
+              alt={`Signature of ${a.signer_name ?? 'signer'}`}
+              style={{ maxWidth: 320, maxHeight: 110, background: '#fff', borderRadius: 4, padding: 6 }}
+            />
+          )}
         </div>
       ))}
 
@@ -190,6 +209,7 @@ function AgreementDialog({ dist, agreement, nextVersion, onClose, onSaved }: {
   const [effective, setEffective] = useState(agreement?.effective_date ?? '');
   const [expiry, setExpiry] = useState(agreement?.expiry_date ?? '');
   const [terms, setTerms] = useState(agreement?.terms ?? '');
+  const [scope, setScope] = useState(agreement?.scope ?? '');
   const [status, setStatus] = useState<AgreementStatus>(agreement?.status ?? 'draft');
   const [file, setFile] = useState<File | null>(null);
 
@@ -216,6 +236,7 @@ function AgreementDialog({ dist, agreement, nextVersion, onClose, onSaved }: {
           effective_date: effective || null,
           expiry_date: expiry || null,
           terms: terms.trim() || null,
+          scope: scope.trim() || null,
           status,
           ...filePatch,
         });
@@ -230,6 +251,7 @@ function AgreementDialog({ dist, agreement, nextVersion, onClose, onSaved }: {
           effective_date: effective || null,
           expiry_date: expiry || null,
           terms: terms.trim() || null,
+          scope: scope.trim() || null,
           status: 'draft',
           ...filePatch,
         };
@@ -286,6 +308,13 @@ function AgreementDialog({ dist, agreement, nextVersion, onClose, onSaved }: {
             </select>
           </LField>
         )}
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <LField label="Scope — territory, accounts, products covered; shown to the signer">
+          <textarea rows={3} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 54 }}
+            value={scope} onChange={(e) => setScope(e.target.value)} />
+        </LField>
       </div>
 
       <div style={{ marginTop: 12 }}>

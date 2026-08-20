@@ -3,13 +3,31 @@ import { X as XIcon } from 'lucide-react';
 import { inp } from '../../lib/styles';
 import {
   QboCustomerLite,
+  QboVendorLite,
   searchQboCustomers,
+  searchQboVendors,
   SubDistributorModel,
   SubDistributorStatus,
 } from '../../lib/subDistributors';
 
 export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * PostgREST wraps a plpgsql RAISE EXCEPTION in a JSON error blob; pull the
+ * actionable `message` out so RPC errors surface verbatim in the toast.
+ */
+export function rpcErrMsg(e: unknown): string {
+  const raw = errMsg(e);
+  const brace = raw.indexOf('{');
+  if (brace >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(brace)) as { message?: string; details?: string };
+      if (parsed.message) return parsed.message;
+    } catch { /* fall through to the raw string */ }
+  }
+  return raw;
 }
 
 // ── Table cells (same skin as the Stock tabs) ─────────────────────────────
@@ -169,6 +187,76 @@ export function QboCustomerSearch({ value, valueLabel, onPick, placeholder }: {
               {r.display_name}{' '}
               <code style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)', fontSize: 9.5 }}>
                 #{r.qbo_customer_id}
+              </code>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── QBO vendor search (same shape as the customer search) ────────────────
+
+export function QboVendorSearch({ onPick, placeholder }: {
+  onPick: (v: QboVendorLite) => void;
+  placeholder?: string;
+}) {
+  const [term, setTerm] = useState('');
+  const [results, setResults] = useState<QboVendorLite[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (timer.current) window.clearTimeout(timer.current);
+    if (!term.trim()) { setResults([]); return; }
+    timer.current = window.setTimeout(() => {
+      setSearching(true);
+      searchQboVendors(term)
+        .then((rows) => { setResults(rows); setOpen(true); })
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => { if (timer.current) window.clearTimeout(timer.current); };
+  }, [term]);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        style={{ ...inp(), width: '100%' }}
+        value={term}
+        placeholder={placeholder ?? 'Search QBO vendors…'}
+        onChange={(e) => setTerm(e.target.value)}
+        onFocus={() => { if (results.length) setOpen(true); }}
+        onBlur={() => window.setTimeout(() => setOpen(false), 180)}
+      />
+      {searching && <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 3 }}>Searching…</div>}
+      {open && results.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
+          background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 4,
+          maxHeight: 220, overflowY: 'auto', marginTop: 2,
+        }}>
+          {results.map((r) => (
+            <button
+              key={r.qbo_vendor_id}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onPick(r); setTerm(''); setResults([]); setOpen(false); }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                padding: '6px 8px', fontSize: 11, color: 'var(--tx)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+              }}
+            >
+              {r.display_name}
+              {r.active === false && <span style={{ marginLeft: 6, color: 'var(--rd)', fontSize: 9 }}>INACTIVE</span>}
+              <span style={{ marginLeft: 6, color: 'var(--mt)', fontSize: 9.5 }}>
+                {[r.city, r.state].filter(Boolean).join(', ')}
+              </span>{' '}
+              <code style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)', fontSize: 9.5 }}>
+                #{r.qbo_vendor_id}
               </code>
             </button>
           ))}
