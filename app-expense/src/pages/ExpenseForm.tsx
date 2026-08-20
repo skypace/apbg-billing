@@ -56,6 +56,13 @@ export default function ExpenseForm() {
   const [loadingExisting, setLoadingExisting] = useState(isEditing);
 
   const [vendorName, setVendorName] = useState('');
+  const [billNumber, setBillNumber] = useState('');
+  // SF-landed drafts only: why the automated OCR gate held this one back from
+  // auto-posting (null once it's cleared, or for any non-SF expense). Purely
+  // informational — editing/submitting here always posts gate-free, since a
+  // human is looking at it.
+  const [sfOcrStatus, setSfOcrStatus] = useState<string | null>(null);
+  const [sfOcrErrorMsg, setSfOcrErrorMsg] = useState<string | null>(null);
   const [totalAmount, setTotalAmount] = useState('');
   const [receiptDate, setReceiptDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -138,11 +145,23 @@ export default function ExpenseForm() {
   const [resultBillId] = useState<string | null>(null);
   const [marginMatch, setMarginMatch] = useState<MarginMatch | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  // Gate (Sky, 2026-08-13): Submit only auto-approves — it never touches QBO.
+  // readyToPost tracks whether THIS request is still waiting on the separate,
+  // explicit "Post to QuickBooks" click.
+  const [readyToPostId, setReadyToPostId] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [postedInfo, setPostedInfo] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
 
   const totalNum = parseFloat(totalAmount) || 0;
   const threshold = settings?.approval_threshold ?? 500;
   const needsApproval = totalNum > threshold;
-  const readOnly = isEditing && existingStatus !== null && existingStatus !== 'draft';
+  // 'approved' (auto-approved, not yet posted to QuickBooks) stays editable —
+  // that's exactly the state where a human catches a bad field (wrong date,
+  // wrong vendor) before it becomes a real QBO transaction. Everything past
+  // that (posted/denied/fulfilled/awaiting_invoice) is locked; QBO or a
+  // manager decision is the source of truth at that point.
+  const readOnly = isEditing && existingStatus !== null && !['draft', 'approved'].includes(existingStatus);
 
   useEffect(() => {
     if (!id) return;
@@ -167,6 +186,9 @@ export default function ExpenseForm() {
       setExistingStatus(data.status);
       setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
+      setBillNumber(data.bill_number || '');
+      setSfOcrStatus(data.ocr_status || null);
+      setSfOcrErrorMsg(data.ocr_error || null);
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
       setReceiptDate(data.receipt_date || new Date().toISOString().slice(0, 10));
       setCogsAccountLabel(data.cogs_account_label || '');
@@ -378,6 +400,11 @@ export default function ExpenseForm() {
           const ocr = await res.json();
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
+          if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          // A fresh attachment + a fresh OCR pass supersedes whatever held this
+          // draft before — clear the old hold reason so the banner disappears.
+          setSfOcrStatus(null);
+          setSfOcrErrorMsg(null);
           if (ocr.total != null) setTotalAmount(String(ocr.total));
           if (ocr.date) setReceiptDate(ocr.date);
           if (Array.isArray(ocr.line_items) && ocr.line_items.length > 0) {
@@ -509,6 +536,7 @@ export default function ExpenseForm() {
       const fields = {
         entity,
         vendor_name: vendorName || null,
+        bill_number: billNumber || null,
         total_amount: totalNum || 0,
         receipt_date: receiptDate || null,
         cogs_account_id: cogsAccountId || null,
@@ -595,8 +623,31 @@ export default function ExpenseForm() {
 
       if (notifyRes.ok) {
         const notifyData = await notifyRes.json();
-        if (notifyData.margin_match) setMarginMatch(notifyData.margin_match);
-        if (notifyData.auto_approved) {
+        if (notifyData.ready_to_post && notifyData.mode === 'purchase') {
+          // Already paid — nothing left to double-check that Submit didn't
+          // already validate (payment account on file), so post it to
+          // QuickBooks right now instead of making the user come back for a
+          // second click. A failed post still lands exactly like a manual
+          // one would (autopost_error stamped + REPORT_TO emailed) and this
+          // row stays approved + editable, with the same "Post to
+          // QuickBooks" button as a retry.
+          try {
+            const postData = await attemptPostToQuickBooks(req.id);
+            if (postData.margin_match) setMarginMatch(postData.margin_match);
+            setResultMessage(
+              `Posted to QuickBooks as Purchase ${postData.qbo_doc_number || postData.qbo_purchase_id}.`,
+            );
+          } catch (e) {
+            setResultMessage('Approved, but the QuickBooks post failed — fix the issue below and try again.');
+            setReadyToPostId(req.id);
+            setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+          }
+        } else if (notifyData.ready_to_post) {
+          // Unpaid bill — approve now, post whenever it's actually ready
+          // (e.g. once it's paid); that's a deliberate separate click.
+          setResultMessage('Approved — review the bill below, then post it to QuickBooks.');
+          setReadyToPostId(req.id);
+        } else if (notifyData.auto_approved) {
           setResultMessage('Expense auto-approved and logged.');
         } else {
           setResultMessage(
@@ -604,7 +655,8 @@ export default function ExpenseForm() {
           );
         }
       } else {
-        setResultMessage('Request saved but notification may have failed.');
+        const notifyErr = await notifyRes.json().catch(() => ({}));
+        setResultMessage(notifyErr.error || 'Request saved but could not be approved.');
       }
 
       // Remember this submitter's choices as the pre-fill for their next expense.
@@ -626,6 +678,42 @@ export default function ExpenseForm() {
       setStep('error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Shared with the auto-post-on-submit path above (paid expenses) — this is
+  // the one place that actually calls expense-request-link-bill. Throws on
+  // any failure so both callers can each decide how to surface it.
+  const attemptPostToQuickBooks = async (id: string) => {
+    const token = await getAccessToken();
+    const res = await fetch('/expense/api/expense-request-link-bill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ requestId: id, mode: 'create' }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
+    }
+    return data;
+  };
+
+  // The manual fallback — unpaid bills wait here deliberately ("post later,
+  // once it's actually paid"); paid expenses only land here as a retry after
+  // an auto-post attempt failed.
+  const postToQuickBooks = async () => {
+    if (!readyToPostId) return;
+    setPosting(true);
+    setPostError(null);
+    try {
+      const data = await attemptPostToQuickBooks(readyToPostId);
+      setPostedInfo(`Posted to QuickBooks as ${data.kind === 'purchase' ? 'Purchase' : 'Bill'} ${data.qbo_doc_number || data.qbo_bill_id || data.qbo_purchase_id}.`);
+      if (data.margin_match) setMarginMatch(data.margin_match);
+      setReadyToPostId(null);
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -738,11 +826,28 @@ export default function ExpenseForm() {
           </div>
         )}
 
+        {isEditing && existingStatus === 'approved' && (
+          <div className="text-xs rounded-md p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            {isPaid
+              ? "Approved, but the QuickBooks post hasn't gone through yet. Fix whatever's wrong (date, vendor, account) and hit Submit — it will try posting to QuickBooks again right away."
+              : 'Approved, but nothing has been sent to QuickBooks yet. If something\'s wrong (date, vendor, amount), fix it and hit Submit to re-check it — then use "Post to QuickBooks" wherever this expense is listed once it\'s ready.'}
+          </div>
+        )}
+
         {linkedPRId && !isEditing && (
           <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 rounded-md p-3">
             Logging the receipt for your approved Purchase Request
             {linkedPRVendor ? ` (${linkedPRVendor})` : ''}.
             Vendor, amount, and accounts are pre-filled from the PR — just attach the receipt and pick the "Paid with" account.
+          </div>
+        )}
+
+        {sfOcrStatus && sfOcrStatus !== 'processed' && (
+          <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
+            {sfOcrStatus === 'no_attachment' &&
+              'Held from auto-posting — Service Fusion had no receipt on this expense. Attach one below (or fill in the details and Bill # by hand), then submit to post it now.'}
+            {sfOcrStatus === 'failed' &&
+              `Held from auto-posting — the attached receipt couldn't be read${sfOcrErrorMsg ? `: ${sfOcrErrorMsg}` : '.'} Double-check the details below and submit to post it now.`}
           </div>
         )}
 
@@ -791,6 +896,16 @@ export default function ExpenseForm() {
             placeholder="e.g. Home Depot, AutoZone"
             value={vendorName}
             onChange={(e) => setVendorName(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <Label>Bill / Invoice #</Label>
+          <Input
+            disabled={readOnly}
+            placeholder="From the vendor's invoice — auto-filled by OCR when a receipt is attached"
+            value={billNumber}
+            onChange={(e) => setBillNumber(e.target.value)}
           />
         </div>
 
@@ -1131,7 +1246,9 @@ export default function ExpenseForm() {
               >
                 {needsApproval
                   ? 'Submit for Approval'
-                  : `Submit — ${formatCurrency(totalNum)}`}
+                  : isPaid
+                    ? `Submit & Post to QuickBooks — ${formatCurrency(totalNum)}`
+                    : `Submit — ${formatCurrency(totalNum)}`}
               </Button>
             </div>
           </div>
@@ -1147,7 +1264,9 @@ export default function ExpenseForm() {
         <p className="text-sm text-muted-foreground">
           {needsApproval
             ? 'Submitting and notifying manager…'
-            : 'Processing expense…'}
+            : isPaid
+              ? 'Submitting and posting to QuickBooks…'
+              : 'Processing expense…'}
         </p>
       </div>
     );
@@ -1193,6 +1312,26 @@ export default function ExpenseForm() {
           <div className="text-xs rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200 max-w-sm">
             No QBO invoice found referencing Job #{marginMatch.job_number}. Either the invoice hasn't been created yet, or the job number doesn't appear on any recent invoice.
           </div>
+        )}
+
+        {readyToPostId && !postedInfo && (
+          <div className="w-full max-w-sm text-left space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Nothing has been sent to QuickBooks yet. Double-check the vendor, amount, and line items above, then post it.
+            </p>
+            {postError && (
+              <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
+                {postError}
+              </div>
+            )}
+            <Button className="w-full" disabled={posting} onClick={postToQuickBooks}>
+              {posting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Post to QuickBooks
+            </Button>
+          </div>
+        )}
+        {postedInfo && (
+          <p className="text-sm text-emerald-500 font-medium">{postedInfo}</p>
         )}
 
         <div className="flex gap-2 mt-4">

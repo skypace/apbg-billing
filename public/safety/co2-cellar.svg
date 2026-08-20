@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" role="img" aria-label="Cross-section of a bar cellar showing carbon dioxide pooling from the floor upward, with the never-enter-to-rescue rule">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .lbl{font:600 13px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 13px system-ui,sans-serif;fill:#15803D}
+ .st{fill:none;stroke:#1F4E79;stroke-width:2.5}
+</style>
+<text x="16" y="26" class="ttl">CO₂ is heavier than air — it fills a cellar from the floor up</text>
+
+<!-- building cross-section -->
+<path class="st" d="M60 60 H660 V360 H60 Z"/>
+<line x1="60" y1="170" x2="420" y2="170" stroke="#1F4E79" stroke-width="2.5"/>
+<text x="72" y="92" class="lbl">Ground floor — bar</text>
+<text x="72" y="110" class="sub">air is normal here</text>
+
+<!-- stairs down -->
+<path class="st" d="M420 170 L450 170 L450 200 L480 200 L480 230 L510 230 L510 260 L540 260 L540 290 L570 290 L570 320 L600 320 L600 360"/>
+<text x="470" y="160" class="sub">cellar stairs</text>
+
+<!-- gas layers, densest at bottom -->
+<rect x="62" y="300" width="596" height="58" fill="#B91C1C" opacity=".38"/>
+<rect x="62" y="262" width="596" height="38" fill="#B91C1C" opacity=".24"/>
+<rect x="62" y="230" width="596" height="32" fill="#B91C1C" opacity=".13"/>
+<text x="78" y="332" class="dgr">CO₂ accumulates here — oxygen displaced</text>
+<text x="78" y="350" class="sub">invisible · odourless · unconsciousness in seconds</text>
+<text x="78" y="252" class="sub">rising level as the leak continues</text>
+
+<!-- leaking cylinder -->
+<rect x="150" y="270" width="26" height="70" rx="10" fill="none" stroke="#1F4E79" stroke-width="2.5"/>
+<rect x="158" y="262" width="10" height="10" fill="#1F4E79"/>
+<path d="M180 276 q22 -10 40 -4" fill="none" stroke="#B91C1C" stroke-width="2" stroke-dasharray="4 3"/>
+<path d="M180 288 q26 -6 46 2" fill="none" stroke="#B91C1C" stroke-width="2" stroke-dasharray="4 3"/>
+<text x="120" y="360" class="sub">leaking cylinder / line</text>
+
+<!-- person at top of stairs -->
+<circle cx="392" cy="130" r="9" fill="#15803D"/>
+<path d="M392 139 v26 M392 148 l-12 10 M392 148 l12 10 M392 165 l-9 14 M392 165 l9 14" stroke="#15803D" stroke-width="2.5" fill="none"/>
+<text x="300" y="200" class="ok">STOP at the top</text>
+
+<!-- rules panel -->
+<rect x="60" y="372" width="600" height="1" fill="#D3DEE2"/>
+<text x="16" y="392" class="sub">Before entry: ventilate · never alone · check the monitor · leave at the first headache or dizziness</text>
+
+<!-- never enter -->
+<circle cx="640" cy="130" r="30" fill="none" stroke="#B91C1C" stroke-width="4"/>
+<line x1="619" y1="109" x2="661" y2="151" stroke="#B91C1C" stroke-width="4"/>
+<text x="530" y="86" class="dgr">Someone down below?</text>
+<text x="530" y="102" class="dgr">DO NOT GO IN — call 911</text>
+</svg>

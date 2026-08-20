@@ -71,6 +71,19 @@ export interface ExpenseRequest {
   qbo_invoice_match: string | null;
   margin_result: Record<string, unknown> | null;
 
+  /** Vendor's own invoice/bill number — OCR-extracted or hand-entered. Flows
+   *  to QBO's "Bill no." (DocNumber) when the bill is created. */
+  bill_number?: string | null;
+  /** OCR gate state for SF-landed drafts (null = not yet run). SF drafts only
+   *  auto-post once this is 'processed' AND bill_number is set — anything
+   *  else ('no_attachment' | 'failed') holds the draft for manual review. */
+  ocr_status?: 'processed' | 'no_attachment' | 'failed' | null;
+  ocr_error?: string | null;
+
+  /** Reason the last "Post to QuickBooks" attempt failed (e.g. a closed QBO
+   *  accounting period, no vendor match). Cleared on a successful post. */
+  autopost_error?: string | null;
+
   // Soft-archive (SF-landed rows): hidden from lists, kept for sync dedup.
   archived_at?: string | null;
   archived_by?: string | null;
@@ -128,6 +141,79 @@ export interface ExpenseSetting {
 export interface CogsAccount {
   id: string;
   label: string;
+}
+
+/** Vendor type — mirrors the ops.vendors CHECK */
+export type VendorType = 'contractor' | 'supplier' | 'service' | 'other';
+
+/** How the vendor prefers to be paid. 'zelle_manual'/'check_manual' are
+ *  recorded-by-hand rails (no API exists / deliberate). */
+export type VendorPaymentPref = 'ach' | 'paypal' | 'venmo' | 'zelle_manual' | 'check_manual';
+
+export type VendorOnboardStatus = 'new' | 'invited' | 'docs_pending' | 'complete';
+
+/** Coverage requirements riding ops.vendors.requirements (jsonb). Compliance
+ *  status against these is computed where displayed — nothing stored. */
+export interface VendorRequirements {
+  gl_each_occurrence?: number | null;
+  wc_required?: boolean;
+  auto_required?: boolean;
+  additional_insured_required?: boolean;
+}
+
+/** Vendor registry row — mirrors ops.vendors (Vendor Portal Phase 1). */
+export interface Vendor {
+  id: string;
+  display_name: string;
+  legal_name: string | null;
+  vendor_type: VendorType;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  /** → ops.qbo_vendors.qbo_vendor_id (the daily QBO mirror); null until linked. */
+  qbo_vendor_id: string | null;
+  /** → ops.insured_parties.id — the compliance-vault party whose COI/W-9 docs
+   *  this vendor's compliance chips read. Null until document filing is set up. */
+  insured_party_id: string | null;
+  payment_method_pref: VendorPaymentPref | null;
+  /** Venmo @handle or PayPal email — the ONLY payment datum stored.
+   *  Bank account numbers live with the payment rail, never here. */
+  payment_handle: string | null;
+  default_terms: string | null;
+  requirements: VendorRequirements;
+  w9_status: 'missing' | 'on_file';
+  ein_last4: string | null;
+  onboard_status: VendorOnboardStatus;
+  notes: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Row from the ops.qbo_vendors daily mirror (read-only here). */
+export interface QboVendorMirror {
+  qbo_vendor_id: string;
+  display_name: string;
+  company_name: string | null;
+  active: boolean;
+  email: string | null;
+  phone: string | null;
+}
+
+/** Compliance-vault document (subset of ops.compliance_documents we render). */
+export interface VendorComplianceDoc {
+  id: string;
+  category: 'insurance' | 'permit' | 'food_safety' | 'safety' | 'tax' | 'other';
+  doc_type: string;
+  issuer: string | null;
+  reference_number: string | null;
+  issue_date: string | null;
+  expiration_date: string | null;
+  file_name: string | null;
+  storage_path: string | null;
+  archived_at: string | null;
 }
 
 /** Loaded settings from the settings table */

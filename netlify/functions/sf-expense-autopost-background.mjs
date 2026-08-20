@@ -101,6 +101,11 @@ function buildBillPayload(r, vendor, accountId) {
   ].filter(Boolean).join(' | ').substring(0, 4000);
   const payload = { VendorRef: { value: vendor.Id }, Line: lines, PrivateNote: memo };
   if (r.receipt_date) payload.TxnDate = r.receipt_date;
+  // OCR-extracted vendor invoice/bill number (sf-expense-ocr-background) →
+  // QBO's "Bill no." — this IS the gate that got this row here (autopost only
+  // selects ocr_status='processed' AND bill_number NOT NULL), so it's always
+  // present, but stay defensive. QBO's DocNumber caps at 21 chars.
+  if (r.bill_number) payload.DocNumber = String(r.bill_number).trim().slice(0, 21);
   return payload;
 }
 
@@ -166,12 +171,34 @@ export default async (req) => {
   const started = new Date().toISOString();
   const sinceDate = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString();
   try {
-    const sel = 'id,vendor_name,vendor_id,total_amount,line_items,cogs_account_id,cogs_account_label,customer_name,job_number,receipt_date,memo,tag,request_type,status,qbo_bill_id,autopost_notified_at';
+    const sel = 'id,vendor_name,vendor_id,total_amount,line_items,cogs_account_id,cogs_account_label,customer_name,job_number,receipt_date,memo,tag,request_type,status,qbo_bill_id,autopost_notified_at,ocr_status,bill_number';
     // Forward-only cutoff: receipt_date >= MIN_RECEIPT_DATE excludes the historical
     // backfill (and PostgREST gte drops NULL receipt_date rows — exactly what we want).
     // Archived rows are always out of scope.
     const cutoff = MIN_RECEIPT_DATE ? `&receipt_date=gte.${MIN_RECEIPT_DATE}` : '';
-    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&created_at=gte.${sinceDate}${cutoff}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+    // OCR gate (sf-expense-ocr-background, 2026-08-13): a draft only auto-posts
+    // once it's been through OCR against its attached receipt AND that OCR found
+    // a real vendor bill number. No attachment / failed OCR / no bill number all
+    // leave ocr_status something other than 'processed', or bill_number null —
+    // either way the row stays a draft here for a human to review in Brixpense
+    // (open it, attach/fix the receipt or bill number, hit Submit — that posts
+    // it immediately via expense-request-notify, gate-free, because a human
+    // just looked at it).
+    const rows = await opsGet(`expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&ocr_status=eq.processed&bill_number=not.is.null&created_at=gte.${sinceDate}${cutoff}&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`);
+
+    // Visibility count only — how many SF drafts are currently held back by the
+    // OCR gate (no attachment / OCR failed / no bill number / not yet OCR'd).
+    // Read-only, never affects what gets posted; sf-expense-ocr-background is
+    // the function that actually clears these.
+    let heldForOcr = null;
+    try {
+      const countRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&or=(ocr_status.is.null,ocr_status.neq.processed,bill_number.is.null)&select=id`,
+        { method: 'HEAD', headers: srHeaders({ Prefer: 'count=exact' }) },
+      );
+      const range = countRes.headers.get('content-range'); // "0-24/137"
+      if (range) heldForOcr = Number(range.split('/')[1]) || 0;
+    } catch { /* non-fatal, visibility only */ }
 
     // Auto-archive the historical backfill (post mode only): pre-cutoff SF drafts
     // are already handled in QBO by hand (or intentionally skipped) — QBO is the
@@ -257,7 +284,7 @@ export default async (req) => {
     if (!isPost) {
       const li = (arr, f) => arr.map(f).map((x) => `<li style="margin:2px 0">${x}</li>`).join('') || '<li style="color:#64748B"><i>none</i></li>';
       const inner = `<p style="margin:0 0 4px;color:#fff;font-size:16px;font-weight:700">Preview — dry run, nothing posted</p>
-        <p style="margin:0 0 14px;color:#CBD5E1">${rows.length} unposted Service Fusion expense${rows.length === 1 ? '' : 's'} in the last ${LOOKBACK_DAYS} days.</p>
+        <p style="margin:0 0 14px;color:#CBD5E1">${rows.length} OCR-cleared Service Fusion expense${rows.length === 1 ? '' : 's'} in the last ${LOOKBACK_DAYS} days${heldForOcr ? ` · <b style="color:#FBBF24">${heldForOcr}</b> more held back by the OCR gate (no receipt / OCR failed / no bill number) — review those in Brixpense → SF Expenses` : ''}.</p>
         <h3 style="color:#4ADE80;margin:14px 0 4px;font-size:14px">✅ Would post to QuickBooks (${posted.length})</h3>
         <ul style="margin:0;padding-left:18px;color:#E2E8F0">${li(posted, (p) => `<b>${esc(p.vendor.DisplayName)}</b> — ${money(p.r.total_amount)} — SF job ${esc(p.r.job_number || '')}`)}</ul>
         <h3 style="color:#FBBF24;margin:14px 0 4px;font-size:14px">⚠ No vendor in Service Fusion (${needVendor.length})</h3>
@@ -272,7 +299,7 @@ export default async (req) => {
       });
     }
 
-    const summary = { mode, scanned: rows.length, posted: posted.length, need_vendor: needVendor.length, no_qbo_match: noMatch.length, qbo_error: qboErr.length, auto_archived: autoArchived };
+    const summary = { mode, scanned: rows.length, posted: posted.length, need_vendor: needVendor.length, no_qbo_match: noMatch.length, qbo_error: qboErr.length, auto_archived: autoArchived, held_for_ocr_review: heldForOcr };
     await logRun(started, 'success', posted.length, summary);
     return new Response(JSON.stringify({ ok: true, ...summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {

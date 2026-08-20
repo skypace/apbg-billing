@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 250" role="img" aria-label="PASS method for a fire extinguisher: pull, aim at the base, squeeze, sweep">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .st{font:700 15px system-ui,sans-serif;fill:#1F4E79}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+</style>
+<text x="16" y="26" class="ttl">PASS — and only if the fire is smaller than a trash can</text>
+<g>
+<circle cx="90" cy="96" r="26" fill="#1F4E79"/><text x="82" y="103" fill="#fff" style="font:700 20px system-ui,sans-serif">P</text>
+<text x="66" y="146" class="st">Pull</text><text x="46" y="166" class="sub">the pin</text>
+</g>
+<g>
+<circle cx="252" cy="96" r="26" fill="#1F4E79"/><text x="244" y="103" fill="#fff" style="font:700 20px system-ui,sans-serif">A</text>
+<text x="228" y="146" class="st">Aim</text><text x="192" y="166" class="sub">at the BASE of the fire</text>
+</g>
+<g>
+<circle cx="430" cy="96" r="26" fill="#1F4E79"/><text x="420" y="103" fill="#fff" style="font:700 20px system-ui,sans-serif">S</text>
+<text x="398" y="146" class="st">Squeeze</text><text x="392" y="166" class="sub">the handle</text>
+</g>
+<g>
+<circle cx="600" cy="96" r="26" fill="#1F4E79"/><text x="590" y="103" fill="#fff" style="font:700 20px system-ui,sans-serif">S</text>
+<text x="574" y="146" class="st">Sweep</text><text x="556" y="166" class="sub">side to side</text>
+</g>
+<line x1="122" y1="96" x2="222" y2="96" stroke="#94A3B8" stroke-width="2" stroke-dasharray="5 4"/>
+<line x1="284" y1="96" x2="400" y2="96" stroke="#94A3B8" stroke-width="2" stroke-dasharray="5 4"/>
+<line x1="462" y1="96" x2="570" y2="96" stroke="#94A3B8" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="16" y="206" class="dgr">Only fight it with a clear exit at your back and the alarm already raised.</text>
+<text x="16" y="228" class="sub">Otherwise get out. Equipment is insured; you are not replaceable. Never water on an electrical fire.</text>
+</svg>

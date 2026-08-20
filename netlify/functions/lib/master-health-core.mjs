@@ -7,7 +7,11 @@ const SITES = [
   {
     id: 'apbg',
     name: 'APBG 3rd Party Billing',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
+    // Same-site: read health-watchdog's cached result straight from its blob
+    // store instead of HTTP. The endpoint is superadmin-gated (and while it
+    // carried its own `schedule`, Netlify 403'd every HTTP hit before the
+    // code even ran), so an unauthenticated self-fetch can only ever fail.
+    readBlob: { store: 'health-watchdog', key: 'last-result' },
   },
   {
     id: 'melt',
@@ -83,8 +87,39 @@ async function checkSiteProbe(site) {
   };
 }
 
+// ── Read a same-site health result from its blob cache ──
+async function checkSiteBlob(site) {
+  try {
+    const { getStore } = await import('@netlify/blobs');
+    const store = getStore({
+      name: site.readBlob.store,
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_ACCESS_TOKEN,
+      consistency: 'strong',
+    });
+    const raw = await store.get(site.readBlob.key);
+    if (!raw) {
+      return { id: site.id, name: site.name, status: 'error', detail: 'No cached health result yet', checks: null };
+    }
+    const data = JSON.parse(raw);
+    let status = 'ok';
+    if (data.overall) {
+      if (['ok', 'healthy'].includes(data.overall)) status = 'ok';
+      else if (['warn', 'degraded'].includes(data.overall)) status = 'warn';
+      else status = 'error';
+    }
+    return { id: site.id, name: site.name, status, checks: data.checks || {}, raw: data };
+  } catch (e) {
+    return { id: site.id, name: site.name, status: 'error', detail: e.message, checks: null };
+  }
+}
+
 // ── Fetch a site's health endpoint with timeout ──
 async function checkSite(site) {
+  // Same-site blob mode: read the cached watchdog result directly
+  if (site.readBlob) {
+    return checkSiteBlob(site);
+  }
   // Probe mode: no health endpoint, test endpoints directly
   if (site.probeEndpoints && !site.healthUrl) {
     return checkSiteProbe(site);

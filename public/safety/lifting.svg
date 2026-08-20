@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 300" role="img" aria-label="Correct lifting posture with a straight back and bent knees versus incorrect bending at the waist, plus the team lift rule">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 13px system-ui,sans-serif;fill:#15803D}
+</style>
+<text x="16" y="26" class="ttl">A 5-gallon BIB is 40–50 lb of liquid that shifts while you hold it</text>
+<line x1="40" y1="230" x2="680" y2="230" stroke="#1F4E79" stroke-width="2.5"/>
+
+<!-- correct -->
+<g stroke="#15803D" stroke-width="3" fill="none">
+<circle cx="130" cy="96" r="12" fill="#15803D" stroke="none"/>
+<path d="M130 108 v46"/>
+<path d="M130 154 l-22 34 l0 42"/>
+<path d="M130 154 l22 34 l0 42"/>
+<path d="M130 122 l-26 26 M130 122 l26 26"/>
+</g>
+<rect x="96" y="146" width="60" height="34" rx="4" fill="#F4B400" stroke="#B45309" stroke-width="2"/>
+<line x1="130" y1="108" x2="130" y2="154" stroke="#15803D" stroke-width="6" opacity=".35"/>
+<text x="70" y="256" class="ok">Back straight, knees bent</text>
+<text x="52" y="274" class="sub">load close to the body, lift with legs</text>
+
+<!-- incorrect -->
+<g stroke="#B91C1C" stroke-width="3" fill="none">
+<circle cx="342" cy="128" r="12" fill="#B91C1C" stroke="none"/>
+<path d="M330 138 q-26 34 -14 50"/>
+<path d="M316 188 l0 42"/>
+<path d="M330 146 l-30 34"/>
+</g>
+<rect x="272" y="176" width="60" height="34" rx="4" fill="#F4B400" stroke="#B45309" stroke-width="2"/>
+<path d="M336 140 q-18 22 -12 40" stroke="#B91C1C" stroke-width="7" fill="none" opacity=".3"/>
+<text x="262" y="256" class="dgr">Bent at the waist</text>
+<text x="250" y="274" class="sub">this is the injury that lasts 30 years</text>
+
+<!-- team lift -->
+<rect x="450" y="60" width="240" height="180" rx="10" fill="#F8FBFE" stroke="#D6E4F0"/>
+<text x="466" y="86" class="ok">Get help when…</text>
+<text x="466" y="112" class="sub">• over ~50 lb, or awkward</text>
+<text x="466" y="134" class="sub">• you can't see over it</text>
+<text x="466" y="156" class="sub">• stairs, ramp, curb, or a door</text>
+<text x="466" y="178" class="sub">• you'd have to twist</text>
+<text x="466" y="206" class="dgr">Never catch a falling load</text>
+<text x="466" y="224" class="sub">let it go — product is cheap</text>
+</svg>

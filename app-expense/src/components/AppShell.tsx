@@ -2,9 +2,9 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
   ChevronLeft, ChevronRight,
-  Menu, X, BookOpen, Sun, Moon, Wrench,
+  Menu, X, BookOpen, Sun, Moon, Wrench, Building2,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
@@ -12,6 +12,9 @@ import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 const navGroups: {
   label?: string;
   items: { path: string; icon: typeof Receipt; label: string }[];
+  /** Only rendered for gateway superadmin/admin roles (the first role-aware
+   *  nav group — role fetched once below; RLS is the real gate). */
+  staffOnly?: boolean;
 }[] = [
   { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
   {
@@ -29,10 +32,17 @@ const navGroups: {
     ],
   },
   {
+    label: 'Vendors',
+    staffOnly: true,
+    items: [{ path: 'vendors', icon: Building2, label: 'Vendors' }],
+  },
+  {
     label: 'Account',
     items: [{ path: 'settings', icon: SettingsIcon, label: 'Settings' }],
   },
 ];
+// Card Connection Services (route 'cards') deliberately has NO sidebar entry —
+// it's superadmin-only and reachable from Settings → Card Connection Services.
 
 // Primary destinations for the mobile bottom tab bar.
 const tabItems = [
@@ -48,6 +58,7 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isStaff, setIsStaff] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   const currentPath = location.pathname.replace(/^\/expense\/?/, '');
@@ -55,6 +66,11 @@ export function AppShell() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? null);
+      const role =
+        (data.user?.app_metadata as { role?: string } | undefined)?.role ||
+        (data.user?.user_metadata as { role?: string } | undefined)?.role ||
+        '';
+      setIsStaff(role === 'superadmin' || role === 'admin');
     });
   }, []);
 
@@ -107,7 +123,9 @@ export function AppShell() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    // Local-only: a global signOut would revoke the SHARED gateway token
+    // chain and kill the hub + every other APBG app/device (see supabase.ts).
+    await signOutLocal();
     navigate('/');
   }
 
@@ -220,7 +238,7 @@ export function AppShell() {
         </div>
 
         <nav className="nav">
-          {navGroups.map((group, gi) => (
+          {navGroups.filter((g) => !g.staffOnly || isStaff).map((group, gi) => (
             <div key={group.label ?? `g${gi}`}>
               {group.label && !collapsed && (
                 <div className="nav-section">{group.label}</div>

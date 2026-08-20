@@ -2,25 +2,34 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/lib/hooks';
+import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Archive, ArrowLeft, Loader2, Wrench } from 'lucide-react';
+import { Archive, ArrowLeft, Loader2, Send, Wrench } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 
 // Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
-// landed by the sf-receipt-sync crawl when a job is invoiced and auto-posted to
-// QBO by sf-expense-autopost. Staff-only (RLS ops.fn_is_staff()). Archive hides
-// a row from every list without deleting it — the sync's dedup key survives, so
-// an archived expense can never re-land. Once a bill is posted, QBO is the
-// source of truth; edits happen there.
+// landed by the sf-receipt-sync crawl when a job is invoiced. Each draft goes
+// through OCR (sf-expense-ocr-background) against its attached receipt, which
+// promotes a bill_number when found — but NOTHING here auto-posts to QBO
+// (gate, Sky 2026-08-13: every expense requires a human to look at the actual
+// bill before it becomes a real QuickBooks transaction). The flow is always
+// two deliberate steps: open the card → review/attach/adjust → Submit (moves
+// draft → approved, no QBO write) → "Post to QuickBooks" (the actual write).
+// Staff-only (RLS ops.fn_is_staff()). Archive hides a row from every list
+// without deleting it — the sync's dedup key survives, so an archived
+// expense can never re-land. Once a bill is posted, QBO is the source of
+// truth; edits happen there.
 export default function SFExpenses() {
   const navigate = useNavigate();
   const { session } = useSession();
   const [requests, setRequests] = useState<ExpenseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [archiving, setArchiving] = useState<string | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -52,7 +61,46 @@ export default function SFExpenses() {
     if (!error) setRequests((prev) => prev.filter((r) => r.id !== req.id));
   };
 
+  // Submit (draft -> approved) never touches QBO now — that's a separate,
+  // explicit "Post to QuickBooks" click, right here, once a human's looked
+  // at it (either just now via Submit, or earlier — either way it sits as
+  // 'approved' until someone posts it).
+  const postToQuickBooks = async (req: ExpenseRequest) => {
+    setPostingId(req.id);
+    setPostError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch('/expense/api/expense-request-link-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ requestId: req.id, mode: 'create' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        const reason = data.message || data.error || 'Could not post to QuickBooks.';
+        setPostError(reason);
+        setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
+        return;
+      }
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id, autopost_error: null } : r)));
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+    } finally {
+      setPostingId(null);
+    }
+  };
+
   const total = requests.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+
+  function draftBadge(req: ExpenseRequest): { label: string; variant: 'success' | 'secondary' | 'warning' } {
+    if (req.status === 'posted') return { label: 'Posted', variant: 'success' };
+    if (req.status === 'approved') return { label: 'Approved — ready to post', variant: 'secondary' };
+    if (req.ocr_status === 'no_attachment') return { label: 'Needs review — no receipt', variant: 'warning' };
+    if (req.ocr_status === 'failed') return { label: 'Needs review — OCR failed', variant: 'warning' };
+    if (req.ocr_status === 'processed' && !req.bill_number) return { label: 'Needs review — no bill #', variant: 'warning' };
+    if (req.ocr_status === 'processed' && req.bill_number) return { label: 'Ready to submit', variant: 'secondary' };
+    return { label: 'Draft — pending OCR', variant: 'secondary' };
+  }
 
   return (
     <div className="space-y-4">
@@ -63,7 +111,7 @@ export default function SFExpenses() {
         <div className="flex-1">
           <h1 className="text-xl font-bold tracking-tight">SF Expenses</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Service Fusion job expenses — posted to Brixpense when the job is invoiced.
+            Service Fusion job expenses — landed in Brixpense when the job is invoiced.
           </p>
         </div>
         {!loading && requests.length > 0 && (
@@ -73,6 +121,12 @@ export default function SFExpenses() {
           </div>
         )}
       </div>
+
+      {postError && (
+        <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
+          {postError}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -104,8 +158,8 @@ export default function SFExpenses() {
                     <p className="text-[15px] font-semibold truncate">
                       {req.vendor_name || 'No vendor'}
                     </p>
-                    <Badge variant={req.status === 'posted' ? 'success' : 'secondary'}>
-                      {req.status === 'posted' ? 'Posted' : 'Draft'}
+                    <Badge variant={draftBadge(req).variant}>
+                      {draftBadge(req).label}
                     </Badge>
                   </div>
                   <p className="text-[13px] text-muted-foreground mt-1 truncate">
@@ -131,10 +185,28 @@ export default function SFExpenses() {
                     ) : ''}
                     {req.posted_at ? ` · ${formatDate(req.posted_at)}` : (req.created_at ? ` · ${formatDate(req.created_at)}` : '')}
                   </p>
+                  {req.status === 'approved' && req.autopost_error && (
+                    <p className="text-[12px] text-amber-500 mt-1 truncate" title={req.autopost_error}>
+                      ⚠ Last post attempt failed: {req.autopost_error}
+                    </p>
+                  )}
                 </div>
                 <span className="text-[15px] font-bold tabular-nums shrink-0">
                   {req.total_amount ? formatCurrency(req.total_amount) : '—'}
                 </span>
+                {req.status === 'approved' && (
+                  <Button
+                    size="sm"
+                    disabled={postingId === req.id}
+                    onClick={(e) => { e.stopPropagation(); postToQuickBooks(req); }}
+                    title="Review complete — send this to QuickBooks"
+                  >
+                    {postingId === req.id
+                      ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      : <Send className="h-4 w-4 mr-1" />}
+                    Post to QuickBooks
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
