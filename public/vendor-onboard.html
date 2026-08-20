@@ -150,7 +150,13 @@
 <script>
 (function () {
   'use strict';
-  var API = '/api/vendor-onboard';
+  // Through the gateway the page lives at alamedapointbg.com/vendor-onboarding,
+  // where bare /api/* is melt-dashboard's catch-all — ride the /billing/* proxy
+  // to reach apbg-billing's function (kiosk precedent, visitors.html). Direct
+  // hosts (deploy previews, apbg-billing.netlify.app) use the local path.
+  var API = /(^|\.)alamedapointbg\.com$/.test(location.hostname)
+    ? '/billing/api/vendor-onboard'
+    : '/api/vendor-onboard';
   var token = new URLSearchParams(location.search).get('t') || '';
   var $ = function (id) { return document.getElementById(id); };
   var state = { docs: {}, uploadedW9: false, uploadedCoi: false };
