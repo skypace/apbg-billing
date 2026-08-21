@@ -15,6 +15,7 @@ import {
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
 import { fetchInventoryHealth } from '../lib/inventory';
+import { RebatesTab } from './pricing/RebatesTab';
 
 type BookSort = 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc';
 type GroupField = 'family' | 'type';
@@ -47,9 +48,10 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
   //   #pricing?tab=contracts&contract=<id>  → open that contract's editor
   //   #pricing?tab=contracts&new=1          → open the New Contract dialog
   const wantsContracts = routeParams?.tab === 'contracts' || !!routeParams?.contract || routeParams?.new === '1';
+  const wantsRebates = routeParams?.tab === 'rebates';
   const [data, setData] = useState<PricingData | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [tab, setTab] = useState(wantsContracts ? 1 : 0);
+  const [tab, setTab] = useState(wantsRebates ? 3 : wantsContracts ? 1 : 0);
   const [toast, setToast] = useState<string | null>(null);
   const [pct, setPct] = useState('5');
   const [eff, setEff] = useState(todayStr());
@@ -104,6 +106,7 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
           <Tab label="Price books" />
           <Tab label={`Contracts (${data.contracts.length})`} />
           <Tab label={`Customer price levels (${data.customerBooks.length})`} />
+          <Tab label="Rebates" />
         </Tabs>
 
         {tab === 0 && <BooksTab data={data} itemMeta={itemMeta} pct={pct} setPct={setPct} eff={eff} setEff={setEff}
@@ -127,6 +130,8 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
         )}
 
         {tab === 2 && <CustomerBooksTab data={data} custName={custName} onOk={ok} onErr={setErr} />}
+
+        {tab === 3 && <RebatesTab customers={data.customers} contracts={data.contracts} onOk={ok} onErr={setErr} />}
 
         {newContractOpen && <NewContractDialog data={data} onClose={() => setNewContractOpen(false)}
           onCreated={(id) => { setNewContractOpen(false); setContractId(id); ok('Contract created'); setTab(1); }} onErr={setErr} />}
