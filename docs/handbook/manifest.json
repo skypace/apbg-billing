@@ -61,7 +61,7 @@
       "title": "Brix Order Portal — Customer Ordering, Billing & Resources",
       "part": "guide",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-08-15",
+      "last_reviewed": "2026-08-21",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
@@ -78,7 +78,7 @@
       "title": "Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)",
       "part": "guide",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-08-15",
+      "last_reviewed": "2026-08-21",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
@@ -236,7 +236,7 @@
       "title": "Architecture & Data — How the Programs and Data Work",
       "part": "arch",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-07-22",
+      "last_reviewed": "2026-08-21",
       "sources": [
         {
           "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
@@ -310,7 +310,7 @@
       "title": "SOP-3 · Orders & Fulfillment — Web, Phone & Admin Orders, Tank Returns, Service Calls",
       "part": "sop",
       "owner": "Dani",
-      "last_reviewed": "2026-07-22",
+      "last_reviewed": "2026-08-21",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
