@@ -1,8 +1,8 @@
 # Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)
 
-> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
+> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-08-21
 
-This chapter is the staff manual for the Brix Order admin console at **https://orders.brixbev.com/admin** — the back office behind the customer portal. It covers every tab: taking phone orders, enabling and managing customers, reviewing new-account applications, reviewing emailed EDI purchase orders, watching payments and returned payments, approving tank audits, and maintaining the AI knowledge base. It is written for owners, ops, and accounting staff who hold superadmin access.
+This chapter is the staff manual for the Brix Order admin console at **https://orders.brixbev.com/admin** — the back office behind the customer portal. It covers every tab: taking phone orders, enabling and managing customers, reviewing new-account applications, reviewing emailed EDI purchase orders, accepting Order Desk email forwards, watching payments and returned payments, approving tank audits, and maintaining the AI knowledge base. It is written for owners, ops, and accounting staff who hold superadmin access.
 
 ## Who can access
 
@@ -21,10 +21,12 @@ This chapter is the staff manual for the Brix Order admin console at **https://o
 | Billing | https://orders.brixbev.com/admin/billing | Billing Run — send invoices/statements in batch |
 | Payments | https://orders.brixbev.com/admin/payments | Quick sync invoices, returned payments, Stripe payouts |
 | EDI orders | https://orders.brixbev.com/admin/edi | Review queue for emailed POs (chain customers like THE MELT) |
+| Order desk | https://orders.brixbev.com/admin/order-desk | Staff-forwarded customer emails proposed as orders — review & accept |
+| Links | https://orders.brixbev.com/admin/links | New-store onboarding links per chain / franchise company |
 | Audits | https://orders.brixbev.com/admin/audits | Tank Rental Audits + driver management |
 | Activity | https://orders.brixbev.com/admin/activity | Master log — orders, payments, changes, every outbound email; sortable, archivable |
 | Knowledge | https://orders.brixbev.com/admin/knowledge | KB docs the AI assistants use + voice teachings |
-| Company | https://orders.brixbev.com/admin/company | Company email identity, Bill & Pay migration export |
+| Company | https://orders.brixbev.com/admin/company | Company email identity, order fees, Order Desk config |
 
 ## Quick order — phone orders
 
@@ -36,7 +38,7 @@ The first tab and the staff landing page. A searchable list of enabled customers
 2. Search for the customer. If they're not in the list, they haven't been enabled — see [Enabling a customer](#customers) below.
 3. Click **Start order**. This calls `set_active_customer` and drops you into the Shop (`/order`) under that customer's pricing and locations.
 4. Build the cart and submit exactly as a customer would. The sidebar always shows a static "Ordering for &lt;customer&gt;" chip so you never lose track of whose account you're in; use its "Change customer →" link to return to Quick order. There is deliberately **no customer dropdown** for staff.
-5. Admin-entered orders go through the same `submit-order` pipeline as customer orders (SF job category "Brix Web Order") and send the confirmation email to the submitter **plus the customer's Primary email**.
+5. Admin-entered orders go through the same `submit-order` pipeline as customer orders (SF job category "Brix Web Order"). The confirmation email routes via the customer's **Order updates** email selection (the fourth checkbox column on Billing & comms) — a STAFF submitter is deliberately dropped from the recipients, so keying in a phone order doesn't email you; the customer's selected addresses still get it.
 
 ### Act-as model
 
@@ -71,7 +73,7 @@ Each enabled customer gets `/admin/customers/:id` with a header (name, QBO id, a
 - **Overview** — account facts, status lifecycle, and addresses/locations. Actions: **Lock/Unlock ordering** (temporary hold — the customer can still sign in but submit blocks), **Deactivate / close account…** (routes to the guided Closure page — there is no instant deactivate any more), **Reactivate**, and **Refresh from invoices** (re-seeds the customer's My Collection / `customer_pricing` from their last 12 months of QBO invoice lines). Also home to the **Delivery schedule card**: set the customer's delivery days ("Tuesdays & Fridays", or every two weeks anchored on a date) plus per-location overrides for chains whose stores run different routes. A schedule defaults every order (portal cart + EDI PO) to the next scheduled delivery day, and — when a location has no order in by the cutoff (default 4:00 PM PT the day before delivery) — sends a friendly reminder email that morning ("order by 4 PM today or it moves to your next delivery day"). Reminder recipients: the schedule's own list → the EDI order-notify list → the Primary email.
 - **Users** — invite a new user (crypto-random temp password meeting the 8+/four-character-class Supabase policy; branded welcome email with a `/set-password` link), attach an existing user by email, set the membership role (Member / Admin / Accounts payable), resend welcome (optionally with a password reset), and detach. One user can belong to many customers via `customer_memberships`.
 - **Pricing** — the per-customer price mirror (`orders.customer_pricing`). ⚠ Pricing's system of record is **Service Fusion** (SF → QBO); this mirror is derived from invoice history. Read `brix-order/docs/PRICING.md` before changing anything about prices.
-- **Billing & comms** — the four email slots (Primary / Secondary / Optional / Accounting), each with per-email Invoices / Statements / Reminders checkboxes, plus feature toggles, the **EDI Orders & Invoicing** settings card (see the EDI orders section below), the account-documents vault, and the customer's communications history.
+- **Billing & comms** — the four email slots (Primary / Secondary / Optional / Accounting), each with per-email Invoices / Statements / Reminders / **Order updates** checkboxes (Order updates governs the order confirmed/scheduled/delivered emails; unchecking it everywhere silences them for that customer — the person who placed an order still gets its updates unless they're staff), plus feature toggles, the **EDI Orders & Invoicing** settings card (see the EDI orders section below), the account-documents vault, and the customer's communications history.
 - **Paper / mail** — DocuPost paper statements/invoices (mailed documents; the same PDF renderer as portal Download/Print).
 - **Change requests** — inbox for account/address change requests submitted from the customer side (applied to SF best-effort).
 - **Closure** — the guided account-closure workflow (next section).
@@ -126,6 +128,15 @@ Chain customers like **THE MELT** don't use the portal — each store emails its
 - **Review page** (`/admin/edi/:id`): the original PO beside the parsed data, a per-line match editor, location picker, PO#/date/notes, then **Submit order** or **Reject**. Every reviewed submit **teaches** the matcher (line + store aliases) so the next PO from that chain matches by itself.
 - **Per-customer settings** live on the customer's Billing & comms tab (EDI Orders & Invoicing card): inbound address, sender allowlist, order-notification list, auto-submit, store aliases, extraction hints.
 
+## Order desk — staff-forwarded email orders
+
+The Order Desk turns a customer's emailed order into a submitted order without anyone re-typing it. **Staff forward the customer's email to `aiorders@alamedapointbg.com`** (only staff addresses are accepted — a customer emailing it directly is ignored); the system reads the forward, works out which customer it is (with the provenance stated — "matched forwarded sender joel@…"), matches the lines against that customer's own order history first, picks the next delivery-schedule date, and emails the forwarder a **proposal with Accept / Edit / Discard buttons**. Nothing ever auto-submits — a human always clicks.
+
+- **Accept** (from the email, or the review page at `/admin/order-desk/:id`) submits through the same `submit-order` pipeline (SF category "Brix Email Order"); the customer gets the normal branded confirmation.
+- **The queue** (`/admin/order-desk`) holds every forward — including ones where the customer or a line couldn't be resolved; the review page has an account picker and per-line item pickers with history quick-picks. The delivery date is read-only: it comes from the customer's delivery schedule, not the email.
+- Accepting **teaches** the system: the forwarded sender is filed as a customer contact (next forward resolves instantly) and line corrections feed the matcher.
+- **Configuration** is company-wide, on /admin → Company → Order desk: enable, inbound address, staff allowlist, proposal recipients, plus a "Check the intake" diagnostic.
+
 ## Audits
 
 Oversight for the driver Tank Rental Audits (CR-ADJ adjustment invoices). Field procedure: [CO₂ Cylinder Audit PWA — Driver Field Guide](#/04-driver-cylinder-audit); policy: [SOP-5 · CO₂ Cylinders](#/25-sop-cylinders-audits).
@@ -154,7 +165,9 @@ Manages `orders.kb_documents` — the grounding corpus for Mr. Bubbles and the C
 ## Company
 
 - **Company email identity** — "Primary Email" (the company AR inbox: Reply-To + remit-to on statements) and "Accounting Email" (BCC copy of every billing email). These are sender-identity config, not customer recipients.
-- **Bill & Pay migration** — "Download cutover list (CSV)": pages through B&P customers + 12 months of transactions, aggregates portal-vs-other and ACH-vs-card activity, joins the QBO mirror and `orders.customers`, and sorts most-engaged first. Read-only by policy (the B&P client has no charge/write methods here); payment instruments are never exported — customers re-enter payment info (cards can't move for PCI reasons, ACH re-auth was rejected on NACHA grounds). Runbook: `brix-order/docs/BILLANDPAY-MIGRATION.md`.
+- **Order fees** — the delivery-surcharge estimate toggles (fuel / hazmat / force-majeure / CRV / SSB), including the admin-managed beverage-tax cities + ZIP ranges. These govern the on-screen estimate; Service Fusion's own fee engine is what actually bills fuel/hazmat.
+- **Order desk** — the Order Desk configuration card (see the Order desk section above): enable, inbound address, staff allowlist, proposal recipients, intake check.
+- (The Bill & Pay migration export was removed with the B&P integration on 2026-08-12 — Stripe is the only rail; the per-customer "Switched over to the new system" checkbox remains as the manual tracker.)
 
 ## Related
 
