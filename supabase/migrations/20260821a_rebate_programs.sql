@@ -139,7 +139,7 @@ DECLARE
   v_rule_total  NUMERIC;
   v_grand       NUMERIC := 0;
   v_growth_min  NUMERIC; v_basis TEXT;
-  v_months      INTEGER; v_min_orders INTEGER; v_grace INTEGER; v_orders_scope TEXT;
+  v_months      INTEGER; v_min_orders INTEGER; v_max_orders INTEGER; v_grace INTEGER; v_orders_scope TEXT;
   v_windows     INTEGER;
   v_min_units   NUMERIC;
   v_tiers       JSONB; v_retro BOOLEAN;
@@ -225,6 +225,9 @@ BEGIN
     ELSIF v_rule.rule_type = 'ordering_cadence' THEN
       v_months      := GREATEST(COALESCE((v_rule.config->>'period_months')::int, 2), 1);
       v_min_orders  := GREATEST(COALESCE((v_rule.config->>'min_orders')::int, 1), 1);
+      -- Optional CAP: "no more than N orders per window" (the consolidation
+      -- incentive — e.g. bi-weekly deliveries = at most 2 orders a month).
+      v_max_orders  := (v_rule.config->>'max_orders')::int;
       v_grace       := GREATEST(COALESCE((v_rule.config->>'grace_windows')::int, 0), 0);
       v_orders_scope := COALESCE(v_rule.config->>'orders_scope', 'any');  -- 'any' | 'in_scope'
       -- Only windows that have STARTED count — an in-year preview must not
@@ -241,7 +244,7 @@ BEGIN
           'windows_met', COALESCE(w.met, 0), 'windows_total', v_windows,
           'qualified', q.ok,
           'reason', CASE WHEN NOT q.ok THEN
-            (v_windows - COALESCE(w.met, 0)) || ' of ' || v_windows || ' ordering windows missed' END,
+            (v_windows - COALESCE(w.met, 0)) || ' of ' || v_windows || ' ordering windows out of cadence' END,
           'payable_units', CASE WHEN q.ok THEN COALESCE(cur.units, 0) ELSE 0 END,
           'amount', round(CASE WHEN q.ok THEN COALESCE(cur.units, 0) * v_rule.amount ELSE 0 END, 2)
         ) AS s
@@ -263,6 +266,7 @@ BEGIN
                 SELECT 1 FROM ops.qbo_invoice_lines l WHERE l.invoice_id = i.id
                   AND ops.fn_rebate_line_match(l.item_ref_id, l.item_name, v_rule.item_ids, v_rule.item_patterns)))
             GROUP BY 1 HAVING count(DISTINCT i.id) >= v_min_orders
+              AND (v_max_orders IS NULL OR count(DISTINCT i.id) <= v_max_orders)
           ) ww
         ) w ON TRUE
         CROSS JOIN LATERAL (
@@ -519,8 +523,11 @@ BEGIN
      '5% YoY BIB volume growth — $2.50/unit (per store)',
      2.50, ARRAY['3G%'],
      '{"growth_pct_min": 5, "basis": "all"}'::jsonb, 1),
+    -- Per Sky (2026-08-21): the deal is BI-WEEKLY deliveries — a store gets
+    -- the $0.50/unit only if it holds to at most 2 orders a month (the
+    -- consolidation incentive), every month of the year.
     (v_pid, 'ordering_cadence',
-     'Bi-monthly ordering recapture — $0.50/BIB unit',
+     'Bi-weekly delivery cadence — $0.50/BIB unit (≤2 orders/month)',
      0.50, ARRAY['3G%'],
-     '{"period_months": 2, "min_orders": 1, "grace_windows": 0, "orders_scope": "any"}'::jsonb, 2);
+     '{"period_months": 1, "min_orders": 1, "max_orders": 2, "grace_windows": 0, "orders_scope": "any"}'::jsonb, 2);
 END $$;

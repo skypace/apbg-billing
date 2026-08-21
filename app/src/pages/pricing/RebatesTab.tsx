@@ -100,6 +100,12 @@ function RuleDialog({ draft, onClose, onSave }: {
                 onChange={(e) => setCfg('period_months', Number(e.target.value) || 1)} sx={{ width: 140 }} />
               <TextField size="small" label="Min orders / window" value={String(cfg.min_orders ?? 1)}
                 onChange={(e) => setCfg('min_orders', Number(e.target.value) || 1)} sx={{ width: 160 }} />
+              <TextField size="small" label="Max orders / window (blank = no cap)"
+                value={cfg.max_orders == null ? '' : String(cfg.max_orders)}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  setCfg('max_orders', v === '' ? null : Number(v) || null);
+                }} sx={{ width: 230 }} />
               <TextField size="small" label="Missed windows allowed" value={String(cfg.grace_windows ?? 0)}
                 onChange={(e) => setCfg('grace_windows', Number(e.target.value) || 0)} sx={{ width: 190 }} />
               <FormControl size="small" sx={{ minWidth: 200 }}>
