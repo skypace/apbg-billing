@@ -5,7 +5,7 @@ import {
   MenuItem, Paper, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   TextField, Tooltip, Typography,
 } from '@mui/material';
-import { Plus, Pencil, Trash2, Calculator, Banknote } from 'lucide-react';
+import { Plus, Pencil, Trash2, Calculator, Banknote, Mail } from 'lucide-react';
 import type { CustomerOpt, Contract } from '../../lib/pricing';
 import {
   type RebateProgram, type RebateRule, type RebateRuleType, type RebateSettlement,
@@ -14,7 +14,7 @@ import {
   createRebateProgram, updateRebateProgram,
   createRebateRule, updateRebateRule, deleteRebateRule,
   calculateRebate, createRebateSettlement, voidRebateSettlement,
-  searchVendors, vendorName,
+  sendRebateReport, searchVendors, vendorName,
 } from '../../lib/rebates';
 
 const usd = (n: number | null | undefined) =>
@@ -265,6 +265,7 @@ export function RebatesTab({ customers, contracts, onOk, onErr }: {
   const [newOpen, setNewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [settleBusy, setSettleBusy] = useState(false);
+  const [sendFor, setSendFor] = useState<RebateSettlement | null>(null);
 
   const program = useMemo(() => programs?.find((p) => p.id === programId), [programs, programId]);
 
@@ -459,7 +460,8 @@ export function RebatesTab({ customers, contracts, onOk, onErr }: {
                 <TableRow>
                   <TableCell>Reference</TableCell><TableCell>Year</TableCell>
                   <TableCell align="right">Amount</TableCell><TableCell>Status</TableCell>
-                  <TableCell>Created</TableCell><TableCell>Brixpense</TableCell><TableCell />
+                  <TableCell>Created</TableCell><TableCell>Brixpense</TableCell>
+                  <TableCell>Customer report</TableCell><TableCell />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -479,6 +481,21 @@ export function RebatesTab({ customers, contracts, onOk, onErr }: {
                         ? <Button size="small" href="/expense/pending" target="_blank">Post from Brixpense →</Button>
                         : '—'}
                     </TableCell>
+                    <TableCell>
+                      {s.status !== 'void' && (
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Button size="small" startIcon={<Mail size={13} />} onClick={() => setSendFor(s)}>
+                            Email report…
+                          </Button>
+                          {s.report_sent_at && (
+                            <Tooltip title={`Sent to ${(s.report_sent_to ?? []).join(', ')}`}>
+                              <Chip size="small" color="info" variant="outlined"
+                                label={`sent ${s.report_sent_at.slice(0, 10)}`} />
+                            </Tooltip>
+                          )}
+                        </Stack>
+                      )}
+                    </TableCell>
                     <TableCell align="right">
                       {s.status !== 'void' && (
                         <Button size="small" color="error" onClick={async () => {
@@ -492,7 +509,7 @@ export function RebatesTab({ customers, contracts, onOk, onErr }: {
                   </TableRow>
                 ))}
                 {settlements.length === 0 && (
-                  <TableRow><TableCell colSpan={7}><em>No settlements yet — the first annual run lands here with its Brixpense bill.</em></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8}><em>No settlements yet — the first annual run lands here with its Brixpense bill.</em></TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -501,6 +518,15 @@ export function RebatesTab({ customers, contracts, onOk, onErr }: {
       )}
 
       {ruleDraft && <RuleDialog draft={ruleDraft} onClose={() => setRuleDraft(null)} onSave={saveRule} />}
+      {sendFor && (
+        <SendReportDialog settlement={sendFor} onClose={() => setSendFor(null)}
+          onSent={async (msg) => {
+            setSendFor(null);
+            setSettlements(await listRebateSettlements(programId));
+            onOk(msg);
+          }}
+          onErr={onErr} />
+      )}
       {(newOpen || (editOpen && program)) && (
         <ProgramDialog
           program={newOpen ? null : program!}
@@ -634,6 +660,62 @@ function ProgramDialog({ program, customers, contracts, onClose, onSaved, onErr 
             finally { setBusy(false); }
           }}>
           {busy ? 'Saving…' : 'Save program'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── Send-report dialog ────────────────────────────────────────────────────────
+// Emails the branded "Your Alameda Soda rebate is ready" data report from
+// rebates@alamedapointbg.com to recipients chosen here. Re-sends allowed.
+
+function SendReportDialog({ settlement, onClose, onSent, onErr }: {
+  settlement: RebateSettlement;
+  onClose: () => void;
+  onSent: (msg: string) => Promise<void>;
+  onErr: (msg: string) => void;
+}) {
+  const [to, setTo] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const recipients = to.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+  const valid = recipients.length > 0 && recipients.every((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Email the rebate report — {settlement.reference}</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Sends the branded "Your Alameda Soda rebate is ready" report ({usd(settlement.total_amount)},
+            full per-location detail) from <b>rebates@alamedapointbg.com</b>. Replies come back to that
+            same inbox — the customer's approval starts the 30-day check clock.
+          </Typography>
+          <TextField size="small" fullWidth autoFocus label="Send to (comma-separated emails)"
+            placeholder="aaron@starbirdchicken.com, julie@starbirdchicken.com"
+            value={to} onChange={(e) => setTo(e.target.value)} />
+          <TextField size="small" fullWidth multiline minRows={2}
+            label="Personal note (optional — shows at the top of the email)"
+            value={note} onChange={(e) => setNote(e.target.value)} />
+          {settlement.report_sent_at && (
+            <Alert severity="info">
+              Already sent {settlement.report_sent_at.slice(0, 10)} to {(settlement.report_sent_to ?? []).join(', ')} — sending again is fine.
+            </Alert>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" startIcon={<Mail size={14} />} disabled={!valid || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const res = await sendRebateReport(settlement.id, recipients, note.trim() || undefined);
+              await onSent(`Rebate report sent to ${res.sent_to.join(', ')}`);
+            } catch (e) { onErr(e instanceof Error ? e.message : 'Send failed'); }
+            finally { setBusy(false); }
+          }}>
+          {busy ? 'Sending…' : 'Send report'}
         </Button>
       </DialogActions>
     </Dialog>
