@@ -4,6 +4,7 @@
 // 20260821a is the schema + rule-type reference.
 
 import { sbq, sbrpc, sbInsert, sbUpdate, sbDelete } from './rpc';
+import { _sbToken } from './supabase';
 
 export type RebateRuleType =
   | 'volume_growth'
@@ -59,6 +60,8 @@ export interface RebateSettlement {
   voided_at: string | null;
   void_reason: string | null;
   detail: RebateCalc | null;
+  report_sent_at: string | null;
+  report_sent_to: string[] | null;
 }
 
 export interface RebateCalcStore {
@@ -153,6 +156,22 @@ export async function createRebateSettlement(
 
 export async function voidRebateSettlement(settlementId: string, reason?: string): Promise<void> {
   await sbrpc('fn_rebate_settlement_void', { p_settlement_id: settlementId, p_reason: reason ?? null });
+}
+
+// Sends the branded "Your Alameda Soda rebate is ready" report email
+// (rebates@alamedapointbg.com) via the staff-gated Netlify function.
+export async function sendRebateReport(
+  settlementId: string, to: string[], note?: string,
+): Promise<{ ok: boolean; sent_to: string[] }> {
+  const token = await _sbToken();
+  const res = await fetch('/margin/.netlify/functions/rebate-report-email', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settlement_id: settlementId, to, note: note || undefined }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error || `send failed (${res.status})`);
+  return data as { ok: boolean; sent_to: string[] };
 }
 
 export async function searchVendors(term: string): Promise<VendorOpt[]> {

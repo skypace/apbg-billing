@@ -531,3 +531,12 @@ BEGIN
      0.50, ARRAY['3G%'],
      '{"period_months": 1, "min_orders": 1, "max_orders": 2, "grace_windows": 0, "orders_scope": "any"}'::jsonb, 2);
 END $$;
+
+-- ── 7. Rebate report email stamps (2026-08-21, same day) ─────────────────────
+-- netlify/functions/rebate-report-email.mjs sends the branded "Your Alameda
+-- Soda rebate is ready" data report (from rebates@alamedapointbg.com) to
+-- recipients chosen at send time, then stamps the settlement. Re-sends merge
+-- into report_sent_to.
+ALTER TABLE ops.rebate_settlements
+  ADD COLUMN IF NOT EXISTS report_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS report_sent_to TEXT[];
