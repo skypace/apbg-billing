@@ -115,6 +115,7 @@
     "third_party_crews",
     "vendor_email_routes",
     "vendor_email_tickets",
+    "vendor_funding_events",
     "vendor_onboard_tokens",
     "vendor_payments",
     "vendor_ticket_events",

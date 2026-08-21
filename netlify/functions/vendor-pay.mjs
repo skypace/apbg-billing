@@ -178,7 +178,14 @@ async function handlePay(expense, actorEmail) {
     return json({ error: 'This vendor is not set up for Stripe payouts yet — use "Set up bank payouts" first, or record a manual payment.' }, 409);
   }
   if (!p.stripe.funded) {
-    return json({ error: `The Stripe payout balance ($${((p.stripe.balance_cents || 0) / 100).toFixed(2)}) can't cover $${p.amount.toFixed(2)} — add funds in the Stripe Dashboard (Balances → Financial accounts) first.` }, 409);
+    const bal = (p.stripe.balance_cents || 0) / 100;
+    return json({
+      error: `The Stripe payout balance ($${bal.toFixed(2)}) can't cover $${p.amount.toFixed(2)} — short $${(p.amount - bal).toFixed(2)}.`
+        + ' Top up from Brixpense → Vendors → Stripe vendor funding (or Stripe → Treasury → Add funds).'
+        + ' A bank pull settles in 2–6 business days, so fund ahead of the bills you know are coming.',
+      short_by: Number((p.amount - bal).toFixed(2)),
+      balance: Number(bal.toFixed(2)),
+    }, 409);
   }
 
   // Ledger first — the partial unique index is the real duplicate guard.
