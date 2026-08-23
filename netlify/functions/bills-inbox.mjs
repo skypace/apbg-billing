@@ -10,12 +10,12 @@
 //                              sender rules) without a deploy.
 // POST {action:'check'}      → is the pipeline actually armed?
 //
-// Superadmin/staff Bearer, via the shared requireAuth gate.
+// Everyone in Brixpense, via requireBrixpense — the same predicate as the RLS.
 
-import { requireAuth } from './lib/auth.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import {
   AP_TAG, opsGet, opsPatch, loadApInboxSettings, inboundSecrets, srHeaders,
+  requireBrixpense,
 } from './lib/ap-inbox.mjs';
 import { inboundResendKey, inboundKeyIsFallback } from './lib/resend-inbound.mjs';
 
@@ -82,12 +82,11 @@ async function setupCheck(settings) {
 }
 
 export default async function handler(req) {
-  // Staff, matching ops.fn_is_staff() (superadmin|admin) — the same bar as the
-  // RLS on ops.bill_email_intake and the sidebar entry. Note this page is the
-  // AP DESK's oversight view, not the only way to approve: a bill routed to
-  // someone outside that bar is still visible and approvable to them at
-  // /expense/queue, because expense_requests_select matches on manager_email.
-  const auth = await requireAuth(req, ['superadmin', 'admin']);
+  // Everyone in Brixpense — this is the master vendor inbox and unassigned
+  // mail is everybody's problem (Sky, 2026-08-23). Same predicate as the RLS
+  // on ops.bill_email_intake, so the API and the database agree by
+  // construction rather than by two hand-maintained role lists.
+  const auth = await requireBrixpense(req);
   if (!auth.ok) return auth.response;
 
   const settings = await loadApInboxSettings();
@@ -109,7 +108,7 @@ export default async function handler(req) {
         allow_senders: Array.isArray(body.allow_senders) ? body.allow_senders.map(String).map((s) => s.trim().toLowerCase()).filter(Boolean) : settings.allow_senders,
         block_senders: Array.isArray(body.block_senders) ? body.block_senders.map(String).map((s) => s.trim().toLowerCase()).filter(Boolean) : settings.block_senders,
         ack_sender: body.ack_sender !== false,
-        require_approval: body.require_approval !== false,
+        require_approval: body.require_approval === true,
         sender_routes: body.sender_routes ?? settings.sender_routes,
         vendor_routes: body.vendor_routes ?? settings.vendor_routes,
         department_approvers: body.department_approvers ?? settings.department_approvers,

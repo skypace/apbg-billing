@@ -13,7 +13,11 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
-// AP Inbox — bills emailed to bills@alamedapointbg.com.
+// Vendor Inbox — the master inbox for bills emailed to bills@alamedapointbg.com.
+//
+// Open to EVERYONE in Brixpense (ops.fn_has_brixpense), not just staff:
+// unassigned vendor mail is everybody's problem, and a pile only two people
+// can see is how it stops being worked. Your OWN bills live in My Inbox.
 //
 // Each row is ONE inbound email. The pipeline (bill-email-intake →
 // bill-email-process-background) OCRs the attachment and lands an unpaid bill
@@ -297,7 +301,7 @@ export default function BillsInbox() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">AP Inbox</h1>
+          <h1 className="text-xl font-bold tracking-tight">Vendor Inbox</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Bills emailed to{' '}
             <span className="font-mono">{settings?.inbox ?? 'bills@alamedapointbg.com'}</span>

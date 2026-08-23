@@ -36,6 +36,7 @@ import {
   fetchResendAttachments, fetchResendBody, rankAttachments, makeDiag,
   inboundKeyIsFallback, safeFilename, OCRABLE,
 } from './lib/resend-inbound.mjs';
+import { pickRule, applyRule, recurringNote } from './lib/expense-rules.mjs';
 
 const MAX_PER_RUN = 15;
 const RETRYABLE = ['received', 'processing', 'failed', 'attachment_fetch_failed', 'ocr_failed'];
@@ -43,6 +44,14 @@ const SITE = process.env.URL || 'https://alamedapointbg.com';
 const QUEUE_URL = `${SITE.replace(/\/$/, '')}/expense/bills`;
 const APPROVALS_URL = `${SITE.replace(/\/$/, '')}/expense/queue`;
 const MINE_URL = `${SITE.replace(/\/$/, '')}/expense/pending`;
+
+async function loadRules() {
+  try {
+    return await opsGet(
+      'expense_rules?active=eq.true&archived_at=is.null&order=priority.asc,created_at.asc&limit=200&select=*',
+    );
+  } catch { return []; }   // a rules read failing must not lose the bill
+}
 
 async function loadAccountLabels() {
   try {
@@ -131,7 +140,7 @@ async function ackSender(intake, settings, request) {
 
 // ─── One email ───
 
-async function processIntake(intake, settings, accountLabels) {
+async function processIntake(intake, settings, accountLabels, rules) {
   const diag = makeDiag();
   if (inboundKeyIsFallback()) {
     diag.push('note: reading inbound mail with the send-only RESEND_API_KEY fallback (set RESEND_INBOUND_API_KEY)');
@@ -215,6 +224,38 @@ async function processIntake(intake, settings, accountLabels) {
     settings,
   });
 
+  const lineItems = (ocr.line_items || []).map((li) => ({
+    description: li.description,
+    quantity: li.qty,
+    unit_cost: li.unit_price,
+    amount: li.amount,
+  }));
+
+  // ── Rules: auto-populate the coding a human would otherwise retype ──
+  const bill = {
+    vendor: ocr.vendor,
+    from_email: intake.from_email,
+    subject: intake.subject,
+    memo: ocr.memo,
+    bill_number: ocr.bill_number,
+    total: ocr.total,
+    line_items: lineItems,
+  };
+  const hit = pickRule(rules, bill);
+  const rulePatch = hit ? applyRule(hit.rule, bill) : {};
+  const ruleNote = hit ? recurringNote(hit.rule, bill) : null;
+  if (hit) {
+    diag.push(`rule "${hit.rule.name}" matched (${hit.why.join('; ')})`);
+    // A rule may also decide who owns the bill — it is the most specific
+    // statement anyone has made about this vendor, so it beats the ladder.
+    if (hit.rule.set_owner_email) {
+      routing.owner_email = String(hit.rule.set_owner_email).toLowerCase();
+      routing.assigned = true;
+      routing.self_review = false;
+      routing.reason = `rule "${hit.rule.name}" routes it there`;
+    }
+  }
+
   // ── The bill draft ──
   const submitter = await resolveSubmitter(intake.from_email);
   if (!submitter?.id) {
@@ -225,13 +266,6 @@ async function processIntake(intake, settings, accountLabels) {
     });
     return { status: 'failed' };
   }
-
-  const lineItems = (ocr.line_items || []).map((li) => ({
-    description: li.description,
-    quantity: li.qty,
-    unit_cost: li.unit_price,
-    amount: li.amount,
-  }));
 
   // Where it lands depends on whether approval is required.
   //
@@ -276,6 +310,11 @@ async function processIntake(intake, settings, accountLabels) {
     job_number: ocr.job_number || null,
     customer_name: ocr.customer_name || null,
     cogs_account_label: ocr.account_guess || null,
+    // Rule-set fields last: a rule is a standing decision about this vendor,
+    // so it wins over the OCR's guess at the GL account. It cannot touch the
+    // vendor, amount or date — those are read off the actual document.
+    ...rulePatch,
+    applied_rule_id: hit?.rule?.id ?? null,
     ocr_status: 'processed',
     ocr_processed_at: new Date().toISOString(),
   });
@@ -295,9 +334,22 @@ async function processIntake(intake, settings, accountLabels) {
     }
   }
 
+  if (hit) {
+    // What the rule has actually been seeing — this is what makes a recurring
+    // rule useful next month rather than just a one-time autofill.
+    try {
+      await opsPatch('expense_rules', `id=eq.${hit.rule.id}`, {
+        match_count: (hit.rule.match_count || 0) + 1,
+        last_matched_at: new Date().toISOString(),
+        last_amount: ocr.total ?? null,
+      });
+    } catch { /* observability, never the point of failure */ }
+  }
+  if (ruleNote) diag.push(ruleNote);
+
   await opsPatch('bill_email_intake', `id=eq.${intake.id}`, {
     status: 'drafted',
-    status_detail: null,
+    status_detail: ruleNote && ruleNote.startsWith('⚠') ? ruleNote : null,
     diagnostics: diag.text(),
     ocr_result: ocr,
     expense_request_id: request?.id || null,
@@ -335,6 +387,7 @@ export default async (req) => {
 
   const settings = await loadApInboxSettings();
   const accountLabels = await loadAccountLabels();
+  const rules = await loadRules();
 
   let rows;
   try {
@@ -356,7 +409,7 @@ export default async (req) => {
   const results = [];
   for (const intake of rows || []) {
     try {
-      results.push({ id: intake.id, ...(await processIntake(intake, settings, accountLabels)) });
+      results.push({ id: intake.id, ...(await processIntake(intake, settings, accountLabels, rules)) });
     } catch (e) {
       const msg = String(e?.message || e).slice(0, 500);
       console.error('[ap-inbox] processing failed:', intake.id, msg);

@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wrench, X } from 'lucide-react';
+import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
@@ -14,31 +14,40 @@ const navGroups: {
 }[] = [
   { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
   {
+    // Your own three surfaces, in the order you work them: what needs you,
+    // what came off a job, what you've already filed.
     label: 'Expenses',
     items: [
-      { path: 'pending', icon: Clock, label: 'Previous Expenses' },
-      { path: 'sf-expenses', icon: Wrench, label: 'SF Expenses' },
+      { path: 'inbox', icon: Inbox, label: 'My Inbox' },
+      { path: 'sf-expenses', icon: Wrench, label: 'Service Fusion' },
+      { path: 'pending', icon: Clock, label: 'Expense History' },
     ],
   },
   {
     label: 'Approvals',
     items: [
       { path: 'queue', icon: Users, label: 'Approvals' },
-      { path: 'third-party', icon: Inbox, label: '3rd Party Bills' },
+      { path: 'third-party', icon: FileText, label: '3rd Party Bills' },
     ],
   },
   {
-    // The AP bill inbox (bills@alamedapointbg.com). Staff-only, matching the
-    // RLS on ops.bill_email_intake — an emailed bill exposes vendor names and
-    // amounts, which is not for every login on the shared project.
+    // The master vendor inbox (bills@alamedapointbg.com). NOT staffOnly:
+    // unassigned vendor mail is everybody's problem, so everyone in Brixpense
+    // can work it. `ops.fn_has_brixpense()` is the real gate, in the RLS and
+    // in requireBrixpense() — this list only decides what the sidebar shows.
     label: 'Accounts payable',
-    staffOnly: true,
-    items: [{ path: 'bills', icon: Mail, label: 'AP Inbox' }],
+    items: [
+      { path: 'bills', icon: Mail, label: 'Vendor Inbox' },
+      { path: 'reports', icon: BookOpen, label: 'Expense Reports' },
+    ],
   },
   {
     label: 'Vendors',
     staffOnly: true,
-    items: [{ path: 'vendors', icon: Building2, label: 'Vendors' }],
+    items: [
+      { path: 'vendors', icon: Building2, label: 'Vendors' },
+      { path: 'rules', icon: Wand2, label: 'Bill Rules' },
+    ],
   },
   {
     label: 'Account',

@@ -293,4 +293,80 @@ await t('only a Brixpense login counts as internal', () => {
   assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'driver', modules: ['billing'] } }), true);
 });
 
+console.log('\n— bill rules —');
+
+const { pickRule, ruleMatches, applyRule, recurringNote, senderMatches } =
+  await import('../netlify/functions/lib/expense-rules.mjs');
+
+const rule = (o) => ({ active: true, priority: 100, ...o });
+
+await t('matches a vendor and fills the coding in', () => {
+  const r = rule({ name: 'Pro Mech', match_vendor: 'pro mechanical',
+                   set_cogs_account_id: '101', set_cogs_account_label: 'Service Expense',
+                   set_department: 'service', set_tag: '3rd Party Service' });
+  const bill = { vendor: 'PRO MECHANICAL SERVICES INC', total: 256.59 };
+  assert.ok(ruleMatches(r, bill));
+  assert.deepEqual(applyRule(r, bill), {
+    department: 'service', tag: '3rd Party Service',
+    cogs_account_id: '101', cogs_account_label: 'Service Expense',
+  });
+});
+
+await t('the document beats the rule — a rule fills blanks, it does not overrule OCR', () => {
+  const r = rule({ name: 'x', match_vendor: 'acme', set_memo: 'Monthly service' });
+  assert.equal(applyRule(r, { vendor: 'ACME', memo: 'Emergency callout 2am' }).memo, undefined);
+  assert.equal(applyRule(r, { vendor: 'ACME', memo: null }).memo, 'Monthly service');
+});
+
+await t('a GL account id never travels without its label', () => {
+  const r = rule({ name: 'x', match_vendor: 'acme', set_cogs_account_id: '101' });
+  const patch = applyRule(r, { vendor: 'ACME' });
+  assert.equal(patch.cogs_account_id, '101');
+  assert.equal(patch.cogs_account_label, undefined, 'save-time validation refuses this pairing');
+});
+
+await t('ALL stated conditions must hold', () => {
+  const r = rule({ name: 'x', match_vendor: 'acme', match_text: 'monthly' });
+  assert.ok(ruleMatches(r, { vendor: 'ACME', memo: 'monthly service' }));
+  assert.equal(ruleMatches(r, { vendor: 'ACME', memo: 'one-off repair' }), null);
+  assert.equal(ruleMatches(r, { vendor: 'OTHER', memo: 'monthly service' }), null);
+});
+
+await t('an amount bound never claims a bill whose amount we could not read', () => {
+  const r = rule({ name: 'x', match_vendor: 'acme', match_min_amount: 100 });
+  assert.equal(ruleMatches(r, { vendor: 'ACME', total: null }), null);
+  assert.equal(ruleMatches(r, { vendor: 'ACME', total: 50 }), null);
+  assert.ok(ruleMatches(r, { vendor: 'ACME', total: 150 }));
+});
+
+await t('a bare domain matches the domain; a full address matches only that person', () => {
+  assert.equal(senderMatches('ar@acme.com', 'acme.com'), true);
+  assert.equal(senderMatches('ar@acme.com', '@acme.com'), true);
+  assert.equal(senderMatches('ar@acme.com', 'ar@acme.com'), true);
+  assert.equal(senderMatches('other@acme.com', 'ar@acme.com'), false);
+  assert.equal(senderMatches('ar@notacme.com.evil.net', 'acme.com'), false);
+});
+
+await t('lowest priority wins when two rules both match', () => {
+  const rules = [
+    rule({ id: 'general', name: 'any acme', match_vendor: 'acme', priority: 100, set_tag: 'General' }),
+    rule({ id: 'specific', name: 'acme big', match_vendor: 'acme', match_min_amount: 1000, priority: 10, set_tag: 'Capex' }),
+  ];
+  assert.equal(pickRule(rules, { vendor: 'ACME', total: 5000 }).rule.id, 'specific');
+  assert.equal(pickRule(rules, { vendor: 'ACME', total: 50 }).rule.id, 'general');
+});
+
+await t('an inactive rule claims nothing', () => {
+  assert.equal(pickRule([rule({ name: 'x', match_vendor: 'acme', active: false })], { vendor: 'ACME' }), null);
+});
+
+await t('a recurring bill well outside its usual amount is called out', () => {
+  const r = rule({ name: 'Internet', recurring: true, recurring_period: 'monthly',
+                   expected_amount: 200, amount_tolerance_pct: 10 });
+  assert.match(recurringNote(r, { total: 600 }), /^⚠/);
+  assert.match(recurringNote(r, { total: 600 }), /200% higher/);
+  assert.equal(recurringNote(r, { total: 205 }).startsWith('⚠'), false);
+  assert.match(recurringNote(r, { total: null }), /no amount was read/);
+});
+
 console.log(`\n${pass} passed\n`);

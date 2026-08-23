@@ -86,7 +86,7 @@ export default function PendingList() {
         <Button variant="ghost" size="icon" onClick={() => navigate('')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-xl font-bold tracking-tight">My Submissions</h1>
+        <h1 className="text-xl font-bold tracking-tight">Expense History</h1>
       </div>
 
       {postError && (

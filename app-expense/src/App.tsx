@@ -13,6 +13,9 @@ const ApprovalPage = lazy(() => import('@/pages/ApprovalPage'));
 const ThirdPartyBills = lazy(() => import('@/pages/ThirdPartyBills'));
 const SFExpenses = lazy(() => import('@/pages/SFExpenses'));
 const BillsInbox = lazy(() => import('@/pages/BillsInbox'));
+const MyInbox = lazy(() => import('@/pages/MyInbox'));
+const ExpenseReports = lazy(() => import('@/pages/ExpenseReports'));
+const BillRules = lazy(() => import('@/pages/BillRules'));
 const CardMatch = lazy(() => import('@/pages/CardMatch'));
 const Vendors = lazy(() => import('@/pages/Vendors'));
 const VendorDetail = lazy(() => import('@/pages/VendorDetail'));
@@ -46,6 +49,9 @@ export default function App() {
             <Route path="third-party" element={<ThirdPartyBills />} />
             <Route path="sf-expenses" element={<SFExpenses />} />
             <Route path="bills" element={<BillsInbox />} />
+            <Route path="inbox" element={<MyInbox />} />
+            <Route path="reports" element={<ExpenseReports />} />
+            <Route path="rules" element={<BillRules />} />
             <Route path="cards" element={<CardMatch />} />
             <Route path="vendors" element={<Vendors />} />
             <Route path="vendors/:id" element={<VendorDetail />} />

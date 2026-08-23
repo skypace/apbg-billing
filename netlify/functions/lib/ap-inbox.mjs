@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 import { SUPABASE_URL } from '../supabase-helpers.mjs';
+import { requireAuth } from './auth.mjs';
 
 export const DEFAULT_INBOX = 'bills@alamedapointbg.com';
 export const AP_TAG = 'AP Inbox';
@@ -251,6 +252,31 @@ export function hasBrixpenseAccess(user) {
   const mods = Array.isArray(md.modules) ? md.modules : null;
   if (mods) return mods.includes('billing');
   return BILLING_ROLES.has(md.role);
+}
+
+/**
+ * Gate an endpoint on "is in Brixpense", exactly as ops.fn_has_brixpense()
+ * does in SQL.
+ *
+ * requireAuth's role list cannot express this on its own: a login with
+ * user_metadata.modules = ['billing'] has Brixpense access whatever its role
+ * says, and hard-coding a role list here would drift from the RLS the moment
+ * someone is granted access by module. So authenticate with the role check
+ * OFF (allowedRoles = null) and apply the same predicate the database does.
+ */
+export async function requireBrixpense(reqOrEvent) {
+  const auth = await requireAuth(reqOrEvent, null);
+  if (!auth.ok) return auth;
+  if (!hasBrixpenseAccess(auth.user)) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: 'Forbidden — this needs Brixpense access.' },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ...auth, isStaff: ['superadmin', 'admin'].includes(auth.role) };
 }
 
 /** An internal Brixpense user by email, or null. Never a customer login. */
