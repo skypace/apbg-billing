@@ -16,6 +16,8 @@ Return ONLY valid JSON — no markdown, no backticks, no preamble. Schema:
   "bill_number": "string or null (the vendor's own invoice/bill/receipt number — look for \\"Invoice #\\", \\"Bill No.\\", \\"Receipt #\\", \\"Ref #\\" near the header or footer; do NOT invent one)",
   "total": number (USD, no $, no commas),
   "date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD or null (only if the document PRINTS a due date — \"Due Date\", \"Payment Due\", \"Pay By\"; do NOT compute one from terms yourself)",
+  "payment_terms": "string or null (verbatim, e.g. \"Net 30\", \"Due on receipt\", \"2/10 Net 30\", \"COD\")",
   "line_items": [
     { "description": "string", "qty": number, "unit_price": number, "amount": number }
   ],
@@ -34,6 +36,7 @@ Rules:
   {{ACCOUNT_OPTIONS}}
 - job_number: scan aggressively — look for "Job #", "WO #", "PO #", "Ticket", "Service Fusion", "ResQ", reference numbers in subject lines, anything that looks like a job ID
 - bill_number: this is the VENDOR's own document number, not a job/PO/work-order number — if the only number on the document is a job/PO/WO number, leave bill_number null
+- due_date and payment_terms are SEPARATE and both optional. Report only what is actually printed: if the invoice says "Net 30" but prints no due date, set payment_terms and leave due_date null. Never derive one from the other — that arithmetic is done downstream where the invoice date is known for certain.
 - memo: one short line, e.g. "Replacement compressor for Walk-in 3"
 - date: prefer the transaction/receipt date over the print date
 - Return ONLY the JSON object, nothing else.`;
@@ -110,6 +113,8 @@ function normalize(extracted, accountLabels) {
     bill_number: billNumber || null,
     total: Number(extracted.total ?? 0) || null,
     date: extracted.date ?? extracted.billDate ?? null,
+    due_date: extracted.due_date ?? extracted.dueDate ?? null,
+    payment_terms: (String(extracted.payment_terms ?? extracted.paymentTerms ?? '').trim() || null),
     line_items: lines,
     account_guess: accountGuess || null,
     job_number: extracted.job_number ?? extracted.jobNumber ?? null,

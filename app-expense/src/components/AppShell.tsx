@@ -1,9 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import {
-  Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
-  ChevronLeft, ChevronRight,
-  Menu, X, BookOpen, Sun, Moon, Wrench, Building2,
-} from 'lucide-react';
+import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
@@ -18,23 +14,41 @@ const navGroups: {
 }[] = [
   { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
   {
+    // Your own three surfaces, in the order you work them: what needs you,
+    // what came off a job, what you've already filed.
     label: 'Expenses',
     items: [
-      { path: 'pending', icon: Clock, label: 'Previous Expenses' },
-      { path: 'sf-expenses', icon: Wrench, label: 'SF Expenses' },
+      { path: 'inbox', icon: Inbox, label: 'My Inbox' },
+      { path: 'sf-expenses', icon: Wrench, label: 'Service Fusion' },
+      { path: 'pending', icon: Clock, label: 'Expense History' },
     ],
   },
   {
     label: 'Approvals',
     items: [
       { path: 'queue', icon: Users, label: 'Approvals' },
-      { path: 'third-party', icon: Inbox, label: '3rd Party Bills' },
+      { path: 'third-party', icon: FileText, label: '3rd Party Bills' },
+    ],
+  },
+  {
+    // The master vendor inbox (bills@alamedapointbg.com). NOT staffOnly:
+    // unassigned vendor mail is everybody's problem, so everyone in Brixpense
+    // can work it. `ops.fn_has_brixpense()` is the real gate, in the RLS and
+    // in requireBrixpense() — this list only decides what the sidebar shows.
+    label: 'Accounts payable',
+    items: [
+      { path: 'bills', icon: Mail, label: 'Vendor Inbox' },
+      { path: 'reports', icon: BookOpen, label: 'Expense Reports' },
     ],
   },
   {
     label: 'Vendors',
     staffOnly: true,
-    items: [{ path: 'vendors', icon: Building2, label: 'Vendors' }],
+    items: [
+      { path: 'vendors', icon: Building2, label: 'Vendors' },
+      { path: 'rules', icon: Wand2, label: 'Bill Rules' },
+      { path: 'tax-1099', icon: FileSpreadsheet, label: '1099s' },
+    ],
   },
   {
     label: 'Account',
@@ -45,11 +59,18 @@ const navGroups: {
 // it's superadmin-only and reachable from Settings → Card Connection Services.
 
 // Primary destinations for the mobile bottom tab bar.
+//
+// Four slots, so they have to be the four things someone reaches for on a
+// phone — not a miniature of the sidebar. My Inbox replaced Approvals here
+// because it ALREADY CONTAINS the approvals waiting on you (its "Waiting on
+// you" bucket) plus everything else that needs you, so the old Approvals tab
+// was a strict subset of it. Vendor Inbox earns a slot because forwarding a
+// bill and then checking it landed is a phone-shaped task.
 const tabItems = [
   { path: '', icon: Receipt, label: 'Home' },
-  { path: 'pending', icon: Clock, label: 'Expenses' },
-  { path: 'queue', icon: Users, label: 'Approvals' },
-  { path: 'settings', icon: SettingsIcon, label: 'Settings' },
+  { path: 'inbox', icon: Inbox, label: 'Inbox' },
+  { path: 'bills', icon: Mail, label: 'Bills' },
+  { path: 'pending', icon: Clock, label: 'History' },
 ];
 
 export function AppShell() {

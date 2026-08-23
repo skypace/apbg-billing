@@ -9,6 +9,7 @@
 import { supabase, getAccessToken } from '@/lib/supabase';
 import type {
   Vendor, VendorRequirements, QboVendorMirror, VendorComplianceDoc, VendorType,
+  TaxClassification,
 } from '@/types/expense';
 
 // ── ops.vendors CRUD ─────────────────────────────────────────────────────────
@@ -264,3 +265,73 @@ export const ONBOARD_LABEL: Record<string, string> = {
   docs_pending: 'Docs pending',
   complete: 'Complete',
 };
+
+// ── 1099 ─────────────────────────────────────────────────────────────────────
+//
+// The report is a CANDIDATE LIST, not a filing. It reads the QBO expense mirror
+// (Bills + Purchases less VendorCredits), which is ACCRUAL, while 1099 is CASH
+// basis — a bill entered in December and paid in January lands in the wrong
+// year here. QuickBooks' own 1099 module is the source of truth for the forms.
+//
+// What this is FOR is the part QuickBooks can't help with in August: which
+// vendors have crossed the threshold and have no W-9 on file, while they still
+// answer the phone.
+
+export interface Vendor1099Row {
+  vendor_name: string;
+  paid_total: number;
+  txn_count: number;
+  first_txn: string | null;
+  last_txn: string | null;
+  qbo_vendor_id: string | null;
+  vendor_id: string | null;
+  w9_status: 'missing' | 'on_file' | null;
+  w9_received_at: string | null;
+  tax_classification: TaxClassification | null;
+  ein_last4: string | null;
+  backup_withholding: boolean;
+  /** null = nobody has classified this vendor yet. */
+  reportable: boolean | null;
+  over_threshold: boolean;
+  needs_w9: boolean;
+}
+
+export async function list1099Candidates(year: number, threshold = 600): Promise<Vendor1099Row[]> {
+  const { data, error } = await supabase.rpc('fn_1099_candidates', {
+    p_year: year,
+    p_threshold: threshold,
+  });
+  if (error) throw new Error(error.message);
+  return ((data as Vendor1099Row[]) ?? []).map((r) => ({
+    ...r,
+    paid_total: Number(r.paid_total || 0),
+    txn_count: Number(r.txn_count || 0),
+  }));
+}
+
+// A vendor name that looks like a PERSON. Used only to ORDER the list, never to
+// filter it — an individual contractor is the likeliest 1099 and the hardest to
+// chase later, so they belong at the top. It is a guess, so it must not be
+// allowed to hide anyone: dropping a real obligation because a sole
+// proprietorship trades under a company name is the failure that costs money.
+const ORG_MARKER = /\b(inc|llc|l\.l\.c|ltd|corp|corporation|co|company|holdings|group|services?|supply|solutions?|systems?|industries|enterprises|partners|associates|bank|city|county|state|dept|department|university|insurance|utilities|energy|gas|electric|telecom|wireless|bros|&)\b/i;
+
+export function looksLikePerson(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n || ORG_MARKER.test(n)) return false;
+  if (/[0-9@/]/.test(n)) return false;              // account numbers, emails, "CITY OF ALAMEDA/RENT"
+  // 2–3 words. Four-word names are almost always organisations
+  // ("THE HUB DESIGN INNOVATION"); people rarely file under four.
+  const words = n.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 3;
+}
+
+/** Most-likely-to-need-chasing first: unclassified people, then everyone else
+ *  who needs a W-9, then by spend. */
+export function rank1099(rows: Vendor1099Row[]): Vendor1099Row[] {
+  return [...rows].sort((a, b) => {
+    const score = (r: Vendor1099Row) =>
+      (r.needs_w9 ? 2 : 0) + (r.needs_w9 && looksLikePerson(r.vendor_name) ? 2 : 0);
+    return score(b) - score(a) || b.paid_total - a.paid_total;
+  });
+}

@@ -54,3 +54,30 @@ export async function liveLedgerForBill(qboBillId) {
     + '&status=in.(initiated,settled,recorded)&limit=1');
   return rows && rows[0];
 }
+
+/** Stamp the BILL itself as paid.
+ *
+ *  The ledger (ops.vendor_payments) is the payment's story; expense_requests
+ *  is the bill's. Both need to know, because they answer different questions
+ *  and different code reads each: the pay panel reads the ledger, while
+ *  ops.v_ap_aging — what we owe and how late — keys on paid_at. Leave the bill
+ *  unstamped and a paid bill sits in the aging total forever, so the one
+ *  number the AP desk trusts only ever grows.
+ *
+ *  Non-fatal by design and NEVER silent: by the time this runs the money has
+ *  already moved, so throwing here would unwind nothing and lose the ledger
+ *  row. It returns the failure instead, and every caller reports it the same
+ *  way a failed QBO booking is reported. */
+export async function markExpensePaid(expenseId, { rail, qboBillPaymentId, reference, paidAt } = {}) {
+  try {
+    await ops('PATCH', `expense_requests?id=eq.${expenseId}`, {
+      paid_at: paidAt || new Date().toISOString(),
+      payment_method: rail || null,
+      ...(qboBillPaymentId ? { qbo_billpayment_id: String(qboBillPaymentId) } : {}),
+      ...(reference ? { payment_reference: String(reference).slice(0, 120) } : {}),
+    });
+    return null;
+  } catch (e) {
+    return String(e?.message || e).slice(0, 400);
+  }
+}
