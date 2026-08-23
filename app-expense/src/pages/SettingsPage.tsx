@@ -894,7 +894,7 @@ export default function SettingsPage() {
             <CardContent className="p-4">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex-1 min-w-[240px]">
-                    <h2 className="section-title flex items-center gap-2">
+                  <h2 className="section-title flex items-center gap-2">
                     <Mail size={16} /> Vendor Inbox
                   </h2>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -915,7 +915,7 @@ export default function SettingsPage() {
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[240px]">
-                  <h2 className="section-title flex items-center gap-2">
+                    <h2 className="section-title flex items-center gap-2">
                       <CreditCard size={16} /> Card Connection Services
                     </h2>
                     <p className="text-xs text-muted-foreground mt-1">
