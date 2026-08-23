@@ -186,8 +186,8 @@ export default function ExpenseReports() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold tracking-tight truncate">{book.name}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <h1 className="page-title truncate">{book.name}</h1>
+            <p className="page-description">
               {[book.tag && `Tag ${book.tag}`, book.job_number && `Job ${book.job_number}`,
                 (book.period_start || book.period_end) && `${book.period_start || '…'} → ${book.period_end || '…'}`]
                 .filter(Boolean).join(' · ') || 'No filters set'}
@@ -328,8 +328,8 @@ export default function ExpenseReports() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">Expense Reports</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">Expense Reports</h1>
+          <p className="page-description">
             Bundle expenses across payment types — card, check, bill, job — and tie them to a tag or job.
           </p>
         </div>
@@ -372,7 +372,7 @@ export default function ExpenseReports() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <div className="feedback-state">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
         </div>
       ) : books.length === 0 ? (

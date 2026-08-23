@@ -271,11 +271,11 @@ export default function VendorDetail() {
   };
 
   if (loading) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="feedback-state"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
   if (!vendor) {
     return (
-      <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">{error || 'Vendor not found.'}</CardContent></Card>
+      <Card><CardContent className="feedback-state">{error || 'Vendor not found.'}</CardContent></Card>
     );
   }
 
@@ -289,7 +289,7 @@ export default function VendorDetail() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight truncate">{vendor.display_name}</h1>
+          <h1 className="page-title truncate">{vendor.display_name}</h1>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <Badge variant="secondary">{VENDOR_TYPE_LABEL[vendor.vendor_type]}</Badge>
             <Badge variant="secondary">{ONBOARD_LABEL[vendor.onboard_status]}</Badge>
@@ -318,7 +318,7 @@ export default function VendorDetail() {
       {/* ── Profile ── */}
       <Card>
         <CardContent className="p-4 space-y-3">
-          <h2 className="text-sm font-bold tracking-tight">Profile</h2>
+          <h2 className="section-title">Profile</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Display name</Label>
@@ -454,7 +454,7 @@ export default function VendorDetail() {
       {/* ── Payment preference ── */}
       <Card>
         <CardContent className="p-4 space-y-3">
-          <h2 className="text-sm font-bold tracking-tight">Payment</h2>
+          <h2 className="section-title">Payment</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Preferred method</Label>
@@ -485,7 +485,7 @@ export default function VendorDetail() {
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-bold tracking-tight">Insurance requirements</h2>
+            <h2 className="section-title">Insurance requirements</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -535,7 +535,7 @@ export default function VendorDetail() {
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Link2 className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-bold tracking-tight flex-1">QuickBooks</h2>
+            <h2 className="section-title flex-1">QuickBooks</h2>
             {vendor.qbo_vendor_id && !linking && (
               <Button size="sm" variant="ghost" onClick={() => setLinking(true)}>Change link</Button>
             )}
@@ -585,7 +585,7 @@ export default function VendorDetail() {
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <FileText className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-bold tracking-tight flex-1">Documents</h2>
+            <h2 className="section-title flex-1">Documents</h2>
             {vendor.insured_party_id && (
               <>
                 {compliance.coi === 'missing' && <Badge variant="destructive">COI missing</Badge>}
@@ -684,7 +684,7 @@ export default function VendorDetail() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               <Banknote className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-bold tracking-tight flex-1">Payments</h2>
+              <h2 className="section-title flex-1">Payments</h2>
               {stripe && !stripe.configured && <Badge variant="secondary">Stripe not configured</Badge>}
               {stripe?.configured && stripe.ready && <Badge variant="success">Bank payouts ready</Badge>}
               {stripe?.configured && !stripe.ready && vendor.stripe_recipient_id && <Badge variant="warning">Stripe setup incomplete</Badge>}

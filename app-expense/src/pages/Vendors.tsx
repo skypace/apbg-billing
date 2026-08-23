@@ -211,12 +211,12 @@ export default function Vendors() {
   }, [vendors, filter]);
 
   if (isStaff === null) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="feedback-state"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
   if (!isStaff) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+        <CardContent className="feedback-state">
           The Vendors module is available to admins only.
         </CardContent>
       </Card>
@@ -227,8 +227,8 @@ export default function Vendors() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="flex-1">
-          <h1 className="text-xl font-bold tracking-tight">Vendors</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">Vendors</h1>
+          <p className="page-description">
             Insurance, W-9 and payment preferences per vendor — linked to QuickBooks and the compliance vault.
           </p>
         </div>
@@ -379,12 +379,12 @@ export default function Vendors() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : filtered.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
+          <CardContent className="feedback-state">
             <Building2 className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
               {vendors.length === 0 ? 'No vendors yet.' : 'No vendors match the filter.'}

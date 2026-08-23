@@ -16,8 +16,8 @@ export default function ThirdPartyBills() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-lg font-semibold">3rd Party Bills</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">3rd Party Bills</h1>
+          <p className="page-description">
             Vendor invoices that didn't come out of your pocket. Use the
             Billing Loader instead of filing them as a personal expense.
           </p>

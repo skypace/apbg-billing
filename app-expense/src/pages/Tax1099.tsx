@@ -95,8 +95,8 @@ export default function Tax1099() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">1099 candidates</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">1099 candidates</h1>
+          <p className="page-description">
             Who we paid enough to report, and who we still need a W-9 from.
           </p>
         </div>
@@ -168,7 +168,7 @@ export default function Tax1099() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <div className="feedback-state">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
         </div>
       ) : visible.length === 0 ? (

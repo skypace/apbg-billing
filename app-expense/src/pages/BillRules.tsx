@@ -148,8 +148,8 @@ export default function BillRules() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">Bill Rules</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">Bill Rules</h1>
+          <p className="page-description">
             Recognise a bill and fill in its coding automatically. Rules never post anything —
             a human still clicks Post to QuickBooks.
           </p>
@@ -286,7 +286,7 @@ export default function BillRules() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <div className="feedback-state">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
         </div>
       ) : rules.length === 0 && !draft ? (

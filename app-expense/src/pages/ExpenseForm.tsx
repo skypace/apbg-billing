@@ -778,7 +778,7 @@ export default function ExpenseForm() {
 
   if (settingsLoading || loadingExisting) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -791,7 +791,7 @@ export default function ExpenseForm() {
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold">New Expense</h1>
+          <h1 className="page-title">New Expense</h1>
         </div>
 
         <Card>
@@ -870,7 +870,7 @@ export default function ExpenseForm() {
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold flex-1">
+          <h1 className="page-title flex-1">
             {isEditing ? 'Submission Details' : 'Expense Details'}
           </h1>
           {isEditing && existingStatus && (
@@ -1354,7 +1354,7 @@ export default function ExpenseForm() {
 
   if (step === 'submitting') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">
           {needsApproval
@@ -1373,9 +1373,9 @@ export default function ExpenseForm() {
     const positive = margin >= 0;
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+      <div className="feedback-state min-h-[60vh]">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
-        <h2 className="text-lg font-semibold">{resultMessage}</h2>
+        <h2 className="feedback-title">{resultMessage}</h2>
         {resultBillId && (
           <p className="text-sm text-muted-foreground">
             QBO Bill ID: <span className="font-mono">{resultBillId}</span>
@@ -1442,9 +1442,9 @@ export default function ExpenseForm() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+    <div className="feedback-state min-h-[60vh]">
       <AlertTriangle className="h-12 w-12 text-destructive" />
-      <h2 className="text-lg font-semibold">Submission Failed</h2>
+      <h2 className="feedback-title">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
       <Button variant="outline" onClick={() => setStep('details')}>
         Try Again

@@ -305,8 +305,8 @@ export default function BillsInbox() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">Vendor Inbox</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">Vendor Inbox</h1>
+          <p className="page-description">
             Bills emailed to{' '}
             <span className="font-mono">{settings?.inbox ?? 'bills@alamedapointbg.com'}</span>
             {' '}— read, coded, and queued for a human to post.
@@ -417,7 +417,7 @@ export default function BillsInbox() {
       <ApAgingStrip />
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <div className="feedback-state">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading the inbox…
         </div>
       ) : visible.length === 0 ? (

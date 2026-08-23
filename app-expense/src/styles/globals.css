@@ -266,6 +266,63 @@
   }
 }
 
+/* Shared content hierarchy -------------------------------------------------
+   Semantic hooks keep every route aligned in both light and dark modes. */
+.page-header { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding-bottom: 2px; }
+.page-header-copy { flex: 1; min-width: 0; }
+.page-title {
+  color: var(--tx); font-family: var(--ff-display);
+  font-size: clamp(24px, 2vw, 30px); font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+.page-description {
+  max-width: 72ch; margin: 5px 0 0; color: var(--tx2);
+  font-size: 14px; font-weight: 450; line-height: 1.5;
+}
+.section-title {
+  color: var(--tx); font-family: var(--ff-display); font-size: 16px;
+  font-weight: 700; line-height: 1.3; letter-spacing: -0.015em;
+}
+.section-description { margin: 4px 0 0; color: var(--tx2); font-size: 13px; line-height: 1.5; }
+.eyebrow {
+  color: var(--mt); font-size: 11px; font-weight: 700; line-height: 1.2;
+  letter-spacing: 0.075em; text-transform: uppercase;
+}
+
+.data-table-shell {
+  width: 100%; overflow-x: auto; border: 1px solid var(--bd-light);
+  border-radius: 14px; background: rgb(var(--ac) / 0.012);
+}
+.data-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  color: var(--tx); font-size: 14px; line-height: 1.4;
+}
+.data-table th {
+  padding: 11px 14px; background: var(--sf2); border-bottom: 1px solid var(--bd);
+  color: var(--mt); font-size: 11px; font-weight: 700; letter-spacing: 0.065em;
+  text-align: left; text-transform: uppercase; white-space: nowrap;
+}
+.data-table td { padding: 12px 14px; border-bottom: 1px solid var(--bd-light); vertical-align: middle; }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table tbody tr { transition: background-color var(--dur-fast) var(--ease); }
+.data-table tbody tr:hover { background: rgb(var(--ac) / 0.045); }
+.data-table td.numeric, .data-table th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table tfoot td { background: var(--sf2); border-top: 1px solid var(--bd); border-bottom: 0; font-weight: 700; }
+
+.feedback-state {
+  display: flex; min-height: 180px; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; padding: 32px 20px; color: var(--tx2); text-align: center;
+}
+.feedback-state > svg { color: var(--mt); }
+.feedback-title { color: var(--tx); font-size: 15px; font-weight: 650; }
+.feedback-description { max-width: 48ch; margin: 0; font-size: 13px; line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .page-title { font-size: 24px; }
+  .page-description { font-size: 13px; }
+  .data-table th, .data-table td { padding-inline: 11px; }
+}
+
 /* Wordmark */
 .brand-mark { font-family: var(--ff-display); font-weight: 800; font-size: 22px; letter-spacing: -0.02em; color: var(--tx); line-height: 1; display: inline-flex; align-items: baseline; white-space: nowrap; }
 .brand-bx { color: var(--green); font-weight: 800; font-size: 1.3em; text-shadow: var(--brand-glow); margin: 0 -0.04em; }
@@ -509,6 +566,13 @@ select:focus { border-color: var(--teal) !important; outline: none !important; b
 select option { background: var(--sf) !important; color: var(--tx) !important; padding: 8px; font-size: 16px; }
 select option:disabled { color: var(--mt) !important; }
 
+.data-table input,
+.data-table select {
+  min-height: 40px !important;
+  padding-block: 9px !important;
+  font-size: 14px;
+}
+
 [data-slot="label"] { color: var(--tx2) !important; font-size: 13px !important; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 8px; }
 
 /* ── Buttons — only style shadcn variants (with class hooks). ── */
@@ -634,12 +698,8 @@ button.hover\:bg-secondary:hover, [data-slot="button"].hover\:bg-secondary:hover
 .ap-sum-label { font-size: 10px; color: var(--mt); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; }
 .ap-sum-value { font-size: 16px; font-weight: 700; color: var(--tx); }
 .ap-sum-total { color: var(--teal); font-size: 20px; font-weight: 800; }
-.ap-items { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid var(--bd); border-radius: 10px; overflow: hidden; margin-bottom: 4px; }
-.ap-items thead { background: var(--sf2); }
-.ap-items th { padding: 9px 10px; text-align: left; font-size: 11px; font-weight: 700; color: var(--tx2); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--bd); }
+.ap-items { min-width: 480px; font-size: 13px; }
 .ap-items th.r, .ap-items td.r { text-align: right; }
-.ap-items td { padding: 9px 10px; border-bottom: 1px solid var(--bd-light); color: var(--tx); }
-.ap-items tfoot td { background: var(--sf2); border-top: 2px solid var(--bd); font-weight: 700; padding: 11px 10px; }
 .ap-items-total { color: var(--teal); font-size: 15px; }
 .ap-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--tx); margin-bottom: 10px; }
 .ap-helptext { font-size: 13px; color: var(--tx2); margin: 0 0 12px 0; line-height: 1.55; }

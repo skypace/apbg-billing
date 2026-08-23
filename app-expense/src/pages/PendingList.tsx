@@ -101,7 +101,7 @@ export default function PendingList() {
         <Button variant="ghost" size="icon" onClick={() => navigate('')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-xl font-bold tracking-tight">Expense History</h1>
+        <h1 className="page-title">Expense History</h1>
       </div>
 
       {postError && (
@@ -111,12 +111,12 @@ export default function PendingList() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : requests.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
+          <CardContent className="feedback-state">
             <Clock className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
               No submissions yet.

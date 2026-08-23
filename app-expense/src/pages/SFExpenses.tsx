@@ -127,8 +127,8 @@ export default function SFExpenses() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-xl font-bold tracking-tight">SF Expenses</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="page-title">SF Expenses</h1>
+          <p className="page-description">
             Service Fusion job expenses — landed in Brixpense when the job is invoiced.
           </p>
         </div>
@@ -147,12 +147,12 @@ export default function SFExpenses() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : requests.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
+          <CardContent className="feedback-state">
             <Wrench className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
               No Service Fusion expenses yet.
