@@ -275,6 +275,13 @@ clears the light. A permanent amber is a light people stop reading.
 `sync_type: 'ap_inbox'`) on every run **that had work** — an empty sweep is not
 an event and logging one would make the last-run timestamp meaningless.
 
+> ⚠ **`ops.sync_log.source` is a CHECK allow-list.** Adding a writer without
+> adding its source to that list means every insert is rejected — silently,
+> because log writes are wrapped in try/catch — and the health check that reads
+> them sits on "has not logged yet" forever. That had already happened to
+> `distributor` and `vendors` before this was noticed (migration
+> `20260823060546`). **Extend the list in the same change that adds a writer.**
+
 > ⚠ Zero mail ever received reads **green**, with the detail saying so. Postgres
 > cannot tell "nobody has emailed a bill yet" from "the Resend webhook was never
 > pointed here", so it states the ambiguity rather than picking a colour.
