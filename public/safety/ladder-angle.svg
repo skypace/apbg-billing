@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" role="img" aria-label="Ladder set at a four to one angle with belt buckle kept between the rails">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .lbl{font:600 13px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 13px system-ui,sans-serif;fill:#15803D}
+</style>
+<text x="16" y="26" class="ttl">4-to-1: one foot out for every four feet of height</text>
+
+<!-- wall + ground -->
+<line x1="330" y1="60" x2="330" y2="300" stroke="#1F4E79" stroke-width="3"/>
+<line x1="60" y1="300" x2="660" y2="300" stroke="#1F4E79" stroke-width="3"/>
+
+<!-- ladder -->
+<line x1="270" y1="300" x2="330" y2="80" stroke="#1F4E79" stroke-width="3"/>
+<line x1="292" y1="300" x2="352" y2="80" stroke="#1F4E79" stroke-width="3"/>
+<g stroke="#94A3B8" stroke-width="2">
+<line x1="274" y1="285" x2="296" y2="285"/><line x1="282" y1="255" x2="304" y2="255"/>
+<line x1="290" y1="225" x2="312" y2="225"/><line x1="298" y1="195" x2="320" y2="195"/>
+<line x1="306" y1="165" x2="328" y2="165"/><line x1="314" y1="135" x2="336" y2="135"/>
+<line x1="322" y1="105" x2="344" y2="105"/>
+</g>
+<!-- 3ft above landing -->
+<line x1="240" y1="80" x2="340" y2="80" stroke="#15803D" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="360" y="76" class="ok">extends 3 ft past the landing</text>
+
+<!-- dims -->
+<line x1="270" y1="316" x2="330" y2="316" stroke="#F4B400" stroke-width="2"/>
+<text x="258" y="334" class="sub">1 out</text>
+<line x1="248" y1="300" x2="248" y2="80" stroke="#F4B400" stroke-width="2"/>
+<text x="196" y="196" class="sub">4 up</text>
+
+<!-- climber with belt buckle inside rails -->
+<circle cx="311" cy="176" r="8" fill="#15803D"/>
+<path d="M311 184 v22 M311 190 l-14 -8 M311 190 l14 -8 M311 206 l-10 14 M311 206 l10 14" stroke="#15803D" stroke-width="2.5" fill="none"/>
+<circle cx="311" cy="198" r="4" fill="#F4B400"/>
+<text x="380" y="196" class="ok">Belt buckle stays between the rails</text>
+<text x="380" y="214" class="sub">Reaching past it is how the ladder walks out</text>
+
+<!-- wrong: overreach -->
+<g opacity=".95">
+<line x1="520" y1="300" x2="560" y2="130" stroke="#B91C1C" stroke-width="3"/>
+<circle cx="580" cy="150" r="8" fill="#B91C1C"/>
+<path d="M580 158 v20 M580 163 l-22 -12 M580 163 l16 -10" stroke="#B91C1C" stroke-width="2.5" fill="none"/>
+<text x="470" y="336" class="dgr">Move the ladder — don't lean</text>
+</g>
+<text x="16" y="366" class="sub">3 points of contact · face the ladder · never the top two steps · fibreglass only near electrical</text>
+</svg>

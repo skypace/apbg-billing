@@ -1,4 +1,5 @@
 import { qboRequest, corsHeaders } from './qbo-helpers.mjs';
+import { requireAuth } from './lib/auth.mjs';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -8,6 +9,9 @@ export async function handler(event) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ error: 'POST only' }) };
   }
+
+  const auth = await requireAuth(event);
+  if (!auth.ok) return auth.response;
 
   try {
     const { displayName, companyName, email, phone } = JSON.parse(event.body);

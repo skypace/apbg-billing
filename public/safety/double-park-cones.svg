@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" role="img" aria-label="Overhead view of a delivery truck stopped in a travel lane with cones set front and rear, working from the curb side, bike lane kept clear">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .lbl{font:600 13px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 12px system-ui,sans-serif;fill:#15803D}
+</style>
+<text x="16" y="26" class="ttl">Temporary stop in a lane — cones out before you open a door</text>
+
+<!-- roadway -->
+<rect x="40" y="52" width="640" height="210" fill="#F1F5F9"/>
+<!-- sidewalk -->
+<rect x="40" y="230" width="640" height="32" fill="#E2E8F0"/>
+<text x="52" y="252" class="sub">sidewalk · customer entrance</text>
+<!-- bike lane -->
+<rect x="40" y="200" width="640" height="30" fill="#DCFCE7"/>
+<text x="52" y="220" class="ok">BIKE LANE — never park here, ever</text>
+<!-- lane divider -->
+<line x1="40" y1="130" x2="680" y2="130" stroke="#94A3B8" stroke-width="2" stroke-dasharray="16 12"/>
+<text x="52" y="80" class="sub">through traffic</text>
+
+<!-- truck -->
+<rect x="250" y="140" width="210" height="56" rx="6" fill="#1F4E79"/>
+<rect x="430" y="146" width="34" height="44" rx="4" fill="#0F172A"/>
+<text x="266" y="174" fill="#fff" style="font:700 13px system-ui,sans-serif">BRIX</text>
+<!-- hazards -->
+<circle cx="256" cy="146" r="5" fill="#F4B400"/><circle cx="256" cy="190" r="5" fill="#F4B400"/>
+<circle cx="458" cy="146" r="5" fill="#F4B400"/><circle cx="458" cy="190" r="5" fill="#F4B400"/>
+<text x="250" y="132" class="sub">hazard flashers on before you stop</text>
+
+<!-- cones: rear toward traffic, and forward -->
+<g fill="#F4B400" stroke="#B45309" stroke-width="1.5">
+<path d="M180 196 l10 -26 l10 26 Z"/><path d="M216 192 l9 -22 l9 22 Z"/>
+<path d="M492 192 l9 -22 l9 22 Z"/>
+</g>
+<text x="140" y="216" class="lbl">cones set BEFORE unloading</text>
+<text x="140" y="232" class="sub">rear cone furthest out toward traffic</text>
+<text x="482" y="216" class="sub">forward cone</text>
+
+<!-- worker on curb side -->
+<circle cx="352" cy="212" r="7" fill="#15803D"/>
+<path d="M352 219 v14 M352 223 l-9 7 M352 223 l9 7" stroke="#15803D" stroke-width="2.5" fill="none"/>
+<text x="300" y="252" class="ok">work from the CURB side only</text>
+
+<!-- no street side -->
+<circle cx="352" cy="118" r="13" fill="none" stroke="#B91C1C" stroke-width="3"/>
+<line x1="343" y1="109" x2="361" y2="127" stroke="#B91C1C" stroke-width="3"/>
+<text x="372" y="122" class="dgr">never stage product on the traffic side</text>
+
+<text x="16" y="290" class="sub">Engine off · brake set · keys with you · shortest possible stop · retrieve every cone</text>
+<text x="16" y="310" class="sub">Order of preference: yellow commercial zone → legal space → temporary stop with full precautions</text>
+</svg>

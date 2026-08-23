@@ -2,6 +2,11 @@
   "name": "apbg-billing",
   "private": true,
   "dependencies": {
-    "@netlify/blobs": "^8.1.0"
+    "@netlify/blobs": "^8.1.0",
+    "@supabase/supabase-js": "^2.49.0",
+    "pdf-lib": "^1.17.1"
+  },
+  "scripts": {
+    "test": "node tests/ap-inbox.test.mjs && node --test tests/due-date.test.mjs tests/expense-guards.test.mjs tests/vendor-docs.test.mjs"
   }
 }

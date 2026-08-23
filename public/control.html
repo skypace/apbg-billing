@@ -1,82 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="maintenance-banner.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/control'+location.search);</script>
 <title>BRIXPENSE — System Control</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/billing/auth.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',system-ui,sans-serif;background:#0F172A;color:#E2E8F0;min-height:100vh}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#F5F7FA;color:#0F172A;min-height:100vh}
 .gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-.gate-card{background:#1E293B;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;border:1px solid #334155}
-.gate-card h1{color:#F8FAFC;font-size:1.3rem;margin-bottom:8px}
-.gate-card p{color:#94A3B8;font-size:0.85rem;margin-bottom:20px}
-.gate-card input{width:100%;padding:14px;border:1px solid #475569;border-radius:8px;font-size:1rem;text-align:center;letter-spacing:2px;background:#0F172A;color:#F8FAFC}
-.gate-card input:focus{outline:none;border-color:#3B82F6}
-.gate-card .err{color:#EF4444;font-size:0.8rem;margin-top:8px;display:none}
+.gate-card{background:#FFFFFF;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;border:1px solid #E4E9F0;box-shadow:0 10px 30px rgba(15,23,42,0.06)}
+.gate-card h1{color:#0F172A;font-size:1.3rem;margin-bottom:8px}
+.gate-card p{color:#64748B;font-size:0.85rem;margin-bottom:20px}
+.gate-card input{width:100%;padding:14px;border:1px solid #CBD5E1;border-radius:8px;font-size:1rem;text-align:center;letter-spacing:2px;background:#FFFFFF;color:#0F172A}
+.gate-card input:focus{outline:none;border-color:#1F4E79}
+.gate-card .err{color:#DC2626;font-size:0.8rem;margin-top:8px;display:none}
 
-header{background:linear-gradient(135deg,#1E3A5F,#1F4E79);color:#fff;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155}
+header{background:#FFFFFF;color:#0F172A;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E4E9F0}
 header h1{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:10px}
-header .links a{color:rgba(255,255,255,0.6);text-decoration:none;font-size:0.82rem;margin-left:16px;transition:color 0.15s}
-header .links a:hover{color:#fff}
+header .links a{color:#64748B;text-decoration:none;font-size:0.82rem;margin-left:16px;transition:color 0.15s}
+header .links a:hover{color:#1F4E79}
 
 .container{max-width:1200px;margin:0 auto;padding:28px}
 
 .refresh-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
 .refresh-bar .last{font-size:0.78rem;color:#64748B}
-.refresh-bar button{padding:10px 24px;border:none;border-radius:8px;font-weight:600;font-size:0.85rem;cursor:pointer;background:#3B82F6;color:#fff;transition:all 0.15s}
-.refresh-bar button:hover{background:#2563EB}
-.refresh-bar button:disabled{background:#475569;cursor:not-allowed}
+.refresh-bar button{padding:10px 24px;border:none;border-radius:8px;font-weight:600;font-size:0.85rem;cursor:pointer;background:#1F4E79;color:#fff;transition:all 0.15s}
+.refresh-bar button:hover{background:#2A5E92}
+.refresh-bar button:disabled{background:#CBD5E1;cursor:not-allowed}
 
 .sites-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin-bottom:28px}
 
-.site-card{background:#1E293B;border-radius:12px;border:1px solid #334155;overflow:hidden;transition:border-color 0.2s}
-.site-card:hover{border-color:#475569}
-.site-card .card-header{padding:18px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155}
+.site-card{background:#FFFFFF;border-radius:12px;border:1px solid #E4E9F0;overflow:hidden;transition:border-color 0.2s;box-shadow:0 1px 3px rgba(15,23,42,0.04)}
+.site-card:hover{border-color:#CBD5E1}
+.site-card .card-header{padding:18px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #EDF1F6}
 .site-card .card-header .name{font-weight:700;font-size:1rem;display:flex;align-items:center;gap:8px}
 .site-card .card-header .overall{font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px}
-.overall.healthy{background:#064E3B;color:#34D399}
-.overall.degraded{background:#78350F;color:#FBBF24}
-.overall.down{background:#7F1D1D;color:#FCA5A5}
-.overall.unknown{background:#334155;color:#94A3B8}
+.overall.healthy{background:#DCFCE7;color:#15803D}
+.overall.degraded{background:#FEF3C7;color:#B45309}
+.overall.down{background:#FEE2E2;color:#B91C1C}
+.overall.unknown{background:#EEF2F7;color:#64748B}
 
 .card-body{padding:16px 20px}
-.check-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #1E293B}
+.check-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EDF1F6}
 .check-row:last-child{border-bottom:none}
 .check-row .check-name{display:flex;align-items:center;gap:8px;font-size:0.85rem;font-weight:500}
 .check-row .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.dot.ok{background:#34D399}
-.dot.warn{background:#FBBF24}
-.dot.fail{background:#EF4444}
-.dot.unknown{background:#475569}
+.dot.ok{background:#16A34A}
+.dot.warn{background:#D97706}
+.dot.fail{background:#DC2626}
+.dot.unknown{background:#94A3B8}
 .check-row .check-detail{font-size:0.72rem;color:#64748B;text-align:right;max-width:200px}
 
-.card-footer{padding:12px 20px;border-top:1px solid #334155;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.card-footer .timestamp{font-size:0.7rem;color:#475569;font-family:'JetBrains Mono',monospace}
-.reconnect-btn{padding:6px 14px;border:1px solid #475569;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;background:transparent;color:#94A3B8;text-decoration:none;transition:all 0.15s;display:inline-block}
-.reconnect-btn:hover{border-color:#3B82F6;color:#3B82F6;background:#1E3A5F}
-.reconnect-btn.warn{border-color:#D97706;color:#FBBF24}
-.reconnect-btn.warn:hover{background:#78350F}
-.reconnect-btn.danger{border-color:#EF4444;color:#FCA5A5}
-.reconnect-btn.danger:hover{background:#7F1D1D}
+.card-footer{padding:12px 20px;border-top:1px solid #EDF1F6;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.card-footer .timestamp{font-size:0.7rem;color:#94A3B8;font-family:'JetBrains Mono',monospace}
+.reconnect-btn{padding:6px 14px;border:1px solid #CBD5E1;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;background:transparent;color:#475569;text-decoration:none;transition:all 0.15s;display:inline-block}
+.reconnect-btn:hover{border-color:#1F4E79;color:#1F4E79;background:#EEF2F7}
+.reconnect-btn.warn{border-color:#D97706;color:#B45309}
+.reconnect-btn.warn:hover{background:#FEF3C7}
+.reconnect-btn.danger{border-color:#DC2626;color:#B91C1C}
+.reconnect-btn.danger:hover{background:#FEE2E2}
 
-.keepalive-section{background:#1E293B;border-radius:12px;border:1px solid #334155;padding:20px;margin-bottom:28px}
-.keepalive-section h2{font-size:0.9rem;font-weight:700;color:#F8FAFC;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.keepalive-section{background:#FFFFFF;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:28px;box-shadow:0 1px 3px rgba(15,23,42,0.04)}
+.keepalive-section h2{font-size:0.9rem;font-weight:700;color:#0F172A;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .keepalive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-.keepalive-item{background:#0F172A;border-radius:8px;padding:14px;border:1px solid #334155}
+.keepalive-item{background:#F5F7FA;border-radius:8px;padding:14px;border:1px solid #E4E9F0}
 .keepalive-item .label{font-size:0.7rem;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
 .keepalive-item .value{font-size:0.85rem;font-weight:600}
 .keepalive-item .age{font-size:0.7rem;color:#64748B;margin-top:2px}
 
-.log-section{background:#1E293B;border-radius:12px;border:1px solid #334155;overflow:hidden}
-.log-section h2{font-size:0.9rem;font-weight:700;color:#F8FAFC;padding:16px 20px;border-bottom:1px solid #334155}
-.log{font-family:'JetBrains Mono',monospace;font-size:0.72rem;background:#0F172A;color:#94A3B8;padding:16px 20px;max-height:250px;overflow-y:auto;white-space:pre-wrap}
-.log .ok{color:#34D399}
-.log .err{color:#EF4444}
-.log .info{color:#60A5FA}
-.log .warn{color:#FBBF24}
+.log-section{background:#FFFFFF;border-radius:12px;border:1px solid #E4E9F0;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.04)}
+.log-section h2{font-size:0.9rem;font-weight:700;color:#0F172A;padding:16px 20px;border-bottom:1px solid #EDF1F6}
+.log{font-family:'JetBrains Mono',monospace;font-size:0.72rem;background:#F5F7FA;color:#475569;padding:16px 20px;max-height:250px;overflow-y:auto;white-space:pre-wrap}
+.log .ok{color:#16A34A}
+.log .err{color:#DC2626}
+.log .info{color:#2563EB}
+.log .warn{color:#D97706}
 
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.2);border-top-color:#3B82F6;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(15,23,42,0.15);border-top-color:#1F4E79;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .pulsing{animation:pulse 2s ease-in-out infinite}
@@ -85,16 +88,8 @@ header .links a:hover{color:#fff}
 </head>
 <body class="page-control">
 
-<!-- PIN Gate -->
-<div id="gate" class="gate">
-<div class="gate-card">
-  <div class="brand-mark gate-mark" aria-hidden="true">B</div>
-  <h1>System control</h1>
-  <p>Enter your PIN to continue to the operations dashboard.</p>
-  <input type="password" id="pin" placeholder="PIN" maxlength="8" autofocus>
-  <div class="err" id="pinErr">Invalid PIN</div>
-</div>
-</div>
+<!-- Loading state while auth check runs -->
+<div id="authLoading" class="gate"><div class="gate-card"><div class="brand-mark gate-mark" aria-hidden="true">B</div><h1>System control</h1><p>Checking your administrator access…</p></div></div>
 
 <!-- Dashboard -->
 <div id="app" style="display:none">
@@ -120,6 +115,113 @@ header .links a:hover{color:#fff}
     <div class="keepalive-grid" id="keepaliveGrid"></div>
   </div>
 
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔗 Connections &amp; Reconnect <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— the reconnect desk for Service Fusion &amp; QuickBooks logins</span></h2>
+    <p style="margin:2px 0 10px;font-size:0.82rem;color:#6B7280;line-height:1.5">When a Service Fusion or QuickBooks connection dies, apps stop syncing (SF expenses stop landing, QBO bills stop posting). We run <b>several separate SF and QuickBooks logins</b> — one per app — so a hiccup in one never takes down the others. The trouble is they look identical from the outside, and reconnecting the wrong one wastes an afternoon. Each row below is one login: a <b>health light</b> (🟢 healthy · 🟡 needs a look · 🔴 down · ⚪ lives in another site, not watched here), the <b>id</b> so you know exactly which one it is, and a <b>Reconnect</b> button that opens the correct sign-in for <i>that</i> one. Everything green = nothing to do. Only click Reconnect on a row that's red or yellow.</p>
+    <div id="connectionsBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:8px 20px 14px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🛠️ Service &amp; Maintenance <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— show a banner or fully lock out any app while you work on it</span></h2>
+    <div id="maintBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔁 ResQ Sync <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— ResQ ↔ Service Fusion ↔ QBO sync engine (runs on Supabase, apbg-resq-sync)</span></h2>
+    <div id="resqSyncBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>📨 Vendor Job Intake <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— Red Bull / Freshpet emails → Service Fusion work orders (switch OFF = record emails only, no jobs, no notifications)</span></h2>
+    <div id="vendorRoutesBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>⚙️ Linked Customers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— RESQ facility → SF/QBO customer map the live ResQ sync uses to create jobs</span></h2>
+    <div id="syncCustomersBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">Loading…</div>
+  </div>
+
+  <!-- Card & Expense Match moved to Brixpense → Settings → Card Connection
+       Services (2026-08-14). Cardholder assignment + QBO charge ↔ Brixpense
+       reconciliation now live inside the module they configure; Master Control
+       only links there. -->
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>💳 Card &amp; Expense Match <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— moved to Brixpense</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Cardholder assignment and the QBO credit-card/expense ↔ Brixpense merge now live in
+        <b>Brixpense → Settings → Card Connection Services</b> (superadmin only), inside the module they configure.
+      </div>
+      <a href="/expense/cards" style="flex:none;background:#1F4E79;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;text-decoration:none">Open Card Connection Services →</a>
+    </div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔍 Service Fusion Changes report <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— comms-settings changes, new / removed customers, renames</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Re-scans every SF customer, diffs against the last snapshot, and <b>emails the report</b>
+        (communication-settings changes per customer, new customers, removed customers — SF's API can't
+        distinguish deleted from deactivated — and renames). SF's API is read-only for customers, so fixes happen in the SF web UI.
+      </div>
+      <button id="sfChangesBtn" onclick="runSfChangesReport()" style="flex:none;background:#1F4E79;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer">Run report now →</button>
+    </div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🧾 SF Expenses → QuickBooks <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— post each Service Fusion job expense as a QBO bill to its "Purchased From" vendor</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Takes the Service Fusion expense drafts that haven't been billed and creates a QuickBooks bill for each
+        against the vendor on record (SF <b>Purchased From</b>) — emailing a <b>confirmation per bill</b>. Expenses with a
+        blank vendor, or a vendor that isn't in QuickBooks, are held and email a <b>needs-attention</b> alert instead.
+        <b>Preview</b> is a dry run (nothing posts) and emails a summary; <b>Post now</b> creates the bills.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="sfAutopostPreviewBtn" onclick="runSfAutopost('preview')" style="flex:none;background:#fff;color:#1F4E79;border:1px solid #1F4E79;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Preview (dry run)</button>
+        <button id="sfAutopostPostBtn" onclick="runSfAutopost('post')" style="flex:none;background:#059669;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Post now →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCP moved out 2026-08-06 — every MCP control (server status, endpoint
+       probes, connector re-auth guidance, provider reconnect) now lives in the
+       MCP Servers app at /mcp. Master Control keeps only this pointer so there
+       is exactly ONE place to operate MCP from. -->
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>🔌 MCP Servers <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— managed in its own app</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
+      <div style="font-size:0.85rem;color:#374151;max-width:760px">
+        MCP server status and both reconnect paths (Claude connector re-auth and QBO/Zoho/SF provider tokens)
+        live in the <b>MCP Servers</b> app — not here.
+      </div>
+      <div style="margin-top:14px">
+        <a href="https://alamedapointbg.com/mcp" style="background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Open MCP Servers →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>📖 APBG Handbook <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— master user guide + operations SOP manual, with a freshness sweep against its source docs</span></h2>
+    <div id="handbookBox" style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px">
+        <div style="font-size:0.85rem;color:#374151;max-width:560px">
+          Every app's user guide, every SOP, the architecture diagrams + live ARCHITECTURE.md mirror, and the
+          automatic cross-repo change log live in the
+          <a href="/docs/handbook/" target="_blank" rel="noopener" style="color:#1F4E79;font-weight:600">Master Handbook</a>.
+          The sweep checks each chapter's registered source documents (GitHub commit dates vs the chapter's
+          last-reviewed date) and flags what's drifted — copy an update prompt per chapter, or hit
+          <strong>Auto-update</strong> to have Claude draft the fixes as a review PR.
+        </div>
+        <div style="display:flex;gap:8px;flex:none">
+          <a href="/docs/handbook/" target="_blank" rel="noopener" style="background:#fff;color:#1F4E79;border:1px solid #1F4E79;text-decoration:none;font-weight:600;font-size:0.85rem;padding:10px 18px;border-radius:8px">Open Handbook →</a>
+          <button id="sweepBtn" onclick="runHandbookSweep()" style="background:#1F4E79;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:600;font-size:0.85rem;cursor:pointer">🔍 Run sweep</button>
+        </div>
+      </div>
+      <div id="sweepResults" style="font-size:0.85rem"></div>
+    </div>
+  </div>
+
   <div class="log-section">
     <h2>Activity Log</h2>
     <div class="log" id="log"></div>
@@ -134,12 +236,12 @@ const SITES = {
     name: 'APBG 3rd Party Billing',
     icon: '📋',
     url: 'https://apbg-billing.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog?refresh=1',
+    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/health-watchdog',
     checks: ['qbo', 'serviceFusion', 'resq'],
     labels: { qbo: 'QuickBooks', serviceFusion: 'Service Fusion', resq: 'ResQ' },
     reconnect: {
       qbo: buildQboUrl('ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK', 'https://apbg-billing.netlify.app/.netlify/functions/oauth-callback'),
-      serviceFusion: buildSfUrl('f8cqiTHnjoFS-QMeuc', 'https://apbg-billing.netlify.app/.netlify/functions/sf-oauth-callback'),
+      serviceFusion: buildSfUrl('TNpu3bVz9XAIgey_7e', 'https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-oauth-callback'), // billing SF app → Supabase callback (see CLAUDE.md → Service Fusion OAuth)
     },
   },
   melt: {
@@ -153,17 +255,8 @@ const SITES = {
       qbo: buildQboUrl('ABcbkH2VkVLsWzXS2UuOdAg9DmXG6UecHk938uNEqe3ir5v6N1', 'https://melt-dashboard.netlify.app/.netlify/functions/oauth-callback'),
     },
   },
-  pacer: {
-    name: 'MCP Pacer Finance',
-    icon: '💰',
-    url: 'https://pacerfinance.netlify.app',
-    healthUrl: 'https://apbg-billing.netlify.app/.netlify/functions/pacer-health',
-    checks: ['qbo', 'zoho'],
-    labels: { qbo: 'QuickBooks', zoho: 'Zoho Books' },
-    reconnect: {
-      qbo: null,
-    },
-  },
+  // MCP Pacer Finance card removed 2026-08-06 — MCP server health + both
+  // reconnect paths live in the MCP Servers panel below (mcp-auth-status).
 };
 
 function buildQboUrl(clientId, redirectUri) {
@@ -194,21 +287,79 @@ function renderLog() {
   el.innerHTML = logLines.map(l => `<span class="${l.cls}">[${l.ts}] ${l.msg}</span>`).join('\n');
 }
 
-// ═══ PIN GATE ═══
-document.getElementById('pin').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    if (this.value === '2026' || this.value === 'brix2026') {
-      document.getElementById('gate').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      refreshAll();
-      setInterval(refreshAll, 60000); // auto-refresh every 60s
-    } else {
-      document.getElementById('pinErr').style.display = 'block';
-    }
-  }
+// ═══ AUTH GATE ═══
+const fetch = (...args) => APBG.auth.authedFetch(...args);
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  refreshAll();
+  loadConnections();
+  loadMaintenance();
+  loadSyncCustomers();
+  loadResqSync();
+  loadVendorRoutes();
+  setInterval(refreshAll, 60000); // auto-refresh every 60s
+  setInterval(loadResqSync, 60000);
+  setInterval(loadConnections, 300000); // connections panel every 5 min
 });
 
+// ═══ CONNECTIONS & RECONNECT ═══
+// One row per SF/QBO app: health light (live from ops.sync_health — the same
+// feed the 15-min email alerter reads), the app's client id (so you KNOW which
+// app you're reconnecting — the 2026-07-24 SF scavenger hunt was exactly this),
+// and the correct authorize link. Gray dot = token lives in another site,
+// unmonitored from this panel.
+async function loadConnections() {
+  const box = document.getElementById('connectionsBox');
+  try {
+    const r = await fetch('/.netlify/functions/connections');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'load failed');
+    const dot = (h) => {
+      const c = !h ? '#94A3B8' : h.status === 'green' ? '#22C55E' : h.status === 'yellow' ? '#F59E0B' : '#EF4444';
+      return `<span style="flex:none;width:12px;height:12px;border-radius:50%;background:${c};margin-top:4px;box-shadow:0 0 0 3px ${c}22"></span>`;
+    };
+    let html = '';
+    for (const g of d.groups) {
+      html += `<h3 style="margin:12px 0 2px;font-size:0.8rem;color:#0F172A">${g.label}</h3>`;
+      for (const row of g.rows) {
+        const btn = row.reconnect_url
+          ? `<a href="${row.reconnect_url}" target="_blank" rel="noopener" style="flex:none;background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:0.78rem;padding:7px 14px;border-radius:8px">Reconnect →</a>`
+          : (row.manage_url
+            ? `<a href="${row.manage_url}" style="flex:none;background:#64748B;color:#fff;text-decoration:none;font-weight:600;font-size:0.78rem;padding:7px 14px;border-radius:8px">Manage →</a>`
+            : '');
+        html += `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #EDF1F6">
+          ${dot(row.health)}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:0.85rem;color:#0F172A">${row.name}</div>
+            <div style="font-size:0.7rem;color:#6B7280;font-family:'JetBrains Mono',monospace;margin-top:1px">id: ${row.client_id} · ${row.token_store}</div>
+            <div style="font-size:0.75rem;color:#475569;margin-top:2px">${row.health ? row.health.detail : 'unmonitored from this panel — lives in another site'}</div>
+            ${row.note ? `<div style="font-size:0.72rem;color:#92400E;margin-top:3px">${row.note}</div>` : ''}
+          </div>
+          ${btn}
+        </div>`;
+      }
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<span style="color:#B91C1C;font-size:0.8rem">Failed to load connections: ' + (e.message || e) + '</span>';
+  }
+}
+
 // ═══ HEALTH FETCHER ═══
+// health-watchdog + pacer-health are superadmin-gated (requireAuth). Pull the
+// gateway session token so the probe authenticates — without it both endpoints
+// 401 and their cards falsely show "Unreachable / down" while the service is
+// actually fine. (melt's /api/health is open, which is why only those two
+// cards were red.)
+function authHeaders() {
+  try {
+    const raw = localStorage.getItem('apbg_session') || localStorage.getItem('apbg_dashboard_session');
+    if (raw) { const s = JSON.parse(raw); if (s && s.token) return { Authorization: 'Bearer ' + s.token }; }
+  } catch {}
+  return {};
+}
+
 async function fetchSiteHealth(key, site) {
   try {
     log(`Checking ${site.name}...`, 'info');
@@ -237,11 +388,18 @@ async function fetchSiteHealth(key, site) {
       return;
     }
 
-    // Standard mode: fetch health endpoint
+    // Standard mode: fetch health endpoint (authenticated where required)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
-    const r = await fetch(site.healthUrl, { signal: controller.signal });
+    const r = await fetch(site.healthUrl, { signal: controller.signal, headers: authHeaders() });
     clearTimeout(timeout);
+    // 401/403 = not signed in as superadmin, NOT a service outage. Show a
+    // neutral "auth" state instead of an alarming red "down".
+    if (r.status === 401 || r.status === 403) {
+      siteData[key] = { status: 'auth', fetchedAt: new Date() };
+      log(`${site.name}: health check needs superadmin sign-in`, 'warn');
+      return;
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     siteData[key] = { status: 'ok', data, fetchedAt: new Date() };
@@ -271,13 +429,19 @@ async function refreshAll() {
 // ═══ RENDER ═══
 function getCheckStatus(siteKey, checkName) {
   const site = siteData[siteKey];
+  if (site && site.status === 'auth') return { ok: false, status: 'unknown', message: 'Sign in as superadmin to view' };
   if (!site || site.status === 'error') return { ok: false, status: 'unknown', message: 'Unreachable' };
   const d = site.data;
 
-  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'error', detail:'...'}, ... } }
+  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'warn'|'error'|'skipped', detail:'...'}, ... } }
   if (d.checks && d.checks[checkName]) {
     const c = d.checks[checkName];
     const isOk = c.ok === true || c.status === 'ok';
+    // 'skipped' is deliberate (e.g. ResQ auto-login disabled) — render it
+    // neutral gray, not a red fail that reads as an outage.
+    if (!isOk && c.status === 'skipped') {
+      return { ok: false, status: 'unknown', message: c.detail || c.message || 'Check skipped' };
+    }
     return { ok: isOk, status: isOk ? 'ok' : (c.status === 'warn' ? 'warn' : 'fail'), message: c.detail || c.message || '' };
   }
   // Melt health-check format: { qbo: {ok,message}, cache: {...}, resq: {...} }
@@ -291,9 +455,18 @@ function getCheckStatus(siteKey, checkName) {
 function getOverall(siteKey) {
   const site = siteData[siteKey];
   if (!site) return 'unknown';
+  if (site.status === 'auth') return 'auth';
   if (site.status === 'error') return 'down';
   const d = site.data;
-  if (d.overall) return d.overall === 'ok' ? 'healthy' : d.overall;
+  // Translate the health-watchdog vocabulary (ok/warn/error) onto the pill
+  // classes (healthy/degraded/down) — melt's health-check already speaks the
+  // pill vocabulary and passes through untouched.
+  if (d.overall) {
+    if (d.overall === 'ok') return 'healthy';
+    if (d.overall === 'warn') return 'degraded';
+    if (d.overall === 'error') return 'down';
+    return d.overall;
+  }
   return 'unknown';
 }
 
@@ -347,7 +520,7 @@ function renderKeepalive() {
     if (sd?.status === 'ok') {
       const d = sd.data;
       // Melt format has cache.lastRefresh
-      const lr = d.cache?.lastRefresh || d.checks?.syncFreshness?.lastSync || d.timestamp || d.checkedAt;
+      const lr = d.cache?.lastRefresh || d.timestamp || d.checkedAt;
       if (lr) {
         lastRefresh = new Date(lr).toLocaleString();
         const mins = Math.round((Date.now() - new Date(lr).getTime()) / 60000);
@@ -367,6 +540,551 @@ function renderKeepalive() {
   }).join('');
   grid.innerHTML = items;
 }
+
+// ═══ SHARED HELPERS + Maintenance + Linked Customers ═══
+const APBG_FN = 'https://apbg-billing.netlify.app/.netlify/functions';
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const btnCss = (bg)=>`padding:8px 16px;border:0;border-radius:6px;font-weight:600;cursor:pointer;color:#fff;background:${bg}`;
+
+// --- Service & Maintenance (per-app banner / lockout) ---
+// State lives in the gateway (public.app_maintenance) and is read by
+// appswitcher.js embedded in every app. We write it via the gateway
+// /api/maintenance endpoint (superadmin JWT via authedFetch).
+const GW_API = 'https://alamedapointbg.com/api';
+// Core infrastructure rows (always shown) — keys match what appswitcher.js
+// appKey() infers per app, which is what banner/lockout enforcement keys on.
+const MAINT_CORE = [
+  {key:'all',       label:'🌐 All apps (global)'},
+  {key:'gateway',   label:'Operations Hub (gateway + admin pages)'},
+  {key:'control',   label:'Master Control'},
+  {key:'billing',   label:'3rd-Party Billing (AP tool)'},
+  {key:'margin',    label:'BRIX Refractor (Margin)'},
+  {key:'brixpense', label:'Brixpense'},
+  {key:'melt',      label:'Melt Dashboard'},
+  {key:'order',     label:'Brix Order (customer portal)'},
+  {key:'leasing',   label:'Brix ERLS / Leasing'},
+  {key:'operations',label:'APBG Ops (KPIs)'},
+  {key:'handbook',  label:'Handbook (User Guides + SOPs)'},
+  {key:'mcp',       label:'MCP Servers'},
+];
+// Registry app_key → enforcement key. null = no lockable surface (external
+// third-party sites, placeholder cards); duplicates collapse onto one row.
+const MAINT_KEY_MAP = {
+  brixOrder:'order', marginCtrl:'margin', inventory:'margin', brixKpi:'operations',
+  erls:'leasing', userguides:'handbook', sop:'handbook',
+  users:'gateway', appMgr:'gateway', pacerConnect:'mcp',
+  trello:null, serviceDash:null, cylinder:null, sales:null, starbird:null,
+};
+let MAINT_APPS = MAINT_CORE.slice();
+let maintState = {};
+async function loadMaintenance(){
+  const box=document.getElementById('maintBox');
+  // Merge the live gateway app registry so EVERY portal app gets a row here
+  // — any app can be cut off from this panel. Registry fetch failure falls
+  // back to the core list (never blocks the panel).
+  try{
+    const r=await fetch(`${GW_API}/apps`,{headers:authHeaders()});
+    const d=await r.json();
+    const rows=Array.isArray(d)?d:(d&&(d.apps||d.data))||[];
+    const seen=new Set(MAINT_CORE.map(a=>a.key));
+    const extra=[];
+    rows.forEach(a=>{
+      if(!a||a.active===false||!a.href||a.href==='#') return;
+      const key=Object.prototype.hasOwnProperty.call(MAINT_KEY_MAP,a.app_key)?MAINT_KEY_MAP[a.app_key]:a.app_key;
+      if(!key||seen.has(key)) return;
+      seen.add(key);
+      extra.push({key, label:a.name});
+    });
+    MAINT_APPS=MAINT_CORE.concat(extra.sort((x,y)=>String(x.label).localeCompare(String(y.label))));
+  }catch(e){ MAINT_APPS=MAINT_CORE.slice(); }
+  try{
+    const res=await fetch(`${GW_API}/maintenance`);
+    const data=await res.json();
+    maintState=(data&&data.apps)||{};
+    renderMaintenance();
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function maintRow(app){
+  const cur=maintState[app.key]||{mode:'off',title:'',message:''};
+  const mode=cur.mode||'off';
+  const pill=mode==='lockout'?'<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:4px;font-size:0.66rem;font-weight:700">LOCKED</span>'
+    :mode==='banner'?'<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:4px;font-size:0.66rem;font-weight:700">BANNER</span>'
+    :'<span style="background:#ECFDF5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:0.66rem;font-weight:700">LIVE</span>';
+  const inp='font-size:0.8rem;padding:5px 7px;border:1px solid #D1D5DB;border-radius:5px;width:100%';
+  const sel='font-size:0.8rem;padding:5px 7px;border:1px solid #D1D5DB;border-radius:5px';
+  const o=(v,t)=>`<option value="${v}"${mode===v?' selected':''}>${t}</option>`;
+  return `<tr style="border-top:1px solid #F1F3F5">
+    <td style="padding:7px 8px;white-space:nowrap"><strong>${esc(app.label)}</strong> ${pill}<div style="color:#9CA3AF;font-size:0.64rem">${esc(app.key)}</div></td>
+    <td style="padding:7px 8px"><select id="mm-mode-${app.key}" style="${sel}">${o('off','Live (off)')}${o('banner','Banner')}${o('lockout','Lockout')}</select></td>
+    <td style="padding:7px 8px"><input id="mm-title-${app.key}" value="${esc(cur.title||'')}" placeholder="title (e.g. Scheduled maintenance)" style="${inp}"></td>
+    <td style="padding:7px 8px"><input id="mm-msg-${app.key}" value="${esc(cur.message||'')}" placeholder="service note shown to users" style="${inp}"></td>
+    <td style="padding:7px 8px"><button onclick="saveMaintenance('${app.key}')" style="${btnCss('#1F4E79')};padding:5px 12px;font-size:0.72rem">Save</button></td></tr>`;
+}
+function renderMaintenance(){
+  document.getElementById('maintBox').innerHTML=`
+    <div style="font-size:0.8rem;color:#6B7280;margin-bottom:10px"><b>Banner</b> = dismissible notice at the top of the app. <b>Lockout</b> = full-screen service note that blocks the app. “All apps (global)” applies everywhere; a specific app’s lockout also wins on its own. Takes effect within ~30s (apps poll on load + interval).</div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:6px 8px">App</th><th style="padding:6px 8px">Mode</th><th style="padding:6px 8px">Title</th><th style="padding:6px 8px">Service note</th><th></th></tr></thead>
+      <tbody>${MAINT_APPS.map(maintRow).join('')}</tbody></table>`;
+}
+async function saveMaintenance(key){
+  const mode=document.getElementById('mm-mode-'+key).value;
+  const title=document.getElementById('mm-title-'+key).value;
+  const message=document.getElementById('mm-msg-'+key).value;
+  try{
+    const res=await fetch(`${GW_API}/maintenance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app_key:key,mode,title,message})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    maintState[key]={mode,title,message};
+    renderMaintenance();
+    log(`Maintenance for ${key} → ${mode}`, mode==='off'?'ok':'warn');
+  }catch(e){ log('Maintenance save failed: '+e.message,'error'); alert('Failed: '+e.message); }
+}
+
+// --- Linked Customers ---
+async function loadSyncCustomers(){
+  const box=document.getElementById('syncCustomersBox');
+  try{
+    const res=await fetch(`${APBG_FN}/sync-customers`);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    renderSyncCustomers(data);
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function renderSyncCustomers(data){
+  const inp='width:100%;font-size:0.8rem;padding:4px 6px;border:1px solid #D1D5DB;border-radius:4px';
+  const rows=(data.customers||[]).map(c=>{
+    const kws=(c.resq_facility_keywords||[]).join(', ');
+    const badge=c.linked?'<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700">LINKED</span>':'<span style="background:#F3F4F6;color:#6B7280;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700">OFF</span>';
+    const toggle=c.linked?`<button onclick="setLinked(${c.id},false)" style="${btnCss('#DC2626')};padding:4px 10px;font-size:0.72rem">Unlink</button>`:`<button onclick="setLinked(${c.id},true)" style="${btnCss('#059669')};padding:4px 10px;font-size:0.72rem">Re-link</button>`;
+    return `<tr style="border-top:1px solid #F1F3F5">
+      <td style="padding:6px 8px"><strong>${esc(c.qbo_customer_name)}</strong><div style="color:#9CA3AF;font-size:0.7rem">QBO #${esc(c.qbo_customer_id)}</div></td>
+      <td style="padding:6px 8px">
+        <div style="font-size:0.78rem;margin-bottom:4px">${c.sf_customer_id?`<span style="color:#065F46">✓ ${esc(c.sf_customer_name||'')}</span> <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(c.sf_customer_id)}</span>`:`<span style="color:#B45309">⚠ ${esc(c.sf_customer_name||c.qbo_customer_name)}</span> <span style="color:#9CA3AF;font-size:0.68rem">(not linked to an SF record)</span>`}</div>
+        <div style="display:flex;gap:4px">
+          <input id="sfq-${c.id}" placeholder="search Service Fusion…" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchSf(${c.id});}">
+          <button onclick="searchSf(${c.id})" style="${btnCss('#1F4E79')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Find</button>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <input id="sfid-${c.id}" value="${esc(c.sf_customer_id||'')}" placeholder="or paste SF customer # directly" style="${inp}" onkeydown="if(event.key==='Enter'){event.preventDefault();linkSfId(${c.id});}">
+          <button onclick="linkSfId(${c.id})" style="${btnCss('#059669')};padding:4px 8px;font-size:0.7rem;white-space:nowrap">Save #</button>
+        </div>
+        <div id="sfres-${c.id}"></div>
+      </td>
+      <td style="padding:6px 8px"><input value="${esc(kws)}" onchange="saveKeywords(${c.id},this.value)" placeholder="facility keywords, comma-separated" style="${inp}"></td>
+      <td style="padding:6px 8px">${badge}</td>
+      <td style="padding:6px 8px">${toggle}</td></tr>`;
+  }).join('');
+  const candidates=(data.candidates||[]).map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#F9FAFB;border-radius:6px;margin-bottom:6px;font-size:0.82rem">
+      <span><strong>${esc(c.qbo_customer_name)}</strong> <span style="color:#9CA3AF;font-size:0.72rem">QBO #${esc(c.qbo_customer_id)}</span></span>
+      <button onclick="linkCandidate('${esc(c.qbo_customer_id)}','${esc(c.qbo_customer_name).replace(/'/g,'&#39;')}')" style="${btnCss('#1F4E79')};padding:4px 10px;font-size:0.72rem">+ Link</button></div>`).join('');
+  document.getElementById('syncCustomersBox').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:6px 8px">QBO Customer</th><th style="padding:6px 8px">SF Name</th><th style="padding:6px 8px">ResQ Facility Keywords</th><th style="padding:6px 8px">Status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" style="padding:14px;color:#9CA3AF">No linked customers yet.</td></tr>'}</tbody></table>
+    ${data.candidatesError?`<div style="color:#B45309;font-size:0.75rem;margin-top:10px">Couldn't list RESQ candidates from QBO: ${esc(data.candidatesError)}</div>`:''}
+    ${candidates?`<div style="margin-top:14px"><div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Available “RESQ” customers to link</div>${candidates}</div>`:''}`;
+}
+async function setLinked(id,linked){ await postSyncCustomer({action:linked?'relink':'unlink',id}); }
+async function saveKeywords(id,v){ await postSyncCustomer({action:'update',id,resq_facility_keywords:v}); }
+async function saveSfName(id,v){ await postSyncCustomer({action:'update',id,sf_customer_name:v}); }
+// Live SF customer search → link by id (so name drift can't break the sync).
+async function searchSf(id){
+  const q=(document.getElementById('sfq-'+id).value||'').trim();
+  const box=document.getElementById('sfres-'+id);
+  if(!q){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="color:#9CA3AF;font-size:0.72rem;padding:4px">Searching Service Fusion…</div>';
+  try{
+    const res=await fetch(`${APBG_FN}/sync-customers?sfSearch=${encodeURIComponent(q)}`);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    const results=data.results||[];
+    if(!results.length){ box.innerHTML=`<div style="color:#B45309;font-size:0.72rem;padding:4px">No SF customers match “${esc(q)}”${data.error?` — ${esc(data.error)}`:''}</div>`; return; }
+    box.innerHTML=results.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px;border-top:1px solid #F1F3F5;font-size:0.76rem">
+      <span>${esc(r.name)} <span style="color:#9CA3AF;font-size:0.68rem">SF #${esc(r.id)}</span></span>
+      <button onclick="linkSf(${id},'${esc(r.id)}','${esc(r.name).replace(/'/g,'&#39;')}')" style="${btnCss('#059669')};padding:3px 8px;font-size:0.68rem">Use</button>
+    </div>`).join('');
+  }catch(e){ box.innerHTML=`<div style="color:#EF4444;font-size:0.72rem;padding:4px">Search failed: ${esc(e.message)}</div>`; }
+}
+async function linkSf(id,sfId,sfName){ await postSyncCustomer({action:'update',id,sf_customer_id:sfId,sf_customer_name:sfName}); }
+// Manual SF customer number entry (bypasses the SF search entirely).
+async function linkSfId(id){
+  const v=(document.getElementById('sfid-'+id).value||'').trim();
+  await postSyncCustomer({action:'update',id,sf_customer_id:v||null});
+}
+async function linkCandidate(id,name){
+  const stem=String(name||'').toLowerCase().replace(/resq/g,'').replace(/[^a-z ]/g,'').trim().split(/\s+/)[0]||'';
+  const kw=prompt(`Link “${name}”.\nResQ facility keyword(s), comma-separated — used to match work orders to this customer:`,stem);
+  if(kw===null) return;
+  await postSyncCustomer({action:'link',qbo_customer_id:id,qbo_customer_name:name,resq_facility_keywords:kw});
+}
+async function postSyncCustomer(body){
+  try{
+    const res=await fetch(`${APBG_FN}/sync-customers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    loadSyncCustomers();
+  }catch(e){ alert('Failed: '+e.message); }
+}
+
+
+
+// --- Vendor Job Intake (Red Bull / Freshpet email -> SF work orders) ---
+async function loadVendorRoutes(){
+  const box=document.getElementById('vendorRoutesBox');
+  try{
+    const res=await fetch(`${APBG_FN}/vendor-routes-control`,{headers:authHeaders()});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    renderVendorRoutes(data.routes||[],data.counts||{});
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function renderVendorRoutes(routes,counts){
+  const box=document.getElementById('vendorRoutesBox');
+  if(!routes.length){ box.innerHTML='<span style="color:#6B7280">No vendor routes configured.</span>'; return; }
+  box.innerHTML=routes.map(r=>{
+    const c=counts[r.id]||{};
+    const on=r.active!==false;
+    const pill=on
+      ?'<span style="color:#059669;font-weight:700">● ON — creating work orders</span>'
+      :'<span style="color:#DC2626;font-weight:700">● OFF — recording emails only</span>';
+    const cust=r.sf_customer_name?esc(r.sf_customer_name):'<span style="color:#DC2626">not set</span>';
+    const stats=`last 7 days: ${c.total||0} emails · ${c.sf_created||0} jobs · ${c.awaiting||0} pending · ${c.ignored||0} recorded-only`;
+    return `<div style="background:#F9FAFB;border:1px solid ${on?'#A7F3D0':'#FCA5A5'};border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:0.95rem;font-weight:700">${esc(r.display_name)} <span style="font-weight:400;color:#6B7280;font-family:monospace;font-size:0.78rem">${esc(r.inbox)}</span></div>
+        <div style="font-size:0.85rem;margin-top:3px">${pill}</div>
+        <div style="font-size:0.75rem;color:#6B7280;margin-top:3px">SF customer: ${cust} · category: ${esc(r.sf_job_category||'—')} · ${r.require_confirmation!==false?'confirm-before-create ON':'auto-create'}</div>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:2px">${stats}</div>
+      </div>
+      <button onclick="toggleVendorRoute('${r.id}',${on?'false':'true'},'${esc(r.display_name)}')" style="${btnCss(on?'#DC2626':'#059669')}">${on?'⏻ Turn OFF':'⏻ Turn ON'}</button>
+    </div>`;
+  }).join('');
+}
+async function toggleVendorRoute(id,active,name){
+  const turningOn=active==='true'||active===true;
+  if(!confirm(`${turningOn?'Turn ON':'Turn OFF'} ${name} job intake?${turningOn?'\n\nIncoming vendor emails will create pending work orders again.':'\n\nEmails will still be recorded, but no work orders or notifications until turned back on.'}`)) return;
+  try{
+    const res=await fetch(`${APBG_FN}/vendor-routes-control`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({id,active:turningOn})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    loadVendorRoutes();
+  }catch(e){ alert('Failed: '+e.message); }
+}
+
+// --- ResQ Sync (edge-function engine in apbg-resq-sync) ---
+function ageStr(iso){
+  if(!iso) return '—';
+  const mins=Math.round((Date.now()-new Date(iso).getTime())/60000);
+  if(mins<1) return 'just now';
+  if(mins<60) return mins+'m ago';
+  const h=Math.round(mins/60); return h<48?h+'h ago':Math.round(h/24)+'d ago';
+}
+let RESQ_SF={};
+async function loadResqSync(){
+  const box=document.getElementById('resqSyncBox');
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    RESQ_SF=data.sf||{};
+    renderResqSync(data.status||{});
+  }catch(e){ box.innerHTML=`<span style="color:#EF4444">Failed to load: ${esc(e.message)}</span>`; }
+}
+function sfCardHtml(){
+  const sf=RESQ_SF||{};
+  let pill, note, border;
+  if(sf.error){ pill='<span style="color:#DC2626;font-weight:700">⚠ status unavailable</span>'; note=esc(sf.error); border='#FCA5A5'; }
+  else if(!sf.connected){ pill='<span style="color:#DC2626;font-weight:700">● Not connected</span>'; note='No token yet — click Connect to authorize RESQ’s Service Fusion app.'; border='#FCA5A5'; }
+  else if(sf.access_valid){ pill='<span style="color:#059669;font-weight:700">● Connected</span>'; note='Access token valid until '+ (sf.access_expires_at?new Date(sf.access_expires_at).toLocaleString():'—'); border='#A7F3D0'; }
+  else { pill='<span style="color:#B45309;font-weight:700">● Connected — token refreshes on next run</span>'; note='Has a refresh token; access token expired and will auto-renew.'; border='#FCD34D'; }
+  const meta=sf.connected?`refreshes: ${sf.refresh_count??0} · last by ${esc(sf.last_refreshed_by||'—')} · ${ageStr(sf.updated_at)}`:'';
+  const errLine=sf.last_error?`<div style="color:#DC2626;font-size:0.72rem;margin-top:4px">last error: ${esc(sf.last_error)}</div>`:'';
+  return `<div style="background:#F9FAFB;border:1px solid ${border};border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:4px">Service Fusion connection <span style="text-transform:none">— RESQ’s own Connected App (isolated token)</span></div>
+      <div style="font-size:0.95rem">${pill}</div>
+      <div style="font-size:0.75rem;color:#6B7280;margin-top:2px">${note}</div>
+      ${meta?`<div style="font-size:0.7rem;color:#9CA3AF;margin-top:2px">${meta}</div>`:''}
+      ${errLine}
+    </div>
+    <button onclick="reconnectSF()" style="${btnCss(sf.connected?'#475569':'#059669')}">${sf.connected?'↻ Reconnect':'🔗 Connect'}</button>
+  </div>`;
+}
+function renderResqSync(s){
+  const write=!!s.write_enabled;
+  const crons=Array.isArray(s.crons)?s.crons:[];
+  const cronsOn=crons.length>0 && crons.every(c=>c.active);
+  const tickStale=s.last_tick_at?((Date.now()-new Date(s.last_tick_at).getTime())/60000>30):true;
+  const tickColor=(!cronsOn)?'#6B7280':(s.last_tick_status==='success'&&!tickStale)?'#059669':tickStale?'#B45309':'#DC2626';
+  const stat=(label,val,color)=>`<div class="keepalive-item" style="background:#F9FAFB;border-color:#E5E7EB"><div class="label" style="color:#6B7280">${label}</div><div class="value" style="color:${color||'#111827'}">${val}</div></div>`;
+  const errBadge=s.errored_wos>0?`<span style="color:#DC2626;font-weight:700">${s.errored_wos}</span>`:'0';
+  const qBadge=s.quarantined_wos>0?`<span style="color:#DC2626;font-weight:700">${s.quarantined_wos}</span>`:'0';
+
+  const recent=(s.recent||[]).map(r=>`<tr style="border-top:1px solid #F1F3F5">
+    <td style="padding:5px 8px;font-family:monospace">${esc(r.resq_code)}</td>
+    <td style="padding:5px 8px">${r.sf_job_id?esc(r.sf_job_id):'<span style="color:#9CA3AF">—</span>'}</td>
+    <td style="padding:5px 8px">${r.quarantined_at?'🔒 ':''}${esc(r.last_action||'—')}</td>
+    <td style="padding:5px 8px;color:${r.last_error?'#DC2626':'#9CA3AF'}">${esc(r.last_error||'')}</td>
+    <td style="padding:5px 8px;color:#9CA3AF;white-space:nowrap">${ageStr(r.updated_at)}</td></tr>`).join('');
+
+  document.getElementById('resqSyncBox').innerHTML=`
+    ${sfCardHtml()}
+    <!-- Two switches -->
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+      <div>
+        <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Sync engine</div>
+        <button onclick="toggleResqCrons(${cronsOn})" style="${btnCss(cronsOn?'#059669':'#DC2626')}">${cronsOn?'🟢 Running (every 15 min) — click to PAUSE':'⏸ Paused — click to RESUME'}</button>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px">${esc(crons.map(c=>c.name+(c.active?'':' (off)')).join(' · ')||'no crons found')}</div>
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">Mode</div>
+        <button onclick="toggleResqWrite(${write})" style="${btnCss(write?'#D97706':'#475569')}">${write?'✍️ WRITE mode — click for Observe':'👁 Observe only — click to enable WRITE'}</button>
+        <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px">${write?'Mutating ResQ &amp; Service Fusion.':'Reads only; records what it would do.'}</div>
+      </div>
+    </div>
+
+    <!-- Status tiles -->
+    <div class="keepalive-grid" style="margin-bottom:16px">
+      ${stat('Last tick', ageStr(s.last_tick_at)+(s.last_tick_status?` · ${esc(s.last_tick_status)}`:''), tickColor)}
+      ${stat('Last watchdog', ageStr(s.last_watch_at))}
+      ${stat('Open WOs', s.open_wos??'—')}
+      ${stat('Errored', errBadge, s.errored_wos>0?'#DC2626':'#111827')}
+      ${stat('Quarantined', qBadge, s.quarantined_wos>0?'#DC2626':'#111827')}
+    </div>
+
+    <!-- Controls -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <button onclick="runResqTick()" style="${btnCss('#1F4E79')}">▶ Run a tick now</button>
+      <input id="resqDriveCode" placeholder="ResQ code e.g. R1046442" style="font-size:0.82rem;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;width:200px" onkeydown="if(event.key==='Enter'){event.preventDefault();driveResqWo();}">
+      <button onclick="driveResqWo()" style="${btnCss('#1F4E79')}">⚡ Drive this WO</button>
+      <button onclick="reconcileResqSf()" style="${btnCss('#0E7490')}">🔗 Reconcile ResQ ↔ SF</button>
+      <button onclick="loadResqSync()" style="${btnCss('#475569')}">↻ Refresh</button>
+    </div>
+
+    <!-- Recent WOs -->
+    <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+        <th style="padding:5px 8px">ResQ code</th><th style="padding:5px 8px">SF job</th><th style="padding:5px 8px">Last action</th><th style="padding:5px 8px">Error</th><th style="padding:5px 8px">Updated</th></tr></thead>
+      <tbody>${recent||'<tr><td colspan="5" style="padding:12px;color:#9CA3AF">No work orders tracked yet.</td></tr>'}</tbody>
+    </table>
+    <div id="resqReconcileBox" style="margin-top:14px"></div>`;
+}
+async function postResqControl(body, okMsg){
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    if(okMsg) log(okMsg,'ok');
+    if(data.tick) log('Tick: '+JSON.stringify(data.tick.results||data.tick).slice(0,300),'info');
+    renderResqSync(data.status||{});
+    return data;
+  }catch(e){ log('ResQ sync control failed: '+e.message,'error'); alert('Failed: '+e.message); }
+}
+async function toggleResqCrons(isOn){
+  if(isOn && !confirm('Pause the ResQ sync engine? It will stop polling ResQ/SF every 15 minutes until resumed.')) return;
+  await postResqControl({action:'set_active',enabled:!isOn}, `Sync engine ${!isOn?'RESUMED':'PAUSED'}`);
+}
+async function toggleResqWrite(isOn){
+  const msg=isOn?'Switch to Observe mode? The sync will stop writing to ResQ/SF (reads only).':'Enable WRITE mode? The sync will start creating SF jobs, pushing photos, and submitting ResQ invoices for real.';
+  if(!confirm(msg)) return;
+  await postResqControl({action:'set_write',enabled:!isOn}, `Mode → ${!isOn?'WRITE':'OBSERVE'}`);
+}
+async function runResqTick(){ await postResqControl({action:'run_tick'}, 'Triggered a full sync tick'); }
+async function reconcileResqSf(){
+  const box=document.getElementById('resqReconcileBox');
+  box.innerHTML='<div style="color:#6B7280;font-size:0.85rem"><span class="spinner"></span> Reconciling ResQ ↔ SF… (~60–90s)</div>';
+  try{
+    const r1=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reconcile_url',n:50})});
+    const d1=await r1.json(); if(!r1.ok) throw new Error(d1.error||r1.status);
+    const r2=await fetch(d1.url); const d=await r2.json(); if(!r2.ok) throw new Error(d.error||r2.status);
+    const rows=(d.rows||[]).slice().sort((a,b)=>((a.sf?1:0)-(b.sf?1:0))||String(a.resq_status).localeCompare(b.resq_status));
+    const tr=rows.map(r=>{
+      const sfj=r.sf?esc(String(r.sf.number||r.sf.id)):(r.err?'<span style="color:#DC2626">ERR</span>':'<span style="color:#DC2626;font-weight:700">— none —</span>');
+      return `<tr style="border-top:1px solid #F1F3F5">
+        <td style="padding:5px 8px;font-family:monospace">${esc(r.code)}</td>
+        <td style="padding:5px 8px">${esc(r.resq_status)}</td>
+        <td style="padding:5px 8px;font-family:monospace">${sfj}</td>
+        <td style="padding:5px 8px;color:#6B7280">${esc(r.facility||'')}</td></tr>`;
+    }).join('');
+    box.innerHTML=`
+      <div style="font-size:0.85rem;margin-bottom:8px">
+        <b>${d.open_assigned}</b> open WOs assigned to us · <span style="color:#059669;font-weight:700">${d.matched} matched</span> · <span style="color:${d.unmatched?'#DC2626':'#6B7280'};font-weight:700">${d.unmatched} no SF job</span>${d.errors?` · <span style="color:#DC2626">${d.errors} err</span>`:''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+        <thead><tr style="text-align:left;color:#6B7280;font-size:0.7rem;text-transform:uppercase">
+          <th style="padding:5px 8px">ResQ code</th><th style="padding:5px 8px">ResQ status</th><th style="padding:5px 8px">SF job</th><th style="padding:5px 8px">Facility</th></tr></thead>
+        <tbody>${tr}</tbody></table>`;
+  }catch(e){ box.innerHTML=`<span style="color:#DC2626">Reconcile failed: ${esc(e.message)}</span>`; }
+}
+async function reconnectSF(){
+  try{
+    const res=await fetch(`${APBG_FN}/resq-sync-control`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sf_connect_url'})});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||res.status);
+    window.open(data.url,'_blank','noopener');
+    log('Opened Service Fusion connect in a new tab — approve there, then click ↻ Refresh.','info');
+  }catch(e){ log('SF reconnect failed: '+e.message,'error'); alert('Failed: '+e.message); }
+}
+async function driveResqWo(){
+  const code=(document.getElementById('resqDriveCode').value||'').trim().toUpperCase();
+  if(!code){ alert('Enter a ResQ code'); return; }
+  await postResqControl({action:'drive',codes:[code]}, `Drove ${code}`);
+}
+
+// Card & Expense Match moved to Brixpense → Settings → Card Connection
+// Services (/expense/cards) on 2026-08-14 — cardholder assignment + the
+// QBO↔Brixpense merge UI live there now (backend unchanged:
+// netlify/functions/expense-cc-match.mjs). Master Control only links to it.
+// MCP server status moved to the MCP Servers app (public/mcp.html, served at
+// /mcp) on 2026-08-06 — loadMcpStatus() lives there now. Master Control only
+// links to it, so there is exactly one place to operate MCP from.
+
+// ═══ HANDBOOK SWEEP ═══
+let lastSweep = null;
+
+async function runHandbookSweep(){
+  const btn = document.getElementById('sweepBtn');
+  const out = document.getElementById('sweepResults');
+  btn.disabled = true; btn.textContent = 'Sweeping…';
+  out.innerHTML = '<div style="color:#6B7280;padding:10px 0">Checking every chapter\'s sources against GitHub…</div>';
+  try{
+    const r = await fetch(APBG_FN + '/handbook-sweep', { headers: authHeaders() });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+    lastSweep = d;
+    renderSweep(d);
+    log(`Handbook sweep: ${d.summary.stale} stale / ${d.summary.fresh} fresh / ${d.summary.unknown} unknown`, d.summary.stale ? 'warn' : 'ok');
+  }catch(e){
+    out.innerHTML = `<div style="color:#DC2626;padding:10px 0">Sweep failed: ${esc(e.message)}</div>`;
+    log('Handbook sweep failed: '+e.message, 'error');
+  }finally{
+    btn.disabled = false; btn.textContent = '🔍 Run sweep';
+  }
+}
+
+function renderSweep(d){
+  const out = document.getElementById('sweepResults');
+  const badge = (s)=>({
+    fresh:  '<span style="background:#ECFDF5;color:#047857;border:1px solid #A7F3D0;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">fresh</span>',
+    stale:  '<span style="background:#FFFBEB;color:#B45309;border:1px solid #FDE68A;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">stale</span>',
+    unknown:'<span style="background:#F3F4F6;color:#6B7280;border:1px solid #E5E7EB;border-radius:99px;padding:2px 10px;font-size:0.72rem;font-weight:700">unknown</span>',
+  }[s] || s);
+  const th='text-align:left;padding:7px 10px;font-size:0.72rem;color:#6B7280;border-bottom:1px solid #E5E7EB;text-transform:uppercase;letter-spacing:0.04em';
+  const td='padding:8px 10px;border-bottom:1px solid #F3F4F6;vertical-align:top';
+
+  let html = `<div style="margin:12px 0 8px;color:#374151;font-size:0.8rem;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <span>Checked ${new Date(d.checked_at).toLocaleString()} · ${d.summary.stale} stale · ${d.summary.fresh} fresh · ${d.summary.unknown} unknown
+    ${d.github_token_present ? '' : ' · <span style="color:#B45309">⚠ GITHUB_TOKEN not set — private-repo sources can\'t be checked</span>'}</span>
+    ${d.summary.stale ? `<button onclick="runHandbookAutoupdate()" id="autoUpdateBtn" style="background:#B45309;color:#fff;border:0;border-radius:8px;padding:7px 14px;font-weight:600;font-size:0.78rem;cursor:pointer">🤖 Auto-update ${d.summary.stale} stale chapter${d.summary.stale===1?'':'s'} → draft PR</button>` : ''}
+  </div>`;
+
+  html += `<table style="width:100%;border-collapse:collapse"><tr>
+    <th style="${th}">Chapter</th><th style="${th}">Status</th><th style="${th}">Reviewed</th><th style="${th}">What changed</th><th style="${th}"></th></tr>`;
+
+  for(const ch of d.chapters){
+    const changes = ch.sources
+      .filter(s=>s.stale || s.error)
+      .map(s=> s.error
+        ? `<div style="color:#9CA3AF">${esc(s.repo)}/${esc(s.path)} — ${esc(s.error)}</div>`
+        : `<div><a href="${esc(s.commit_url)}" target="_blank" rel="noopener" style="color:#1F4E79">${esc(s.repo)}/${esc(s.path)}</a>
+             <span style="color:#6B7280">· ${esc((s.last_commit||'').slice(0,10))} · ${esc(s.message||'')}</span></div>`)
+      .join('') || '<span style="color:#9CA3AF">—</span>';
+    html += `<tr>
+      <td style="${td}"><a href="/docs/handbook/#/${esc(ch.slug)}" target="_blank" rel="noopener" style="color:#0F172A;font-weight:600;text-decoration:none">${esc(ch.title)}</a></td>
+      <td style="${td}">${badge(ch.status)}</td>
+      <td style="${td};white-space:nowrap;color:#6B7280">${esc(ch.last_reviewed)}</td>
+      <td style="${td};font-size:0.78rem">${changes}</td>
+      <td style="${td};white-space:nowrap">${ch.status==='stale'
+        ? `<button onclick="copySweepPrompt('${esc(ch.slug)}')" style="background:#F3F4F6;border:1px solid #D1D5DB;border-radius:6px;padding:5px 10px;font-size:0.75rem;font-weight:600;cursor:pointer;color:#374151">📋 Copy update prompt</button>`
+        : ''}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  out.innerHTML = html;
+}
+
+function copySweepPrompt(slug){
+  const ch = (lastSweep?.chapters || []).find(c=>c.slug===slug);
+  if(!ch) return;
+  const changed = ch.sources.filter(s=>s.stale)
+    .map(s=>`- ${s.repo}/${s.path} (last commit ${(s.last_commit||'').slice(0,10)} ${s.sha||''}: "${s.message||''}" — ${s.commit_url||''})`)
+    .join('\n');
+  const prompt =
+`Update the APBG Master Handbook chapter "${ch.title}".
+
+File: skypace/apbg-billing → docs/handbook/${ch.slug}.md (last reviewed ${ch.last_reviewed}).
+These registered source documents have changed since then:
+${changed}
+
+Read the changed sources, update the chapter so it matches current reality (keep its existing structure: title line, metadata blockquote, h2/h3 sections, Related section), bump the "Last reviewed" date in the chapter's metadata line AND in docs/handbook/manifest.json for slug "${ch.slug}", and open a PR. Do not invent facts — everything must be grounded in the sources.`;
+  navigator.clipboard.writeText(prompt).then(
+    ()=>log(`Update prompt for ${slug} copied — paste into a Claude session`, 'ok'),
+    ()=>alert(prompt)
+  );
+}
+
+async function runHandbookAutoupdate(){
+  const stale = (lastSweep?.chapters || []).filter(c=>c.status==='stale').map(c=>c.slug);
+  if(!stale.length) return;
+  if(!confirm(`Auto-update ${stale.length} stale chapter(s)?\n\nClaude rewrites each chapter against its changed sources and opens a DRAFT PR on apbg-billing for review. Nothing merges automatically — per SOP-0, policy text always gets human eyes before it goes live.\n\nRuns in the background (~1–3 min); the PR is the result.`)) return;
+  const btn = document.getElementById('autoUpdateBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '🤖 Auto-update started…'; }
+  try{
+    const r = await fetch(APBG_FN + '/handbook-autoupdate-background', {
+      method:'POST',
+      headers:{'Content-Type':'application/json',...authHeaders()},
+      body: JSON.stringify({ slugs: stale })
+    });
+    if(r.status !== 202 && !r.ok) throw new Error('HTTP '+r.status);
+    log(`Handbook auto-update started for ${stale.length} chapter(s) — a draft PR will appear at github.com/skypace/apbg-billing/pulls in a few minutes`, 'ok');
+    if(btn) btn.textContent = '🤖 Started — watch the PR list';
+  }catch(e){
+    log('Handbook auto-update failed to start: '+e.message, 'error');
+    alert('Failed to start: '+e.message);
+    if(btn){ btn.disabled = false; btn.textContent = '🤖 Auto-update stale chapters → draft PR'; }
+  }
+}
+
+// --- Service Fusion Changes report ---
+async function runSfChangesReport(){
+  const btn=document.getElementById('sfChangesBtn');
+  btn.disabled=true; btn.textContent='Queued…';
+  try{
+    const res=await fetch(`${APBG_FN}/sf-changes-report-background`,{method:'POST',headers:authHeaders()});
+    if(res.status===202||res.ok){
+      log('SF Changes report queued — the scan takes 1-2 minutes, the report arrives by email.','ok');
+      btn.textContent='Queued ✓ — check email in ~2 min';
+      setTimeout(()=>{btn.disabled=false;btn.textContent='Run report now →';},15000);
+    } else {
+      const t=await res.text();
+      throw new Error(`HTTP ${res.status} ${t.slice(0,120)}`);
+    }
+  }catch(e){ alert('Failed to queue report: '+e.message); log('SF Changes report failed to queue: '+e.message,'error'); btn.disabled=false; btn.textContent='Run report now →'; }
+}
+
+// --- SF Expenses → QuickBooks auto-post ---
+async function runSfAutopost(mode){
+  const isPost = mode==='post';
+  if(isPost && !confirm('Post now will CREATE real QuickBooks bills for every SF expense with a matched vendor, and email a confirmation for each. Continue?')) return;
+  const btn=document.getElementById(isPost?'sfAutopostPostBtn':'sfAutopostPreviewBtn');
+  const label=btn.textContent;
+  btn.disabled=true; btn.textContent=isPost?'Posting…':'Previewing…';
+  try{
+    const res=await fetch(`${APBG_FN}/sf-expense-autopost-background?mode=${mode}`,{method:'POST',headers:authHeaders()});
+    if(res.status===202||res.ok){
+      log(`SF expense auto-post (${mode}) queued — takes ~1 min, results arrive by email.`, 'ok');
+      btn.textContent=isPost?'Queued ✓ — check email':'Queued ✓ — preview emailed';
+      setTimeout(()=>{btn.disabled=false;btn.textContent=label;},15000);
+    } else {
+      const t=await res.text();
+      throw new Error(`HTTP ${res.status} ${t.slice(0,160)}`);
+    }
+  }catch(e){ alert('Failed: '+e.message); log('SF expense auto-post failed to start: '+e.message,'error'); btn.disabled=false; btn.textContent=label; }
+}
 </script>
+  <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
 </body>
 </html>

@@ -1,6 +1,26 @@
 [build]
+  # 1. Lint the cross-repo sync orchestration manifest (architecture/sync-manifest.json)
+  #    against the schema snapshot. Fails the build if the manifest claims tables
+  #    that don't exist, if a real table has no writer/orphan entry, or if a
+  #    multi-writer hotspot isn't explicitly opted in. See architecture/README.md.
+  # 2. Copy docs/ → public/docs/ so the interactive user-guide viewer at
+  #    public/docs/margin-control/index.html can fetch the canonical markdown
+  #    source (docs/margin-control/user-guide.md). The viewer reads it at
+  #    runtime via `fetch('./user-guide.md')`, so the markdown must live next
+  #    to the HTML in the served tree. The `cp -r docs/. public/docs/` (note
+  #    the trailing dot) merges the *contents* of docs/ into public/docs/
+  #    without creating a nested public/docs/docs/. Vite's emptyOutDir only
+  #    clears public/sales-next/, so public/docs/ survives the React build.
+  # 3. Build the Vite + React + TS app; output goes to public/sales-next/. The
+  #    legacy single-file SPA at public/sales/ remains served until the migration
+  #    is complete.
+  # 4. Build the Brix Expense app; output goes to public/expense/.
+  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense && npm install --prefix app-distributor && npm run build --prefix app-distributor"
   publish = "public"
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
 
 # Branch deploys — "dev" branch auto-deploys to dev--apbg-billing.netlify.app
 [context.branch-deploy]
@@ -9,17 +29,24 @@
 [functions]
   node_bundler = "esbuild"
 
-[functions."resq-sf-sync"]
-  timeout = 60
+# The legacy ResQ ↔ Service Fusion sync (resq-sf-sync / -background / -cron, the
+# 5-min cron) was decommissioned 2026-06-28. It is replaced by the focused
+# edge-function sync in skypace/apbg-resq-sync (Supabase, 15-min pg_cron). Do
+# not re-add a ResQ sync cron here — that would double-process work orders.
 
-[functions."resq-sf-sync-background"]
+[functions."sf-expense-sweep-background"]
   timeout = 900
 
-[functions."resq-sf-sync-cron"]
-  timeout = 900
-  schedule = "*/5 * * * *"
+[functions."sf-receipt-pull"]
+  timeout = 26
+
+[functions."handbook-sweep"]
+  timeout = 26
 
 [functions."health-watchdog"]
+  timeout = 60
+
+[functions."health-watchdog-cron"]
   timeout = 60
 
 [functions."master-health"]
@@ -28,9 +55,167 @@
 [functions."master-health-cron"]
   timeout = 60
 
+[functions."qbo-sync-runner"]
+  timeout = 900
+
+[functions."customer-inactivation"]
+  timeout = 60
+
+# ── BRIXpense API → underlying functions ──
+#
+# The Brixpense expense-* functions are all Netlify v2 ESM functions that
+# register themselves at `/api/<name>` via `export const config = { path: ... }`.
+# Per Netlify docs: when config.path is set, the function is available ONLY at
+# that path — the legacy `/.netlify/functions/<name>` URL does NOT also work.
+# (Cowork rediscovered the same constraint and dropped config.path on
+# qbo-pos-preview in commit e44584d — see that commit's message.)
+#
+# The Brixpense SPA's basename is `/expense`, so its fetch() calls go to
+# `/expense/api/<name>`. The wildcard below rewrites those to the function's
+# real path (`/api/<name>`).
+#
+# IMPORTANT: do NOT add bare `/api/expense-*` → `/.netlify/functions/<name>`
+# rules. Those would PREEMPT the function (because /api/<name> is also the
+# function's real path) and rewrite to a dead route. Traffic that already
+# arrives at /api/<name> (e.g. from the gateway which strips the /expense/
+# prefix) lands on the function directly with no rewrite needed.
+#
+# qbo-pos-preview + qbo-pos-import are different — they don't use config.path,
+# so they ARE at /.netlify/functions/<name>. Explicit rules cover both shapes
+# below (must be BEFORE the wildcard so the wildcard doesn't snatch them).
+
+# OAuth 2.1 consent page (Supabase Auth OAuth server on the shared project).
+# The authorization path configured in Supabase is https://alamedapointbg.com/oauth/consent
+# (extension-less); the gateway proxies /oauth/* to this site, and this rule
+# maps the pretty URL onto the static page.
+[[redirects]]
+  from = "/oauth/consent"
+  to = "/oauth/consent.html"
+  status = 200
+
+# MCP Servers app — the single place MCP is operated from (server status,
+# endpoint probes, connector re-auth guidance, provider reconnect). Master
+# Control only links here. The gateway proxies /mcp to this page.
+[[redirects]]
+  from = "/mcp"
+  to = "/mcp.html"
+  status = 200
+
+# Compliance & Safety app — Inspector Mode (records + SDS read view) and the
+# safety-handbook digital sign-off. The gateway proxies /compliance here.
+# Editing stays in the Refractor vault (Production → Compliance & Safety).
+[[redirects]]
+  from = "/compliance"
+  to = "/compliance.html"
+  status = 200
+
+# Visitor sign-in kiosk — the tablet at the front door. DELIBERATELY PUBLIC: a
+# visitor cannot log in, so the page is open and its two writes go through
+# service-role functions (visitor-signin / visitor-signout). The visitor LOG is
+# staff-only, read from /compliance → Visitors. The gateway proxies /visitors here.
+[[redirects]]
+  from = "/visitors"
+  to = "/visitors.html"
+  status = 200
+
+# Vendor onboarding intake — the one-time link vendors get by email (Vendor
+# Portal Phase 2). DELIBERATELY PUBLIC (kiosk recipe): a vendor cannot log in;
+# the token in ?t= is the gate and all writes go through the service-role
+# function vendor-onboard. The gateway proxies /vendor-onboarding here.
+[[redirects]]
+  from = "/vendor-onboarding"
+  to = "/vendor-onboard.html"
+  status = 200
+
+# qbo-pos-* — at /.netlify/functions/ (no config.path on these)
+[[redirects]]
+  from = "/expense/api/qbo-pos-preview"
+  to = "/.netlify/functions/qbo-pos-preview"
+  status = 200
+[[redirects]]
+  from = "/expense/api/qbo-pos-import"
+  to = "/.netlify/functions/qbo-pos-import"
+  status = 200
+[[redirects]]
+  from = "/api/qbo-pos-preview"
+  to = "/.netlify/functions/qbo-pos-preview"
+  status = 200
+[[redirects]]
+  from = "/api/qbo-pos-import"
+  to = "/.netlify/functions/qbo-pos-import"
+  status = 200
+
+# expense-cc-match — v1 function at /.netlify/functions/ (no config.path);
+# drives the Brixpense "Company Cards" page (moved out of Master Control
+# 2026-08-14). Both shapes needed, same as qbo-pos-*: direct-site traffic
+# arrives at /expense/api/…, gateway traffic arrives with the /expense/
+# prefix already stripped (/api/…).
+[[redirects]]
+  from = "/expense/api/expense-cc-match"
+  to = "/.netlify/functions/expense-cc-match"
+  status = 200
+[[redirects]]
+  from = "/api/expense-cc-match"
+  to = "/.netlify/functions/expense-cc-match"
+  status = 200
+
+# Brixpense expense-* — wildcard to the real function path (/api/<name>)
+[[redirects]]
+  from = "/expense/api/*"
+  to = "/api/:splat"
+  status = 200
+
+# Brixpense user-guide viewer. Must come BEFORE the /expense/* SPA fallback
+# below — otherwise React Router would swallow it. The viewer lives at
+# /docs/brixpense/index.html (alongside the Margin viewer) and fetches its
+# markdown from ./user-guide.md at runtime; copied from docs/brixpense/ at
+# build time by the `cp -r docs/. public/docs/` step in [build].command.
+[[redirects]]
+  from = "/expense/docs/*"
+  to = "/docs/:splat"
+  status = 200
+
+# ── Expense app: SPA fallback ──
+# Any /expense/* path that doesn't match a static file or the rules above
+# rewrites to the SPA's index.html so React Router can handle deep links.
+[[redirects]]
+  from = "/expense/*"
+  to = "/expense/index.html"
+  status = 200
+
+# ── Sub-Distributor Portal (app-distributor/ → public/distributor/) ──
+# External partner portal (Origins Soda Co., Desert Beverage). Same dual-shape
+# API pattern as Brixpense: direct-site traffic arrives at /distributor/api/…,
+# gateway traffic arrives with the prefix stripped. No functions use these
+# routes yet — the portal is pure PostgREST + RPC today — but the rule keeps
+# the pattern consistent for when one lands.
+[[redirects]]
+  from = "/distributor/api/*"
+  to = "/api/:splat"
+  status = 200
+
+# SPA fallback (must come after the api rule).
+[[redirects]]
+  from = "/distributor/*"
+  to = "/distributor/index.html"
+  status = 200
+
+# Old /ops/ path → /sales/ (kept for any saved bookmarks)
+[[redirects]]
+  from = "/ops"
+  to = "/sales/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/ops/*"
+  to = "/sales/:splat"
+  status = 301
+  force = true
+
 [[headers]]
   for = "/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/distributor/Brix-Round-Logo.png" />
+    <link rel="apple-touch-icon" href="/distributor/Brix-Round-Logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f5f7" />
+    <title>Brix Distributor Portal</title>
+    <!-- Pre-paint theme so there's no light/dark flash before React mounts.
+         The universal APBG switch (localStorage.apbg_theme, written by the
+         gateway waffle launcher) wins over this app's own brixdist-theme; when
+         set we mirror it into brixdist-theme so React mounts in agreement. -->
+    <script>
+      (function () {
+        function apply(dark) {
+          var e = document.documentElement;
+          e.classList.toggle('dark', dark);
+          e.classList.toggle('light', !dark);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', dark ? '#0b0b0e' : '#f5f5f7');
+        }
+        try {
+          var u = localStorage.getItem('apbg_theme');
+          if (u === 'dark' || u === 'light') {
+            try { localStorage.setItem('brixdist-theme', u); } catch (e) {}
+            apply(u === 'dark');
+          } else {
+            var s = localStorage.getItem('brixdist-theme');
+            apply(s ? s === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
+          }
+        } catch (e) {}
+        function follow(t) {
+          if (t !== 'dark' && t !== 'light') return;
+          try { localStorage.setItem('brixdist-theme', t); } catch (e) {}
+          apply(t === 'dark');
+        }
+        window.addEventListener('apbg:themechange', function (e) {
+          follow(e && e.detail && e.detail.theme);
+        });
+        window.addEventListener('storage', function (e) {
+          if (e && e.key === 'apbg_theme') follow(e.newValue);
+        });
+      })();
+    </script>
+    <script type="module" crossorigin src="/distributor/assets/index-ZeO-t7L_.js"></script>
+    <link rel="stylesheet" crossorigin href="/distributor/assets/index-Ch-sLamL.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
+</body>
+</html>

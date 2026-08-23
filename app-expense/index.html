@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/Brix-Round-Logo.png" />
+    <link rel="apple-touch-icon" href="/Brix-Round-Logo.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f5f7" />
+    <!-- iOS home-screen / standalone app -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Brixpense" />
+    <title>BRIX · Expense</title>
+    <!-- Pre-paint theme so there's no light/dark flash before React mounts.
+         The universal APBG switch (localStorage.apbg_theme, written by the
+         gateway waffle launcher) wins over this app's own brixpense-theme; when
+         set we mirror it into brixpense-theme so React mounts in agreement.
+         Brixpense keeps its own dark/light look — the switch just picks one. -->
+    <script>
+      (function () {
+        function apply(dark) {
+          var e = document.documentElement;
+          e.classList.toggle('dark', dark);
+          e.classList.toggle('light', !dark);
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', dark ? '#0b0b0e' : '#f5f5f7');
+        }
+        try {
+          var u = localStorage.getItem('apbg_theme');
+          if (u === 'dark' || u === 'light') {
+            try { localStorage.setItem('brixpense-theme', u); } catch (e) {}
+            apply(u === 'dark');
+          } else {
+            var s = localStorage.getItem('brixpense-theme');
+            apply(s ? s === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches);
+          }
+        } catch (e) {}
+        function follow(t) {
+          if (t !== 'dark' && t !== 'light') return;
+          try { localStorage.setItem('brixpense-theme', t); } catch (e) {}
+          apply(t === 'dark');
+        }
+        window.addEventListener('apbg:themechange', function (e) {
+          follow(e && e.detail && e.detail.theme);
+        });
+        window.addEventListener('storage', function (e) {
+          if (e && e.key === 'apbg_theme') follow(e.newValue);
+        });
+      })();
+    </script>
+    <!-- Native Apple/Helvetica system font stack (San Francisco on Apple, Helvetica
+         Neue/Arial elsewhere) — no web-font download, set in globals.css. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
+</body>
+</html>

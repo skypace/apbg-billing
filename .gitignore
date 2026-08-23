@@ -1,3 +1,29 @@
 # Local Netlify folder
 .netlify
-.claude/
+
+# Root deps (installed for Netlify Functions, e.g. pdf-lib) — never commit
+/node_modules
+.claude/*
+!.claude/skills/
+.claude/skills/**/__pycache__/
+
+# Vite app build artifacts
+app/node_modules
+app/dist
+app-expense/node_modules
+app-expense/dist
+app-expense/*.tsbuildinfo
+app-expense/package-lock.json
+
+# NOTE (corrected 2026-08-23): Netlify DOES run our build command from
+# netlify.toml — it installs and builds app/, app-expense/ and
+# app-distributor/ on every deploy. Verified live: production serves bundle
+# hashes that exist nowhere in this repo. The older note here claimed the
+# opposite and is what justified the (now deleted) build-expense.yml CI job
+# that rebuilt and committed public/expense/.
+#
+# So: SHIP SOURCE ONLY. Do not rebuild-and-commit public/sales-next/,
+# public/expense/ or public/distributor/ — it produces asset churn that
+# conflicts with every parallel PR (the 2026-08-18 lesson). Those directories
+# are still tracked as historical artifacts and are stale by design;
+# production never serves them.

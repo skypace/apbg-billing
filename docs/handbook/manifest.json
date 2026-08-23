@@ -1,0 +1,476 @@
+{
+  "$comment": "APBG Master Handbook manifest. The viewer (public/docs/handbook/index.html) renders the chapter list from this file; the sweep function (netlify/functions/handbook-sweep.mjs) compares each chapter's last_reviewed date against the latest commit touching its registered sources. Update last_reviewed whenever a chapter is re-verified against its sources.",
+  "title": "APBG Master Handbook",
+  "version": "1.0.0",
+  "updated": "2026-08-21",
+  "parts": [
+    {
+      "id": "intro",
+      "label": "Start Here"
+    },
+    {
+      "id": "guide",
+      "label": "Part I · Master User Guide"
+    },
+    {
+      "id": "arch",
+      "label": "Architecture & Data"
+    },
+    {
+      "id": "sop",
+      "label": "Part II · Operations SOP Manual"
+    },
+    {
+      "id": "log",
+      "label": "Change Log"
+    }
+  ],
+  "chapters": [
+    {
+      "slug": "00-start-here",
+      "title": "Start Here — System Map & How to Use This Handbook",
+      "part": "intro",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        }
+      ]
+    },
+    {
+      "slug": "01-gateway-hub",
+      "title": "APBG Gateway — Operations Hub, Login, Roles & App Manager",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "public/auth.js"
+        }
+      ]
+    },
+    {
+      "slug": "02-brix-order-portal",
+      "title": "Brix Order Portal — Customer Ordering, Billing & Resources",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/portal-user-guide.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/account-billing-faqs.md"
+        }
+      ]
+    },
+    {
+      "slug": "03-brix-order-admin",
+      "title": "Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "ARCHITECTURE.md"
+        }
+      ]
+    },
+    {
+      "slug": "04-driver-cylinder-audit",
+      "title": "CO₂ Cylinder Audit PWA — Driver Field Guide",
+      "part": "guide",
+      "owner": "Dani",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "05-voice-ai-assistants",
+      "title": "AI Assistants — Chloe & Ziggy Phone Line, Mr. Bubbles, Knowledge Base",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base"
+        }
+      ]
+    },
+    {
+      "slug": "06-refractor-margin-control",
+      "title": "BRIX Refractor (Margin Control) — Sales, Margin & Catalog Analytics",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/margin-control/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/MARGIN-CONTROL.md"
+        }
+      ]
+    },
+    {
+      "slug": "07-brixpense",
+      "title": "Brixpense — Expenses & Purchase Requests",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-24",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/brixpense/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/BRIXPENSE.md"
+        }
+      ]
+    },
+    {
+      "slug": "08-ap-billing-tool",
+      "title": "3rd-Party Billing (AP Tool) — Vendor Bills, OAuth Setup & Freshpet Billing",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/setup.html"
+        }
+      ]
+    },
+    {
+      "slug": "09-master-control",
+      "title": "Master Control — Health, ResQ Sync, Linked Customers, Maintenance & Sweeps",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/control.html"
+        }
+      ]
+    },
+    {
+      "slug": "10-production",
+      "title": "Production — Formulas, BOMs, Work Orders & Purchase Orders",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "11-companion-apps",
+      "title": "Companion Apps — Fountain DAM, Foodservice Portal, APBG Ops, ERLS, MCP Servers",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        },
+        {
+          "repo": "skypace/melt-dashboard",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "14-sub-distributors",
+      "title": "Sub-Distributors — Partner Program, Portal, Agreements & Fee Settlement",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-20",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/SUB-DISTRIBUTORS.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "12-architecture-overview",
+      "title": "Architecture & Data — How the Programs and Data Work",
+      "part": "arch",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/sync-manifest.json"
+        }
+      ]
+    },
+    {
+      "slug": "13-architecture-live",
+      "title": "Live Architecture Mirror — ARCHITECTURE.md (rendered from GitHub)",
+      "part": "arch",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "remote": "handbook-architecture",
+      "edit_url": "https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md",
+      "sources": []
+    },
+    {
+      "slug": "20-sop-governance",
+      "title": "SOP-0 · Policy Governance — How Policies & This Handbook Are Maintained",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/handbook/manifest.json"
+        }
+      ]
+    },
+    {
+      "slug": "21-sop-security-access",
+      "title": "SOP-1 · Security & Access — Accounts, Roles, Credentials, PCI Posture",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-gateway",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "22-sop-customer-lifecycle",
+      "title": "SOP-2 · Customer Lifecycle — Application, Approval, Setup Ticket, Enable, Closure",
+      "part": "sop",
+      "owner": "Dani",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        },
+        {
+          "repo": "skypace/melt-dashboard",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "23-sop-orders-fulfillment",
+      "title": "SOP-3 · Orders & Fulfillment — Web, Phone & Admin Orders, Tank Returns, Service Calls",
+      "part": "sop",
+      "owner": "Dani",
+      "last_reviewed": "2026-08-21",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "24-sop-billing-payments",
+      "title": "SOP-4 · Billing & Payments — Invoices, Statements, Payment Rails, Returned Payments",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "docs/BILLANDPAY-MIGRATION.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "25-sop-cylinders-audits",
+      "title": "SOP-5 · CO₂ Cylinders — Rentals, Field Audits, Shortage Approvals",
+      "part": "sop",
+      "owner": "Dani",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "content/knowledge-base/tank-co2-rentals.md"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "26-sop-service-maintenance",
+      "title": "SOP-6 · Service, Maintenance Windows & Incident Response",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/control.html"
+        },
+        {
+          "repo": "activespacescience/brix-order",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "27-sop-expenses-purchasing",
+      "title": "SOP-7 · Expenses & Purchasing — Brixpense Policy, Approvals, COGS Coding",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "docs/brixpense/user-guide.md"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "28-sop-production",
+      "title": "SOP-8 · Production — Formula → BOM → Work Order → PO Pipeline",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "29-sop-data-engineering",
+      "title": "SOP-9 · Data & Engineering — Schemas, Migrations, Secrets, AI Grounding Rules",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/sync-manifest.json"
+        },
+        {
+          "repo": "activespacescience/Skilliosis_Mytosis_Architecture",
+          "path": "ARCHITECTURE.md"
+        }
+      ]
+    },
+    {
+      "slug": "30-sop-cupa-compliance",
+      "title": "SOP-10 · CUPA & Health Inspection Readiness — Hazmat Records, SDS, Inspections",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/lib/compliance.ts"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "supabase/migrations/20260817a_compliance_sds_training.sql"
+        }
+      ]
+    },
+    {
+      "slug": "31-safety-training-handbook",
+      "title": "Health & Safety Training Handbook — v2.0: road, customer accounts, warehouse, trades (sign-off required)",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/compliance.html"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "supabase/migrations/20260817b_safety_handbook_acks.sql"
+        }
+      ]
+    },
+    {
+      "slug": "32-sop-insurance",
+      "title": "SOP-11 · Insurance, Certificates & Claims — policies, COIs, renewals, what to do when something happens",
+      "part": "sop",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-08-17",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "public/compliance.html"
+        }
+      ]
+    },
+    {
+      "slug": "90-change-log",
+      "title": "Change Log — What Shipped Across Every APBG Repo",
+      "part": "log",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-07-22",
+      "remote": "handbook-changelog",
+      "sources": []
+    }
+  ]
+}

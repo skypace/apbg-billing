@@ -1,8 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="maintenance-banner.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BRIXPENSE — Connections</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/billing/auth.js"></script>
 <style>
 body{font-family:'DM Sans',sans-serif;background:#F4F6F9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
 .card{background:#fff;border-radius:12px;border:1px solid #E2E6ED;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
@@ -25,7 +28,12 @@ a.sf:hover{background:#2E75B6}
   <a class="brand-lockup" href="/billing/" style="text-decoration:none"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-name">BRIXPENSE</span></a>
   <a href="/billing/">Bill intake</a>
 </nav>
-<section class="card hero-card">
+<section class="card hero-card" id="authLoading">
+<div class="eyebrow">Workspace setup</div>
+<h1>Checking access…</h1>
+<p class="sub">Confirming your BRIXPENSE administrator session.</p>
+</section>
+<section class="card hero-card" id="mainCard" style="display:none">
 <div class="eyebrow">Workspace setup</div>
 <h1>Connect your services.</h1>
 <p class="sub">Authorize QuickBooks and Service Fusion once to keep bill intake and customer records moving.</p>
@@ -42,6 +50,11 @@ a.sf:hover{background:#2E75B6}
 </section>
 </main>
 <script>
+APBG.auth.requireSuperadmin().then(() => {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('mainCard').style.display = 'block';
+});
+
 // QBO OAuth URL — hardcoded redirect to prevent mismatch
 const qboClientId = 'ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK';
 const qboRedirect = encodeURIComponent('https://apbg-billing.netlify.app/.netlify/functions/oauth-callback');
@@ -50,12 +63,18 @@ document.getElementById('qboBtn').href =
   'https://appcenter.intuit.com/connect/oauth2?client_id=' + qboClientId
   + '&redirect_uri=' + qboRedirect + '&response_type=code&scope=' + qboScope + '&state=qbo-' + Date.now();
 
-// Service Fusion OAuth URL — hardcoded redirect
-const sfClientId = 'f8cqiTHnjoFS-QMeuc';
-const sfRedirect = encodeURIComponent('https://apbg-billing.netlify.app/.netlify/functions/sf-oauth-callback');
+// Service Fusion OAuth URL — billing Connected App (client_id TNpu3bVz9XAIgey_7e).
+// Redirect MUST be the Supabase edge function that owns ops.sf_token_cache; the
+// old Netlify redirect + the MEUC client_id belonged to a different (ResQ) app
+// and produced "invalid redirect URL" / "invalid_client". See CLAUDE.md → Service
+// Fusion OAuth. Token exchange happens in the Supabase sf-oauth-callback using the
+// SF_CLIENT_ID / SF_CLIENT_SECRET env — keep those matched to this client_id.
+const sfClientId = 'TNpu3bVz9XAIgey_7e';
+const sfRedirect = encodeURIComponent('https://gfsdpwiqzshhexkofiif.supabase.co/functions/v1/sf-oauth-callback');
 document.getElementById('sfBtn').href =
   'https://api.servicefusion.com/oauth/authorize?client_id=' + sfClientId
   + '&redirect_uri=' + sfRedirect + '&response_type=code&state=sf-' + Date.now();
 </script>
+  <script src="https://alamedapointbg.com/appswitcher.js" defer></script>
 </body>
 </html>

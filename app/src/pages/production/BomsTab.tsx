@@ -1,0 +1,371 @@
+import { useEffect, useMemo, useState } from 'react';
+import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
+import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
+import {
+  BomLineInput, BomLineType, ProductBom, ProductBomLine,
+  fetchBomLines, saveBomV2, updateBom,
+} from '../../lib/production';
+import { ProductFormula } from '../../lib/formulas';
+import { QboVendor } from '../../lib/purchasing';
+import { useToast } from '../../lib/toast';
+import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
+import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
+import type { ProductionItemLookup } from './ProductionPage';
+
+function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
+
+interface Props {
+  boms: ProductBom[] | null;
+  formulas: ProductFormula[] | null;
+  vendors: QboVendor[] | null;
+  itemLookup: ProductionItemLookup;
+  onChanged: () => void;
+}
+
+// The redesigned BOM is a pure parts list: the sellable finished item, the
+// sub-items that make it up (each with its vendor), and the formula / spec
+// sheet it's built from. NO quantity math lives here — every total is
+// calculated on the work order.
+export function BomsTab({ boms, formulas, vendors, itemLookup, onChanged }: Props) {
+  const [editing, setEditing] = useState<ProductBom | 'new' | null>(null);
+  const toast = useToast();
+
+  const formulaById = useMemo(() => {
+    const m = new Map<string, ProductFormula>();
+    for (const f of formulas ?? []) m.set(f.id, f);
+    return m;
+  }, [formulas]);
+
+  const rows = useMemo(() => (boms ?? []).map((b) => ({
+    ...b,
+    finished_label: itemLookup.byId.get(b.finished_qbo_item_id)?.item_name ?? b.finished_qbo_item_id,
+    formula_label: b.formula_id ? (formulaById.get(b.formula_id)?.name ?? '…') : null,
+  })), [boms, itemLookup, formulaById]);
+
+  const columns: GridColDef[] = useMemo(() => [
+    {
+      field: 'finished_label', headerName: 'Sellable item', flex: 1, minWidth: 220,
+      renderCell: (p) => (
+        <button onClick={() => setEditing((boms ?? []).find((b) => b.id === p.row.id) ?? null)} style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--ac)', fontWeight: 700, padding: 0, fontSize: 12.5, textAlign: 'left',
+        }}>{String(p.value ?? '')}</button>
+      ),
+    },
+    { field: 'name', headerName: 'BOM name', flex: 1, minWidth: 160,
+      valueFormatter: (v) => v ? String(v) : '—' },
+    {
+      field: 'formula_label', headerName: 'Formula / spec sheet', flex: 1, minWidth: 190,
+      renderCell: (p) => p.value
+        ? <span style={{ fontSize: 11 }}>
+            <FlaskConical size={11} style={{ verticalAlign: -1, marginRight: 4, color: 'var(--ac)' }} />
+            {String(p.value)}
+          </span>
+        : <span style={{ color: 'var(--am)', fontSize: 11 }}>no formula linked</span>,
+    },
+    { field: 'version', headerName: 'Ver', width: 60, cellClassName: 'mn' },
+    {
+      field: 'is_active', headerName: 'Active', width: 90,
+      renderCell: (p) => {
+        const active = Boolean(p.value);
+        return <span style={{
+          color: active ? 'var(--gn)' : 'var(--mt)', fontSize: 9, fontWeight: 700,
+          border: `1px solid ${active ? 'var(--gn)' : 'var(--mt)'}`, padding: '1px 7px', borderRadius: 12,
+        }}>{active ? 'ACTIVE' : 'OFF'}</span>;
+      },
+    },
+    { field: 'cans_per_case', headerName: 'Cans/case', width: 90, cellClassName: 'mn' },
+    { field: 'oz_per_can', headerName: 'Oz/can', width: 80, cellClassName: 'mn' },
+    { field: 'updated_at', headerName: 'Updated', width: 155,
+      valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
+  ], [boms]);
+
+  async function toggleActive(bom: ProductBom) {
+    try {
+      await updateBom(bom.id, { is_active: !bom.is_active } as Partial<ProductBom>);
+      toast.success(bom.is_active ? 'BOM deactivated' : 'BOM activated');
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+  }
+
+  return (
+    <div>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
+        <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--mt)' }}>
+            A BOM is the sellable item + the sub-items that make it up, tied to its formula.
+            Quantities here are <strong>per finished unit</strong> — totals are calculated on the work order.
+          </span>
+          <div className="toolbar-spacer" style={{ flex: 1 }} />
+          <button onClick={() => setEditing('new')} style={btnPrimary()}>
+            <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New BOM
+          </button>
+        </div>
+      </div>
+
+      <div className="cd" style={{ padding: 0 }}>
+        <DataGridPro
+          rows={rows}
+          columns={columns}
+          {...GRID_DEFAULTS}
+          sx={GRID_SX}
+          density="compact"
+          loading={boms === null}
+          disableRowSelectionOnClick
+        />
+      </div>
+
+      {editing && (
+        <BomEditModal
+          bom={editing === 'new' ? null : editing}
+          formulas={formulas ?? []}
+          vendors={vendors ?? []}
+          itemLookup={itemLookup}
+          onToggleActive={editing !== 'new' ? () => { void toggleActive(editing as ProductBom); setEditing(null); } : undefined}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Edit / create ────────────────────────────────────────────────────────
+
+interface LineRow {
+  line_type: BomLineType;
+  component_qbo_item_id: string;
+  service_label: string;
+  qty_per: string;
+  qty_uom: string;
+  scrap_pct: string;   // percent, e.g. "2" = 2%
+  default_cost: string;
+  vendor_id: string;
+  notes: string;
+}
+
+const EMPTY_LINE: LineRow = {
+  line_type: 'component', component_qbo_item_id: '', service_label: '',
+  qty_per: '', qty_uom: 'each', scrap_pct: '', default_cost: '', vendor_id: '', notes: '',
+};
+
+function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onClose, onSaved }: {
+  bom: ProductBom | null;
+  formulas: ProductFormula[];
+  vendors: QboVendor[];
+  itemLookup: ProductionItemLookup;
+  onToggleActive?: () => void;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const isNew = bom == null;
+  const [finishedId, setFinishedId] = useState(bom?.finished_qbo_item_id ?? '');
+  const [name, setName] = useState(bom?.name ?? '');
+  const [version, setVersion] = useState(bom?.version ?? '1');
+  const [formulaId, setFormulaId] = useState(bom?.formula_id ?? '');
+  const [cansPerCase, setCansPerCase] = useState(String(bom?.cans_per_case ?? 24));
+  const [ozPerCan, setOzPerCan] = useState(String(bom?.oz_per_can ?? 12));
+  const [notes, setNotes] = useState(bom?.notes ?? '');
+  const [lines, setLines] = useState<LineRow[]>([{ ...EMPTY_LINE }]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!bom) return;
+    let alive = true;
+    fetchBomLines(bom.id).then((rows: ProductBomLine[]) => {
+      if (!alive) return;
+      setLines(rows.map((l) => ({
+        line_type: l.line_type,
+        component_qbo_item_id: l.component_qbo_item_id ?? '',
+        service_label: l.service_label ?? '',
+        qty_per: String(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        scrap_pct: l.scrap_pct ? String(Number(l.scrap_pct) * 100) : '',
+        default_cost: l.default_cost != null ? String(l.default_cost) : '',
+        vendor_id: l.preferred_qbo_vendor_id ?? '',
+        notes: l.notes ?? '',
+      })));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [bom]);
+
+  const validLines = lines.filter((l) =>
+    Number(l.qty_per) > 0 &&
+    (l.line_type === 'component' ? l.component_qbo_item_id : l.service_label.trim()));
+  const canSave = !!finishedId && validLines.length > 0;
+  const missingVendors = validLines.filter((l) => l.line_type === 'component' && !l.vendor_id).length;
+
+  async function submit() {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      const payload: BomLineInput[] = validLines.map((l) => ({
+        line_type: l.line_type,
+        component_qbo_item_id: l.line_type === 'component' ? l.component_qbo_item_id : null,
+        service_label: l.line_type === 'service' ? l.service_label.trim() : null,
+        qty_per: Number(l.qty_per),
+        qty_uom: l.qty_uom || 'each',
+        scrap_pct: l.scrap_pct ? Number(l.scrap_pct) / 100 : 0,
+        default_cost: l.default_cost ? Number(l.default_cost) : null,
+        preferred_qbo_vendor_id: l.vendor_id || null,
+        notes: l.notes || null,
+      }));
+      await saveBomV2({
+        id: bom?.id ?? null,
+        header: {
+          finished_qbo_item_id: finishedId,
+          name: name || null,
+          version,
+          formula_id: formulaId || null,
+          yield_qty: 1,
+          yield_uom: 'each',
+          cans_per_case: Number(cansPerCase) || 24,
+          oz_per_can: Number(ozPerCan) || 12,
+          notes: notes || null,
+        },
+        lines: payload,
+      });
+      toast.success(isNew ? 'BOM created' : 'BOM saved');
+      onSaved();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setSaving(false); }
+  }
+
+  function setLine(i: number, patch: Partial<LineRow>) {
+    setLines((rows) => rows.map((x, j) => j === i ? { ...x, ...patch } : x));
+  }
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000,
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      padding: '90px 20px 20px', overflowY: 'auto',
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
+        maxWidth: 980, width: '100%', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', padding: 20,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            {isNew ? 'New Bill of Materials' : `Edit BOM · ${itemLookup.byId.get(bom!.finished_qbo_item_id)?.item_name ?? bom!.finished_qbo_item_id}`}
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
+            <XIcon size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+          <LField label="Sellable finished item *">
+            <select style={inp()} value={finishedId} onChange={(e) => setFinishedId(e.target.value)} disabled={!isNew}>
+              <option value="">—</option>
+              {isNew
+                ? itemLookup.finishedOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)
+                : <option value={finishedId}>{itemLookup.byId.get(finishedId)?.item_name ?? finishedId}</option>}
+            </select>
+          </LField>
+          <LField label="Formula / spec sheet (the driver)">
+            <select style={inp()} value={formulaId} onChange={(e) => setFormulaId(e.target.value)}>
+              <option value="">— none —</option>
+              {formulas.map((f) => <option key={f.id} value={f.id}>{f.name} · rev {f.doc_rev}</option>)}
+            </select>
+          </LField>
+          <LField label="BOM name">
+            <input style={inp()} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cola 24pk case" />
+          </LField>
+          <LField label="Version">
+            <input style={inp()} value={version} onChange={(e) => setVersion(e.target.value)} />
+          </LField>
+          <LField label="Cans per case">
+            <input type="number" min={1} style={inp()} value={cansPerCase} onChange={(e) => setCansPerCase(e.target.value)} />
+          </LField>
+          <LField label="Oz per can">
+            <input type="number" min={0} step="any" style={inp()} value={ozPerCan} onChange={(e) => setOzPerCan(e.target.value)} />
+          </LField>
+        </div>
+
+        <div style={{ marginTop: 16, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Sub-items (per 1 finished unit)
+          </div>
+          {missingVendors > 0 && (
+            <span style={{ fontSize: 10.5, color: 'var(--am)' }}>
+              {missingVendors} component{missingVendors === 1 ? '' : 's'} without a vendor — assign vendors so work orders can generate POs automatically.
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 4, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span>Type</span><span>Sub-item / service</span><span>Qty per unit</span><span>UoM</span><span>Scrap %</span><span>Est unit $</span><span>Vendor</span><span />
+        </div>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 6 }}>
+            <select style={inp()} value={l.line_type} onChange={(e) => setLine(i, { line_type: e.target.value as BomLineType })}>
+              <option value="component">Component</option>
+              <option value="service">Service</option>
+            </select>
+            {l.line_type === 'component' ? (
+              <select style={inp()} value={l.component_qbo_item_id} onChange={(e) => setLine(i, { component_qbo_item_id: e.target.value })}>
+                <option value="">—</option>
+                {itemLookup.componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            ) : (
+              <input style={inp()} placeholder="Service label (e.g. Canning fee)" value={l.service_label}
+                onChange={(e) => setLine(i, { service_label: e.target.value })} />
+            )}
+            <input type="number" min={0} step="any" style={inp()} value={l.qty_per}
+              onChange={(e) => setLine(i, { qty_per: e.target.value })} />
+            <input style={inp()} value={l.qty_uom} onChange={(e) => setLine(i, { qty_uom: e.target.value })} />
+            <input type="number" min={0} step="any" style={inp()} value={l.scrap_pct}
+              onChange={(e) => setLine(i, { scrap_pct: e.target.value })} />
+            <input type="number" min={0} step="any" style={inp()} value={l.default_cost}
+              onChange={(e) => setLine(i, { default_cost: e.target.value })} />
+            {l.line_type === 'component' ? (
+              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}>
+                <option value="">— vendor —</option>
+                {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
+              </select>
+            ) : <span style={{ fontSize: 10, color: 'var(--mt)', alignSelf: 'center' }}>cost-only</span>}
+            <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}
+              onClick={() => setLines((rows) => rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)}>
+              <XIcon size={13} />
+            </button>
+          </div>
+        ))}
+        <button style={btnSecondary()} onClick={() => setLines((rows) => [...rows, { ...EMPTY_LINE }])}>
+          <Plus size={11} style={{ marginRight: 3, verticalAlign: -1 }} /> Add sub-item
+        </button>
+
+        <div style={{ marginTop: 12 }}>
+          <LField label="Notes">
+            <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
+              value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </LField>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 16 }}>
+          <div>
+            {onToggleActive && (
+              <button onClick={onToggleActive} style={btnSecondary()}>
+                {bom?.is_active ? 'Deactivate BOM' : 'Reactivate BOM'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={btnSecondary()}>Cancel</button>
+            <button onClick={submit} disabled={!canSave || saving} style={btnPrimary()}>
+              {saving ? 'Saving…' : isNew ? 'Create BOM' : 'Save BOM'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LField({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div>
+    <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+    {children}
+  </div>;
+}
