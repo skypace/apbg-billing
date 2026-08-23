@@ -31,6 +31,42 @@ vendor invoice ──email/forward──▶ bills@alamedapointbg.com
                         → expense-request-link-bill → the QBO Bill
 ```
 
+
+## Is it paid? (asking QuickBooks)
+
+Brixpense stamps `paid_at` when **we** pay a bill — the Pay panel's Stripe rail
+or a manual rail recorded against it. Every other way a bill gets paid is
+invisible here: a cheque written in QuickBooks, a Bill Pay run, the
+bookkeeper's card. Without something closing that loop the bill sits in
+`ops.v_ap_aging` forever and keeps offering a Pay button for money that has
+already gone out.
+
+Nothing we mirror can answer it. `ops.qbo_expense_lines` is line-level and
+carries no header balance, so `bill-paid-sync` asks QuickBooks directly —
+two batched, **read-only** queries scoped to posted, unpaid, un-archived bills
+(49 rows today, not a crawl). It runs daily at 11:40 UTC, and the aging strip
+has a **Check QuickBooks** button for the moment somebody actually wants to
+know.
+
+`Bill.Balance` is the answer, and the three non-obvious cases are the point:
+
+| QuickBooks says | We record | Why |
+|---|---|---|
+| `Balance = 0` | `paid_at`, `payment_method='quickbooks'`, the BillPayment id | Paid. The date comes from the linked **BillPayment**, not from now — a bill paid in June must not read as paid today, or every later aging and history read is wrong. |
+| `0 < Balance < TotalAmt` | `qbo_balance` only | **Partly paid is not paid.** It is still owed, and marking it paid would drop a real payable out of the aging view. The row shows "Partly paid · $X left". |
+| bill not returned | `qbo_checked_at`, `qbo_balance = NULL` | Deleted or voided in QuickBooks. We know it is *gone*; we do not know it was *paid*. Never stamped paid; the watcher goes yellow so a human decides. |
+
+`paid_at` stays the DECISION; `qbo_balance` + `qbo_checked_at` are the
+EVIDENCE. Keeping them apart is what lets a partial payment be recorded
+honestly.
+
+**Watcher:** `ops.fn_bill_paid_sync_health()` — red on an error in 24h or no
+run in 48h, yellow on bills QuickBooks no longer returns, and yellow (not
+green) when bills are waiting and the sync has **never** run. That last case
+is deliberate: unlike inbound mail, where a quiet day is genuinely quiet, we
+control this cron, so "never run" is a config gap rather than good news.
+
+
 ## Whose queue it lands in
 
 `resolveBillRouting()` in `lib/ap-inbox.mjs`. First match wins, and every answer

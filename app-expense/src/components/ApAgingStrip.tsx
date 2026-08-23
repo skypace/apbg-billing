@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { checkQuickBooksPaid } from '@/lib/billPaidSync';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Banknote, ChevronDown } from 'lucide-react';
+import { Banknote, ChevronDown, Loader2, RefreshCw } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useIsSuperadmin } from '@/lib/useIsSuperadmin';
 import { paymentsForExpenses, statusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
@@ -50,6 +51,7 @@ interface Row {
   days_overdue: number | null;
   posted: boolean;
   qbo_bill_id: string | null;
+  qbo_balance: number | null;
   aging_bucket: Bucket;
 }
 
@@ -67,11 +69,13 @@ export function ApAgingStrip() {
   const [open, setOpen] = useState<Bucket | null>(null);
   const [payments, setPayments] = useState<Map<string, VendorPayment>>(new Map());
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkNote, setCheckNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('v_ap_aging')
-      .select('id,vendor_name,bill_number,total_amount,due_date,days_overdue,posted,qbo_bill_id,aging_bucket')
+      .select('id,vendor_name,bill_number,total_amount,due_date,days_overdue,posted,qbo_bill_id,qbo_balance,aging_bucket')
       .limit(ROW_CAP);
     const got = (data as Row[]) ?? [];
     setRows(got);
@@ -119,11 +123,48 @@ export function ApAgingStrip() {
               {truncated && ` Showing the first ${ROW_CAP} — the real total is higher.`}
             </p>
           </div>
-          <div className="text-right">
-            <div className="text-[15px] font-bold tabular-nums">{formatCurrency(owed)}</div>
-            <div className="text-[11px] text-muted-foreground">{rows.length} bill{rows.length === 1 ? '' : 's'}</div>
+          <div className="flex items-start gap-3">
+            {isSuperadmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={checking}
+                onClick={async () => {
+                  setChecking(true); setCheckNote(null);
+                  try {
+                    const r = await checkQuickBooksPaid();
+                    setCheckNote(
+                      r.paid > 0
+                        ? `${r.paid} bill${r.paid === 1 ? '' : 's'} already paid in QuickBooks — cleared.`
+                        : 'Nothing new — QuickBooks still shows these as unpaid.',
+                    );
+                    await load();
+                  } catch (e) {
+                    setCheckNote(e instanceof Error ? e.message : 'Could not reach QuickBooks.');
+                  } finally {
+                    setChecking(false);
+                  }
+                }}
+                title="Ask QuickBooks whether any of these have been paid outside Brixpense"
+              >
+                {checking
+                  ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                Check QuickBooks
+              </Button>
+            )}
+            <div className="text-right">
+              <div className="text-[15px] font-bold tabular-nums">{formatCurrency(owed)}</div>
+              <div className="text-[11px] text-muted-foreground">{rows.length} bill{rows.length === 1 ? '' : 's'}</div>
+            </div>
           </div>
         </div>
+
+        {checkNote && (
+          <div className="mb-3 text-[12px] text-muted-foreground rounded-lg bg-white/[0.03] px-3 py-2">
+            {checkNote}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {shown.map((b) => {
@@ -161,6 +202,13 @@ export function ApAgingStrip() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[13px] font-semibold truncate">{r.vendor_name || 'No vendor'}</span>
                         {!r.posted && <Badge variant="secondary">Not in QuickBooks yet</Badge>}
+                        {r.qbo_balance !== null && r.qbo_balance !== undefined
+                          && Number(r.qbo_balance) > 0
+                          && Number(r.qbo_balance) < Number(r.total_amount ?? Infinity) && (
+                          <Badge variant="warning">
+                            Partly paid · {formatCurrency(Number(r.qbo_balance))} left
+                          </Badge>
+                        )}
                         {pay && (
                           <Badge variant={statusLabel(pay).variant}>
                             {statusLabel(pay).label} · {RAIL_LABEL[pay.rail].split(' (')[0]}

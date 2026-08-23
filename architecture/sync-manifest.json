@@ -759,6 +759,19 @@
       "last_verified": "2026-08-20"
     },
     {
+      "name": "bill-paid-sync",
+      "kind": "netlify-function",
+      "multi_writer": true,
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "daily 11:40 UTC (bill-paid-sync-cron) + on-demand staff click",
+      "writes": [
+        "ops.expense_requests",
+        "ops.sync_log"
+      ],
+      "notes": "Asks QuickBooks which posted Brixpense bills have actually been paid. Brixpense only stamps paid_at for payments IT made (vendor-payments:pay-and-webhook); a cheque written in QuickBooks, a Bill Pay run or the bookkeeper's card is invisible here, so without this the bill sits in ops.v_ap_aging forever and keeps offering a Pay button for money already gone. Nothing we mirror answers it \u2014 ops.qbo_expense_lines is line-level with no header balance \u2014 so it queries the Bill entity per id (two batched read-only queries per run, scoped to posted+unpaid+un-archived rows). Bill.Balance is the answer: 0 = paid (paid_at stamped from the linked BillPayment's real date, NOT now \u2014 a bill paid in June must not read as paid today); 0 < balance < total = PARTIAL, recorded on qbo_balance but deliberately NOT marked paid, since it is still owed; a bill QBO does not return is recorded checked with a NULL balance and never marked paid (deleted or voided there is not the same as settled). Read-only against QBO: creates nothing, pays nothing, so the manual button is safe for the AP desk. Watcher: ops.fn_bill_paid_sync_health() in fn_sync_health_extra \u2014 red on an error in 24h or no run in 48h, yellow on bills QBO no longer returns, and yellow (NOT green) when bills are waiting and the sync has never run.",
+      "last_verified": "2026-08-23"
+    },
+    {
       "name": "vendor-payments:pay-and-webhook",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
