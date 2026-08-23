@@ -89,6 +89,15 @@ function AgreementCard({ agreement, onSigned }: { agreement: Agreement; onSigned
         <div><span className="def-label">Expires</span><span className="def-value">{fmtDate(a.expiry_date)}</span></div>
       </div>
 
+      {a.scope && (
+        <div className="callout callout-info" style={{ marginTop: 0 }}>
+          <div>
+            <div className="def-label" style={{ marginBottom: 4 }}>Scope of agreement</div>
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.55 }}>{a.scope}</div>
+          </div>
+        </div>
+      )}
+
       {a.status === 'sent' && a.terms && (
         <div style={{ marginBottom: 14 }}>
           <div className="def-label" style={{ marginBottom: 6 }}>Terms</div>
@@ -185,7 +194,7 @@ export default function Agreements() {
     const { data: rows, error: err } = await supabase
       .from('sub_distributor_agreements')
       .select(
-        'id, sub_distributor_id, version, title, model, per_case_delivery_fee, effective_date, expiry_date, terms, file_path, file_name, status, sent_at, signed_at, signer_name, signer_email, signature_data'
+        'id, sub_distributor_id, version, title, model, per_case_delivery_fee, effective_date, expiry_date, scope, terms, file_path, file_name, status, sent_at, signed_at, signer_name, signer_email, signature_data'
       )
       .eq('sub_distributor_id', distId)
       .order('version', { ascending: false });

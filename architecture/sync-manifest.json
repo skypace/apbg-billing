@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-08-20",
+  "last_updated": "2026-08-21",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
   "writers": [
     {
@@ -20,7 +20,7 @@
         "Anthropic API (email parsing)",
         "Service Fusion API: POST /jobs"
       ],
-      "notes": "Vendor email → SF ticket automation. Red Bull (rbfreeflow@) and Freshpet (freshpet@) emails are parsed by Claude and become SF jobs under the route's sf_customer_name; SF's own job-status notification emails (pointed at sf-status@) are parsed and relayed to the route's send_list. Intake + confirm gate are event-driven; status relays come from BOTH the sf-status@ email trigger and the 5-min vendor-ticket-status-poll (shared applyStatusChange pipeline, deduped on last_sf_status). Svix-signature gated (RESEND_INBOUND_SECRET). Source: netlify/functions/vendor-email-intake.mjs; tables seeded by migration 20260722a.",
+      "notes": "Vendor email \u2192 SF ticket automation. Red Bull (rbfreeflow@) and Freshpet (freshpet@) emails are parsed by Claude and become SF jobs under the route's sf_customer_name; SF's own job-status notification emails (pointed at sf-status@) are parsed and relayed to the route's send_list. Intake + confirm gate are event-driven; status relays come from BOTH the sf-status@ email trigger and the 5-min vendor-ticket-status-poll (shared applyStatusChange pipeline, deduped on last_sf_status). Svix-signature gated (RESEND_INBOUND_SECRET). Source: netlify/functions/vendor-email-intake.mjs; tables seeded by migration 20260722a.",
       "last_verified": "2026-07-22"
     },
     {
@@ -36,14 +36,14 @@
       "external_inputs": [
         "Service Fusion API: GET /jobs/{id}"
       ],
-      "notes": "Safety-net status poller for vendor tickets — SF's notification emails proved unreliable as the sole status signal (2026-07-22). Walks open sf_created tickets (cap 25/tick, terminal invoiced/cancelled, 60-day age-out), reads each SF job, and relays status changes via the shared applyStatusChange pipeline in vendor-email-intake.mjs (event row + templated update email). Deduped on last_sf_status so the email trigger and poller can never double-send.",
+      "notes": "Safety-net status poller for vendor tickets \u2014 SF's notification emails proved unreliable as the sole status signal (2026-07-22). Walks open sf_created tickets (cap 25/tick, terminal invoiced/cancelled, 60-day age-out), reads each SF job, and relays status changes via the shared applyStatusChange pipeline in vendor-email-intake.mjs (event row + templated update email). Deduped on last_sf_status so the email trigger and poller can never double-send.",
       "last_verified": "2026-07-23"
     },
     {
       "name": "pricing-admin",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (BRIX Refractor → Pricing)",
+      "schedule": "on-demand (BRIX Refractor \u2192 Pricing)",
       "writes": [
         "ops.price_books",
         "ops.price_book_items",
@@ -180,7 +180,7 @@
       "name": "customer-inactivation",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (BRIX Refractor → Customers)",
+      "schedule": "on-demand (BRIX Refractor \u2192 Customers)",
       "writes": [
         "ops.customer_lifecycle_actions",
         "ops.qbo_customers"
@@ -205,7 +205,7 @@
       "external_inputs": [
         "OpenStreetMap Nominatim geocoder"
       ],
-      "notes": "Source at supabase/functions/geocode-customers/. Populates qbo_customers.lat/lon for the cohort: active + has billing address + (billed in last 90 days OR is the Alameda depot at '1951 Monarch'). Idempotent — skips already-geocoded rows unless qbo_updated_at advances. ~440-row backfill takes ~6 nightly runs (max=80 keeps each call under the 150s idle timeout). Drives auto-geofence stop attribution in sync-fleetcomplete (mode=trips). Cron in 20260509e.",
+      "notes": "Source at supabase/functions/geocode-customers/. Populates qbo_customers.lat/lon for the cohort: active + has billing address + (billed in last 90 days OR is the Alameda depot at '1951 Monarch'). Idempotent \u2014 skips already-geocoded rows unless qbo_updated_at advances. ~440-row backfill takes ~6 nightly runs (max=80 keeps each call under the 150s idle timeout). Drives auto-geofence stop attribution in sync-fleetcomplete (mode=trips). Cron in 20260509e.",
       "last_verified": "2026-05-09"
     },
     {
@@ -379,7 +379,7 @@
       "name": "sync-fleetcomplete",
       "kind": "supabase-edge-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "every 5 min latest-snapshots (cron fleetcomplete-latest-snapshots); hourly :05 roster — vehicles + people + geofences (cron fleetcomplete-roster); daily 09:00 UTC trips + driver-events (cron fleetcomplete-trips)",
+      "schedule": "every 5 min latest-snapshots (cron fleetcomplete-latest-snapshots); hourly :05 roster \u2014 vehicles + people + geofences (cron fleetcomplete-roster); daily 09:00 UTC trips + driver-events (cron fleetcomplete-trips)",
       "writes": [
         "ops.fc_token_cache",
         "ops.fleet_vehicles",
@@ -395,7 +395,7 @@
       "external_inputs": [
         "Unity by Powerfleet GraphQL API at api.fleetcomplete.com"
       ],
-      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, extracts driverBehaviour events into fleet_driver_events, and matches each stop (≥5 min dwell) to the nearest geocoded qbo_customer within 200 m → fleet_stop_visits. Fleet page in the SPA exposes Map / Trips / Stops / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
+      "notes": "Source at supabase/functions/sync-fleetcomplete/. Modes: vehicles, latest, people, geofences, trips IMPLEMENTED. fuel NOT POSSIBLE via Unity (no fuel-card API). maintenance BLOCKED upstream (getWrappedReport php-exception). mode=trips walks getSnapshots over the last 26 h, reconstructs trips by ignition cycle, extracts driverBehaviour events into fleet_driver_events, and matches each stop (\u22655 min dwell) to the nearest geocoded qbo_customer within 200 m \u2192 fleet_stop_visits. Fleet page in the SPA exposes Map / Trips / Stops / Drivers / Safety tabs. Cron schedule defined in 20260508b + 20260509c.",
       "last_verified": "2026-05-09"
     },
     {
@@ -464,7 +464,7 @@
         "ops.expense_card_map"
       ],
       "multi_writer": true,
-      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments). expense-cc-match (Master Control → Card & Expense Match) links/imports QBO Purchase card-feed transactions into ops.expense_requests (qbo_purchase_id columns, migration 20260715000001). **No expense auto-posts to QuickBooks (2026-08-14).** expense-request-notify's 'expense' branch now ONLY auto-approves (draft→approved, no manager workflow — unchanged) and never calls QBO. expense-request-link-bill is the one place a human explicitly posts (mode=create) — handles BOTH the unpaid-Bill case (as_bill=true, vendor must match a QBO vendor) and the paid-Purchase case (as_bill=false, needs payment_account_id; Purchase support is new here, moved from expense-request-notify) — writes status=posted/qbo_bill_id/vendor_id/posted_at, attaches receipts, flips a linked PR to fulfilled, computes margin-match. Frontend surfaces the click: ExpenseForm's success screen ('Post to QuickBooks' button right after Submit), PendingList ('My Submissions', per-row button on any approved expense not yet posted), SFExpenses (same, for SF-tag rows). The sf-expense-autopost-background pg_cron job is UNSCHEDULED (migration 20260814000001) — the function itself is left in place as a superadmin-gated manual escape hatch only, nothing calls it automatically; its ops.sync_health() check was dropped (was destined to sit permanently red). sf-expense-ocr-background (daily pg_cron 10:15 UTC) is UNCHANGED and still useful: it runs the shared Claude OCR (netlify/functions/lib/expense-ocr-core.mjs, also used by the interactive expense-ocr.mjs upload flow) against each SF-tag draft's attached receipt, writes ops.expense_request_attachments.ocr_result (jsonb — declared since 20260512_create_expense_tables.sql, unused until 2026-08-13) + promotes bill_number/ocr_status/ocr_processed_at/ocr_error/ocr_notified_at onto ops.expense_requests (migration 20260813000002) so a human reviewing an SF draft sees a pre-filled bill number and a 'Needs review — …' badge when the receipt/OCR/bill-number is missing. bill_number → QBO Bill.DocNumber (capped 21 chars) on both Bill and Purchase payloads in expense-request-link-bill. **Editable-after-approval + failure notification (2026-08-14):** an SF-landed draft with a bad receipt_date (one carried a literal 2020-08-04 from historical SF data) hit QBO error 6210 'Account Period Closed' on post, and the edit form was read-only once status left 'draft', so there was no way to fix it. expense-request-notify now accepts resubmission from 'draft' OR 'approved' for request_type='expense' (re-validates + re-approves, doesn't require a fresh draft); app-expense/ExpenseForm.tsx unlocks editing for 'approved' rows accordingly (still locked once 'posted'). expense-request-link-bill now extracts the actual QBO Fault message (was surfacing the raw JSON blob) and — on ANY failure to post (QBO error, no vendor match, no payment account) — stamps `autopost_error` on the row and emails REPORT_TO, so a failed post is visible without depending on whoever clicked it noticing; PendingList/SFExpenses show that reason inline. card-receipt-audit-background (weekly Mon 15:00 UTC pg_cron) audits QBO card Purchases vs expense_requests receipts and emails the missing list; writes ops.sync_log only. expense-cc-match also owns ops.expense_card_map (card last-4 → cardholder/user map for company-card attribution, migration 20260724000005; assign/unassign from Master Control → Card & Expense Match → Cardholders).",
+      "notes": "Brixpense surface (app-expense/ Vite SPA at /expense/ + netlify/functions/expense-request-* + expense-to-bill + process-inbound). Frontend uses anon key under permissive RLS (submitters INSERT/UPDATE own rows; anon SELECT/UPDATE gated on approval_token presence for the magic-link approval page). Netlify functions use the anon key bound to the user JWT or service role for cross-cutting status transitions, approval logging, and QBO bill creation. expense_settings is read by useExpenseSettings(); seeded by 20260512_create_expense_tables.sql (auto_approve_threshold + approval_email) and finished by 20260512p_expense_cleanup.sql (cogs_accounts + manager_emails + tags + corrected departments). expense-cc-match (Master Control \u2192 Card & Expense Match) links/imports QBO Purchase card-feed transactions into ops.expense_requests (qbo_purchase_id columns, migration 20260715000001). **No expense auto-posts to QuickBooks (2026-08-14).** expense-request-notify's 'expense' branch now ONLY auto-approves (draft\u2192approved, no manager workflow \u2014 unchanged) and never calls QBO. expense-request-link-bill is the one place a human explicitly posts (mode=create) \u2014 handles BOTH the unpaid-Bill case (as_bill=true, vendor must match a QBO vendor) and the paid-Purchase case (as_bill=false, needs payment_account_id; Purchase support is new here, moved from expense-request-notify) \u2014 writes status=posted/qbo_bill_id/vendor_id/posted_at, attaches receipts, flips a linked PR to fulfilled, computes margin-match. Frontend surfaces the click: ExpenseForm's success screen ('Post to QuickBooks' button right after Submit), PendingList ('My Submissions', per-row button on any approved expense not yet posted), SFExpenses (same, for SF-tag rows). The sf-expense-autopost-background pg_cron job is UNSCHEDULED (migration 20260814000001) \u2014 the function itself is left in place as a superadmin-gated manual escape hatch only, nothing calls it automatically; its ops.sync_health() check was dropped (was destined to sit permanently red). sf-expense-ocr-background (daily pg_cron 10:15 UTC) is UNCHANGED and still useful: it runs the shared Claude OCR (netlify/functions/lib/expense-ocr-core.mjs, also used by the interactive expense-ocr.mjs upload flow) against each SF-tag draft's attached receipt, writes ops.expense_request_attachments.ocr_result (jsonb \u2014 declared since 20260512_create_expense_tables.sql, unused until 2026-08-13) + promotes bill_number/ocr_status/ocr_processed_at/ocr_error/ocr_notified_at onto ops.expense_requests (migration 20260813000002) so a human reviewing an SF draft sees a pre-filled bill number and a 'Needs review \u2014 \u2026' badge when the receipt/OCR/bill-number is missing. bill_number \u2192 QBO Bill.DocNumber (capped 21 chars) on both Bill and Purchase payloads in expense-request-link-bill. **Editable-after-approval + failure notification (2026-08-14):** an SF-landed draft with a bad receipt_date (one carried a literal 2020-08-04 from historical SF data) hit QBO error 6210 'Account Period Closed' on post, and the edit form was read-only once status left 'draft', so there was no way to fix it. expense-request-notify now accepts resubmission from 'draft' OR 'approved' for request_type='expense' (re-validates + re-approves, doesn't require a fresh draft); app-expense/ExpenseForm.tsx unlocks editing for 'approved' rows accordingly (still locked once 'posted'). expense-request-link-bill now extracts the actual QBO Fault message (was surfacing the raw JSON blob) and \u2014 on ANY failure to post (QBO error, no vendor match, no payment account) \u2014 stamps `autopost_error` on the row and emails REPORT_TO, so a failed post is visible without depending on whoever clicked it noticing; PendingList/SFExpenses show that reason inline. card-receipt-audit-background (weekly Mon 15:00 UTC pg_cron) audits QBO card Purchases vs expense_requests receipts and emails the missing list; writes ops.sync_log only. expense-cc-match also owns ops.expense_card_map (card last-4 \u2192 cardholder/user map for company-card attribution, migration 20260724000005; assign/unassign from Master Control \u2192 Card & Expense Match \u2192 Cardholders).",
       "last_verified": "2026-08-14"
     },
     {
@@ -477,7 +477,7 @@
         "ops.expense_request_attachments"
       ],
       "multi_writer": true,
-      "notes": "Synchronous SF receipt puller — scans recent completed/invoiced SF jobs, lands each receipt as a Brixpense review-DRAFT via lib/sf-expense.landSfJobExpense (scan + attach, no QBO post). Reuses the in-runtime SF auth (single token owner). Returns full diagnostics to the caller. Deduped by sf_expense_id; gated to SF_SWEEP_START_DATE. Replaces the invisible background sweep.",
+      "notes": "Synchronous SF receipt puller \u2014 scans recent completed/invoiced SF jobs, lands each receipt as a Brixpense review-DRAFT via lib/sf-expense.landSfJobExpense (scan + attach, no QBO post). Reuses the in-runtime SF auth (single token owner). Returns full diagnostics to the caller. Deduped by sf_expense_id; gated to SF_SWEEP_START_DATE. Replaces the invisible background sweep.",
       "last_verified": "2026-06-06"
     },
     {
@@ -491,14 +491,14 @@
         "ops.sync_log"
       ],
       "multi_writer": true,
-      "notes": "Edge-function replacement for the Netlify sf-receipt-pull/sf-expense-sweep pair (chosen for reliable scheduling + visible ops.sync_log). Pages SF status=Invoiced jobs and lands each expense as a Brixpense review-DRAFT (status='draft', as_bill, tag='Service Fusion', qbo_bill_id NULL — NOTHING posts to QBO; Brixpense posts on submit). SWEEP SORTS (v22, 2026-08-14): the fresh sweep pages by sort=-updated_at — adding/editing an SF expense bumps the JOB's updated_at, so an expense added to a months-old already-Invoiced job surfaces on page 1 within one sweep cycle (sorted by -id it sat hundreds of jobs deep and was never revisited — 12 expenses/~$9k missed that way incl. both DESERT BEVERAGE jobs); the historical crawl keeps the stable sort=-id walk. Vendor = SF expense.purchased_from. RECEIPT IMAGE: SF's REST API exposes the expense LINE but not the receipt file; the receipt S3 URL lives only on the admin.servicefusion.com job page, so we resolve the job number -> encrypted admin id via POST /serviceSpot/loadGlobalSearchResults, GET /jobs/jobView?id=<enc>, scrape the servicefusion.s3.amazonaws.com/userdocs/<co>/jobexpense/... URL, and fetch it from public S3 (anon). The admin portal uses the orders.sf_portal_session cookie; when stale the function auto-refreshes it by GETting SF_PORTAL_REFRESH_HOOK (the Make login hook) and upserting the parsed cookie back into orders.sf_portal_session. Dedup by sf_expense_id (synthetic key when SF gives no expense id); receipts backfill onto existing drafts that have no attachment. gateByDate on SF_SWEEP_START_DATE in sweep mode. Reuses sync-sf's SF auth via ops.sf_token_cache and the shared refresh lease from 20260704a so Edge and Netlify callers do not rotate the same refresh token concurrently. createClient { db:{schema:'ops'} }; reads/writes orders.sf_portal_session via .schema('orders'). Shares the table with the Brixpense surface + resq-sf-sync (all multi_writer).",
+      "notes": "Edge-function replacement for the Netlify sf-receipt-pull/sf-expense-sweep pair (chosen for reliable scheduling + visible ops.sync_log). Pages SF status=Invoiced jobs and lands each expense as a Brixpense review-DRAFT (status='draft', as_bill, tag='Service Fusion', qbo_bill_id NULL \u2014 NOTHING posts to QBO; Brixpense posts on submit). SWEEP SORTS (v22, 2026-08-14): the fresh sweep pages by sort=-updated_at \u2014 adding/editing an SF expense bumps the JOB's updated_at, so an expense added to a months-old already-Invoiced job surfaces on page 1 within one sweep cycle (sorted by -id it sat hundreds of jobs deep and was never revisited \u2014 12 expenses/~$9k missed that way incl. both DESERT BEVERAGE jobs); the historical crawl keeps the stable sort=-id walk. Vendor = SF expense.purchased_from. RECEIPT IMAGE: SF's REST API exposes the expense LINE but not the receipt file; the receipt S3 URL lives only on the admin.servicefusion.com job page, so we resolve the job number -> encrypted admin id via POST /serviceSpot/loadGlobalSearchResults, GET /jobs/jobView?id=<enc>, scrape the servicefusion.s3.amazonaws.com/userdocs/<co>/jobexpense/... URL, and fetch it from public S3 (anon). The admin portal uses the orders.sf_portal_session cookie; when stale the function auto-refreshes it by GETting SF_PORTAL_REFRESH_HOOK (the Make login hook) and upserting the parsed cookie back into orders.sf_portal_session. Dedup by sf_expense_id (synthetic key when SF gives no expense id); receipts backfill onto existing drafts that have no attachment. gateByDate on SF_SWEEP_START_DATE in sweep mode. Reuses sync-sf's SF auth via ops.sf_token_cache and the shared refresh lease from 20260704a so Edge and Netlify callers do not rotate the same refresh token concurrently. createClient { db:{schema:'ops'} }; reads/writes orders.sf_portal_session via .schema('orders'). Shares the table with the Brixpense surface + resq-sf-sync (all multi_writer).",
       "last_verified": "2026-08-14"
     },
     {
       "name": "sf-expense-sweep-background",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "deprecated (invisible background fn — superseded by sf-receipt-pull)",
+      "schedule": "deprecated (invisible background fn \u2014 superseded by sf-receipt-pull)",
       "writes": [
         "ops.expense_requests",
         "ops.expense_request_attachments",
@@ -520,7 +520,7 @@
         "ops.inventory_movements"
       ],
       "multi_writer": true,
-      "notes": "Multi-writer with sub-distributors:app-and-rpcs (2026-08-18) — both write transfers/lines/movements exclusively through the same SECURITY DEFINER RPC family, so the ledger stays append-only and single-pathed. BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
+      "notes": "Multi-writer with sub-distributors:app-and-rpcs (2026-08-18) \u2014 both write transfers/lines/movements exclusively through the same SECURITY DEFINER RPC family, so the ledger stays append-only and single-pathed. BRIX Stock surface (app/src/pages/stock/) writes via ops.fn_create_transfer / fn_ship_transfer / fn_receive_transfer / fn_void_transfer (all SECURITY DEFINER, authenticated only). inventory_movements is append-only via those RPCs; clients never INSERT directly. inventory_locations is directly writable from the UI under permissive RLS (low volume CRUD; virtual TRANSIT and ADJUSTMENT rows are protected by a kind-NOT-IN check in the update policy). Phase 1 only emits transfer_ship and transfer_receive movement types; Phase 4 will add receipt (from bills) and shipment (from invoices). See architecture/PRODUCT-CONTROL.md for the full design. Migration: 20260513a_inventory_stock.sql.",
       "last_verified": "2026-05-13"
     },
     {
@@ -536,13 +536,31 @@
         "ops.sub_distributor_orders",
         "ops.sub_distributor_order_lines",
         "ops.sub_distributor_depletions",
+        "ops.sub_distributor_settlements",
+        "ops.expense_requests",
         "ops.inventory_movements",
         "ops.inventory_transfers",
         "ops.inventory_transfer_lines"
       ],
       "multi_writer": true,
-      "notes": "Sub-distributor program (Origins Soda Co., Desert Beverage → The Melt/Starbird territories). Staff manage the registry/agreements/accounts from Refractor → Sub-Distributors under fn_is_staff RLS; distributor logins (ops.sub_distributor_users, matched by user_id or JWT email) act ONLY through SECURITY DEFINER RPCs: fn_distributor_create_order / fn_distributor_cancel_order / fn_fulfill_distributor_order (staff) / fn_distributor_receive_transfer (per-line counts; shortfall stays in TRANSIT + has_discrepancy flag) / fn_distributor_sign_agreement / fn_distributor_record_depletion (posts 'shipment' movements out of the distributor location + consignment fee snapshot). Transfer/movement writes ride the same RPC ledger as brix-stock (hence multi_writer). External access is scoped by AS RESTRICTIVE policies added in the same migration — distributor logins are narrowed to their own slice across ~100 previously open-read ops tables. Migration: 20260818f_sub_distributors.sql.",
-      "last_verified": "2026-08-18"
+      "notes": "Sub-distributor program (Origins Soda Co., Desert Beverage \u2192 The Melt/Starbird territories). Staff manage the registry/agreements/accounts from Refractor \u2192 Sub-Distributors under fn_is_staff RLS; distributor logins (ops.sub_distributor_users, matched by user_id or JWT email) act ONLY through SECURITY DEFINER RPCs: fn_distributor_create_order / fn_distributor_cancel_order / fn_fulfill_distributor_order (staff) / fn_distributor_receive_transfer (per-line counts; shortfall stays in TRANSIT + has_discrepancy flag) / fn_distributor_sign_agreement / fn_distributor_record_depletion (posts 'shipment' movements out of the distributor location + consignment fee snapshot). Transfer/movement writes ride the same RPC ledger as brix-stock (hence multi_writer). External access is scoped by AS RESTRICTIVE policies added in the same migration \u2014 distributor logins are narrowed to their own slice across ~100 previously open-read ops tables. Migration: 20260818f_sub_distributors.sql. PHASE 2 (20260820a): fee settlement \u2014 fn_distributor_settlement_create (staff) sweeps un-settled fee-carrying depletions into ops.sub_distributor_settlements and creates a Brixpense expense request (ops.expense_requests, status=approved, as_bill, tag=Sub-Distributor, vendor from the new sub_distributors.qbo_vendor_id link) so QBO posting stays behind Brixpense's human Post-to-QuickBooks gate (multi-writer on expense_requests with brixpense); fn_distributor_settlement_void releases depletions + archives the unposted request. Agreements gain scope + signer_ip/signer_user_agent (sign RPC reads request.headers).",
+      "last_verified": "2026-08-20"
+    },
+    {
+      "name": "distributor-notify",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "Netlify scheduled function every 15 min (+ on-demand staff kick)",
+      "writes": [
+        "ops.sub_distributor_notifications",
+        "ops.sync_log"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "Resend/SendGrid (outbound notification emails)"
+      ],
+      "notes": "Sub-distributor notification scan: order_submitted \u2192 staff (DISTRIBUTOR_ALERT_TO, default service@brixbev.com), order_fulfilled + transfer_shipped \u2192 partner (contact_email \u222a active portal users), transfer received with discrepancy \u2192 staff, agreement_sent \u2192 partner with the portal sign link, agreement_signed \u2192 both. Exactly-once via UNIQUE(event_type, ref_id) on ops.sub_distributor_notifications (failed sends recorded and retried next tick); scans capped to the last 30 days so a fresh deploy can never blast history. Service-role only table. Every run logs to ops.sync_log (source 'distributor', sync_type 'distributor_notify') feeding the distributor_notify check in ops.fn_sync_health_extra (yellow >2h, red >12h or logged error \u2014 added 20260820b). Source: netlify/functions/distributor-notify.mjs; table from migration 20260820a.",
+      "last_verified": "2026-08-20"
     },
     {
       "name": "qbo-pos-import",
@@ -560,14 +578,14 @@
       "name": "sync-customers",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (operator manages linked customers in control.html → Linked Customers)",
+      "schedule": "on-demand (operator manages linked customers in control.html \u2192 Linked Customers)",
       "writes": [
         "ops.sync_customers"
       ],
       "external_inputs": [
         "QuickBooks Online API: Customer (discovers RESQ-named candidates)"
       ],
-      "notes": "Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945) + 20260602b (BRIX WAREHOUSE EQUIPMENT 1412). Managed in control.html → Linked Customers. Read at runtime by expense-to-bill via netlify/functions/lib/sync-customers.mjs, AND by the new edge-function sync (skypace/apbg-resq-sync, _shared/customers.ts) — this table is now SHARED across both repos, so do not drop it.",
+      "notes": "Single identity map for RESQ-linked customers (ResQ facility <-> SF customer <-> QBO customer). requireAuth superadmin; writes via service-role. Seeded by migration 20260602a_sync_customers.sql with the two live RESQ customers (THE MELT RESQ 1944, STARBIRD CHICKEN RESQ 1945) + 20260602b (BRIX WAREHOUSE EQUIPMENT 1412). Managed in control.html \u2192 Linked Customers. Read at runtime by expense-to-bill via netlify/functions/lib/sync-customers.mjs, AND by the new edge-function sync (skypace/apbg-resq-sync, _shared/customers.ts) \u2014 this table is now SHARED across both repos, so do not drop it.",
       "last_verified": "2026-06-02"
     },
     {
@@ -604,7 +622,7 @@
       "name": "brix-compliance:app",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (Compliance & Safety app at /compliance; legacy vault UI in Refractor → Production)",
+      "schedule": "on-demand (Compliance & Safety app at /compliance; legacy vault UI in Refractor \u2192 Production)",
       "writes": [
         "ops.compliance_documents",
         "ops.insured_parties",
@@ -615,21 +633,21 @@
       ],
       "multi_writer": true,
       "external_inputs": [],
-      "notes": "Compliance & Safety vault: our documents + third-party (vendor/contractor) documents, the SDS library, the training log, the required workplace-postings board, and the signed safety-handbook acknowledgments. Primary UI is now the standalone app public/compliance.html (served at alamedapointbg.com/compliance) — full CRUD straight from the browser over PostgREST under ops.fn_is_staff() RLS, with file upload/replace/download against the private staff-gated bucket compliance-docs (documents/*, sds/*, postings/*, training/*). The Refractor tab app/src/pages/production/ComplianceTab.tsx still writes the same tables. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only — emails an expired/expiring-≤60d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). compliance_postings.short_title is the label the one-page TV board uses (a 65-inch screen affords about two lines per notice); mirror_path names a copy of the notice committed to public/postings/ and served at /billing/postings/<file>, which is what the board renders on a monitor (agency hosts refuse to be framed); a staff upload to the bucket takes precedence over it. compliance_postings additionally carries a SELECT-to-authenticated policy and postings/* in the bucket is readable by any signed-in employee (migration 20260818b) — required workplace notices are public by law and the Posting board is the screen employees read them on. safety_handbook_acks is insert-self-only / read-own-or-staff and has no UPDATE or DELETE policy — acknowledgments are immutable. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql, 20260817b_safety_handbook_acks.sql, 20260817c_compliance_postings.sql, 20260818a_compliance_postings_seed.sql, 20260818b_posting_board_read.sql, 20260818c_posting_mirror.sql, 20260818d_posting_short_title.sql (all applied live). Multi-writer on ops.insured_parties since 2026-08-20: brixpense-vendors:app-and-fn auto-creates party rows when registering a vendor. Since 2026-08-20 ops.compliance_documents is also written by vendor-onboarding:intake-and-chase (the public vendor intake files COI/W-9 rows under the vendor's party).",
+      "notes": "Compliance & Safety vault: our documents + third-party (vendor/contractor) documents, the SDS library, the training log, the required workplace-postings board, and the signed safety-handbook acknowledgments. Primary UI is now the standalone app public/compliance.html (served at alamedapointbg.com/compliance) \u2014 full CRUD straight from the browser over PostgREST under ops.fn_is_staff() RLS, with file upload/replace/download against the private staff-gated bucket compliance-docs (documents/*, sds/*, postings/*, training/*). The Refractor tab app/src/pages/production/ComplianceTab.tsx still writes the same tables. compliance-expiry-cron.mjs (Mondays 15:30 UTC) is read-only \u2014 emails an expired/expiring-\u226460d digest to COMPLIANCE_ALERT_TO (default service@brixbev.com). compliance_postings.short_title is the label the one-page TV board uses (a 65-inch screen affords about two lines per notice); mirror_path names a copy of the notice committed to public/postings/ and served at /billing/postings/<file>, which is what the board renders on a monitor (agency hosts refuse to be framed); a staff upload to the bucket takes precedence over it. compliance_postings additionally carries a SELECT-to-authenticated policy and postings/* in the bucket is readable by any signed-in employee (migration 20260818b) \u2014 required workplace notices are public by law and the Posting board is the screen employees read them on. safety_handbook_acks is insert-self-only / read-own-or-staff and has no UPDATE or DELETE policy \u2014 acknowledgments are immutable. Migrations: 20260726a_compliance_docs.sql, 20260817a_compliance_sds_training.sql, 20260817b_safety_handbook_acks.sql, 20260817c_compliance_postings.sql, 20260818a_compliance_postings_seed.sql, 20260818b_posting_board_read.sql, 20260818c_posting_mirror.sql, 20260818d_posting_short_title.sql (all applied live). Multi-writer on ops.insured_parties since 2026-08-20: brixpense-vendors:app-and-fn auto-creates party rows when registering a vendor. Since 2026-08-20 ops.compliance_documents is also written by vendor-onboarding:intake-and-chase (the public vendor intake files COI/W-9 rows under the vendor's party).",
       "last_verified": "2026-08-20"
     },
     {
       "name": "brixpense-vendors:app-and-fn",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (Brixpense → Vendors at /expense/vendors; superadmin/admin)",
+      "schedule": "on-demand (Brixpense \u2192 Vendors at /expense/vendors; superadmin/admin)",
       "writes": [
         "ops.vendors",
         "ops.insured_parties"
       ],
       "multi_writer": true,
       "external_inputs": [],
-      "notes": "Vendor Portal Phase 1 (architecture/VENDOR-PORTAL-PLAN.md, migration 20260820a_ops_vendors.sql). The Brixpense Vendors pages CRUD ops.vendors directly via PostgREST on the user's bearer under staff-only RLS (vendors_staff_all / ops.fn_is_staff(), both directions), and auto-create the linked ops.insured_parties row when a vendor has none — hence multi_writer with brix-compliance:app on insured_parties. Companion Netlify function expense-vendors.mjs (requireAuth superadmin/admin) handles ONLY the QBO calls: live Vendor search and Vendor create; on create it also self-heals the ops.qbo_vendors mirror row (same-shape upsert as push-qbo-item:vendors, which remains that mirror's primary writer). Payment fields store preference + Venmo/PayPal handle ONLY — bank details never land in this schema; EIN stored as last-4 only.",
+      "notes": "Vendor Portal Phase 1 (architecture/VENDOR-PORTAL-PLAN.md, migration 20260820a_ops_vendors.sql). The Brixpense Vendors pages CRUD ops.vendors directly via PostgREST on the user's bearer under staff-only RLS (vendors_staff_all / ops.fn_is_staff(), both directions), and auto-create the linked ops.insured_parties row when a vendor has none \u2014 hence multi_writer with brix-compliance:app on insured_parties. Companion Netlify function expense-vendors.mjs (requireAuth superadmin/admin) handles ONLY the QBO calls: live Vendor search and Vendor create; on create it also self-heals the ops.qbo_vendors mirror row (same-shape upsert as push-qbo-item:vendors, which remains that mirror's primary writer). Payment fields store preference + Venmo/PayPal handle ONLY \u2014 bank details never land in this schema; EIN stored as last-4 only.",
       "last_verified": "2026-08-20"
     },
     {
@@ -646,7 +664,7 @@
       "name": "sf-changes-report",
       "kind": "netlify-background-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (Master Control → Service Fusion Changes report button)",
+      "schedule": "on-demand (Master Control \u2192 Service Fusion Changes report button)",
       "writes": [
         "ops.sf_customer_snapshot",
         "ops.sync_log"
@@ -667,7 +685,7 @@
       "external_inputs": [
         "Resend (host + ops notification email)"
       ],
-      "notes": "Front-door visitor sign-in. netlify/functions/visitor-signin.mjs and visitor-signout.mjs run on SUPABASE_SERVICE_ROLE_KEY because a visitor cannot authenticate — the page public/visitors.html is deliberately unauthenticated and the tables are closed to anon. Sign-in validates, stores the badge photo in the private visitor-photos bucket, allocates a per-day badge number (V-YYYYMMDD-NNN, unique-constrained with retry), inserts the visit and emails the chosen host plus visitor_settings.notify_emails (VISITOR_ALERT_TO overrides). Photo and notification are best effort and record their own failure so the log shows when nobody was actually told. Staff read, sign-out and settings live in /compliance → Visitors under ops.fn_is_staff() RLS; the on-site list is the evacuation head-count. Migration: 20260818e_visitor_kiosk.sql (applied live).",
+      "notes": "Front-door visitor sign-in. netlify/functions/visitor-signin.mjs and visitor-signout.mjs run on SUPABASE_SERVICE_ROLE_KEY because a visitor cannot authenticate \u2014 the page public/visitors.html is deliberately unauthenticated and the tables are closed to anon. Sign-in validates, stores the badge photo in the private visitor-photos bucket, allocates a per-day badge number (V-YYYYMMDD-NNN, unique-constrained with retry), inserts the visit and emails the chosen host plus visitor_settings.notify_emails (VISITOR_ALERT_TO overrides). Photo and notification are best effort and record their own failure so the log shows when nobody was actually told. Staff read, sign-out and settings live in /compliance \u2192 Visitors under ops.fn_is_staff() RLS; the on-site list is the evacuation head-count. Migration: 20260818e_visitor_kiosk.sql (applied live).",
       "last_verified": "2026-08-18"
     },
     {
@@ -687,7 +705,7 @@
         "vendor uploads (W-9 / ACORD 25 PDFs+photos)",
         "Claude OCR (vendor-doc-ocr.mjs)"
       ],
-      "notes": "Vendor Portal Phase 2 (migration 20260820b_vendor_onboard_tokens.sql). Three service-role surfaces share this writer: vendor-request-docs.mjs (staff mints a one-time link, superadmin/admin), vendor-onboard.mjs (the PUBLIC token-gated intake at /vendor-onboarding — visitor-kiosk posture: the sha256-hashed 14-day token is the gate, all writes service-role), and the Monday chase inside compliance-expiry-cron.mjs (expiring/missing-COI vendors get a fresh docs_refresh link, ≤1/vendor/week, run logged to ops.sync_log source=vendors sync_type=vendor_doc_chase → vendor_doc_chase health check). Files land in the compliance-docs bucket under vendors/<party_id>/; document rows go to ops.compliance_documents (multi_writer with brix-compliance:app). Vendor patches touch w9_status/ein_last4(last-4 ONLY)/legal_name/contact/payment pref+handle/onboard_status — never bank details.",
+      "notes": "Vendor Portal Phase 2 (migration 20260820b_vendor_onboard_tokens.sql). Three service-role surfaces share this writer: vendor-request-docs.mjs (staff mints a one-time link, superadmin/admin), vendor-onboard.mjs (the PUBLIC token-gated intake at /vendor-onboarding \u2014 visitor-kiosk posture: the sha256-hashed 14-day token is the gate, all writes service-role), and the Monday chase inside compliance-expiry-cron.mjs (expiring/missing-COI vendors get a fresh docs_refresh link, \u22641/vendor/week, run logged to ops.sync_log source=vendors sync_type=vendor_doc_chase \u2192 vendor_doc_chase health check). Files land in the compliance-docs bucket under vendors/<party_id>/; document rows go to ops.compliance_documents (multi_writer with brix-compliance:app). Vendor patches touch w9_status/ein_last4(last-4 ONLY)/legal_name/contact/payment pref+handle/onboard_status \u2014 never bank details.",
       "last_verified": "2026-08-20"
     },
     {
@@ -725,12 +743,28 @@
       ],
       "notes": "Vendor Portal Phase 3b (migration 20260820d_vendor_funding.sql). The Stripe payout float and the bookkeeping that mirrors it: QuickBooks holds a BANK account 'Stripe Vendor Funding' (QBO_VENDOR_PAY_BANK_ACCOUNT_ID), funding is a QBO Transfer from Chase (QBO_FUNDING_SOURCE_ACCOUNT_ID, default 72), and every vendor BillPayment is drawn on it (vendor-payments:pay-and-webhook) — so that account's QBO balance should equal the live Stripe balance. Stripe has NO low-balance auto-pull (their bank pull is manual per transfer, US-only, 2-6 business days, 50k/txn · 50k/day · 100k/week), so the threshold top-up is ours: vendor-funding.mjs is SUPERADMIN-only (status / top_up / sync / save_config) and vendor-funding-cron.mjs runs daily — reconcile first, then alert below the floor, or pull to target only when auto_top_up is switched on (ships FALSE; no automatic money movement by default). One ops.vendor_funding_events row per funding event keyed on stripe_object_id, so a Dashboard top-up or a pushed ACH/wire books its QBO Transfer exactly once; a booking failure records book_error and retries. Config rides ops.expense_settings key 'vendor_funding' (multi_writer with brixpense:app). Health: ops.fn_vendor_funding_health() inside fn_sync_health_extra reads the cron's sync_log row (source=vendors sync_type=vendor_funding) for balance/below_floor — red on a failed pull in 7d, settled funding unbooked >24h, or an errored run. DELIBERATELY NOT USED: Stripe's native recurring transfer from the payments balance — brix-order books Stripe payouts as QBO Deposits into Chase 72, and diverting that revenue would break that reconciler.",
       "last_verified": "2026-08-21"
+    },
+    {
+      "name": "brix-rebates:app-and-rpcs",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Refractor -> Pricing -> Rebates tab; staff only)",
+      "writes": [
+        "ops.rebate_programs",
+        "ops.rebate_rules",
+        "ops.rebate_settlements",
+        "ops.expense_requests"
+      ],
+      "multi_writer": true,
+      "external_inputs": [],
+      "notes": "Rebate Maker (migration 20260821a): per-customer contract rebate programs (first: Starbird / Chicken Coup LLC master agreement, signed 2025-08-25). Programs + rules are edited directly via PostgREST under staff-only RLS (fn_is_staff both directions); rule types volume_growth / ordering_cadence / flat_per_unit / tiered_volume / fixed_per_store, item scope by exact ids + ILIKE name patterns (both empty = matches nothing). Volume is READ from the QBO mirror (qbo_invoices/_lines, parent + subs, Invoices net of CreditMemos) by SECURITY DEFINER ops.fn_rebate_calculate (staff-or-service guard INLINE - not generator-wrapped; keep the guard on any edit). ops.fn_rebate_settlement_create (staff) snapshots the calc into rebate_settlements (partial-unique per program-year) and inserts the Brixpense expense_request (approved + as_bill, tag 'Rebate', bill_number RB-<code>-<year>) - QBO posting stays behind Brixpense's human 'Post to QuickBooks' gate (2026-08-14 rule), hence multi_writer on expense_requests with brixpense + sub-distributors. fn_rebate_settlement_void releases the year + archives the unposted request; refuses once posted. Companion netlify/functions/rebate-report-email.mjs (staff bearer) emails the branded 'Your Alameda Soda rebate is ready' data report from rebates@alamedapointbg.com to operator-chosen recipients and stamps report_sent_at/report_sent_to on the settlement (service role).",
+      "last_verified": "2026-08-21"
     }
   ],
   "orphans": [
     {
       "table": "ops.copack_orders",
-      "reason": "Legacy co-pack order flow. Superseded by the formula-driven work-order pipeline (2026-07-21 production redesign); the 'Co-Pack (Legacy)' Refractor tab was removed 2026-07-26 (operator decision — not needed). Tables + fn_*_copack_order RPCs retained read-only for historical cost data; drop in a future cleanup."
+      "reason": "Legacy co-pack order flow. Superseded by the formula-driven work-order pipeline (2026-07-21 production redesign); the 'Co-Pack (Legacy)' Refractor tab was removed 2026-07-26 (operator decision \u2014 not needed). Tables + fn_*_copack_order RPCs retained read-only for historical cost data; drop in a future cleanup."
     },
     {
       "table": "ops.copack_order_costs",
@@ -738,11 +772,11 @@
     },
     {
       "table": "ops.resq_sf_links",
-      "reason": "Legacy ResQ↔SF sync decommissioned 2026-06-28 (resq-sf-sync* functions + public/sync.html deleted; 5-min cron removed). Replaced by the focused edge-function sync in skypace/apbg-resq-sync, which keeps its own state in ops.resq_sync_state (registered in that repo, not here). This mirror table is retained read-only for historical audit; drop in a future cleanup."
+      "reason": "Legacy ResQ\u2194SF sync decommissioned 2026-06-28 (resq-sf-sync* functions + public/sync.html deleted; 5-min cron removed). Replaced by the focused edge-function sync in skypace/apbg-resq-sync, which keeps its own state in ops.resq_sync_state (registered in that repo, not here). This mirror table is retained read-only for historical audit; drop in a future cleanup."
     },
     {
       "table": "ops.sync_events",
-      "reason": "Legacy ResQ↔SF sync audit trail. Decommissioned 2026-06-28 with resq-sf-sync (see ops.resq_sf_links). Append-only history retained read-only; no live writer. Drop in a future cleanup."
+      "reason": "Legacy ResQ\u2194SF sync audit trail. Decommissioned 2026-06-28 with resq-sf-sync (see ops.resq_sf_links). Append-only history retained read-only; no live writer. Drop in a future cleanup."
     },
     {
       "table": "ops.qbo_pto_cache",
@@ -754,11 +788,11 @@
     },
     {
       "table": "ops.crm_deals",
-      "reason": "Zoho CRM integration placeholder per joint architecture doc §6. No sync function. Planned, not built."
+      "reason": "Zoho CRM integration placeholder per joint architecture doc \u00a76. No sync function. Planned, not built."
     },
     {
       "table": "ops.expense_request_approvals",
-      "reason": "Pending drop. Plural-named table created as a no-op side effect of 20260512o_brix_expense_requests.sql. No code reads or writes it — the live audit table is ops.expense_approvals (singular). Scheduled for removal by 20260512p_expense_cleanup.sql; this entry + the schema-snapshot row come out in a follow-up commit after that migration is applied to live."
+      "reason": "Pending drop. Plural-named table created as a no-op side effect of 20260512o_brix_expense_requests.sql. No code reads or writes it \u2014 the live audit table is ops.expense_approvals (singular). Scheduled for removal by 20260512p_expense_cleanup.sql; this entry + the schema-snapshot row come out in a follow-up commit after that migration is applied to live."
     },
     {
       "table": "ops.fleet_daily",
@@ -766,7 +800,7 @@
     },
     {
       "table": "ops.hr_employees",
-      "reason": "HR integration placeholder. CLAUDE.md (apbg-billing) §3D: Bambee has no API; BambooHR has REST. Manual entry forms or BambooHR sync pending decision."
+      "reason": "HR integration placeholder. CLAUDE.md (apbg-billing) \u00a73D: Bambee has no API; BambooHR has REST. Manual entry forms or BambooHR sync pending decision."
     },
     {
       "table": "ops.hr_documents",

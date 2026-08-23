@@ -14,6 +14,7 @@ export interface SubDistributor {
   model: SubDistributorModel;
   per_case_delivery_fee: number | null;
   qbo_customer_id: string | null;
+  qbo_vendor_id: string | null;
   sf_customer_id: number | null;
   inventory_location_id: string | null;
   territory: string | null;
@@ -40,6 +41,7 @@ export interface SubDistributorAgreement {
   effective_date: string | null;
   expiry_date: string | null;
   terms: string | null;
+  scope: string | null;
   file_path: string | null;
   file_name: string | null;
   status: AgreementStatus;
@@ -49,6 +51,8 @@ export interface SubDistributorAgreement {
   signer_name: string | null;
   signer_email: string | null;
   signature_data: string | null;
+  signer_ip: string | null;
+  signer_user_agent: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,8 +122,59 @@ export interface SubDistributorDepletion {
   movement_id: string | null;
   fee_per_case: number | null;
   fee_amount: number | null;
+  settlement_id: string | null;
   recorded_by_email: string | null;
   created_at: string;
+}
+
+export type SettlementStatus = 'open' | 'void';
+
+export interface SubDistributorSettlement {
+  id: string;
+  sub_distributor_id: string;
+  period_start: string;
+  period_end: string;
+  depletion_count: number;
+  total_cases: number;
+  total_fee: number;
+  status: SettlementStatus;
+  expense_request_id: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
+}
+
+export interface SettlementCreateResult {
+  settlement_id: string;
+  reference: string;
+  depletions: number;
+  total_cases: number;
+  total_fee: number;
+  expense_request_id: string;
+  vendor: string;
+}
+
+export interface QboVendorLite {
+  qbo_vendor_id: string;
+  display_name: string;
+  company_name: string | null;
+  active: boolean | null;
+  city: string | null;
+  state: string | null;
+}
+
+export interface QboExpenseLine {
+  id: number;
+  qbo_txn_id: string | null;
+  qbo_txn_type: string | null;
+  item_name: string | null;
+  account_name: string | null;
+  description: string | null;
+  amount: number | null;
+  txn_date: string | null;
+  vendor_name: string | null;
 }
 
 export interface QboCustomerLite {
@@ -306,6 +361,39 @@ export async function searchQboCustomers(term: string): Promise<QboCustomerLite[
   );
 }
 
+export async function searchQboVendors(term: string): Promise<QboVendorLite[]> {
+  const t = term.trim().replace(/[%*,()]/g, ' ').trim();
+  if (!t) return [];
+  return sbq<QboVendorLite>(
+    'qbo_vendors',
+    `select=qbo_vendor_id,display_name,company_name,active,city,state`
+      + `&display_name=ilike.${encodeURIComponent('*' + t + '*')}`
+      + `&order=active.desc.nullslast,display_name.asc&limit=15`,
+  );
+}
+
+export async function fetchQboVendor(qboVendorId: string): Promise<QboVendorLite | null> {
+  const rows = await sbq<QboVendorLite>(
+    'qbo_vendors',
+    `select=qbo_vendor_id,display_name,company_name,active,city,state`
+      + `&qbo_vendor_id=eq.${encodeURIComponent(qboVendorId)}&limit=1`,
+  );
+  return rows[0] ?? null;
+}
+
+/** Last N QBO bill/expense lines for a vendor, from the ops mirror. */
+export async function fetchVendorExpenseLines(
+  vendorDisplayName: string,
+  limit = 25,
+): Promise<QboExpenseLine[]> {
+  return sbq<QboExpenseLine>(
+    'qbo_expense_lines',
+    `select=id,qbo_txn_id,qbo_txn_type,item_name,account_name,description,amount,txn_date,vendor_name`
+      + `&vendor_name=eq.${encodeURIComponent(vendorDisplayName)}`
+      + `&order=txn_date.desc.nullslast&limit=${limit}`,
+  );
+}
+
 export async function fetchQboItems(): Promise<QboItemLite[]> {
   return sbq<QboItemLite>(
     'qbo_items',
@@ -367,6 +455,42 @@ export async function fetchDepletions(
     }
   }
   return sbq<SubDistributorDepletion>('sub_distributor_depletions', q);
+}
+
+// ── Settlements ───────────────────────────────────────────────────────────
+
+export async function fetchSettlements(subDistributorId: string): Promise<SubDistributorSettlement[]> {
+  return sbq<SubDistributorSettlement>(
+    'sub_distributor_settlements',
+    `select=*&sub_distributor_id=eq.${subDistributorId}&order=created_at.desc`,
+  );
+}
+
+/**
+ * STAFF: sweep un-settled fee-carrying depletions in the period into a
+ * settlement + a Brixpense expense request (posting to QBO stays behind
+ * Brixpense's "Post to QuickBooks" button).
+ */
+export async function createSettlement(
+  subDistributorId: string,
+  periodStart: string,
+  periodEnd: string,
+  notes?: string | null,
+): Promise<SettlementCreateResult> {
+  return sbrpc<SettlementCreateResult>('fn_distributor_settlement_create', {
+    p_sub_distributor_id: subDistributorId,
+    p_period_start: periodStart,
+    p_period_end: periodEnd,
+    p_notes: notes ?? null,
+  });
+}
+
+/** STAFF: void an unposted settlement — releases its depletions. */
+export async function voidSettlement(settlementId: string, reason?: string | null): Promise<void> {
+  await sbrpc('fn_distributor_settlement_void', {
+    p_settlement_id: settlementId,
+    p_reason: reason ?? null,
+  });
 }
 
 // ── On-hand at the distributor's location ─────────────────────────────────

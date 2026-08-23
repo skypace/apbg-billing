@@ -129,7 +129,23 @@ export interface Depletion {
   reference: string | null;
   fee_per_case: number | null;
   fee_amount: number | null;
+  settlement_id: string | null;
   recorded_by_email: string | null;
+  created_at: string;
+}
+
+/** ops.sub_distributor_settlements (20260820a) — what the distributor bills
+ *  Brix for delivery fees. Member-SELECT-visible via RLS; read-only here. */
+export interface Settlement {
+  id: string;
+  sub_distributor_id: string;
+  period_start: string;
+  period_end: string;
+  depletion_count: number;
+  total_cases: number;
+  total_fee: number;
+  status: 'open' | 'void';
+  reference: string | null;
   created_at: string;
 }
 
@@ -144,6 +160,7 @@ export interface Agreement {
   per_case_delivery_fee: number | null;
   effective_date: string | null;
   expiry_date: string | null;
+  scope: string | null; // territory / accounts / products the agreement covers (20260820a)
   terms: string | null;
   file_path: string | null;
   file_name: string | null;

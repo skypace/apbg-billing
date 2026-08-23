@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   InventoryLocation,
   updateLocation,
 } from '../../lib/inventoryControl';
 import {
+  QboExpenseLine,
+  QboVendorLite,
   SubDistributor,
   SubDistributorModel,
   SubDistributorStatus,
+  fetchQboVendor,
+  fetchVendorExpenseLines,
   updateSubDistributor,
 } from '../../lib/subDistributors';
 import { useToast } from '../../lib/toast';
-import { btnPrimary, inp } from '../../lib/styles';
-import { errMsg, LField, QboCustomerSearch } from './common';
+import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
+import { errMsg, LField, QboCustomerSearch, QboVendorSearch, Td, Th } from './common';
 
 interface Props {
   dist: SubDistributor;
@@ -107,6 +111,7 @@ export function DistributorOverviewTab({ dist, location, locations, onChanged }:
   }
 
   return (
+    <>
     <div className="cd" style={{ padding: 16 }}>
       <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 10 }}>
         Registry
@@ -211,6 +216,169 @@ export function DistributorOverviewTab({ dist, location, locations, onChanged }:
           {saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
+    </div>
+
+    <VendorLinkPanel dist={dist} onChanged={onChanged} />
+    </>
+  );
+}
+
+// ── QuickBooks vendor link + accounting mirror ────────────────────────────
+
+function VendorLinkPanel({ dist, onChanged }: {
+  dist: SubDistributor;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [vendor, setVendor] = useState<QboVendorLite | null>(null);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [lines, setLines] = useState<QboExpenseLine[] | null>(null);
+
+  // Resolve the linked vendor's display name.
+  useEffect(() => {
+    setVendor(null);
+    setChanging(false);
+    if (!dist.qbo_vendor_id) return;
+    setVendorLoading(true);
+    let alive = true;
+    fetchQboVendor(dist.qbo_vendor_id)
+      .then((v) => { if (alive) setVendor(v); })
+      .catch(() => { if (alive) setVendor(null); })
+      .finally(() => { if (alive) setVendorLoading(false); });
+    return () => { alive = false; };
+  }, [dist.id, dist.qbo_vendor_id]);
+
+  // Mirror lines for the linked vendor.
+  useEffect(() => {
+    setLines(null);
+    if (!vendor?.display_name) return;
+    let alive = true;
+    fetchVendorExpenseLines(vendor.display_name, 25)
+      .then((rows) => { if (alive) setLines(rows); })
+      .catch(() => { if (alive) setLines([]); });
+    return () => { alive = false; };
+  }, [vendor?.display_name]);
+
+  const total = useMemo(
+    () => (lines ?? []).reduce((s, l) => s + Number(l.amount ?? 0), 0),
+    [lines],
+  );
+
+  async function setVendorId(id: string | null, label?: string) {
+    setBusy(true);
+    try {
+      await updateSubDistributor(dist.id, { qbo_vendor_id: id });
+      toast.success(id ? `Linked QBO vendor ${label ?? id}` : 'QBO vendor unlinked');
+      setChanging(false);
+      onChanged();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtAmt = (n: number) =>
+    n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  return (
+    <div className="cd" style={{ padding: 16, marginTop: 16 }}>
+      <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+        QuickBooks vendor
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 10 }}>
+        The vendor the delivery-fee settlement bill lands on. Required before generating a settlement
+        (Depletions tab).
+      </div>
+
+      {dist.qbo_vendor_id && !changing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+            {vendorLoading ? 'Loading…' : (vendor?.display_name ?? 'Unknown vendor (not in the mirror)')}
+          </span>
+          <code style={{ fontFamily: 'var(--ff-mono)', fontSize: 10.5, color: 'var(--mt)' }}>
+            #{dist.qbo_vendor_id}
+          </code>
+          {vendor?.active === false && (
+            <span style={{ color: 'var(--rd)', fontSize: 10, fontWeight: 700 }}>INACTIVE IN QBO</span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setChanging(true)} disabled={busy} style={btnSecondary()}>Change</button>
+          <button onClick={() => setVendorId(null)} disabled={busy} style={{
+            background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
+            padding: '5px 11px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+          }}>Unlink</button>
+        </div>
+      ) : (
+        <div style={{ maxWidth: 420 }}>
+          <QboVendorSearch
+            onPick={(v) => setVendorId(v.qbo_vendor_id, v.display_name)}
+            placeholder="Search QBO vendors by name…"
+          />
+          {changing && (
+            <button onClick={() => setChanging(false)} style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: 'var(--mt)', fontSize: 10.5, marginTop: 6, padding: 0,
+            }}>Cancel — keep the current link</button>
+          )}
+        </div>
+      )}
+
+      {dist.qbo_vendor_id && vendor && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>
+            Accounting (QBO mirror)
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--mt)', marginBottom: 8 }}>
+            From the QBO mirror — what they've billed us.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <Th>Date</Th>
+                  <Th>Type</Th>
+                  <Th>Account</Th>
+                  <Th>Description</Th>
+                  <Th style={{ textAlign: 'right' }}>Amount</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines === null && (
+                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+                )}
+                {lines !== null && lines.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
+                    No bill / expense lines in the mirror for this vendor.
+                  </td></tr>
+                )}
+                {(lines ?? []).map((l) => (
+                  <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <Td>{l.txn_date ?? '—'}</Td>
+                    <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{l.qbo_txn_type ?? '—'}</span></Td>
+                    <Td><span style={{ color: 'var(--mt)' }}>{l.account_name ?? l.item_name ?? '—'}</span></Td>
+                    <Td>{l.description ?? '—'}</Td>
+                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {l.amount == null ? '—' : fmtAmt(Number(l.amount))}
+                    </Td>
+                  </tr>
+                ))}
+                {lines !== null && lines.length > 0 && (
+                  <tr style={{ borderTop: '1px solid var(--bd)' }}>
+                    <Td style={{ fontWeight: 700 }}>Total (last {lines.length})</Td>
+                    <Td> </Td><Td> </Td><Td> </Td>
+                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>
+                      {fmtAmt(total)}
+                    </Td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

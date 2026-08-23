@@ -37,14 +37,18 @@ export interface Contract {
 }
 export interface ItemOpt { qbo_item_id: string; name: string }
 export interface CustomerOpt { qbo_customer_id: string; display_name: string }
+export interface PriceBook { id: string; code: string; name: string; active: boolean }
+export interface CustomerBookAssignment { qbo_customer_id: string; price_book_id: string }
 export interface PricingData {
   ok: boolean;
-  books: Array<{ id: string; code: string; name: string; active: boolean }>;
+  books: PriceBook[];
   standard: BookItem[];
   contracts: Contract[];
   items: ItemOpt[];
   customers: CustomerOpt[];
+  customerBooks: CustomerBookAssignment[];
 }
+export interface BulkItemInput { qbo_item_id: string; item_name: string | null; unit_price: number }
 
 export interface NewContract {
   name: string;
@@ -106,10 +110,25 @@ export const setContractMeta = (
 export const createPriceBook = (code: string, name: string) =>
   post({ action: 'createPriceBook', code, name });
 
+export const updatePriceBook = (id: string, patch: { name?: string; active?: boolean }) =>
+  post({ action: 'updatePriceBook', id, ...patch });
+
+export const setCustomerPriceBook = (qbo_customer_id: string, price_book_id: string | null) =>
+  post({ action: 'setCustomerPriceBook', qbo_customer_id, price_book_id });
+
+export const bulkAttachDefaultBook = (book_code?: string) =>
+  post({ action: 'bulkAttachDefaultBook', book_code }) as Promise<{ attached: number }>;
+
+export const bulkAddBookItems = (items: BulkItemInput[], book_code?: string, effective_from?: string) =>
+  post({ action: 'bulkAddBookItems', items, book_code, effective_from }) as Promise<{ added: number }>;
+
 export const createContract = (c: NewContract) => post({ action: 'createContract', ...c }) as Promise<{ id: string }>;
 
 export const addContractItem = (contract_id: string, qbo_item_id: string, item_name: string | null, unit_price: number) =>
   post({ action: 'addContractItem', contract_id, qbo_item_id, item_name, unit_price });
+
+export const bulkAddContractItems = (contract_id: string, items: BulkItemInput[]) =>
+  post({ action: 'bulkAddContractItems', contract_id, items }) as Promise<{ added: number }>;
 
 export const removeContractItem = (contract_id: string, qbo_item_id: string) =>
   post({ action: 'removeContractItem', contract_id, qbo_item_id });
