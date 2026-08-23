@@ -82,7 +82,12 @@ async function setupCheck(settings) {
 }
 
 export default async function handler(req) {
-  const auth = await requireAuth(req);
+  // Staff, matching ops.fn_is_staff() (superadmin|admin) — the same bar as the
+  // RLS on ops.bill_email_intake and the sidebar entry. Note this page is the
+  // AP DESK's oversight view, not the only way to approve: a bill routed to
+  // someone outside that bar is still visible and approvable to them at
+  // /expense/queue, because expense_requests_select matches on manager_email.
+  const auth = await requireAuth(req, ['superadmin', 'admin']);
   if (!auth.ok) return auth.response;
 
   const settings = await loadApInboxSettings();
@@ -104,6 +109,13 @@ export default async function handler(req) {
         allow_senders: Array.isArray(body.allow_senders) ? body.allow_senders.map(String).map((s) => s.trim().toLowerCase()).filter(Boolean) : settings.allow_senders,
         block_senders: Array.isArray(body.block_senders) ? body.block_senders.map(String).map((s) => s.trim().toLowerCase()).filter(Boolean) : settings.block_senders,
         ack_sender: body.ack_sender !== false,
+        require_approval: body.require_approval !== false,
+        sender_routes: body.sender_routes ?? settings.sender_routes,
+        vendor_routes: body.vendor_routes ?? settings.vendor_routes,
+        department_approvers: body.department_approvers ?? settings.department_approvers,
+        default_approver: body.default_approver === undefined
+          ? settings.default_approver
+          : (String(body.default_approver || '').trim().toLowerCase() || null),
       };
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next.inbox)) {
         return Response.json({ error: 'inbox must be a valid email address' }, { status: 400 });
@@ -115,6 +127,65 @@ export default async function handler(req) {
       }
       await opsPatch('expense_settings', 'key=eq.ap_inbox', { value: next });
       return Response.json({ ok: true, settings: next });
+    }
+
+    // Approve an emailed bill — the review sign-off that unlocks posting.
+    //
+    // Deliberately NOT expense-request-decide: this is scoped to AP-Inbox
+    // rows, and the person signing off is usually the sender (see
+    // resolveBillRouting). Whether that is a self-review is recorded on the
+    // row rather than hidden, so the audit trail says what actually happened.
+    if (action === 'approve') {
+      const id = String(body.request_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: 'request_id required' }, { status: 400 });
+
+      const rows = await opsGet(
+        `expense_requests?id=eq.${id}&select=id,status,tag,request_type,manager_email,submitter_email&limit=1`,
+      );
+      const r = rows?.[0];
+      if (!r) return Response.json({ error: 'Bill not found' }, { status: 404 });
+      if (r.tag !== AP_TAG || r.request_type !== 'expense') {
+        return Response.json({ error: 'Not an AP Inbox bill — approve it from the normal queue.' }, { status: 400 });
+      }
+      if (r.status !== 'pending') {
+        return Response.json({ error: `Cannot approve a bill with status "${r.status}".` }, { status: 409 });
+      }
+
+      const caller = String(auth.user?.email || '').toLowerCase();
+      const routedTo = String(r.manager_email || '').toLowerCase();
+      const isSuperadmin = auth.role === 'superadmin';
+      if (routedTo && routedTo !== caller && !isSuperadmin) {
+        return Response.json({
+          error: `This bill is waiting on ${r.manager_email}, not you (${auth.user?.email}).`,
+        }, { status: 403 });
+      }
+
+      const selfReview = routedTo && routedTo === String(r.submitter_email || '').toLowerCase();
+      await opsPatch('expense_requests', `id=eq.${id}`, {
+        status: 'approved',
+        approved_by: `${auth.user?.email || 'staff'}${selfReview ? ' (own emailed bill)' : ''}`,
+        approved_at: new Date().toISOString(),
+      });
+      return Response.json({ ok: true, status: 'approved', self_review: !!selfReview });
+    }
+
+    // Hand an unowned bill to somebody — the triage move for vendor mail that
+    // matched no routing rule.
+    if (action === 'assign') {
+      const id = String(body.request_id || '');
+      const to = String(body.approver_email || '').trim().toLowerCase();
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: 'request_id required' }, { status: 400 });
+      if (!to.includes('@')) return Response.json({ error: 'approver_email required' }, { status: 400 });
+
+      const rows = await opsGet(`expense_requests?id=eq.${id}&select=id,status,tag&limit=1`);
+      const r = rows?.[0];
+      if (!r) return Response.json({ error: 'Bill not found' }, { status: 404 });
+      if (r.tag !== AP_TAG) return Response.json({ error: 'Not an AP Inbox bill.' }, { status: 400 });
+      if (!['draft', 'pending'].includes(r.status)) {
+        return Response.json({ error: `Cannot reassign a bill with status "${r.status}".` }, { status: 409 });
+      }
+      await opsPatch('expense_requests', `id=eq.${id}`, { manager_email: to, status: 'pending' });
+      return Response.json({ ok: true, assigned_to: to });
     }
 
     if (action === 'reprocess' || action === 'dismiss') {
@@ -167,7 +238,7 @@ export default async function handler(req) {
     if (ids.length) {
       requests = await opsGet(
         `expense_requests?id=in.(${ids.join(',')})`
-        + `&select=id,vendor_name,bill_number,total_amount,receipt_date,status,qbo_bill_id,posted_at,autopost_error,archived_at`,
+        + `&select=id,vendor_name,bill_number,total_amount,receipt_date,status,manager_email,submitter_email,approved_by,approved_at,qbo_bill_id,posted_at,autopost_error,archived_at`,
       );
     }
     const byId = new Map(requests.map((r) => [r.id, r]));
@@ -201,6 +272,19 @@ export default async function handler(req) {
               posted_at: r.posted_at,
               post_error: r.autopost_error,
               archived: !!r.archived_at,
+              // Whose queue it is sitting in, and whether it has cleared the
+              // approval gate. `can_post` is the single thing the UI needs to
+              // decide if the Post button is live.
+              owner_email: r.manager_email,
+              approved_by: r.approved_by,
+              approved_at: r.approved_at,
+              awaiting_approval: r.status === 'pending',
+              unassigned: !r.manager_email && !r.qbo_bill_id,
+              can_post: !r.qbo_bill_id && (
+                settings.require_approval
+                  ? ['approved', 'awaiting_invoice', 'fulfilled'].includes(r.status)
+                  : ['approved', 'awaiting_invoice', 'fulfilled', 'draft', 'pending'].includes(r.status)
+              ),
             }
           : null,
         ocr_preview: ocr ? { vendor: ocr.vendor, total: ocr.total, bill_number: ocr.bill_number, date: ocr.date } : null,
@@ -214,11 +298,14 @@ export default async function handler(req) {
       tag: AP_TAG,
       summary: {
         total: items.length,
-        awaiting_review: count((i) => i.request && !i.request.posted && !i.request.archived),
+        awaiting_approval: count((i) => i.request?.awaiting_approval),
+        ready_to_post: count((i) => i.request?.can_post),
+        unassigned: count((i) => i.request?.unassigned),
         posted: count((i) => i.request?.posted),
         needs_attention: count((i) => ['no_attachment', 'attachment_fetch_failed', 'ocr_failed', 'failed', 'sender_rejected'].includes(i.status)),
         in_progress: count((i) => ['received', 'processing'].includes(i.status)),
       },
+      me: auth.user?.email || null,
       items,
     });
   } catch (e) {

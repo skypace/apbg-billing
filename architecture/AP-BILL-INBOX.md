@@ -20,23 +20,82 @@ vendor invoice ──email/forward──▶ bills@alamedapointbg.com
                      7. OCR it — lib/expense-ocr-core.mjs, the SAME
                         extractor human receipt uploads use
                      8. Store the PDF in the expense-attachments bucket
-                     9. Land an UNPAID BILL DRAFT in ops.expense_requests
-                        (as_bill=true, status='draft', tag='AP Inbox')
-                    10. Email the AP notify list; acknowledge the sender
+                     9. Land an UNPAID BILL in ops.expense_requests
+                        (as_bill=true, tag='AP Inbox'; 'pending' once
+                         routed, 'draft' when nobody matched)
+                    10. Route it to an owner's approval queue; email them
                                             ▼
-        Brixpense → AP Inbox (/expense/bills, staff-only)
-                    11. A HUMAN reviews it and clicks Post to QuickBooks
+        the owner approves — /expense/queue, or /expense/bills for staff
+                                            ▼
+                    11. Post to QuickBooks (unlocked by the approval)
                         → expense-request-link-bill → the QBO Bill
 ```
+
+## Whose queue it lands in
+
+`resolveBillRouting()` in `lib/ap-inbox.mjs`. First match wins, and every answer
+carries the reason, so the queue can say *why* a bill went where it went.
+
+| # | Rule | Used for |
+|---|---|---|
+| 1 | `sender_routes[sender]` | Explicit override — point one person's bills at somebody else |
+| 2 | **the sender**, if they are an internal Brixpense login | The normal case: your bill, your queue |
+| 3 | `vendor_routes` matched against the OCR'd vendor | Vendor mail — whoever owns that spend |
+| 4 | `department_approvers` matched against the OCR'd GL account | Vendor mail with no vendor rule |
+| 5 | `default_approver` | The catch-all, so an invoice can't sit unowned |
+| 6 | *unassigned* | Nothing matched — held in the AP Inbox for staff to assign |
+
+Rung 6 is the floor on purpose. `default_approver` ships **NULL**: inventing one
+would quietly make a single person responsible for every invoice a stranger
+sends us, and a visible pile beats a wrong owner.
+
+Rung 2 is only reached for a login that actually has **Brixpense access**
+(`hasBrixpenseAccess()`, mirroring the gateway's `billing` bucket). The Supabase
+project is shared — brix-order customers and distributor partners have logins
+here too — so matching on "is a login" alone would hand a customer's invoice a
+staff owner and a spot in an approval queue.
+
+## ⚠ Rung 2 is a review gate, not separation of duties
+
+When the bill routes back to its sender, **the sender approves their own bill**.
+That is worth something real — it forces a human to check the OCR against the
+actual document before it can become a QBO transaction — but it is not a second
+pair of eyes, and it should not be described as one.
+
+`expense-request-decide` blocks self-approval for everything else and keeps
+doing so; the exception is scoped to `tag='AP Inbox'` expense rows, and a
+self-review is stamped into `approved_by` as `"<email> (own emailed bill)"`
+rather than hidden.
+
+**Want real separation of duties?** Put the sender in `sender_routes` pointing
+at somebody else. No rebuild needed.
+
+## The approval gate
+
+`require_approval` (default **on**) means a routed bill lands as `status='pending'`
+and **Post to QuickBooks stays disabled until it is approved**. Two surfaces:
+
+- **`/expense/queue`** — the existing Approvals queue. It selects on
+  `(manager_email, status='pending')` regardless of request type, so an emailed
+  bill shows up there next to the purchase requests with no change to that page.
+  This is the path for an owner who is not AP staff; RLS
+  (`expense_requests_select` on `manager_email`) makes the row theirs to see and
+  update.
+- **`/expense/bills`** — the AP desk's oversight view (superadmin/admin, matching
+  `ops.fn_is_staff()`). Approve is offered only to the person the bill is waiting
+  on, so it can't be quietly cleared by whoever opened the page.
+
+Turning `require_approval` off makes the approval advisory: bills still route,
+but AP can post without waiting.
 
 ## The one rule
 
 **Nothing in this pipeline posts to QuickBooks.** That is the 2026-08-14 gate,
 and this channel does not get an exception — the whole point of the address is
 that people outside the company can mail it, and an email from outside must not
-be able to create a QBO transaction. Every draft waits for an explicit
-**Post to QuickBooks** click, which is also where QBO vendor matching and GL
-coding actually happen.
+be able to create a QBO transaction. Every bill waits for an approval **and** an
+explicit **Post to QuickBooks** click — the latter is also where QBO vendor
+matching and GL coding actually happen.
 
 That rule is what makes the open sender policy safe. `allow_senders` is empty by
 default, because a vendor emailing us an invoice is the point; the worst a
@@ -49,7 +108,7 @@ each failure is re-runnable from the queue ("Try again").
 
 | Status | Means | Fix |
 |---|---|---|
-| `drafted` | Bill draft created, waiting for review | Review and post it |
+| `drafted` | Bill created and routed | The owner approves, then it posts |
 | `received` / `processing` | In flight | Wait; it self-refreshes |
 | `no_attachment` | The email genuinely had no readable file | Ask for the PDF, or key it in by hand |
 | `attachment_fetch_failed` | Resend refused the attachment read | Read `diagnostics` — usually the API key |
@@ -77,7 +136,13 @@ read is now quoted verbatim into `diagnostics`, with the variable to set named.
   "notify": ["service@brixbev.com"],
   "allow_senders": [],
   "block_senders": [],
-  "ack_sender": true
+  "ack_sender": true,
+
+  "require_approval": true,
+  "default_approver": null,
+  "sender_routes":        { "joel@brixbev.com": "anthonyv@brixbev.com" },
+  "vendor_routes":        { "pro mechanical":   "anthonyv@brixbev.com" },
+  "department_approvers": { "service":          "anthonyv@brixbev.com" }
 }
 ```
 
@@ -85,6 +150,10 @@ read is now quoted verbatim into `diagnostics`, with the variable to set named.
   (`ar@vendor.com`) or a whole domain (`vendor.com`).
 - `ack_sender` — send the sender a "we received your invoice" confirmation.
   It says plainly that it is not an approval or a payment.
+- `sender_routes` / `vendor_routes` / `department_approvers` — the routing
+  ladder above. Keys are matched lowercase; vendor and department keys match as
+  substrings of the OCR'd vendor name / GL account label.
+- `require_approval` — whether approval gates posting.
 
 ## Environment (Netlify, apbg-billing, functions scope)
 

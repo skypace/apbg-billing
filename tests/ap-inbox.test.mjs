@@ -133,7 +133,8 @@ await t('storage filenames survive a vendor\'s spaces and punctuation', () => {
 
 console.log('\n— who is allowed to mail us a bill —');
 
-const { senderAllowed, looksAutomated, addr, displayName, recipientsOf } =
+const { senderAllowed, looksAutomated, addr, displayName, recipientsOf,
+        resolveBillRouting, hasBrixpenseAccess } =
   await import('../netlify/functions/lib/ap-inbox.mjs');
 
 await t('an empty allow list accepts a vendor mailing us directly', () => {
@@ -174,6 +175,97 @@ await t('routes on the real recipient shapes', () => {
 
 await t('html-only vendor mail still yields readable body text', () => {
   assert.equal(stripHtml('<p>Invoice&nbsp;44821</p><div>Total $1,204.50</div>'), 'Invoice 44821\nTotal $1,204.50');
+});
+
+console.log('\n— whose approval queue it lands in —');
+
+// The shape loadApInboxSettings() produces, with nothing configured.
+const bare = {
+  sender_routes: {}, vendor_routes: {}, department_approvers: {},
+  default_approver: null,
+};
+const internal = (email) => ({ id: 'u1', email, name: email });
+
+await t('an internal sender owns their own bill', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'joel@brixbev.com',
+    internalUser: internal('joel@brixbev.com'),
+    settings: bare,
+  });
+  assert.equal(r.owner_email, 'joel@brixbev.com');
+  assert.equal(r.assigned, true);
+  assert.equal(r.self_review, true, 'flagged as a self review, not silently equated to approval');
+  assert.match(r.reason, /internal Brixpense user/);
+});
+
+await t('an explicit sender_route outranks the sender — the separation-of-duties escape hatch', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'joel@brixbev.com',
+    internalUser: internal('joel@brixbev.com'),
+    settings: { ...bare, sender_routes: { 'joel@brixbev.com': 'anthonyv@brixbev.com' } },
+  });
+  assert.equal(r.owner_email, 'anthonyv@brixbev.com');
+  assert.equal(r.self_review, false);
+});
+
+await t('a vendor mailing in matches the vendor route', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'ar@promechanical.com',
+    internalUser: null,
+    ocrVendor: 'PRO MECHANICAL SERVICES INC',
+    settings: { ...bare, vendor_routes: { 'pro mechanical': 'anthonyv@brixbev.com' } },
+  });
+  assert.equal(r.owner_email, 'anthonyv@brixbev.com');
+  assert.match(r.reason, /vendor route/);
+});
+
+await t('falls through to the department when no vendor rule matches', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'billing@somevendor.com',
+    internalUser: null,
+    ocrVendor: 'Some Vendor LLC',
+    ocrAccountLabel: 'Service - Direct Labor (COGS)',
+    settings: { ...bare, department_approvers: { service: 'anthonyv@brixbev.com' } },
+  });
+  assert.equal(r.owner_email, 'anthonyv@brixbev.com');
+  assert.match(r.reason, /service approver/);
+});
+
+await t('then the default approver', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'billing@somevendor.com',
+    internalUser: null,
+    ocrVendor: 'Some Vendor LLC',
+    settings: { ...bare, default_approver: 'ap@brixbev.com' },
+  });
+  assert.equal(r.owner_email, 'ap@brixbev.com');
+});
+
+await t('and the floor is a visible pile, never a silent drop', () => {
+  const r = resolveBillRouting({
+    fromEmail: 'billing@somevendor.com',
+    internalUser: null,
+    ocrVendor: 'Some Vendor LLC',
+    settings: bare,
+  });
+  assert.equal(r.owner_email, null);
+  assert.equal(r.assigned, false, 'unassigned rows stay in the AP Inbox for triage');
+  assert.match(r.reason, /triage/);
+});
+
+console.log('\n— the shared-project trap —');
+
+await t('only a Brixpense login counts as internal', () => {
+  // The Supabase project is shared. A brix-order customer emailing an invoice
+  // must NOT be handed a staff owner and an approval queue.
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'superadmin' } }), true);
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'finance' } }), true);
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'admin' } }), true);
+  assert.equal(hasBrixpenseAccess({ user_metadata: {} }), false, 'a bare customer login');
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'customer' } }), false);
+  // An explicit modules list wins over the legacy role map, in both directions.
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'admin', modules: ['orders'] } }), false);
+  assert.equal(hasBrixpenseAccess({ user_metadata: { role: 'driver', modules: ['billing'] } }), true);
 });
 
 console.log(`\n${pass} passed\n`);

@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Inbox, Loader2,
-  Mail, RefreshCw, Send, Settings2, X,
+  Mail, RefreshCw, Send, Settings2, UserPlus, X,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -40,6 +40,12 @@ interface LinkedRequest {
   qbo_bill_id: string | null;
   post_error: string | null;
   archived: boolean;
+  owner_email: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  awaiting_approval: boolean;
+  unassigned: boolean;
+  can_post: boolean;
 }
 
 interface IntakeItem {
@@ -66,6 +72,9 @@ interface InboxSettings {
   allow_senders: string[];
   block_senders: string[];
   ack_sender: boolean;
+  require_approval: boolean;
+  default_approver: string | null;
+  sender_routes: Record<string, string>;
 }
 
 interface SetupCheck {
@@ -78,7 +87,7 @@ const NEEDS_ATTENTION: IntakeStatus[] = [
   'no_attachment', 'attachment_fetch_failed', 'ocr_failed', 'failed', 'sender_rejected',
 ];
 
-type Filter = 'review' | 'attention' | 'posted' | 'all';
+type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'posted' | 'all';
 
 async function api(body?: unknown) {
   const token = await getAccessToken();
@@ -94,6 +103,9 @@ async function api(body?: unknown) {
 
 function statusBadge(item: IntakeItem): { label: string; variant: 'success' | 'secondary' | 'warning' | 'destructive' | 'info' } {
   if (item.request?.posted) return { label: 'Posted to QuickBooks', variant: 'success' };
+  if (item.request?.unassigned) return { label: 'Needs assigning', variant: 'warning' };
+  if (item.request?.awaiting_approval) return { label: 'Awaiting approval', variant: 'info' };
+  if (item.request?.can_post) return { label: 'Approved — ready to post', variant: 'secondary' };
   switch (item.status) {
     case 'drafted': return { label: 'Ready to review', variant: 'info' };
     case 'received':
@@ -114,7 +126,8 @@ export default function BillsInbox() {
   const [settings, setSettings] = useState<InboxSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('review');
+  const [filter, setFilter] = useState<Filter>('mine');
+  const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [check, setCheck] = useState<SetupCheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -126,6 +139,7 @@ export default function BillsInbox() {
       const data = await api();
       setItems(data.items ?? []);
       setSettings(data.settings ?? null);
+      setMe(data.me ?? null);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the AP inbox.');
@@ -167,6 +181,29 @@ export default function BillsInbox() {
     finally { setBusy(null); }
   };
 
+  const approve = async (item: IntakeItem) => {
+    if (!item.request) return;
+    setBusy(item.id);
+    setError(null);
+    try { await api({ action: 'approve', request_id: item.request.id }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not approve.'); }
+    finally { setBusy(null); }
+  };
+
+  const assign = async (item: IntakeItem) => {
+    if (!item.request) return;
+    const to = window.prompt(
+      'Who should approve this bill? Enter their Brixpense email address.',
+      settings?.default_approver ?? '',
+    );
+    if (!to || !to.includes('@')) return;
+    setBusy(item.id);
+    setError(null);
+    try { await api({ action: 'assign', request_id: item.request.id, approver_email: to.trim() }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not assign.'); }
+    finally { setBusy(null); }
+  };
+
   const postToQuickBooks = async (item: IntakeItem) => {
     if (!item.request) return;
     setBusy(item.id);
@@ -190,22 +227,38 @@ export default function BillsInbox() {
     }
   };
 
-  const visible = items.filter((i) => {
-    if (filter === 'all') return true;
-    if (filter === 'attention') return NEEDS_ATTENTION.includes(i.status);
-    if (filter === 'posted') return !!i.request?.posted;
-    return i.status === 'drafted' && !i.request?.posted && !i.request?.archived;
-  });
+  const isMine = (i: IntakeItem) =>
+    !!i.request?.awaiting_approval &&
+    !!me &&
+    (i.request?.owner_email ?? '').toLowerCase() === me.toLowerCase();
 
+  const match = (i: IntakeItem, f: Filter) => {
+    switch (f) {
+      case 'all': return true;
+      case 'mine': return isMine(i);
+      case 'approval': return !!i.request?.awaiting_approval;
+      case 'ready': return !!i.request?.can_post;
+      case 'unassigned': return !!i.request?.unassigned;
+      case 'attention': return NEEDS_ATTENTION.includes(i.status);
+      case 'posted': return !!i.request?.posted;
+      default: return true;
+    }
+  };
+
+  const visible = items.filter((i) => match(i, filter));
+  const countOf = (f: Filter) => items.filter((i) => match(i, f)).length;
   const counts = {
-    review: items.filter((i) => i.status === 'drafted' && !i.request?.posted && !i.request?.archived).length,
-    attention: items.filter((i) => NEEDS_ATTENTION.includes(i.status)).length,
-    posted: items.filter((i) => i.request?.posted).length,
+    mine: countOf('mine'),
+    approval: countOf('approval'),
+    ready: countOf('ready'),
+    unassigned: countOf('unassigned'),
+    attention: countOf('attention'),
+    posted: countOf('posted'),
     all: items.length,
   };
-  const dueTotal = items
-    .filter((i) => i.status === 'drafted' && !i.request?.posted && !i.request?.archived)
-    .reduce((s, i) => s + (i.request?.total_amount ?? 0), 0);
+  const openRows = items.filter((i) => i.request && !i.request.posted && !i.request.archived);
+  const dueTotal = openRows.reduce((s, i) => s + (i.request?.total_amount ?? 0), 0);
+  const openCount = openRows.length;
 
   return (
     <div className="space-y-4 pb-4">
@@ -221,10 +274,10 @@ export default function BillsInbox() {
             {' '}— read, coded, and queued for a human to post.
           </p>
         </div>
-        {counts.review > 0 && (
+        {openCount > 0 && (
           <div className="text-right">
             <div className="text-[15px] font-bold tabular-nums">{formatCurrency(dueTotal)}</div>
-            <div className="text-[11px] text-muted-foreground">{counts.review} to review</div>
+            <div className="text-[11px] text-muted-foreground">{openCount} open</div>
           </div>
         )}
       </div>
@@ -249,7 +302,7 @@ export default function BillsInbox() {
                 Forward a vendor invoice — or have the vendor email it directly — to{' '}
                 <span className="font-mono text-foreground">{settings?.inbox ?? 'bills@alamedapointbg.com'}</span>.
                 The PDF is read automatically and lands below as a draft bill.
-                <strong className="text-foreground"> Nothing posts to QuickBooks on its own.</strong>
+                <strong className="text-foreground"> It lands in the sender's approval queue, and nothing posts to QuickBooks until it is approved.</strong>
               </p>
             </div>
           </div>
@@ -289,7 +342,10 @@ export default function BillsInbox() {
 
       <div className="flex flex-wrap gap-1.5">
         {([
-          ['review', `To review (${counts.review})`],
+          ['mine', `Waiting on you (${counts.mine})`],
+          ['approval', `Awaiting approval (${counts.approval})`],
+          ['ready', `Ready to post (${counts.ready})`],
+          ['unassigned', `Unassigned (${counts.unassigned})`],
           ['attention', `Needs attention (${counts.attention})`],
           ['posted', `Posted (${counts.posted})`],
           ['all', `Everything (${counts.all})`],
@@ -313,8 +369,8 @@ export default function BillsInbox() {
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            {filter === 'review'
-              ? 'Nothing waiting. Forward a bill to the address above and it will show up here.'
+            {filter === 'mine'
+              ? 'Nothing waiting on you. Forward a bill to the address above and it will show up here.'
               : 'Nothing in this view.'}
           </CardContent>
         </Card>
@@ -323,6 +379,7 @@ export default function BillsInbox() {
           {visible.map((item) => {
             const badge = statusBadge(item);
             const r = item.request;
+            const mine = isMine(item);
             const vendor = r?.vendor_name || item.ocr_preview?.vendor || item.from_name || item.from_email || 'Unknown sender';
             const amount = r?.total_amount ?? item.ocr_preview?.total ?? null;
             return (
@@ -344,6 +401,16 @@ export default function BillsInbox() {
                           {(r?.bill_number || item.ocr_preview?.bill_number) &&
                             ` · Bill #${r?.bill_number || item.ocr_preview?.bill_number}`}
                         </div>
+                        {r && !r.posted && (
+                          <div className="truncate">
+                            {r.owner_email
+                              ? <>Waiting on <span className="text-foreground">{mine ? 'you' : r.owner_email}</span></>
+                              : <span className="text-amber-300">Not assigned to anyone yet</span>}
+                          </div>
+                        )}
+                        {r?.approved_by && (
+                          <div className="truncate text-emerald-400/80">Approved by {r.approved_by}</div>
+                        )}
                       </div>
                     </div>
                     {amount != null && (
@@ -371,7 +438,32 @@ export default function BillsInbox() {
                         <Button size="sm" variant="outline" onClick={() => navigate(`edit/${r.id}`)}>
                           Open bill
                         </Button>
-                        <Button size="sm" onClick={() => void postToQuickBooks(item)} disabled={busy === item.id}>
+
+                        {r.unassigned && (
+                          <Button size="sm" variant="outline" onClick={() => void assign(item)} disabled={busy === item.id}>
+                            <UserPlus className="h-4 w-4 mr-1.5" /> Assign an approver
+                          </Button>
+                        )}
+
+                        {/* Approve is only offered to the person it is waiting
+                            on. Everyone else sees who that is, so a bill can't
+                            be quietly cleared by whoever opened the page. */}
+                        {r.awaiting_approval && mine && (
+                          <Button size="sm" onClick={() => void approve(item)} disabled={busy === item.id}>
+                            {busy === item.id
+                              ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                              : <CheckCircle2 className="h-4 w-4 mr-1.5" />}
+                            Approve
+                          </Button>
+                        )}
+
+                        <Button
+                          size="sm"
+                          variant={r.can_post ? 'default' : 'outline'}
+                          onClick={() => void postToQuickBooks(item)}
+                          disabled={busy === item.id || !r.can_post}
+                          title={r.can_post ? undefined : 'This bill has to be approved before it can post.'}
+                        >
                           {busy === item.id
                             ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
                             : <Send className="h-4 w-4 mr-1.5" />}

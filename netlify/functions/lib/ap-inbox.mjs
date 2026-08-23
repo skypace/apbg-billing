@@ -66,6 +66,17 @@ export async function loadApInboxSettings() {
   } catch { /* fall through to defaults */ }
   const v = raw && typeof raw === 'object' ? raw : {};
   const list = (x) => (Array.isArray(x) ? x.map((s) => String(s).trim().toLowerCase()).filter(Boolean) : []);
+  const emailMap = (x) => {
+    const out = {};
+    if (x && typeof x === 'object' && !Array.isArray(x)) {
+      for (const [k, val] of Object.entries(x)) {
+        const key = String(k).trim().toLowerCase();
+        const email = String(val || '').trim().toLowerCase();
+        if (key && email.includes('@')) out[key] = email;
+      }
+    }
+    return out;
+  };
   return {
     enabled: v.enabled !== false,
     inbox: String(v.inbox || DEFAULT_INBOX).toLowerCase(),
@@ -73,6 +84,18 @@ export async function loadApInboxSettings() {
     allow_senders: list(v.allow_senders),
     block_senders: list(v.block_senders),
     ack_sender: v.ack_sender !== false,
+    // A bill cannot post to QuickBooks until it is approved. Turning this off
+    // makes the approval advisory — the queue still routes, but AP can post
+    // without waiting.
+    require_approval: v.require_approval !== false,
+    // Rung 1 override: point one person's emailed bills at somebody else.
+    // This is the escape hatch for real separation of duties without a
+    // rebuild — see resolveBillRouting.
+    sender_routes: emailMap(v.sender_routes),
+    // Rungs 3 and 4, for mail from outside the company.
+    vendor_routes: emailMap(v.vendor_routes),
+    department_approvers: emailMap(v.department_approvers),
+    default_approver: String(v.default_approver || '').trim().toLowerCase() || null,
   };
 }
 
@@ -212,30 +235,118 @@ export function verifyInbound(headers, rawBody, queryStringSecret) {
 // what makes it show up as theirs in Brixpense — and fall back through the
 // same ladder the SF sweep uses so a vendor's own email can still land.
 
-export async function resolveSubmitter(fromEmail) {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Does this login actually have Brixpense access? The Supabase project is
+// SHARED — brix-order customers, distributor partners and melt users all have
+// logins here. Matching a sender on "is a login" alone would hand a customer's
+// emailed invoice a staff owner and a spot in an approval queue. Mirrors the
+// gateway's grantsAccess() for the 'billing' bucket, same as
+// expense-cc-match's cardholder list.
+const BILLING_ROLES = new Set(['superadmin', 'admin', 'finance']);
 
-  if (fromEmail && key) {
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/auth/v1/admin/users?filter=${encodeURIComponent(fromEmail)}&per_page=5`,
-        { headers: { apikey: key, Authorization: `Bearer ${key}` } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const users = Array.isArray(data) ? data : data?.users || [];
-        const hit = users.find((u) => String(u.email || '').toLowerCase() === String(fromEmail).toLowerCase());
-        if (hit?.id) {
-          return {
-            id: hit.id,
-            email: hit.email,
-            name: hit.user_metadata?.name || hit.user_metadata?.full_name || hit.email,
-            matched_sender: true,
-          };
-        }
-      }
-    } catch { /* fall through */ }
+export function hasBrixpenseAccess(user) {
+  const md = user?.user_metadata || {};
+  if (md.role === 'superadmin') return true;
+  const mods = Array.isArray(md.modules) ? md.modules : null;
+  if (mods) return mods.includes('billing');
+  return BILLING_ROLES.has(md.role);
+}
+
+/** An internal Brixpense user by email, or null. Never a customer login. */
+export async function findInternalUser(email) {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const wanted = String(email || '').trim().toLowerCase();
+  if (!wanted || !key) return null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/auth/v1/admin/users?filter=${encodeURIComponent(wanted)}&per_page=20`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const users = Array.isArray(data) ? data : data?.users || [];
+    const hit = users.find((u) => String(u.email || '').toLowerCase() === wanted);
+    if (!hit?.id || !hasBrixpenseAccess(hit)) return null;
+    return {
+      id: hit.id,
+      email: hit.email,
+      name: hit.user_metadata?.name || hit.user_metadata?.full_name || hit.email,
+    };
+  } catch {
+    return null;
   }
+}
+
+/**
+ * Who owns an emailed bill, and therefore whose approval queue it lands in.
+ *
+ * The ladder, in order — first match wins, and every answer carries the reason
+ * so the queue can say WHY a bill went where it went:
+ *
+ *   1. sender_routes[sender]     an explicit override. Point Joel's bills at
+ *                                Anthony here when you want a real second pair
+ *                                of eyes rather than a self-review.
+ *   2. the sender themselves     when they are an internal Brixpense login.
+ *                                Their bill, their queue.
+ *   3. vendor_routes             mail from outside: match the OCR'd vendor to
+ *                                whoever owns that spend.
+ *   4. department_approvers      still outside: the department implied by the
+ *                                OCR'd GL account label.
+ *   5. default_approver          the catch-all, so an invoice can't sit unowned.
+ *   6. unassigned                nothing matched — it stays a draft in the AP
+ *                                Inbox for staff to triage by hand. The floor
+ *                                is a visible pile, never a silent drop.
+ *
+ * ⚠ Rung 2 means the sender approves their own bill. That is a REVIEW gate —
+ * it forces a human to look at the OCR before it can become a QBO transaction
+ * — and deliberately not separation of duties. Rung 1 is how you get that.
+ */
+export function resolveBillRouting({ fromEmail, internalUser, ocrVendor, ocrAccountLabel, settings }) {
+  const from = String(fromEmail || '').trim().toLowerCase();
+
+  const override = from && settings.sender_routes[from];
+  if (override) {
+    return { owner_email: override, assigned: true, self_review: override === from,
+             reason: `sender_routes override for ${from}` };
+  }
+
+  if (internalUser?.email) {
+    const email = String(internalUser.email).toLowerCase();
+    return { owner_email: email, assigned: true, self_review: true,
+             reason: `${email} sent it and is an internal Brixpense user` };
+  }
+
+  const vendor = String(ocrVendor || '').trim().toLowerCase();
+  if (vendor) {
+    for (const [pattern, approver] of Object.entries(settings.vendor_routes)) {
+      if (vendor.includes(pattern) || pattern.includes(vendor)) {
+        return { owner_email: approver, assigned: true, self_review: false,
+                 reason: `vendor "${ocrVendor}" matches the vendor route "${pattern}"` };
+      }
+    }
+  }
+
+  const account = String(ocrAccountLabel || '').trim().toLowerCase();
+  if (account) {
+    for (const [dept, approver] of Object.entries(settings.department_approvers)) {
+      if (account.includes(dept)) {
+        return { owner_email: approver, assigned: true, self_review: false,
+                 reason: `GL account "${ocrAccountLabel}" maps to the ${dept} approver` };
+      }
+    }
+  }
+
+  if (settings.default_approver) {
+    return { owner_email: settings.default_approver, assigned: true, self_review: false,
+             reason: 'no rule matched — routed to the default approver' };
+  }
+
+  return { owner_email: null, assigned: false, self_review: false,
+           reason: 'nobody matched — held in the AP Inbox for triage' };
+}
+
+export async function resolveSubmitter(fromEmail) {
+  const internal = await findInternalUser(fromEmail);
+  if (internal) return { ...internal, matched_sender: true };
 
   const envId = process.env.AP_INBOX_SUBMITTER_ID;
   if (envId) {
