@@ -28,8 +28,15 @@ const LOOK: Record<Bucket, { label: string; tone: string }> = {
 
 interface Row { aging_bucket: Bucket; total_amount: number | null }
 
+// Reading rows and summing in the browser is fine at this scale (35 unpaid
+// bills today) and keeps the RLS story simple — but a total that silently
+// stops counting is exactly the kind of number people trust and shouldn't.
+// If the cap is ever hit, the strip says so rather than under-reporting.
+const ROW_CAP = 2000;
+
 export function ApAgingStrip({ onPick }: { onPick?: (bucket: Bucket) => void }) {
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -37,8 +44,11 @@ export function ApAgingStrip({ onPick }: { onPick?: (bucket: Bucket) => void }) 
       const { data } = await supabase
         .from('v_ap_aging')
         .select('aging_bucket,total_amount')
-        .limit(2000);
-      if (live) setRows((data as Row[]) ?? []);
+        .limit(ROW_CAP);
+      if (!live) return;
+      const got = (data as Row[]) ?? [];
+      setRows(got);
+      setTruncated(got.length >= ROW_CAP);
     })();
     return () => { live = false; };
   }, []);
@@ -67,6 +77,7 @@ export function ApAgingStrip({ onPick }: { onPick?: (bucket: Bucket) => void }) 
               {overdue > 0
                 ? `${formatCurrency(overdue)} of it is past due.`
                 : 'Nothing past due.'}
+              {truncated && ` Showing the first ${ROW_CAP} — the real total is higher.`}
             </p>
           </div>
           <div className="text-right">
