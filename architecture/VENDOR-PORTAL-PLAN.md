@@ -1,7 +1,15 @@
 # Vendor Portal & Vendor Payments — Project Plan
 
-> Status: **Phase 1 SHIPPED** (PR #384, merged 2026-08-20 — `ops.vendors` +
-> Brixpense Vendors module live). **Payment rail decided 2026-08-20 (Sky): Stripe** —
+> Status: **Phases 1 + 2 SHIPPED** (PR #384 and #385, merged 2026-08-20 —
+> `ops.vendors` + Brixpense Vendors module, then the token-gated vendor intake
+> at `/vendor-onboarding` with ACORD/W-9 OCR and the Monday auto-chase).
+> **Phase 3 + 3b built** on the same branch: `ops.vendor_payments`,
+> `vendor-pay.mjs` (superadmin), `stripe-payout-webhook.mjs` and the Pay UI,
+> plus the funding float — `ops.vendor_funding_events`, `vendor-funding.mjs`,
+> `vendor-funding-cron.mjs` and the Brixpense funding card. Code-complete and
+> **dark until `STRIPE_PAYOUTS_KEY` + `STRIPE_PAYOUT_WEBHOOK_SECRET` are set**
+> (funding also needs `STRIPE_FUNDING_BANK_ACCOUNT_ID` +
+> `QBO_VENDOR_PAY_BANK_ACCOUNT_ID` — see *Funding & bookkeeping*). **Payment rail decided 2026-08-20 (Sky): Stripe** —
 > "I wanna use stripe payments as i already have stripe." Phase 3 rewritten below
 > around **Stripe Global Payouts**; PayPal/Venmo are no longer planned rails
 > (Stripe cannot send to Venmo/PayPal — those stay manual-record).
@@ -157,6 +165,89 @@ transfers (like ACH/check/Zelle) — they count toward OUR 1099-NEC duty, unlike
 platform-reported PayPal/Venmo business payments. Confirm treatment with the
 bookkeeper before relying on it.
 
+## Phase 3b — Funding & bookkeeping (built 2026-08-21)
+
+Sky's model, and it's the right one: **the Stripe float is a QuickBooks bank
+account.**
+
+```
+Chase 72  ──QBO Transfer──▶  Stripe Vendor Funding  ──BillPayment──▶  vendor
+   (bank feed shows the debit — Match it)        (one per vendor, per bill)
+```
+
+Money in is a Transfer. Every vendor payment is a BillPayment **drawn on the
+funding account**, so the register itemizes per vendor per bill with the payout
+id on it. The payoff is a control we don't otherwise have: that account's QBO
+balance should always equal the live Stripe balance, and any drift means
+something real — money moved without booking, or a top-up nobody entered. In
+Chase that drift is invisible.
+
+Mechanically the itemization is just `QBO_VENDOR_PAY_BANK_ACCOUNT_ID`:
+`recordQboBillPayment()` already draws on whatever that names (Chase `72` by
+default). Create the account, repoint the env var, done.
+
+### Stripe cannot auto-pull on a low balance
+
+Checked against Stripe's docs rather than assumed. Pulling from a verified bank
+account is **US-only and explicitly manual** — *"You initiate this transfer each
+time you want to add funds (it isn't an automated, regular transaction)"* — 2–6
+business days, capped 50k/txn · 50k/day · 100k/week. The programmatic form is
+the **InboundTransfer API v2** (verified bank-account id in `payment_method`).
+
+| Funding route | Speed | Automatable? |
+|---|---|---|
+| Pull from verified bank (Dashboard or InboundTransfer) | 2–6 business days | Only by us, per transfer |
+| Push ACH / wire to the FinancialAddress | ACH 0–3 days · wire same day | No (you send it) |
+| Recurring transfer from the Stripe **payments balance** | 1–2 business days | Stripe-native — **but see below** |
+
+⚠ **Do NOT enable payments-balance recurring transfers.** brix-order books
+Stripe payouts as QBO Deposits into Chase 72 (its sessions 1.80–1.83); diverting
+that revenue into the financial account strands those Undeposited-Funds payments
+and breaks that reconciler. "Automatic transfer rules" in Balance Settings are a
+Connect feature and don't apply here.
+
+### What shipped
+
+- **`ops.vendor_funding_events`** (migration `20260820d`) — one row per funding
+  event keyed on `stripe_object_id`, whoever started it. That key is what makes
+  the QBO Transfer exactly-once, so a Dashboard top-up books correctly too.
+- **`lib/vendor-funding-lib.mjs`** — config, Stripe listing/pull, the QBO
+  Transfer, and `syncFunding()` (the reconciler). Refuses to book when the
+  funding account isn't configured or equals the source — a Chase→Chase transfer
+  is a silent no-op that would break the whole reconciliation.
+- **`vendor-funding.mjs`** (superadmin): `status` · `top_up` · `sync` ·
+  `save_config`. Ledger row before money, cap-checked, same posture as
+  `vendor-pay`.
+- **`vendor-funding-cron.mjs`** (daily 16:20 UTC) — reconcile, then either
+  **email** the low balance (default) or pull to target when `auto_top_up` is
+  on. Logs `ops.sync_log` (`vendors` / `vendor_funding`) carrying the observed
+  balance + `below_floor`, because Postgres can't see Stripe.
+- **Brixpense → Vendors → Stripe vendor funding** (superadmin) — balance, floor
+  and target, a Top up button that names the amount and the settlement delay,
+  Reconcile with QuickBooks, the auto-top-up switch, and the funding history
+  with each row's QBO Transfer state.
+- **Health**: `ops.fn_vendor_funding_health()` — red on a failed pull in 7d,
+  settled funding unbooked >24h (the two balances have diverged), or an errored
+  run; yellow below the floor or no run in 48h.
+
+`auto_top_up` ships **false**. A pull takes days to settle, so this is a float
+you keep ahead of known bills, not just-in-time funding — the alert is usually
+the right answer and the automation is opt-in.
+
+### Setup (in this order)
+
+1. QuickBooks → new account, type **Bank**, name **Stripe Vendor Funding**.
+2. Stripe → Settings → Global Payouts → bank accounts: add + verify Chase
+   (Financial Connections or micro-deposits); copy the bank account id.
+3. Netlify env: `QBO_VENDOR_PAY_BANK_ACCOUNT_ID` = the new QBO account (NOT
+   72), `STRIPE_FUNDING_BANK_ACCOUNT_ID` = the verified Stripe bank account,
+   optional `QBO_FUNDING_SOURCE_ACCOUNT_ID` (default 72),
+   `VENDOR_FUNDING_ALERT_TO`, `VENDOR_FUNDING_CRON_SECRET`.
+4. `STRIPE_PAYOUTS_KEY` needs **Money Management → Inbound transfers: write**
+   added to Phase 3's three scopes.
+5. Fund it (balance is $0.00 today), then reconcile once and check the QBO
+   account balance matches Stripe.
+
 ## Phase 4 — later / optional
 
 Bulk pay runs · vendor-facing payment-status page (token link, read-only) · Melio
@@ -176,6 +267,10 @@ stored, vendor-fed); Phase 3 turns "payment info" into "payment button".
 
 ## New env vars (Phase 3)
 
-`STRIPE_SECRET_KEY` (this Netlify site — brix-order's copy doesn't carry over) +
-`STRIPE_PAYOUT_WEBHOOK_SECRET`. Each lands with its health check per the repo's
-no-unmonitored-credentials rule.
+`STRIPE_PAYOUTS_KEY` (or `STRIPE_SECRET_KEY`) on THIS Netlify site —
+brix-order's copy doesn't carry over — plus `STRIPE_PAYOUT_WEBHOOK_SECRET`.
+Phase 3b adds `STRIPE_FUNDING_BANK_ACCOUNT_ID`,
+`QBO_VENDOR_PAY_BANK_ACCOUNT_ID` (the Stripe Vendor Funding account),
+`QBO_FUNDING_SOURCE_ACCOUNT_ID` (default 72), `VENDOR_FUNDING_ALERT_TO` and
+`VENDOR_FUNDING_CRON_SECRET`. Each lands with its health check per the repo's
+no-unmonitored-credentials rule (`vendor_payments`, `vendor_funding`).

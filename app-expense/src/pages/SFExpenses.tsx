@@ -6,9 +6,11 @@ import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Archive, ArrowLeft, Loader2, Send, Wrench } from 'lucide-react';
+import { Archive, ArrowLeft, Banknote, Loader2, Send, Wrench } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
+import { PayBillPanel } from '@/components/PayBillPanel';
+import { paymentsForExpenses, statusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 
 // Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
 // landed by the sf-receipt-sync crawl when a job is invoiced. Each draft goes
@@ -30,6 +32,27 @@ export default function SFExpenses() {
   const [archiving, setArchiving] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // Payments (Phase 3): the Pay panel is superadmin-only — /api/vendor-pay
+  // refuses anyone else, so the trigger stays hidden rather than 403-ing.
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [payments, setPayments] = useState<Map<string, VendorPayment>>(new Map());
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  const loadPayments = async (rows: ExpenseRequest[]) => {
+    const ids = rows.filter((r) => r.status === 'posted' && r.qbo_bill_id).map((r) => r.id);
+    try {
+      setPayments(await paymentsForExpenses(ids));
+    } catch { /* the list must render even if the ledger read fails */ }
+  };
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const role =
+        (data.user?.app_metadata as { role?: string } | undefined)?.role ||
+        (data.user?.user_metadata as { role?: string } | undefined)?.role || '';
+      setIsSuperadmin(role === 'superadmin');
+    });
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -40,8 +63,10 @@ export default function SFExpenses() {
         .eq('tag', 'Service Fusion')
         .is('archived_at', null)
         .order('created_at', { ascending: false });
-      setRequests((data as ExpenseRequest[]) ?? []);
+      const rows = (data as ExpenseRequest[]) ?? [];
+      setRequests(rows);
       setLoading(false);
+      loadPayments(rows);
     }
     load();
   }, [session]);
@@ -147,8 +172,8 @@ export default function SFExpenses() {
       ) : (
         <div className="space-y-2">
           {requests.map((req) => (
+            <div key={req.id} className="space-y-2">
             <Card
-              key={req.id}
               className="cursor-pointer hover:shadow-sm transition-shadow"
               onClick={() => navigate(`/edit/${req.id}`)}
             >
@@ -194,6 +219,24 @@ export default function SFExpenses() {
                 <span className="text-[15px] font-bold tabular-nums shrink-0">
                   {req.total_amount ? formatCurrency(req.total_amount) : '—'}
                 </span>
+                {/* Payment state (Phase 3) — a paid bill can't be paid twice by eye. */}
+                {req.status === 'posted' && payments.get(req.id) && (
+                  <Badge variant={statusLabel(payments.get(req.id)!).variant}>
+                    {statusLabel(payments.get(req.id)!).label}
+                    {` · ${RAIL_LABEL[payments.get(req.id)!.rail].split(' (')[0]}`}
+                  </Badge>
+                )}
+                {isSuperadmin && req.status === 'posted' && req.qbo_bill_id && !payments.get(req.id) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => { e.stopPropagation(); setPayingId(payingId === req.id ? null : req.id); }}
+                    title="Pay this bill — bank transfer, or record a payment you already sent"
+                  >
+                    <Banknote className="h-4 w-4 mr-1" />
+                    Pay
+                  </Button>
+                )}
                 {req.status === 'approved' && (
                   <Button
                     size="sm"
@@ -221,6 +264,14 @@ export default function SFExpenses() {
                 </Button>
               </CardContent>
             </Card>
+            {payingId === req.id && (
+              <PayBillPanel
+                expenseId={req.id}
+                onClose={() => setPayingId(null)}
+                onPaid={() => loadPayments(requests)}
+              />
+            )}
+            </div>
           ))}
         </div>
       )}
