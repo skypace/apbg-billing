@@ -971,7 +971,7 @@ export default function ExpenseForm() {
         {/* Terms and due date only mean something on an unpaid bill. On a
             receipt you have already paid there is nothing left to be due. */}
         {!isPaid && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Payment terms</Label>
               <Input
@@ -1004,7 +1004,7 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Amount ($)</Label>
             <Input
@@ -1043,7 +1043,7 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Entity</Label>
             <SelectField
@@ -1211,7 +1211,7 @@ export default function ExpenseForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
             <Input

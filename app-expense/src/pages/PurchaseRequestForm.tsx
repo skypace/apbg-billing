@@ -202,7 +202,7 @@ export default function PurchaseRequestForm() {
           <Input placeholder="e.g. Home Depot, Amazon, Grainger" value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Estimated Cost ($)</Label>
             <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={estimatedAmount} onChange={(e) => setEstimatedAmount(e.target.value)} />
@@ -215,7 +215,7 @@ export default function PurchaseRequestForm() {
 
         <Badge variant="warning">Manager approval required</Badge>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Entity</Label>
             <SelectField
@@ -257,7 +257,7 @@ export default function PurchaseRequestForm() {
           <SelectField value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Optional" options={[{ value: '', label: 'None' }, ...(settings?.tags ?? []).map((t) => ({ value: t, label: t }))]} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
             <Input placeholder="Customer name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />

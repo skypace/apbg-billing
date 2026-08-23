@@ -159,17 +159,9 @@ export function AppShell() {
     <div className="app-shell">
       {/* One-time Add-to-Home-Screen nudge (mobile only) */}
       {showInstallNudge && (
-        <div
-          role="status"
-          style={{
-            position: 'fixed', left: 12, right: 12, bottom: 76, zIndex: 60,
-            background: 'var(--card, #0F172A)', border: '1px solid rgba(59,130,246,.4)',
-            borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center',
-            gap: 10, boxShadow: '0 8px 24px rgba(0,0,0,.35)',
-          }}
-        >
-          <span style={{ fontSize: 20 }} aria-hidden>📲</span>
-          <span style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}>
+        <div role="status" className="install-nudge">
+          <span className="install-nudge-icon" aria-hidden>📲</span>
+          <span className="install-nudge-copy">
             {isIOS
               ? <>Add Brixpense to your home screen: tap <b>Share</b> then <b>&ldquo;Add to Home Screen&rdquo;</b>.</>
               : <>Install Brixpense on your phone for one-tap expense capture.</>}
@@ -178,7 +170,7 @@ export function AppShell() {
             <button
               type="button"
               onClick={triggerInstall}
-              style={{ background: '#3B82F6', color: '#fff', border: 0, borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600 }}
+              className="install-nudge-action"
             >
               Install
             </button>
@@ -187,7 +179,7 @@ export function AppShell() {
             type="button"
             aria-label="Dismiss"
             onClick={dismissInstallNudge}
-            style={{ background: 'transparent', border: 0, color: 'inherit', opacity: .6, padding: 4 }}
+            className="install-nudge-close"
           >
             <X size={16} />
           </button>
