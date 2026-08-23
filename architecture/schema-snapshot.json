@@ -5,6 +5,7 @@
   "tables": [
     "alert_settings",
     "balance_sheet_snapshots",
+    "bill_email_intake",
     "category_segments",
     "channels",
     "cogs_accounts",

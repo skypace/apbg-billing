@@ -46,26 +46,28 @@ export default function ThirdPartyBills() {
         <ExternalLink className="cta-arrow h-5 w-5" />
       </a>
 
-      {/* Email-forward path */}
-      <a
-        href={`mailto:${FORWARD_TO}`}
+      {/* Email-forward path → the AP Inbox queue */}
+      <button
+        type="button"
+        onClick={() => navigate('/bills')}
         className="cta-card"
-        style={{ textDecoration: 'none' }}
+        style={{ textDecoration: 'none', width: '100%', textAlign: 'left' }}
       >
         <div className="cta-icon-tile amber">
           <Mail className="h-6 w-6" />
         </div>
         <div className="cta-body">
-          <div className="cta-title">Forward a bill by email</div>
+          <div className="cta-title">Email a bill in → AP Inbox</div>
           <div className="cta-desc">
             Forward any vendor invoice to{' '}
-            <span className="font-mono">{FORWARD_TO}</span> — Claude reads
-            the PDF or image and emails an approval link to the bill
-            approver.
+            <span className="font-mono">{FORWARD_TO}</span>, or have the vendor
+            send it there directly. The PDF is read automatically and lands as a
+            draft bill in the AP Inbox — nothing posts to QuickBooks until
+            someone reviews it and clicks Post.
           </div>
         </div>
         <ExternalLink className="cta-arrow h-5 w-5" />
-      </a>
+      </button>
 
       {/* Explainer */}
       <Card>

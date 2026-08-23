@@ -1,9 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import {
-  Receipt, Clock, Users, LogOut, Inbox, Settings as SettingsIcon,
-  ChevronLeft, ChevronRight,
-  Menu, X, BookOpen, Sun, Moon, Wrench, Building2,
-} from 'lucide-react';
+import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
@@ -30,6 +26,14 @@ const navGroups: {
       { path: 'queue', icon: Users, label: 'Approvals' },
       { path: 'third-party', icon: Inbox, label: '3rd Party Bills' },
     ],
+  },
+  {
+    // The AP bill inbox (bills@alamedapointbg.com). Staff-only, matching the
+    // RLS on ops.bill_email_intake — an emailed bill exposes vendor names and
+    // amounts, which is not for every login on the shared project.
+    label: 'Accounts payable',
+    staffOnly: true,
+    items: [{ path: 'bills', icon: Mail, label: 'AP Inbox' }],
   },
   {
     label: 'Vendors',
