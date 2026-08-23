@@ -692,11 +692,12 @@
       "schedule": "on-demand (Brixpense → Vendors at /expense/vendors; superadmin/admin)",
       "writes": [
         "ops.vendors",
-        "ops.insured_parties"
+        "ops.insured_parties",
+        "ops.compliance_documents"
       ],
       "multi_writer": true,
       "external_inputs": [],
-      "notes": "Vendor Portal Phase 1 (architecture/VENDOR-PORTAL-PLAN.md, migration 20260820a_ops_vendors.sql). The Brixpense Vendors pages CRUD ops.vendors directly via PostgREST on the user's bearer under staff-only RLS (vendors_staff_all / ops.fn_is_staff(), both directions), and auto-create the linked ops.insured_parties row when a vendor has none — hence multi_writer with brix-compliance:app on insured_parties. Companion Netlify function expense-vendors.mjs (requireAuth superadmin/admin) handles ONLY the QBO calls: live Vendor search and Vendor create; on create it also self-heals the ops.qbo_vendors mirror row (same-shape upsert as push-qbo-item:vendors, which remains that mirror's primary writer). Payment fields store preference + Venmo/PayPal handle ONLY — bank details never land in this schema; EIN stored as last-4 only.",
+      "notes": "Vendor Portal Phase 1 (architecture/VENDOR-PORTAL-PLAN.md, migration 20260820a_ops_vendors.sql). The Brixpense Vendors pages CRUD ops.vendors directly via PostgREST on the user's bearer under staff-only RLS (vendors_staff_all / ops.fn_is_staff(), both directions), and auto-create the linked ops.insured_parties row when a vendor has none — hence multi_writer with brix-compliance:app on insured_parties. Companion Netlify function expense-vendors.mjs (requireAuth superadmin/admin) handles ONLY the QBO calls: live Vendor search and Vendor create; on create it also self-heals the ops.qbo_vendors mirror row (same-shape upsert as push-qbo-item:vendors, which remains that mirror's primary writer). Payment fields store preference + Venmo/PayPal handle ONLY — bank details never land in this schema; EIN stored as last-4 only. Staff can file a vendor's documents directly from the vendor record (vendor-doc-upload.mjs, staff-gated): drop a W-9, a certificate of insurance or a bill and it classifies the document, runs the matching extractor (lib/vendor-doc-ocr.mjs) and lands it via the SHARED lib/vendor-doc-apply.mjs — the same mapper the vendor's own onboarding link uses, so a form produces the same record whichever door it comes through. A W-9 now populates the STRUCTURED 1099 columns (tax_classification, tin_type, w9_received_at, tax_address); before this the extractor read them and wrote them into a notes sentence, leaving the columns empty and the vendor on the chase list. ⚠ A dropped BILL is read for what it says about the vendor and creates NO expense row — the read is handed to the expense form for a human to file, because a money row must not be a side effect of a drag gesture.",
       "last_verified": "2026-08-20"
     },
     {

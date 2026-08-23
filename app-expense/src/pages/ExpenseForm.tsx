@@ -43,6 +43,10 @@ export default function ExpenseForm() {
   // "Log Receipt" CTA on PendingList for awaiting_invoice PR rows.
   const [searchParams] = useSearchParams();
   const fromPRId = searchParams.get('fromPR') || null;
+  // A bill read off a document elsewhere (a drop on the vendor page) is handed
+  // over through sessionStorage rather than the URL: line items don't fit in a
+  // query string, and an invoice's contents have no business in browser history.
+  const prefillKey = searchParams.get('prefill') || null;
   const isEditing = Boolean(id);
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
@@ -376,6 +380,50 @@ export default function ExpenseForm() {
     },
     [settings],
   );
+
+  // Prefill from a document somebody already had us read. Deliberately a
+  // DRAFT, not a submission: every field lands in the form for a human to look
+  // at, exactly as if they had typed it. Nothing here posts anything.
+  useEffect(() => {
+    if (id || !prefillKey) return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(prefillKey);
+      // One-shot — a back-button return should not silently refill a form the
+      // user has since edited.
+      sessionStorage.removeItem(prefillKey);
+    } catch { /* private window: no prefill, the form is just blank */ }
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw) as Record<string, unknown>;
+      const str = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : '');
+      if (str('vendor_name')) setVendorName(str('vendor_name'));
+      if (str('bill_number')) setBillNumber(str('bill_number'));
+      if (typeof d.total_amount === 'number') setTotalAmount(String(d.total_amount));
+      if (str('receipt_date')) setReceiptDate(str('receipt_date'));
+      if (str('payment_terms')) setPaymentTerms(str('payment_terms'));
+      if (str('due_date')) {
+        setDueDate(str('due_date'));
+        setDueDateSource((str('due_date_source') as 'printed' | 'terms' | 'manual') || 'printed');
+      }
+      if (str('memo')) setMemo(str('memo'));
+      if (str('job_number')) setJobNumber(str('job_number'));
+      if (str('cogs_account_label')) {
+        // Resolve through the same picker the receipt-upload path uses. A label
+        // set on its own would sit next to whatever GL id the remembered
+        // defaults put there — a row showing one account and posting to
+        // another, which is the exact failure the bill rules guard against.
+        const matched = pickCogsAccount(str('cogs_account_label'));
+        setCogsAccountLabel(matched ? matched.label : str('cogs_account_label'));
+        setCogsAccountId(matched ? matched.id : '');
+      }
+      if (Array.isArray(d.line_items) && d.line_items.length > 0) setLineItems(d.line_items as LineItem[]);
+      // Straight to the details step — the document has been read, what's left
+      // is checking it and attaching the file.
+      setStep('details');
+    } catch { /* a malformed handoff is just an empty form, never a crash */ }
+  }, [id, prefillKey, pickCogsAccount]);
+
 
   const handleFileSelect = useCallback(
     async (file: File) => {

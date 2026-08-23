@@ -65,3 +65,58 @@ proprietorship trades under a company name is the failure that costs money.
 - Per-vendor fields: the vendor's own record, next to the W-9 status.
 - Both are staff-gated (`ops.fn_assert_staff_or_service()` inline in the RPC —
   it is a new function, **not** generator-wrapped, so keep the guard on any edit).
+
+## Filing the paperwork
+
+Two doors, one mapper. `lib/vendor-doc-apply.mjs` is what turns an OCR'd form
+into vendor columns, and **both** paths go through it so the same document
+produces the same record whichever way it arrives:
+
+| Door | Who | Where |
+|---|---|---|
+| The onboarding link | the **vendor**, from an emailed one-time link | `vendor-onboard.mjs` |
+| Drop it on the vendor | **staff**, with a document they already have | `vendor-doc-upload.mjs` |
+
+Drop a **W-9**, a **certificate of insurance** or a **bill** onto the vendor
+record — several at once is fine — and it works out which is which rather than
+making you pick from a dropdown first. That friction is why documents sit in
+an inbox instead of getting filed. Classification is a cheap pass over page one
+and it always reports what it decided, so a wrong guess is visible and one
+click to correct; when it genuinely cannot tell, it asks.
+
+> ⚠ **A dropped bill does not become a payable.** It is read for what it says
+> about the *vendor* — remit-to, terms, legal name — and the read is handed to
+> the expense form for a human to file. A money row must not be a side effect of
+> a drag gesture; that is the 2026-08-14 QuickBooks gate, one step earlier.
+
+### What a W-9 fills in
+
+`w9_status`, `w9_received_at`, `ein_last4`, `tin_type`, `tax_classification`,
+`tax_address`, and `legal_name` **only if the record has none** — a name someone
+curated is never overwritten by OCR.
+
+This is the fix for the gap that made the 1099 worklist read wrong: `runW9Ocr`
+had always extracted `entity_type` and `tin_type`, and the write path put them
+in a free-text notes sentence and dropped them. The columns stayed empty, so a
+vendor with their W-9 sitting in the vault still showed as needing one.
+
+`is_1099` is deliberately **not** set from the form. It stays NULL so it derives
+from the classification — and an exempt payee code on a W-9 is about *backup
+withholding*, not 1099 reporting, so reading it as an exemption would silently
+drop a real obligation.
+
+A classification the mapper cannot pin down (a bare "LLC" — a single-member LLC
+checks the *individual* box, so the form genuinely does not say) is **left blank
+and reported**, never guessed.
+
+### What a certificate fills in
+
+A `compliance_documents` row under the vendor's insured party, created on the
+fly if they have none, with limits and policy numbers in the notes and — the
+load-bearing field — an **expiration date, taken from the earliest-expiring
+line**, not the general-liability one. A certificate is only as current as the
+first coverage to lapse. That date is what the weekly expiry digest chases.
+
+Shortfalls against the vendor's own `requirements` are recorded on the row, and
+so is the additional-insured caveat from SOP-11: the box being ticked is not the
+endorsement.

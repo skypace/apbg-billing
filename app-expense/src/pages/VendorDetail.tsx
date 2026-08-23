@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { VendorDocDrop } from '@/components/VendorDocDrop';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -625,17 +626,26 @@ export default function VendorDetail() {
                   ))}
                 </div>
               )}
+              <VendorDocDrop
+                vendorId={vendor.id}
+                onFiled={async () => {
+                  // Both halves move: the vault list AND the vendor row, since
+                  // a W-9 rewrites the tax fields shown further up this page.
+                  const v = await getVendor(vendor.id);
+                  if (v) { setVendor(v); setDraft(v); }
+                  if (vendor.insured_party_id) setDocs(await partyDocuments(vendor.insured_party_id));
+                }}
+              />
               <a
                 href="https://alamedapointbg.com/compliance"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
               >
-                File documents in Compliance &amp; Safety <ExternalLink className="h-3.5 w-3.5" />
+                Open the full vault in Compliance &amp; Safety <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <p className="text-[11px] text-muted-foreground">
-                Staff filing happens in the Compliance &amp; Safety app under this vendor&rsquo;s party —
-                or let the vendor do it themselves with the request link below.
+                Or let the vendor file their own with the request link below.
               </p>
             </>
           )}
