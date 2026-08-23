@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { SelectField } from '@/components/ui/select-field';
 import { Building2, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { VendorFundingCard } from '@/components/VendorFundingCard';
 import type { Vendor, VendorType, VendorComplianceDoc, QboVendorMirror } from '@/types/expense';
 import {
   listVendors, createVendor, documentsForParties, searchQboMirror,
@@ -55,6 +56,8 @@ function W9Chip({ vendor, docs }: { vendor: Vendor; docs: VendorComplianceDoc[] 
 export default function Vendors() {
   const navigate = useNavigate();
   const [isStaff, setIsStaff] = useState<boolean | null>(null);
+  // Funding moves company money — superadmin only, like the Pay button.
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [docsByParty, setDocsByParty] = useState<Map<string, VendorComplianceDoc[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -80,6 +83,7 @@ export default function Vendors() {
         (data.user?.user_metadata as { role?: string } | undefined)?.role ||
         '';
       setIsStaff(role === 'superadmin' || role === 'admin');
+      setIsSuperadmin(role === 'superadmin');
     });
   }, []);
 
@@ -235,6 +239,8 @@ export default function Vendors() {
           {adding ? 'Close' : 'Add vendor'}
         </Button>
       </div>
+
+      {isSuperadmin && <VendorFundingCard />}
 
       {adding && (
         <Card>

@@ -709,6 +709,42 @@
       "last_verified": "2026-08-20"
     },
     {
+      "name": "vendor-payments:pay-and-webhook",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (superadmin Pay click) + Stripe webhook on payout settlement",
+      "writes": [
+        "ops.vendor_payments",
+        "ops.vendors"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "Stripe Global Payouts API v2 (recipients, outbound payments)",
+        "Stripe webhook events",
+        "QBO BillPayment writeback"
+      ],
+      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase.",
+      "last_verified": "2026-08-20"
+    },
+    {
+      "name": "vendor-funding:top-up-and-reconcile",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (superadmin top-up / reconcile) + daily 16:20 UTC (vendor-funding-cron)",
+      "writes": [
+        "ops.vendor_funding_events",
+        "ops.expense_settings",
+        "ops.sync_log"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "Stripe Global Payouts API v2 (financial accounts, inbound transfers, received credits)",
+        "QBO Transfer writeback (Chase -> Stripe Vendor Funding)"
+      ],
+      "notes": "Vendor Portal Phase 3b (migration 20260820d_vendor_funding.sql). The Stripe payout float and the bookkeeping that mirrors it: QuickBooks holds a BANK account 'Stripe Vendor Funding' (QBO_VENDOR_PAY_BANK_ACCOUNT_ID), funding is a QBO Transfer from Chase (QBO_FUNDING_SOURCE_ACCOUNT_ID, default 72), and every vendor BillPayment is drawn on it (vendor-payments:pay-and-webhook) — so that account's QBO balance should equal the live Stripe balance. Stripe has NO low-balance auto-pull (their bank pull is manual per transfer, US-only, 2-6 business days, 50k/txn · 50k/day · 100k/week), so the threshold top-up is ours: vendor-funding.mjs is SUPERADMIN-only (status / top_up / sync / save_config) and vendor-funding-cron.mjs runs daily — reconcile first, then alert below the floor, or pull to target only when auto_top_up is switched on (ships FALSE; no automatic money movement by default). One ops.vendor_funding_events row per funding event keyed on stripe_object_id, so a Dashboard top-up or a pushed ACH/wire books its QBO Transfer exactly once; a booking failure records book_error and retries. Config rides ops.expense_settings key 'vendor_funding' (multi_writer with brixpense:app). Health: ops.fn_vendor_funding_health() inside fn_sync_health_extra reads the cron's sync_log row (source=vendors sync_type=vendor_funding) for balance/below_floor — red on a failed pull in 7d, settled funding unbooked >24h, or an errored run. DELIBERATELY NOT USED: Stripe's native recurring transfer from the payments balance — brix-order books Stripe payouts as QBO Deposits into Chase 72, and diverting that revenue would break that reconciler.",
+      "last_verified": "2026-08-21"
+    },
+    {
       "name": "brix-rebates:app-and-rpcs",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
