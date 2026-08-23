@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/control'+location.search);</script>
-<title>Master Control — APBG Systems</title>
+<title>BRIXPENSE — System Control</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#0F172A;color:#E2E8F0;min-height:100vh}
@@ -81,14 +81,16 @@ header .links a:hover{color:#fff}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .pulsing{animation:pulse 2s ease-in-out infinite}
 </style>
+<link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
+<body class="page-control">
 
 <!-- PIN Gate -->
 <div id="gate" class="gate">
 <div class="gate-card">
-  <h1>Master Control</h1>
-  <p>Enter PIN to access the system dashboard</p>
+  <div class="brand-mark gate-mark" aria-hidden="true">B</div>
+  <h1>System control</h1>
+  <p>Enter your PIN to continue to the operations dashboard.</p>
   <input type="password" id="pin" placeholder="PIN" maxlength="8" autofocus>
   <div class="err" id="pinErr">Invalid PIN</div>
 </div>
@@ -97,9 +99,9 @@ header .links a:hover{color:#fff}
 <!-- Dashboard -->
 <div id="app" style="display:none">
 <header>
-  <h1>🎛️ Master Control — APBG Systems</h1>
+  <h1><span class="brand-mark" aria-hidden="true">B</span> BRIXPENSE System Control</h1>
   <div class="links">
-    <a href="https://apbg-billing.netlify.app" target="_blank">APBG Billing</a>
+    <a href="https://apbg-billing.netlify.app" target="_blank">BRIXPENSE</a>
     <a href="https://melt-dashboard.netlify.app" target="_blank">Melt Dashboard</a>
     <a href="https://apbg-billing.netlify.app/setup.html" target="_blank">Setup</a>
   </div>
@@ -108,13 +110,13 @@ header .links a:hover{color:#fff}
 <div class="container">
   <div class="refresh-bar">
     <div class="last" id="lastCheck">Checking systems...</div>
-    <button id="refreshBtn" onclick="refreshAll()">↻ Refresh All</button>
+    <button id="refreshBtn" onclick="refreshAll()">Refresh all</button>
   </div>
 
   <div class="sites-grid" id="sitesGrid"></div>
 
   <div class="keepalive-section">
-    <h2>🫀 Token Keep-Alive Status</h2>
+    <h2>Token keep-alive status</h2>
     <div class="keepalive-grid" id="keepaliveGrid"></div>
   </div>
 

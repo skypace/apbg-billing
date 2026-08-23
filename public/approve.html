@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/approve.html'+location.search);</script>
-  <title>APBG 3rd Party Billing Loader — Review</title>
+  <title>BRIXPENSE — Review Bill</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -78,12 +78,14 @@
     .qbo-status.err{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
     @media(max-width:640px){.field-row,.field-row.three-col{grid-template-columns:1fr}.li-header{display:none}.li-row{grid-template-columns:1fr 1fr;gap:6px}.li-row input:first-child{grid-column:1/-1}}
   </style>
+  <link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
+<body class="page-approval">
 <div class="container">
   <div class="header">
-    <h1>APBG 3rd Party Billing Loader</h1>
-    <p>Review vendor bill details, then approve to create in QuickBooks</p>
+    <div class="eyebrow" style="margin-bottom:10px">BRIXPENSE · Bill review</div>
+    <h1>Review vendor bill</h1>
+    <p>Confirm the extracted details before creating the bill in QuickBooks.</p>
   </div>
   <div class="body-card" id="mainForm">
     <div id="qboStatus" class="qbo-status">Loading QBO data…</div>
@@ -153,17 +155,17 @@
     </div>
 
     <div class="actions">
-      <button class="btn btn-approve" onclick="submitApproval()">✓ Approve & Create Bill</button>
+      <button class="btn btn-approve" onclick="submitApproval()">Approve and create bill</button>
     </div>
 
     <div class="result-card success" id="successCard">
-      <h2>✓ Bill Created & Matched to Invoice</h2>
+      <h2>Bill created and matched to invoice</h2>
       <div class="margin-display" id="marginDisplay"></div>
       <div class="detail" id="matchDetail"></div>
       <p style="margin-top:12px">You can close this page.</p>
     </div>
     <div class="result-card warning" id="warningCard">
-      <h2>⚠ Bill Created — No Matching Invoice</h2>
+      <h2>Bill created — no matching invoice</h2>
       <p id="warningText"></p>
       <p style="margin-top:12px;font-weight:600;color:var(--red)">Please submit this job for invoicing outside of this system.</p>
     </div>
@@ -369,4 +371,3 @@ function hide(id){document.getElementById(id).classList.remove('show');}
 </script>
 </body>
 </html>
-

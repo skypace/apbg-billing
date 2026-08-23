@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/sync.html'+location.search);</script>
-<title>APBG — ResQ ↔ SF Sync</title>
+<title>BRIXPENSE — Operations Sync</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#F4F6F9;color:#1F2937;min-height:100vh}
@@ -119,14 +119,16 @@ tr:hover td{background:#F9FAFB}
   .actions{flex-wrap:wrap}
 }
 </style>
+<link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
+<body class="page-sync">
 
 <!-- Login Gate -->
 <div class="gate" id="gateScreen">
   <div class="gate-card">
-    <h1>🔄 ResQ ↔ SF Sync</h1>
-    <p>Enter admin code to access the sync dashboard</p>
+    <div class="brand-mark gate-mark" aria-hidden="true">B</div>
+    <h1>Operations sync</h1>
+    <p>Enter your admin code to continue to the ResQ and Service Fusion workspace.</p>
     <input type="password" id="gateInput" placeholder="Admin code" autocomplete="off">
     <div class="err" id="gateErr">Invalid code</div>
   </div>
@@ -135,7 +137,7 @@ tr:hover td{background:#F9FAFB}
 <!-- Main Dashboard -->
 <div id="mainApp" style="display:none">
   <header>
-    <h1>🔄 ResQ ↔ Service Fusion Sync</h1>
+    <h1><span class="brand-mark" aria-hidden="true">B</span> BRIXPENSE Operations</h1>
     <div class="links">
       <a href="/billing/setup.html">Setup</a>
       <a href="/billing/">Billing Loader</a>
@@ -169,8 +171,8 @@ tr:hover td{background:#F9FAFB}
 
     <!-- Actions -->
     <div class="actions">
-      <button class="primary" id="syncBtn" onclick="runSync()">▶ Run Sync Now</button>
-      <button class="secondary" onclick="loadStatus()">↻ Refresh Status</button>
+      <button class="primary" id="syncBtn" onclick="runSync()">Run sync now</button>
+      <button class="secondary" onclick="loadStatus()">Refresh status</button>
     </div>
 
     <!-- Mapping Table -->
@@ -189,7 +191,7 @@ tr:hover td{background:#F9FAFB}
 
     <!-- Health Status -->
     <div class="section">
-      <h2>🩺 Integration Health <span id="healthAge" style="font-weight:400;font-size:0.75rem;color:#9CA3AF"></span></h2>
+      <h2>Integration health <span id="healthAge" style="font-weight:400;font-size:0.75rem;color:#8792a2"></span></h2>
       <div id="healthGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:16px 20px">
         <div style="color:#9CA3AF;font-size:0.85rem">Loading health checks...</div>
       </div>
@@ -200,7 +202,7 @@ tr:hover td{background:#F9FAFB}
 <!-- Expense → Bill Modal -->
 <div class="expense-modal" id="expenseModal">
   <div class="expense-box">
-    <h3>💰 Receipt → QBO Bill</h3>
+    <h3>Receipt → QuickBooks bill</h3>
     <p class="subtitle" id="expenseTarget">SF Job: —</p>
     <div class="expense-list" id="expenseList"><div class="empty" style="padding:16px">Loading expenses...</div></div>
     <div class="expense-drop" id="expenseDrop">
@@ -210,7 +212,7 @@ tr:hover td{background:#F9FAFB}
     </div>
     <div id="expenseFilePreview" style="margin-bottom:12px"></div>
     <div style="display:flex;gap:8px;justify-content:center">
-      <button class="primary" id="scanBtn" onclick="doScanReceipt()" disabled>🔍 Scan & Create Bill</button>
+      <button class="primary" id="scanBtn" onclick="doScanReceipt()" disabled>Scan and create bill</button>
       <button class="secondary" onclick="closeExpense()">Cancel</button>
     </div>
     <div class="scan-result" id="scanResult" style="display:none"></div>
@@ -220,7 +222,7 @@ tr:hover td{background:#F9FAFB}
 <!-- Photo Upload Modal -->
 <div class="upload-modal" id="uploadModal">
   <div class="upload-box">
-    <h3>📸 Upload Photos to ResQ</h3>
+    <h3>Upload photos to ResQ</h3>
     <p id="uploadTarget">WO: —</p>
     <div class="drop-zone" id="dropZone">
       <div class="icon">📁</div>

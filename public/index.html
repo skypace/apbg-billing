@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/'+location.search);</script>
-  <title>APBG 3rd Party Billing Loader</title>
+  <title>BRIXPENSE — Bill Intake</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -29,24 +29,31 @@
     a.manual{color:#1F4E79;font-weight:600;text-decoration:none;font-size:0.88rem}
     a.manual:hover{text-decoration:underline}
   </style>
+  <link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
-<div class="card">
-  <h1>APBG 3rd Party Billing Loader</h1>
-  <p class="sub">Drop a vendor bill to scan and review for approval</p>
-  <div class="drop" id="drop">
-    <input type="file" id="file" accept=".pdf,image/*" />
-    <div class="idle">
-      <div class="icon">📄</div>
-      <div class="txt">Drop vendor bill PDF here</div>
-      <div class="hint">or click to browse</div>
+<body class="page-home">
+<main class="page-shell">
+  <nav class="page-nav" aria-label="Primary">
+    <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-name">BRIXPENSE</span></div>
+    <a href="/billing/setup.html">Connections</a>
+  </nav>
+  <section class="card hero-card">
+    <div class="eyebrow">Accounts payable</div>
+    <h1>Turn a vendor bill into a ready-to-review expense.</h1>
+    <p class="sub">Upload a PDF or image. BRIXPENSE extracts the details and opens a clean review before anything reaches QuickBooks.</p>
+    <div class="drop" id="drop">
+      <input type="file" id="file" accept=".pdf,image/*" aria-label="Upload vendor bill" />
+      <div class="idle">
+        <div class="upload-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></div>
+        <div class="txt">Drop a vendor bill here</div>
+        <div class="hint">PDF, PNG, or JPG · Click to browse</div>
+      </div>
+      <div class="spinner"></div>
     </div>
-    <div class="spinner"></div>
-  </div>
-  <div id="result"></div>
-  <div class="or">— or —</div>
-  <a href="/billing/approve.html" class="manual">Enter a bill manually →</a>
-</div>
+    <div id="result" aria-live="polite"></div>
+    <div class="manual-row"><span>Already have the details?</span><a href="/billing/approve.html" class="manual">Enter manually <span aria-hidden="true">→</span></a></div>
+  </section>
+</main>
 <script>
 const API='/billing/.netlify/functions';
 const drop=document.getElementById('drop'),fi=document.getElementById('file'),res=document.getElementById('result');

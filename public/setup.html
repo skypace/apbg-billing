@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>APBG Billing — Connect Services</title>
+<title>BRIXPENSE — Connections</title>
 <style>
 body{font-family:'DM Sans',sans-serif;background:#F4F6F9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
 .card{background:#fff;border-radius:12px;border:1px solid #E2E6ED;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.04)}
@@ -17,22 +17,30 @@ a.sf{background:#1F4E79;color:#fff}
 a.sf:hover{background:#2E75B6}
 .note{font-size:0.78rem;color:#9CA3AF;margin-top:12px}
 </style>
+<link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
-<div class="card">
-<h1>APBG Billing — Connect Services</h1>
-<p>Authorize connections to QuickBooks and Service Fusion. One-time setup for each.</p>
+<body class="page-setup">
+<main class="page-shell">
+<nav class="page-nav" aria-label="Primary">
+  <a class="brand-lockup" href="/billing/" style="text-decoration:none"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-name">BRIXPENSE</span></a>
+  <a href="/billing/">Bill intake</a>
+</nav>
+<section class="card hero-card">
+<div class="eyebrow">Workspace setup</div>
+<h1>Connect your services.</h1>
+<p class="sub">Authorize QuickBooks and Service Fusion once to keep bill intake and customer records moving.</p>
 
-<a class="btn qbo" id="qboBtn" href="#">Connect to QuickBooks →</a>
+<a class="btn qbo" id="qboBtn" href="#">Connect QuickBooks</a>
 <div class="note">Creates customers, vendors, bills, and invoices in QBO</div>
 
 <div class="divider"><span>and</span></div>
 
-<a class="btn sf" id="sfBtn" href="#">Connect to Service Fusion →</a>
+<a class="btn sf" id="sfBtn" href="#">Connect Service Fusion</a>
 <div class="note">Creates customers in Service Fusion alongside QBO</div>
 
-<p style="margin-top:32px;font-size:0.75rem;color:#ccc;">After connecting, return to <a href="/billing/" style="color:#1F4E79">the billing loader</a></p>
-</div>
+<p style="margin-top:32px;font-size:0.75rem;color:#8792a2;">When you’re done, return to <a href="/billing/" style="color:#0a66c2">bill intake</a>.</p>
+</section>
+</main>
 <script>
 // QBO OAuth URL — hardcoded redirect to prevent mismatch
 const qboClientId = 'ABCV3BJbXv0jfZln6eny4GqiGmojgwwqu9Eq2Fjbg8AoCN3nuK';
