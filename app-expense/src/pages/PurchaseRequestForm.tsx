@@ -279,8 +279,8 @@ export default function PurchaseRequestForm() {
         </div>
 
         <Card>
-          <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-medium">Items to Purchase</CardTitle></CardHeader>
-          <CardContent className="p-3 space-y-3">
+          <CardHeader className="p-4 pb-2"><CardTitle className="text-sm font-medium">Items to Purchase</CardTitle></CardHeader>
+          <CardContent className="p-4 pt-2 space-y-4">
             {lineItems.map((li, idx) => (
               <div key={idx} className="flex items-start gap-2">
                 <div className="flex-1 space-y-1">

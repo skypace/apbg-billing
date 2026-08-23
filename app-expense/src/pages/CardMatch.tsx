@@ -318,7 +318,7 @@ export default function CardMatch() {
 
       {data && (
         <Card>
-          <CardContent className="pt-2 pb-6">
+          <CardContent className="p-5 pt-4 sm:p-6 sm:pt-5">
             {data.card_summary.length > 0 && (
               <>
                 <SectionTitle>💳 Cardholders ({data.card_summary.length} cards seen) — assign each card's last-4 to its user</SectionTitle>
