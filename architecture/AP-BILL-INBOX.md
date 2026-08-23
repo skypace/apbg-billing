@@ -247,3 +247,104 @@ exactly what an AP-inbox bill becomes. So the panel is mounted here too:
 The full lifecycle of an emailed bill is therefore: **arrives → OCR'd → routed →
 posted to QuickBooks → paid** — with an approval step in the middle only if
 `require_approval` is switched on.
+
+---
+
+## The watcher
+
+The AP inbox is **event-driven**, so the usual "no run in N hours" heartbeat
+means nothing here — a quiet day is a quiet day, and colouring on it would flap
+exactly the way the `sf_token` check did before 2026-08-06. What is genuinely
+broken is an email we **accepted and then failed to finish**: the webhook
+recorded the row, the background processor never completed it, and a real vendor
+invoice sits in a table nobody opens.
+
+`ops.fn_ap_inbox_health()` (wired into `ops.fn_sync_health_extra()`, which the
+15-minute `health-alert` cron emails on red/yellow) reads it that way:
+
+| | |
+|---|---|
+| **red** | mail accepted but still `received`/`processing` after 30 min, or a processor run logged `error` in the last 24h |
+| **yellow** | mail we could not read (`no_attachment` / `attachment_fetch_failed` / `ocr_failed` / `failed`) that has **no expense request and has not been dismissed** |
+| **green** | everything else, with the count drafted in the last 24h |
+
+Yellow counts only **unresolved** held mail, so dismissing a row from the queue
+clears the light. A permanent amber is a light people stop reading.
+
+`bill-email-process-background` writes `ops.sync_log` (`source: 'brixpense'`,
+`sync_type: 'ap_inbox'`) on every run **that had work** — an empty sweep is not
+an event and logging one would make the last-run timestamp meaningless.
+
+> ⚠ Zero mail ever received reads **green**, with the detail saying so. Postgres
+> cannot tell "nobody has emailed a bill yet" from "the Resend webhook was never
+> pointed here", so it states the ambiguity rather than picking a colour.
+
+## Duplicate bills
+
+The only dedup used to be on the Resend email id, which catches a webhook replay
+and nothing else. The duplicate that costs money arrives by a **second road**:
+the vendor re-sends "just in case", or emails it AND someone photographs it, or
+a Service Fusion job expense and an emailed bill describe one purchase. Every
+one of those has a different email id.
+
+`ops.fn_bill_duplicate_candidates` holds the rules, so the automated and human
+paths cannot drift:
+
+- **exact** — same vendor, same bill number. That is the same invoice.
+- **likely** — same vendor, same amount, within ten days, and no bill number to
+  separate them — *unless both rows carry a job number and the job numbers
+  differ*, which proves it is different work.
+
+Deliberately **not a unique constraint**. A hard constraint would reject the
+legitimate cases too (a corrected re-issue, a vendor who restarts numbering each
+year, an OCR misread a human is about to fix) and a pipeline that throws on
+insert loses the document. Hold it, say why, let a human decide.
+
+Where it bites:
+
+| Where | What happens |
+|---|---|
+| Intake (`bill-email-process-background`) | Stamps `duplicate_of` + `duplicate_reason`. An **exact** match drops an otherwise-auto-approved bill back to `draft`, so it cannot be one click from a QBO Bill. Clearable the same way a held OCR row is: open it, Submit, it re-approves. |
+| Posting (`expense-request-link-bill`) | Re-checked here, because the row may have sat for days and the twin may have arrived since. An exact match **whose twin is already in QuickBooks** refuses with `409 possible_duplicate`; the client asks, and `confirmDuplicate: true` is recorded in `duplicate_cleared_by`, not just obeyed. Two *unposted* drafts are a tidiness problem, not a money problem, and refusing both would be the pipeline arguing with itself. |
+
+**Validated against live data before shipping.** Replayed over every expense on
+file, the amount rule produced three clusters and the job-number discriminator
+sorted them correctly:
+
+| Vendor | Amount | Rows | Jobs | Verdict |
+|---|---|---|---|---|
+| ARTURO SANTIAGO | $375.00 | 2 | 1 | **real** — QBO Bills 173048 + 173049, the pair recorded on 2026-08-14 |
+| DESERT BEVERAGE | $133.90 | 2 | 2 | two distinct calls |
+| ERIC SERRANO | $170.00 | 2 | 2 | two distinct calls |
+
+A flat-rate contractor bills the same number over and over, so amount alone is a
+weak signal; the job number is what makes the flag worth reading.
+
+## Due dates and aging
+
+`ops.expense_requests` had no due date at all, so Brixpense could hold an unpaid
+vendor bill indefinitely with nothing anywhere saying it was late. QuickBooks
+knows once the bill is posted — the window this covers is the one **before**
+that, where the bill is ours and invisible.
+
+- OCR now extracts `due_date` and `payment_terms` **separately**, reporting only
+  what is printed. It never derives one from the other; that arithmetic happens
+  downstream where the invoice date is certain.
+- A **printed** date always beats one computed from terms. `due_date_source`
+  records which we had (`printed` | `terms` | `manual`).
+- `ops.v_ap_aging` (security_invoker, so RLS decides who sees whose payables)
+  buckets unpaid bills: `current` · `1-30` · `31-60` · `61-90` · `90+` ·
+  `no due date`.
+
+> ⚠ **Three copies of the terms→date logic exist** — `ops.fn_due_date_from_terms`
+> (backfills history), `netlify/functions/lib/due-date.mjs` (stamps bills as they
+> arrive) and `app-expense/src/lib/dueDate.ts` (fills the field while you type).
+> `tests/due-date.test.mjs` pins them to one table of cases; **add a case there
+> before changing any of them.** The first version of all three shared a bug:
+> `2/10 Net 30` read the discount percent as the term and made the bill due two
+> days after the invoice date — instantly and permanently overdue. They now
+> prefer the number after `net`.
+
+Anything unrecognised returns **null**, not a guess. A wrong due date is worse
+than none: no date shows as "no due date" and gets looked at, whereas a wrong one
+turns a genuinely overdue bill green.

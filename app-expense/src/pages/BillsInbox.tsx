@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccessToken, supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
 import { PayBillPanel } from '@/components/PayBillPanel';
 import { paymentsForExpenses, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
+import { ApAgingStrip } from '@/components/ApAgingStrip';
+import { ApInboxSettings } from '@/components/ApInboxSettings';
 import { Button } from '@/components/ui/button';
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Inbox, Loader2,
@@ -52,6 +56,12 @@ interface LinkedRequest {
   awaiting_approval: boolean;
   unassigned: boolean;
   can_post: boolean;
+  as_bill: boolean | null;
+  paid_at: string | null;
+  due_date: string | null;
+  duplicate_of: string | null;
+  duplicate_reason: string | null;
+  duplicate_cleared_by: string | null;
 }
 
 interface IntakeItem {
@@ -130,6 +140,7 @@ export default function BillsInbox() {
   const { session } = useSession();
   const [items, setItems] = useState<IntakeItem[]>([]);
   const [settings, setSettings] = useState<InboxSettings | null>(null);
+  const [isStaff, setIsStaff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ready');
@@ -161,6 +172,7 @@ export default function BillsInbox() {
       const rows: IntakeItem[] = data.items ?? [];
       setItems(rows);
       setSettings(data.settings ?? null);
+      setIsStaff(!!data.is_staff);
       setMe(data.me ?? null);
       setError(null);
       const paid = rows.map((i) => i.request).filter((r): r is LinkedRequest => !!r?.posted).map((r) => r.id);
@@ -240,18 +252,10 @@ export default function BillsInbox() {
     setBusy(item.id);
     setError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: item.request.id, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
-      }
+      await postExpenseToQbo(item.request.id);
       await load();
     } catch (e) {
+      if (e instanceof DuplicateBillError) { setError(null); return; }
       setError(e instanceof Error ? e.message : 'Could not post to QuickBooks.');
     } finally {
       setBusy(null);
@@ -365,6 +369,16 @@ export default function BillsInbox() {
         </CardContent>
       </Card>
 
+      {settings && isStaff && (
+        <ApInboxSettings
+          value={settings}
+          onSave={async (next) => {
+            const data = await api({ action: 'settings', ...next });
+            setSettings(data.settings as InboxSettings);
+          }}
+        />
+      )}
+
       {error && (
         <Card className="border-red-500/40">
           <CardContent className="p-3 text-sm text-red-300 flex items-start gap-2">
@@ -400,6 +414,8 @@ export default function BillsInbox() {
         ))}
       </div>
 
+      <ApAgingStrip />
+
       {loading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading the inbox…
@@ -429,6 +445,8 @@ export default function BillsInbox() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold truncate">{vendor}</span>
                         <Badge variant={badge.variant}>{badge.label}</Badge>
+                        {r && <DueBadge request={r} />}
+                        {r && <DuplicateBadge request={r} />}
                         {item.reprocess_count > 0 && (
                           <span className="text-[11px] text-muted-foreground">re-run ×{item.reprocess_count}</span>
                         )}

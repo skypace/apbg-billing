@@ -37,6 +37,8 @@ import {
   inboundKeyIsFallback, safeFilename, OCRABLE,
 } from './lib/resend-inbound.mjs';
 import { pickRule, applyRule, recurringNote } from './lib/expense-rules.mjs';
+import { findDuplicate } from './lib/expense-dupes.mjs';
+import { resolveDueDate } from './lib/due-date.mjs';
 
 const MAX_PER_RUN = 15;
 const RETRYABLE = ['received', 'processing', 'failed', 'attachment_fetch_failed', 'ocr_failed'];
@@ -63,19 +65,27 @@ async function loadAccountLabels() {
 
 // ─── Notifications ───
 
-async function notifyDrafted(intake, request, settings, submitter, routing, needsApproval) {
+async function notifyDrafted(intake, request, settings, submitter, routing, needsApproval, dupe) {
   const owned = !!routing.owner_email;
   const inner = kvTable([
     kvRow('Vendor', esc(request.vendor_name || '—')),
     kvRow('Amount', money(request.total_amount || 0)),
     kvRow('Bill #', esc(request.bill_number || '—')),
     kvRow('Bill date', esc(request.receipt_date || '—')),
+    ...(request.due_date ? [kvRow('Due', esc(`${request.due_date}${request.payment_terms ? ` (${request.payment_terms})` : ''}`))] : []),
     kvRow('From', esc(intake.from_email || '—')),
     kvRow('Subject', esc(intake.subject || '—')),
     kvRow('Filed as', esc(submitter?.matched_sender ? `${submitter.name} (the sender)` : 'AP Inbox')),
     kvRow(needsApproval ? 'Waiting on' : 'Filed to', esc(routing.owner_email || 'nobody yet — needs assigning')),
     kvRow('Why', esc(routing.reason)),
-  ]) + `<p style="margin:16px 0 0">
+    ...(dupe ? [kvRow(dupe.match_kind === 'exact' ? '⚠ Possible duplicate' : 'Similar bill on file', esc(dupe.reason))] : []),
+  ]) + (dupe && dupe.match_kind === 'exact'
+    ? `<p style="margin:14px 0 0;padding:10px 12px;border-radius:8px;background:rgba(245,158,11,.12);color:#FCD34D;font-size:13px">
+        We already have a bill from this vendor with this number, so this one is being held as a draft rather than made ready to post.
+        If it really is a new invoice, open it and hit Submit and it will go through.
+      </p>`
+    : '')
+  + `<p style="margin:16px 0 0">
       <a href="${needsApproval ? APPROVALS_URL : (owned ? MINE_URL : QUEUE_URL)}" style="background:#38BDF8;color:#0B1220;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">${needsApproval ? 'Review and approve →' : (owned ? 'Review and post →' : 'Open the AP inbox →')}</a>
     </p>
     <p style="margin:14px 0 0;color:#94A3B8;font-size:13px">
@@ -283,7 +293,37 @@ async function processIntake(intake, settings, accountLabels, rules) {
   //                 are what routing buys, and they don't depend on the gate.
   //  unassigned   → `draft`, held in the AP Inbox for a human to assign.
   const needsApproval = routing.assigned && settings.require_approval;
-  const status = needsApproval ? 'pending' : (routing.assigned ? 'approved' : 'draft');
+  let status = needsApproval ? 'pending' : (routing.assigned ? 'approved' : 'draft');
+
+  // Have we already got this bill? The Resend id dedup upstream catches a
+  // webhook replay and nothing else — the duplicate that costs money is the
+  // same invoice arriving by a second road (re-sent "just in case", emailed
+  // AND photographed, or a Service Fusion expense for the same work).
+  //
+  // An EXACT match (same vendor, same invoice number) drops the bill back to
+  // `draft` even when routing would have auto-approved it. That is deliberate:
+  // approved means one click from a real QBO Bill, and the whole value of this
+  // gate is that a person looks first. It costs the innocent case (a corrected
+  // re-issue) one extra click, and it is clearable the same way a held OCR row
+  // is — open it, Submit, it re-approves.
+  //
+  // A LIKELY match only flags. It is a weak signal and must not change anyone's
+  // workflow on its own.
+  // When is it due? A date printed on the invoice wins; otherwise derive one
+  // from the terms. Both may be absent, and that is a legitimate answer —
+  // v_ap_aging buckets it as "no due date" rather than pretending it is current.
+  const due = resolveDueDate({
+    printed: ocr.due_date, invoiceDate: ocr.date, terms: ocr.payment_terms,
+  });
+
+  const dupe = await findDuplicate({
+    vendor: ocr.vendor, bill_number: ocr.bill_number,
+    amount: ocr.total, date: ocr.date, job_number: ocr.job_number,
+  });
+  if (dupe?.match_kind === 'exact' && status === 'approved') {
+    status = 'draft';
+    diag.push(`held as draft: looks like a duplicate of ${dupe.id} (${dupe.reason})`);
+  }
   const autoApproved = status === 'approved';
 
   const request = await opsInsert('expense_requests', {
@@ -315,6 +355,12 @@ async function processIntake(intake, settings, accountLabels, rules) {
     // vendor, amount or date — those are read off the actual document.
     ...rulePatch,
     applied_rule_id: hit?.rule?.id ?? null,
+    payment_terms: ocr.payment_terms || null,
+    due_date: due.due_date,
+    due_date_source: due.due_date_source,
+    duplicate_of: dupe?.id ?? null,
+    duplicate_reason: dupe?.reason ?? null,
+    duplicate_checked_at: new Date().toISOString(),
     ocr_status: 'processed',
     ocr_processed_at: new Date().toISOString(),
   });
@@ -361,7 +407,7 @@ async function processIntake(intake, settings, accountLabels, rules) {
 
   if (!intake.notified_at) {
     try {
-      await notifyDrafted(intake, { ...request, ...ocr, vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number, receipt_date: ocr.date }, settings, submitter, routing, needsApproval);
+      await notifyDrafted(intake, { ...request, ...ocr, vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number, receipt_date: ocr.date, due_date: due.due_date, payment_terms: ocr.payment_terms }, settings, submitter, routing, needsApproval, dupe);
       await ackSender(intake, settings, { vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number });
       await opsPatch('bill_email_intake', `id=eq.${intake.id}`, { notified_at: new Date().toISOString() });
     } catch (e) {
@@ -369,10 +415,32 @@ async function processIntake(intake, settings, accountLabels, rules) {
     }
   }
 
-  return { status: 'drafted', request_id: request?.id, owner: routing.owner_email, bill_status: status };
+  return {
+    status: 'drafted', request_id: request?.id, owner: routing.owner_email,
+    bill_status: status, duplicate_of: dupe?.id ?? null,
+  };
 }
 
 // ─── Handler ───
+
+// Every run logs to ops.sync_log so the `ap_inbox` check in
+// ops.fn_sync_health_extra() has something to read. The AP inbox is
+// event-driven, so this is NOT a heartbeat — a quiet day writes nothing and
+// that is correct. What it records is the outcome of the runs that DID happen,
+// which is how a processor that starts failing on every email becomes visible
+// instead of just quietly leaving bills in the queue.
+async function logRun(status, metadata, errMsg) {
+  try {
+    await opsInsert('sync_log', {
+      source: 'brixpense',
+      sync_type: 'ap_inbox',
+      status,
+      error_message: errMsg ? String(errMsg).slice(0, 400) : null,
+      metadata: metadata || null,
+      completed_at: new Date().toISOString(),
+    });
+  } catch { /* the health check's stuck-row rule catches a run that cannot log */ }
+}
 
 export default async (req) => {
   const secret = req.headers.get('x-ap-inbox-secret') || '';
@@ -403,6 +471,7 @@ export default async (req) => {
       );
     }
   } catch (e) {
+    await logRun('error', null, e?.message || e);
     return Response.json({ error: String(e?.message || e) }, { status: 500 });
   }
 
@@ -420,6 +489,21 @@ export default async (req) => {
       } catch { /* the row keeps its previous status and stays retryable */ }
       results.push({ id: intake.id, status: 'failed', error: msg });
     }
+  }
+
+  // Only log a run that actually had work. A sweep over an empty queue is not
+  // an event, and recording one would make the last-run timestamp meaningless.
+  if (results.length) {
+    const tally = results.reduce((acc, r) => {
+      acc[r.status] = (acc[r.status] || 0) + 1;
+      return acc;
+    }, {});
+    const failed = results.filter((r) => r.status === 'failed');
+    await logRun(
+      failed.length ? 'error' : 'success',
+      { processed: results.length, ...tally },
+      failed.length ? `${failed.length} of ${results.length} failed: ${failed[0].error}` : null,
+    );
   }
 
   return Response.json({ ok: true, processed: results.length, results });

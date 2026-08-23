@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
+import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
@@ -47,6 +47,7 @@ const navGroups: {
     items: [
       { path: 'vendors', icon: Building2, label: 'Vendors' },
       { path: 'rules', icon: Wand2, label: 'Bill Rules' },
+      { path: 'tax-1099', icon: FileSpreadsheet, label: '1099s' },
     ],
   },
   {
@@ -58,11 +59,18 @@ const navGroups: {
 // it's superadmin-only and reachable from Settings → Card Connection Services.
 
 // Primary destinations for the mobile bottom tab bar.
+//
+// Four slots, so they have to be the four things someone reaches for on a
+// phone — not a miniature of the sidebar. My Inbox replaced Approvals here
+// because it ALREADY CONTAINS the approvals waiting on you (its "Waiting on
+// you" bucket) plus everything else that needs you, so the old Approvals tab
+// was a strict subset of it. Vendor Inbox earns a slot because forwarding a
+// bill and then checking it landed is a phone-shaped task.
 const tabItems = [
   { path: '', icon: Receipt, label: 'Home' },
-  { path: 'pending', icon: Clock, label: 'Expenses' },
-  { path: 'queue', icon: Users, label: 'Approvals' },
-  { path: 'settings', icon: SettingsIcon, label: 'Settings' },
+  { path: 'inbox', icon: Inbox, label: 'Inbox' },
+  { path: 'bills', icon: Mail, label: 'Bills' },
+  { path: 'pending', icon: Clock, label: 'History' },
 ];
 
 export function AppShell() {

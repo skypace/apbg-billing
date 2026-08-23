@@ -19,6 +19,7 @@ const BillRules = lazy(() => import('@/pages/BillRules'));
 const CardMatch = lazy(() => import('@/pages/CardMatch'));
 const Vendors = lazy(() => import('@/pages/Vendors'));
 const VendorDetail = lazy(() => import('@/pages/VendorDetail'));
+const Tax1099 = lazy(() => import('@/pages/Tax1099'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function LoadingFallback() {
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="cards" element={<CardMatch />} />
             <Route path="vendors" element={<Vendors />} />
             <Route path="vendors/:id" element={<VendorDetail />} />
+            <Route path="tax-1099" element={<Tax1099 />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="edit/:id" element={<ExpenseForm />} />
             <Route path="review/:id" element={<ApprovalPage />} />

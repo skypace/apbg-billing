@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, getAccessToken } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
 import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { DueBadge, DuplicateBadge, DuplicateNote } from '@/components/BillFlags';
+import { ApAgingStrip } from '@/components/ApAgingStrip';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, ArrowLeft, Inbox, Loader2, Send } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -65,18 +68,10 @@ export default function MyInbox() {
     setBusy(r.id);
     setError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: r.id, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
-      }
+      await postExpenseToQbo(r.id);
       await load();
     } catch (e) {
+      if (e instanceof DuplicateBillError) { setError(null); return; }
       setError(e instanceof Error ? e.message : 'Could not post to QuickBooks.');
     } finally {
       setBusy(null);
@@ -121,6 +116,8 @@ export default function MyInbox() {
         </Card>
       )}
 
+      <ApAgingStrip />
+
       {loading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
@@ -150,6 +147,8 @@ export default function MyInbox() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold truncate">{r.vendor_name || 'No vendor'}</span>
                         {r.tag && <Badge variant="secondary">{r.tag}</Badge>}
+                        <DueBadge request={r} />
+                        <DuplicateBadge request={r} />
                         {g.key === 'approve' && <Badge variant="info">Approve</Badge>}
                         {g.key === 'fix' && <Badge variant="destructive">Post failed</Badge>}
                       </div>
@@ -164,6 +163,7 @@ export default function MyInbox() {
                     </div>
                   </div>
 
+                  <DuplicateNote request={r} />
                   {r.autopost_error && (
                     <div className="text-xs text-red-300 bg-red-500/10 rounded px-2.5 py-1.5">
                       {r.autopost_error}

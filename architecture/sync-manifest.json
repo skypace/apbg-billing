@@ -13,7 +13,8 @@
         "ops.bill_email_intake",
         "ops.expense_requests",
         "ops.expense_request_attachments",
-        "ops.expense_settings"
+        "ops.expense_settings",
+        "ops.sync_log"
       ],
       "multi_writer": true,
       "external_inputs": [
@@ -21,7 +22,7 @@
         "Resend receiving API (attachment reads — needs a FULL-ACCESS key, RESEND_INBOUND_API_KEY)",
         "Anthropic API (bill OCR via lib/expense-ocr-core.mjs)"
       ],
-      "notes": "The AP bill inbox. bills@alamedapointbg.com -> bill-email-intake.mjs (Svix-gated on RESEND_AP_INBOX_SECRET; Resend mints a separate signing secret per webhook endpoint, so this cannot share the vendor route's) -> bill-email-process-background.mjs reads the attachment, OCRs it with the same extractor human uploads use, and lands an UNPAID BILL DRAFT tagged 'AP Inbox' with the PDF attached. It NEVER posts to QuickBooks: an emailed bill from outside the company must not be able to create a QBO transaction, so every draft waits for a human 'Post to QuickBooks' click (expense-request-link-bill), per the 2026-08-14 gate. Every failure is a visible, re-runnable status on ops.bill_email_intake, and 'no attachment' is kept distinct from 'could not read the attachment' because those have different fixes. Reviewed in Brixpense at /expense/bills via bills-inbox.mjs (staff-only). Config in ops.expense_settings key 'ap_inbox'. Tables: migration 20260823024339_bill_email_intake.sql.",
+      "notes": "The AP bill inbox. bills@alamedapointbg.com -> bill-email-intake.mjs (Svix-gated on RESEND_AP_INBOX_SECRET; Resend mints a separate signing secret per webhook endpoint, so this cannot share the vendor route's) -> bill-email-process-background.mjs reads the attachment, OCRs it with the same extractor human uploads use, and lands an UNPAID BILL DRAFT tagged 'AP Inbox' with the PDF attached. It NEVER posts to QuickBooks: an emailed bill from outside the company must not be able to create a QBO transaction, so every draft waits for a human 'Post to QuickBooks' click (expense-request-link-bill), per the 2026-08-14 gate. Every failure is a visible, re-runnable status on ops.bill_email_intake, and 'no attachment' is kept distinct from 'could not read the attachment' because those have different fixes. Reviewed in Brixpense at /expense/bills via bills-inbox.mjs (staff-only). Config in ops.expense_settings key 'ap_inbox'. Tables: migration 20260823024339_bill_email_intake.sql. Duplicate guard: ops.fn_bill_duplicate_candidates (exact = vendor+bill_number; likely = vendor+amount within 10 days, discounted when both rows carry DIFFERENT job numbers) stamps expense_requests.duplicate_of/_reason/_checked_at at intake and is re-checked in expense-request-link-bill, which refuses (409 possible_duplicate) only when the twin is already in QuickBooks; an override is recorded in duplicate_cleared_by. Due dates: OCR extracts due_date + payment_terms separately, ops.fn_due_date_from_terms (mirrored in netlify/functions/lib/due-date.mjs and app-expense/src/lib/dueDate.ts, pinned by tests/due-date.test.mjs) derives one when only terms are printed, and ops.v_ap_aging buckets what is unpaid.",
       "last_verified": "2026-08-23"
     },
     {

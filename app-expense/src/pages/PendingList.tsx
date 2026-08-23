@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
 import { useSession } from '@/lib/hooks';
-import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, Clock, Receipt, Send } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -39,22 +40,15 @@ export default function PendingList() {
     setPostingId(req.id);
     setPostError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: req.id, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        const reason = data.message || data.error || 'Could not post to QuickBooks.';
-        setPostError(reason);
-        setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
-        return;
-      }
-      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id, autopost_error: null } : r)));
+      const data = await postExpenseToQbo(req.id);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: (data.qbo_bill_id || data.qbo_purchase_id) as string, autopost_error: null } : r)));
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+      // Declining the duplicate prompt is a decision, not a failure — leave the
+      // row exactly as it was rather than stamping it with an error.
+      if (e instanceof DuplicateBillError) return;
+      const reason = e instanceof Error ? e.message : 'Could not reach the server.';
+      setPostError(reason);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
     } finally {
       setPostingId(null);
     }
@@ -139,12 +133,19 @@ export default function PendingList() {
                       <Badge variant={statusVariant[req.status] ?? 'secondary'}>
                         {statusLabel[req.status] ?? req.status}
                       </Badge>
+                      <DueBadge request={req} />
+                      <DuplicateBadge request={req} />
                     </div>
                     <p className="text-[13px] text-muted-foreground mt-1">
                       {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                       {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                       {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                     </p>
+                    {req.duplicate_of && !req.duplicate_cleared_by && req.duplicate_reason && (
+                      <p className="text-[12px] text-amber-400 mt-1 truncate" title={req.duplicate_reason}>
+                        ⚠ Possible duplicate — {req.duplicate_reason}
+                      </p>
+                    )}
                     {req.status === 'approved' && req.autopost_error && (
                       <p className="text-[12px] text-amber-500 mt-1 truncate" title={req.autopost_error}>
                         ⚠ Last post attempt failed: {req.autopost_error}

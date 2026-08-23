@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, RefreshCw, Save, Plus, Trash2, Search, X, CreditCard } from 'lucide-react';
+import { Check, RefreshCw, Save, Plus, Trash2, Search, X, CreditCard, Mail } from 'lucide-react';
 
 /** Per-AccountType visual treatment for the COGS/Expense picker pills. */
 const ACCT_TYPE_STYLE: Record<string, { short: string; pill: string }> = {
@@ -803,6 +803,36 @@ export default function SettingsPage() {
             >
               <Save size={14} />
               {orgSaving ? 'Saving…' : 'Save organization settings'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vendor Inbox settings (admin) ──
+          The AP inbox's config — address, who is notified, sender routing,
+          whether an approval is required — lives ON the Vendor Inbox rather
+          than here, because the settings and the queue they produce belong on
+          one screen. This is the signpost, so someone looking in Settings for
+          "where do I change who owns emailed bills" finds it. */}
+      {isAdmin && !loading && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex-1 min-w-[240px]">
+              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                <Mail size={18} /> Vendor Inbox settings
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                The address bills are emailed to, who gets notified, which senders are
+                accepted, who owns mail that matches nobody, and whether an approval is
+                required before a bill can be posted. Edited on the Vendor Inbox itself,
+                under "Inbox settings".
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/bills')}
+              className="inline-flex items-center gap-2 rounded bg-slate-700 hover:bg-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 transition"
+            >
+              Open the Vendor Inbox →
             </button>
           </div>
         </div>

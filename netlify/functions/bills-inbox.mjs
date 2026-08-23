@@ -101,6 +101,16 @@ export default async function handler(req) {
     }
 
     if (action === 'settings') {
+      // Working the queue is open to everyone in Brixpense — that was the
+      // whole point of the Vendor Inbox. Rewriting the POLICY behind it is
+      // not: these fields decide who owns every emailed bill, whether an
+      // approval is required before one can post, and which senders we accept
+      // at all. Staff only, matching how Vendors and Bill Rules are gated.
+      if (!auth.isStaff) {
+        return Response.json({
+          error: 'Only an admin can change the inbox settings.',
+        }, { status: 403 });
+      }
       const next = {
         enabled: body.enabled !== false,
         inbox: String(body.inbox || settings.inbox).trim().toLowerCase(),
@@ -237,7 +247,7 @@ export default async function handler(req) {
     if (ids.length) {
       requests = await opsGet(
         `expense_requests?id=in.(${ids.join(',')})`
-        + `&select=id,vendor_name,bill_number,total_amount,receipt_date,status,manager_email,submitter_email,approved_by,approved_at,qbo_bill_id,posted_at,autopost_error,archived_at`,
+        + `&select=id,vendor_name,bill_number,total_amount,receipt_date,status,manager_email,submitter_email,approved_by,approved_at,qbo_bill_id,posted_at,autopost_error,archived_at,as_bill,paid_at,due_date,payment_terms,duplicate_of,duplicate_reason,duplicate_cleared_by`,
       );
     }
     const byId = new Map(requests.map((r) => [r.id, r]));
@@ -279,6 +289,15 @@ export default async function handler(req) {
               approved_at: r.approved_at,
               awaiting_approval: r.status === 'pending',
               unassigned: !r.manager_email && !r.qbo_bill_id,
+              // What the row is flagged with. The queue's job is to make a
+              // late bill and a suspected re-send visible without opening it.
+              as_bill: r.as_bill,
+              paid_at: r.paid_at,
+              due_date: r.due_date,
+              payment_terms: r.payment_terms,
+              duplicate_of: r.duplicate_of,
+              duplicate_reason: r.duplicate_reason,
+              duplicate_cleared_by: r.duplicate_cleared_by,
               can_post: !r.qbo_bill_id && (
                 settings.require_approval
                   ? ['approved', 'awaiting_invoice', 'fulfilled'].includes(r.status)
@@ -305,6 +324,9 @@ export default async function handler(req) {
         in_progress: count((i) => ['received', 'processing'].includes(i.status)),
       },
       me: auth.user?.email || null,
+      // The UI needs to know whether to offer the settings editor at all —
+      // showing a form the server will refuse is worse than not showing it.
+      is_staff: !!auth.isStaff,
       items,
     });
   } catch (e) {

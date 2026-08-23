@@ -13,6 +13,8 @@ import { SelectField } from '@/components/ui/select-field';
 import { Badge } from '@/components/ui/badge';
 import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { getAccessToken, supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo } from '@/lib/postToQbo';
+import { dueDateFromTerms } from '@/lib/dueDate';
 import { formatCurrency } from '@/lib/utils';
 import type { LineItem, PaymentAccount } from '@/types/expense';
 
@@ -57,6 +59,11 @@ export default function ExpenseForm() {
 
   const [vendorName, setVendorName] = useState('');
   const [billNumber, setBillNumber] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  // 'printed' once a human or the invoice itself fixed the date, so the
+  // terms→date derivation stops overwriting it.
+  const [dueDateSource, setDueDateSource] = useState<'printed' | 'terms' | 'manual' | null>(null);
   // SF-landed drafts only: why the automated OCR gate held this one back from
   // auto-posting (null once it's cleared, or for any non-SF expense). Purely
   // informational — editing/submitting here always posts gate-free, since a
@@ -187,6 +194,9 @@ export default function ExpenseForm() {
       setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
       setBillNumber(data.bill_number || '');
+      setPaymentTerms(data.payment_terms || '');
+      setDueDate(data.due_date || '');
+      setDueDateSource(data.due_date_source || null);
       setSfOcrStatus(data.ocr_status || null);
       setSfOcrErrorMsg(data.ocr_error || null);
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
@@ -401,6 +411,8 @@ export default function ExpenseForm() {
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
           if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          if (ocr.payment_terms) setPaymentTerms(ocr.payment_terms);
+          if (ocr.due_date) { setDueDate(ocr.due_date); setDueDateSource('printed'); }
           // A fresh attachment + a fresh OCR pass supersedes whatever held this
           // draft before — clear the old hold reason so the banner disappears.
           setSfOcrStatus(null);
@@ -537,6 +549,9 @@ export default function ExpenseForm() {
         entity,
         vendor_name: vendorName || null,
         bill_number: billNumber || null,
+        payment_terms: paymentTerms || null,
+        due_date: dueDate || null,
+        due_date_source: dueDate ? (dueDateSource ?? 'manual') : null,
         total_amount: totalNum || 0,
         receipt_date: receiptDate || null,
         cogs_account_id: cogsAccountId || null,
@@ -633,7 +648,7 @@ export default function ExpenseForm() {
           // QuickBooks" button as a retry.
           try {
             const postData = await attemptPostToQuickBooks(req.id);
-            if (postData.margin_match) setMarginMatch(postData.margin_match);
+            if (postData.margin_match) setMarginMatch(postData.margin_match as MarginMatch);
             setResultMessage(
               `Posted to QuickBooks as Purchase ${postData.qbo_doc_number || postData.qbo_purchase_id}.`,
             );
@@ -684,19 +699,15 @@ export default function ExpenseForm() {
   // Shared with the auto-post-on-submit path above (paid expenses) — this is
   // the one place that actually calls expense-request-link-bill. Throws on
   // any failure so both callers can each decide how to surface it.
-  const attemptPostToQuickBooks = async (id: string) => {
-    const token = await getAccessToken();
-    const res = await fetch('/expense/api/expense-request-link-bill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ requestId: id, mode: 'create' }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.success === false) {
-      throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
-    }
-    return data;
-  };
+  //
+  // The auto-post path (Submit on an already-paid expense) declines a duplicate
+  // rather than prompting: that post is a side effect of Submit, and a browser
+  // confirm() appearing on top of the success screen for a decision the user
+  // did not ask to make is the wrong moment. Declining leaves the row approved
+  // with a visible "Post to QuickBooks" button, which is where the question
+  // gets asked properly.
+  const attemptPostToQuickBooks = (id: string, opts: { prompt?: boolean } = {}) =>
+    postExpenseToQbo(id, opts.prompt ? {} : { onDuplicate: () => false });
 
   // The manual fallback — unpaid bills wait here deliberately ("post later,
   // once it's actually paid"); paid expenses only land here as a retry after
@@ -706,9 +717,9 @@ export default function ExpenseForm() {
     setPosting(true);
     setPostError(null);
     try {
-      const data = await attemptPostToQuickBooks(readyToPostId);
+      const data = await attemptPostToQuickBooks(readyToPostId, { prompt: true });
       setPostedInfo(`Posted to QuickBooks as ${data.kind === 'purchase' ? 'Purchase' : 'Bill'} ${data.qbo_doc_number || data.qbo_bill_id || data.qbo_purchase_id}.`);
-      if (data.margin_match) setMarginMatch(data.margin_match);
+      if (data.margin_match) setMarginMatch(data.margin_match as MarginMatch);
       setReadyToPostId(null);
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
@@ -908,6 +919,42 @@ export default function ExpenseForm() {
             onChange={(e) => setBillNumber(e.target.value)}
           />
         </div>
+
+        {/* Terms and due date only mean something on an unpaid bill. On a
+            receipt you have already paid there is nothing left to be due. */}
+        {!isPaid && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Payment terms</Label>
+              <Input
+                disabled={readOnly}
+                placeholder="e.g. Net 30"
+                value={paymentTerms}
+                onChange={(e) => {
+                  setPaymentTerms(e.target.value);
+                  // Typing terms fills the due date — unless someone has
+                  // already set one deliberately, in which case theirs stands.
+                  if (dueDateSource === 'printed' || dueDateSource === 'manual') return;
+                  const derived = dueDateFromTerms(receiptDate, e.target.value);
+                  setDueDate(derived || '');
+                  setDueDateSource(derived ? 'terms' : null);
+                }}
+              />
+            </div>
+            <div>
+              <Label>Due date</Label>
+              <Input
+                disabled={readOnly}
+                type="date"
+                value={dueDate}
+                onChange={(e) => { setDueDate(e.target.value); setDueDateSource(e.target.value ? 'manual' : null); }}
+              />
+              {dueDateSource === 'terms' && dueDate && (
+                <p className="text-[11px] text-muted-foreground mt-1">Worked out from the terms — change it if the invoice says otherwise.</p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
