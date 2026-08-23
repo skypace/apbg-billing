@@ -1260,12 +1260,12 @@ export default function ExpenseForm() {
         )}
 
         <Card>
-          <CardHeader className="p-3 pb-0">
+          <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-medium">
               Line Items
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-3 space-y-3">
+          <CardContent className="p-4 pt-2 space-y-4">
             {lineItems.map((li, idx) => (
               <div key={idx} className="flex items-start gap-2">
                 <div className="flex-1 space-y-1">

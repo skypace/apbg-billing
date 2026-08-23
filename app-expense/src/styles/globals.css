@@ -73,8 +73,8 @@
   --badge-danger-bg:  rgba(217, 58, 63, 0.12);  --badge-danger-fg:  #c01f24;
   --badge-neutral-bg: rgba(0, 0, 0, 0.06);      --badge-neutral-fg: #4d4d55;
 
-  --ff-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --ff-display: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Segoe UI', Helvetica, Arial, sans-serif;
+  --ff-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', Helvetica, Arial, sans-serif;
   --ff-mono:    'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
 
   --sidebar-w:           280px;
@@ -237,6 +237,10 @@
     margin: 0; padding: 0;
     background: var(--bg); color: var(--tx);
     font-family: var(--ff-body); font-size: 16px; line-height: 1.5;
+    font-kerning: normal;
+    font-optical-sizing: auto;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+    letter-spacing: -0.006em;
     min-height: 100vh;
     min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
@@ -258,7 +262,7 @@
   h3 { font-size: 18px; line-height: 1.35; font-weight: 600; }
   a { color: var(--teal); text-decoration: none; transition: color var(--dur-fast) var(--ease); }
   a:hover { color: var(--teal-hover); }
-  input, select, textarea, button { font-family: inherit; }
+  input, select, textarea, button { font-family: inherit; letter-spacing: -0.003em; }
   ::-webkit-scrollbar { width: 12px; height: 12px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 12px; border: 3px solid var(--bg); }
@@ -278,7 +282,7 @@
   letter-spacing: -0.035em;
 }
 .page-description {
-  max-width: 72ch; margin: 5px 0 0; color: var(--tx2);
+  max-width: 68ch; margin: 6px 0 0; color: var(--tx2);
   font-size: 14px; font-weight: 450; line-height: 1.5;
 }
 .section-title {
@@ -379,7 +383,8 @@
 .sidebar-footer { padding: 14px 12px 18px; border-top: 1px solid var(--bd-light); display: flex; flex-direction: column; gap: 2px; }
 .sidebar-email { padding: 8px 14px; font-size: 12px; color: var(--mt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.main-content { flex: 1; min-width: 0; padding: clamp(28px, 3vw, 44px); max-width: 1280px; margin: 0 auto; width: 100%; }
+.main-content { flex: 1; min-width: 0; padding: clamp(28px, 3vw, 44px); max-width: 1160px; margin: 0 auto; width: 100%; }
+.main-content > * { width: 100%; margin-inline: auto; }
 
 .drawer-backdrop { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(2px); z-index: 15; opacity: 0; transition: opacity var(--dur) var(--ease); }
 .drawer-close-btn { display: none; }
@@ -499,6 +504,7 @@
   content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 1px;
   background: var(--edge-top); pointer-events: none; z-index: 1;
 }
+[data-slot="card"] > * { position: relative; z-index: 2; }
 .glass-card:hover {
   border-color: var(--bd) !important;
   transform: translateY(-1px);
