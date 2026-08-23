@@ -7,8 +7,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Clock, Receipt, Send } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock, Receipt, Send, Banknote } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { useIsSuperadmin } from '@/lib/useIsSuperadmin';
+// `statusLabel` is aliased — this page already has its own for expense status.
+import { paymentsForExpenses, statusLabel as paymentStatusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
+import { PayBillPanel } from '@/components/PayBillPanel';
 import type { ExpenseRequest } from '@/types/expense';
 
 export default function PendingList() {
@@ -18,6 +22,20 @@ export default function PendingList() {
   const [loading, setLoading] = useState(true);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // Paying a posted bill. Superadmin-only — /api/vendor-pay refuses everyone
+  // else, so the trigger stays hidden rather than 403-ing.
+  const isSuperadmin = useIsSuperadmin();
+  const [payments, setPayments] = useState<Map<string, VendorPayment>>(new Map());
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  // Which of these already have a payment against them, so a bill can't be
+  // paid twice by eye.
+  const loadPayments = async (rows: ExpenseRequest[]) => {
+    const ids = rows.filter((r) => r.status === 'posted' && r.qbo_bill_id).map((r) => r.id);
+    try {
+      setPayments(await paymentsForExpenses(ids));
+    } catch { /* the list must render even if the ledger read fails */ }
+  };
 
   useEffect(() => {
     async function load() {
@@ -27,11 +45,14 @@ export default function PendingList() {
         .select('*')
         .eq('submitted_by', session.user.id)
         .order('created_at', { ascending: false });
-      setRequests((data as ExpenseRequest[]) ?? []);
+      const rows = (data as ExpenseRequest[]) ?? [];
+      setRequests(rows);
       setLoading(false);
+      await loadPayments(rows);
     }
     load();
   }, [session]);
+
 
   // Expenses only auto-approve now — nothing reaches QuickBooks until someone
   // explicitly posts it here. This IS the "pay attention to the bill" gate:
@@ -118,9 +139,15 @@ export default function PendingList() {
             // sits here until someone deliberately posts it.
             const isReadyToPost =
               req.request_type === 'expense' && req.status === 'approved' && !req.qbo_bill_id;
+            // A QuickBooks BillPayment needs a Bill to attach to, so pay is
+            // only offered once the bill is actually posted — and only while
+            // no payment already covers it.
+            const pay = payments.get(req.id);
+            const isPayable =
+              isSuperadmin && req.status === 'posted' && !!req.qbo_bill_id && !pay && !req.paid_at;
             return (
+              <div key={req.id} className="space-y-2">
               <Card
-                key={req.id}
                 className="cursor-pointer hover:shadow-sm transition-shadow"
                 onClick={() => navigate(`/edit/${req.id}`)}
               >
@@ -135,6 +162,11 @@ export default function PendingList() {
                       </Badge>
                       <DueBadge request={req} />
                       <DuplicateBadge request={req} />
+                      {pay && (
+                        <Badge variant={paymentStatusLabel(pay).variant}>
+                          {paymentStatusLabel(pay).label} · {RAIL_LABEL[pay.rail].split(' (')[0]}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[13px] text-muted-foreground mt-1">
                       {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
@@ -184,8 +216,27 @@ export default function PendingList() {
                       Post to QuickBooks
                     </Button>
                   )}
+                  {isPayable && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => { e.stopPropagation(); setPayingId(payingId === req.id ? null : req.id); }}
+                      title="Pay this bill — bank transfer, or record a payment you already sent"
+                    >
+                      <Banknote className="h-4 w-4 mr-1" />
+                      Pay
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
+              {payingId === req.id && (
+                <PayBillPanel
+                  expenseId={req.id}
+                  onClose={() => setPayingId(null)}
+                  onPaid={() => { setPayingId(null); void loadPayments(requests); }}
+                />
+              )}
+              </div>
             );
           })}
         </div>

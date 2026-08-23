@@ -32,7 +32,7 @@ import {
   stripeConfigured, getFinancialAccount, createRecipient,
   createOnboardingLink, recipientStatus, createOutboundPayment,
 } from './lib/stripe-payouts.mjs';
-import { ops, recordQboBillPayment, insertLedger, patchLedger, liveLedgerForBill } from './lib/vendor-payments-lib.mjs';
+import { ops, recordQboBillPayment, insertLedger, patchLedger, liveLedgerForBill, markExpensePaid } from './lib/vendor-payments-lib.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -256,7 +256,13 @@ async function handleRecord(expense, body, actorEmail) {
       initiated_by: actorEmail,
       notes: body.notes ? String(body.notes).slice(0, 400) : null,
     });
-    return json({ ok: true, ledger_id: ledger.id, qbo_billpayment_id: billPaymentId });
+    // A manual rail means the money already left — stamp the bill so it drops
+    // out of ops.v_ap_aging. Reported, never silent (see markExpensePaid).
+    const stampError = await markExpensePaid(expense.id, {
+      rail, qboBillPaymentId: billPaymentId, reference: body.reference,
+    });
+    if (stampError) console.error('[vendor-pay] bill paid but not stamped:', stampError);
+    return json({ ok: true, ledger_id: ledger.id, qbo_billpayment_id: billPaymentId, stamp_error: stampError });
   } catch (e) {
     // BillPayment landed but the ledger insert collided — surface honestly.
     if (/duplicate|unique/i.test(e.message)) {
