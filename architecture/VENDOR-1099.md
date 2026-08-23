@@ -68,14 +68,15 @@ proprietorship trades under a company name is the failure that costs money.
 
 ## Filing the paperwork
 
-Two doors, one mapper. `lib/vendor-doc-apply.mjs` is what turns an OCR'd form
-into vendor columns, and **both** paths go through it so the same document
+Three doors, one mapper. `lib/vendor-doc-apply.mjs` is what turns an OCR'd form
+into vendor columns, and **every** path goes through it so the same document
 produces the same record whichever way it arrives:
 
 | Door | Who | Where |
 |---|---|---|
 | The onboarding link | the **vendor**, from an emailed one-time link | `vendor-onboard.mjs` |
 | Drop it on the vendor | **staff**, with a document they already have | `vendor-doc-upload.mjs` |
+| Drop it on the Vendors list | **staff**, for a vendor we do not have yet | `vendor-doc-upload.mjs`, no `vendor_id` |
 
 Drop a **W-9**, a **certificate of insurance** or a **bill** onto the vendor
 record — several at once is fine — and it works out which is which rather than
@@ -83,6 +84,25 @@ making you pick from a dropdown first. That friction is why documents sit in
 an inbox instead of getting filed. Classification is a cheap pass over page one
 and it always reports what it decided, so a wrong guess is visible and one
 click to correct; when it genuinely cannot tell, it asks.
+
+### A W-9 for a vendor we do not have
+
+Drop it on the **Vendors list** and it creates the vendor. The form carries
+everything the record needs — legal name, business name, entity type, TIN,
+address — so making someone key that in first and upload second is work the
+document can already do.
+
+Before creating anything it looks for a vendor we already have, by normalised
+display name, then legal name, then TIN, and **files against them instead** if
+it finds one. A duplicate vendor is worse than no record at all: it splits the
+bill history across two rows and hides the vendor from `fn_1099_candidates`,
+which is the precise failure this whole page exists to prevent. The result says
+which of the two happened and why.
+
+A **COI** or a **bill** still needs a vendor to be filed against. Neither
+identifies a payee well enough to create one — a certificate names the
+*insured*, who is not necessarily who we pay, and an invoice letterhead is
+often a trade name rather than the legal entity on the check.
 
 > ⚠ **A dropped bill does not become a payable.** It is read for what it says
 > about the *vendor* — remit-to, terms, legal name — and the read is handed to
