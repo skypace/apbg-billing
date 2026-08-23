@@ -171,7 +171,7 @@ export default function PurchaseRequestForm() {
 
   if (settingsLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -184,7 +184,7 @@ export default function PurchaseRequestForm() {
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold">Purchase Request</h1>
+          <h1 className="page-title">Purchase Request</h1>
         </div>
 
         <div className="flex items-center gap-2 text-xs bg-amber-50/10 text-amber-300 rounded-lg p-3 border border-amber-300/20">
@@ -202,7 +202,7 @@ export default function PurchaseRequestForm() {
           <Input placeholder="e.g. Home Depot, Amazon, Grainger" value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Estimated Cost ($)</Label>
             <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={estimatedAmount} onChange={(e) => setEstimatedAmount(e.target.value)} />
@@ -215,7 +215,7 @@ export default function PurchaseRequestForm() {
 
         <Badge variant="warning">Manager approval required</Badge>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Entity</Label>
             <SelectField
@@ -257,7 +257,7 @@ export default function PurchaseRequestForm() {
           <SelectField value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Optional" options={[{ value: '', label: 'None' }, ...(settings?.tags ?? []).map((t) => ({ value: t, label: t }))]} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
             <Input placeholder="Customer name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
@@ -317,7 +317,7 @@ export default function PurchaseRequestForm() {
 
   if (step === 'submitting') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">Submitting and notifying manager…</p>
       </div>
@@ -326,9 +326,9 @@ export default function PurchaseRequestForm() {
 
   if (step === 'success') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+      <div className="feedback-state min-h-[60vh]">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
-        <h2 className="text-lg font-semibold">{resultMessage}</h2>
+        <h2 className="feedback-title">{resultMessage}</h2>
         {emailWarning && (
           <div className="ap-error" style={{ maxWidth: 480 }}>
             <strong>Heads-up:</strong> {emailWarning}
@@ -346,9 +346,9 @@ export default function PurchaseRequestForm() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+    <div className="feedback-state min-h-[60vh]">
       <AlertTriangle className="h-12 w-12 text-destructive" />
-      <h2 className="text-lg font-semibold">Submission Failed</h2>
+      <h2 className="feedback-title">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
       <Button variant="outline" onClick={() => setStep('details')}>Try Again</Button>
     </div>

@@ -448,8 +448,8 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4 pb-28">
       <div>
-        <h1 className="text-xl font-bold tracking-tight">Settings</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <h1 className="page-title">Settings</h1>
+        <p className="page-description">
           {userEmail ? <>Signed in as <span className="text-foreground">{userEmail}</span>.</> : null}{' '}
           {isAdmin
             ? 'Your own preferences, the shared lists everyone’s forms run on, and the connected services.'
@@ -478,8 +478,8 @@ export default function SettingsPage() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-bold tracking-tight">My payment accounts</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <h2 className="section-title">My payment accounts</h2>
+                <p className="section-description">
                   Which accounts appear in <em>your</em> &ldquo;Paid with&rdquo; dropdown. Everyone has their own list.
                 </p>
               </div>
@@ -501,8 +501,8 @@ export default function SettingsPage() {
 
             {groups.map((g) => (
               <div key={g.type}>
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">{g.type}</div>
-                <div className="rounded-lg border border-white/10 overflow-hidden">
+                <div className="eyebrow mb-1.5">{g.type}</div>
+                <div className="rounded-xl border border-border overflow-hidden">
                   {g.items.map((a, idx) => {
                     const checked = selectedIds.has(a.id);
                     return (
@@ -510,7 +510,7 @@ export default function SettingsPage() {
                         key={a.id}
                         className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
                           checked ? 'bg-emerald-500/10' : 'hover:bg-white/[0.04]'
-                        }${idx > 0 ? ' border-t border-white/10' : ''}`}
+                        }${idx > 0 ? ' border-t border-border' : ''}`}
                       >
                         <input
                           type="checkbox"
@@ -520,7 +520,7 @@ export default function SettingsPage() {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium truncate">{a.name}</div>
-                          <div className="text-[11px] text-muted-foreground">{a.account_sub_type ?? a.account_type}</div>
+                          <div className="text-xs text-muted-foreground">{a.account_sub_type ?? a.account_type}</div>
                         </div>
                         {checked && <Check size={14} className="text-emerald-400 shrink-0" />}
                       </label>
@@ -531,7 +531,7 @@ export default function SettingsPage() {
             ))}
 
             {selectedIds.size === 0 && allAccounts && allAccounts.length > 0 && (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="section-description">
                 Saving with none selected keeps the dropdown showing the full QuickBooks list.
               </p>
             )}
@@ -551,8 +551,8 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="p-4 space-y-4">
               <div>
-                <h2 className="text-sm font-bold tracking-tight">Approvals</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <h2 className="section-title">Approvals</h2>
+                <p className="section-description">
                   Who signs off, and above what amount. Shared by everyone’s forms.
                 </p>
               </div>
@@ -603,34 +603,34 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="p-4 space-y-3">
               <div>
-                <h2 className="text-sm font-bold tracking-tight">Departments</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <h2 className="section-title">Departments</h2>
+                <p className="section-description">
                   Each department, who approves for it, and which account its expenses default to.
                   A submitter can override both.
                 </p>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[540px]">
+              <div className="data-table-shell">
+                <table className="data-table min-w-[660px]">
                   <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <th className="font-medium pb-2 pr-3">Department</th>
-                      <th className="font-medium pb-2 pr-3">Approver</th>
-                      <th className="font-medium pb-2 pr-3">Default account</th>
-                      <th className="pb-2 w-8" />
+                    <tr>
+                      <th>Department</th>
+                      <th>Approver</th>
+                      <th>Default account</th>
+                      <th className="w-12" aria-label="Actions" />
                     </tr>
                   </thead>
                   <tbody>
                     {departments.map((d, i) => (
-                      <tr key={i} className="border-t border-white/10">
-                        <td className="py-2 pr-3 align-middle">
+                      <tr key={i}>
+                        <td>
                           <Input
                             value={d}
                             onChange={(e) => renameDepartment(i, e.target.value)}
                             placeholder="Department name"
                           />
                         </td>
-                        <td className="py-2 pr-3 align-middle">
+                        <td>
                           <SelectField
                             value={routingByDept[d] || ''}
                             onChange={(e) => setRoutingByDept({ ...routingByDept, [d]: e.target.value })}
@@ -640,7 +640,7 @@ export default function SettingsPage() {
                             ]}
                           />
                         </td>
-                        <td className="py-2 pr-3 align-middle">
+                        <td>
                           <SelectField
                             value={deptCogsMap[d] || ''}
                             onChange={(e) => setDeptCogsMap({ ...deptCogsMap, [d]: e.target.value })}
@@ -652,7 +652,7 @@ export default function SettingsPage() {
                             ]}
                           />
                         </td>
-                        <td className="py-2 align-middle">
+                        <td>
                           <button
                             type="button"
                             onClick={() => removeDepartment(i)}
@@ -664,8 +664,8 @@ export default function SettingsPage() {
                         </td>
                       </tr>
                     ))}
-                    <tr className="border-t border-white/10">
-                      <td className="py-2 pr-3">
+                    <tr>
+                      <td>
                         <Input
                           placeholder="Add a department…"
                           value={deptDraft}
@@ -673,7 +673,7 @@ export default function SettingsPage() {
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDepartment(); } }}
                         />
                       </td>
-                      <td colSpan={3} className="py-2">
+                      <td colSpan={3}>
                         <Button size="sm" variant="outline" onClick={addDepartment} disabled={!deptDraft.trim()}>
                           <Plus size={14} className="mr-1" /> Add
                         </Button>
@@ -694,8 +694,8 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="p-4 space-y-2">
               <div>
-                <h2 className="text-sm font-bold tracking-tight">Tags</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <h2 className="section-title">Tags</h2>
+                <p className="section-description">
                   The tag list on every expense form. Expense Reports group by these.
                 </p>
               </div>
@@ -706,7 +706,7 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="p-4 space-y-2">
         <div className="flex items-center justify-between gap-3 mb-1">
-          <div className="text-xs uppercase tracking-wider text-slate-500">Expense accounts</div>
+          <div className="eyebrow">Expense accounts</div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
               {cogsAccounts.length} selected
@@ -721,7 +721,7 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
-        <p className="text-xs text-slate-500 mb-3">
+        <p className="section-description mb-3">
           Pick the QBO accounts that appear in the expense form's account dropdown for everyone — pulled live from the chart of accounts (COGS, Expense, Other Expense, Fixed Asset).
         </p>
 
@@ -894,7 +894,7 @@ export default function SettingsPage() {
             <CardContent className="p-4">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex-1 min-w-[240px]">
-                  <h2 className="text-sm font-bold tracking-tight flex items-center gap-2">
+                  <h2 className="section-title flex items-center gap-2">
                     <Mail size={16} /> Vendor Inbox
                   </h2>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -915,7 +915,7 @@ export default function SettingsPage() {
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex-1 min-w-[240px]">
-                    <h2 className="text-sm font-bold tracking-tight flex items-center gap-2">
+                    <h2 className="section-title flex items-center gap-2">
                       <CreditCard size={16} /> Card Connection Services
                     </h2>
                     <p className="text-xs text-muted-foreground mt-1">
