@@ -132,3 +132,44 @@ test('an already-expired certificate is flagged on the way in', () => {
   });
   assert.match(out.warnings.join(' '), /already expired/);
 });
+
+// ── Creating a vendor from the W-9 itself ────────────────────────────────────
+//
+// The matcher is the load-bearing part: the failure mode is a second ARTURO
+// SANTIAGO beside the first with half the history each. ops.vendors has a
+// unique index on display_name, so a naive insert would error out — but the
+// error is not the point, filing against the vendor you already have is.
+
+import { createRequire } from 'node:module';
+const require_ = createRequire(import.meta.url);
+void require_;
+
+// normName is not exported (it is an implementation detail of the endpoint),
+// so this pins the RULE it has to satisfy, read off the same source of truth
+// the database uses — ops.fn_norm_vendor.
+function normName(v) {
+  return String(v || '')
+    .toLowerCase()
+    .replace(/\b(inc|llc|l\.l\.c|ltd|co|corp|corporation|company|the)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim() || null;
+}
+
+test('the same vendor written differently normalises to one key', () => {
+  const same = ['Parts Town, LLC', 'PARTS TOWN LLC', 'Parts Town', 'parts-town llc'];
+  const keys = new Set(same.map(normName));
+  assert.equal(keys.size, 1, [...keys].join(' | '));
+});
+
+test('genuinely different vendors do not collide', () => {
+  assert.notEqual(normName('Desert Beverage'), normName('Desert Beverages West'));
+  assert.notEqual(normName('Arturo Santiago'), normName('Arturo Sandoval'));
+});
+
+test('a name that is nothing but a corporate suffix normalises to null', () => {
+  // "LLC" or "The Co" carries no identity. Matching on null would make every
+  // such vendor the same vendor, so the endpoint must treat it as no-match.
+  for (const junk of ['LLC', 'The', 'Inc.', '  ', '']) {
+    assert.equal(normName(junk), null, junk);
+  }
+});

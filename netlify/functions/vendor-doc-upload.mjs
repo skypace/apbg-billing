@@ -17,8 +17,15 @@
 // rows are not a side effect of a drag gesture — same rule as the 2026-08-14
 // QuickBooks gate, one level earlier.
 //
-// POST { vendor_id, file_name, media_type, file_base64, kind? }
-//   kind: 'w9' | 'coi' | 'bill' — omit to auto-detect.
+// A W-9 with NO vendor_id CREATES the vendor. That is the case that actually
+// happens: somebody sends you a W-9 for a firm you have never paid, and the
+// form itself carries everything the record needs — legal name, business name,
+// entity type, TIN, address. Making you key that in by hand first and then
+// upload the document is busywork the document can do.
+//
+// POST { vendor_id?, file_name, media_type, file_base64, kind? }
+//   vendor_id — omit ONLY with a W-9, to create the vendor from the form.
+//   kind      — 'w9' | 'coi' | 'bill'; omit to auto-detect.
 // Gate: staff (superadmin | admin), matching ops.vendors RLS.
 
 import { requireAuth } from './lib/auth.mjs';
@@ -34,6 +41,7 @@ const CLASSIFY_MODEL = process.env.VENDOR_DOC_CLASSIFY_MODEL || 'claude-haiku-4-
 const BUCKET = 'compliance-docs';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;   // the platform body cap is ~6MB; base64 adds ~33%
 const MEDIA_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+const KIND_LABEL = { w9: 'W-9', coi: 'certificate of insurance', bill: 'bill' };
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -131,6 +139,43 @@ running the wrong extractor on it produces confident nonsense.`,
   }
 }
 
+// Does this W-9 belong to a vendor we already have? Checked before creating
+// anything, because the failure mode is a second ARTURO SANTIAGO sitting beside
+// the first with half the history each — and ops.vendors has a unique index on
+// display_name, so the naive insert would just error out anyway.
+//
+// Matched on the normalised name (the same comparison the duplicate-bill guard
+// uses, so "Parts Town, LLC" and "PARTS TOWN LLC" are one vendor) or on a TIN
+// last-4 we already hold. A TIN match is the stronger of the two: names get
+// typed differently, tax numbers do not.
+async function findExistingVendor(extracted) {
+  const names = [extracted?.business_name, extracted?.legal_name].filter(Boolean);
+  const rows = await ops('GET', 'vendors?archived_at=is.null&select=id,display_name,legal_name,ein_last4&limit=1000');
+  const all = rows || [];
+
+  if (extracted?.tin_last4) {
+    const byTin = all.find((v) => v.ein_last4 && v.ein_last4 === extracted.tin_last4);
+    if (byTin) return { vendor: byTin, why: `their TIN ends ${extracted.tin_last4}` };
+  }
+  for (const n of names) {
+    const key = normName(n);
+    if (!key) continue;
+    const hit = all.find((v) => normName(v.display_name) === key || normName(v.legal_name) === key);
+    if (hit) return { vendor: hit, why: `the name matches "${hit.display_name}"` };
+  }
+  return null;
+}
+
+// Mirrors ops.fn_norm_vendor so the client and the database agree on what
+// counts as the same vendor.
+function normName(v) {
+  return String(v || '')
+    .toLowerCase()
+    .replace(/\b(inc|llc|l\.l\.c|ltd|co|corp|corporation|company|the)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim() || null;
+}
+
 async function ensureParty(vendor) {
   if (vendor.insured_party_id) return vendor.insured_party_id;
   const rows = await ops('POST', 'insured_parties', {
@@ -158,8 +203,10 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
 
-  const vendorId = String(body.vendor_id || '');
-  if (!/^[0-9a-f-]{36}$/i.test(vendorId)) return json({ error: 'vendor_id must be a uuid' }, 400);
+  const givenVendorId = String(body.vendor_id || '');
+  if (givenVendorId && !/^[0-9a-f-]{36}$/i.test(givenVendorId)) {
+    return json({ error: 'vendor_id must be a uuid' }, 400);
+  }
 
   const mediaType = String(body.media_type || '').toLowerCase();
   if (!MEDIA_TYPES.has(mediaType)) {
@@ -173,12 +220,16 @@ export default async (req) => {
     return json({ error: 'That file is too large — 4 MB is the limit for a document upload.' }, 413);
   }
 
-  const vendors = await ops('GET', `vendors?id=eq.${vendorId}&select=*&limit=1`);
-  const vendor = vendors?.[0];
-  if (!vendor) return json({ error: 'Vendor not found' }, 404);
+  let vendor = null;
+  if (givenVendorId) {
+    const rows = await ops('GET', `vendors?id=eq.${givenVendorId}&select=*&limit=1`);
+    vendor = rows?.[0] || null;
+    if (!vendor) return json({ error: 'Vendor not found' }, 404);
+  }
 
   const base64 = bytes.toString('base64');
   const safeName = safeFilename(body.file_name);
+
 
   // Told, or worked out.
   let kind = ['w9', 'coi', 'bill'].includes(body.kind) ? body.kind : null;
@@ -200,6 +251,13 @@ export default async (req) => {
 
   // ── A bill: read it for what it says about the VENDOR. No money row. ──
   if (kind === 'bill') {
+    if (!vendor) {
+      return json({
+        error: 'vendor_required',
+        message: 'Pick a vendor first — a bill tells us plenty about a vendor we already have, but not enough to create one from scratch.',
+      }, 400);
+    }
+    const vendorId = vendor.id;
     let ocr = null, ocrError = null;
     try {
       ocr = await runExpenseOcr({ base64, mediaType, accountLabels: [] });
@@ -245,7 +303,81 @@ export default async (req) => {
     });
   }
 
-  // ── A W-9 or a COI: file it in the vault and populate the record. ──
+  // ── A W-9 with no vendor: the form is the vendor record. ──
+  let createdVendor = false;
+  let matchedExisting = null;
+  if (!vendor) {
+    if (kind !== 'w9') {
+      return json({
+        error: 'vendor_required',
+        message: `Pick a vendor first — only a W-9 carries enough to create one, and this is a ${KIND_LABEL[kind]}.`,
+      }, 400);
+    }
+    let extracted = null, ocrError = null;
+    try {
+      extracted = await runW9Ocr({ base64, mediaType });
+    } catch (e) {
+      ocrError = String(e?.message || e).slice(0, 200);
+    }
+    const name = (extracted?.business_name || extracted?.legal_name || '').trim();
+    if (!name) {
+      // Without a name there is nothing to file under, and inventing a
+      // placeholder vendor is worse than saying so.
+      return json({
+        error: 'no_name',
+        message: ocrError
+          ? `Couldn't read that W-9 (${ocrError}), so there's no name to create a vendor from. Create the vendor and drop it on their record instead.`
+          : "Couldn't find a name on that W-9. Create the vendor first and drop this on their record.",
+      }, 422);
+    }
+
+    matchedExisting = await findExistingVendor(extracted);
+    if (matchedExisting) {
+      // File it against the vendor we already have rather than creating a
+      // second one. Reported, so the person who dropped it knows where it went.
+      const rows = await ops('GET', `vendors?id=eq.${matchedExisting.vendor.id}&select=*&limit=1`);
+      vendor = rows?.[0];
+    } else {
+      const created = await ops('POST', 'vendors', {
+        display_name: name,
+        legal_name: extracted?.legal_name || null,
+        vendor_type: 'vendor',
+        created_by: auth.user?.id || null,
+        notes: 'Created from a W-9 filed on the Vendors page.',
+      });
+      vendor = created?.[0];
+      if (!vendor) return json({ error: 'Could not create the vendor.' }, 500);
+      createdVendor = true;
+    }
+
+    // The document is in hand and already read — file it without a second OCR pass.
+    const partyIdNew = await ensureParty(vendor);
+    const stampNew = new Date().toISOString().replace(/[:.]/g, '-');
+    const pathNew = `vendors/${vendor.id}/w9-${stampNew}-${safeName}`;
+    await uploadToBucket(pathNew, bytes, mediaType);
+    const appliedNew = applyW9({
+      vendor, extracted, storagePath: pathNew, fileName: safeName,
+      partyId: partyIdNew, source: 'staff', ocrError,
+    });
+    await ops('POST', 'compliance_documents', appliedNew.doc);
+    await ops('PATCH', `vendors?id=eq.${vendor.id}`, appliedNew.vendorPatch);
+    return json({
+      ok: true, kind: 'w9', detected, filed: true,
+      created_vendor: createdVendor,
+      vendor: { id: vendor.id, display_name: vendor.display_name },
+      matched_existing: matchedExisting ? matchedExisting.why : null,
+      summary: appliedNew.summary,
+      vendor_patch: appliedNew.vendorPatch,
+      warnings: appliedNew.warnings,
+      ocr_error: ocrError,
+      message: createdVendor
+        ? `Created ${vendor.display_name} from the W-9 and filed it. Their tax identity is on the record, so they never show up on the 1099 chase list.`
+        : `${vendor.display_name} already existed (${matchedExisting.why}) — filed the W-9 against them rather than creating a second record.`,
+    });
+  }
+
+  // ── A W-9 or a COI on a vendor we already have. ──
+  const vendorId = vendor.id;
   const partyId = await ensureParty(vendor);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const path = `vendors/${vendorId}/${kind}-${stamp}-${safeName}`;

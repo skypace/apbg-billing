@@ -35,6 +35,9 @@ interface Result {
   message?: string;
   warnings?: string[];
   billDraft?: BillDraft;
+  /** Set when a W-9 created (or matched) a vendor — so we can link to them. */
+  vendor?: { id: string; display_name: string };
+  createdVendor?: boolean;
   /** Set when the server could not tell what the document was. */
   needsKind?: { message: string; base64: string; mediaType: string };
 }
@@ -58,10 +61,12 @@ function toBase64(file: File): Promise<string> {
 }
 
 export function VendorDocDrop({
-  vendorId, onFiled,
+  vendorId, onFiled, compact,
 }: {
-  vendorId: string;
+  /** Omit on the Vendors list — a W-9 then CREATES the vendor from the form. */
+  vendorId?: string;
   onFiled: () => void | Promise<void>;
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,7 +82,8 @@ export function VendorDocDrop({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({
-        vendor_id: vendorId, file_name: fileName, media_type: mediaType,
+        ...(vendorId ? { vendor_id: vendorId } : {}),
+        file_name: fileName, media_type: mediaType,
         file_base64: base64, ...(kind ? { kind } : {}),
       }),
     });
@@ -92,6 +98,7 @@ export function VendorDocDrop({
     return {
       file: fileName, ok: true, kind: data.kind, message: data.message,
       warnings: data.warnings ?? [], billDraft: data.bill_draft ?? undefined,
+      vendor: data.vendor ?? undefined, createdVendor: !!data.created_vendor,
     };
   };
 
@@ -135,9 +142,9 @@ export function VendorDocDrop({
     const key = `brixpense.prefill.${Date.now()}`;
     try {
       sessionStorage.setItem(key, JSON.stringify(draft));
-      navigate(`../new?prefill=${encodeURIComponent(key)}`);
+      navigate(`/new?prefill=${encodeURIComponent(key)}`);
     } catch {
-      navigate('../new');
+      navigate('/new');
     }
   };
 
@@ -148,7 +155,7 @@ export function VendorDocDrop({
         onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); void handleFiles(e.dataTransfer.files); }}
         onClick={() => inputRef.current?.click()}
-        className={`rounded-lg border-2 border-dashed p-5 text-center cursor-pointer transition-colors ${
+        className={`rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors ${compact ? 'p-3.5' : 'p-5'} ${
           over ? 'border-sky-400 bg-sky-500/10' : 'border-white/15 hover:border-white/30 hover:bg-white/[0.03]'
         }`}
       >
@@ -163,10 +170,13 @@ export function VendorDocDrop({
         ) : (
           <>
             <FileUp className="h-6 w-6 mx-auto mb-2 opacity-50" />
-            <div className="text-sm font-medium">Drop a W-9, a certificate of insurance, or a bill</div>
+            <div className="text-sm font-medium">
+              {vendorId ? 'Drop a W-9, a certificate of insurance, or a bill' : 'Drop a W-9 to set a vendor up'}
+            </div>
             <div className="text-[11px] text-muted-foreground mt-1">
-              Several at once is fine. It works out what each one is and fills the vendor in from it.
-              A bill is only read — nothing is posted.
+              {vendorId
+                ? 'Several at once is fine. It works out what each one is and fills the vendor in from it. A bill is only read — nothing is posted.'
+                : 'The form carries everything the record needs — name, entity type, TIN, address — so the vendor gets created from it. If we already have them, it files against the vendor you have rather than making a second one.'}
             </div>
           </>
         )}
@@ -201,6 +211,14 @@ export function VendorDocDrop({
                       It&rsquo;s a {KIND_LABEL[k].toLowerCase()}
                     </Button>
                   ))}
+                </div>
+              )}
+
+              {r.vendor && (
+                <div className="mt-2">
+                  <Button size="sm" variant="outline" onClick={() => navigate(`/vendors/${r.vendor!.id}`)}>
+                    {r.createdVendor ? 'Open the new vendor' : `Open ${r.vendor.display_name}`} →
+                  </Button>
                 </div>
               )}
 
