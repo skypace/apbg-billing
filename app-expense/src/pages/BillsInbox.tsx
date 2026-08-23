@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccessToken } from '@/lib/supabase';
+import { getAccessToken, supabase } from '@/lib/supabase';
+import { PayBillPanel } from '@/components/PayBillPanel';
+import { paymentsForExpenses, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Inbox, Loader2,
-  Mail, RefreshCw, Send, Settings2, UserPlus, X,
+  Banknote, Mail, RefreshCw, Send, Settings2, UserPlus, X,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -87,7 +89,7 @@ const NEEDS_ATTENTION: IntakeStatus[] = [
   'no_attachment', 'attachment_fetch_failed', 'ocr_failed', 'failed', 'sender_rejected',
 ];
 
-type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'posted' | 'all';
+type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'posted' | 'unpaid' | 'all';
 
 async function api(body?: unknown) {
   const token = await getAccessToken();
@@ -132,15 +134,34 @@ export default function BillsInbox() {
   const [check, setCheck] = useState<SetupCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [showDiag, setShowDiag] = useState<string | null>(null);
+  // Paying a posted bill (Vendor Portal Phase 3). Superadmin-only —
+  // /api/vendor-pay refuses everyone else, so the trigger is hidden rather
+  // than left to 403.
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [payments, setPayments] = useState<Map<string, VendorPayment>>(new Map());
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const role =
+        (data.user?.app_metadata as { role?: string } | undefined)?.role ||
+        (data.user?.user_metadata as { role?: string } | undefined)?.role || '';
+      setIsSuperadmin(role === 'superadmin');
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (!session) return;
     try {
       const data = await api();
-      setItems(data.items ?? []);
+      const rows: IntakeItem[] = data.items ?? [];
+      setItems(rows);
       setSettings(data.settings ?? null);
       setMe(data.me ?? null);
       setError(null);
+      const paid = rows.map((i) => i.request).filter((r): r is LinkedRequest => !!r?.posted).map((r) => r.id);
+      try { setPayments(await paymentsForExpenses(paid)); }
+      catch { /* the queue must render even if the payment ledger read fails */ }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the AP inbox.');
     } finally {
@@ -241,6 +262,8 @@ export default function BillsInbox() {
       case 'unassigned': return !!i.request?.unassigned;
       case 'attention': return NEEDS_ATTENTION.includes(i.status);
       case 'posted': return !!i.request?.posted;
+      // Posted to QuickBooks but no payment recorded yet — the pay-run list.
+      case 'unpaid': return !!i.request?.posted && !payments.get(i.request.id);
       default: return true;
     }
   };
@@ -254,6 +277,7 @@ export default function BillsInbox() {
     unassigned: countOf('unassigned'),
     attention: countOf('attention'),
     posted: countOf('posted'),
+    unpaid: countOf('unpaid'),
     all: items.length,
   };
   const openRows = items.filter((i) => i.request && !i.request.posted && !i.request.archived);
@@ -348,6 +372,7 @@ export default function BillsInbox() {
           ['unassigned', `Unassigned (${counts.unassigned})`],
           ['attention', `Needs attention (${counts.attention})`],
           ['posted', `Posted (${counts.posted})`],
+          ['unpaid', `Awaiting payment (${counts.unpaid})`],
           ['all', `Everything (${counts.all})`],
         ] as [Filter, string][]).map(([key, label]) => (
           <Button
@@ -477,6 +502,21 @@ export default function BillsInbox() {
                         QBO bill {r.qbo_bill_id}
                       </span>
                     )}
+                    {r?.posted && payments.get(r.id) && (
+                      <Badge variant="success">
+                        Paid · {RAIL_LABEL[payments.get(r.id)!.rail].split(' (')[0]}
+                      </Badge>
+                    )}
+                    {isSuperadmin && r?.posted && r.qbo_bill_id && !payments.get(r.id) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPayingId(payingId === r.id ? null : r.id)}
+                        title="Pay this bill — bank transfer, or record a payment you already sent"
+                      >
+                        <Banknote className="h-4 w-4 mr-1.5" /> Pay
+                      </Button>
+                    )}
                     {item.file_url && (
                       <a
                         href={item.file_url}
@@ -516,6 +556,14 @@ export default function BillsInbox() {
                     <pre className="text-[11px] bg-black/30 rounded p-2.5 overflow-x-auto whitespace-pre-wrap break-words text-muted-foreground">
                       {item.diagnostics}
                     </pre>
+                  )}
+
+                  {r && payingId === r.id && (
+                    <PayBillPanel
+                      expenseId={r.id}
+                      onClose={() => setPayingId(null)}
+                      onPaid={() => { setPayingId(null); void load(); }}
+                    />
                   )}
                 </CardContent>
               </Card>

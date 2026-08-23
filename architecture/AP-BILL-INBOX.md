@@ -218,10 +218,19 @@ separating the channels, which is why this one has its own variable.
 > misconfiguration is worse than no check — it turns a visible gap into a false
 > all-clear.
 
-## Not built (deliberate)
+## Paying them
 
-**Paying the bills from here.** `ops.expense_requests` already carries
-`payment_method` / `payment_reference` / `paid_at` / `qbo_billpayment_id`, and no
-UI writes any of them today. Running an actual pay run — select approved bills,
-cut the payment, write the QBO BillPayment — is a separate build on top of this
-queue, not a side effect of it.
+Vendor Portal Phase 3 (`vendor-pay.mjs` + `PayBillPanel`) landed on main while
+this was in flight, and it pays any POSTED `ops.expense_requests` row — which is
+exactly what an AP-inbox bill becomes. So the panel is mounted here too:
+
+- **Pay** appears on a posted bill with no payment recorded (superadmin only —
+  `/api/vendor-pay` refuses everyone else, so the trigger is hidden rather than
+  left to 403).
+- Bills already paid show the rail they went out on.
+- The **Awaiting payment** filter is the pay-run list: posted to QuickBooks,
+  no payment recorded.
+
+The full lifecycle of an emailed bill is therefore: **arrives → OCR'd → routed →
+approved → posted to QuickBooks → paid**, each step a deliberate human click
+after the first.
