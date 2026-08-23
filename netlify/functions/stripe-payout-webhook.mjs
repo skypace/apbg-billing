@@ -22,7 +22,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sendEmail, SITE_URL } from './email-helpers.mjs';
 import { stripeV2, stripeConfigured } from './lib/stripe-payouts.mjs';
-import { ops, recordQboBillPayment, patchLedger, ledgerByPayoutId } from './lib/vendor-payments-lib.mjs';
+import { ops, recordQboBillPayment, patchLedger, ledgerByPayoutId, markExpensePaid } from './lib/vendor-payments-lib.mjs';
 
 const SECRET = process.env.STRIPE_PAYOUT_WEBHOOK_SECRET || '';
 const REPORT_TO = process.env.REPORT_TO || process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
@@ -155,6 +155,17 @@ export default async function handler(req) {
       qbo_billpayment_id: billPaymentId,
       failure_reason: bookError ? `paid, but QBO BillPayment failed: ${bookError}` : null,
     });
+    // Settled means the money landed — stamp the bill so it leaves the aging
+    // total. Deliberately keyed on SETTLEMENT, not on the earlier 'initiated'
+    // row: an in-flight payout is honestly still owed, and the ledger's
+    // duplicate guard is what stops it being paid twice meanwhile.
+    let stampError = null;
+    if (ledger.expense_request_id) {
+      stampError = await markExpensePaid(ledger.expense_request_id, {
+        rail: ledger.rail, qboBillPaymentId: billPaymentId, reference: ledger.reference,
+      });
+      if (stampError) console.error('[stripe-payout-webhook] bill paid but not stamped:', stampError);
+    }
     if (bookError) {
       await alert(`Vendor paid, but QuickBooks did not record it — ${payoutId}`, [
         `Stripe payout <b>${payoutId}</b> POSTED (money left the account) for $${ledger.amount}.`,
@@ -162,7 +173,7 @@ export default async function handler(req) {
         'The bill still reads UNPAID in QuickBooks — record the payment there by hand.',
       ]);
     }
-    return json({ ok: true, status, ledger_id: ledger.id, qbo_billpayment_id: billPaymentId, book_error: bookError });
+    return json({ ok: true, status, ledger_id: ledger.id, qbo_billpayment_id: billPaymentId, book_error: bookError, stamp_error: stampError });
   }
 
   // failed | returned | canceled — funds came back.

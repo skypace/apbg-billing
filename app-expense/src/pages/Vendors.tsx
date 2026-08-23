@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { SelectField } from '@/components/ui/select-field';
 import { Building2, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { VendorFundingCard } from '@/components/VendorFundingCard';
+import { VendorDocDrop } from '@/components/VendorDocDrop';
 import type { Vendor, VendorType, VendorComplianceDoc, QboVendorMirror } from '@/types/expense';
 import {
   listVendors, createVendor, documentsForParties, searchQboMirror,
@@ -239,6 +240,15 @@ export default function Vendors() {
           {adding ? 'Close' : 'Add vendor'}
         </Button>
       </div>
+
+      {/* A W-9 in hand IS a vendor record — name, entity type, TIN, address are
+          all on the form. Dropping it here creates the vendor rather than
+          making someone key that in first and upload second. */}
+      <Card>
+        <CardContent className="p-3">
+          <VendorDocDrop compact onFiled={() => load(showArchived)} />
+        </CardContent>
+      </Card>
 
       {isSuperadmin && <VendorFundingCard />}
 

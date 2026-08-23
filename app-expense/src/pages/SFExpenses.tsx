@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
 import { useSession } from '@/lib/hooks';
-import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -94,22 +94,15 @@ export default function SFExpenses() {
     setPostingId(req.id);
     setPostError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: req.id, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        const reason = data.message || data.error || 'Could not post to QuickBooks.';
-        setPostError(reason);
-        setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
-        return;
-      }
-      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id, autopost_error: null } : r)));
+      const data = await postExpenseToQbo(req.id);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: (data.qbo_bill_id || data.qbo_purchase_id) as string, autopost_error: null } : r)));
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+      // Declining the duplicate prompt is a decision, not a failure — leave the
+      // row exactly as it was rather than stamping it with an error.
+      if (e instanceof DuplicateBillError) return;
+      const reason = e instanceof Error ? e.message : 'Could not reach the server.';
+      setPostError(reason);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
     } finally {
       setPostingId(null);
     }

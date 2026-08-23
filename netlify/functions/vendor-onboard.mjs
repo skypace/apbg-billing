@@ -25,6 +25,7 @@ import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail, SITE_URL } from './email-helpers.mjs';
 import { ops, validateToken, ensureParty, hashToken } from './lib/vendor-onboard-lib.mjs';
 import { runCoiOcr, runW9Ocr, coiShortfalls } from './lib/vendor-doc-ocr.mjs';
+import { applyW9, applyCoi } from './lib/vendor-doc-apply.mjs';
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ALERT_TO = process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
@@ -133,36 +134,19 @@ async function handleUpload(vendor, body) {
     } catch (e) {
       ocrError = e.message?.slice(0, 200) || 'OCR failed';
     }
-    await ops('POST', 'compliance_documents', {
-      category: 'tax',
-      doc_type: 'W-9',
-      party_id: partyId,
-      issuer: null,
-      reference_number: extracted?.tin_last4 ? `TIN •••${extracted.tin_last4}` : null,
-      issue_date: extracted?.signature_date || null,
-      expiration_date: null,
-      storage_path: path,
-      file_name: safeName,
-      notes: [
-        'Uploaded by the vendor via the onboarding link.',
-        extracted?.entity_type ? `Entity type: ${extracted.entity_type}.` : null,
-        extracted && !extracted.signed ? '⚠ OCR did not find a signature — verify.' : null,
-        ocrError ? `⚠ OCR failed (${ocrError}) — review the file by hand.` : null,
-      ].filter(Boolean).join(' '),
+    // Shared with the staff-side drop (vendor-doc-upload.mjs) so the same form
+    // produces the same record whichever door it comes through.
+    const applied = applyW9({
+      vendor, extracted, storagePath: path, fileName: safeName,
+      partyId, source: 'vendor', ocrError,
     });
-    const patch = { w9_status: 'on_file' };
-    if (extracted?.tin_last4) patch.ein_last4 = extracted.tin_last4;
-    if (extracted?.legal_name && !vendor.legal_name) patch.legal_name = extracted.legal_name;
-    await ops('PATCH', `vendors?id=eq.${vendor.id}`, patch);
+    await ops('POST', 'compliance_documents', applied.doc);
+    await ops('PATCH', `vendors?id=eq.${vendor.id}`, applied.vendorPatch);
     return json(200, {
       ok: true,
       kind: 'w9',
-      summary: extracted ? {
-        legal_name: extracted.legal_name,
-        entity_type: extracted.entity_type,
-        tin_last4: extracted.tin_last4,
-        signed: extracted.signed,
-      } : null,
+      summary: applied.summary,
+      warnings: applied.warnings,
       ocr_error: ocrError,
     });
   }
@@ -175,36 +159,17 @@ async function handleUpload(vendor, body) {
   } catch (e) {
     ocrError = e.message?.slice(0, 200) || 'OCR failed';
   }
-  await ops('POST', 'compliance_documents', {
-    category: 'insurance',
-    doc_type: 'Certificate of Insurance (ACORD 25)',
-    party_id: partyId,
-    issuer: coi?.carriers?.[0] || coi?.producer || null,
-    reference_number: coi?.gl_policy_number || null,
-    issue_date: coi?.certificate_date || coi?.gl_effective || null,
-    expiration_date: coi?.gl_expiration || coi?.auto_expiration || coi?.wc_expiration || null,
-    storage_path: path,
-    file_name: safeName,
-    notes: [
-      'Uploaded by the vendor via the onboarding link.',
-      coi?.gl_each_occurrence ? `GL each occurrence $${coi.gl_each_occurrence.toLocaleString()}.` : null,
-      coi?.additional_insured ? 'Additional insured shown.' : null,
-      shortfalls.length ? `⚠ SHORTFALLS: ${shortfalls.join(' · ')}` : null,
-      ocrError ? `⚠ OCR failed (${ocrError}) — review the file by hand.` : null,
-    ].filter(Boolean).join(' '),
+  const applied = applyCoi({
+    extracted: coi, storagePath: path, fileName: safeName,
+    partyId, source: 'vendor', ocrError, shortfalls,
   });
+  await ops('POST', 'compliance_documents', applied.doc);
   return json(200, {
     ok: true,
     kind: 'coi',
-    summary: coi ? {
-      carriers: coi.carriers,
-      gl_each_occurrence: coi.gl_each_occurrence,
-      gl_expiration: coi.gl_expiration,
-      wc: Boolean(coi.wc_policy_number || coi.wc_each_accident),
-      auto: Boolean(coi.auto_policy_number || coi.auto_csl),
-      additional_insured: coi.additional_insured,
-    } : null,
+    summary: applied.summary,
     shortfalls,
+    warnings: applied.warnings,
     ocr_error: ocrError,
   });
 }

@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { VendorDocDrop } from '@/components/VendorDocDrop';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -360,6 +361,14 @@ export default function VendorDetail() {
               />
             </div>
             <div>
+              <Label>W-9 received</Label>
+              <Input
+                type="date"
+                value={draft.w9_received_at ?? ''}
+                onChange={(e) => set('w9_received_at', e.target.value || null)}
+              />
+            </div>
+            <div>
               <Label>EIN last-4 only</Label>
               <Input
                 maxLength={4} inputMode="numeric" placeholder="1234"
@@ -367,6 +376,72 @@ export default function VendorDetail() {
                 onChange={(e) => set('ein_last4', e.target.value.replace(/\D/g, '') || null)}
               />
               <p className="text-[11px] text-muted-foreground mt-1">The full EIN/SSN stays inside the W-9 PDF — never in a field.</p>
+            </div>
+            <div>
+              <Label>TIN type</Label>
+              <SelectField
+                options={[
+                  { value: '', label: '—' },
+                  { value: 'ein', label: 'EIN' },
+                  { value: 'ssn', label: 'SSN' },
+                ]}
+                value={draft.tin_type ?? ''}
+                onChange={(e) => set('tin_type', (e.target.value || null) as Vendor['tin_type'])}
+              />
+            </div>
+            <div>
+              <Label>Tax classification (W-9 line 3)</Label>
+              <SelectField
+                options={[
+                  { value: '', label: 'Not recorded' },
+                  { value: 'individual', label: 'Individual' },
+                  { value: 'sole_prop', label: 'Sole proprietor' },
+                  { value: 'partnership', label: 'Partnership' },
+                  { value: 'c_corp', label: 'C corporation' },
+                  { value: 's_corp', label: 'S corporation' },
+                  { value: 'llc_c', label: 'LLC — taxed as C corp' },
+                  { value: 'llc_s', label: 'LLC — taxed as S corp' },
+                  { value: 'llc_p', label: 'LLC — taxed as partnership' },
+                  { value: 'trust', label: 'Trust / estate' },
+                  { value: 'other', label: 'Other' },
+                ]}
+                value={draft.tax_classification ?? ''}
+                onChange={(e) => set('tax_classification', (e.target.value || null) as Vendor['tax_classification'])}
+              />
+            </div>
+            <div>
+              <Label>Gets a 1099?</Label>
+              <SelectField
+                options={[
+                  { value: '', label: 'Work it out from the classification' },
+                  { value: 'yes', label: 'Yes — report' },
+                  { value: 'no', label: 'No — exempt' },
+                ]}
+                value={draft.is_1099 === null || draft.is_1099 === undefined ? '' : draft.is_1099 ? 'yes' : 'no'}
+                onChange={(e) => set('is_1099', e.target.value === '' ? null : e.target.value === 'yes')}
+              />
+              {/* Corporations are exempt — except attorneys and medical
+                  providers, which is a fact about what they DO and cannot be
+                  read off a W-9 checkbox. Hence the override. */}
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Corporations are normally exempt. Override for attorneys and medical providers, who get one regardless.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={!!draft.backup_withholding}
+                  onChange={(e) => set('backup_withholding', e.target.checked)}
+                />
+                <span>
+                  Backup withholding applies
+                  <span className="block text-[11px] text-muted-foreground">
+                    Tick when the vendor struck certification 2 on their W-9, or the IRS sent a B-notice. 24% is withheld.
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
           <div>
@@ -551,17 +626,26 @@ export default function VendorDetail() {
                   ))}
                 </div>
               )}
+              <VendorDocDrop
+                vendorId={vendor.id}
+                onFiled={async () => {
+                  // Both halves move: the vault list AND the vendor row, since
+                  // a W-9 rewrites the tax fields shown further up this page.
+                  const v = await getVendor(vendor.id);
+                  if (v) { setVendor(v); setDraft(v); }
+                  if (vendor.insured_party_id) setDocs(await partyDocuments(vendor.insured_party_id));
+                }}
+              />
               <a
                 href="https://alamedapointbg.com/compliance"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
               >
-                File documents in Compliance &amp; Safety <ExternalLink className="h-3.5 w-3.5" />
+                Open the full vault in Compliance &amp; Safety <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <p className="text-[11px] text-muted-foreground">
-                Staff filing happens in the Compliance &amp; Safety app under this vendor&rsquo;s party —
-                or let the vendor do it themselves with the request link below.
+                Or let the vendor file their own with the request link below.
               </p>
             </>
           )}
