@@ -84,10 +84,12 @@ export async function loadApInboxSettings() {
     allow_senders: list(v.allow_senders),
     block_senders: list(v.block_senders),
     ack_sender: v.ack_sender !== false,
-    // A bill cannot post to QuickBooks until it is approved. Turning this off
-    // makes the approval advisory — the queue still routes, but AP can post
-    // without waiting.
-    require_approval: v.require_approval !== false,
+    // OFF by default (Sky, 2026-08-23). Routing still happens — the bill is
+    // owned by, notified to, and visible to the person it belongs to — but it
+    // lands ready to post rather than waiting on a click that, for the common
+    // case of a sender owning their own bill, only they were going to make.
+    // Turn it on to make posting wait for an explicit approval.
+    require_approval: v.require_approval === true,
     // Rung 1 override: point one person's emailed bills at somebody else.
     // This is the escape hatch for real separation of duties without a
     // rebuild — see resolveBillRouting.

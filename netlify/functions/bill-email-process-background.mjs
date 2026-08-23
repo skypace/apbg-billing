@@ -42,6 +42,7 @@ const RETRYABLE = ['received', 'processing', 'failed', 'attachment_fetch_failed'
 const SITE = process.env.URL || 'https://alamedapointbg.com';
 const QUEUE_URL = `${SITE.replace(/\/$/, '')}/expense/bills`;
 const APPROVALS_URL = `${SITE.replace(/\/$/, '')}/expense/queue`;
+const MINE_URL = `${SITE.replace(/\/$/, '')}/expense/pending`;
 
 async function loadAccountLabels() {
   try {
@@ -53,7 +54,8 @@ async function loadAccountLabels() {
 
 // ─── Notifications ───
 
-async function notifyDrafted(intake, request, settings, submitter, routing, routed) {
+async function notifyDrafted(intake, request, settings, submitter, routing, needsApproval) {
+  const owned = !!routing.owner_email;
   const inner = kvTable([
     kvRow('Vendor', esc(request.vendor_name || '—')),
     kvRow('Amount', money(request.total_amount || 0)),
@@ -62,14 +64,14 @@ async function notifyDrafted(intake, request, settings, submitter, routing, rout
     kvRow('From', esc(intake.from_email || '—')),
     kvRow('Subject', esc(intake.subject || '—')),
     kvRow('Filed as', esc(submitter?.matched_sender ? `${submitter.name} (the sender)` : 'AP Inbox')),
-    kvRow('Waiting on', esc(routing.owner_email || 'nobody yet — needs assigning')),
+    kvRow(needsApproval ? 'Waiting on' : 'Filed to', esc(routing.owner_email || 'nobody yet — needs assigning')),
     kvRow('Why', esc(routing.reason)),
   ]) + `<p style="margin:16px 0 0">
-      <a href="${routed ? APPROVALS_URL : QUEUE_URL}" style="background:#38BDF8;color:#0B1220;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">${routed ? 'Review and approve →' : 'Open the AP inbox →'}</a>
+      <a href="${needsApproval ? APPROVALS_URL : (owned ? MINE_URL : QUEUE_URL)}" style="background:#38BDF8;color:#0B1220;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">${needsApproval ? 'Review and approve →' : (owned ? 'Review and post →' : 'Open the AP inbox →')}</a>
     </p>
     <p style="margin:14px 0 0;color:#94A3B8;font-size:13px">
-      Nothing has been posted to QuickBooks${routed ? ' and nothing can be until this is approved' : ''}.
-      Check the vendor, amount and GL account against the attached bill${routed ? ', approve it, then post it' : ', then post it'}.
+      Nothing has been posted to QuickBooks${needsApproval ? ' and nothing can be until this is approved' : ' yet'}.
+      Check the vendor, amount and GL account against the attached bill${needsApproval ? ', approve it, then post it' : ', then post it'}.
     </p>`;
 
   // The owner is the person who has to act; the AP list is the audience that
@@ -80,10 +82,12 @@ async function notifyDrafted(intake, request, settings, submitter, routing, rout
 
   await sendEmail({
     to,
-    subject: routed
+    subject: needsApproval
       ? `📄 Bill to approve — ${request.vendor_name || 'vendor'}${request.total_amount ? ` · ${money(request.total_amount)}` : ''}`
-      : `📄 AP inbox — ${request.vendor_name || 'bill'}${request.total_amount ? ` · ${money(request.total_amount)}` : ''} needs assigning`,
-    html: brixpenseEmail('#38BDF8', routed ? 'Waiting on you' : 'Needs assigning', inner),
+      : owned
+        ? `📄 Bill ready to post — ${request.vendor_name || 'vendor'}${request.total_amount ? ` · ${money(request.total_amount)}` : ''}`
+        : `📄 AP inbox — ${request.vendor_name || 'bill'}${request.total_amount ? ` · ${money(request.total_amount)}` : ''} needs assigning`,
+    html: brixpenseEmail('#38BDF8', needsApproval ? 'Waiting on you' : (owned ? 'Ready to post' : 'Needs assigning'), inner),
     replyTo: intake.from_email || undefined,
   });
 }
@@ -229,17 +233,34 @@ async function processIntake(intake, settings, accountLabels) {
     amount: li.amount,
   }));
 
-  // An owned bill goes STRAIGHT into that person's approval queue as
-  // `pending` — ManagerQueue selects on (manager_email, status='pending')
-  // regardless of request_type, so an emailed bill appears there next to the
-  // purchase requests with no change to that page. Unowned mail stays a
-  // `draft` in the AP Inbox until someone assigns it.
-  const routed = routing.assigned && settings.require_approval;
+  // Where it lands depends on whether approval is required.
+  //
+  //  approval ON  → `pending` + manager_email. ManagerQueue selects on
+  //                 (manager_email, status='pending') regardless of
+  //                 request_type, so it appears there next to the purchase
+  //                 requests with no change to that page, and cannot post
+  //                 until someone approves.
+  //  approval OFF → `approved` (the default). This is the SAME auto-approve
+  //                 every other Brixpense expense gets on submit, not a
+  //                 rubber stamp of a human decision — so the bill is
+  //                 immediately postable and shows up in the owner's
+  //                 "Previous Expenses" with a Post to QuickBooks button.
+  //                 manager_email is still set: ownership and RLS visibility
+  //                 are what routing buys, and they don't depend on the gate.
+  //  unassigned   → `draft`, held in the AP Inbox for a human to assign.
+  const needsApproval = routing.assigned && settings.require_approval;
+  const status = needsApproval ? 'pending' : (routing.assigned ? 'approved' : 'draft');
+  const autoApproved = status === 'approved';
 
   const request = await opsInsert('expense_requests', {
     request_type: 'expense',
-    status: routed ? 'pending' : 'draft',
-    manager_email: routing.owner_email,   // whose queue it lands in
+    status,
+    manager_email: routing.owner_email,   // who owns it, gate or no gate
+    ...(autoApproved ? {
+      auto_approved: true,
+      approved_by: 'system (AP inbox — no approval required)',
+      approved_at: new Date().toISOString(),
+    } : {}),
     as_bill: true,              // an unpaid vendor bill, not an out-of-pocket receipt
     tag: AP_TAG,
     submitted_by: submitter.id,
@@ -288,7 +309,7 @@ async function processIntake(intake, settings, accountLabels) {
 
   if (!intake.notified_at) {
     try {
-      await notifyDrafted(intake, { ...request, ...ocr, vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number, receipt_date: ocr.date }, settings, submitter, routing, routed);
+      await notifyDrafted(intake, { ...request, ...ocr, vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number, receipt_date: ocr.date }, settings, submitter, routing, needsApproval);
       await ackSender(intake, settings, { vendor_name: ocr.vendor, total_amount: ocr.total, bill_number: ocr.bill_number });
       await opsPatch('bill_email_intake', `id=eq.${intake.id}`, { notified_at: new Date().toISOString() });
     } catch (e) {
@@ -296,7 +317,7 @@ async function processIntake(intake, settings, accountLabels) {
     }
   }
 
-  return { status: 'drafted', request_id: request?.id, owner: routing.owner_email, routed };
+  return { status: 'drafted', request_id: request?.id, owner: routing.owner_email, bill_status: status };
 }
 
 // ─── Handler ───

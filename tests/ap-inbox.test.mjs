@@ -253,6 +253,31 @@ await t('and the floor is a visible pile, never a silent drop', () => {
   assert.match(r.reason, /triage/);
 });
 
+console.log('\n— the approval gate —');
+
+// The status an emailed bill lands with, mirroring the processor's rule.
+const landingStatus = (assigned, requireApproval) =>
+  assigned && requireApproval ? 'pending' : (assigned ? 'approved' : 'draft');
+
+await t('with the gate OFF (the default) an owned bill is immediately postable', () => {
+  const st = landingStatus(true, false);
+  assert.equal(st, 'approved');
+  // link-bill's LINKABLE_STATUSES — the actual gate on posting.
+  assert.ok(['approved', 'awaiting_invoice', 'fulfilled'].includes(st));
+});
+
+await t('with the gate ON it waits in the approver\'s queue', () => {
+  const st = landingStatus(true, true);
+  assert.equal(st, 'pending');
+  assert.equal(['approved', 'awaiting_invoice', 'fulfilled'].includes(st), false,
+    'cannot post until approved');
+});
+
+await t('unassigned mail stays a draft either way', () => {
+  assert.equal(landingStatus(false, false), 'draft');
+  assert.equal(landingStatus(false, true), 'draft');
+});
+
 console.log('\n— the shared-project trap —');
 
 await t('only a Brixpense login counts as internal', () => {

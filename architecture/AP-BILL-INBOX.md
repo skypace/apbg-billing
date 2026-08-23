@@ -55,38 +55,51 @@ project is shared — brix-order customers and distributor partners have logins
 here too — so matching on "is a login" alone would hand a customer's invoice a
 staff owner and a spot in an approval queue.
 
-## ⚠ Rung 2 is a review gate, not separation of duties
+## ⚠ There is no second pair of eyes on an emailed bill
 
-When the bill routes back to its sender, **the sender approves their own bill**.
-That is worth something real — it forces a human to check the OCR against the
-actual document before it can become a QBO transaction — but it is not a second
-pair of eyes, and it should not be described as one.
+With the approval gate off (the default), the person who emails a bill in is
+the same person who posts it. The only thing standing between an inbound PDF
+and a QuickBooks Bill is **one human clicking Post to QuickBooks** — which is a
+real check, because they see the OCR beside the original document, but it is
+not separation of duties and should not be described as one.
 
-`expense-request-decide` blocks self-approval for everything else and keeps
-doing so; the exception is scoped to `tag='AP Inbox'` expense rows, and a
-self-review is stamped into `approved_by` as `"<email> (own emailed bill)"`
-rather than hidden.
+Two knobs if that ever needs to change, neither requiring a deploy:
 
-**Want real separation of duties?** Put the sender in `sender_routes` pointing
-at somebody else. No rebuild needed.
+- `sender_routes` — point one person's bills at somebody else, so the poster
+  and the sender differ.
+- `require_approval: true` — reinstate an explicit approval before posting.
+  (When both are on, `expense-request-decide`'s self-approval block stays open
+  only for `tag='AP Inbox'` expense rows, and a self-review is stamped into
+  `approved_by` as `"<email> (own emailed bill)"` rather than hidden.)
 
-## The approval gate
+## The approval gate — OFF by default
 
-`require_approval` (default **on**) means a routed bill lands as `status='pending'`
-and **Post to QuickBooks stays disabled until it is approved**. Two surfaces:
+`require_approval` ships **false** (Sky, 2026-08-23: *"it doesn't need approval"*).
 
-- **`/expense/queue`** — the existing Approvals queue. It selects on
-  `(manager_email, status='pending')` regardless of request type, so an emailed
-  bill shows up there next to the purchase requests with no change to that page.
-  This is the path for an owner who is not AP staff; RLS
-  (`expense_requests_select` on `manager_email`) makes the row theirs to see and
-  update.
-- **`/expense/bills`** — the AP desk's oversight view (superadmin/admin, matching
-  `ops.fn_is_staff()`). Approve is offered only to the person the bill is waiting
-  on, so it can't be quietly cleared by whoever opened the page.
+Routing still does all the work that was asked for — the bill is **owned by,
+notified to, and visible to** the right person — it just lands ready to post
+rather than waiting on a click that, in the common case of a sender owning
+their own bill, only they were going to make anyway.
 
-Turning `require_approval` off makes the approval advisory: bills still route,
-but AP can post without waiting.
+| `require_approval` | Owned bill lands as | Who sees it | Can post? |
+|---|---|---|---|
+| **false** (default) | `approved` | the owner's **Previous Expenses** (`/expense/pending`), which already has a Post to QuickBooks button for approved+unposted expenses | immediately |
+| `true` | `pending` | the owner's **Approvals** queue (`/expense/queue`) | only after they approve |
+
+Unassigned mail lands `draft` in the AP Inbox either way.
+
+`approved` here is the **same auto-approve every other Brixpense expense gets
+on submit** — not a rubber stamp of a human decision. `approved_by` records
+`system (AP inbox — no approval required)` so the row says so plainly.
+
+**Nothing about the QuickBooks gate changes.** Posting is still an explicit
+human **Post to QuickBooks** click (the 2026-08-14 rule) — the approval flag
+only decides whether a *second* click has to happen first.
+
+Turning it back on needs no deploy: flip `require_approval` in
+`ops.expense_settings.ap_inbox`. The approval machinery stays wired
+(`expense-request-decide`'s narrow self-approval exception, the Approve button,
+the Waiting-on-you filters), it is simply dormant.
 
 ## The one rule
 
@@ -108,7 +121,7 @@ each failure is re-runnable from the queue ("Try again").
 
 | Status | Means | Fix |
 |---|---|---|
-| `drafted` | Bill created and routed | The owner approves, then it posts |
+| `drafted` | Bill created and routed | The owner reviews it and posts it |
 | `received` / `processing` | In flight | Wait; it self-refreshes |
 | `no_attachment` | The email genuinely had no readable file | Ask for the PDF, or key it in by hand |
 | `attachment_fetch_failed` | Resend refused the attachment read | Read `diagnostics` — usually the API key |
@@ -138,7 +151,7 @@ read is now quoted verbatim into `diagnostics`, with the variable to set named.
   "block_senders": [],
   "ack_sender": true,
 
-  "require_approval": true,
+  "require_approval": false,
   "default_approver": null,
   "sender_routes":        { "joel@brixbev.com": "anthonyv@brixbev.com" },
   "vendor_routes":        { "pro mechanical":   "anthonyv@brixbev.com" },
@@ -153,7 +166,7 @@ read is now quoted verbatim into `diagnostics`, with the variable to set named.
 - `sender_routes` / `vendor_routes` / `department_approvers` — the routing
   ladder above. Keys are matched lowercase; vendor and department keys match as
   substrings of the OCR'd vendor name / GL account label.
-- `require_approval` — whether approval gates posting.
+- `require_approval` — **false** by default. `true` makes posting wait for an explicit approval.
 
 ## Environment (Netlify, apbg-billing, functions scope)
 
@@ -232,5 +245,5 @@ exactly what an AP-inbox bill becomes. So the panel is mounted here too:
   no payment recorded.
 
 The full lifecycle of an emailed bill is therefore: **arrives → OCR'd → routed →
-approved → posted to QuickBooks → paid**, each step a deliberate human click
-after the first.
+posted to QuickBooks → paid** — with an approval step in the middle only if
+`require_approval` is switched on.

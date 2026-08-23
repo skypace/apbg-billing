@@ -128,7 +128,7 @@ export default function BillsInbox() {
   const [settings, setSettings] = useState<InboxSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('mine');
+  const [filter, setFilter] = useState<Filter>('ready');
   const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [check, setCheck] = useState<SetupCheck | null>(null);
@@ -170,6 +170,12 @@ export default function BillsInbox() {
   }, [session]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // With the approval gate on, the useful landing view is what is waiting on
+  // you; with it off there is no such thing, so it is what is ready to post.
+  useEffect(() => {
+    if (settings?.require_approval) setFilter((f) => (f === 'ready' ? 'mine' : f));
+  }, [settings?.require_approval]);
 
   // Rows land seconds after an email arrives, so a slow poll keeps the queue
   // honest while someone is watching it. Only while something is mid-flight.
@@ -326,7 +332,7 @@ export default function BillsInbox() {
                 Forward a vendor invoice — or have the vendor email it directly — to{' '}
                 <span className="font-mono text-foreground">{settings?.inbox ?? 'bills@alamedapointbg.com'}</span>.
                 The PDF is read automatically and lands below as a draft bill.
-                <strong className="text-foreground"> It lands in the sender's approval queue, and nothing posts to QuickBooks until it is approved.</strong>
+                <strong className="text-foreground"> It lands with whoever it belongs to, ready to post — but nothing reaches QuickBooks until a human clicks Post.</strong>
               </p>
             </div>
           </div>
@@ -365,16 +371,20 @@ export default function BillsInbox() {
       )}
 
       <div className="flex flex-wrap gap-1.5">
-        {([
-          ['mine', `Waiting on you (${counts.mine})`],
-          ['approval', `Awaiting approval (${counts.approval})`],
+        {(([
+          // The approval views only exist when the gate is switched on;
+          // showing two permanently-empty pills would just read as broken.
+          ...(settings?.require_approval
+            ? [['mine', `Waiting on you (${counts.mine})`],
+               ['approval', `Awaiting approval (${counts.approval})`]] as [Filter, string][]
+            : []),
           ['ready', `Ready to post (${counts.ready})`],
           ['unassigned', `Unassigned (${counts.unassigned})`],
           ['attention', `Needs attention (${counts.attention})`],
           ['posted', `Posted (${counts.posted})`],
           ['unpaid', `Awaiting payment (${counts.unpaid})`],
           ['all', `Everything (${counts.all})`],
-        ] as [Filter, string][]).map(([key, label]) => (
+        ] as [Filter, string][])).map(([key, label]) => (
           <Button
             key={key}
             size="sm"
@@ -394,8 +404,8 @@ export default function BillsInbox() {
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            {filter === 'mine'
-              ? 'Nothing waiting on you. Forward a bill to the address above and it will show up here.'
+            {filter === 'mine' || filter === 'ready'
+              ? 'Nothing waiting. Forward a bill to the address above and it will show up here.'
               : 'Nothing in this view.'}
           </CardContent>
         </Card>
