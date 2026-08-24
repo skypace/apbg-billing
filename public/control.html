@@ -83,6 +83,13 @@ header .links a:hover{color:#1F4E79}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .pulsing{animation:pulse 2s ease-in-out infinite}
+
+.app-title{display:flex;align-items:center;gap:12px;min-width:0}
+.app-title img{width:44px;height:44px;flex:0 0 44px;object-fit:contain}
+.app-title-copy{display:flex;flex-direction:column;gap:3px;line-height:1.08}
+.app-title-copy strong{font-size:1.05rem;letter-spacing:-.02em}
+.app-title-copy small{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748B}
+@media(max-width:640px){.app-title img{width:36px;height:36px;flex-basis:36px}.app-title-copy strong{font-size:.9rem}}
 </style>
 <link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
@@ -94,7 +101,10 @@ header .links a:hover{color:#1F4E79}
 <!-- Dashboard -->
 <div id="app" style="display:none">
 <header>
-  <h1><span class="brand-mark" aria-hidden="true">B</span> BRIXPENSE System Control</h1>
+  <div class="app-title">
+    <img src="https://alamedapointbg.com/app-icons/control-light.png" alt="">
+    <div class="app-title-copy"><strong>Control Center</strong><small>Brix · APBG systems</small></div>
+  </div>
   <div class="links">
     <a href="https://apbg-billing.netlify.app" target="_blank">BRIXPENSE</a>
     <a href="https://melt-dashboard.netlify.app" target="_blank">Melt Dashboard</a>

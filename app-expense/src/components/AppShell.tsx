@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixMark, BrixWordmark } from './BrixMark';
+import { BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 
 const navGroups: {
@@ -201,8 +201,11 @@ export function AppShell() {
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={56} />
-          <BrixWordmark />
+          <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
+          <div className="app-logo-copy">
+            <strong>Brixpense</strong>
+            <span>Expenses & approvals</span>
+          </div>
         </div>
         <span style={{ width: 40 }} aria-hidden />
       </header>
@@ -227,10 +230,11 @@ export function AppShell() {
           onClick={() => goTo('')}
           style={{ cursor: 'pointer' }}
         >
-          <BrixMark size={72} />
+          <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
           {!collapsed && (
-            <div className="brand-text">
-              <BrixWordmark />
+            <div className="brand-text app-logo-copy">
+              <strong>Brixpense</strong>
+              <span>Expenses & approvals</span>
             </div>
           )}
           {/* Mobile-only close button — only shown when drawer is open on small screens */}
@@ -279,6 +283,12 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-footer">
+          {!collapsed && (
+            <div className="parent-brand" aria-label="Brix Beverage, an APBG company">
+              <BrixWordmark style={{ fontSize: 14 }} />
+              <span>an APBG company</span>
+            </div>
+          )}
           {!collapsed && userEmail && (
             <span className="sidebar-email" title={userEmail}>
               {userEmail}
