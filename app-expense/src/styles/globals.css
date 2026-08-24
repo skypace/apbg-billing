@@ -859,3 +859,16 @@ button.hover\:bg-secondary:hover, [data-slot="button"].hover\:bg-secondary:hover
   text-transform: uppercase;
 }
 .sidebar.collapsed .parent-brand { display: none; }
+
+
+/* Brix signature: the oversized green X stays part of the product wordmark. */
+.app-logo-x {
+  display: inline-block;
+  margin: 0 .015em;
+  color: var(--green);
+  font-size: 1.3em;
+  font-weight: 850;
+  line-height: .72;
+  transform: translateY(.035em);
+  text-shadow: var(--brand-glow);
+}
