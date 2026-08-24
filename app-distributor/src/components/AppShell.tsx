@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixWordmark } from './BrixMark';
+import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 import { useDistributor } from '@/lib/distributor';
 import { AmberCallout } from './ui';
@@ -98,7 +98,7 @@ export function AppShell() {
         <div className="topbar-brand" onClick={() => goTo('')} style={{ cursor: 'pointer' }}>
           <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
           <div className="app-logo-copy">
-            <strong>Bri<span className="app-logo-x">X</span> Vendor Portal</strong>
+            <BrixWordmark />
             <span>Inventory & orders</span>
           </div>
         </div>
@@ -124,7 +124,7 @@ export function AppShell() {
           <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
           {!collapsed && (
             <div className="brand-text app-logo-copy">
-              <strong>Bri<span className="app-logo-x">X</span> Vendor Portal</strong>
+              <BrixWordmark />
               <span>Inventory & orders</span>
             </div>
           )}
@@ -195,8 +195,8 @@ export function AppShell() {
         <div className="sidebar-footer">
           {!collapsed && (
             <div className="parent-brand" aria-label="Brix Beverage, an APBG company">
-              <BrixWordmark style={{ fontSize: 14 }} />
-              <span>an APBG company</span>
+              <BrixMark size={20} />
+              <span>Brix Beverage · APBG</span>
             </div>
           )}
           {!collapsed && userEmail && (
