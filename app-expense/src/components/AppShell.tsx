@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixWordmark } from './BrixMark';
+import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 
 const navGroups: {
@@ -203,7 +203,7 @@ export function AppShell() {
         >
           <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
           <div className="app-logo-copy">
-            <strong>Bri<span className="app-logo-x">X</span>pense</strong>
+            <BrixWordmark />
             <span>Expenses & approvals</span>
           </div>
         </div>
@@ -233,7 +233,7 @@ export function AppShell() {
           <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
           {!collapsed && (
             <div className="brand-text app-logo-copy">
-              <strong>Bri<span className="app-logo-x">X</span>pense</strong>
+              <BrixWordmark />
               <span>Expenses & approvals</span>
             </div>
           )}
@@ -285,8 +285,8 @@ export function AppShell() {
         <div className="sidebar-footer">
           {!collapsed && (
             <div className="parent-brand" aria-label="Brix Beverage, an APBG company">
-              <BrixWordmark style={{ fontSize: 14 }} />
-              <span>an APBG company</span>
+              <BrixMark size={20} />
+              <span>Brix Beverage · APBG</span>
             </div>
           )}
           {!collapsed && userEmail && (
