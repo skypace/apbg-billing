@@ -806,3 +806,56 @@ button.hover\:bg-secondary:hover, [data-slot="button"].hover\:bg-secondary:hover
   .ap-btn { flex-basis: 100%; }
   .ap-sig-box { height: 150px; }
 }
+
+
+/* Native app identity — sized for this shell, not injected globally. */
+.app-logo-icon {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  object-fit: contain;
+  display: block;
+}
+.app-logo-icon--mobile {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+}
+.app-logo-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.05;
+}
+.app-logo-copy strong {
+  overflow: hidden;
+  color: var(--tx);
+  font-family: var(--ff-display);
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-logo-copy span {
+  color: var(--mt);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.parent-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 14px 8px;
+  color: var(--mt);
+}
+.parent-brand span {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.sidebar.collapsed .parent-brand { display: none; }
