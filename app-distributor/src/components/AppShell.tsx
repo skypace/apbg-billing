@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
-import { BrixMark, BrixWordmark } from './BrixMark';
+import { BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
 import { useDistributor } from '@/lib/distributor';
 import { AmberCallout } from './ui';
@@ -96,8 +96,11 @@ export function AppShell() {
           <Menu size={22} />
         </button>
         <div className="topbar-brand" onClick={() => goTo('')} style={{ cursor: 'pointer' }}>
-          <BrixMark size={44} />
-          <BrixWordmark style={{ fontSize: 17 }} />
+          <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
+          <div className="app-logo-copy">
+            <strong>Distributor Portal</strong>
+            <span>Inventory & orders</span>
+          </div>
         </div>
         <span style={{ width: 40 }} aria-hidden />
       </header>
@@ -118,11 +121,11 @@ export function AppShell() {
         ].filter(Boolean).join(' ')}
       >
         <div className="brand" onClick={() => goTo('')} style={{ cursor: 'pointer' }}>
-          <BrixMark size={56} />
+          <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
           {!collapsed && (
-            <div className="brand-text">
-              <BrixWordmark style={{ fontSize: 17 }} />
-              <span className="brand-sub">Sub-Distributor Portal</span>
+            <div className="brand-text app-logo-copy">
+              <strong>Distributor Portal</strong>
+              <span>Inventory & orders</span>
             </div>
           )}
           {drawerOpen && (
@@ -190,6 +193,12 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-footer">
+          {!collapsed && (
+            <div className="parent-brand" aria-label="Brix Beverage, an APBG company">
+              <BrixWordmark style={{ fontSize: 14 }} />
+              <span>an APBG company</span>
+            </div>
+          )}
           {!collapsed && userEmail && (
             <span className="sidebar-email" title={userEmail}>{userEmail}</span>
           )}
