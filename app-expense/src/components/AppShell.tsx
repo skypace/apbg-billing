@@ -203,7 +203,7 @@ export function AppShell() {
         >
           <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
           <div className="app-logo-copy">
-            <strong>Brixpense</strong>
+            <strong>Bri<span className="app-logo-x">X</span>pense</strong>
             <span>Expenses & approvals</span>
           </div>
         </div>
@@ -233,7 +233,7 @@ export function AppShell() {
           <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/brixpense-light.png" alt="" />
           {!collapsed && (
             <div className="brand-text app-logo-copy">
-              <strong>Brixpense</strong>
+              <strong>Bri<span className="app-logo-x">X</span>pense</strong>
               <span>Expenses & approvals</span>
             </div>
           )}

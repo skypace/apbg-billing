@@ -577,3 +577,16 @@ label.fld { color: var(--tx2); font-size: 13px; font-weight: 600; text-transform
 .parent-brand { display:flex;align-items:center;gap:7px;padding:4px 14px 8px;color:var(--mt); }
 .parent-brand span { font-size:9px;font-weight:650;letter-spacing:.08em;text-transform:uppercase; }
 .sidebar.collapsed .parent-brand { display:none; }
+
+
+/* Brix signature: the oversized green X stays part of the product wordmark. */
+.app-logo-x {
+  display: inline-block;
+  margin: 0 .015em;
+  color: var(--green);
+  font-size: 1.3em;
+  font-weight: 850;
+  line-height: .72;
+  transform: translateY(.035em);
+  text-shadow: var(--brand-glow);
+}
