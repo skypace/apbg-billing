@@ -98,7 +98,7 @@ export function AppShell() {
         <div className="topbar-brand" onClick={() => goTo('')} style={{ cursor: 'pointer' }}>
           <img className="app-logo-icon app-logo-icon--mobile" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
           <div className="app-logo-copy">
-            <strong>Distributor Portal</strong>
+            <strong>Bri<span className="app-logo-x">X</span> Vendor Portal</strong>
             <span>Inventory & orders</span>
           </div>
         </div>
@@ -124,7 +124,7 @@ export function AppShell() {
           <img className="app-logo-icon" src="https://alamedapointbg.com/app-icons/distributor-light.png" alt="" />
           {!collapsed && (
             <div className="brand-text app-logo-copy">
-              <strong>Distributor Portal</strong>
+              <strong>Bri<span className="app-logo-x">X</span> Vendor Portal</strong>
               <span>Inventory & orders</span>
             </div>
           )}
