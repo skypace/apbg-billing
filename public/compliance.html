@@ -314,6 +314,14 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   body.print-manual .hb img,body.print-manual .hb table,body.print-manual .hb blockquote{break-inside:avoid;page-break-inside:avoid}
   body.print-manual .hb{max-width:none;font-size:10.5pt}
 }
+
+/* Native Compliance & Safety identity */
+.app-title{display:flex;align-items:center;gap:12px;min-width:0}
+.app-title img{width:46px;height:46px;flex:0 0 46px;object-fit:contain}
+.app-title-copy{display:flex;flex-direction:column;gap:3px;line-height:1.08}
+.app-title-copy strong{font-size:1.05rem;letter-spacing:-.02em}
+.app-title-copy small{font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.62}
+@media(max-width:700px){.app-title img{width:38px;height:38px;flex-basis:38px}.app-title-copy strong{font-size:.92rem}}
 </style>
 </head>
 <body>
@@ -327,7 +335,13 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
 <div id="app" style="display:none">
   <header>
-    <h1>🧯 Compliance &amp; Safety <span class="cers">CERS 10666381</span></h1>
+    <div class="app-title">
+      <img src="https://alamedapointbg.com/app-icons/compliance-light.png" alt="">
+      <div class="app-title-copy">
+        <strong>Compliance &amp; Safety</strong>
+        <small>Brix · APBG &nbsp;•&nbsp; CERS 10666381</small>
+      </div>
+    </div>
     <div class="links">
       <a href="/margin/docs/handbook/#/30-sop-cupa-compliance" target="_blank" rel="noopener">SOP-10 CUPA →</a>
       <a href="/margin/docs/handbook/#/32-sop-insurance" target="_blank" rel="noopener">SOP-11 Insurance →</a>
