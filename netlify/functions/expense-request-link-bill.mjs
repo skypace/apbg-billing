@@ -84,6 +84,51 @@ async function notifyPostFailure(supabase, request, reason) {
   }
 }
 
+// Pre-post duplicate guard. The "Post to QuickBooks" button only knows whether
+// BRIXPENSE posted a row (qbo_bill_id on the row) — it can't see a bill someone
+// hand-keyed straight into QBO for the same expense. So before creating anything,
+// scan the QBO mirror (ops.qbo_expense_lines) for an existing bill/purchase with
+// the same amount in the last 60 days that no Brixpense row owns. Amount-only on
+// purpose: hand-keyed vendor spellings differ ("ERIC SERRANO" vs "Serrano
+// Refrigeration HTG&AC"), so a vendor filter would miss exactly the entries this
+// exists to catch. Matches come back as a 409 the UI turns into a confirm dialog
+// ("post anyway?") — a warn, not a block, since same-amount coincidences happen.
+// Best-effort by design: the mirror check failing must never stop a legit post.
+async function findLikelyQboDuplicates(request) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const amt = Number(request.total_amount) || 0;
+  if (!serviceKey || !amt) return [];
+  try {
+    const svc = createClient(SUPABASE_URL, serviceKey, { db: { schema: 'ops' } });
+    const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    const { data: lines } = await svc.from('qbo_expense_lines')
+      .select('qbo_txn_id, qbo_txn_type, txn_date, vendor_name, amount')
+      .gte('txn_date', since)
+      .gte('amount', amt - 0.005).lte('amount', amt + 0.005)
+      .order('txn_date', { ascending: false })
+      .limit(40);
+    if (!lines?.length) return [];
+    // Transactions some Brixpense row already posted are accounted for — a real
+    // sibling expense (Serrano bills $170 flat, repeatedly) is not a duplicate.
+    const txnIds = [...new Set(lines.map((l) => l.qbo_txn_id))];
+    const { data: linked } = await svc.from('expense_requests')
+      .select('qbo_bill_id').in('qbo_bill_id', txnIds);
+    const linkedSet = new Set((linked || []).map((r) => r.qbo_bill_id));
+    const seen = new Set();
+    const out = [];
+    for (const l of lines) {
+      if (linkedSet.has(l.qbo_txn_id) || seen.has(l.qbo_txn_id)) continue;
+      seen.add(l.qbo_txn_id);
+      out.push({ txn_type: l.qbo_txn_type, txn_id: l.qbo_txn_id, txn_date: l.txn_date, vendor_name: l.vendor_name || null, amount: Number(l.amount) });
+      if (out.length >= 5) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('duplicate-check failed (non-fatal, post proceeds):', e?.message);
+    return [];
+  }
+}
+
 async function findQBOVendor(name) {
   if (!name) return null;
   try {
@@ -247,7 +292,7 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId } = body;
+  const { requestId, mode = 'create', qboBillId, force = false } = body;
   if (!requestId) return err('Missing requestId');
   if (!['create', 'preview', 'link'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
@@ -270,6 +315,21 @@ export default async function handler(req) {
 
   if (!LINKABLE_STATUSES.includes(request.status)) {
     return err(`Cannot post from status "${request.status}". Must be: ${LINKABLE_STATUSES.join(', ')}`, 409);
+  }
+
+  // Duplicate guard — only on the real write, and only until the human says
+  // "post anyway" (force). preview/link skip it.
+  if (mode === 'create' && !force) {
+    const dupes = await findLikelyQboDuplicates(request);
+    if (dupes.length) {
+      const list = dupes
+        .map((d) => `${d.txn_type} #${d.txn_id} — ${d.vendor_name || 'unknown vendor'} $${d.amount.toFixed(2)} on ${d.txn_date}`)
+        .join('; ');
+      return json({
+        success: false, duplicate_check: true, matches: dupes, request_id: requestId,
+        message: `QuickBooks may already have this expense: ${list}. Nothing was posted.`,
+      }, 409);
+    }
   }
 
   const departmentRef = await findQBODepartmentRef(request.department);

@@ -686,12 +686,22 @@ export default function ExpenseForm() {
   // any failure so both callers can each decide how to surface it.
   const attemptPostToQuickBooks = async (id: string) => {
     const token = await getAccessToken();
-    const res = await fetch('/expense/api/expense-request-link-bill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ requestId: id, mode: 'create' }),
-    });
-    const data = await res.json();
+    const post = async (force: boolean) => {
+      const res = await fetch('/expense/api/expense-request-link-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ requestId: id, mode: 'create', ...(force ? { force: true } : {}) }),
+      });
+      return { res, data: await res.json() };
+    };
+    let { res, data } = await post(false);
+    // Duplicate guard: the backend found an unlinked QBO bill/purchase with the
+    // same amount — probably hand-keyed. A human decides; force retries past it.
+    if (res.status === 409 && data.duplicate_check) {
+      const ok = window.confirm(`${data.message}\n\nPost to QuickBooks anyway?`);
+      if (!ok) throw new Error('Not posted — QuickBooks may already have this expense. Nothing was created.');
+      ({ res, data } = await post(true));
+    }
     if (!res.ok || data.success === false) {
       throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
     }
