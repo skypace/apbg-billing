@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 330" role="img" aria-label="Hot work clearance of thirty five feet, extinguisher within reach, and a thirty minute fire watch after the last flame">
+<style>
+ .ttl{font:700 17px system-ui,sans-serif;fill:#0F172A}
+ .lbl{font:600 13px system-ui,sans-serif;fill:#0F172A}
+ .sub{font:12px system-ui,sans-serif;fill:#475569}
+ .dgr{font:700 13px system-ui,sans-serif;fill:#B91C1C}
+ .ok{font:700 13px system-ui,sans-serif;fill:#15803D}
+</style>
+<text x="16" y="26" class="ttl">Hot work: clear 35 ft, extinguisher in reach, 30-minute fire watch</text>
+<circle cx="250" cy="170" r="118" fill="#FEF3C7" opacity=".55"/>
+<circle cx="250" cy="170" r="118" fill="none" stroke="#F4B400" stroke-width="2" stroke-dasharray="7 5"/>
+<line x1="250" y1="170" x2="368" y2="170" stroke="#B45309" stroke-width="2"/>
+<text x="278" y="164" class="lbl">35 ft</text>
+
+<!-- torch point -->
+<path d="M244 156 l12 -22 l12 22 Z" fill="#B91C1C"/>
+<rect x="240" y="176" width="30" height="12" rx="3" fill="#1F4E79"/>
+<text x="206" y="212" class="sub">brazing point</text>
+
+<!-- combustibles moved out -->
+<rect x="392" y="120" width="40" height="30" fill="#94A3B8" opacity=".5"/>
+<rect x="392" y="160" width="40" height="30" fill="#94A3B8" opacity=".5"/>
+<text x="386" y="212" class="ok">combustibles removed or blanketed</text>
+
+<!-- extinguisher -->
+<rect x="146" y="150" width="16" height="40" rx="6" fill="#B91C1C"/>
+<text x="86" y="212" class="ok">extinguisher at arm's reach</text>
+
+<!-- checklist -->
+<rect x="470" y="52" width="234" height="240" rx="10" fill="#F8FBFE" stroke="#D6E4F0"/>
+<text x="486" y="78" class="lbl">Before the torch</text>
+<text x="486" y="100" class="sub">□ authorised / customer told</text>
+<text x="486" y="120" class="sub">□ look behind &amp; below the wall</text>
+<text x="486" y="140" class="sub">□ system recovered &amp; purged</text>
+<text x="486" y="160" class="sub">□ N₂ regulator WITH relief</text>
+<text x="486" y="186" class="dgr">Never braze an unrecovered</text>
+<text x="486" y="202" class="dgr">system — toxic gas + rupture</text>
+<text x="486" y="230" class="lbl">After the last flame</text>
+<text x="486" y="252" class="sub">□ 30-min fire watch, someone</text>
+<text x="486" y="268" class="sub">   stays with an extinguisher</text>
+<text x="486" y="284" class="sub">□ check the far side of walls</text>
+<text x="16" y="318" class="sub">Fires start hours after the torch is off — that is the entire reason the fire watch exists</text>
+</svg>

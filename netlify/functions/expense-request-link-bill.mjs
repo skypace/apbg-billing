@@ -15,6 +15,7 @@ import { attachReceiptsToQBO } from './lib/qbo-attach.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
 import { brixpenseEmail, kvRow, kvTable, esc, money } from './lib/brixpense-email.mjs';
 import { sendEmail } from './email-helpers.mjs';
+import { findDuplicate } from './lib/expense-dupes.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -36,6 +37,50 @@ const DEFAULT_COGS_ACCOUNT_ID = '101';
 function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, headers: CORS }); }
 function err(m, s = 400) { return json({ error: m }, s); }
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
+
+// Second layer of the duplicate gate: HAND-KEYED QuickBooks bills. findDuplicate
+// (expense-dupes.mjs) catches a Brixpense twin — another expense_requests row for
+// the same bill already posted. But a bill someone keyed straight into QBO has no
+// Brixpense row, so that check can't see it. This one scans the QBO mirror
+// (ops.qbo_expense_lines) for bills/purchases in the last 60 days with the same
+// amount that NO Brixpense row owns. Amount-only on purpose: hand-keyed vendor
+// spellings differ ("ERIC SERRANO" vs "Serrano Refrigeration HTG&AC"), so a
+// vendor filter would miss exactly the entries this exists to catch. Excluding
+// every txn already linked to an expense_requests.qbo_bill_id keeps real sibling
+// expenses (Serrano bills $170 flat, repeatedly) from false-positiving.
+// Best-effort like its sibling: a mirror check that can't run never blocks a post.
+async function findLikelyQboDuplicates(request) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const amt = Number(request.total_amount) || 0;
+  if (!serviceKey || !amt) return [];
+  try {
+    const svc = createClient(SUPABASE_URL, serviceKey, { db: { schema: 'ops' } });
+    const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    const { data: lines } = await svc.from('qbo_expense_lines')
+      .select('qbo_txn_id, qbo_txn_type, txn_date, vendor_name, amount')
+      .gte('txn_date', since)
+      .gte('amount', amt - 0.005).lte('amount', amt + 0.005)
+      .order('txn_date', { ascending: false })
+      .limit(40);
+    if (!lines?.length) return [];
+    const txnIds = [...new Set(lines.map((l) => l.qbo_txn_id))];
+    const { data: linked } = await svc.from('expense_requests')
+      .select('qbo_bill_id').in('qbo_bill_id', txnIds);
+    const linkedSet = new Set((linked || []).map((r) => r.qbo_bill_id));
+    const seen = new Set();
+    const out = [];
+    for (const l of lines) {
+      if (linkedSet.has(l.qbo_txn_id) || seen.has(l.qbo_txn_id)) continue;
+      seen.add(l.qbo_txn_id);
+      out.push({ txn_type: l.qbo_txn_type, txn_id: l.qbo_txn_id, txn_date: l.txn_date, vendor_name: l.vendor_name || null, amount: Number(l.amount) });
+      if (out.length >= 5) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('mirror duplicate-check failed (non-fatal, post proceeds):', e?.message);
+    return [];
+  }
+}
 
 // qboRequest throws `Error("QBO API error: <status> " + rawResponseText)` —
 // rawResponseText is QBO's Fault JSON. Pull out the actual human message
@@ -81,51 +126,6 @@ async function notifyPostFailure(supabase, request, reason) {
     });
   } catch (e) {
     console.warn('notifyPostFailure email failed (non-fatal):', e?.message);
-  }
-}
-
-// Pre-post duplicate guard. The "Post to QuickBooks" button only knows whether
-// BRIXPENSE posted a row (qbo_bill_id on the row) — it can't see a bill someone
-// hand-keyed straight into QBO for the same expense. So before creating anything,
-// scan the QBO mirror (ops.qbo_expense_lines) for an existing bill/purchase with
-// the same amount in the last 60 days that no Brixpense row owns. Amount-only on
-// purpose: hand-keyed vendor spellings differ ("ERIC SERRANO" vs "Serrano
-// Refrigeration HTG&AC"), so a vendor filter would miss exactly the entries this
-// exists to catch. Matches come back as a 409 the UI turns into a confirm dialog
-// ("post anyway?") — a warn, not a block, since same-amount coincidences happen.
-// Best-effort by design: the mirror check failing must never stop a legit post.
-async function findLikelyQboDuplicates(request) {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const amt = Number(request.total_amount) || 0;
-  if (!serviceKey || !amt) return [];
-  try {
-    const svc = createClient(SUPABASE_URL, serviceKey, { db: { schema: 'ops' } });
-    const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
-    const { data: lines } = await svc.from('qbo_expense_lines')
-      .select('qbo_txn_id, qbo_txn_type, txn_date, vendor_name, amount')
-      .gte('txn_date', since)
-      .gte('amount', amt - 0.005).lte('amount', amt + 0.005)
-      .order('txn_date', { ascending: false })
-      .limit(40);
-    if (!lines?.length) return [];
-    // Transactions some Brixpense row already posted are accounted for — a real
-    // sibling expense (Serrano bills $170 flat, repeatedly) is not a duplicate.
-    const txnIds = [...new Set(lines.map((l) => l.qbo_txn_id))];
-    const { data: linked } = await svc.from('expense_requests')
-      .select('qbo_bill_id').in('qbo_bill_id', txnIds);
-    const linkedSet = new Set((linked || []).map((r) => r.qbo_bill_id));
-    const seen = new Set();
-    const out = [];
-    for (const l of lines) {
-      if (linkedSet.has(l.qbo_txn_id) || seen.has(l.qbo_txn_id)) continue;
-      seen.add(l.qbo_txn_id);
-      out.push({ txn_type: l.qbo_txn_type, txn_id: l.qbo_txn_id, txn_date: l.txn_date, vendor_name: l.vendor_name || null, amount: Number(l.amount) });
-      if (out.length >= 5) break;
-    }
-    return out;
-  } catch (e) {
-    console.warn('duplicate-check failed (non-fatal, post proceeds):', e?.message);
-    return [];
   }
 }
 
@@ -292,7 +292,7 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId, force = false } = body;
+  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false } = body;
   if (!requestId) return err('Missing requestId');
   if (!['create', 'preview', 'link'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
@@ -317,18 +317,79 @@ export default async function handler(req) {
     return err(`Cannot post from status "${request.status}". Must be: ${LINKABLE_STATUSES.join(', ')}`, 409);
   }
 
-  // Duplicate guard — only on the real write, and only until the human says
-  // "post anyway" (force). preview/link skip it.
-  if (mode === 'create' && !force) {
-    const dupes = await findLikelyQboDuplicates(request);
-    if (dupes.length) {
-      const list = dupes
-        .map((d) => `${d.txn_type} #${d.txn_id} — ${d.vendor_name || 'unknown vendor'} $${d.amount.toFixed(2)} on ${d.txn_date}`)
-        .join('; ');
+  // ── Duplicate gate ────────────────────────────────────────────────────
+  // This is the last point before a real QuickBooks transaction exists, so it
+  // is where the duplicate check has teeth. Re-checked here rather than
+  // trusting the stamp from intake time, because the row may have been sitting
+  // for days and the twin may have arrived since.
+  //
+  // Only an EXACT match (same vendor, same invoice number) blocks, and only
+  // when the twin is ALREADY IN QUICKBOOKS — which is the thing we are trying
+  // not to do twice. Two unposted drafts of the same bill are a tidiness
+  // problem, not a money problem, and refusing to post either of them would be
+  // the pipeline arguing with itself. `confirmDuplicate: true` is the caller
+  // saying they looked; it is recorded on the row, not just obeyed.
+  if (mode === 'create') {
+    const dupe = await findDuplicate({
+      vendor: request.vendor_name,
+      bill_number: request.bill_number,
+      amount: request.total_amount,
+      date: request.receipt_date,
+      job_number: request.job_number,
+      exclude: requestId,
+    });
+    const blocking = dupe && dupe.match_kind === 'exact' && dupe.posted;
+    if (blocking && !confirmDuplicate) {
+      await supabase.from('expense_requests').update({
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        duplicate_checked_at: new Date().toISOString(),
+      }).eq('id', requestId);
       return json({
-        success: false, duplicate_check: true, matches: dupes, request_id: requestId,
-        message: `QuickBooks may already have this expense: ${list}. Nothing was posted.`,
+        success: false,
+        error: 'possible_duplicate',
+        message: `This looks like a bill we have already posted — ${dupe.reason}. Post it anyway only if it is genuinely a different invoice.`,
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        can_override: true,
       }, 409);
+    }
+    if (dupe) {
+      // Not blocking, but record what we saw — including an override, so
+      // "why are there two of these in QuickBooks" has an answer on the row.
+      await supabase.from('expense_requests').update({
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        duplicate_checked_at: new Date().toISOString(),
+        ...(blocking && confirmDuplicate
+          ? { duplicate_cleared_by: `${user.email} (posted anyway)` }
+          : {}),
+      }).eq('id', requestId);
+    }
+
+    // Layer two: bills hand-keyed straight into QuickBooks (no Brixpense row,
+    // so findDuplicate above can't see them). Same 409 protocol, so the shared
+    // postToQbo confirm flow handles it — and one confirmDuplicate clears both
+    // layers, since the human sees the full picture in either prompt.
+    if (!confirmDuplicate) {
+      const mirror = await findLikelyQboDuplicates(request);
+      if (mirror.length) {
+        const list = mirror
+          .map((d) => `${d.txn_type} #${d.txn_id} — ${d.vendor_name || 'unknown vendor'} $${d.amount.toFixed(2)} on ${d.txn_date}`)
+          .join('; ');
+        const reason = `QuickBooks already has a transaction with this amount that Brixpense didn't create: ${list}`;
+        await supabase.from('expense_requests').update({
+          duplicate_reason: reason.slice(0, 500),
+          duplicate_checked_at: new Date().toISOString(),
+        }).eq('id', requestId);
+        return json({
+          success: false,
+          error: 'possible_duplicate',
+          message: `${reason}. If it was keyed into QuickBooks by hand, don't post this copy. Post it anyway only if it's genuinely a different bill.`,
+          duplicate_matches: mirror,
+          can_override: true,
+        }, 409);
+      }
     }
   }
 

@@ -16,7 +16,13 @@ function fmt(n) { return new Intl.NumberFormat('en-US', { style: 'currency', cur
 
 function buildDecisionEmailHtml({ approved, request, signerName, signerInitials, declineReason }) {
   const color = approved ? '#2EB872' : '#FF5A5F';
-  const headline = approved ? 'Your Purchase Request was Approved' : 'Your Purchase Request was Declined';
+  // An AP-inbox bill is not a purchase request, and telling the sender their
+  // "Purchase Request was Approved" about a vendor invoice they forwarded is
+  // just wrong. Name the thing that was actually decided.
+  const noun = request?.request_type === 'purchase_request'
+    ? 'Purchase Request'
+    : (request?.tag === 'AP Inbox' ? 'Bill' : 'Expense');
+  const headline = approved ? `Your ${noun} was Approved` : `Your ${noun} was Declined`;
   const subhead = approved
     ? `Signed by <strong>${signerName}</strong>${signerInitials ? ` (${signerInitials})` : ''}`
     : `Declined by <strong>${signerName}</strong>`;
@@ -104,7 +110,21 @@ export default async function handler(req) {
   if (fetchErr || !request) return err(`Expense request not found (id=${requestId}, err=${fetchErr?.message || 'no row'})`, 404);
 
   if (request.status !== 'pending') return err(`Cannot decide on a request with status "${request.status}"`, 409);
-  if (request.submitted_by === user.id && !isSuperadmin) {
+
+  // Self-approval is blocked — with ONE deliberate exception.
+  //
+  // A bill emailed to the AP inbox is routed back to the sender when they are
+  // internal (see lib/ap-inbox.mjs resolveBillRouting), so the owner IS the
+  // submitter by design. Blocking that would leave those rows permanently
+  // stuck in their own queue.
+  //
+  // Be honest about what this is: a REVIEW gate that forces a human to check
+  // the OCR against the real document before it can become a QBO transaction
+  // — NOT separation of duties. Point `sender_routes` at a second person when
+  // you want that. The exception is scoped to AP-Inbox expense rows only, so
+  // purchase requests keep the hard block.
+  const isOwnEmailedBill = request.tag === 'AP Inbox' && request.request_type === 'expense';
+  if (request.submitted_by === user.id && !isSuperadmin && !isOwnEmailedBill) {
     return err('You cannot approve your own request.', 403);
   }
   const routedTo = String(request.manager_email || '').toLowerCase();

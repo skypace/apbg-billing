@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/billing/customer-approve.html'+location.search);</script>
-<title>APBG — Approve New Customer</title>
+<title>BRIXPENSE — Review Customer</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -44,12 +44,14 @@ textarea{resize:vertical;min-height:60px}
 .loading p{font-family:var(--mono);font-size:0.84rem;color:var(--muted)}
 @media(max-width:640px){.field-row,.field-row.three-col{grid-template-columns:1fr}}
 </style>
+<link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
+<body class="page-customer">
 <div class="container">
 <div class="header">
-  <h1>APBG — Approve New Customer</h1>
-  <p>Review and edit details, then approve to create in QuickBooks</p>
+  <div class="eyebrow" style="margin-bottom:10px">BRIXPENSE · Customer review</div>
+  <h1>Review new customer</h1>
+  <p>Confirm the customer details before creating the record in QuickBooks.</p>
 </div>
 <div class="body-card" id="mainForm">
 
@@ -99,11 +101,11 @@ textarea{resize:vertical;min-height:60px}
   </div>
 
   <div class="actions">
-    <button class="btn btn-approve" onclick="approve()">✓ Approve & Create Customer in QBO</button>
+    <button class="btn btn-approve" onclick="approve()">Approve and create customer</button>
   </div>
 
   <div class="result success" id="successCard">
-    <h2>✓ Customer Created in QuickBooks</h2>
+    <h2>Customer created in QuickBooks</h2>
     <div class="id" id="resultId"></div>
     <p id="resultMsg"></p>
   </div>

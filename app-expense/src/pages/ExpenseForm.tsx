@@ -13,6 +13,8 @@ import { SelectField } from '@/components/ui/select-field';
 import { Badge } from '@/components/ui/badge';
 import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { getAccessToken, supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo } from '@/lib/postToQbo';
+import { dueDateFromTerms } from '@/lib/dueDate';
 import { formatCurrency } from '@/lib/utils';
 import type { LineItem, PaymentAccount } from '@/types/expense';
 
@@ -41,6 +43,10 @@ export default function ExpenseForm() {
   // "Log Receipt" CTA on PendingList for awaiting_invoice PR rows.
   const [searchParams] = useSearchParams();
   const fromPRId = searchParams.get('fromPR') || null;
+  // A bill read off a document elsewhere (a drop on the vendor page) is handed
+  // over through sessionStorage rather than the URL: line items don't fit in a
+  // query string, and an invoice's contents have no business in browser history.
+  const prefillKey = searchParams.get('prefill') || null;
   const isEditing = Boolean(id);
   const { session } = useSession();
   const { settings, loading: settingsLoading } = useExpenseSettings();
@@ -57,6 +63,11 @@ export default function ExpenseForm() {
 
   const [vendorName, setVendorName] = useState('');
   const [billNumber, setBillNumber] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  // 'printed' once a human or the invoice itself fixed the date, so the
+  // terms→date derivation stops overwriting it.
+  const [dueDateSource, setDueDateSource] = useState<'printed' | 'terms' | 'manual' | null>(null);
   // SF-landed drafts only: why the automated OCR gate held this one back from
   // auto-posting (null once it's cleared, or for any non-SF expense). Purely
   // informational — editing/submitting here always posts gate-free, since a
@@ -187,6 +198,9 @@ export default function ExpenseForm() {
       setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
       setBillNumber(data.bill_number || '');
+      setPaymentTerms(data.payment_terms || '');
+      setDueDate(data.due_date || '');
+      setDueDateSource(data.due_date_source || null);
       setSfOcrStatus(data.ocr_status || null);
       setSfOcrErrorMsg(data.ocr_error || null);
       setTotalAmount(data.total_amount != null ? String(data.total_amount) : '');
@@ -367,6 +381,50 @@ export default function ExpenseForm() {
     [settings],
   );
 
+  // Prefill from a document somebody already had us read. Deliberately a
+  // DRAFT, not a submission: every field lands in the form for a human to look
+  // at, exactly as if they had typed it. Nothing here posts anything.
+  useEffect(() => {
+    if (id || !prefillKey) return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(prefillKey);
+      // One-shot — a back-button return should not silently refill a form the
+      // user has since edited.
+      sessionStorage.removeItem(prefillKey);
+    } catch { /* private window: no prefill, the form is just blank */ }
+    if (!raw) return;
+    try {
+      const d = JSON.parse(raw) as Record<string, unknown>;
+      const str = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : '');
+      if (str('vendor_name')) setVendorName(str('vendor_name'));
+      if (str('bill_number')) setBillNumber(str('bill_number'));
+      if (typeof d.total_amount === 'number') setTotalAmount(String(d.total_amount));
+      if (str('receipt_date')) setReceiptDate(str('receipt_date'));
+      if (str('payment_terms')) setPaymentTerms(str('payment_terms'));
+      if (str('due_date')) {
+        setDueDate(str('due_date'));
+        setDueDateSource((str('due_date_source') as 'printed' | 'terms' | 'manual') || 'printed');
+      }
+      if (str('memo')) setMemo(str('memo'));
+      if (str('job_number')) setJobNumber(str('job_number'));
+      if (str('cogs_account_label')) {
+        // Resolve through the same picker the receipt-upload path uses. A label
+        // set on its own would sit next to whatever GL id the remembered
+        // defaults put there — a row showing one account and posting to
+        // another, which is the exact failure the bill rules guard against.
+        const matched = pickCogsAccount(str('cogs_account_label'));
+        setCogsAccountLabel(matched ? matched.label : str('cogs_account_label'));
+        setCogsAccountId(matched ? matched.id : '');
+      }
+      if (Array.isArray(d.line_items) && d.line_items.length > 0) setLineItems(d.line_items as LineItem[]);
+      // Straight to the details step — the document has been read, what's left
+      // is checking it and attaching the file.
+      setStep('details');
+    } catch { /* a malformed handoff is just an empty form, never a crash */ }
+  }, [id, prefillKey, pickCogsAccount]);
+
+
   const handleFileSelect = useCallback(
     async (file: File) => {
       setReceiptFile(file);
@@ -401,6 +459,8 @@ export default function ExpenseForm() {
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
           if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          if (ocr.payment_terms) setPaymentTerms(ocr.payment_terms);
+          if (ocr.due_date) { setDueDate(ocr.due_date); setDueDateSource('printed'); }
           // A fresh attachment + a fresh OCR pass supersedes whatever held this
           // draft before — clear the old hold reason so the banner disappears.
           setSfOcrStatus(null);
@@ -537,6 +597,9 @@ export default function ExpenseForm() {
         entity,
         vendor_name: vendorName || null,
         bill_number: billNumber || null,
+        payment_terms: paymentTerms || null,
+        due_date: dueDate || null,
+        due_date_source: dueDate ? (dueDateSource ?? 'manual') : null,
         total_amount: totalNum || 0,
         receipt_date: receiptDate || null,
         cogs_account_id: cogsAccountId || null,
@@ -633,7 +696,7 @@ export default function ExpenseForm() {
           // QuickBooks" button as a retry.
           try {
             const postData = await attemptPostToQuickBooks(req.id);
-            if (postData.margin_match) setMarginMatch(postData.margin_match);
+            if (postData.margin_match) setMarginMatch(postData.margin_match as MarginMatch);
             setResultMessage(
               `Posted to QuickBooks as Purchase ${postData.qbo_doc_number || postData.qbo_purchase_id}.`,
             );
@@ -684,29 +747,15 @@ export default function ExpenseForm() {
   // Shared with the auto-post-on-submit path above (paid expenses) — this is
   // the one place that actually calls expense-request-link-bill. Throws on
   // any failure so both callers can each decide how to surface it.
-  const attemptPostToQuickBooks = async (id: string) => {
-    const token = await getAccessToken();
-    const post = async (force: boolean) => {
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: id, mode: 'create', ...(force ? { force: true } : {}) }),
-      });
-      return { res, data: await res.json() };
-    };
-    let { res, data } = await post(false);
-    // Duplicate guard: the backend found an unlinked QBO bill/purchase with the
-    // same amount — probably hand-keyed. A human decides; force retries past it.
-    if (res.status === 409 && data.duplicate_check) {
-      const ok = window.confirm(`${data.message}\n\nPost to QuickBooks anyway?`);
-      if (!ok) throw new Error('Not posted — QuickBooks may already have this expense. Nothing was created.');
-      ({ res, data } = await post(true));
-    }
-    if (!res.ok || data.success === false) {
-      throw new Error(data.message || data.error || 'Could not post to QuickBooks.');
-    }
-    return data;
-  };
+  //
+  // The auto-post path (Submit on an already-paid expense) declines a duplicate
+  // rather than prompting: that post is a side effect of Submit, and a browser
+  // confirm() appearing on top of the success screen for a decision the user
+  // did not ask to make is the wrong moment. Declining leaves the row approved
+  // with a visible "Post to QuickBooks" button, which is where the question
+  // gets asked properly.
+  const attemptPostToQuickBooks = (id: string, opts: { prompt?: boolean } = {}) =>
+    postExpenseToQbo(id, opts.prompt ? {} : { onDuplicate: () => false });
 
   // The manual fallback — unpaid bills wait here deliberately ("post later,
   // once it's actually paid"); paid expenses only land here as a retry after
@@ -716,9 +765,9 @@ export default function ExpenseForm() {
     setPosting(true);
     setPostError(null);
     try {
-      const data = await attemptPostToQuickBooks(readyToPostId);
+      const data = await attemptPostToQuickBooks(readyToPostId, { prompt: true });
       setPostedInfo(`Posted to QuickBooks as ${data.kind === 'purchase' ? 'Purchase' : 'Bill'} ${data.qbo_doc_number || data.qbo_bill_id || data.qbo_purchase_id}.`);
-      if (data.margin_match) setMarginMatch(data.margin_match);
+      if (data.margin_match) setMarginMatch(data.margin_match as MarginMatch);
       setReadyToPostId(null);
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
@@ -729,7 +778,7 @@ export default function ExpenseForm() {
 
   if (settingsLoading || loadingExisting) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -742,7 +791,7 @@ export default function ExpenseForm() {
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold">New Expense</h1>
+          <h1 className="page-title">New Expense</h1>
         </div>
 
         <Card>
@@ -821,7 +870,7 @@ export default function ExpenseForm() {
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold flex-1">
+          <h1 className="page-title flex-1">
             {isEditing ? 'Submission Details' : 'Expense Details'}
           </h1>
           {isEditing && existingStatus && (
@@ -919,7 +968,43 @@ export default function ExpenseForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* Terms and due date only mean something on an unpaid bill. On a
+            receipt you have already paid there is nothing left to be due. */}
+        {!isPaid && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Payment terms</Label>
+              <Input
+                disabled={readOnly}
+                placeholder="e.g. Net 30"
+                value={paymentTerms}
+                onChange={(e) => {
+                  setPaymentTerms(e.target.value);
+                  // Typing terms fills the due date — unless someone has
+                  // already set one deliberately, in which case theirs stands.
+                  if (dueDateSource === 'printed' || dueDateSource === 'manual') return;
+                  const derived = dueDateFromTerms(receiptDate, e.target.value);
+                  setDueDate(derived || '');
+                  setDueDateSource(derived ? 'terms' : null);
+                }}
+              />
+            </div>
+            <div>
+              <Label>Due date</Label>
+              <Input
+                disabled={readOnly}
+                type="date"
+                value={dueDate}
+                onChange={(e) => { setDueDate(e.target.value); setDueDateSource(e.target.value ? 'manual' : null); }}
+              />
+              {dueDateSource === 'terms' && dueDate && (
+                <p className="text-[11px] text-muted-foreground mt-1">Worked out from the terms — change it if the invoice says otherwise.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Amount ($)</Label>
             <Input
@@ -958,7 +1043,7 @@ export default function ExpenseForm() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Entity</Label>
             <SelectField
@@ -1126,7 +1211,7 @@ export default function ExpenseForm() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Customer (optional)</Label>
             <Input
@@ -1175,12 +1260,12 @@ export default function ExpenseForm() {
         )}
 
         <Card>
-          <CardHeader className="p-3 pb-0">
+          <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-medium">
               Line Items
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-3 space-y-3">
+          <CardContent className="p-4 pt-2 space-y-4">
             {lineItems.map((li, idx) => (
               <div key={idx} className="flex items-start gap-2">
                 <div className="flex-1 space-y-1">
@@ -1269,7 +1354,7 @@ export default function ExpenseForm() {
 
   if (step === 'submitting') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="feedback-state min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">
           {needsApproval
@@ -1288,9 +1373,9 @@ export default function ExpenseForm() {
     const positive = margin >= 0;
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+      <div className="feedback-state min-h-[60vh]">
         <CheckCircle className="h-12 w-12 text-emerald-500" />
-        <h2 className="text-lg font-semibold">{resultMessage}</h2>
+        <h2 className="feedback-title">{resultMessage}</h2>
         {resultBillId && (
           <p className="text-sm text-muted-foreground">
             QBO Bill ID: <span className="font-mono">{resultBillId}</span>
@@ -1357,9 +1442,9 @@ export default function ExpenseForm() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+    <div className="feedback-state min-h-[60vh]">
       <AlertTriangle className="h-12 w-12 text-destructive" />
-      <h2 className="text-lg font-semibold">Submission Failed</h2>
+      <h2 className="feedback-title">Submission Failed</h2>
       <p className="text-sm text-muted-foreground">{errorMessage}</p>
       <Button variant="outline" onClick={() => setStep('details')}>
         Try Again

@@ -1107,3 +1107,18 @@ html[data-apbg-theme="light"] .bg { background: rgba(15, 23, 42, 0.04); }
 html[data-apbg-theme="light"] .sign-out:hover { background: rgba(15, 23, 42, 0.03); }
 /* The date picker indicator was inverted for a dark field; reset on light. */
 html[data-apbg-theme="light"] .date-input::-webkit-calendar-picker-indicator { filter: none; }
+
+
+/* Refractor app identity — Brix/APBG remains in the sidebar footer. */
+.brand-app-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  object-fit: contain;
+  filter: none;
+}
+.brand-app-copy {
+  min-width: 0;
+  line-height: 1.05;
+}
+.sidebar--collapsed .brand-app-copy { display: none; }

@@ -3,7 +3,7 @@ import type { View } from '../lib/router';
 import {
   LayoutDashboard, TrendingUp, Activity, Users, FileText, CalendarRange,
   GitCompareArrows, Package, Warehouse, Factory, Settings as SettingsIcon, LogOut,
-  BookOpen, Tags, Sun, Moon, Presentation,
+  BookOpen, Tags, Sun, Moon, Presentation, Handshake,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   { id: 'stock',      label: 'Inventory',         icon: Warehouse         },
   { id: 'inventory',  label: 'Inventory Planning', icon: Package          },
   { id: 'production', label: 'Production',        icon: Factory           },
+  { id: 'distributors', label: 'Sub-Distributors', icon: Handshake        },
   { id: 'pricing',    label: 'Pricing',           icon: Tags              },
   { id: 'proposal-builder', label: 'Proposal Builder', icon: Presentation },
   { id: 'settings',   label: 'Settings',          icon: SettingsIcon      },
@@ -87,9 +88,14 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
         </button>
 
         <div className="brand">
-          <BrixMark size={collapsed ? 32 : 32} className="brand-mark-svg" title="Brix Beverage" />
-          <div>
-            <div className="brand-mark">Bri<span className="brand-bx">XR</span>efractor</div>
+          <img
+            className="brand-mark-svg brand-app-icon"
+            src="https://alamedapointbg.com/app-icons/refractor-light.png"
+            alt=""
+          />
+          <div className="brand-app-copy">
+            <div className="brand-mark">Brix Refractor</div>
+            <div className="brand-sub">Margin intelligence</div>
           </div>
         </div>
         <nav className="nav">

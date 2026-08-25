@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { sbAuth, adoptGatewaySession } from './lib/supabase';
+import { sbAuth, adoptGatewaySession, signOutLocal } from './lib/supabase';
 import { useRoute } from './lib/router';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
@@ -19,6 +19,7 @@ const ComparePage = lazy(() => import('./pages/ComparePage').then((m) => ({ defa
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })));
 const StockPage = lazy(() => import('./pages/stock/StockPage').then((m) => ({ default: m.StockPage })));
 const ProductionPage = lazy(() => import('./pages/production/ProductionPage').then((m) => ({ default: m.ProductionPage })));
+const DistributorsPage = lazy(() => import('./pages/distributors/DistributorsPage').then((m) => ({ default: m.DistributorsPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then((m) => ({ default: m.PricingPage })));
 const ProposalBuilderPage = lazy(() => import('./pages/ProposalBuilderPage').then((m) => ({ default: m.ProposalBuilderPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
@@ -86,6 +87,9 @@ export function App() {
     case 'production':
       body = <ProductionPage routeParams={route.params} />;
       break;
+    case 'distributors':
+      body = <DistributorsPage />;
+      break;
     case 'operations':
       // Operations moved to APBG-OPS (alamedapointbg.com/operations). Stub
       // redirects in case anyone has the #operations hash bookmarked.
@@ -116,7 +120,7 @@ export function App() {
       current={route.view === 'customer-detail' ? 'customers' : route.view}
       onNav={navTo}
       userEmail={session.user.email}
-      onLogout={() => sbAuth.auth.signOut()}
+      onLogout={() => signOutLocal()}
     >
       <Suspense fallback={<div className="ld">Loading…</div>}>{body}</Suspense>
     </Layout>

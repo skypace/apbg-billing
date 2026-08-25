@@ -1,0 +1,2543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Served at alamedapointbg.com/compliance via the gateway proxy — asset
+     paths must be absolute /billing/… (same constraint as mcp.html). -->
+<script src="/billing/maintenance-banner.js"></script>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/compliance'+location.search+location.hash);</script>
+<title>Compliance &amp; Safety — APBG Systems</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<!-- QR encoder is vendored, not CDN-loaded: the posting board runs on a
+     break-room monitor and must come up even when the CDN does not. -->
+<script src="/billing/vendor/qrcode-generator.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#F5F7FA;color:#0F172A;min-height:100vh}
+.gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.gate-card{background:#fff;border-radius:12px;padding:48px 40px;max-width:420px;width:100%;text-align:center;border:1px solid #E4E9F0;box-shadow:0 10px 30px rgba(15,23,42,.06)}
+.gate-card h1{font-size:1.3rem;margin-bottom:8px}
+.gate-card p{color:#64748B;font-size:.85rem;line-height:1.5}
+.gate-card a{color:#1F4E79;font-weight:600}
+header{background:#fff;padding:16px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E4E9F0;flex-wrap:wrap;gap:10px}
+header h1{font-size:1.15rem;font-weight:700;display:flex;align-items:center;gap:10px}
+header h1 .cers{font-family:'JetBrains Mono',monospace;font-size:.7rem;font-weight:600;background:#EEF2F7;color:#475569;border-radius:6px;padding:3px 8px}
+header .links{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+header .links a{color:#64748B;text-decoration:none;font-size:.82rem;margin-left:14px}
+header .links a:hover{color:#1F4E79}
+.tabs{background:#fff;border-bottom:1px solid #E4E9F0;padding:0 28px;display:flex;gap:2px;flex-wrap:wrap}
+.tab{border:0;background:none;font:inherit;font-size:.86rem;font-weight:600;color:#64748B;padding:12px 14px;cursor:pointer;border-bottom:2px solid transparent}
+.tab:hover{color:#0F172A}
+.tab.active{color:#1F4E79;border-bottom-color:#1F4E79}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px}
+.subtab{border:1px solid #D6DEE8;background:#fff;font:inherit;font-size:.82rem;font-weight:600;color:#475569;padding:8px 14px;border-radius:20px;cursor:pointer}
+.subtab:hover{border-color:#1F4E79;color:#1F4E79}
+.subtab.active{background:#1F4E79;border-color:#1F4E79;color:#fff}
+.container{max-width:1180px;margin:0 auto;padding:28px}
+.container.wide{max-width:1700px}  /* the posting board is meant for a wall monitor */
+.section{background:#fff;border-radius:12px;border:1px solid #E4E9F0;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
+.section h2{font-size:.95rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.section h2 .sub{font-weight:400;font-size:.75rem;color:#94A3B8}
+.section h3{font-size:.86rem;font-weight:700;margin:18px 0 8px;color:#1F4E79}
+.prose{font-size:.85rem;color:#374151;line-height:1.55}
+.prose code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:.8rem;font-family:'JetBrains Mono',monospace}
+.btn{background:#1F4E79;color:#fff;text-decoration:none;font-weight:600;font-size:.85rem;padding:10px 18px;border-radius:8px;border:0;cursor:pointer;display:inline-block}
+.btn:hover{background:#2A5E92}
+.btn.ghost{background:#fff;color:#1F4E79;border:1px solid #1F4E79}
+.btn.ghost:hover{background:#EEF2F7}
+.btn.sm{font-size:.78rem;padding:7px 12px}
+.btn:disabled{background:#CBD5E1;color:#fff;border-color:#CBD5E1;cursor:not-allowed}
+input[type=search],input[type=text],input[type=date],input[type=number],select,textarea{font:inherit;font-size:.86rem;padding:9px 12px;border:1px solid #D6DEE8;border-radius:8px;background:#fff;color:#0F172A;width:100%}
+textarea{resize:vertical;min-height:70px;line-height:1.45}
+input:focus,select:focus,textarea:focus{outline:2px solid #93B8DB;border-color:#1F4E79}
+table.grid{width:100%;border-collapse:collapse;font-size:.83rem}
+table.grid th{text-align:left;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:#94A3B8;font-weight:700;padding:8px 10px;border-bottom:1px solid #E4E9F0;white-space:nowrap}
+table.grid td{padding:10px;border-bottom:1px solid #F0F3F7;vertical-align:top}
+table.grid tr:last-child td{border-bottom:none}
+table.grid tr.arch td{background:#FAFBFC;opacity:.62}
+.twrap{overflow-x:auto}
+.muted{color:#94A3B8;font-size:.78rem}
+.chip{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.chip.ok{background:#DCFCE7;color:#15803D}
+.chip.warn{background:#FEF3C7;color:#B45309}
+.chip.crit{background:#FEE2E2;color:#B91C1C}
+.chip.info{background:#E0EAF4;color:#1F4E79}
+.chip.dim{background:#EEF2F7;color:#64748B}
+.chip.fed{background:#EDE9FE;color:#6D28D9}
+.chip.st{background:#DBEAFE;color:#1D4ED8}
+.chip.loc{background:#FFEDD5;color:#C2410C}
+.statrow{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.stat{background:#fff;border:1px solid #E4E9F0;border-radius:12px;padding:14px 18px;flex:1 1 130px;box-shadow:0 1px 3px rgba(15,23,42,.04)}
+.stat b{display:block;font-size:1.3rem;font-variant-numeric:tabular-nums}
+.stat span{font-size:.72rem;color:#94A3B8}
+.stat.click{cursor:pointer}
+.stat.click:hover{border-color:#1F4E79}
+.stat.red b{color:#B91C1C}
+.stat.amber b{color:#B45309}
+.contactbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.ccard{background:#0F2A38;color:#E6EEF1;border-radius:10px;padding:10px 14px;font-size:.78rem}
+.ccard b{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#8FB3C4}
+.ccard a{color:#F4B400;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:600}
+.filebtn{border:1px solid #1F4E79;background:#fff;color:#1F4E79;font:inherit;font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.filebtn:hover{background:#EEF2F7}
+.actbtn{border:1px solid #D6DEE8;background:#fff;color:#475569;font:inherit;font-size:.73rem;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;margin-right:4px}
+.actbtn:hover{border-color:#1F4E79;color:#1F4E79;background:#F8FBFE}
+.actbtn.danger:hover{border-color:#B91C1C;color:#B91C1C;background:#FEF2F2}
+.acts{white-space:nowrap}
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar .grow{flex:1 1 14rem;min-width:0}
+.idgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:12px}
+.idcard{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:12px 14px}
+.idcard b{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#64748B;margin-bottom:4px}
+.idcard .v{display:block;font-size:1rem;font-weight:700;color:#0F172A}
+.idcard .m{display:block;font-size:.74rem;color:#94A3B8;margin-top:2px}
+.mono,.idcard .mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+/* Dashboard */
+.dashgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:16px}
+.phonecard{border:1px solid #E4E9F0;border-radius:10px;padding:0;overflow:hidden;background:#fff}
+.phonecard h3{margin:0;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;padding:10px 14px;background:#F8FBFE;color:#1F4E79;border-bottom:1px solid #E4E9F0}
+.phonecard.urgent h3{background:#FEF2F2;color:#B91C1C;border-bottom-color:#FECACA}
+.phonelist{list-style:none;margin:0;padding:0}
+.phonelist li{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:9px 14px;border-bottom:1px solid #F4F6F9;font-size:.83rem}
+.phonelist li:last-child{border-bottom:none}
+.phonelist .who{min-width:0}
+.phonelist .who b{display:block;font-weight:600}
+.phonelist .who span{display:block;color:#94A3B8;font-size:.73rem;line-height:1.35}
+.phonelist a{color:#1F4E79;text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;white-space:nowrap}
+.phonelist a:hover{text-decoration:underline}
+.quicklinks{display:flex;gap:8px;flex-wrap:wrap}
+.quicklinks button,.quicklinks a{border:1px solid #D6DEE8;background:#fff;color:#334155;font:inherit;font-size:.82rem;font-weight:600;padding:9px 14px;border-radius:8px;cursor:pointer;text-decoration:none}
+.quicklinks button:hover,.quicklinks a:hover{border-color:#1F4E79;color:#1F4E79;background:#F8FBFE}
+.attn{list-style:none;margin:0;padding:0}
+.attn li{display:flex;gap:10px;align-items:baseline;padding:9px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem}
+.attn li:last-child{border-bottom:none}
+.attn .t{flex:1}
+/* Modal editor */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto;z-index:9000}
+.modal-card{background:#fff;border-radius:14px;width:100%;max-width:44rem;box-shadow:0 24px 60px rgba(15,23,42,.3)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid #E4E9F0}
+.modal-head h3{font-size:1rem;font-weight:700}
+.modal-body{padding:20px 22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.modal-foot{padding:16px 22px;border-top:1px solid #E4E9F0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field.full{grid-column:1 / -1}
+.field label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748B}
+.field .hint{font-size:.72rem;color:#94A3B8}
+.field.cb{flex-direction:row;align-items:center;gap:8px}
+.field.cb input{width:16px;height:16px;accent-color:#1F4E79;cursor:pointer}
+.field.cb label{text-transform:none;letter-spacing:0;font-size:.83rem;font-weight:600;color:#334155;cursor:pointer}
+.xbtn{border:0;background:none;font-size:1.4rem;line-height:1;color:#94A3B8;cursor:pointer;padding:0 4px}
+.xbtn:hover{color:#0F172A}
+.filepick{border:1px dashed #94A3B8;border-radius:8px;padding:12px;background:#F8FBFE;font-size:.82rem}
+.filepick input[type=file]{font-size:.8rem;width:100%}
+@media(max-width:640px){.modal-body{grid-template-columns:1fr}}
+/* Posting board — designed to be readable on a monitor across a room */
+.board{background:#0B1B26;border-radius:14px;padding:24px;color:#E8F0F5;border:1px solid #163446}
+.board-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-bottom:1px solid #1E4257;padding-bottom:16px}
+.board-head h2{font-size:1.5rem;font-weight:800;margin:0;color:#fff;letter-spacing:-.01em}
+.board-head .where{font-size:.85rem;color:#8FB3C4;margin-top:4px}
+.board-head .when{font-size:.85rem;color:#8FB3C4;text-align:right}
+.board-group{margin-top:26px}
+.board-group h3{font-size:.76rem;text-transform:uppercase;letter-spacing:.1em;color:#F4B400;margin:0 0 12px;font-weight:800}
+.board-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:14px}
+.ptile{background:#122A38;border:1px solid #1E4257;border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;text-align:left;color:inherit;font:inherit;width:100%}
+.ptile:hover,.ptile:focus{border-color:#4F9BC4;background:#16344E;outline:none}
+.ptile .pt-body{flex:1;min-width:0}
+.ptile .pt-t{font-weight:700;font-size:.95rem;line-height:1.3;color:#fff}
+.ptile .pt-m{font-size:.75rem;color:#8FB3C4;margin-top:5px;line-height:1.4}
+.ptile .pt-tag{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:20px;margin-top:8px;background:#1E4257;color:#9FD0E8}
+.ptile .pt-tag.doc{background:#14532D;color:#86EFAC}
+.ptile canvas{background:#fff;border-radius:6px;padding:4px;flex-shrink:0}
+/* Poster wall — the actual notices tiled, the way the physical board looks.
+   Tiles are pre-rendered page-1 JPEGs (public/postings/thumbs/); thirty PDF
+   iframes would flatten a TV browser. Tap one to open the real document. */
+.wall{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9600;display:flex;flex-direction:column;
+      overflow:hidden;padding:1.1vh 1.4vw}
+.wall-head{display:flex;justify-content:space-between;align-items:center;gap:1.2vw;flex-wrap:wrap;
+           border-bottom:2px solid #F4B400;padding-bottom:.7vh;margin-bottom:1vh}
+.wall-head h1{font-size:2.6vh;font-weight:800;letter-spacing:-.01em;line-height:1.05;color:#fff}
+.wall-head .sub{font-size:1.25vh;color:#8FB3C4;margin-top:.25vh}
+.wall-ctl{display:flex;gap:.5vw;align-items:center;flex-wrap:wrap}
+.wall-ctl button{border:1px solid #1E4257;background:#122A38;color:#E8F0F5;font:inherit;font-size:1.5vh;
+                 font-weight:600;padding:.7vh 1vw;border-radius:.5vh;cursor:pointer;white-space:nowrap}
+.wall-ctl button:hover{border-color:#4F9BC4;background:#16344E}
+.wall-ctl button.on{background:#F4B400;border-color:#F4B400;color:#0B1B26}
+.wall-ctl .pos{font-family:'JetBrains Mono',monospace;color:#8FB3C4;font-size:1.4vh;padding:0 .4vw}
+.wall-grid{flex:1;min-height:0;display:grid;gap:1vh 1vw;align-content:start;justify-content:center}
+.ptile2{background:#fff;border:0;border-radius:.5vh;padding:0;cursor:pointer;display:flex;flex-direction:column;
+        overflow:hidden;font:inherit;box-shadow:0 .4vh 1.2vh rgba(0,0,0,.45)}
+.ptile2:hover,.ptile2:focus{outline:.35vh solid #F4B400;outline-offset:.2vh}
+.ptile2 img{flex:1;min-height:0;width:100%;object-fit:contain;object-position:top center;background:#fff;display:block}
+.ptile2 .cap{background:#0B1B26;color:#E8F0F5;font-size:1.25vh;font-weight:700;line-height:1.2;padding:.45vh .5vh;
+             text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptile2 .nodoc{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748B;
+               font-size:1.3vh;font-weight:600;padding:1vh;line-height:1.35}
+.wall-foot{border-top:1px solid #1E4257;margin-top:1vh;padding-top:.7vh;display:flex;justify-content:space-between;
+           gap:1.2vw;flex-wrap:wrap;font-size:1.3vh;color:#8FB3C4}
+.wall-foot b{color:#E8F0F5}
+/* One-page TV board. Everything sizes in em off a root set in vh, so the
+   physical size is identical on a 1080p and a 4K panel of the same diagonal,
+   and tvFit() shrinks that root until the tallest column stops overflowing —
+   the page therefore always fits on one screen whatever the notice count. */
+.tv{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9600;display:flex;flex-direction:column;
+    overflow:hidden;font-size:1.6vh;padding:1.6em 1.9em 1.1em}
+.tv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:1.5em;flex-wrap:wrap;
+         border-bottom:.18em solid #F4B400;padding-bottom:.7em;margin-bottom:1em}
+.tv-head h1{font-size:3.1em;font-weight:800;letter-spacing:-.02em;line-height:1;color:#fff}
+.tv-head .sub{font-size:1.15em;color:#8FB3C4;margin-top:.35em}
+.tv-head .rt{text-align:right;font-size:1.15em;color:#8FB3C4;line-height:1.45}
+.tv-head .rt b{display:block;color:#F4B400;font-size:1.25em}
+.tv-cols{flex:1;min-height:0;column-gap:1.9em;column-fill:balance;overflow:hidden}
+.tv-grp{font-size:1.25em;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#F4B400;
+        border-bottom:.09em solid #1E4257;padding-bottom:.25em;margin:.85em 0 .5em;
+        break-inside:avoid;break-after:avoid;page-break-after:avoid}
+.tv-cols > .tv-grp:first-child{margin-top:0}
+.tv-item{display:flex;align-items:center;gap:.8em;padding:.34em 0;border-bottom:.06em solid #12293A;
+         break-inside:avoid;page-break-inside:avoid}
+.tv-item .tx{flex:1;min-width:0}
+.tv-item .t{font-size:1.72em;font-weight:700;line-height:1.14;color:#fff}
+.tv-item .m{font-size:1.02em;color:#8FB3C4;margin-top:.15em;line-height:1.2}
+.tv-item canvas{background:#fff;border-radius:.25em;padding:.16em;flex:0 0 auto;width:4.6em;height:4.6em}
+.tv-foot{border-top:.09em solid #1E4257;margin-top:.8em;padding-top:.6em;display:flex;justify-content:space-between;
+         gap:1.5em;flex-wrap:wrap;font-size:1.12em;color:#8FB3C4}
+.tv-foot b{color:#E8F0F5}
+.tv-exit{position:fixed;top:.8em;right:.9em;border:1px solid #1E4257;background:rgba(18,42,56,.85);color:#8FB3C4;
+         font:inherit;font-size:.95em;padding:.4em .8em;border-radius:.4em;cursor:pointer;opacity:.25}
+.tv-exit:hover{opacity:1;color:#fff}
+/* Kiosk / display mode */
+.kiosk{position:fixed;inset:0;background:#08131B;color:#E8F0F5;z-index:9500;display:flex;flex-direction:column}
+.kiosk-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid #16344E;flex-wrap:wrap}
+.kiosk-head .kbrand{font-size:1.05rem;font-weight:800;color:#fff}
+.kiosk-head .kbrand span{display:block;font-size:.78rem;font-weight:400;color:#8FB3C4;margin-top:2px}
+.kiosk-head .kclock{font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:#8FB3C4;text-align:right}
+.kiosk-body{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;padding:22px 32px}
+.kiosk-body iframe,.kiosk-body img{width:100%;height:100%;border:0;border-radius:10px;background:#fff;object-fit:contain}
+.knote{max-width:62rem;width:100%;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.knote .kjur{font-size:.82rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#F4B400}
+.knote h1{font-size:clamp(1.9rem,4.4vw,3.4rem);line-height:1.1;font-weight:800;color:#fff;letter-spacing:-.02em}
+.knote .kform{font-family:'JetBrains Mono',monospace;font-size:1rem;color:#9FD0E8}
+.knote .kapplies{font-size:clamp(1rem,1.7vw,1.35rem);color:#E8F0F5;line-height:1.45}
+.knote .knotes{font-size:clamp(.85rem,1.2vw,1.05rem);color:#A8C3D2;line-height:1.6;max-height:32vh;overflow:hidden}
+.knote .kwhere{font-size:.95rem;color:#8FB3C4}
+.knote .kqr{display:flex;align-items:center;gap:16px;margin-top:6px}
+.knote .kqr canvas{background:#fff;border-radius:10px;padding:8px}
+.knote .kqr span{font-size:.9rem;color:#8FB3C4;max-width:22rem;line-height:1.4}
+.kiosk-foot{padding:0 32px 20px}
+.kbar{height:4px;background:#16344E;border-radius:4px;overflow:hidden;margin-bottom:14px}
+.kbar i{display:block;height:100%;background:#F4B400;width:0}
+.kctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.kctl button{border:1px solid #1E4257;background:#122A38;color:#E8F0F5;font:inherit;font-size:.85rem;font-weight:600;padding:8px 14px;border-radius:8px;cursor:pointer}
+.kctl button:hover{border-color:#4F9BC4;background:#16344E}
+.kctl .kpos{margin-left:auto;font-family:'JetBrains Mono',monospace;color:#8FB3C4;font-size:.9rem}
+@media(max-width:700px){.kiosk-head,.kiosk-body,.kiosk-foot{padding-left:16px;padding-right:16px}}
+/* Checklists */
+.ck{list-style:none;margin:0;padding:0}
+.ck li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F0F3F7;font-size:.84rem;line-height:1.5}
+.ck li:last-child{border-bottom:none}
+.ck input[type=checkbox]{width:16px;height:16px;margin-top:3px;flex-shrink:0;accent-color:#1F4E79;cursor:pointer}
+.ck .note{display:block;color:#94A3B8;font-size:.76rem;margin-top:2px}
+/* Handbook rendering */
+.hb{font-size:.9rem;line-height:1.65;color:#1F2937;max-width:56rem}
+.hb h1{font-size:1.5rem;margin:0 0 12px}
+.hb h2{font-size:1.12rem;margin:26px 0 8px;color:#1F4E79;border-bottom:2px solid #1F4E79;padding-bottom:4px}
+.hb h3{font-size:.95rem;margin:18px 0 6px;color:#1F4E79}
+.hb h4{font-size:.88rem;margin:14px 0 4px;color:#334155}
+.hb p{margin:8px 0}
+.hb ul,.hb ol{margin:8px 0 8px 22px}
+.hb li{margin:4px 0}
+.hb blockquote{border-left:4px solid #F4B400;background:#FFF8E6;padding:10px 16px;border-radius:0 8px 8px 0;margin:12px 0}
+.hb table{border-collapse:collapse;font-size:.83rem;margin:10px 0;min-width:24rem}
+.hb th{text-align:left;background:#EEF2F7;padding:7px 10px;border:1px solid #E4E9F0;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#475569}
+.hb td{padding:7px 10px;border:1px solid #E4E9F0}
+.hb code{background:#EEF2F7;border-radius:4px;padding:1px 5px;font-size:.8rem;font-family:'JetBrains Mono',monospace}
+.hb hr{border:0;border-top:1px solid #E4E9F0;margin:20px 0}
+.hb img{max-width:100%;height:auto;display:block;margin:16px 0;border:1px solid #E4E9F0;border-radius:8px;background:#fff}
+.hbtoc{background:#F8FBFE;border:1px solid #D6E4F0;border-radius:10px;padding:16px 18px;margin:0 0 20px;max-width:56rem}
+.hbtoc h3{margin:0 0 10px;font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#1F4E79}
+.hbtoc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:28px}
+.hbtoc li{margin:0 0 3px;break-inside:avoid;font-size:.82rem}
+.hbtoc li.part{font-weight:700;margin-top:8px;column-break-after:avoid}
+.hbtoc li.part:first-child{margin-top:0}
+.hbtoc a{color:#334155;text-decoration:none}
+.hbtoc a:hover{color:#1F4E79;text-decoration:underline}
+@media(max-width:700px){.hbtoc ol{columns:1}}
+/* Signing */
+.signbox{border:2px solid #1F4E79;border-radius:12px;padding:20px;background:#F8FBFE;max-width:56rem}
+.signbox h3{font-size:1rem;margin-bottom:10px;color:#0F172A}
+.sigpad{border:1px dashed #94A3B8;border-radius:8px;background:#fff;touch-action:none;display:block;width:100%;max-width:560px;height:170px;cursor:crosshair}
+.signrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.signed-banner{background:#DCFCE7;border:1px solid #86EFAC;color:#15803D;border-radius:10px;padding:14px 18px;font-size:.9rem;font-weight:600;max-width:56rem}
+.err{color:#B91C1C;font-size:.82rem;margin-top:8px}
+.okmsg{color:#15803D;font-size:.82rem;margin-top:8px;font-weight:600}
+img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#fff}
+
+@media print{
+  header,.tabs,.subtabs,.contactbar,.signrow,.noprint,.acts,.toolbar .btn,.modal{display:none!important}
+  /* Each screen has a printable twin. The overlays are position:fixed, which
+     would print only the first page, so they go static and light for paper. */
+  body.printing .container,body.printing header,body.printing .tabs,body.printing .kiosk{display:none!important}
+  /* Only the view being printed unfolds — the other overlay stays hidden, or
+     its header and footer leak onto the page above the real content. */
+  body.printing .wall,body.printing .tv{display:none!important}
+  body.printing-wall .wall,body.printing-tv .tv{position:static!important;inset:auto!important;height:auto!important;
+    overflow:visible!important;background:#fff!important;color:#0B1B26!important;padding:0!important;display:block!important}
+  body.printing .wall-head,body.printing .tv-head{border-bottom:2px solid #0B1B26!important;margin-bottom:10pt}
+  body.printing .wall-head h1,body.printing .tv-head h1{font-size:20pt!important;color:#0B1B26!important}
+  body.printing .wall-head .sub,body.printing .tv-head .sub,body.printing .tv-head .rt{font-size:8.5pt!important;color:#475569!important}
+  body.printing .wall-foot,body.printing .tv-foot{font-size:8pt!important;color:#334155!important;border-top:1px solid #94A3B8!important}
+  body.printing .wall-foot b,body.printing .tv-foot b,body.printing .tv-head .rt b{color:#0B1B26!important}
+  /* Poster wall prints as a contact sheet, three across */
+  body.printing .wall-grid{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:10pt!important}
+  body.printing .ptile2{break-inside:avoid;page-break-inside:avoid;box-shadow:none!important;border:1px solid #CBD5E1!important}
+  body.printing .ptile2 img{max-height:2.9in!important;object-fit:contain!important}
+  body.printing .ptile2 .cap{background:#EEF2F7!important;color:#0B1B26!important;font-size:7.5pt!important;white-space:normal!important}
+  body.printing .ptile2 .nodoc{font-size:8pt!important;min-height:1.6in}
+  /* The one-page TV board prints as one landscape sheet */
+  body.printing-tv .tv{font-size:9pt!important}
+  body.printing-tv .tv-grp{color:#1F4E79!important;border-bottom-color:#94A3B8!important}
+  body.printing-tv .tv-item{border-bottom-color:#E4E9F0!important}
+  body.printing-tv .tv-item .t{color:#0B1B26!important;font-size:1.35em!important}
+  body.printing-tv .tv-item .m{color:#64748B!important}
+  body.printing-tv .tv-cols{column-count:3!important;overflow:visible!important}
+  body.printing-tv .tv-item canvas{width:3.4em!important;height:3.4em!important}
+  body.printing-tv{--x:0}
+  body{background:#fff}
+  .section{border:none;box-shadow:none;padding:0;margin-bottom:14px}
+  .container{max-width:none;padding:0}
+  body.print-manual .container{display:none!important}
+  body.print-manual #paneHandbook{display:block!important}
+  body.print-manual #signSection,body.print-manual #rosterSection,body.print-manual #hbToc{display:none!important}
+  body.print-manual .hb h2{break-before:page;page-break-before:always}
+  body.print-manual .hb h2:first-of-type{break-before:auto;page-break-before:auto}
+  body.print-manual .hb h3,body.print-manual .hb h4{break-after:avoid;page-break-after:avoid}
+  body.print-manual .hb img,body.print-manual .hb table,body.print-manual .hb blockquote{break-inside:avoid;page-break-inside:avoid}
+  body.print-manual .hb{max-width:none;font-size:10.5pt}
+}
+
+/* Native Compliance & Safety identity */
+.app-title{display:flex;align-items:center;gap:12px;min-width:0}
+.app-title img{width:46px;height:46px;flex:0 0 46px;object-fit:contain}
+.app-title-copy{display:flex;flex-direction:column;gap:3px;line-height:1.08}
+.app-title-copy strong{font-size:1.05rem;letter-spacing:-.02em}
+.app-title-copy small{font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.62}
+@media(max-width:700px){.app-title img{width:38px;height:38px;flex-basis:38px}.app-title-copy strong{font-size:.92rem}}
+</style>
+</head>
+<body>
+
+<div class="gate" id="authLoading">
+  <div class="gate-card">
+    <h1>Compliance &amp; Safety</h1>
+    <p id="gateMsg">Checking access…</p>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <div class="app-title">
+      <img src="https://alamedapointbg.com/app-icons/compliance-light.png" alt="">
+      <div class="app-title-copy">
+        <strong>Compliance &amp; Safety</strong>
+        <small>Brix · APBG &nbsp;•&nbsp; CERS 10666381</small>
+      </div>
+    </div>
+    <div class="links">
+      <a href="/margin/docs/handbook/#/30-sop-cupa-compliance" target="_blank" rel="noopener">SOP-10 CUPA →</a>
+      <a href="/margin/docs/handbook/#/32-sop-insurance" target="_blank" rel="noopener">SOP-11 Insurance →</a>
+      <a href="https://cers.calepa.ca.gov" target="_blank" rel="noopener">CERS →</a>
+    </div>
+  </header>
+  <nav class="tabs">
+    <button class="tab active" id="tabDashboard" onclick="showTab('dashboard')">Dashboard</button>
+    <button class="tab" id="tabInspector"   onclick="showTab('inspector')">Records &amp; SDS</button>
+    <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
+    <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
+    <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
+    <button class="tab" id="tabVisitors"    onclick="showTab('visitors')">Visitors</button>
+    <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
+    <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
+  </nav>
+
+  <!-- ═══════════════ DASHBOARD ═══════════════ -->
+  <div class="container" id="paneDashboard">
+    <div class="statrow" id="dashStats"></div>
+
+    <div class="section">
+      <h2>Needs attention <span class="sub" id="attnCount">checking…</span></h2>
+      <ul class="attn" id="attnList"><li class="muted">Loading…</li></ul>
+    </div>
+
+    <div class="section noprint">
+      <h2>Jump to</h2>
+      <div class="quicklinks">
+        <button onclick="showTab('inspector')">📋 Records &amp; SDS</button>
+        <button onclick="showTab('postings')">📺 Posting board</button>
+        <button onclick="showTab('inspections');showIns('cupa')">🔍 CUPA checklist</button>
+        <button onclick="showTab('inspections');showIns('osha')">🦺 Cal/OSHA checklist</button>
+        <button onclick="showTab('handbook')">📕 Safety manual &amp; sign-off</button>
+        <button onclick="showTab('insurance')">🛡 Our insurance</button>
+        <a href="https://cers.calepa.ca.gov" target="_blank" rel="noopener">CERS portal ↗</a>
+        <button onclick="window.print()">🖨 Print this dashboard</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Facility <span class="sub">what an inspector asks for in the first two minutes</span></h2>
+      <div class="idgrid">
+        <div class="idcard"><b>Facility</b><span class="v">Hangar 200</span><span class="m">1951 Monarch St, Suite 200 · Alameda, CA 94501</span></div>
+        <div class="idcard"><b>CERS ID</b><span class="v mono">10666381</span><span class="m">Alameda County Dept. of Environmental Health (our CUPA)</span></div>
+        <div class="idcard"><b>Legal name</b><span class="v">Alameda Point Beverage Group</span><span class="m">S corporation · DBA Brix Beverage</span></div>
+        <div class="idcard"><b>EIN</b><span class="v mono">82-1580658</span><span class="m">Seller's permit 103104468</span></div>
+        <div class="idcard"><b>Bulk CO₂</b><span class="v">6 tons · Airgas-leased</span><span class="m">Tank #4461 · alarm + cell backup verified</span></div>
+        <div class="idcard"><b>EPA §608 / Clean Air</b><span class="v mono">PA620014460</span><span class="m">Refrigerant handling certification</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Emergency &amp; agency phone numbers <span class="sub">the same set the CERS Emergency Response / Contingency Plan commits to</span></h2>
+      <div class="dashgrid">
+
+        <div class="phonecard urgent">
+          <h3>Immediate — life safety</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Ambulance · Fire · Police · CHP</b><span>Any life-threatening emergency, fire, or release</span></div><a href="tel:911">9-1-1</a></li>
+            <li><div class="who"><b>Poison Control Center</b><span>Chemical exposure, ingestion, eye contact</span></div><a href="tel:+18002221222">(800) 222-1222</a></li>
+            <li><div class="who"><b>Alameda Hospital — nearest ER</b><span>2070 Clinton Ave, Alameda CA 94501</span></div><a href="tel:+15105223700">(510) 522-3700</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Work injuries — Concentra Oakland</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Concentra — downtown</b><span>384 Embarcadero W · non-emergency work injuries · Mon–Fri 8–5</span></div><a href="tel:+15104659565">(510) 465-9565</a></li>
+            <li><div class="who"><b>Concentra — airport</b><span>333 Hegenberger Rd Ste 100</span></div><a href="tel:+15106380701">(510) 638-0701</a></li>
+            <li><div class="who"><b>Cal/OSHA — serious injury</b><span>Report immediately, no later than 8 hours. Same line an employee may use to report a hazard.</span></div><a href="tel:+18335790927">1-833-579-0927</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Company — 24-hour</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Sky Pace — CEO / Owner</b><span>Primary emergency &amp; environmental contact · skypace@brixbev.com</span></div><a href="tel:+14157133318">(415) 713-3318</a></li>
+            <li><div class="who"><b>Anthony Sloan — CFO</b><span>Secondary contact · asloan@brixbev.com · ⚠ 24-hr number blank on the CERS filing</span></div><a href="tel:+14157167028">(415) 716-7028</a></li>
+            <li><div class="who"><b>Airgas — bulk CO₂ tank</b><span>24-hour emergency response · tank #4461</span></div><a href="tel:+18667343438">(866) 734-3438</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Agencies — notification</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Alameda County Env. Health (CUPA)</b><span>HMBP, hazmat, hazardous waste</span></div><a href="tel:+15105676702">(510) 567-6702</a></li>
+            <li><div class="who"><b>Cal OES — State Warning Center</b><span>Required release notification (Cal/EMA on the ERCP)</span></div><a href="tel:+18008527550">(800) 852-7550</a></li>
+            <li><div class="who"><b>National Response Center</b><span>Federal release reporting</span></div><a href="tel:+18004248802">(800) 424-8802</a></li>
+            <li><div class="who"><b>Cal/OSHA — Sacramento</b><span>The number printed on our ERCP. General enquiries — not the serious-injury line.</span></div><a href="tel:+19162632800">(916) 263-2800</a></li>
+            <li><div class="who"><b>DTSC</b><span>Hazardous waste</span></div><a href="tel:+19162553545">(916) 255-3545</a></li>
+            <li><div class="who"><b>Regional Water Quality Control Board</b><span>Anything reaching a drain or the Bay</span></div><a href="tel:+15106222300">(510) 622-2300</a></li>
+            <li><div class="who"><b>U.S. EPA</b><span>—</span></div><a href="tel:+18003002193">(800) 300-2193</a></li>
+            <li><div class="who"><b>CA Fish and Wildlife</b><span>Listed as Fish and Game on the ERCP</span></div><a href="tel:+19163582900">(916) 358-2900</a></li>
+            <li><div class="who"><b>U.S. Coast Guard</b><span>Navigable waters</span></div><a href="tel:+12022672180">(202) 267-2180</a></li>
+            <li><div class="who"><b>State Fire Marshal</b><span>—</span></div><a href="tel:+19164458200">(916) 445-8200</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Insurance &amp; brokers</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>Thimble / Coterie — general liability</b><span>Spinnaker NAIC 24376 · CSB-00128559-00</span></div><a href="tel:+18555661011">855-566-1011</a></li>
+            <li><div class="who"><b>Progressive Commercial — auto</b><span>NAIC 10193 · policy 975506554</span></div><a href="tel:+18004444487">1-800-444-4487</a></li>
+            <li><div class="who"><b>Embroker — workers' comp</b><span>AmTrust / Security National NAIC 19879 · SWC1470931 · Julie Noonan</span></div><a href="tel:+18444362765">(844) 436-2765</a></li>
+          </ul>
+        </div>
+
+        <div class="phonecard">
+          <h3>Labor &amp; wage agencies</h3>
+          <ul class="phonelist">
+            <li><div class="who"><b>City of Alameda — minimum wage</b><span>950 West Mall Square Rm 205 · minimumwage@alamedaca.gov</span></div><a href="tel:+15107476859">(510) 747-6859</a></li>
+            <li><div class="who"><b>EDD — employer assistance</b><span>Payroll tax, UI, SDI, PFL</span></div><a href="tel:+18887453886">1-888-745-3886</a></li>
+            <li><div class="who"><b>CA Civil Rights Department</b><span>Discrimination, harassment, CFRA/PDL</span></div><a href="tel:+18008841684">(800) 884-1684</a></li>
+            <li><div class="who"><b>CA Labor Commissioner (DLSE)</b><span>Nearest office via the DIR locator — <a href="https://www.dir.ca.gov/dlse/DistrictOffices.htm" target="_blank" rel="noopener">dir.ca.gov office list</a></span></div><span class="muted">by office</span></li>
+          </ul>
+        </div>
+
+      </div>
+      <div class="muted" style="margin-top:12px">Print this page and it becomes the sheet that fills in the Cal/OSHA <b>S-500 Emergency Phone Numbers</b> poster (see Required Postings).</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ RECORDS & SDS ═══════════════ -->
+  <div class="container" id="paneInspector" style="display:none">
+    <div class="contactbar noprint">
+      <div class="ccard"><b>Emergency</b><a href="tel:911">9-1-1</a></div>
+      <div class="ccard"><b>Sky Pace · 24-hr</b><a href="tel:+14157133318">(415) 713-3318</a></div>
+      <div class="ccard"><b>Airgas CO₂ 24-hr</b><a href="tel:+18667343438">(866) 734-3438</a></div>
+      <div class="ccard"><b>CUPA (ACEH)</b><a href="tel:+15105676702">(510) 567-6702</a></div>
+      <div class="ccard"><b>Facility</b>1951 Monarch St, Hangar 200</div>
+    </div>
+
+    <div class="section">
+      <h2>Find a record <span class="sub">searches our documents and the SDS library together</span></h2>
+      <input type="search" id="q" placeholder="Try: CO2, forklift, insurance, acetone, permit…" style="max-width:32rem">
+    </div>
+
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Our documents — Brix Beverage &amp; affiliates <span class="sub" id="docCount"></span></h2>
+        <div class="noprint">
+          <label class="muted" style="margin-right:10px"><input type="checkbox" id="showArch" onchange="reloadAll()"> Show archived</label>
+          <button class="btn sm" onclick="openEditor('documents')">+ Add document</button>
+        </div>
+      </div>
+      <div class="twrap"><table class="grid" id="docTable">
+        <thead><tr><th>Document</th><th>Entity</th><th>Category</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">Vendor and contractor paper lives on the Vendors &amp; Contractors tab — a document with a party attached is somebody else's.</div>
+    </div>
+
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">SDS library <span class="sub" id="sdsCount"></span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('sds')">+ Add SDS</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:10px">
+        One row per hazardous chemical product on site — deliberately a longer list than the CERS
+        inventory (SDS are required regardless of quantity; 55 gal / 500 lb / 200 cu ft are CERS
+        <em>reporting</em> thresholds only). Paper binder in the front office is the offline backup.
+      </div>
+      <div class="twrap"><table class="grid" id="sdsTable">
+        <thead><tr><th>Product</th><th>Manufacturer</th><th>Hazard</th><th>CERS</th><th>SDS rev</th><th>Sheet</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Vendors, contractors &amp; other parties <span class="sub" id="partyCount"></span></h2>
+        <div><button class="btn sm" onclick="openEditor('parties')">+ Add party</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:10px">
+        Every third party whose paper we hold. Add the party here first, then file their documents
+        against it — that is what routes a document to the Vendors &amp; Contractors tab.
+      </div>
+      <div class="twrap"><table class="grid" id="partyTable">
+        <thead><tr><th>Party</th><th>Type</th><th>Contact</th><th>Documents</th><th>Actions</th></tr></thead>
+        <tbody><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <button class="btn ghost" onclick="window.print()">🖨 Print record index</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════ OUR INSURANCE & COMPANY DOCS ═══════════════ -->
+  <div class="container" id="paneInsurance" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Our insurance <span class="sub" id="insCount"></span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('documents',{category:'insurance'})">+ Add policy / COI</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Policies and certificates carried by <b>us</b> — Brix Beverage, Alameda Soda, FreeFlow.
+        General liability, property, auto/fleet, workers' compensation, umbrella, product liability,
+        cyber. This is what you produce when a customer, landlord, or auditor asks for our COI.
+      </div>
+      <div class="twrap"><table class="grid" id="insTable">
+        <thead><tr><th>Policy / document</th><th>Entity</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Company identity &amp; tax <span class="sub">what vendors and customers ask us for</span></h2>
+        <div class="noprint"><button class="btn sm" onclick="openEditor('documents',{category:'tax'})">+ Add company document</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        The numbers are here so you can read them off without opening a file. Use <b>Upload</b> on a
+        row to attach the actual PDF — it goes straight into the private vault from this page.
+      </div>
+      <div class="idgrid">
+        <div class="idcard"><b>Legal name</b><span class="v">Alameda Point Beverage Group</span><span class="m">S corporation · DBA Brix Beverage</span></div>
+        <div class="idcard"><b>EIN (federal tax ID)</b><span class="v mono">82-1580658</span><span class="m">from the signed W-9, 08/30/2024</span></div>
+        <div class="idcard"><b>CA seller's permit</b><span class="v mono">103104468</span><span class="m">resale certificate CDTFA-230</span></div>
+        <div class="idcard"><b>Address of record</b><span class="v">1951 Monarch St, Suite 200</span><span class="m">Alameda, CA 94501 · (510) 564-2700</span></div>
+      </div>
+      <div class="twrap" style="margin-top:16px"><table class="grid" id="taxTable">
+        <thead><tr><th>Document</th><th>Issuer</th><th>Reference</th><th>Signed</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <h2>Carriers, brokers &amp; quick links</h2>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Line</th><th>Carrier</th><th>Broker / servicing</th><th>Contact</th><th>Portal</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>General liability</b><div class="muted">CSB-00128559-00</div></td>
+            <td>Spinnaker Insurance Co.<div class="muted">NAIC 24376</div></td>
+            <td>Thimble / Coterie</td>
+            <td><a href="tel:+18555661011">855-566-1011</a><div class="muted">support@thimble.com</div></td>
+            <td><a href="https://www.thimble.com" target="_blank" rel="noopener">Thimble →</a><div class="muted"><a href="https://www.coterieinsurance.com" target="_blank" rel="noopener">Coterie →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Commercial auto</b><div class="muted">975506554</div></td>
+            <td>Progressive Express<div class="muted">NAIC 10193</div></td>
+            <td>Progressive Commercial (direct)</td>
+            <td><a href="tel:+18004444487">1-800-444-4487</a></td>
+            <td><a href="https://www.progressivecommercial.com" target="_blank" rel="noopener">Progressive Commercial →</a><div class="muted"><a href="https://account.apps.progressive.com/access/login" target="_blank" rel="noopener">Policy login →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Workers' compensation</b><div class="muted">SWC1470931</div></td>
+            <td>AmTrust — Security National<div class="muted">NAIC 19879</div></td>
+            <td>Embroker · Julie Noonan</td>
+            <td><a href="tel:+18444362765">(844) 436-2765</a><div class="muted">certificates@embroker.com</div></td>
+            <td><a href="https://www.amtrustfinancial.com" target="_blank" rel="noopener">AmTrust →</a><div class="muted"><a href="https://www.embroker.com" target="_blank" rel="noopener">Embroker →</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Work injuries</b><div class="muted">occupational clinic</div></td>
+            <td>Concentra Oakland</td>
+            <td>—</td>
+            <td><a href="tel:+15104659565">(510) 465-9565</a><div class="muted">airport <a href="tel:+15106380701">(510) 638-0701</a></div></td>
+            <td><a href="https://www.concentra.com/urgent-care-centers/california/bay-area/oakland-urgent-care/" target="_blank" rel="noopener">Concentra →</a></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">
+        GEICO isn't on any certificate in the current packet — if there's a GEICO commercial policy, send the COI and it gets a row here.
+      </div>
+    </div>
+
+    <div class="section noprint">
+      <h2>Fleet on the auto policy <span class="sub">7 scheduled vehicles · $3,500 comp/collision deductible each</span></h2>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Year / make / model</th><th>VIN</th></tr></thead>
+        <tbody>
+          <tr><td>2017 Mercedes-Benz Metris</td><td class="mono">WD3PG2EA7H3208761</td></tr>
+          <tr><td>2017 Mercedes-Benz Metris</td><td class="mono">WD3PG2EA8H3209479</td></tr>
+          <tr><td>2018 Ford Transit Connect</td><td class="mono">NM0LS6E71J1347796</td></tr>
+          <tr><td>2018 Ford F250</td><td class="mono">1FDBF2A63JED06728</td></tr>
+          <tr><td>2017 Ford C-Max</td><td class="mono">1FADP5EU0HL118281</td></tr>
+          <tr><td>2023 Ford Transit</td><td class="mono">1FTBR1C89PKB65386</td></tr>
+          <tr><td>2022 Mercedes-Benz Metris</td><td class="mono">W1YV0BEY9N4162186</td></tr>
+        </tbody>
+      </table></div>
+      <div class="prose" style="margin-top:10px">
+        <b>Adding or removing a vehicle is a same-day call to Progressive</b> — an unscheduled vehicle
+        in an at-fault collision is the expensive kind of paperwork gap. The ACORD 101 also notes
+        <b>"liability coverage may not apply to all scheduled vehicles"</b> — worth confirming which of
+        the seven carry liability.
+      </div>
+    </div>
+
+    <div class="section noprint">
+      <h2>What belongs here</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.8">
+          <li><b>Commercial general liability (CGL)</b> — policy + current COI</li>
+          <li><b>Commercial auto / fleet</b> — policy, vehicle schedule, driver list</li>
+          <li><b>Workers' compensation</b> — policy, current COI, experience mod worksheet</li>
+          <li><b>Property / inland marine</b> — building contents, equipment schedules, values</li>
+          <li><b>Umbrella / excess liability</b></li>
+          <li><b>Product liability</b> — critical for the beverage side and for Compass/Foodbuy-type onboarding</li>
+          <li><b>Cyber / crime</b>, <b>EPLI</b>, and any bonds</li>
+          <li><b>Additional-insured endorsements</b> we've issued to customers or landlords</li>
+        </ul>
+        <p style="margin-top:10px">Add these with category <b>Insurance</b> and <b>no party</b> — a document with a party attached is somebody else's insurance and belongs on the Vendors tab.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ VENDORS & CONTRACTORS ═══════════════ -->
+  <div class="container" id="paneVendors" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Vendor &amp; third-party documents <span class="sub">their compliance, held by us</span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="openEditor('parties')">+ Add party</button>
+          <button class="btn sm" onclick="openEditor('documents',{party_id:'__pick__'})">+ Add their document</button>
+        </div>
+      </div>
+      <div class="prose">
+        Paper we hold <b>for other companies</b> — co-packer production and food-safety records, vendor
+        insurance, contractor insurance. We keep it current because our own compliance depends on it,
+        but it is their obligation. <b>Open</b> pulls the file from the private vault; <b>Upload</b> puts one in.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Vendor production &amp; food safety <span class="sub" id="vpCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Co-packer and ingredient-supplier paper: GMP/GFSI audit reports, certificates, corrective
+        actions, manufacturing licenses, FDA registrations, HACCP plans, kosher letters, specs.
+      </div>
+      <div class="twrap"><table class="grid" id="vpTable">
+        <thead><tr><th>Document</th><th>Vendor</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Vendor insurance <span class="sub" id="viCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        COIs from co-packers, suppliers, landlords, and service vendors. Watch for: current dates,
+        adequate limits, <b>additional insured</b> and <b>waiver of subrogation</b> where our contract
+        requires them.
+      </div>
+      <div class="twrap"><table class="grid" id="viTable">
+        <thead><tr><th>Document</th><th>Vendor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Contractor insurance <span class="sub" id="ciCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Trade contractors working at Hangar 200 or on our behalf at customer sites. <b>An uninsured
+        contractor gets charged to our workers'-comp policy at audit</b> — a missing COI here is a
+        real invoice later, not just a filing gap.
+      </div>
+      <div class="twrap"><table class="grid" id="ciTable">
+        <thead><tr><th>Document</th><th>Contractor</th><th>Carrier / issuer</th><th>Policy #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Other third-party documents <span class="sub" id="otCount"></span></h2>
+      <div class="twrap"><table class="grid" id="otTable">
+        <thead><tr><th>Document</th><th>Party</th><th>Type</th><th>Category</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ REQUIRED POSTINGS ═══════════════ -->
+  <div class="container wide" id="panePostings" style="display:none">
+    <div class="subtabs noprint">
+      <button class="subtab pvtab active" data-pv="board"  onclick="showPost('board')">📺 Posting board</button>
+      <button class="subtab pvtab"        data-pv="manage" onclick="showPost('manage')">Manage postings</button>
+    </div>
+
+    <div id="postBoardView">
+      <div class="section noprint" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn" onclick="startWall(true, 1)">🧱 Poster wall — all on one screen</button>
+        <button class="btn ghost" onclick="startWall(true, 2)">🧱 Poster wall — two screens</button>
+        <button class="btn ghost" onclick="startTv(true)">📺 Index, one page</button>
+        <button class="btn ghost" onclick="startKiosk(true)">⛶ One at a time, full screen</button>
+        <a class="btn ghost" style="text-decoration:none" href="/billing/postings/APBG-required-postings-packet.pdf" target="_blank" rel="noopener">🖨 Print the whole board (PDF)</a>
+        <label class="muted" style="display:flex;align-items:center;gap:6px">Seconds per notice
+          <input type="number" id="kioskSecs" value="20" min="5" max="180" style="width:5.5rem">
+        </label>
+        <span class="muted" style="flex:1 1 22rem"><b>Poster wall</b> shows the real notices tiled the way the physical board looks — one screen, or two for bigger tiles; tap any to open it.
+        <b>Index</b> fits every title on one screen at a size you can read across the room. <b>One at a time</b> plays each poster full screen.
+        Every view has its own 🖨 Print, and <b>Print the whole board</b> is a 40-page PDF with a cover index.</span>
+      </div>
+      <div class="board" id="boardWrap"><div class="muted">Loading the board…</div></div>
+    </div>
+
+    <div id="postManageView" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Required workplace postings <span class="sub" id="postCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="window.print()">🖨 Print the list</button>
+          <button class="btn sm" onclick="openEditor('postings')">+ Add posting</button>
+        </div>
+      </div>
+      <div class="prose">
+        <b>Source</b> opens the agency's official PDF. <b>Upload</b> stores the copy we actually
+        posted — that copy is what the Posting board displays, so uploading each one turns the board
+        into the real notices rather than summaries of them.
+      </div>
+      <div class="statrow" style="margin:16px 0 0" id="postStats"></div>
+    </div>
+
+    <div class="section" id="postFedSec">
+      <h2>Federal <span class="sub" id="postFedCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postFedTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section" id="postStateSec">
+      <h2>California — state <span class="sub" id="postStateCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postStateTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section" id="postLocalSec">
+      <h2>Local — City of Alameda / Alameda County <span class="sub" id="postLocalCount"></span></h2>
+      <div class="twrap"><table class="grid" id="postLocalTable">
+        <thead><tr><th>Posting</th><th>Agency</th><th>Form</th><th>Applies</th><th>Where posted</th><th>Review</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">Alameda <b>County</b> has no minimum-wage ordinance — the state rate is the floor in unincorporated areas, and we are inside city limits anyway.</div>
+    </div>
+
+    <div class="section">
+      <h2>Read this before you print the board</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li><b>Which IWC Wage Order applies is still open.</b> Order 1 (Manufacturing) indexes "Bottling (soft drinks)"; Order 7 (Mercantile) indexes "Wholesale houses"; Order 9 (Transportation) covers firms in the business of transport/warehousing <em>for others</em> — our own delivery drivers don't by themselves pull us in. DIR's test is the <b>principal purpose</b> of the business, and only one order applies unless operations are separately managed at every level. Confirm with DLSE before printing one.</li>
+          <li><b>Whistleblowers Are Protected must be on 8.5 × 14 legal paper</b> with margins no wider than half an inch, so the type exceeds 14 point. A letter-size printout is non-compliant.</li>
+          <li><b>Form 300A posts February 1 – April 30</b> covering the prior year, even with zero injuries, and must be mailed or handed to route drivers and field techs who don't report weekly to the posting location.</li>
+          <li><b>"California Workplace — Know Your Rights" (SB 294) is a distribution duty.</b> Every employee gets it by Feb 1 each year, in the language we normally use with them. Up to $500 per employee if we miss it.</li>
+          <li><b>Fill-in posters count only when filled in</b> — Payday Notice, S-500 Emergency Phone Numbers, DWC-7 claims administrator, and the workers' comp carrier notice.</li>
+          <li><b>SB 553 workplace violence has no poster.</b> The duty is a written plan, a violent-incident log, training, and records — the plan must be easily accessible to employees at all times.</li>
+          <li><b>Time Off to Vote is seasonal</b> — up about ten days before each statewide election (next: post by ~Oct 24, 2026 for the Nov 3 general).</li>
+        </ul>
+      </div>
+    </div>
+    </div>
+  </div>
+  <!-- ═══════════════ VISITORS ═══════════════ -->
+  <div class="container" id="paneVisitors" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">On site right now <span class="sub" id="onsiteCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="printView('onsite')">🖨 Evacuation list</button>
+          <a class="btn sm" style="text-decoration:none" href="/visitors" target="_blank" rel="noopener">Open the kiosk ↗</a>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Everyone who signed in at the front-door kiosk and has not signed out. <b>This list is the
+        head-count an evacuation runs on</b> — print it on the way out, and sign people out when they leave.
+      </div>
+      <div class="twrap"><table class="grid" id="onsiteTable">
+        <thead><tr><th>Visitor</th><th>Type</th><th>Here to see</th><th>Purpose</th><th>Signed in</th><th>Contact</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Visitor log <span class="sub" id="visLogCount"></span></h2>
+        <div><input type="search" id="visQ" placeholder="Name, company, host…" style="max-width:18rem"></div>
+      </div>
+      <div class="twrap"><table class="grid" id="visLogTable">
+        <thead><tr><th>Visitor</th><th>Type</th><th>Host</th><th>In</th><th>Out</th><th>Agreement</th><th>Photo</th><th>Notified</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">Last 200 visits. Signatures and photos are on the record; the photo opens from the private vault.</div>
+    </div>
+
+    <div class="section noprint">
+      <h2>How the kiosk works</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li>The tablet at the door runs <b>alamedapointbg.com/visitors</b> — no login, because a visitor cannot have one. Bookmark it and leave it open.</li>
+          <li>Sign-in takes four steps: who they are, who they're seeing, the safety agreement with a signature, and a photo. It ends on a <b>4&nbsp;×&nbsp;3 in badge</b> that prints from the tablet.</li>
+          <li>The host and the notify list get an email the moment someone signs in. Set the host list and the notify list in <code>ops.visitor_settings</code>.</li>
+          <li>Sign-out: the visitor scans the QR on their badge, types the badge number on the kiosk, or you close it from the table above.</li>
+          <li>The agreement covers escort, <b>CO₂ never-enter-to-rescue</b>, forklift traffic, evacuation, PPE, food safety, no smoking, incident reporting, confidentiality, and the contractor insurance confirmation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ INSPECTIONS ═══════════════ -->
+  <div class="container" id="paneInspections" style="display:none">
+    <div class="subtabs noprint">
+      <button class="subtab active" data-ins="cupa"   onclick="showIns('cupa')">CUPA</button>
+      <button class="subtab" data-ins="osha"          onclick="showIns('osha')">Cal/OSHA</button>
+      <button class="subtab" data-ins="wc"            onclick="showIns('wc')">Workers' Comp</button>
+      <button class="subtab" data-ins="insurance"     onclick="showIns('insurance')">Insurance</button>
+      <button class="subtab" data-ins="kosher"        onclick="showIns('kosher')">OU Kosher</button>
+      <button class="subtab" data-ins="other"         onclick="showIns('other')">Other</button>
+      <button class="subtab" data-ins="runbook"       onclick="showIns('runbook')">Visit runbook</button>
+    </div>
+
+    <!-- CUPA -->
+    <div class="insp" id="insCupa">
+      <div class="section">
+        <h2>CUPA inspection — Alameda County Environmental Health <span class="sub">CERS 10666381 · unannounced</span></h2>
+        <div class="prose">Hazardous materials, hazardous waste, and emergency planning at Hangar 200. Typically every 1–3 years, unannounced. Our HMBP was accepted 2026-08-12; next full annual submittal 2027-08-10.</div>
+      </div>
+      <div class="section">
+        <h3>Records they will ask for</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>HMBP current in CERS and certified annually<span class="note">Business Activities · Owner/Operator · Chemical Inventory · Site Map · Emergency Response Plan</span></label></li>
+          <li><input type="checkbox"><label>Chemical inventory matches what is physically on site<span class="note">Names, max daily amount, largest container, days on site, container type, and location — this is the line they check hardest</span></label></li>
+          <li><input type="checkbox"><label>Facility site map current<span class="note">Storage areas, exits, shutoffs, emergency equipment, north arrow</span></label></li>
+          <li><input type="checkbox"><label>Signed Emergency Response / Contingency Plan available on site</label></li>
+          <li><input type="checkbox"><label>Annual HMBP training records with signatures<span class="note">Within 6 months of hire, annually after; date, topics, trainer, attendees</span></label></li>
+          <li><input type="checkbox"><label>24-hour emergency contacts current on the filing</label></li>
+          <li><input type="checkbox"><label>Hazardous waste: generator status, EPA ID, manifests retained 3 years</label></li>
+          <li><input type="checkbox"><label>Weekly waste accumulation area inspection log, no gaps</label></li>
+          <li><input type="checkbox"><label>Used oil: hauler receipts and registration on file</label></li>
+          <li><input type="checkbox"><label>SDS accessible for every hazardous material on site</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Physical walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Bulk CO₂ tank and cylinders: secured, capped, full/empty segregated</label></li>
+          <li><input type="checkbox"><label>CO₂ monitor and cellular backup powered and normal<span class="note">Especially any cylinder stored indoors</span></label></li>
+          <li><input type="checkbox"><label>Every container labeled with contents and hazard</label></li>
+          <li><input type="checkbox"><label>Hazardous waste containers closed, labeled "Hazardous Waste" with accumulation start date</label></li>
+          <li><input type="checkbox"><label>Used oil containers labeled "Used Oil", closed, on secondary containment</label></li>
+          <li><input type="checkbox"><label>Universal waste (lamps, batteries, aerosols, e-waste) labeled and dated, none over 1 year</label></li>
+          <li><input type="checkbox"><label>Secondary containment intact — no cracks, no standing liquid</label></li>
+          <li><input type="checkbox"><label>Aisle space maintained; nothing blocking the CO₂ shutoff (#4461)</label></li>
+          <li><input type="checkbox"><label>Eyewash accessible and flushed; extinguishers tagged current and unobstructed</label></li>
+          <li><input type="checkbox"><label>Spill kit stocked and unexpired</label></li>
+          <li><input type="checkbox"><label>Nothing disposed to a floor drain, storm drain, or sewer</label></li>
+          <li><input type="checkbox"><label>Permit and 24-hour emergency contact posted and legible</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Cal/OSHA -->
+    <div class="insp" id="insOsha" style="display:none">
+      <div class="section">
+        <h2>Cal/OSHA inspection <span class="sub">Division of Occupational Safety and Health</span></h2>
+        <div class="prose">Usually complaint-driven, accident-driven, or programmed. They will review written programs, records, and the physical site — and <b>they will interview employees privately</b>, which is their right and ours to accommodate without interference.</div>
+      </div>
+      <div class="section">
+        <h3>Written programs they will ask for</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Injury &amp; Illness Prevention Program (IIPP), 8 CCR §3203<span class="note">All 8 elements, plus evidence it actually runs — inspections, investigations, corrections</span></label></li>
+          <li><input type="checkbox"><label>Hazard Communication program + SDS + labeling + training (§5194)</label></li>
+          <li><input type="checkbox"><label>Heat Illness Prevention Plan (§3395)<span class="note">Water, shade, acclimatization, high-heat procedures, emergency response</span></label></li>
+          <li><input type="checkbox"><label>Workplace Violence Prevention Plan + violent incident log (SB 553 / LC §6401.9)</label></li>
+          <li><input type="checkbox"><label>Emergency Action Plan and Fire Prevention Plan (§3220 / §3221)</label></li>
+          <li><input type="checkbox"><label>Lockout/tagout written procedures (§3314)</label></li>
+          <li><input type="checkbox"><label>PPE hazard assessment; PPE provided at no cost (§3380)</label></li>
+          <li><input type="checkbox"><label>Respiratory protection program — only if respirators are used (§5144)</label></li>
+          <li><input type="checkbox"><label>Hearing conservation — if noise exposure warrants</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Records</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Cal/OSHA Form 300 log, 301 incident reports, 300A summary<span class="note">300A posted February 1 – April 30</span></label></li>
+          <li><input type="checkbox"><label>Training records: who, when, topic, trainer, signature — including this handbook</label></li>
+          <li><input type="checkbox"><label>Forklift operator certification + evaluation within 3 years + daily pre-op checks</label></li>
+          <li><input type="checkbox"><label>Employee access to exposure and medical records (§3204)</label></li>
+          <li><input type="checkbox"><label>Cal/OSHA workplace poster displayed</label></li>
+          <li><input type="checkbox"><label>Serious-injury reporting within 8 hours — evidence of the procedure</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Physical walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Exits unobstructed, marked, unlocked from inside</label></li>
+          <li><input type="checkbox"><label>Electrical: 36" panel clearance, no open knockouts, cords in good condition, GFCI where required</label></li>
+          <li><input type="checkbox"><label>Machine guarding in place on all shop equipment</label></li>
+          <li><input type="checkbox"><label>Ladders in good condition, right type for the work</label></li>
+          <li><input type="checkbox"><label>Racking undamaged, loads stable, nothing within 18" of sprinkler heads</label></li>
+          <li><input type="checkbox"><label>First aid supplies stocked; eyewash accessible and flushed (§5162)</label></li>
+          <li><input type="checkbox"><label>Compressed gas cylinders secured upright with caps</label></li>
+          <li><input type="checkbox"><label>Housekeeping: aisles clear, no trip hazards, spills cleaned</label></li>
+          <li><input type="checkbox"><label>PPE actually in use where the assessment requires it</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Workers' Comp -->
+    <div class="insp" id="insWc" style="display:none">
+      <div class="section">
+        <h2>Workers' compensation <span class="sub">premium audit &amp; loss-control survey</span></h2>
+        <div class="prose">Two different visits. The <b>premium audit</b> is the carrier verifying payroll and classifications — it decides what you pay. The <b>loss control survey</b> is a safety consultant deciding whether to keep writing you.</div>
+      </div>
+      <div class="section">
+        <h3>Premium audit — records</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Payroll records by class code for the policy period<span class="note">Quarterly returns (DE-9), general ledger, payroll journal</span></label></li>
+          <li><input type="checkbox"><label>Job descriptions and actual duties per employee<span class="note">Misclassified drivers vs. warehouse vs. office moves the premium a lot</span></label></li>
+          <li><input type="checkbox"><label><b>Certificates of insurance from every subcontractor and independent contractor</b><span class="note">Any uninsured sub gets charged to our policy as if they were our employee — this is the single most expensive gap</span></label></li>
+          <li><input type="checkbox"><label>1099s and subcontractor payment detail</label></li>
+          <li><input type="checkbox"><label>Overtime records (excess portion is often excludable)</label></li>
+          <li><input type="checkbox"><label>Officer inclusion/exclusion elections on file</label></li>
+          <li><input type="checkbox"><label>Cash payroll, bonuses, per diem, and tool allowances documented</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Loss control survey</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Written IIPP and evidence of safety meetings / tailgate talks</label></li>
+          <li><input type="checkbox"><label>Claims history and what changed after each one</label></li>
+          <li><input type="checkbox"><label>Return-to-work / modified duty program in writing</label></li>
+          <li><input type="checkbox"><label>New-hire safety onboarding — this handbook and its signature roster</label></li>
+          <li><input type="checkbox"><label>Ergonomics / lifting program (our highest-frequency injury)</label></li>
+          <li><input type="checkbox"><label>Fleet: driver qualification, MVR pulls, vehicle maintenance records</label></li>
+          <li><input type="checkbox"><label>Post-injury procedure and medical provider network posting<span class="note">Concentra Oakland is our designated occupational clinic — make sure the MPN/posting matches</span></label></li>
+          <li><input type="checkbox"><label>Required postings: workers' comp notice, MPN notice, DWC-1 availability</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Insurance -->
+    <div class="insp" id="insInsurance" style="display:none">
+      <div class="section">
+        <h2>Insurance inspection <span class="sub">general liability · property · fleet · product</span></h2>
+        <div class="prose">A carrier loss-control representative surveying the risk — at renewal, after a claim, or when adding a line. What they write up becomes a recommendation you must close or lose coverage terms.</div>
+      </div>
+      <div class="section">
+        <h3>Property &amp; premises</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Sprinkler system, fire alarm, and extinguishers inspected and tagged current</label></li>
+          <li><input type="checkbox"><label>Electrical panels, wiring, and equipment in good condition</label></li>
+          <li><input type="checkbox"><label>Housekeeping, storage practices, racking condition, aisle clearance</label></li>
+          <li><input type="checkbox"><label>Security: alarm, cameras, exterior lighting, fencing, access control</label></li>
+          <li><input type="checkbox"><label>Roof, drainage, and building maintenance</label></li>
+          <li><input type="checkbox"><label>Equipment schedules and inventory values current for the property limit</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Operations &amp; liability</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>CO₂ fill station</b> — procedure, operator training, cylinder inspection program</label></li>
+          <li><input type="checkbox"><label>Hot work / brazing controls and fire watch procedure</label></li>
+          <li><input type="checkbox"><label>Fleet: vehicle schedule, driver list, MVRs, maintenance, telematics</label></li>
+          <li><input type="checkbox"><label>Product liability: batch traceability, recall plan, co-packer agreements</label></li>
+          <li><input type="checkbox"><label>Contracts: hold-harmless / indemnity language, additional-insured endorsements</label></li>
+          <li><input type="checkbox"><label><b>COIs on file from every vendor and contractor</b> (Vendors &amp; Contractors tab)</label></li>
+          <li><input type="checkbox"><label>Customer-site work practices — ladders, lifting, equipment installs</label></li>
+          <li><input type="checkbox"><label>Prior loss runs and corrective actions taken</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- OU Kosher -->
+    <div class="insp" id="insKosher" style="display:none">
+      <div class="section">
+        <h2>OU Kosher inspection <span class="sub">Orthodox Union rabbinic field representative</span></h2>
+        <div class="prose">Unannounced visits are a condition of certification. The RFR verifies that what is actually produced matches exactly what was approved — ingredients, equipment, and labels. For co-packed product, the co-packer's own certification and schedule are part of the file.</div>
+      </div>
+      <div class="section">
+        <h3>Documents</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Current OU certificate and approved product schedule (Schedule A)<span class="note">Every certified product listed, and nothing produced that isn't</span></label></li>
+          <li><input type="checkbox"><label><b>Letter of certification (LOC) for every single ingredient</b>, current and on file<span class="note">Expired LOCs are the most common finding</span></label></li>
+          <li><input type="checkbox"><label>Approved-supplier list matches the ingredients actually received</label></li>
+          <li><input type="checkbox"><label>Co-packer's own kosher certification current (Quantum J's Canning)</label></li>
+          <li><input type="checkbox"><label>Batch / production records tying finished goods to approved ingredients</label></li>
+          <li><input type="checkbox"><label>Label artwork approved — OU symbol correct, Pareve/D/DE designation correct</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Plant walk</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>No unapproved or uncertified ingredient anywhere on site<span class="note">Including samples, trials, and R&amp;D material</span></label></li>
+          <li><input type="checkbox"><label>Ingredient labels on containers match the approved brand, manufacturer, and plant</label></li>
+          <li><input type="checkbox"><label>Equipment dedicated, or kashering procedure documented and followed</label></li>
+          <li><input type="checkbox"><label>Cleaning and changeover procedure between runs</label></li>
+          <li><input type="checkbox"><label>Storage segregation and receiving procedure prevent commingling</label></li>
+          <li><input type="checkbox"><label>Bulk-tank and line cleaning records where shared</label></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Other -->
+    <div class="insp" id="insOther" style="display:none">
+      <div class="section">
+        <h2>Other inspections <span class="sub">who else can walk in</span></h2>
+      </div>
+      <div class="section">
+        <h3>Fire — Alameda Fire Department / Fire Marshal</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>Extinguishers tagged, sprinklers and alarms serviced, exits and egress clear</label></li>
+          <li><input type="checkbox"><label><b>CO₂ system permit and gas detection</b> (CFC/IFC 5307) where required for the bulk tank and indoor cylinders</label></li>
+          <li><input type="checkbox"><label>Hazardous materials permits, storage quantities, and signage</label></li>
+          <li><input type="checkbox"><label>Nothing within 18" of sprinkler heads; 36" electrical panel clearance</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>FDA / food safety</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label>FDA Food Facility Registration current (renews even-numbered years)</label></li>
+          <li><input type="checkbox"><label>Preventive controls / food safety plan (21 CFR 117, FSMA) where applicable</label></li>
+          <li><input type="checkbox"><label>Supplier verification, allergen controls, sanitation records</label></li>
+          <li><input type="checkbox"><label>Traceability records — one step forward, one step back</label></li>
+          <li><input type="checkbox"><label>CDPH processed food registration for the beverage side</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Fleet — CHP</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>BIT inspection</b> (Biennial Inspection of Terminals) if our fleet is subject<span class="note">Driver records, vehicle maintenance files, 90-day inspections, hours of service</span></label></li>
+          <li><input type="checkbox"><label>Driver pull-notice program enrollment and MVRs</label></li>
+          <li><input type="checkbox"><label>Vehicle registration, insurance, and DOT numbers current where applicable</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Weights &amp; Measures — county sealer</h3>
+        <ul class="ck">
+          <li><input type="checkbox"><label><b>Scales used for CO₂ cylinder filling</b> registered and sealed<span class="note">Any scale used to determine a quantity sold is a commercial device</span></label></li>
+          <li><input type="checkbox"><label>Net-content labeling accurate on packaged product</label></li>
+        </ul>
+      </div>
+      <div class="section">
+        <h3>Also possible</h3>
+        <div class="prose">
+          <ul style="margin:6px 0 0 20px;line-height:1.8">
+            <li>Alameda County Environmental Health — retail/food facility program (separate from CUPA)</li>
+            <li>Air district (BAAQMD) — if any permitted equipment is added</li>
+            <li>DIR / Labor Commissioner — wage and hour, posting requirements</li>
+            <li>EDD — employment tax audit, worker classification</li>
+            <li>Building &amp; planning / ADA — occupancy and accessibility</li>
+            <li>Customer &amp; supplier audits — Compass/Foodbuy supplier QA, chain customer audits</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Runbook -->
+    <div class="insp" id="insRunbook" style="display:none">
+      <div class="section">
+        <h2>Any inspection — how to run the visit</h2>
+        <div class="prose">
+          <ol style="margin:8px 0 8px 22px;line-height:1.8">
+            <li><b>At the gate:</b> ask for credentials. Log name, agency, badge number, arrival time.</li>
+            <li><b>Page the escort</b> and notify Sky (415) 713-3318. Nobody walks the site unescorted.</li>
+            <li><b>Seat them at the records first</b> — open Inspector Mode on the tablet and let them search. Volunteering the digital setup reframes it as a strength.</li>
+            <li><b>Answer what is asked.</b> "I'll confirm that and get back to you" is a complete answer. Don't narrate history or speculate.</li>
+            <li><b>Never guess a quantity</b> — pull the number up in the app.</li>
+            <li><b>Photograph what they photograph.</b> Write down each flagged item in their own words, in the moment.</li>
+            <li><b>Correct trivially fixable things on the spot</b> — an open container gets closed while they watch. Never move or conceal anything.</li>
+            <li><b>Never sign an admission of fault.</b> Signing receipt of a report is fine.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Before they leave — ask these four</h3>
+        <div class="prose">
+          <ol style="margin:6px 0 0 22px;line-height:1.8">
+            <li>Which findings are <b>violations</b> and which are <b>observations</b>?</li>
+            <li>Is anything classified <b>serious / Class I</b>, and on what basis?</li>
+            <li>What is the <b>correction deadline</b>, and what proof of correction do you want?</li>
+            <li>Will there be a <b>reinspection</b>, or is documentary proof sufficient?</li>
+          </ol>
+        </div>
+      </div>
+      <div class="section">
+        <h3>After</h3>
+        <div class="twrap"><table class="grid">
+          <thead><tr><th>When</th><th>Action</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td><b>Same day</b></td><td>File their report, your notes, and photos into the vault. Debrief the EH&amp;S Lead.</td><td>Escort</td></tr>
+            <tr><td><b>Within 48 hrs</b></td><td>Every finding becomes a tracked corrective action with an owner and a due date ahead of the agency deadline.</td><td>EH&amp;S Lead</td></tr>
+            <tr><td><b>Before deadline</b></td><td>Submit proof of correction in the format requested.</td><td>EH&amp;S Lead</td></tr>
+            <tr><td><b>Within 30 days</b></td><td>Root-cause review; if a finding traces to a gap in SOP-10 or this handbook, amend and reissue.</td><td>EH&amp;S Lead + CEO</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="section noprint">
+        <button class="btn ghost" onclick="window.print()">🖨 Print this checklist</button>
+      </div>
+    </div>
+  </div>
+  <!-- ═══════════════ SAFETY MANUAL ═══════════════ -->
+  <div class="container" id="paneHandbook" style="display:none">
+    <!-- Acknowledgment status sits ABOVE the handbook. The sign-off panel is at
+         the bottom, correctly — you sign after reading — but a 30-page document
+         between the tab and your own status reads as if signing vanished. -->
+    <div class="section noprint" id="ackStrip" style="display:none"></div>
+    <div class="section noprint" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn" onclick="printManual()">🖨 Print the manual</button>
+      <span class="muted">Prints as a standalone manual — each Part starts on a new page, diagrams kept whole, sign-off panel omitted.</span>
+    </div>
+    <div class="section">
+      <div id="hbToc" class="hbtoc" style="display:none"></div>
+      <div id="hbDoc" class="hb"><span class="muted">Loading handbook…</span></div>
+    </div>
+
+    <div class="section" id="signSection">
+      <div id="signedState" style="display:none" class="signed-banner"></div>
+      <div id="signForm" style="display:none">
+        <div class="signbox">
+          <h3>Sign the acknowledgment</h3>
+          <div class="prose" style="margin-bottom:12px">
+            Signing records your name, email, today's date, and handbook version
+            <b id="hbVer"></b> in the compliance training record. Draw your signature below.
+          </div>
+          <label class="prose" for="signerName" style="display:block;margin-bottom:4px;font-weight:600">Full legal name</label>
+          <input type="text" id="signerName" placeholder="First Last" style="width:100%;max-width:560px;margin-bottom:12px" autocomplete="name">
+          <canvas class="sigpad" id="sigpad" width="560" height="170"></canvas>
+          <div class="signrow">
+            <button class="btn" id="signBtn" onclick="submitAck()">✍ Sign &amp; file acknowledgment</button>
+            <button class="btn ghost" onclick="padClear()">Clear signature</button>
+          </div>
+          <div class="err" id="signErr"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="rosterSection" style="display:none">
+      <h2>Signature roster <span class="sub" id="rosterCount"></span></h2>
+      <div class="twrap"><table class="grid" id="rosterTable">
+        <thead><tr><th>Name</th><th>Email</th><th>Version</th><th>Signed</th><th>Signature</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="muted" style="margin-top:8px">Staff see everyone; employees see their own record. Acknowledgments are immutable — a new handbook version requires a fresh signature.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ POSTING BOARD — DISPLAY MODE ═══════════════ -->
+  <div class="kiosk" id="kiosk" style="display:none">
+    <div class="kiosk-head">
+      <div class="kbrand">Employee Notices<span>Alameda Point Beverage Group · Hangar 200, 1951 Monarch St, Alameda CA</span></div>
+      <div class="kclock" id="kioskClock"></div>
+    </div>
+    <div class="kiosk-body" id="kioskBody"></div>
+    <div class="kiosk-foot">
+      <div class="kbar"><i id="kioskBar"></i></div>
+      <div class="kctl">
+        <button onclick="kioskStep(-1)" aria-label="Previous">◀ Back</button>
+        <button id="kioskPlay" onclick="kioskToggle()">⏸ Pause</button>
+        <button onclick="kioskStep(1)" aria-label="Next">Next ▶</button>
+        <span class="kpos" id="kioskPos"></span>
+        <button onclick="stopKiosk()">✕ Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ POSTING BOARD — POSTER WALL ═══════════════ -->
+  <div class="wall" id="wall" style="display:none">
+    <div class="wall-head">
+      <div>
+        <h1>EMPLOYEE NOTICES</h1>
+        <div class="sub">Alameda Point Beverage Group &middot; Hangar 200, 1951 Monarch St, Alameda CA 94501 &middot; <span id="wallDate"></span></div>
+      </div>
+      <div class="wall-ctl noprint">
+        <button id="wall1" onclick="wallPages(1)">All on one screen</button>
+        <button id="wall2" onclick="wallPages(2)">Two screens</button>
+        <span class="pos" id="wallPos"></span>
+        <button id="wallNext" onclick="wallStep(1)">Next ▶</button>
+        <button onclick="printView('wall')">🖨 Print</button>
+        <button onclick="stopWall()">&times; Exit</button>
+      </div>
+    </div>
+    <div class="wall-grid" id="wallGrid"></div>
+    <div class="wall-foot">
+      <div><b>Tap any notice</b> to open the full document &mdash; or scan it from the index board.</div>
+      <div>Questions: <b>Sky Pace (415) 713-3318</b></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ POSTING BOARD — ONE-PAGE TV VIEW ═══════════════ -->
+  <div class="tv" id="tvBoard" style="display:none">
+    <div class="tv-head">
+      <div>
+        <h1>EMPLOYEE NOTICES</h1>
+        <div class="sub">Alameda Point Beverage Group &middot; Hangar 200, 1951 Monarch St, Alameda CA 94501</div>
+      </div>
+      <div class="rt"><b id="tvCount"></b><span id="tvDate"></span></div>
+    </div>
+    <div class="tv-cols" id="tvCols"></div>
+    <div class="tv-foot">
+      <div><b>Scan any code</b> to read the full notice on your phone &mdash; or ask for a printed copy.</div>
+      <div>Questions about anything on this board: <b>Sky Pace (415) 713-3318</b></div>
+    </div>
+    <button class="tv-exit noprint" onclick="printView('tv')" style="right:6.4em">🖨 Print</button>
+    <button class="tv-exit noprint" onclick="stopTv()">&times; Exit</button>
+  </div>
+
+  <!-- ═══════════════ RECORD EDITOR ═══════════════ -->
+  <div class="modal" id="editModal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="edTitle">Edit</h3>
+        <button class="xbtn" onclick="closeEditor()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="edBody"></div>
+      <div class="modal-foot">
+        <button class="btn" id="edSave" onclick="saveEditor()">Save</button>
+        <button class="btn ghost" onclick="closeEditor()">Cancel</button>
+        <span class="err" id="edErr" style="margin:0"></span>
+        <span class="okmsg" id="edOk" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://alamedapointbg.com/appswitcher.js" data-app="compliance" defer></script>
+</div>
+
+<script>
+// ═══ CONFIG ═══
+const HANDBOOK_VERSION = '2.0 (2026-08-17)';
+const HANDBOOK_MD_URL = '/billing/docs/handbook/31-safety-training-handbook.md';
+const SB_URL = 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmc2Rwd2lxenNoaGV4a29maWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTUyMzcsImV4cCI6MjA5MTE3MTIzN30.AygnPJwQ5NfIeKwPtkO6tgVYmkV3MAxL1lMFwN9HPnY';
+const BUCKET = 'compliance-docs';
+const MAX_UPLOAD = 25 * 1024 * 1024;
+// Official notices mirrored into this repo (public/postings/) so the Posting
+// board can render the real document on a monitor — agency hosts refuse to be
+// framed, and a break-room screen should not depend on one being reachable.
+const MIRROR_BASE = '/billing/postings/';
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ═══ SESSION — any authenticated APBG login (deliberately NOT the superadmin
+// gate in auth.js: warehouse hires sign this handbook on day one, and RLS is
+// the real enforcement — records are staff-only, acks are insert-self/read-own). ═══
+function readSession(){
+  try{
+    const raw = localStorage.getItem('apbg_session');
+    if(!raw) return null;
+    const s = JSON.parse(raw);
+    if(!s || !s.token) return null;
+    const payload = JSON.parse(atob(s.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    if(payload.exp && payload.exp * 1000 < Date.now() + 30000) return null;
+    return { token: s.token, email: (payload.email || (s.user && s.user.email) || ''), uid: payload.sub,
+             role: (payload.app_metadata && payload.app_metadata.role) || (s.user && s.user.role) || null };
+  }catch(e){ return null; }
+}
+const SESSION = readSession();
+
+// ═══ PostgREST helpers (ops schema) ═══
+function sbHeaders(extra){
+  return Object.assign({ apikey: SB_ANON, Authorization: 'Bearer ' + SESSION.token }, extra || {});
+}
+async function opsGet(path){
+  const r = await fetch(SB_URL + '/rest/v1/' + path, { headers: sbHeaders({ 'Accept-Profile': 'ops' }) });
+  if(!r.ok) throw new Error('HTTP ' + r.status + ' on ' + path.split('?')[0]);
+  return r.json();
+}
+async function opsWrite(method, path, body){
+  const r = await fetch(SB_URL + '/rest/v1/' + path, {
+    method: method,
+    headers: sbHeaders({ 'Content-Profile': 'ops', 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: JSON.stringify(body),
+  });
+  const text = await r.text();
+  if(!r.ok) throw new Error(text || ('HTTP ' + r.status));
+  return text ? JSON.parse(text) : null;
+}
+const opsInsert = (table, row) => opsWrite('POST', table, row);
+const opsPatch  = (table, id, row) => opsWrite('PATCH', table + '?id=eq.' + encodeURIComponent(id), row);
+
+// ═══ Private-bucket upload / download. The compliance-docs bucket is
+// staff-gated (insert/select/update/delete all behind ops.fn_is_staff()), so
+// everything goes through the signed-in user's own bearer — no service key
+// ever reaches the browser and no separate admin surface is needed. ═══
+function safeName(n){ return String(n || 'file').replace(/[^A-Za-z0-9._-]/g, '_').slice(-80); }
+async function uploadToBucket(prefix, rowId, file){
+  if(file.size > MAX_UPLOAD) throw new Error('File is ' + Math.round(file.size/1048576) + ' MB — the limit is 25 MB.');
+  const path = prefix + '/' + rowId + '/' + Date.now() + '-' + safeName(file.name);
+  const r = await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + path, {
+    method: 'POST',
+    headers: sbHeaders({ 'x-upsert': 'true', 'Content-Type': file.type || 'application/octet-stream' }),
+    body: file,
+  });
+  if(!r.ok) throw new Error('Upload failed (HTTP ' + r.status + '): ' + (await r.text()).slice(0, 200));
+  return { storage_path: path, file_name: file.name };
+}
+async function deleteFromBucket(path){
+  try{ await fetch(SB_URL + '/storage/v1/object/' + BUCKET + '/' + path, { method: 'DELETE', headers: sbHeaders() }); }
+  catch(e){ /* best effort — the row pointer is what matters */ }
+}
+
+// ═══ SPECS — one entry per editable table drives the toolbar Add button, the
+// modal form, the row Edit/Upload/Archive actions, and the file prefix. Adding
+// a column to a table means adding one line here, nothing else. ═══
+const ENTITY_OPTS = [['brix','Brix Beverage'],['alameda_soda','Alameda Soda'],['freeflow','FreeFlow'],['shared','Shared / all entities']];
+const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['other','Other']];
+const PARTY_TYPE_OPTS = [['co_packer','Co-packer'],['contractor','Contractor'],['vendor','Vendor'],['landlord','Landlord'],['customer','Customer'],['other','Other']];
+const JUR_OPTS = [['federal','Federal'],['state','California — state'],['local','Local (City of Alameda / county)']];
+
+const SPECS = {
+  documents: {
+    table: 'compliance_documents', prefix: 'documents', label: 'document', file: true, archive: 'archived_at',
+    order: 'expiration_date.asc.nullslast',
+    fields: [
+      { k:'doc_type', l:'Document type', t:'text', req:true, full:true, hint:'e.g. General liability policy, Seller’s permit, GMP audit report' },
+      { k:'category', l:'Category', t:'select', opts:CAT_OPTS, req:true },
+      { k:'holder_entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— none / not ours —' },
+      { k:'party_id', l:'Third party', t:'select', optsFrom:'parties', blank:'— ours (no third party) —', hint:'Set this and the document moves to the Vendors & Contractors tab.' },
+      { k:'issuer', l:'Issuer / carrier', t:'text' },
+      { k:'reference_number', l:'Reference / policy #', t:'text' },
+      { k:'issue_date', l:'Issued', t:'date' },
+      { k:'expiration_date', l:'Expires', t:'date' },
+      { k:'facility', l:'Facility', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true, hint:'A https:// link in here becomes the row’s fallback Link button when no file is attached.' },
+    ],
+  },
+  sds: {
+    table: 'compliance_sds', prefix: 'sds', label: 'SDS', file: true, archive: 'archived_at',
+    order: 'product_name.asc',
+    fields: [
+      { k:'product_name', l:'Product', t:'text', req:true, full:true },
+      { k:'manufacturer', l:'Manufacturer', t:'text' },
+      { k:'cas_number', l:'CAS number', t:'text' },
+      { k:'physical_state', l:'Physical state', t:'text', hint:'solid / liquid / gas' },
+      { k:'storage_location', l:'Where it is stored', t:'text' },
+      { k:'container_desc', l:'Container', t:'text' },
+      { k:'max_quantity', l:'Max quantity on site', t:'number' },
+      { k:'quantity_units', l:'Units', t:'text', hint:'gal, lb, cu ft…' },
+      { k:'sds_revision_date', l:'SDS revision date', t:'date' },
+      { k:'entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— unassigned —' },
+      { k:'cers_reported', l:'Reported on the CERS chemical inventory', t:'checkbox', full:true, hint:'Crossing 55 gal / 500 lb / 200 cu ft means a CERS update within 30 days.' },
+      { k:'hazard_summary', l:'Hazard summary', t:'textarea', full:true },
+      { k:'notes', l:'Notes', t:'textarea', full:true, hint:'A https:// link here is used as the manufacturer SDS link when no PDF is attached.' },
+    ],
+  },
+  parties: {
+    table: 'insured_parties', prefix: null, label: 'party', file: false, archive: 'active',
+    order: 'name.asc',
+    fields: [
+      { k:'name', l:'Party name', t:'text', req:true, full:true, hint:'Legal name — the one on their certificate.' },
+      { k:'party_type', l:'Type', t:'select', opts:PARTY_TYPE_OPTS, req:true },
+      { k:'contact_name', l:'Contact', t:'text' },
+      { k:'contact_email', l:'Email', t:'text' },
+      { k:'contact_phone', l:'Phone', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+  postings: {
+    table: 'compliance_postings', prefix: 'postings', label: 'posting', file: true, archive: 'archived_at',
+    order: 'jurisdiction.asc,title.asc',
+    fields: [
+      { k:'title', l:'Posting title', t:'text', req:true, full:true },
+      { k:'short_title', l:'Short label for the TV board', t:'text', full:true, hint:'Two lines at most — the one-page TV view has about 34 characters per line. Falls back to the full title.' },
+      { k:'jurisdiction', l:'Jurisdiction', t:'select', opts:JUR_OPTS, req:true },
+      { k:'agency', l:'Agency', t:'text' },
+      { k:'form_code', l:'Form / publication #', t:'text' },
+      { k:'version_label', l:'Version on the wall', t:'text', hint:'e.g. REV 04/23, MW-2026' },
+      { k:'source_url', l:'Official source URL', t:'text', full:true },
+      { k:'applies_when', l:'Who must post it', t:'text', full:true },
+      { k:'posted_location', l:'Where we post it', t:'text', full:true },
+      { k:'effective_date', l:'Effective', t:'date' },
+      { k:'review_by', l:'Review / swap by', t:'date', hint:'Annual rate changes, seasonal windows.' },
+      { k:'verified_on', l:'Last verified on the wall', t:'date' },
+      { k:'verified_by', l:'Verified by', t:'text' },
+      { k:'languages', l:'Languages available', t:'text', full:true },
+      { k:'required', l:'Required for us right now', t:'checkbox', full:true, hint:'Uncheck for postings we track but are below the threshold for.' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+};
+
+// ═══ BOOT ═══
+if(!SESSION){
+  document.getElementById('gateMsg').innerHTML =
+    'Sign in at <a href="https://alamedapointbg.com/?next=' +
+    encodeURIComponent('/compliance') + '">alamedapointbg.com</a> first, then come back to this page.';
+}else{
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  reloadAll();
+  loadHandbook();
+  loadAckState();
+}
+
+// ═══ TABS ═══
+const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
+                vendors:'paneVendors', postings:'panePostings', visitors:'paneVisitors',
+                inspections:'paneInspections', handbook:'paneHandbook' };
+const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
+                vendors:'tabVendors', postings:'tabPostings', visitors:'tabVisitors',
+                inspections:'tabInspections', handbook:'tabHandbook' };
+function showTab(which){
+  if(!PANES[which]) which = 'dashboard';
+  for(const k in PANES){
+    document.getElementById(PANES[k]).style.display = k === which ? 'block' : 'none';
+    document.getElementById(TABS[k]).classList.toggle('active', k === which);
+  }
+  window.scrollTo({ top: 0 });
+}
+const INS = { cupa:'insCupa', osha:'insOsha', wc:'insWc', insurance:'insInsurance',
+              kosher:'insKosher', other:'insOther', runbook:'insRunbook' };
+function showIns(which){
+  if(!INS[which]) which = 'cupa';
+  for(const k in INS) document.getElementById(INS[k]).style.display = k === which ? 'block' : 'none';
+  document.querySelectorAll('.subtab[data-ins]').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-ins') === which));
+}
+// Deep links: #dashboard, #handbook, #inspections/osha, #postings, #contacts (→ dashboard), …
+(function(){
+  const h = (location.hash || '').replace('#','');
+  if(!h) return;
+  const [main, sub] = h.split('/');
+  const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
+                contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings', board:'postings',
+                insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector',
+                visitors:'visitors', visitor:'visitors' };
+  if(map[main]) showTab(map[main]);
+  if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
+})();
+
+// ═══ DATA ═══
+let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, STAFF = true;
+const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
+const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
+const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
+const JURLABEL = { federal:'Federal', state:'State', local:'Local' };
+// Function declaration, not a const arrow: reloadAll() runs from the boot block
+// above and calls this synchronously — an arrow declared here would still be in
+// its temporal dead zone and the whole page would render empty.
+function showArchived(){ const el = document.getElementById('showArch'); return !!(el && el.checked); }
+
+function daysLeft(d){
+  if(!d) return null;
+  return Math.round((new Date(d + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000);
+}
+function expiryChip(d){
+  const n = daysLeft(d.expiration_date);
+  if(n === null) return '<span class="chip dim">No expiry</span>';
+  if(n < 0)   return '<span class="chip crit">Expired</span>';
+  if(n <= 60) return '<span class="chip warn">' + n + 'd left</span>';
+  return '<span class="chip ok">Current</span>';
+}
+function firstUrl(s){ const m = String(s||'').match(/https?:\/\/[^\s)"]+/); return m ? m[0] : null; }
+function fileCell(d){
+  if(d.storage_path) return '<button class="filebtn" data-path="' + esc(d.storage_path) + '" data-name="' + esc(d.file_name || '') + '">Open</button>';
+  const u = firstUrl(d.notes);
+  if(u) return '<a href="' + esc(u) + '" target="_blank" rel="noopener">Link →</a>';
+  return '<span class="chip warn">No file</span>';
+}
+function acts(specKey, d){
+  const sp = SPECS[specKey];
+  let h = '<span class="acts noprint">';
+  h += '<button class="actbtn" data-act="edit" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">Edit</button>';
+  if(sp.file) h += '<button class="actbtn" data-act="up" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">' + (d.storage_path ? 'Replace' : 'Upload') + '</button>';
+  const archived = sp.archive === 'active' ? d.active === false : !!d.archived_at;
+  h += '<button class="actbtn' + (archived ? '' : ' danger') + '" data-act="' + (archived ? 'unarch' : 'arch') + '" data-spec="' + specKey + '" data-id="' + esc(d.id) + '">' + (archived ? 'Restore' : 'Archive') + '</button>';
+  return h + '</span>';
+}
+function rowClass(specKey, d){
+  const sp = SPECS[specKey];
+  const archived = sp.archive === 'active' ? d.active === false : !!d.archived_at;
+  return archived ? ' class="arch"' : '';
+}
+function rowsInto(id, specKey, list, cols, empty, span){
+  const tb = document.querySelector('#' + id + ' tbody');
+  if(!tb) return;
+  tb.innerHTML = list.length
+    ? list.map(d => '<tr' + rowClass(specKey, d) + '>' + cols(d).map(c => '<td>' + c + '</td>').join('') + '<td class="noprint">' + acts(specKey, d) + '</td></tr>').join('')
+    : '<tr><td colspan="' + (span || 8) + '" class="muted">' + empty + '</td></tr>';
+}
+function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
+
+// allSettled, not all: the postings table is readable by every authenticated
+// employee (that is the point of a posting board) while the rest of the vault is
+// staff-only. One rejected read must not blank the board.
+async function reloadAll(){
+  const arch = showArchived();
+  const [docs, sds, postings, parties] = await Promise.allSettled([
+    opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
+    opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
+    opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
+    opsGet('insured_parties?select=*&order=name.asc'),
+  ]);
+  POSTINGS = postings.status === 'fulfilled' ? postings.value : [];
+  STAFF = docs.status === 'fulfilled';
+  if(STAFF){
+    DOCS = docs.value;
+    SDS = sds.status === 'fulfilled' ? sds.value : [];
+    PARTY_LIST = parties.status === 'fulfilled' ? parties.value : [];
+    PARTIES = {};
+    for(const p of PARTY_LIST) PARTIES[p.id] = p;
+    renderDashboard();
+    renderAll(document.getElementById('q').value.trim().toLowerCase());
+    loadVisitors();
+    return;
+  }
+  applyEmployeeMode();
+  renderPostings('');
+}
+
+// Someone signed in who is not staff — a driver or a new warehouse hire. They
+// still need the notices and the handbook, so hide the vault tabs rather than
+// showing them a wall of permission errors.
+let EMPLOYEE_MODE_DONE = false;
+function applyEmployeeMode(){
+  if(EMPLOYEE_MODE_DONE) return;
+  EMPLOYEE_MODE_DONE = true;
+  ['dashboard','inspector','insurance','vendors','visitors','inspections'].forEach(k => {
+    const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
+  });
+  showTab('postings');
+  document.querySelectorAll('#postManageView, #panePostings .subtabs').forEach(el => el.style.display = 'none');
+}
+document.getElementById('q').addEventListener('input', e => renderAll(e.target.value.trim().toLowerCase()));
+
+// ═══ DASHBOARD ═══
+function renderDashboard(){
+  const live = DOCS.filter(d => !d.archived_at);
+  const expired = live.filter(d => { const n = daysLeft(d.expiration_date); return n !== null && n < 0; });
+  const soon    = live.filter(d => { const n = daysLeft(d.expiration_date); return n !== null && n >= 0 && n <= 60; });
+  const noFile  = live.filter(d => !d.storage_path && !firstUrl(d.notes));
+  const sdsLive = SDS.filter(s => !s.archived_at);
+  const sdsGap  = sdsLive.filter(s => !s.storage_path && !firstUrl(s.notes));
+  const postLive = POSTINGS.filter(p => !p.archived_at && p.required !== false);
+  const postDue = postLive.filter(p => { const n = daysLeft(p.review_by); return n !== null && n <= 45; });
+
+  document.getElementById('dashStats').innerHTML =
+    '<div class="stat click' + (expired.length ? ' red' : '') + '" onclick="showTab(\'inspector\')"><b>' + expired.length + '</b><span>expired documents</span></div>' +
+    '<div class="stat click' + (soon.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + soon.length + '</b><span>expiring within 60 days</span></div>' +
+    '<div class="stat click' + (noFile.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + noFile.length + '</b><span>documents with no file attached</span></div>' +
+    '<div class="stat click' + (sdsGap.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + sdsGap.length + ' / ' + sdsLive.length + '</b><span>SDS with no sheet on file</span></div>' +
+    '<div class="stat click" onclick="showTab(\'postings\')"><b>' + postLive.length + '</b><span>required postings tracked</span></div>' +
+    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>';
+
+  const items = [];
+  expired.forEach(d => items.push({ p:0, chip:'<span class="chip crit">Expired</span>',
+    t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expired ' + esc(d.expiration_date), tab:'inspector' }));
+  soon.forEach(d => items.push({ p:1, chip:'<span class="chip warn">' + daysLeft(d.expiration_date) + 'd</span>',
+    t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expires ' + esc(d.expiration_date), tab:'inspector' }));
+  postDue.forEach(p => items.push({ p:2, chip:'<span class="chip warn">Posting</span>',
+    t: esc(p.title) + ' — review or swap by ' + esc(p.review_by), tab:'postings' }));
+  if(sdsGap.length) items.push({ p:3, chip:'<span class="chip warn">SDS</span>',
+    t: sdsGap.length + ' chemical product' + (sdsGap.length === 1 ? '' : 's') + ' with no safety data sheet on file — Cal/OSHA HazCom requires one regardless of quantity', tab:'inspector' });
+  if(noFile.length) items.push({ p:4, chip:'<span class="chip dim">File</span>',
+    t: noFile.length + ' document' + (noFile.length === 1 ? '' : 's') + ' filed with no PDF attached — use Upload on the row', tab:'inspector' });
+
+  items.sort((a,b) => a.p - b.p);
+  const list = document.getElementById('attnList');
+  document.getElementById('attnCount').textContent = items.length ? items.length + ' open item' + (items.length === 1 ? '' : 's') : 'all clear';
+  list.innerHTML = items.length
+    ? items.slice(0, 25).map(i => '<li>' + i.chip + '<span class="t">' + i.t + '</span>' +
+        '<button class="actbtn noprint" onclick="showTab(\'' + i.tab + '\')">Open</button></li>').join('')
+    : '<li class="muted">Nothing expired, nothing expiring inside 60 days, every SDS has a sheet. Good.</li>';
+}
+
+// ═══ TABLES ═══
+function renderAll(q){
+  const hay = d => (JSON.stringify(d) + (partyOf(d) ? partyOf(d).name : '')).toLowerCase();
+  const match = d => !q || hay(d).indexOf(q) > -1;
+  const ours = DOCS.filter(d => !d.party_id);
+  const theirs = DOCS.filter(d => d.party_id);
+
+  const oursF = ours.filter(match);
+  document.getElementById('docCount').textContent = oursF.length + ' of ' + ours.length;
+  rowsInto('docTable', 'documents', oursF, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No matches.');
+
+  const sdsF = SDS.filter(s => !q || JSON.stringify(s).toLowerCase().indexOf(q) > -1);
+  document.getElementById('sdsCount').textContent = sdsF.length + ' of ' + SDS.length;
+  rowsInto('sdsTable', 'sds', sdsF, s => {
+    const url = firstUrl(s.notes);
+    return [
+      '<strong>' + esc(s.product_name) + '</strong>' + (s.storage_location ? '<div class="muted">' + esc(s.storage_location) + '</div>' : ''),
+      esc(s.manufacturer || '—'),
+      '<span class="muted">' + esc((s.hazard_summary || '—').slice(0, 90)) + '</span>',
+      s.cers_reported ? '<span class="chip info">Reported</span>' : '<span class="chip dim">No</span>',
+      esc(s.sds_revision_date || '—'),
+      s.storage_path ? '<button class="filebtn" data-path="' + esc(s.storage_path) + '" data-name="' + esc(s.file_name || '') + '">Open</button>'
+        : url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open SDS →</a>'
+        : '<span class="chip warn">Missing</span>',
+    ];
+  }, 'No matches.', 7);
+
+  const partyF = PARTY_LIST.filter(p => (showArchived() || p.active !== false) && (!q || JSON.stringify(p).toLowerCase().indexOf(q) > -1));
+  document.getElementById('partyCount').textContent = partyF.length + ' part' + (partyF.length === 1 ? 'y' : 'ies');
+  rowsInto('partyTable', 'parties', partyF, p => {
+    const n = DOCS.filter(d => d.party_id === p.id).length;
+    return [
+      '<strong>' + esc(p.name) + '</strong>',
+      '<span class="chip dim">' + esc(PTYLABEL[p.party_type] || p.party_type) + '</span>',
+      (p.contact_name ? esc(p.contact_name) : '') +
+        (p.contact_email ? '<div class="muted">' + esc(p.contact_email) + '</div>' : '') +
+        (p.contact_phone ? '<div class="muted">' + esc(p.contact_phone) + '</div>' : '') || '<span class="muted">—</span>',
+      n ? n + ' on file' : '<span class="chip warn">None on file</span>',
+    ];
+  }, 'No parties yet — add one before filing their paperwork.', 5);
+
+  const tax = ours.filter(d => d.category === 'tax');
+  rowsInto('taxTable', 'documents', tax, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', esc(d.issuer || '—'),
+    '<span class="mono">' + esc(d.reference_number || '—') + '</span>', esc(d.issue_date || '—'), fileCell(d),
+  ], 'No company documents filed yet.', 6);
+
+  const ins = ours.filter(d => d.category === 'insurance');
+  document.getElementById('insCount').textContent = ins.length + (ins.length === 1 ? ' policy / certificate' : ' policies / certificates');
+  rowsInto('insTable', 'documents', ins, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>',
+    '<span class="chip dim">' + esc(ENTLABEL[d.holder_entity] || d.holder_entity || '—') + '</span>',
+    esc(d.issuer || '—'), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No insurance documents filed yet — use + Add policy / COI above.');
+
+  const isCon = d => { const p = partyOf(d); return p && p.party_type === 'contractor'; };
+  const vendorProd = theirs.filter(d => !isCon(d) && d.category !== 'insurance');
+  const vendorIns  = theirs.filter(d => !isCon(d) && d.category === 'insurance');
+  const conIns     = theirs.filter(d => isCon(d) && d.category === 'insurance');
+  const otherTP    = theirs.filter(d => isCon(d) && d.category !== 'insurance');
+  const pname = d => { const p = partyOf(d); return p ? '<strong>' + esc(p.name) + '</strong>' : '<span class="muted">Unknown party</span>'; };
+  const ptype = d => { const p = partyOf(d); return p ? esc(PTYLABEL[p.party_type] || p.party_type) : '—'; };
+
+  document.getElementById('vpCount').textContent = vendorProd.length + ' document' + (vendorProd.length === 1 ? '' : 's');
+  rowsInto('vpTable', 'documents', vendorProd, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    pname(d), ptype(d), esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No vendor production documents yet.');
+
+  document.getElementById('viCount').textContent = vendorIns.length + ' COI' + (vendorIns.length === 1 ? '' : 's');
+  rowsInto('viTable', 'documents', vendorIns, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No vendor COIs on file yet.');
+
+  document.getElementById('ciCount').textContent = conIns.length + ' COI' + (conIns.length === 1 ? '' : 's');
+  rowsInto('ciTable', 'documents', conIns, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), esc(d.issuer || '—'),
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'No contractor COIs on file yet — every contractor working for us needs one before they start.');
+
+  document.getElementById('otCount').textContent = otherTP.length + ' document' + (otherTP.length === 1 ? '' : 's');
+  rowsInto('otTable', 'documents', otherTP, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>', pname(d), ptype(d),
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'Nothing else filed against a third party.');
+
+  renderPostings(q);
+}
+
+function reviewChip(p){
+  const n = daysLeft(p.review_by);
+  if(n === null) return '<span class="muted">—</span>';
+  if(n < 0)   return '<span class="chip crit">Overdue ' + esc(p.review_by) + '</span>';
+  if(n <= 45) return '<span class="chip warn">' + esc(p.review_by) + '</span>';
+  return '<span class="muted">' + esc(p.review_by) + '</span>';
+}
+function renderPostings(q){
+  const f = POSTINGS.filter(p => !q || JSON.stringify(p).toLowerCase().indexOf(q) > -1);
+  document.getElementById('postCount').textContent = f.length + ' tracked';
+  const live = POSTINGS.filter(p => !p.archived_at);
+  const req = live.filter(p => p.required !== false);
+  const withFile = req.filter(p => p.storage_path || p.mirror_path).length;
+  document.getElementById('postStats').innerHTML =
+    '<div class="stat"><b>' + req.length + '</b><span>required of us</span></div>' +
+    '<div class="stat"><b>' + (live.length - req.length) + '</b><span>tracked, below threshold</span></div>' +
+    '<div class="stat' + (withFile < req.length ? ' amber' : '') + '"><b>' + withFile + ' / ' + req.length + '</b><span>with our posted copy filed</span></div>' +
+    '<div class="stat"><b>' + live.filter(p => p.jurisdiction === 'local').length + '</b><span>local (City of Alameda)</span></div>';
+
+  const cols = p => [
+    '<strong>' + esc(p.title) + '</strong>' +
+      (p.required === false ? ' <span class="chip dim">not required of us</span>' : '') +
+      (p.version_label ? '<div class="muted">version on the wall: ' + esc(p.version_label) + '</div>' : '') +
+      (p.notes ? '<div class="muted">' + esc(p.notes) + '</div>' : ''),
+    esc(p.agency || '—') + (p.languages ? '<div class="muted">' + esc(p.languages) + '</div>' : ''),
+    p.form_code ? '<span class="mono">' + esc(p.form_code) + '</span>' : '<span class="muted">—</span>',
+    '<span class="muted">' + esc(p.applies_when || '—') + '</span>',
+    '<span class="muted">' + esc(p.posted_location || '—') + '</span>',
+    reviewChip(p),
+    (p.storage_path
+        ? '<button class="filebtn" data-path="' + esc(p.storage_path) + '" data-name="' + esc(p.file_name || '') + '">Our copy</button>'
+        : p.mirror_path
+          ? '<a class="filebtn" style="text-decoration:none" href="' + MIRROR_BASE + esc(p.mirror_path) + '" target="_blank" rel="noopener">Posted copy</a>'
+          : '<span class="chip warn">No copy</span>') +
+      (p.source_url ? '<div style="margin-top:4px"><a href="' + esc(p.source_url) + '" target="_blank" rel="noopener">Source →</a></div>' : ''),
+  ];
+  [['federal','postFedTable','postFedCount'],['state','postStateTable','postStateCount'],['local','postLocalTable','postLocalCount']].forEach(([j, tid, cid]) => {
+    const rows = f.filter(p => p.jurisdiction === j);
+    document.getElementById(cid).textContent = rows.length + ' posting' + (rows.length === 1 ? '' : 's');
+    rowsInto(tid, 'postings', rows, cols, 'Nothing tracked here yet.');
+  });
+  renderBoard();
+}
+
+// ═══ ROW ACTIONS — one delegated handler covers Open, Edit, Upload, Archive
+// across every table on the page. ═══
+const hiddenFile = document.createElement('input');
+hiddenFile.type = 'file';
+hiddenFile.style.display = 'none';
+document.body.appendChild(hiddenFile);
+
+document.addEventListener('click', async (e) => {
+  // [data-path] scopes this to bucket documents — the visitor Photo button is
+  // also a .filebtn but carries data-vphoto and is handled with the visitor log.
+  const fb = e.target.closest('.filebtn[data-path]');
+  if(fb){
+    const path = fb.getAttribute('data-path');
+    const name = fb.getAttribute('data-name') || (path || '').split('/').pop() || 'document';
+    fb.disabled = true; const was = fb.textContent; fb.textContent = 'Opening…';
+    try{
+      const r = await fetch(SB_URL + '/storage/v1/object/authenticated/' + BUCKET + '/' + path, { headers: sbHeaders() });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }catch(err){
+      alert('Could not open the file: ' + err.message);
+    }finally{ fb.disabled = false; fb.textContent = was; }
+    return;
+  }
+
+  const ab = e.target.closest('.actbtn[data-act]');
+  if(!ab) return;
+  const act = ab.getAttribute('data-act');
+  const specKey = ab.getAttribute('data-spec');
+  const id = ab.getAttribute('data-id');
+  const sp = SPECS[specKey];
+  const row = rowById(specKey, id);
+  if(!row) return;
+
+  if(act === 'edit'){ openEditor(specKey, row); return; }
+
+  if(act === 'up'){
+    hiddenFile.value = '';
+    hiddenFile.onchange = async () => {
+      const file = hiddenFile.files[0];
+      if(!file) return;
+      ab.disabled = true; const was = ab.textContent; ab.textContent = 'Uploading…';
+      try{
+        const old = row.storage_path;
+        const meta = await uploadToBucket(sp.prefix, id, file);
+        await opsPatch(sp.table, id, meta);
+        if(old && old !== meta.storage_path) await deleteFromBucket(old);
+        await reloadAll();
+      }catch(err){ alert('Upload failed: ' + err.message); }
+      finally{ ab.disabled = false; ab.textContent = was; }
+    };
+    hiddenFile.click();
+    return;
+  }
+
+  if(act === 'arch' || act === 'unarch'){
+    const on = act === 'arch';
+    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || '') + '"';
+    if(on && !confirm('Archive this ' + what + '?\n\nIt is hidden from the normal view but nothing is deleted — tick "Show archived" to bring it back.')) return;
+    ab.disabled = true;
+    try{
+      const patch = sp.archive === 'active'
+        ? { active: !on }
+        : { archived_at: on ? new Date().toISOString() : null, archived_by: on ? SESSION.email : null };
+      await opsPatch(sp.table, id, patch);
+      await reloadAll();
+    }catch(err){ alert('Could not update: ' + err.message); }
+    finally{ ab.disabled = false; }
+  }
+});
+
+function rowById(specKey, id){
+  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST }[specKey] || [];
+  return src.find(r => String(r.id) === String(id));
+}
+
+// ═══ EDITOR MODAL ═══
+let EDIT = { spec: null, id: null };
+function openEditor(specKey, seed){
+  const sp = SPECS[specKey];
+  if(!sp) return;
+  const row = (seed && seed.id) ? seed : {};
+  const pre = (seed && !seed.id) ? seed : {};
+  EDIT = { spec: specKey, id: row.id || null };
+  document.getElementById('edTitle').textContent = (row.id ? 'Edit ' : 'New ') + sp.label;
+  document.getElementById('edErr').textContent = '';
+  document.getElementById('edOk').textContent = '';
+
+  const body = document.getElementById('edBody');
+  body.innerHTML = sp.fields.map(f => {
+    let v = row[f.k];
+    if(v === undefined || v === null) v = (pre[f.k] === '__pick__' ? '' : pre[f.k]);
+    if(v === undefined || v === null) v = (f.t === 'checkbox' ? (f.k === 'required') : '');
+    const idA = 'ed_' + f.k;
+    const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
+    if(f.t === 'checkbox'){
+      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + '>' +
+             '<label for="' + idA + '">' + esc(f.l) + (hint ? ' <span class="hint">— ' + esc(f.hint) + '</span>' : '') + '</label></div>';
+    }
+    let input;
+    if(f.t === 'textarea'){
+      input = '<textarea id="' + idA + '">' + esc(v) + '</textarea>';
+    }else if(f.t === 'select'){
+      const opts = f.optsFrom === 'parties'
+        ? PARTY_LIST.filter(p => p.active !== false).map(p => [p.id, p.name + ' (' + (PTYLABEL[p.party_type] || p.party_type) + ')'])
+        : f.opts;
+      input = '<select id="' + idA + '">' +
+        (f.blank !== undefined || !f.req ? '<option value="">' + esc(f.blank || '— none —') + '</option>' : '') +
+        opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') +
+        '</select>';
+    }else{
+      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '">';
+    }
+    return '<div class="field' + (f.full ? ' full' : '') + '"><label for="' + idA + '">' + esc(f.l) + (f.req ? ' *' : '') + '</label>' + input + hint + '</div>';
+  }).join('');
+
+  if(sp.file){
+    body.insertAdjacentHTML('beforeend',
+      '<div class="field full"><label>Attach a file</label><div class="filepick">' +
+      '<input type="file" id="edFile">' +
+      '<div class="muted" style="margin-top:6px">' +
+      (row.storage_path ? 'Currently attached: <b>' + esc(row.file_name || row.storage_path.split('/').pop()) + '</b> — choosing a new file replaces it.'
+                        : 'PDF, image, or Office file, up to 25 MB. Stored in the private compliance vault.') +
+      '</div></div></div>');
+  }
+  document.getElementById('editModal').style.display = 'flex';
+}
+function closeEditor(){ document.getElementById('editModal').style.display = 'none'; EDIT = { spec: null, id: null }; }
+document.getElementById('editModal').addEventListener('click', e => { if(e.target.id === 'editModal') closeEditor(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && document.getElementById('editModal').style.display === 'flex') closeEditor(); });
+
+async function saveEditor(){
+  const sp = SPECS[EDIT.spec];
+  if(!sp) return;
+  const errEl = document.getElementById('edErr');
+  const okEl = document.getElementById('edOk');
+  errEl.textContent = ''; okEl.textContent = '';
+  const payload = {};
+  for(const f of sp.fields){
+    const el = document.getElementById('ed_' + f.k);
+    if(!el) continue;
+    let v;
+    if(f.t === 'checkbox') v = el.checked;
+    else{
+      v = el.value.trim();
+      if(v === '') v = null;
+      else if(f.t === 'number') v = Number(v);
+    }
+    if(f.req && (v === null || v === '')){ errEl.textContent = f.l + ' is required.'; return; }
+    payload[f.k] = v;
+  }
+  const fileEl = document.getElementById('edFile');
+  const file = fileEl && fileEl.files && fileEl.files[0];
+
+  const btn = document.getElementById('edSave');
+  btn.disabled = true; const was = btn.textContent; btn.textContent = 'Saving…';
+  try{
+    let id = EDIT.id;
+    let existingPath = null;
+    if(id){
+      const cur = rowById(EDIT.spec, id);
+      existingPath = cur && cur.storage_path;
+      await opsPatch(sp.table, id, payload);
+    }else{
+      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.table !== 'insured_parties' ? { created_by: SESSION.uid } : {}));
+      id = created && created[0] && created[0].id;
+      if(!id) throw new Error('The row saved but returned no id — reload and check.');
+    }
+    if(file && sp.file){
+      btn.textContent = 'Uploading…';
+      const meta = await uploadToBucket(sp.prefix, id, file);
+      await opsPatch(sp.table, id, meta);
+      if(existingPath && existingPath !== meta.storage_path) await deleteFromBucket(existingPath);
+    }
+    await reloadAll();
+    closeEditor();
+  }catch(e){
+    errEl.textContent = 'Could not save: ' + String(e.message).slice(0, 300);
+  }finally{ btn.disabled = false; btn.textContent = was; }
+}
+
+// ═══ VISITORS ═══
+// The kiosk at the front door writes through service-role functions; this is
+// the staff read of that log. The on-site list is the evacuation head-count,
+// which is why it is the first thing on the tab and why it prints.
+let VISITS = [];
+const VTYPE = { visitor:'Visitor', contractor:'Contractor', vendor:'Vendor', inspector:'Inspector',
+                driver:'Driver', interview:'Interview', other:'Other' };
+
+function fmtTime(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })
+               : d.toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+function durationSince(ts){
+  const mins = Math.round((Date.now() - new Date(ts)) / 60000);
+  if(mins < 60) return mins + ' min';
+  return Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm';
+}
+
+async function loadVisitors(){
+  try{
+    VISITS = await opsGet('visitor_visits?select=*&order=signed_in_at.desc&limit=200');
+  }catch(e){
+    const msg = '<tr><td colspan="8" class="muted">Could not load the visitor log (' + esc(e.message) + ').</td></tr>';
+    ['onsiteTable','visLogTable'].forEach(id => {
+      const t = document.querySelector('#' + id + ' tbody'); if(t) t.innerHTML = msg;
+    });
+    return;
+  }
+  renderVisitors(document.getElementById('visQ').value.trim().toLowerCase());
+}
+
+function renderVisitors(q){
+  const onsite = VISITS.filter(v => !v.signed_out_at);
+  document.getElementById('onsiteCount').textContent =
+    onsite.length ? onsite.length + ' on site' : 'nobody signed in';
+  const ot = document.querySelector('#onsiteTable tbody');
+  ot.innerHTML = onsite.length ? onsite.map(v => '<tr>' +
+    '<td><strong>' + esc(v.full_name) + '</strong>' + (v.company ? '<div class="muted">' + esc(v.company) + '</div>' : '') + '</td>' +
+    '<td><span class="chip info">' + esc(VTYPE[v.visitor_type] || v.visitor_type) + '</span></td>' +
+    '<td>' + esc(v.host_name || '—') + '</td>' +
+    '<td class="muted">' + esc((v.visit_purpose || '—').slice(0, 70)) + '</td>' +
+    '<td>' + esc(fmtTime(v.signed_in_at)) + '<div class="muted">' + esc(durationSince(v.signed_in_at)) + ' ago</div></td>' +
+    '<td class="muted">' + esc(v.phone || v.email || '—') + (v.vehicle ? '<div class="muted">' + esc(v.vehicle) + '</div>' : '') + '</td>' +
+    '<td class="noprint"><button class="actbtn" data-signout="' + esc(v.id) + '">Sign out</button></td>' +
+  '</tr>').join('') : '<tr><td colspan="7" class="muted">Nobody is signed in right now.</td></tr>';
+
+  const f = VISITS.filter(v => !q || JSON.stringify(v).toLowerCase().indexOf(q) > -1);
+  document.getElementById('visLogCount').textContent = f.length + ' of ' + VISITS.length;
+  const lt = document.querySelector('#visLogTable tbody');
+  lt.innerHTML = f.length ? f.map(v => '<tr' + (v.signed_out_at ? '' : ' class="arch"') + '>' +
+    '<td><strong>' + esc(v.full_name) + '</strong>' + (v.company ? '<div class="muted">' + esc(v.company) + '</div>' : '') +
+      '<div class="muted mono">' + esc(v.badge_number) + '</div></td>' +
+    '<td>' + esc(VTYPE[v.visitor_type] || v.visitor_type) + '</td>' +
+    '<td>' + esc(v.host_name || '—') + '</td>' +
+    '<td>' + esc(fmtTime(v.signed_in_at)) + '</td>' +
+    '<td>' + (v.signed_out_at ? esc(fmtTime(v.signed_out_at)) : '<span class="chip warn">Still on site</span>') + '</td>' +
+    '<td class="muted">' + esc(v.agreement_version || '—') + '</td>' +
+    '<td>' + (v.photo_path ? '<button class="filebtn" data-vphoto="' + esc(v.photo_path) + '">Photo</button>' : '<span class="muted">—</span>') + '</td>' +
+    '<td>' + (v.notified_at ? '<span class="chip ok">Sent</span>'
+            : v.notify_error ? '<span class="chip crit" title="' + esc(v.notify_error) + '">Failed</span>'
+            : '<span class="chip dim">—</span>') + '</td>' +
+  '</tr>').join('') : '<tr><td colspan="8" class="muted">No visits recorded yet.</td></tr>';
+}
+
+// Sign-out and photo open, delegated like every other row action on the page.
+document.addEventListener('click', async (e) => {
+  const so = e.target.closest('[data-signout]');
+  if(so){
+    const id = so.getAttribute('data-signout');
+    const v = VISITS.find(x => String(x.id) === id);
+    if(!v || !confirm('Sign out ' + v.full_name + '?')) return;
+    so.disabled = true;
+    try{
+      await opsPatch('visitor_visits', id, { signed_out_at: new Date().toISOString(), signed_out_by: SESSION.email });
+      await loadVisitors();
+    }catch(err){ alert('Could not sign them out: ' + err.message); so.disabled = false; }
+    return;
+  }
+  const ph = e.target.closest('[data-vphoto]');
+  if(ph){
+    const path = ph.getAttribute('data-vphoto');
+    ph.disabled = true; const was = ph.textContent; ph.textContent = 'Opening…';
+    try{
+      const r = await fetch(SB_URL + '/storage/v1/object/authenticated/visitor-photos/' + path, { headers: sbHeaders() });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      window.open(URL.createObjectURL(await r.blob()), '_blank');
+    }catch(err){ alert('Could not open the photo: ' + err.message); }
+    finally{ ph.disabled = false; ph.textContent = was; }
+  }
+});
+document.getElementById('visQ').addEventListener('input', e => renderVisitors(e.target.value.trim().toLowerCase()));
+
+// ═══ POSTING BOARD — the screen that goes on the break-room monitor ═══
+// Board = every notice as a tile with a QR code. Display mode = one notice at a
+// time, full screen, auto-advancing — the digital equivalent of the wall board.
+const JURTITLE = { federal:'Federal notices', state:'California — state notices', local:'City of Alameda — local notices' };
+function boardPostings(){
+  return POSTINGS.filter(p => !p.archived_at && p.required !== false);
+}
+function showPost(which){
+  const board = which !== 'manage';
+  document.getElementById('postBoardView').style.display = board ? 'block' : 'none';
+  document.getElementById('postManageView').style.display = board ? 'none' : 'block';
+  document.querySelectorAll('.subtab[data-pv]').forEach(b =>
+    b.classList.toggle('active', b.getAttribute('data-pv') === (board ? 'board' : 'manage')));
+}
+
+// Draws a QR into a canvas from the vendored encoder. Degrades to nothing if
+// anything goes wrong — a missing QR must never take the board down with it.
+function drawQr(canvas, text, size){
+  if(!text || typeof qrcode === 'undefined'){ canvas.style.display = 'none'; return; }
+  try{
+    const q = qrcode(0, 'M');           // 0 = smallest type that fits the data
+    q.addData(text); q.make();
+    const n = q.getModuleCount(), quiet = 2, total = n + quiet * 2;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const c = canvas.getContext('2d');
+    const px = (size * dpr) / total;
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, canvas.width, canvas.height);
+    c.fillStyle = '#0B1B26';
+    for(let r = 0; r < n; r++) for(let col = 0; col < n; col++)
+      if(q.isDark(r, col)) c.fillRect(Math.round((col + quiet) * px), Math.round((r + quiet) * px), Math.ceil(px), Math.ceil(px));
+    canvas.style.display = '';
+  }catch(e){ canvas.style.display = 'none'; }
+}
+
+function renderBoard(){
+  const wrap = document.getElementById('boardWrap');
+  if(!wrap) return;
+  const list = boardPostings();
+  const today = new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  let html =
+    '<div class="board-head">' +
+      '<div><h2>Employee Notices</h2><div class="where">Alameda Point Beverage Group · Hangar 200, 1951 Monarch St, Alameda CA 94501</div></div>' +
+      '<div class="when">' + esc(today) + '<br>' + list.length + ' notices posted</div>' +
+    '</div>';
+  ['federal','state','local'].forEach(j => {
+    const rows = list.filter(p => p.jurisdiction === j);
+    if(!rows.length) return;
+    html += '<div class="board-group"><h3>' + esc(JURTITLE[j]) + ' · ' + rows.length + '</h3><div class="board-tiles">' +
+      rows.map(p => {
+        const i = list.indexOf(p);
+        return '<button class="ptile" data-kiosk="' + i + '">' +
+          '<div class="pt-body">' +
+            '<div class="pt-t">' + esc(p.title) + '</div>' +
+            '<div class="pt-m">' + esc(p.agency || '') + (p.form_code ? ' · ' + esc(p.form_code) : '') + '</div>' +
+            '<span class="pt-tag' + (p.storage_path || p.mirror_path ? ' doc' : '') + '">' +
+              (p.storage_path || p.mirror_path ? 'Notice on file' : 'Scan for official copy') + '</span>' +
+          '</div>' +
+          '<canvas class="pt-qr" width="88" height="88" data-qr="' + esc(p.source_url || '') + '"></canvas>' +
+        '</button>';
+      }).join('') + '</div></div>';
+  });
+  if(!list.length) html += '<div class="muted" style="margin-top:20px">No notices are marked required yet — add them under Manage postings.</div>';
+  wrap.innerHTML = html;
+  // A dedicated break-room machine opens /compliance?kiosk=1 and starts playing
+  // on its own. Fullscreen still needs a click — browsers require a gesture —
+  // so the operator presses "Put this on the monitor" once per boot.
+  const auto = (location.search.match(/(?:^|[?&])(kiosk|tv|wall)=(\d+)/) || []);
+  if(!KIOSK_AUTOSTARTED && list.length && auto[1]){
+    KIOSK_AUTOSTARTED = true;
+    showTab('postings'); showPost('board');
+    if(auto[1] === 'tv') startTv(false);
+    else if(auto[1] === 'wall') startWall(false, auto[2] === '2' ? 2 : 1);
+    else startKiosk(false, 0);
+  }
+  wrap.querySelectorAll('canvas.pt-qr').forEach(c => drawQr(c, c.getAttribute('data-qr'), 88));
+  wrap.querySelectorAll('.ptile').forEach(b =>
+    b.addEventListener('click', () => startKiosk(false, Number(b.getAttribute('data-kiosk')), true)));
+}
+
+// ─── Poster wall — the actual notices, tiled ───
+// The physical board, reproduced. Thirty full posters on one 1080p screen give
+// each about 190x245 px, which is enough to recognise a notice, not to read it
+// — so "Two screens" halves the count and doubles the tile, and tapping one
+// opens the real document. Tiles are pre-rendered page-1 JPEGs; thirty PDF
+// iframes would flatten a TV browser.
+const THUMB_BASE = '/billing/postings/thumbs/';
+function thumbFor(p){ return p.mirror_path ? THUMB_BASE + p.mirror_path.replace(/\.pdf$/i, '.jpg') : null; }
+
+let WALL = { pages: 1, page: 0, list: [], resize: null };
+
+// Largest tile that fits n cells in the box. Tiles are portrait-ish, so search
+// every column count rather than assuming one.
+function bestGrid(n, boxW, boxH, gapX, gapY, aspect, capPx){
+  let best = { cols: 1, h: 0 };
+  for(let cols = 1; cols <= n; cols++){
+    const rows = Math.ceil(n / cols);
+    const w = (boxW - gapX * (cols - 1)) / cols;
+    const h = Math.min((boxH - gapY * (rows - 1)) / rows, w / aspect + capPx);
+    if(h > best.h && w > 40) best = { cols, h, w };
+  }
+  return best;
+}
+
+function renderWall(){
+  const grid = document.getElementById('wallGrid');
+  if(!grid) return;
+  const all = boardPostings();
+  WALL.list = all;
+  const pages = Math.max(1, WALL.pages);
+  const per = Math.ceil(all.length / pages);
+  if(WALL.page >= pages) WALL.page = 0;
+  const slice = all.slice(WALL.page * per, WALL.page * per + per);
+
+  document.getElementById('wallDate').textContent =
+    new Date().toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+  document.getElementById('wallPos').textContent = pages > 1
+    ? 'Screen ' + (WALL.page + 1) + ' of ' + pages + ' · ' + slice.length + ' of ' + all.length
+    : all.length + ' notices';
+  document.getElementById('wallNext').style.display = pages > 1 ? '' : 'none';
+  document.getElementById('wall1').classList.toggle('on', pages === 1);
+  document.getElementById('wall2').classList.toggle('on', pages > 1);
+
+  grid.innerHTML = slice.map(p => {
+    const src = thumbFor(p);
+    const label = esc(p.short_title || p.title);
+    return '<button class="ptile2" data-wall="' + esc(p.id) + '" title="' + esc(p.title) + '">' +
+      (src ? '<img loading="eager" alt="' + label + '" src="' + src + '">'
+           : '<span class="nodoc">' + label + '<br><small>copy not on file yet</small></span>') +
+      '<span class="cap">' + label + '</span></button>';
+  }).join('');
+
+  // Size the grid to the space actually available after the header and footer.
+  const box = grid.getBoundingClientRect();
+  const gapX = window.innerWidth * 0.01, gapY = window.innerHeight * 0.01;
+  const capPx = window.innerHeight * 0.028;
+  const g = bestGrid(slice.length, box.width, box.height, gapX, gapY, 0.78, capPx);
+  grid.style.gridTemplateColumns = 'repeat(' + g.cols + ', ' + Math.floor(g.h * 0.78) + 'px)';
+  grid.style.gridAutoRows = Math.floor(g.h) + 'px';
+
+  grid.querySelectorAll('.ptile2').forEach(btn => btn.addEventListener('click', () => {
+    const i = boardPostings().findIndex(x => String(x.id) === btn.getAttribute('data-wall'));
+    if(i < 0) return;
+    stopWall();
+    startKiosk(false, i, true);
+  }));
+}
+
+function wallPages(n){ WALL.pages = n; WALL.page = 0; renderWall(); }
+function wallStep(d){
+  const pages = Math.max(1, WALL.pages);
+  WALL.page = (WALL.page + d + pages) % pages;
+  renderWall();
+}
+function startWall(fullscreen, pages){
+  if(!boardPostings().length) return;
+  WALL.pages = pages || 1; WALL.page = 0;
+  document.getElementById('wall').style.display = 'flex';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  renderWall();
+  setTimeout(renderWall, 350);
+  WALL.resize = () => renderWall();
+  window.addEventListener('resize', WALL.resize);
+}
+function stopWall(){
+  document.getElementById('wall').style.display = 'none';
+  if(WALL.resize){ window.removeEventListener('resize', WALL.resize); WALL.resize = null; }
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if(document.getElementById('wall').style.display !== 'flex') return;
+  if(e.key === 'Escape') stopWall();
+  else if(e.key === 'ArrowRight') wallStep(1);
+  else if(e.key === 'ArrowLeft') wallStep(-1);
+});
+
+// Every screen has a printable twin. Fullscreen is dropped first — printing
+// from a fullscreen document gives Chrome a viewport it renders badly.
+function printView(kind){
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  // The evacuation list is a normal page section, not an overlay — it prints
+  // through the ordinary print stylesheet, so don't stamp the overlay classes.
+  if(kind !== 'onsite') document.body.classList.add('printing', 'printing-' + kind);
+  setTimeout(() => window.print(), 250);
+}
+window.addEventListener('afterprint', () =>
+  document.body.classList.remove('printing', 'printing-tv', 'printing-wall'));
+
+// ─── One-page TV view ───
+// Every notice on a single screen, sized to be read across a break room. The
+// full poster text cannot fit — 30 dense legal pages on one 1080p panel is a
+// thumbnail each — so this is the directory: a legible label per notice plus a
+// QR to the real document, which display mode shows one at a time.
+const TVGRP = { federal:'Federal', state:'California', local:'City of Alameda' };
+
+function tvColumnsFor(n){ return n <= 12 ? 2 : n <= 34 ? 3 : 4; }
+
+function renderTv(){
+  const list = boardPostings();
+  const cols = tvColumnsFor(list.length);
+  document.getElementById('tvCount').textContent = list.length + ' notices posted';
+  document.getElementById('tvDate').textContent =
+    new Date().toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+
+  let html = '';
+  ['federal','state','local'].forEach(j => {
+    const rows = list.filter(p => p.jurisdiction === j);
+    if(!rows.length) return;
+    html += '<div class="tv-grp">' + esc(TVGRP[j]) + ' &middot; ' + rows.length + '</div>';
+    rows.forEach(p => { html +=
+      '<div class="tv-item">' +
+        '<div class="tx">' +
+          '<div class="t">' + esc(p.short_title || p.title) + '</div>' +
+          '<div class="m">' + esc(p.agency || '') + (p.form_code ? ' &middot; ' + esc(p.form_code) : '') + '</div>' +
+        '</div>' +
+        '<canvas class="tv-qr" data-qr="' + esc(p.source_url || '') + '"></canvas>' +
+      '</div>'; });
+  });
+
+  const wrap = document.getElementById('tvCols');
+  wrap.style.columnCount = cols;
+  wrap.innerHTML = html;
+  tvFit();
+}
+
+// Shrink the root em until the tallest column stops overflowing. Two passes,
+// because dropping the size reflows the titles onto fewer lines.
+// The browser balances the columns; we only choose the type size. In a
+// fixed-height multi-column box, content that will not fit spills sideways into
+// an extra column — so scrollWidth, not scrollHeight, is what says "too big".
+function tvFit(){
+  const root = document.getElementById('tvBoard');
+  const wrap = document.getElementById('tvCols');
+  if(!wrap || !wrap.children.length) return;
+  const over = () => wrap.scrollWidth > wrap.clientWidth + 1 || wrap.scrollHeight > wrap.clientHeight + 1;
+  let size = 2.0;
+  root.style.fontSize = size + 'vh';
+  for(let i = 0; i < 60 && over() && size > 0.62; i++){
+    size = Math.round((size - 0.03) * 100) / 100;
+    root.style.fontSize = size + 'vh';
+  }
+  document.querySelectorAll('#tvCols canvas.tv-qr').forEach(c => {
+    const px = Math.round(c.getBoundingClientRect().width) || 60;
+    drawQr(c, c.getAttribute('data-qr'), px);
+  });
+}
+
+let TV_RESIZE = null;
+function startTv(fullscreen){
+  if(!boardPostings().length) return;
+  document.getElementById('tvBoard').style.display = 'flex';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  renderTv();
+  // Re-fit once the fullscreen transition has actually resized the viewport,
+  // and on any later resize — a TV that reports a different size on wake would
+  // otherwise leave the board clipped.
+  setTimeout(renderTv, 350);
+  TV_RESIZE = () => renderTv();
+  window.addEventListener('resize', TV_RESIZE);
+}
+function stopTv(){
+  document.getElementById('tvBoard').style.display = 'none';
+  if(TV_RESIZE){ window.removeEventListener('resize', TV_RESIZE); TV_RESIZE = null; }
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && document.getElementById('tvBoard').style.display === 'flex') stopTv();
+});
+
+// ─── Display mode ───
+let KIOSK = { list: [], i: 0, playing: true, t0: 0, timer: null, clock: null };
+let KIOSK_AUTOSTARTED = false;
+const FILE_URL_CACHE = {};
+
+async function fileFor(p){
+  // A staff upload always wins — that is a deliberate human action. Otherwise
+  // fall back to our repo-served mirror of the official notice, which needs no
+  // auth and no round trip, so the monitor paints instantly and keeps working
+  // even if the agency site is down or refuses to be framed.
+  if(!p.storage_path){
+    if(p.mirror_path) return { url: MIRROR_BASE + p.mirror_path, type: 'application/pdf' };
+    return null;
+  }
+  if(FILE_URL_CACHE[p.id]) return FILE_URL_CACHE[p.id];
+  try{
+    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/' + BUCKET + '/' + p.storage_path, { headers: sbHeaders() });
+    if(!r.ok) return null;
+    const blob = await r.blob();
+    FILE_URL_CACHE[p.id] = { url: URL.createObjectURL(blob), type: blob.type || '' };
+    return FILE_URL_CACHE[p.id];
+  }catch(e){ return null; }
+}
+
+function kioskSecs(){
+  const el = document.getElementById('kioskSecs');
+  const n = el ? Number(el.value) : 20;
+  return Math.min(180, Math.max(5, isFinite(n) ? n : 20)) * 1000;
+}
+
+function startKiosk(fullscreen, index, paused){
+  KIOSK.list = boardPostings();
+  if(!KIOSK.list.length) return;
+  KIOSK.i = index || 0;
+  KIOSK.playing = !paused;
+  document.getElementById('kiosk').style.display = 'flex';
+  document.getElementById('kioskPlay').textContent = KIOSK.playing ? '⏸ Pause' : '▶ Play';
+  if(fullscreen && document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(() => {});
+  kioskClock();
+  KIOSK.clock = setInterval(kioskClock, 1000);
+  kioskShow();
+}
+function stopKiosk(){
+  document.getElementById('kiosk').style.display = 'none';
+  clearInterval(KIOSK.timer); clearInterval(KIOSK.clock);
+  KIOSK.timer = KIOSK.clock = null;
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+}
+function kioskClock(){
+  const el = document.getElementById('kioskClock');
+  if(el) el.textContent = new Date().toLocaleString(undefined, { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+function kioskToggle(){
+  KIOSK.playing = !KIOSK.playing;
+  document.getElementById('kioskPlay').textContent = KIOSK.playing ? '⏸ Pause' : '▶ Play';
+  if(KIOSK.playing) kioskShow(); else clearInterval(KIOSK.timer);
+}
+function kioskStep(d){
+  KIOSK.i = (KIOSK.i + d + KIOSK.list.length) % KIOSK.list.length;
+  kioskShow();
+}
+async function kioskShow(){
+  const p = KIOSK.list[KIOSK.i];
+  if(!p) return;
+  document.getElementById('kioskPos').textContent = (KIOSK.i + 1) + ' / ' + KIOSK.list.length;
+  const body = document.getElementById('kioskBody');
+  const file = await fileFor(p);
+  if(KIOSK.list[KIOSK.i] !== p) return;  // stepped away while the file loaded
+
+  if(file && /^image\//.test(file.type)){
+    body.innerHTML = '<img alt="' + esc(p.title) + '" src="' + file.url + '">';
+  }else if(file && /pdf/.test(file.type)){
+    body.innerHTML = '<iframe title="' + esc(p.title) + '" src="' + file.url + '#toolbar=0&navpanes=0&view=FitH"></iframe>';
+  }else{
+    body.innerHTML =
+      '<div class="knote">' +
+        '<div class="kjur">' + esc((JURLABEL[p.jurisdiction] || p.jurisdiction) + (p.agency ? ' · ' + p.agency : '')) + '</div>' +
+        '<h1>' + esc(p.title) + '</h1>' +
+        (p.form_code || p.version_label ? '<div class="kform">' + esc([p.form_code, p.version_label].filter(Boolean).join(' · ')) + '</div>' : '') +
+        (p.applies_when ? '<p class="kapplies">' + esc(p.applies_when) + '</p>' : '') +
+        (p.notes ? '<p class="knotes">' + esc(p.notes) + '</p>' : '') +
+        (p.posted_location ? '<div class="kwhere">Posted at: ' + esc(p.posted_location) + '</div>' : '') +
+        (p.source_url ? '<div class="kqr"><canvas id="kioskQr" width="160" height="160"></canvas>' +
+          '<span>Scan to open the official notice from ' + esc(p.agency || 'the issuing agency') + '.</span></div>' : '') +
+      '</div>';
+    const qc = document.getElementById('kioskQr');
+    if(qc) drawQr(qc, p.source_url, 160);
+  }
+
+  clearInterval(KIOSK.timer);
+  const bar = document.getElementById('kioskBar');
+  if(!KIOSK.playing){ bar.style.width = '0'; return; }
+  const span = kioskSecs();
+  KIOSK.t0 = Date.now();
+  KIOSK.timer = setInterval(() => {
+    const pct = (Date.now() - KIOSK.t0) / span;
+    bar.style.width = Math.min(100, pct * 100) + '%';
+    if(pct >= 1) kioskStep(1);
+  }, 120);
+}
+document.addEventListener('keydown', e => {
+  if(document.getElementById('kiosk').style.display !== 'flex') return;
+  if(e.key === 'Escape') stopKiosk();
+  else if(e.key === 'ArrowRight') kioskStep(1);
+  else if(e.key === 'ArrowLeft') kioskStep(-1);
+  else if(e.key === ' '){ e.preventDefault(); kioskToggle(); }
+});
+
+// ═══ HANDBOOK ═══
+async function loadHandbook(){
+  const el = document.getElementById('hbDoc');
+  try{
+    const r = await fetch(HANDBOOK_MD_URL);
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const md = await r.text();
+    marked.setOptions({ gfm: true, breaks: false });
+    el.innerHTML = DOMPurify.sanitize(marked.parse(md), { ADD_ATTR: ['target','rel','id'] });
+    buildToc(el);
+  }catch(e){
+    el.innerHTML = '<span class="err">Could not load the handbook text (' + esc(e.message) + '). Try a hard refresh.</span>';
+  }
+}
+
+// A 30-page handbook needs navigation. marked v12 dropped headerIds, so assign
+// our own from the heading text and build the contents list from what rendered
+// — no hand-written anchors in the markdown to drift out of sync.
+function buildToc(root){
+  const heads = root.querySelectorAll('h2, h3');
+  if(heads.length < 5) return;
+  const seen = {}; const items = [];
+  heads.forEach(h => {
+    let slug = h.textContent.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'section';
+    if(seen[slug]) { seen[slug]++; slug += '-' + seen[slug]; } else { seen[slug] = 1; }
+    h.id = slug;
+    items.push({ slug: slug, text: h.textContent, part: h.tagName === 'H2' });
+  });
+  const toc = document.getElementById('hbToc');
+  toc.innerHTML = '<h3>What\'s in this handbook</h3><ol>' + items.map(i =>
+    '<li class="' + (i.part ? 'part' : '') + '"><a href="#' + esc(i.slug) + '">' + esc(i.text) + '</a></li>'
+  ).join('') + '</ol>';
+  toc.style.display = 'block';
+}
+
+function printManual(){
+  document.body.classList.add('print-manual');
+  window.print();
+}
+function jumpTo(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.style.transition = 'box-shadow .25s';
+  el.style.boxShadow = '0 0 0 3px #93B8DB';
+  setTimeout(() => { el.style.boxShadow = ''; }, 1600);
+}
+window.addEventListener('afterprint', () => document.body.classList.remove('print-manual'));
+
+// ═══ SIGNATURE PAD ═══
+const pad = document.getElementById('sigpad');
+const ctx = pad.getContext('2d');
+ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0F172A';
+let drawing = false, hasInk = false;
+function padPos(e){
+  const r = pad.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (pad.width / r.width), y: (e.clientY - r.top) * (pad.height / r.height) };
+}
+pad.addEventListener('pointerdown', e => { drawing = true; hasInk = true; const p = padPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); pad.setPointerCapture(e.pointerId); });
+pad.addEventListener('pointermove', e => { if(!drawing) return; const p = padPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+pad.addEventListener('pointerup',   () => { drawing = false; });
+pad.addEventListener('pointercancel', () => { drawing = false; });
+function padClear(){ ctx.clearRect(0, 0, pad.width, pad.height); hasInk = false; document.getElementById('signErr').textContent = ''; }
+
+// ═══ ACK STATE + ROSTER ═══
+async function loadAckState(){
+  document.getElementById('hbVer').textContent = HANDBOOK_VERSION;
+  let rows = [];
+  try{
+    rows = await opsGet('safety_handbook_acks?select=signer_name,signer_email,handbook_version,signed_at,signature_data&order=signed_at.desc&limit=500');
+  }catch(e){ rows = []; }
+  const mine = rows.find(a => a.signer_email === SESSION.email && a.handbook_version === HANDBOOK_VERSION);
+  document.getElementById('signedState').style.display = mine ? 'block' : 'none';
+  document.getElementById('signForm').style.display = mine ? 'none' : 'block';
+  if(mine){
+    document.getElementById('signedState').textContent =
+      '✓ Signed by ' + mine.signer_name + ' on ' + new Date(mine.signed_at).toLocaleDateString() +
+      ' — version ' + HANDBOOK_VERSION + ' is on file. Nothing more to do until a new version is issued.';
+  }
+
+  // Status strip at the top of the tab, so you never have to scroll the whole
+  // manual to find out where you stand.
+  const onVer = rows.filter(a => a.handbook_version === HANDBOOK_VERSION).length;
+  const strip = document.getElementById('ackStrip');
+  strip.style.display = 'block';
+  strip.innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between">' +
+      '<div>' +
+        (mine
+          ? '<div style="font-weight:700;color:#15803D">✓ You signed version ' + esc(HANDBOOK_VERSION) + ' on ' + new Date(mine.signed_at).toLocaleDateString() + '</div>'
+          : '<div style="font-weight:700;color:#B45309">⚠ You have not signed version ' + esc(HANDBOOK_VERSION) + ' yet</div>') +
+        '<div class="muted">' + onVer + ' signature' + (onVer === 1 ? '' : 's') + ' on file for this version' +
+          (rows.length > onVer ? ' · ' + (rows.length - onVer) + ' on an older version, who need to re-sign' : '') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn' + (mine ? ' ghost' : '') + '" onclick="jumpTo(\'signSection\')">' +
+          (mine ? 'View my sign-off' : '✍ Sign the acknowledgment') + '</button>' +
+        (rows.length ? '<button class="btn ghost" onclick="jumpTo(\'rosterSection\')">Who has signed</button>' : '') +
+      '</div>' +
+    '</div>';
+  if(rows.length){
+    document.getElementById('rosterSection').style.display = 'block';
+    document.getElementById('rosterCount').textContent = rows.length + ' signature' + (rows.length === 1 ? '' : 's');
+    document.querySelector('#rosterTable tbody').innerHTML = rows.map(a => '<tr>' +
+      '<td><strong>' + esc(a.signer_name) + '</strong></td>' +
+      '<td class="muted">' + esc(a.signer_email) + '</td>' +
+      '<td>' + esc(a.handbook_version) + '</td>' +
+      '<td>' + new Date(a.signed_at).toLocaleString() + '</td>' +
+      '<td>' + (a.signature_data ? '<img class="sigthumb" alt="signature" src="' + esc(a.signature_data) + '">' : '—') + '</td>' +
+    '</tr>').join('');
+  }
+}
+
+async function submitAck(){
+  const errEl = document.getElementById('signErr');
+  errEl.textContent = '';
+  const name = document.getElementById('signerName').value.trim();
+  if(name.length < 3 || name.indexOf(' ') === -1){ errEl.textContent = 'Type your full legal name (first and last).'; return; }
+  if(!hasInk){ errEl.textContent = 'Draw your signature in the box.'; return; }
+  const btn = document.getElementById('signBtn');
+  btn.disabled = true;
+  try{
+    await opsInsert('safety_handbook_acks', {
+      user_id: SESSION.uid,
+      signer_name: name,
+      signer_email: SESSION.email,
+      handbook_version: HANDBOOK_VERSION,
+      signature_data: pad.toDataURL('image/png'),
+      user_agent: navigator.userAgent.slice(0, 300),
+    });
+    await loadAckState();
+    window.scrollTo({ top: document.getElementById('signSection').offsetTop - 80, behavior: 'smooth' });
+  }catch(e){
+    errEl.textContent = /duplicate|unique/i.test(e.message)
+      ? 'You have already signed this version — refresh the page to see your record.'
+      : 'Could not file the signature: ' + e.message;
+  }finally{ btn.disabled = false; }
+}
+</script>
+</body>
+</html>
