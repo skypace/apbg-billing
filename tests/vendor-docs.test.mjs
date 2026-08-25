@@ -173,3 +173,38 @@ test('a name that is nothing but a corporate suffix normalises to null', () => {
     assert.equal(normName(junk), null, junk);
   }
 });
+
+// ── Regression: the W-9 create must use a vendor_type the DATABASE accepts ──
+// ops.vendors_vendor_type_check allows exactly contractor | supplier | service
+// | other. The first cut of vendor-doc-upload inserted 'vendor', which is not
+// on that list, so EVERY "drop a W-9 to create the vendor" died on the
+// constraint — an unhandled throw that surfaced as a bare 500 with no reason.
+// Reading the source is the honest test here: the value is a literal in a
+// function that needs Anthropic + Supabase to run end-to-end.
+import { readFileSync } from 'node:fs';
+
+const VENDOR_TYPES_ALLOWED_BY_DB = ['contractor', 'supplier', 'service', 'other'];
+const uploadSrc = readFileSync(
+  new URL('../netlify/functions/vendor-doc-upload.mjs', import.meta.url), 'utf8');
+
+test('every vendor_type written by the W-9 upload is one the DB allows', () => {
+  const found = [...uploadSrc.matchAll(/vendor_type:\s*'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.ok(found.length > 0, 'expected at least one vendor_type literal');
+  for (const v of found) {
+    assert.ok(VENDOR_TYPES_ALLOWED_BY_DB.includes(v),
+      `vendor_type '${v}' violates ops.vendors_vendor_type_check (${VENDOR_TYPES_ALLOWED_BY_DB.join(' | ')})`);
+  }
+});
+
+test('inserts whose result is read ask PostgREST to return the row', () => {
+  // A bare POST answers 201 with an EMPTY body, so `created[0]` is undefined
+  // and the code reports failure while the row actually landed. Both inserts
+  // that read their result must pass Prefer: return=representation.
+  for (const table of ['vendors', 'insured_parties']) {
+    const at = uploadSrc.indexOf(`ops('POST', '${table}'`);
+    assert.ok(at > -1, `expected a POST to ${table}`);
+    const call = uploadSrc.slice(at, at + 700);
+    assert.match(call, /Prefer:\s*'return=representation'/,
+      `POST to ${table} reads its result but never asks for the row back`);
+  }
+});
