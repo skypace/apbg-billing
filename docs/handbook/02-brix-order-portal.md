@@ -1,6 +1,6 @@
 # Brix Order Portal — Customer Ordering, Billing & Resources
 
-> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
+> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-08-21
 
 This chapter is the **staff version** of the customer manual for the Brix Order Portal at https://orders.brixbev.com — the customer-facing B2B portal where customers (and staff acting on their behalf) place orders, track deliveries, view and pay invoices, manage tank rentals, file service requests, and read the self-help Resources library. It covers everything a customer sees, plus staff-only notes on what actually happens behind each screen (Service Fusion jobs, the QBO mirror, lifecycle emails). For the staff console itself see [Brix Order /admin — Staff Console](#/03-brix-order-admin).
 
@@ -68,7 +68,9 @@ Access is membership-based: one user can belong to many customers (`orders.custo
 
 > **Staff note — fees are ESTIMATES.** The portal computes fee lines (fuel, hazmat, CRV, SSB, etc.) for the on-screen estimate, order record, and confirmation email only. They are **never sent to Service Fusion** — SF's own job-level fee engine bills them natively (sending them both broke every order for two weeks in June 2026 AND would double-charge). The invoice is the final word on what's billed.
 
-> **Staff note — SF job categories.** Portal orders (including admin quick-orders) create SF jobs tagged **"Brix Web Order"**; Chloe's phone orders are tagged **"Brix Phone Order"** (env `SF_ORDER_JOB_CATEGORY` / `SF_PHONE_ORDER_JOB_CATEGORY`). Both categories must exist in SF Settings → Job Categories; an SF rejection retries once without the category so a missing setting never blocks an order.
+> **Staff note — SF job categories.** Portal orders (including admin quick-orders) create SF jobs tagged **"Brix Web Order"**; Chloe's phone orders **"Brix Phone Order"**; emailed chain POs **"Brix EDI Order"**; Order Desk forwards **"Brix Email Order"** (env `SF_ORDER_JOB_CATEGORY` / `SF_PHONE_ORDER_JOB_CATEGORY` / `SF_EDI_ORDER_JOB_CATEGORY` / `SF_EMAIL_ORDER_JOB_CATEGORY`). Each category must exist in SF Settings → Job Categories; an SF rejection retries once without the category so a missing setting never blocks an order.
+
+> **Other ways an order comes in.** The portal is one of four channels — all landing in the same pipeline: **phone** (Chloe, the AI phone line), **emailed POs** for chain customers (each chain has its own inbound address; staff review at /admin/edi), and the **Order Desk** (staff forward a customer's ordinary email to `aiorders@alamedapointbg.com` and accept the AI-built proposal). See the [/admin chapter](#/03-brix-order-admin) for the staff side of the email channels.
 
 ## Order tracking & lifecycle emails
 
@@ -85,7 +87,7 @@ Behind it, the `order-lifecycle-check` poller runs **every 5 minutes** (SF has n
 
 Cancelled SF jobs (or jobs deleted in SF) flip the portal order to Cancelled within one poller tick and stop further emails.
 
-> **Staff note — recipients.** All lifecycle emails go to the **submitter + the customer's Primary email (`billing_email`), deduped**, BCC service@brixbev.com. So an order you enter on a customer's behalf still notifies the customer's contact. EDI email-PO orders instead send to the PO sender + the customer's order-notify list (`orders.notify_emails`); orders with no submitter (phone/EDI) fall back to the Primary email rather than going silent. `email_events` claims each send exactly-once.
+> **Staff note — recipients (changed 2026-08-21).** Lifecycle emails route via the customer's **Order updates** email selection (the fourth checkbox column on the Billing & comms four-slot matrix; default Primary) — an EMPTY selection means the customer gets none, there is no Primary fallback. The **submitter always gets them too, UNLESS staff** (company-domain address or superadmin — keying in a phone order doesn't email you). Order emails no longer BCC service@brixbev.com; instead service@ gets the **unscheduled-orders digest** (7am/10am/1pm PT, a 4 PM end-of-day check, and an 8 PM "put it on tomorrow AM" escalation) listing any order still without an SF scheduled date. EDI/Order-Desk orders with `notify_emails` keep their own list. `email_events` claims each send exactly-once.
 
 ## Invoices & statements
 
@@ -102,14 +104,14 @@ Special documents: monthly tank-rental invoices (BTRF-*) show cylinder counts; *
 From **Pay** (or "Pay this invoice" on any open invoice):
 
 1. Select one or more open invoices — several can be settled in one payment.
-2. Choose a **saved payment method** (always masked to last four, e.g. "Checking ···1234") or enter details, depending on the account's rail.
+2. Choose a **saved payment method** (always masked to last four, e.g. "Checking ···1234") or add a card/bank. **Stripe is the only payment rail** — the legacy Bill & Pay integration was removed 2026-08-12.
 3. Review the exact total, confirm. A green-strip **receipt email** goes out immediately to the customer's Primary email + the submitter (deduped, BCC service@brixbev.com).
 
 After paying, the invoice shows **Processing** until the QBO mirror flips it to **Paid**. Processing never masks Paid — the badge only renders while the mirror still shows the invoice open.
 
 > **Staff note — the honest QBO-mirror lag.** The paid/open status comes from `ops.qbo_invoices`, which brix-order cannot write. The processor posts the payment into QBO pre-applied; `pay-invoices` then nudges the QBO CDC sync so the flip is usually near-immediate, with the 15-minute `qbo-cdc-sync` cron as the backstop. If the processor batches the charge, QBO doesn't have it yet and the flip waits for the batch to post. The receipt email is the immediate acknowledgment; the invoice status follows on sync. **Do not pay an invoice twice because it still reads open minutes after a payment.**
 
-> **Staff note — adding a payment method.** "Add or update a payment method" opens the payment processor's secure hosted window *inside* the portal (wallet screen only — saving a card there does not charge anything). Raw card/bank numbers never touch our code (PCI); the portal only ever sees last-four. The actual charge always goes through OUR tracked Pay button so `orders.payments` records it — payments completed inside a processor-hosted page bypass our records entirely (this bit us once; see session 1.64). Rail details and per-customer processor cutovers live in [SOP-4 · Billing & Payments](#/24-sop-billing-payments).
+> **Staff note — adding a payment method.** Cards and bank accounts are entered through **Stripe's tokenized elements** — raw card/bank numbers never touch our code (PCI); the portal only ever sees last-four. Every charge goes through OUR tracked Pay button so `orders.payments` records it. Rail details live in [SOP-4 · Billing & Payments](#/24-sop-billing-payments) and brix-order's `docs/PAYMENTS-SOP.md`.
 
 **Returned payments:** a bounced bank payment reopens the invoice and a returned-payment fee applies per account terms. Detection and bookkeeping are staff workflows on /admin/payments — see [SOP-4](#/24-sop-billing-payments).
 
@@ -147,11 +149,11 @@ The **Equipment** page lists the Brix equipment on site and any equipment rental
 
 ### The four email slots
 
-Each customer has up to four addresses, and each address independently selects what it receives (Invoices / Statements / Reminders):
+Each customer has up to four addresses, and each address independently selects what it receives (Invoices / Statements / Reminders / **Order updates** — the order confirmed/scheduled/delivered emails, added 2026-08-21):
 
 | UI label | Column | Routing role |
 |---|---|---|
-| Primary Email | `billing_email` | `billing` — gets everything by default; also the lifecycle-email + receipt recipient |
+| Primary Email | `billing_email` | `billing` — gets everything by default, including order updates + receipts |
 | Secondary Email | `remittance_email` | `remittance` |
 | Optional Email | `optional_email` | `optional` |
 | Accounting Email | `accounting_email` | `accounting` |
@@ -167,6 +169,8 @@ Account admins invite coworkers, set roles (**Member / Admin / Accounts payable*
 ## Applying for a new account (/apply)
 
 The public application at https://orders.brixbev.com/apply is a full credit-app-grade form: business information (+ DUNS), tax ID and resale certificate with photo/PDF upload (**without a resale certificate, sales tax will be charged**), role contacts (Accounting / Billing / Orders / Management), delivery preferences with special instructions (gate codes, keys), multiple delivery locations, structured address fields with automatic ZIP verification ("Did you mean …"), an optional credit application (Net 15/Net 30, 3 trade references), and posted Terms & Conditions with a required drawn signature.
+
+**Chain / franchise store links.** A chain or franchise company opening a NEW STORE doesn't fill the credit app — they get a short branded walkthrough at `/apply/:token` (one link per chain or franchise owner, minted on /admin → Links): location, who runs it, delivery days, opening date, and (franchise links) an equipment-interest picker. Terms, credit references and signature are deliberately not asked — the master account already signed.
 
 What happens after submit — approval, the SF customer create, the $0 setup ticket, and enabling the portal login — is the staff workflow in [SOP-2 · Customer Lifecycle](#/22-sop-customer-lifecycle) and [Brix Order /admin](#/03-brix-order-admin).
 

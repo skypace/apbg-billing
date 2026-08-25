@@ -15,6 +15,7 @@ import { attachReceiptsToQBO } from './lib/qbo-attach.mjs';
 import { findMatchingInvoice, computeMargin, summarizeInvoice } from './qbo-invoice-match.mjs';
 import { brixpenseEmail, kvRow, kvTable, esc, money } from './lib/brixpense-email.mjs';
 import { sendEmail } from './email-helpers.mjs';
+import { findDuplicate } from './lib/expense-dupes.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -247,7 +248,7 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId } = body;
+  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false } = body;
   if (!requestId) return err('Missing requestId');
   if (!['create', 'preview', 'link'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
@@ -270,6 +271,57 @@ export default async function handler(req) {
 
   if (!LINKABLE_STATUSES.includes(request.status)) {
     return err(`Cannot post from status "${request.status}". Must be: ${LINKABLE_STATUSES.join(', ')}`, 409);
+  }
+
+  // ── Duplicate gate ────────────────────────────────────────────────────
+  // This is the last point before a real QuickBooks transaction exists, so it
+  // is where the duplicate check has teeth. Re-checked here rather than
+  // trusting the stamp from intake time, because the row may have been sitting
+  // for days and the twin may have arrived since.
+  //
+  // Only an EXACT match (same vendor, same invoice number) blocks, and only
+  // when the twin is ALREADY IN QUICKBOOKS — which is the thing we are trying
+  // not to do twice. Two unposted drafts of the same bill are a tidiness
+  // problem, not a money problem, and refusing to post either of them would be
+  // the pipeline arguing with itself. `confirmDuplicate: true` is the caller
+  // saying they looked; it is recorded on the row, not just obeyed.
+  if (mode === 'create') {
+    const dupe = await findDuplicate({
+      vendor: request.vendor_name,
+      bill_number: request.bill_number,
+      amount: request.total_amount,
+      date: request.receipt_date,
+      job_number: request.job_number,
+      exclude: requestId,
+    });
+    const blocking = dupe && dupe.match_kind === 'exact' && dupe.posted;
+    if (blocking && !confirmDuplicate) {
+      await supabase.from('expense_requests').update({
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        duplicate_checked_at: new Date().toISOString(),
+      }).eq('id', requestId);
+      return json({
+        success: false,
+        error: 'possible_duplicate',
+        message: `This looks like a bill we have already posted — ${dupe.reason}. Post it anyway only if it is genuinely a different invoice.`,
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        can_override: true,
+      }, 409);
+    }
+    if (dupe) {
+      // Not blocking, but record what we saw — including an override, so
+      // "why are there two of these in QuickBooks" has an answer on the row.
+      await supabase.from('expense_requests').update({
+        duplicate_of: dupe.id,
+        duplicate_reason: dupe.reason,
+        duplicate_checked_at: new Date().toISOString(),
+        ...(blocking && confirmDuplicate
+          ? { duplicate_cleared_by: `${user.email} (posted anyway)` }
+          : {}),
+      }).eq('id', requestId);
+    }
   }
 
   const departmentRef = await findQBODepartmentRef(request.department);

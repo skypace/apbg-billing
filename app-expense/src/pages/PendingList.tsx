@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
 import { useSession } from '@/lib/hooks';
-import { getAccessToken } from '@/lib/supabase';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Clock, Receipt, Send } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock, Receipt, Send, Banknote } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { useIsSuperadmin } from '@/lib/useIsSuperadmin';
+// `statusLabel` is aliased — this page already has its own for expense status.
+import { paymentsForExpenses, statusLabel as paymentStatusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
+import { PayBillPanel } from '@/components/PayBillPanel';
 import type { ExpenseRequest } from '@/types/expense';
 
 export default function PendingList() {
@@ -17,6 +22,20 @@ export default function PendingList() {
   const [loading, setLoading] = useState(true);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // Paying a posted bill. Superadmin-only — /api/vendor-pay refuses everyone
+  // else, so the trigger stays hidden rather than 403-ing.
+  const isSuperadmin = useIsSuperadmin();
+  const [payments, setPayments] = useState<Map<string, VendorPayment>>(new Map());
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  // Which of these already have a payment against them, so a bill can't be
+  // paid twice by eye.
+  const loadPayments = async (rows: ExpenseRequest[]) => {
+    const ids = rows.filter((r) => r.status === 'posted' && r.qbo_bill_id).map((r) => r.id);
+    try {
+      setPayments(await paymentsForExpenses(ids));
+    } catch { /* the list must render even if the ledger read fails */ }
+  };
 
   useEffect(() => {
     async function load() {
@@ -26,11 +45,14 @@ export default function PendingList() {
         .select('*')
         .eq('submitted_by', session.user.id)
         .order('created_at', { ascending: false });
-      setRequests((data as ExpenseRequest[]) ?? []);
+      const rows = (data as ExpenseRequest[]) ?? [];
+      setRequests(rows);
       setLoading(false);
+      await loadPayments(rows);
     }
     load();
   }, [session]);
+
 
   // Expenses only auto-approve now — nothing reaches QuickBooks until someone
   // explicitly posts it here. This IS the "pay attention to the bill" gate:
@@ -39,22 +61,15 @@ export default function PendingList() {
     setPostingId(req.id);
     setPostError(null);
     try {
-      const token = await getAccessToken();
-      const res = await fetch('/expense/api/expense-request-link-bill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ requestId: req.id, mode: 'create' }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        const reason = data.message || data.error || 'Could not post to QuickBooks.';
-        setPostError(reason);
-        setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
-        return;
-      }
-      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: data.qbo_bill_id || data.qbo_purchase_id, autopost_error: null } : r)));
+      const data = await postExpenseToQbo(req.id);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status: 'posted', qbo_bill_id: (data.qbo_bill_id || data.qbo_purchase_id) as string, autopost_error: null } : r)));
     } catch (e) {
-      setPostError(e instanceof Error ? e.message : 'Could not reach the server.');
+      // Declining the duplicate prompt is a decision, not a failure — leave the
+      // row exactly as it was rather than stamping it with an error.
+      if (e instanceof DuplicateBillError) return;
+      const reason = e instanceof Error ? e.message : 'Could not reach the server.';
+      setPostError(reason);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
     } finally {
       setPostingId(null);
     }
@@ -86,7 +101,7 @@ export default function PendingList() {
         <Button variant="ghost" size="icon" onClick={() => navigate('')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-xl font-bold tracking-tight">My Submissions</h1>
+        <h1 className="page-title">Expense History</h1>
       </div>
 
       {postError && (
@@ -96,12 +111,12 @@ export default function PendingList() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : requests.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
+          <CardContent className="feedback-state">
             <Clock className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
               No submissions yet.
@@ -124,9 +139,15 @@ export default function PendingList() {
             // sits here until someone deliberately posts it.
             const isReadyToPost =
               req.request_type === 'expense' && req.status === 'approved' && !req.qbo_bill_id;
+            // A QuickBooks BillPayment needs a Bill to attach to, so pay is
+            // only offered once the bill is actually posted — and only while
+            // no payment already covers it.
+            const pay = payments.get(req.id);
+            const isPayable =
+              isSuperadmin && req.status === 'posted' && !!req.qbo_bill_id && !pay && !req.paid_at;
             return (
+              <div key={req.id} className="space-y-2">
               <Card
-                key={req.id}
                 className="cursor-pointer hover:shadow-sm transition-shadow"
                 onClick={() => navigate(`/edit/${req.id}`)}
               >
@@ -139,12 +160,24 @@ export default function PendingList() {
                       <Badge variant={statusVariant[req.status] ?? 'secondary'}>
                         {statusLabel[req.status] ?? req.status}
                       </Badge>
+                      <DueBadge request={req} />
+                      <DuplicateBadge request={req} />
+                      {pay && (
+                        <Badge variant={paymentStatusLabel(pay).variant}>
+                          {paymentStatusLabel(pay).label} · {RAIL_LABEL[pay.rail].split(' (')[0]}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[13px] text-muted-foreground mt-1">
                       {req.request_type === 'purchase_request' ? 'PR' : 'Expense'}
                       {req.receipt_date ? ` · ${formatDate(req.receipt_date)}` : ''}
                       {req.cogs_account_label ? ` · ${req.cogs_account_label}` : ''}
                     </p>
+                    {req.duplicate_of && !req.duplicate_cleared_by && req.duplicate_reason && (
+                      <p className="text-[12px] text-amber-400 mt-1 truncate" title={req.duplicate_reason}>
+                        ⚠ Possible duplicate — {req.duplicate_reason}
+                      </p>
+                    )}
                     {req.status === 'approved' && req.autopost_error && (
                       <p className="text-[12px] text-amber-500 mt-1 truncate" title={req.autopost_error}>
                         ⚠ Last post attempt failed: {req.autopost_error}
@@ -183,8 +216,27 @@ export default function PendingList() {
                       Post to QuickBooks
                     </Button>
                   )}
+                  {isPayable && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => { e.stopPropagation(); setPayingId(payingId === req.id ? null : req.id); }}
+                      title="Pay this bill — bank transfer, or record a payment you already sent"
+                    >
+                      <Banknote className="h-4 w-4 mr-1" />
+                      Pay
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
+              {payingId === req.id && (
+                <PayBillPanel
+                  expenseId={req.id}
+                  onClose={() => setPayingId(null)}
+                  onPaid={() => { setPayingId(null); void loadPayments(requests); }}
+                />
+              )}
+              </div>
             );
           })}
         </div>

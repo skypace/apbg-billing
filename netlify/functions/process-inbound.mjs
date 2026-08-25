@@ -2,23 +2,31 @@ import { corsHeaders } from './qbo-helpers.mjs';
 import { createToken } from './token-helpers.mjs';
 import { sendEmail, approvalEmailHtml, APPROVAL_EMAIL, SITE_URL } from './email-helpers.mjs';
 
-// SECURITY TODO: this endpoint is hit by an external email-forwarding webhook,
-// so Supabase user auth doesn't apply. It still needs HMAC signature verification
-// against a shared secret to prevent unauthenticated callers from forging inbound
-// emails (which trigger approval emails and create signed bill-approval tokens).
-
-// This function receives inbound emails via webhook from your email service
-// (SendGrid Inbound Parse, Mailgun Routes, or custom forwarding)
+// process-inbound — the AP tool's PDF drop (public/index.html).
 //
-// Expected POST body (JSON):
-// {
-//   "from": "sender@example.com",
-//   "subject": "Invoice 55973",
-//   "text": "...",
-//   "attachments": [{ "filename": "inv.pdf", "content": "base64...", "contentType": "application/pdf" }]
-// }
+// Drop a vendor bill on /billing/, it is OCR'd by Claude and you land on
+// approve.html with a signed token holding the extracted data.
 //
-// Also accepts SendGrid Inbound Parse multipart format
+// ⚠ THE EMAIL-WEBHOOK PATHS WERE REMOVED (2026-08-23). This function was
+// originally written to also receive forwarded email — a SendGrid/Mailgun
+// multipart body, or JSON with an `attachments[]` array — with no signature
+// verification at all, which its own SECURITY TODO acknowledged. Nothing ever
+// pointed at those paths (checked against all 10 live Resend webhooks), and
+// emailed bills now go through bill-email-intake.mjs, which IS Svix-verified
+// and lands a reviewable draft instead of minting an approval token. Keeping
+// unverified intake code around for a caller that does not exist is pure
+// attack surface: a stranger could POST a fabricated invoice and cause a real
+// approval email carrying a real signed token.
+//
+// What is left is the ONE live caller: the browser upload from
+// public/index.html ({ fileData, mediaType, submittedBy }).
+//
+// ⚠ STILL OPEN, and deliberately not changed here: that browser path is
+// unauthenticated, because public/index.html carries no session (unlike
+// approve/setup/control/dashboard, which all use auth.js). Adding a login to
+// the AP tool's front door is a change to a daily driver and belongs to
+// whoever owns that workflow, not to this pass. The payload cap below limits
+// the damage a stranger can do to wasted OCR spend.
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -30,51 +38,46 @@ export async function handler(event) {
   }
 
   try {
-    let from, subject, attachmentData, attachmentType, bodyText;
-
-    const contentType = event.headers['content-type'] || '';
-
-    if (contentType.includes('application/json')) {
-      // ── JSON format (custom forwarder or direct POST) ──
-      const body = JSON.parse(event.body);
-      from = body.from || 'unknown';
-      subject = body.subject || 'Vendor Bill';
-      bodyText = body.text || body.body || '';
-
-      if (body.attachments && body.attachments.length > 0) {
-        const att = body.attachments[0];
-        attachmentData = att.content; // base64
-        attachmentType = att.contentType || att.content_type || 'application/pdf';
-      } else if (body.fileData) {
-        // Direct upload format (from web form)
-        attachmentData = body.fileData;
-        attachmentType = body.mediaType || 'application/pdf';
-        from = body.submittedBy || from;
-      }
-    } else if (contentType.includes('multipart/form-data')) {
-      // ── SendGrid / Mailgun multipart format ──
-      // Parse the basic fields from the encoded body
-      const params = new URLSearchParams(event.body);
-      from = params.get('from') || params.get('sender') || 'unknown';
-      subject = params.get('subject') || 'Vendor Bill';
-      bodyText = params.get('text') || '';
-
-      // Attachments in multipart come as separate fields
-      // SendGrid: attachment1, attachment2, etc.
-      // For simplicity, we'll handle the JSON envelope format
-      const attachInfo = params.get('attachment-info');
-      if (attachInfo) {
-        // SendGrid format — attachment content is in separate fields
-        // The actual parsing depends on the multipart structure
-        // For production, use a proper multipart parser
-      }
+    const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+    if (!contentType.includes('application/json')) {
+      return {
+        statusCode: 415,
+        headers: corsHeaders(),
+        body: JSON.stringify({ error: 'Send JSON: { fileData, mediaType }' }),
+      };
     }
+
+    const body = JSON.parse(event.body || '{}');
+    const attachmentData = body.fileData;
+    const attachmentType = body.mediaType || 'application/pdf';
+    const from = body.submittedBy || 'web-upload';
+    const subject = body.subject || 'Vendor Bill';
 
     if (!attachmentData) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ error: 'No bill attachment found in the email' }),
+        body: JSON.stringify({ error: 'No file to scan — drop a PDF or an image.' }),
+      };
+    }
+
+    // A cap on what one unauthenticated request can cost us at the OCR
+    // provider. Real vendor invoices are well under this; anything larger is
+    // either a mistake or someone playing.
+    if (String(attachmentData).length > 14_000_000) {   // ~10 MB decoded
+      return {
+        statusCode: 413,
+        headers: corsHeaders(),
+        body: JSON.stringify({ error: 'That file is too large to scan — 10 MB is the limit.' }),
+      };
+    }
+
+    const ALLOWED = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+    if (!ALLOWED.includes(attachmentType)) {
+      return {
+        statusCode: 415,
+        headers: corsHeaders(),
+        body: JSON.stringify({ error: `Can't scan a ${attachmentType} — send a PDF or an image.` }),
       };
     }
 

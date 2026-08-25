@@ -1,0 +1,6 @@
+# Mirrors the app-expense entries in the root .gitignore (kept here so the
+# new folder needs no root-.gitignore edit).
+node_modules
+dist
+*.tsbuildinfo
+package-lock.json

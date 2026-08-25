@@ -1,22 +1,25 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, IconButton,
   InputLabel, MenuItem, Paper, Select, Snackbar, Stack, Switch, Tab, Table, TableBody,
   TableCell, TableHead, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
-import { Plus, Trash2, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, Download, Upload, Pencil, ListPlus } from 'lucide-react';
 import {
-  type BookItem, type Contract, type ContractKind, type CustomerOpt, type ItemOpt, type PricingData,
-  getPricing, setBookItemPrice, removeBookItem, bulkIncrease, addContractItem, removeContractItem,
+  type BookItem, type BulkItemInput, type Contract, type ContractKind, type CustomerOpt,
+  type ItemOpt, type PriceBook, type PricingData,
+  getPricing, setBookItemPrice, removeBookItem, bulkIncrease, bulkAddBookItems, updatePriceBook,
+  setCustomerPriceBook, bulkAttachDefaultBook, addContractItem, bulkAddContractItems, removeContractItem,
   addContractCustomer, removeContractCustomer, setContractMeta, createPriceBook,
   createContract, uploadContractFile, contractFileUrl, exportStandardCsv,
 } from '../lib/pricing';
 import { fetchInventoryHealth } from '../lib/inventory';
+import { RebatesTab } from './pricing/RebatesTab';
 
 type BookSort = 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc';
 type GroupField = 'family' | 'type';
-type ItemMeta = Map<string, { family: string | null; type: string | null }>;
+type ItemMeta = Map<string, { family: string | null; type: string | null; unit_price: number | null }>;
 
 // This page inherits the app's MUI theme (makeBrixTheme) so it follows the
 // light/dark switch and the shared branding — no local ThemeProvider.
@@ -45,9 +48,10 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
   //   #pricing?tab=contracts&contract=<id>  → open that contract's editor
   //   #pricing?tab=contracts&new=1          → open the New Contract dialog
   const wantsContracts = routeParams?.tab === 'contracts' || !!routeParams?.contract || routeParams?.new === '1';
+  const wantsRebates = routeParams?.tab === 'rebates';
   const [data, setData] = useState<PricingData | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [tab, setTab] = useState(wantsContracts ? 1 : 0);
+  const [tab, setTab] = useState(wantsRebates ? 3 : wantsContracts ? 1 : 0);
   const [toast, setToast] = useState<string | null>(null);
   const [pct, setPct] = useState('5');
   const [eff, setEff] = useState(todayStr());
@@ -68,7 +72,7 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
       ]);
       setData(d);
       const m: ItemMeta = new Map();
-      for (const h of health) m.set(h.qbo_item_id, { family: h.product_family_label, type: h.product_type_label });
+      for (const h of health) m.set(h.qbo_item_id, { family: h.product_family_label, type: h.product_type_label, unit_price: h.unit_price });
       setItemMeta(m);
       // Keep a valid selection: honor a deep-linked contract id when it exists,
       // otherwise (empty or stale id) fall back to the first contract.
@@ -101,6 +105,8 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
         <Tabs value={tab} onChange={(_, t) => setTab(t)} sx={{ mb: 2 }}>
           <Tab label="Price books" />
           <Tab label={`Contracts (${data.contracts.length})`} />
+          <Tab label={`Customer price levels (${data.customerBooks.length})`} />
+          <Tab label="Rebates" />
         </Tabs>
 
         {tab === 0 && <BooksTab data={data} itemMeta={itemMeta} pct={pct} setPct={setPct} eff={eff} setEff={setEff}
@@ -119,9 +125,13 @@ export function PricingPage({ routeParams }: { routeParams?: Record<string, stri
               </FormControl>
               <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setNewContractOpen(true)}>New contract</Button>
             </Stack>
-            {contract && <ContractEditor key={contract.id} contract={contract} data={data} custName={custName} onOk={ok} onErr={setErr} />}
+            {contract && <ContractEditor key={contract.id} contract={contract} data={data} itemMeta={itemMeta} custName={custName} onOk={ok} onErr={setErr} />}
           </Stack>
         )}
+
+        {tab === 2 && <CustomerBooksTab data={data} custName={custName} onOk={ok} onErr={setErr} />}
+
+        {tab === 3 && <RebatesTab customers={data.customers} contracts={data.contracts} onOk={ok} onErr={setErr} />}
 
         {newContractOpen && <NewContractDialog data={data} onClose={() => setNewContractOpen(false)}
           onCreated={(id) => { setNewContractOpen(false); setContractId(id); ok('Contract created'); setTab(1); }} onErr={setErr} />}
@@ -143,6 +153,8 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
   const [addItem, setAddItem] = useState<ItemOpt | null>(null);
   const [addPrice, setAddPrice] = useState('');
   const [addBusy, setAddBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const book = data.books.find((b) => b.code === bookCode);
   const label = (it: BookItem) => it.item_name ?? it.qbo_item_id;
@@ -198,6 +210,7 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
             </Select>
           </FormControl>
           <Button variant="outlined" startIcon={<Plus size={16} />} onClick={onNewBook}>New price level</Button>
+          <Button variant="text" startIcon={<Pencil size={16} />} disabled={!book} onClick={() => setEditOpen(true)}>Edit name</Button>
           <Box sx={{ flex: 1 }} />
           <TextField label="% raise" size="small" value={pct} onChange={(e) => setPct(e.target.value)} sx={{ width: 100 }} />
           <TextField label="Effective" type="date" size="small" value={eff} onChange={(e) => setEff(e.target.value)} sx={{ width: 160 }} slotProps={{ inputLabel: { shrink: true } }} />
@@ -230,6 +243,7 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
                 setAddItem(null); setAddPrice(''); onOk(`Added ${addItem.name} to ${bookCode}`);
               } catch (e) { onErr(e instanceof Error ? e.message : 'Add failed'); } finally { setAddBusy(false); }
             }}>{addBusy ? 'Adding…' : 'Add'}</Button>
+          <Button variant="outlined" startIcon={<ListPlus size={16} />} onClick={() => setBulkOpen(true)}>Add by family/type…</Button>
         </Stack>
         <Divider sx={{ my: 1.5 }} />
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
@@ -293,12 +307,317 @@ function BooksTab({ data, itemMeta, pct, setPct, eff, setEff, bulkBusy, setBulkB
           </TableBody>
         </Table>
       </Paper>
+
+      {editOpen && book && (
+        <EditBookDialog book={book} onClose={() => setEditOpen(false)}
+          onSaved={(m) => { setEditOpen(false); onOk(m); }} onErr={onErr} />
+      )}
+      {bulkOpen && (
+        <BulkAddItemsDialog title={`Add items to ${bookCode} by family/type`} options={addOptions} itemMeta={itemMeta}
+          onClose={() => setBulkOpen(false)}
+          onAdd={async (items) => {
+            await bulkAddBookItems(items, bookCode, todayStr());
+            setBulkOpen(false); onOk(`Added ${items.length} item${items.length === 1 ? '' : 's'} to ${bookCode}`);
+          }} onErr={onErr} />
+      )}
     </Stack>
   );
 }
 
-function ContractEditor({ contract, data, custName, onOk, onErr }: {
-  contract: Contract; data: PricingData; custName: Map<string, string>;
+function EditBookDialog({ book, onClose, onSaved, onErr }: {
+  book: PriceBook; onClose: () => void; onSaved: (m: string) => void; onErr: (e: string) => void;
+}) {
+  const [name, setName] = useState(book.name);
+  const [active, setActive] = useState(book.active);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Edit price level</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField label="Code" size="small" value={book.code} disabled helperText="Code can't be changed once created." />
+          <TextField label="Name" size="small" value={name} onChange={(e) => setName(e.target.value)} />
+          <FormControlLabel control={<Switch checked={active} onChange={(e) => setActive(e.target.checked)} />} label="Active" />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={busy || !name.trim()}
+          onClick={async () => {
+            setBusy(true);
+            try { await updatePriceBook(book.id, { name: name.trim(), active }); onSaved('Price level updated'); }
+            catch (e) { onErr(e instanceof Error ? e.message : 'Update failed'); } finally { setBusy(false); }
+          }}>{busy ? 'Saving…' : 'Save'}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Shared "add by family/type" bulk picker — used by both the price book and contract editors. */
+function BulkAddItemsDialog({ title, options, itemMeta, onClose, onAdd, onErr }: {
+  title: string;
+  options: ItemOpt[];
+  itemMeta: ItemMeta;
+  onClose: () => void;
+  onAdd: (items: BulkItemInput[]) => Promise<void>;
+  onErr: (e: string) => void;
+}) {
+  const [family, setFamily] = useState('');
+  const [type, setType] = useState('');
+  const [prices, setPrices] = useState<Map<string, string>>(new Map());
+  const [flat, setFlat] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const families = useMemo(() => {
+    const s = new Set<string>();
+    options.forEach((o) => { const f = itemMeta.get(o.qbo_item_id)?.family; if (f) s.add(f); });
+    return [...s].sort();
+  }, [options, itemMeta]);
+
+  const types = useMemo(() => {
+    const s = new Set<string>();
+    options.forEach((o) => {
+      const meta = itemMeta.get(o.qbo_item_id);
+      if (!meta?.type) return;
+      if (family && meta.family !== family) return;
+      s.add(meta.type);
+    });
+    return [...s].sort();
+  }, [options, itemMeta, family]);
+
+  const filtered = useMemo(() => options
+    .filter((o) => {
+      const meta = itemMeta.get(o.qbo_item_id);
+      if (family && meta?.family !== family) return false;
+      if (type && meta?.type !== type) return false;
+      return true;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name)), [options, itemMeta, family, type]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((o) => prices.has(o.qbo_item_id));
+  const someFilteredSelected = filtered.some((o) => prices.has(o.qbo_item_id));
+
+  const toggle = (id: string) => setPrices((m) => {
+    const n = new Map(m);
+    if (n.has(id)) n.delete(id);
+    else n.set(id, itemMeta.get(id)?.unit_price != null ? String(itemMeta.get(id)!.unit_price) : '');
+    return n;
+  });
+
+  const toggleAllFiltered = () => setPrices((m) => {
+    const n = new Map(m);
+    if (allFilteredSelected) filtered.forEach((o) => n.delete(o.qbo_item_id));
+    else filtered.forEach((o) => { if (!n.has(o.qbo_item_id)) n.set(o.qbo_item_id, itemMeta.get(o.qbo_item_id)?.unit_price != null ? String(itemMeta.get(o.qbo_item_id)!.unit_price) : ''); });
+    return n;
+  });
+
+  const applyFlatToSelected = () => setPrices((m) => {
+    const n = new Map(m);
+    [...n.keys()].forEach((id) => n.set(id, flat));
+    return n;
+  });
+
+  const count = prices.size;
+  const allValid = count > 0 && [...prices.values()].every((v) => v.trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0);
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>{title}</DialogTitle>
+      <DialogContent>
+        <Stack spacing={1.5} sx={{ mt: 1 }}>
+          <Stack direction="row" spacing={1.5}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Family</InputLabel>
+              <Select label="Family" value={family} onChange={(e) => { setFamily(e.target.value); setType(''); }}>
+                <MenuItem value="">All families</MenuItem>
+                {families.map((f) => <MenuItem key={f} value={f}>{f}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Type</InputLabel>
+              <Select label="Type" value={type} onChange={(e) => setType(e.target.value)}>
+                <MenuItem value="">All types</MenuItem>
+                {types.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>{filtered.length} item{filtered.length === 1 ? '' : 's'}</Typography>
+          </Stack>
+
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField size="small" label="Set price for selected" value={flat} onChange={(e) => setFlat(e.target.value)} sx={{ width: 180 }} />
+            <Button size="small" disabled={count === 0 || flat.trim() === '' || !Number.isFinite(Number(flat))} onClick={applyFlatToSelected}>
+              Apply to {count} selected
+            </Button>
+          </Stack>
+
+          <Paper variant="outlined" sx={{ maxHeight: 360, overflow: 'auto' }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox size="small" checked={allFilteredSelected}
+                      indeterminate={!allFilteredSelected && someFilteredSelected} onChange={toggleAllFiltered} />
+                  </TableCell>
+                  <TableCell>Item</TableCell>
+                  <TableCell align="right" width={120}>Price</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filtered.map((o) => {
+                  const checked = prices.has(o.qbo_item_id);
+                  return (
+                    <TableRow key={o.qbo_item_id} hover>
+                      <TableCell padding="checkbox"><Checkbox size="small" checked={checked} onChange={() => toggle(o.qbo_item_id)} /></TableCell>
+                      <TableCell>{o.name}</TableCell>
+                      <TableCell align="right">
+                        <TextField size="small" disabled={!checked} value={checked ? (prices.get(o.qbo_item_id) ?? '') : ''}
+                          onChange={(e) => setPrices((m) => new Map(m).set(o.qbo_item_id, e.target.value))}
+                          sx={{ width: 100, '& input': { textAlign: 'right' } }} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>No matching items.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Paper>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={busy || !allValid}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const items: BulkItemInput[] = [...prices.entries()].map(([qbo_item_id, price]) => ({
+                qbo_item_id, item_name: options.find((o) => o.qbo_item_id === qbo_item_id)?.name ?? null, unit_price: Number(price),
+              }));
+              await onAdd(items);
+            } catch (e) { onErr(e instanceof Error ? e.message : 'Bulk add failed'); } finally { setBusy(false); }
+          }}>{busy ? 'Adding…' : `Add ${count} item${count === 1 ? '' : 's'}`}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function CustomerBooksTab({ data, custName, onOk, onErr }: {
+  data: PricingData; custName: Map<string, string>; onOk: (m: string) => void; onErr: (e: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [attaching, setAttaching] = useState(false);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const today = todayStr();
+
+  const bookName = (id: string) => data.books.find((b) => b.id === id)?.name ?? id;
+  const assignedMap = useMemo(() => new Map(data.customerBooks.map((a) => [a.qbo_customer_id, a.price_book_id])), [data.customerBooks]);
+
+  // Which customers are covered by an active contract right now (via chain
+  // membership) — a contract always wins over any book assignment, so these
+  // rows show read-only "Covered by contract" instead of a book picker.
+  const activeContractByCustomer = useMemo(() => {
+    const m = new Map<string, Contract>();
+    for (const c of data.contracts) {
+      if (!c.active) continue;
+      if (c.start_date > today) continue;
+      if (c.end_date && c.end_date < today) continue;
+      for (const loc of c.locations) if (!m.has(loc)) m.set(loc, c);
+    }
+    return m;
+  }, [data.contracts, today]);
+
+  const unassignedCount = useMemo(() => data.customers.filter((c) =>
+    !activeContractByCustomer.has(c.qbo_customer_id) && !assignedMap.has(c.qbo_customer_id)).length,
+  [data.customers, activeContractByCustomer, assignedMap]);
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return data.customers
+      .filter((c) => !q || c.display_name.toLowerCase().includes(q))
+      .map((c) => ({
+        customer: c,
+        contract: activeContractByCustomer.get(c.qbo_customer_id) ?? null,
+        bookId: assignedMap.get(c.qbo_customer_id) ?? null,
+      }))
+      .sort((a, b) => a.customer.display_name.localeCompare(b.customer.display_name));
+  }, [data.customers, search, activeContractByCustomer, assignedMap]);
+
+  return (
+    <Stack spacing={2}>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Customer → price level roster</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Every customer resolves in this order: an active contract, then an explicit price-level
+          assignment below, then the BX-1 Standard default. Attach everyone who isn't on a contract
+          to BX-1 first — after that, add a new price level on the Price books tab and move customers
+          onto it one at a time below.
+        </Typography>
+        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+          <Button variant="contained" disabled={attaching || unassignedCount === 0}
+            onClick={async () => {
+              if (!window.confirm(`Attach ${unassignedCount} customer(s) with no contract and no existing assignment to BX-1 Standard?`)) return;
+              setAttaching(true);
+              try { const r = await bulkAttachDefaultBook('BX-1'); onOk(`Attached ${r.attached} customer(s) to BX-1`); }
+              catch (e) { onErr(e instanceof Error ? e.message : 'Attach failed'); } finally { setAttaching(false); }
+            }}>{attaching ? 'Attaching…' : `Attach ${unassignedCount} unassigned customer(s) to BX-1`}</Button>
+          {unassignedCount === 0 && <Typography variant="body2" color="text.secondary">Every customer is covered by a contract or an explicit price level.</Typography>}
+        </Stack>
+      </Paper>
+
+      <TextField size="small" placeholder="Search customers…" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 260 }} />
+
+      <Paper variant="outlined" sx={{ maxHeight: 560, overflow: 'auto' }}>
+        <Table size="small" stickyHeader>
+          <TableHead><TableRow><TableCell>Customer</TableCell><TableCell>Coverage</TableCell><TableCell width={260} /></TableRow></TableHead>
+          <TableBody>
+            {rows.map(({ customer, contract, bookId }) => (
+              <TableRow key={customer.qbo_customer_id} hover>
+                <TableCell>{customer.display_name}</TableCell>
+                <TableCell>
+                  {contract ? (
+                    <Chip size="small" label={`Contract: ${contract.name}`} />
+                  ) : bookId ? (
+                    <Chip size="small" color="primary" variant="outlined" label={bookName(bookId)} />
+                  ) : (
+                    <Chip size="small" variant="outlined" label="Unassigned (defaults to BX-1)" />
+                  )}
+                </TableCell>
+                <TableCell align="right">
+                  {contract ? (
+                    <Typography variant="body2" color="text.secondary">Covered by contract</Typography>
+                  ) : (
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                      <Select value={bookId ?? ''} displayEmpty disabled={rowBusy === customer.qbo_customer_id}
+                        onChange={async (e) => {
+                          const v = (e.target.value as string) || null;
+                          setRowBusy(customer.qbo_customer_id);
+                          try {
+                            await setCustomerPriceBook(customer.qbo_customer_id, v);
+                            onOk(v ? `${customer.display_name} → ${bookName(v)}` : `${customer.display_name} reverted to default`);
+                          } catch (er) { onErr(er instanceof Error ? er.message : 'Assign failed'); } finally { setRowBusy(null); }
+                        }}>
+                        <MenuItem value="">Default (BX-1)</MenuItem>
+                        {data.books.map((b) => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow><TableCell colSpan={3} sx={{ color: 'text.secondary', fontStyle: 'italic' }}>No customers match your search.</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Stack>
+  );
+}
+
+function ContractEditor({ contract, data, itemMeta, custName, onOk, onErr }: {
+  contract: Contract; data: PricingData; itemMeta: ItemMeta; custName: Map<string, string>;
   onOk: (m: string) => void; onErr: (e: string) => void;
 }) {
   const [name, setName] = useState(contract.name);
@@ -310,8 +629,14 @@ function ContractEditor({ contract, data, custName, onOk, onErr }: {
   const [addItem, setAddItem] = useState<ItemOpt | null>(null);
   const [addItemPrice, setAddItemPrice] = useState('');
   const [addCust, setAddCust] = useState<CustomerOpt | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const guard = async (fn: () => Promise<void>) => { try { await fn(); } catch (e) { onErr(e instanceof Error ? e.message : 'Failed'); } };
+
+  const bulkAddOptions = useMemo(() => {
+    const inContract = new Set(contract.items.map((it) => it.qbo_item_id));
+    return data.items.filter((o) => !inContract.has(o.qbo_item_id));
+  }, [data.items, contract.items]);
 
   return (
     <Stack spacing={2}>
@@ -384,8 +709,18 @@ function ContractEditor({ contract, data, custName, onOk, onErr }: {
               await addContractItem(contract.id, addItem.qbo_item_id, addItem.name, Number(addItemPrice));
               setAddItem(null); setAddItemPrice(''); onOk('Item added');
             })}>Add</Button>
+          <Button variant="outlined" startIcon={<ListPlus size={16} />} onClick={() => setBulkOpen(true)}>Add by family/type…</Button>
         </Stack>
       </Paper>
+
+      {bulkOpen && (
+        <BulkAddItemsDialog title="Add items to contract by family/type" options={bulkAddOptions} itemMeta={itemMeta}
+          onClose={() => setBulkOpen(false)}
+          onAdd={async (items) => {
+            await bulkAddContractItems(contract.id, items);
+            setBulkOpen(false); onOk(`Added ${items.length} item${items.length === 1 ? '' : 's'} to contract`);
+          }} onErr={onErr} />
+      )}
     </Stack>
   );
 }

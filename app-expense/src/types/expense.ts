@@ -84,6 +84,25 @@ export interface ExpenseRequest {
    *  accounting period, no vendor match). Cleared on a successful post. */
   autopost_error?: string | null;
 
+  /** Another expense this one looks like a re-entry of. Advisory: it never
+   *  blocks a save, and only blocks a POST when the twin is already in
+   *  QuickBooks (see netlify/functions/lib/expense-dupes.mjs). */
+  duplicate_of?: string | null;
+  duplicate_reason?: string | null;
+  duplicate_checked_at?: string | null;
+  duplicate_cleared_by?: string | null;
+
+  /** True for an unpaid vendor Bill (posts to QBO as a Bill); false for an
+   *  already-paid receipt (posts as a Purchase). */
+  as_bill?: boolean | null;
+  paid_at?: string | null;
+
+  /** When this bill is due, and how we know. A printed due date beats one
+   *  computed from terms; `due_date_source` records which we had. */
+  due_date?: string | null;
+  payment_terms?: string | null;
+  due_date_source?: 'printed' | 'terms' | 'manual' | null;
+
   // Soft-archive (SF-landed rows): hidden from lists, kept for sync dedup.
   archived_at?: string | null;
   archived_by?: string | null;
@@ -141,6 +160,104 @@ export interface ExpenseSetting {
 export interface CogsAccount {
   id: string;
   label: string;
+}
+
+/** Vendor type — mirrors the ops.vendors CHECK */
+export type VendorType = 'contractor' | 'supplier' | 'service' | 'other';
+
+/** How the vendor prefers to be paid. 'zelle_manual'/'check_manual' are
+ *  recorded-by-hand rails (no API exists / deliberate). */
+export type VendorPaymentPref = 'ach' | 'paypal' | 'venmo' | 'zelle_manual' | 'check_manual';
+
+/** W-9 line 3. `llc_c`/`llc_s` are LLCs that elected corporate treatment and
+ *  are therefore exempt; `llc_p` is a partnership-taxed LLC and is not. */
+export type TaxClassification =
+  | 'individual' | 'sole_prop' | 'partnership'
+  | 'c_corp' | 's_corp'
+  | 'llc_c' | 'llc_s' | 'llc_p'
+  | 'trust' | 'other';
+
+export type VendorOnboardStatus = 'new' | 'invited' | 'docs_pending' | 'complete';
+
+/** Coverage requirements riding ops.vendors.requirements (jsonb). Compliance
+ *  status against these is computed where displayed — nothing stored. */
+export interface VendorRequirements {
+  gl_each_occurrence?: number | null;
+  wc_required?: boolean;
+  auto_required?: boolean;
+  additional_insured_required?: boolean;
+}
+
+/** Vendor registry row — mirrors ops.vendors (Vendor Portal Phase 1). */
+export interface Vendor {
+  id: string;
+  display_name: string;
+  legal_name: string | null;
+  vendor_type: VendorType;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  /** → ops.qbo_vendors.qbo_vendor_id (the daily QBO mirror); null until linked. */
+  qbo_vendor_id: string | null;
+  /** → ops.insured_parties.id — the compliance-vault party whose COI/W-9 docs
+   *  this vendor's compliance chips read. Null until document filing is set up. */
+  insured_party_id: string | null;
+  /** Stripe Global Payouts recipient Account id (acct_…) — the ONLY Stripe
+   *  datum stored. Bank details live with Stripe, collected on their hosted
+   *  onboarding page, never here. */
+  stripe_recipient_id?: string | null;
+  payment_method_pref: VendorPaymentPref | null;
+  /** Venmo @handle or PayPal email — the ONLY payment datum stored.
+   *  Bank account numbers live with the payment rail, never here. */
+  payment_handle: string | null;
+  default_terms: string | null;
+  requirements: VendorRequirements;
+  w9_status: 'missing' | 'on_file';
+  ein_last4: string | null;
+
+  // ── 1099 ──
+  /** W-9 line 3. Drives whether a 1099 is expected when is_1099 is unset. */
+  tax_classification: TaxClassification | null;
+  /** Explicit override. NULL = derive from tax_classification, because the
+   *  corporate exemption has carve-outs (attorneys, medical) that depend on
+   *  what the vendor DOES, not on a checkbox. */
+  is_1099: boolean | null;
+  tin_type: 'ein' | 'ssn' | null;
+  w9_received_at: string | null;
+  /** W-9 certification 2 struck, or an IRS B-notice — 24% withholding. */
+  backup_withholding: boolean;
+  tax_address: Record<string, unknown> | null;
+  onboard_status: VendorOnboardStatus;
+  notes: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Row from the ops.qbo_vendors daily mirror (read-only here). */
+export interface QboVendorMirror {
+  qbo_vendor_id: string;
+  display_name: string;
+  company_name: string | null;
+  active: boolean;
+  email: string | null;
+  phone: string | null;
+}
+
+/** Compliance-vault document (subset of ops.compliance_documents we render). */
+export interface VendorComplianceDoc {
+  id: string;
+  category: 'insurance' | 'permit' | 'food_safety' | 'safety' | 'tax' | 'other';
+  doc_type: string;
+  issuer: string | null;
+  reference_number: string | null;
+  issue_date: string | null;
+  expiration_date: string | null;
+  file_name: string | null;
+  storage_path: string | null;
+  archived_at: string | null;
 }
 
 /** Loaded settings from the settings table */

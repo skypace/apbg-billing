@@ -282,28 +282,30 @@ export default function ApprovalPage() {
         </div>
 
         {request.line_items && request.line_items.length > 0 && (
-          <table className="ap-items">
-            <thead><tr>
-              <th>Item</th><th className="r">Qty</th><th className="r">Price</th><th className="r">Line</th>
-            </tr></thead>
-            <tbody>
-              {request.line_items.map((li, i) => {
-                const amt = li.amount ?? (li.qty || 1) * (li.unit_price || 0);
-                return (
-                  <tr key={i}>
-                    <td>{li.description || `Line ${i + 1}`}</td>
-                    <td className="r">{li.qty || 1}</td>
-                    <td className="r">{formatCurrency(li.unit_price || 0)}</td>
-                    <td className="r" style={{ fontWeight: 600 }}>{formatCurrency(amt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot><tr>
-              <td colSpan={3} className="r">Total</td>
-              <td className="r ap-items-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</td>
-            </tr></tfoot>
-          </table>
+          <div className="data-table-shell">
+            <table className="data-table ap-items">
+              <thead><tr>
+                <th>Item</th><th className="r">Qty</th><th className="r">Price</th><th className="r">Line</th>
+              </tr></thead>
+              <tbody>
+                {request.line_items.map((li, i) => {
+                  const amt = li.amount ?? (li.qty || 1) * (li.unit_price || 0);
+                  return (
+                    <tr key={i}>
+                      <td>{li.description || `Line ${i + 1}`}</td>
+                      <td className="r">{li.qty || 1}</td>
+                      <td className="r">{formatCurrency(li.unit_price || 0)}</td>
+                      <td className="r" style={{ fontWeight: 600 }}>{formatCurrency(amt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr>
+                <td colSpan={3} className="r">Total</td>
+                <td className="r ap-items-total">{request.total_amount ? formatCurrency(request.total_amount) : '—'}</td>
+              </tr></tfoot>
+            </table>
+          </div>
         )}
       </div>
 

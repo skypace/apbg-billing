@@ -18,6 +18,27 @@ This SOP is the end-to-end procedure for bringing a customer onto APBG systems a
 
 Customer admin tabs: **Active** (set up on the web) / **Inactive** (open account, not set up) / **Closed** (deactivated).
 
+## Which system does a new customer start in?
+
+**Always brix-order.** It is the front door for every customer, because product and delivery is the universal arm and the proven pipeline lives there: `/apply` → credit application → Service Fusion customer → setup ticket → QBO sync → portal login.
+
+The **BRIX Foodservice Portal** (`/melt/`) is not a second onboarding. Foodservice equipment management is a different arm of the business that only *named individuals at some customers* ever use, so it is an **entitlement granted during onboarding here**, which provisions the portal tenant automatically.
+
+| Customer buys… | Onboard in | Foodservice portal? |
+|---|---|---|
+| Product + delivery only | brix-order | no |
+| Product + foodservice equipment management | brix-order | yes — tick the entitlement, then invite the specific people |
+| A franchisee of an existing brand | brix-order, under its own QuickBooks parent | yes if they manage equipment — it lands as its own tenant under the brand |
+
+**The grey area, resolved by contract rather than by system:** Alameda Soda fountain and ice equipment sold or leased under an *Alameda Soda* contract is beverage-arm revenue that is nonetheless *managed* in the foodservice portal (install, PM, warranty). Any other foodservice equipment is purely the equipment arm. Same portal, different contract — and the contract says which P&L it belongs to. Do not invent a new customer type for this.
+
+### Policy
+
+- A franchisee is **its own customer**, not a location of its franchisor. We sell to the operating company (e.g. Whiplash Holdings), it has its own QuickBooks parent, and it gets its own tenant. The brand link is for roll-up reporting only and merges no data.
+- **Granting the entitlement creates no login.** Portal access is invited per person afterwards. If someone says "we onboarded them but they can't get in", that is the expected state — invite them.
+- Provisioning is **idempotent on the QuickBooks customer id**, so re-ticking or a retried call returns the existing tenant instead of creating a duplicate. Never work around a perceived failure by creating the tenant a second time by hand.
+- Imported locations arrive as **Planning / not trading, with no street address** — on a chain sub-customer QuickBooks holds the corporate address. Fill each one in as the store actually opens.
+
 ## New-customer application (/apply)
 
 ### Policy

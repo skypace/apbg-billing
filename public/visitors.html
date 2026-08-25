@@ -112,12 +112,21 @@ input::placeholder,textarea::placeholder{color:#5B7F94}
          margin:0!important;overflow:hidden!important;break-inside:avoid;page-break-inside:avoid;
          break-after:avoid;page-break-after:avoid}
 }
+
+.kiosk-app-brand{display:flex;align-items:center;gap:12px;min-width:0}
+.kiosk-app-brand img{width:48px;height:48px;flex:0 0 48px;object-fit:contain}
+.kiosk-app-copy{display:flex;flex-direction:column;gap:3px;line-height:1.08;font-weight:750;letter-spacing:-.02em}
+.kiosk-app-copy span{font-size:.68rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase;opacity:.62}
+@media(max-width:640px){.kiosk-app-brand img{width:40px;height:40px;flex-basis:40px}.kiosk-app-copy{font-size:.92rem}.kiosk-app-copy span{font-size:.57rem}}
 </style>
 </head>
 <body>
 
 <header class="noprint">
-  <div class="brand">Alameda Point Beverage Group<span>Hangar 200 &middot; 1951 Monarch St, Alameda CA</span></div>
+  <div class="kiosk-app-brand">
+    <img src="https://alamedapointbg.com/app-icons/visitors-light.png" alt="">
+    <div class="kiosk-app-copy">Visitor Kiosk<span>Brix · APBG &nbsp;•&nbsp; Hangar 200, Alameda</span></div>
+  </div>
   <div class="clock" id="clock"></div>
 </header>
 

@@ -492,6 +492,12 @@ export async function generateGammaProposal(data: ProposalBuilderData): Promise<
   });
 }
 
+// Gamma generations are async: the POST above returns a generationId only.
+// Poll this until status flips to 'created' (deck + PDF URLs) or 'error'.
+export async function checkGammaProposal(generationId: string): Promise<GammaProposalResult> {
+  return apiFetch<GammaProposalResult>(`${GAMMA_PROXY_URL}?generationId=${encodeURIComponent(generationId)}`);
+}
+
 export function catalogItemToProposalEquipment(item: EquipmentCatalogItem, quantity = 1): ProposalEquipment {
   return {
     catalogItemId: item.id,

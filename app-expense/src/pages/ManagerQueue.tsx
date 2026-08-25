@@ -38,16 +38,16 @@ export default function ManagerQueue() {
         <Button variant="ghost" size="icon" onClick={() => navigate('')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-xl font-bold tracking-tight">Awaiting Your Approval</h1>
+        <h1 className="page-title">Awaiting Your Approval</h1>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : requests.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
+          <CardContent className="feedback-state">
             <CheckCircle className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">All caught up — nothing to approve.</p>
           </CardContent>

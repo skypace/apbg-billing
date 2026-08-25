@@ -7,6 +7,7 @@ export type LocationKind =
   | 'van'
   | 'co_packer'
   | 'customer_consigned'
+  | 'distributor'
   | 'in_transit'
   | 'adjustment';
 

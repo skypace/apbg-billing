@@ -21,6 +21,7 @@ const KIND_OPTIONS: { value: LocationKind; label: string }[] = [
   { value: 'van',                label: 'Van'                 },
   { value: 'co_packer',          label: 'Co-Packer'           },
   { value: 'customer_consigned', label: 'Customer Consigned'  },
+  { value: 'distributor',        label: 'Distributor'         },
 ];
 
 const ENTITY_OPTIONS: LocationEntity[] = ['brix', 'freeflow', 'shared'];

@@ -15,7 +15,7 @@
   #    legacy single-file SPA at public/sales/ remains served until the migration
   #    is complete.
   # 4. Build the Brix Expense app; output goes to public/expense/.
-  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense"
+  command = "node architecture/lint-manifest.mjs && node architecture/lint-inline-scripts.mjs && mkdir -p public/docs && cp -r docs/. public/docs/ && npm install --prefix app && npm run build --prefix app && npm install --prefix app-expense && npm run build --prefix app-expense && npm install --prefix app-distributor && npm run build --prefix app-distributor"
   publish = "public"
   functions = "netlify/functions"
 
@@ -40,7 +40,13 @@
 [functions."sf-receipt-pull"]
   timeout = 26
 
+[functions."handbook-sweep"]
+  timeout = 26
+
 [functions."health-watchdog"]
+  timeout = 60
+
+[functions."health-watchdog-cron"]
   timeout = 60
 
 [functions."master-health"]
@@ -112,6 +118,15 @@
   to = "/visitors.html"
   status = 200
 
+# Vendor onboarding intake — the one-time link vendors get by email (Vendor
+# Portal Phase 2). DELIBERATELY PUBLIC (kiosk recipe): a vendor cannot log in;
+# the token in ?t= is the gate and all writes go through the service-role
+# function vendor-onboard. The gateway proxies /vendor-onboarding here.
+[[redirects]]
+  from = "/vendor-onboarding"
+  to = "/vendor-onboard.html"
+  status = 200
+
 # qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
   from = "/expense/api/qbo-pos-preview"
@@ -166,6 +181,23 @@
 [[redirects]]
   from = "/expense/*"
   to = "/expense/index.html"
+  status = 200
+
+# ── Sub-Distributor Portal (app-distributor/ → public/distributor/) ──
+# External partner portal (Origins Soda Co., Desert Beverage). Same dual-shape
+# API pattern as Brixpense: direct-site traffic arrives at /distributor/api/…,
+# gateway traffic arrives with the prefix stripped. No functions use these
+# routes yet — the portal is pure PostgREST + RPC today — but the rule keeps
+# the pattern consistent for when one lands.
+[[redirects]]
+  from = "/distributor/api/*"
+  to = "/api/:splat"
+  status = 200
+
+# SPA fallback (must come after the api rule).
+[[redirects]]
+  from = "/distributor/*"
+  to = "/distributor/index.html"
   status = 200
 
 # Old /ops/ path → /sales/ (kept for any saved bookmarks)

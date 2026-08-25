@@ -4,7 +4,7 @@
 <script src="maintenance-banner.js"></script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <script>if(location.hostname.endsWith('.netlify.app'))location.replace('https://alamedapointbg.com/control'+location.search);</script>
-<title>Master Control — APBG Systems</title>
+<title>BRIXPENSE — System Control</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/billing/auth.js"></script>
 <style>
@@ -83,19 +83,30 @@ header .links a:hover{color:#1F4E79}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .pulsing{animation:pulse 2s ease-in-out infinite}
+
+.app-title{display:flex;align-items:center;gap:12px;min-width:0}
+.app-title img{width:44px;height:44px;flex:0 0 44px;object-fit:contain}
+.app-title-copy{display:flex;flex-direction:column;gap:3px;line-height:1.08}
+.app-title-copy strong{font-size:1.05rem;letter-spacing:-.02em}
+.app-title-copy small{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748B}
+@media(max-width:640px){.app-title img{width:36px;height:36px;flex-basis:36px}.app-title-copy strong{font-size:.9rem}}
 </style>
+<link rel="stylesheet" href="/billing/brixpense.css?v=1">
 </head>
-<body>
+<body class="page-control">
 
 <!-- Loading state while auth check runs -->
-<div id="authLoading" class="gate"><div class="gate-card"><h1>Master Control</h1><p>Checking access…</p></div></div>
+<div id="authLoading" class="gate"><div class="gate-card"><div class="brand-mark gate-mark" aria-hidden="true">B</div><h1>System control</h1><p>Checking your administrator access…</p></div></div>
 
 <!-- Dashboard -->
 <div id="app" style="display:none">
 <header>
-  <h1>🎛️ Master Control — APBG Systems</h1>
+  <div class="app-title">
+    <img src="https://alamedapointbg.com/app-icons/control-light.png" alt="">
+    <div class="app-title-copy"><strong>Control Center</strong><small>Brix · APBG systems</small></div>
+  </div>
   <div class="links">
-    <a href="https://apbg-billing.netlify.app" target="_blank">APBG Billing</a>
+    <a href="https://apbg-billing.netlify.app" target="_blank">BRIXPENSE</a>
     <a href="https://melt-dashboard.netlify.app" target="_blank">Melt Dashboard</a>
     <a href="https://apbg-billing.netlify.app/setup.html" target="_blank">Setup</a>
   </div>
@@ -104,13 +115,13 @@ header .links a:hover{color:#1F4E79}
 <div class="container">
   <div class="refresh-bar">
     <div class="last" id="lastCheck">Checking systems...</div>
-    <button id="refreshBtn" onclick="refreshAll()">↻ Refresh All</button>
+    <button id="refreshBtn" onclick="refreshAll()">Refresh all</button>
   </div>
 
   <div class="sites-grid" id="sitesGrid"></div>
 
   <div class="keepalive-section">
-    <h2>🫀 Token Keep-Alive Status</h2>
+    <h2>Token keep-alive status</h2>
     <div class="keepalive-grid" id="keepaliveGrid"></div>
   </div>
 
@@ -432,10 +443,15 @@ function getCheckStatus(siteKey, checkName) {
   if (!site || site.status === 'error') return { ok: false, status: 'unknown', message: 'Unreachable' };
   const d = site.data;
 
-  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'error', detail:'...'}, ... } }
+  // APBG health-watchdog format: { checks: { qbo: {status:'ok'|'warn'|'error'|'skipped', detail:'...'}, ... } }
   if (d.checks && d.checks[checkName]) {
     const c = d.checks[checkName];
     const isOk = c.ok === true || c.status === 'ok';
+    // 'skipped' is deliberate (e.g. ResQ auto-login disabled) — render it
+    // neutral gray, not a red fail that reads as an outage.
+    if (!isOk && c.status === 'skipped') {
+      return { ok: false, status: 'unknown', message: c.detail || c.message || 'Check skipped' };
+    }
     return { ok: isOk, status: isOk ? 'ok' : (c.status === 'warn' ? 'warn' : 'fail'), message: c.detail || c.message || '' };
   }
   // Melt health-check format: { qbo: {ok,message}, cache: {...}, resq: {...} }
@@ -452,7 +468,15 @@ function getOverall(siteKey) {
   if (site.status === 'auth') return 'auth';
   if (site.status === 'error') return 'down';
   const d = site.data;
-  if (d.overall) return d.overall === 'ok' ? 'healthy' : d.overall;
+  // Translate the health-watchdog vocabulary (ok/warn/error) onto the pill
+  // classes (healthy/degraded/down) — melt's health-check already speaks the
+  // pill vocabulary and passes through untouched.
+  if (d.overall) {
+    if (d.overall === 'ok') return 'healthy';
+    if (d.overall === 'warn') return 'degraded';
+    if (d.overall === 'error') return 'down';
+    return d.overall;
+  }
   return 'unknown';
 }
 
@@ -506,7 +530,7 @@ function renderKeepalive() {
     if (sd?.status === 'ok') {
       const d = sd.data;
       // Melt format has cache.lastRefresh
-      const lr = d.cache?.lastRefresh || d.checks?.syncFreshness?.lastSync || d.timestamp || d.checkedAt;
+      const lr = d.cache?.lastRefresh || d.timestamp || d.checkedAt;
       if (lr) {
         lastRefresh = new Date(lr).toLocaleString();
         const mins = Math.round((Date.now() - new Date(lr).getTime()) / 60000);

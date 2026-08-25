@@ -6,6 +6,9 @@ function getBlobStore() {
     name: "qbo-tokens",
     siteID: process.env.NETLIFY_SITE_ID,
     token: process.env.NETLIFY_ACCESS_TOKEN,
+    // Must match qbo-helpers.mjs: strong reads so a function invoked right
+    // after re-auth can't read the pre-auth (dead) refresh token.
+    consistency: "strong",
   });
 }
 

@@ -1,13 +1,13 @@
-# Companion Apps — Fountain DAM, Melt, APBG Ops, ERLS, MCP Servers
+# Companion Apps — Fountain DAM, Foodservice Portal, APBG Ops, ERLS, MCP Servers
 
 > Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
 
-This chapter is a quick reference to the APBG systems that don't get their own handbook chapter (yet): the Fountain brand-asset library, the Melt equipment portal, the APBG Ops KPI dashboard, the Brix ERLS leasing platform, the headless ResQ sync engine, and the MCP servers wired into Claude. For each: what it is, where it lives, who uses it, and where to read more. Where our documentation is thin, this chapter says so and points at the repo and the architecture handbook instead of guessing — the master system map is [`activespacescience/Skilliosis_Mytosis_Architecture/ARCHITECTURE.md`](https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md).
+This chapter is a quick reference to the APBG systems that don't get their own handbook chapter (yet): the Fountain brand-asset library, the BRIX Foodservice Portal, the APBG Ops KPI dashboard, the Brix ERLS leasing platform, the headless ResQ sync engine, and the MCP servers wired into Claude. For each: what it is, where it lives, who uses it, and where to read more. Where our documentation is thin, this chapter says so and points at the repo and the architecture handbook instead of guessing — the master system map is [`activespacescience/Skilliosis_Mytosis_Architecture/ARCHITECTURE.md`](https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md).
 
 | App | URL | Repo | Users |
 |---|---|---|---|
 | Fountain DAM | https://fountain-dam.netlify.app (linked from the hub `fountain` tile) | `skypace/DAM-Fountain` | Marketing / sales / anyone needing brand art |
-| Melt Dashboard | https://alamedapointbg.com/melt/ | `skypace/melt-dashboard` | Melt account team (melt-* roles) |
+| BRIX Foodservice Portal | https://alamedapointbg.com/melt/ | `skypace/melt-dashboard` | `melt-*` roles + per-user `melt` module grants |
 | APBG Ops | https://alamedapointbg.com/operations/ | `skypace/APBG-OPS` | Owners + ops (operations / ops-* roles) |
 | Brix ERLS (Leasing/Rental) | Railway-hosted (see repo) | `skypace/APBG-Leasing-Rental` | Ops/finance managing rental & lease contracts |
 | apbg-resq-sync | Headless (managed from /control) | `skypace/apbg-resq-sync` | Superadmins via Master Control |
@@ -24,15 +24,35 @@ This chapter is a quick reference to the APBG systems that don't get their own h
 
 **Docs/source:** `skypace/DAM-Fountain`. This handbook has no UI walkthrough for it — the app is young; check the repo README and the architecture handbook for current state.
 
-## Melt Dashboard
+## BRIX Foodservice Portal (was "Melt Dashboard")
 
-**What:** The Melt equipment portal — statements, payment schedule, invoices, applied payments, stores, and equipment tracking for The Melt account.
+**What:** The foodservice **equipment** portal — quotes, orders, allocation from the warehouse, BOLs and shipping, install confirmation, job P&L, purchase orders, contracts and catalog, PM and warranties. It was built for The Melt and renamed on 2026-08-19 when it became **multi-tenant**: The Melt, Starbird Chicken and Starbird's franchisees all live in it, and you pick the customer inside the app.
 
-**Where:** **https://alamedapointbg.com/melt/**, proxied from `melt-dashboard.netlify.app` (repo `skypace/melt-dashboard`). It shares the APBG Supabase auth project and its health is monitored on the Master Control grid (QuickBooks · Data Cache · ResQ checks). It runs its **own** Intuit app against the shared QBO realm — reconnect its QBO from its own card on Master Control, never from another app's setup page.
+**Where:** **https://alamedapointbg.com/melt/**, proxied from `melt-dashboard.netlify.app` (repo `skypace/melt-dashboard`). The `/melt/` path and the `melt` app key are unchanged — only the name and the tile art moved, so bookmarks, role wiring and maintenance keys all still resolve. It shares the APBG Supabase auth project and its health is monitored on the Master Control grid (QuickBooks · Data Cache · ResQ checks). It runs its **own** Intuit app against the shared QBO realm — reconnect its QBO from its own card on Master Control, never from another app's setup page.
 
-**Who uses it:** the melt-* roles, with per-role tab/section grants (e.g. `melt-billing` sees payments only, `melt-general` sees equipment only) — see the role table in [APBG Gateway](#/01-gateway-hub).
+**Who uses it:** the four `melt-*` roles with per-role tab/section grants (e.g. `melt-billing` sees payments only, `melt-general` sees equipment only), plus superadmin/admin. **As of 2026-08-21 the tile is an explicit grant, not a role default** — `melt` used to sit in the `viewer` access array, and `viewer` is the fallback for any login with no role, so roughly 91 brix-order *customer* logins were being offered this portal. Product and delivery is the universal arm; foodservice equipment management is a different arm only named individuals at some customers ever touch. To give one person at a customer access, add `melt` to their `user_metadata.modules` in **Staff & Access → App access** on the gateway — do not hand them a `melt-*` role for it.
 
-**Docs/source:** `skypace/melt-dashboard` and the architecture handbook. A detailed user chapter is a candidate for a future handbook revision; this handbook does not document its screens.
+### Franchise model — a franchisee is its own customer
+
+A brand's franchisees are **separate tenants**, each with its own stores, contracts, orders, equipment, logins and QuickBooks parent. That is what they are commercially: we sell to Whiplash Holdings, not to Starbird corporate. `customers.parent_customer_id` exists only so the network rolls up in one place — **it merges no data**, and it must not be turned into a brand-wide view over its franchisees' orders or pricing.
+
+- `customer_kind` is `brand`, `franchisee` or `standalone`. One level deep, enforced by database triggers (a franchisee needs a parent, the parent must be a `brand`, nothing self-parents, and you cannot demote a brand that still has franchisees).
+- **Access follows the brand:** access to a brand carries its franchisees, so corporate sees every franchise without anyone re-editing an access list when a new one is added. A franchisee login is scoped to its own row and expands to nothing.
+- **Setup → Franchises** is the roll-up: the brand's corporate line, each franchisee under it, network totals, *+ Add franchisee* (creates the tenant and optionally imports its QuickBooks locations), *Attach existing…*, and *Open portal* per row.
+
+Live today: **Starbird Chicken** (brand, 15 corporate locations) with **Whiplash Holdings**, **Keystone Foods** and **Tastes on the Fly** as franchisees — 19 locations in total.
+
+### How a tenant comes into existence
+
+**You do not onboard a customer here.** brix-order is the front door for every customer (see [SOP-2 Customer Lifecycle](#/22-sop-customer-lifecycle)). Foodservice is an **entitlement granted there**, which calls this portal's `POST /api/provision-tenant` and the tenant appears — branding inherited from the brand, QuickBooks sub-customers imported as stores.
+
+Two things worth knowing when it lands:
+
+- **Provisioning creates no login.** Portal access is a Supabase user invited per person, which is the whole point of the entitlement being per-individual. Invite them at *Setup → Customers → [customer] → Users*.
+- **Imported locations arrive as Planning / not-trading**, and never with a street address — on a chain sub-customer QuickBooks holds the *corporate* address, which is how every Melt store once ended up at 925 Market. Flip `operating` and fill the address as each store actually opens.
+- **Set the Service Fusion customer name** if equipment jobs will be dispatched. Without it dispatch fails loudly on purpose, rather than filing the job against the wrong account.
+
+**Docs/source:** `skypace/melt-dashboard` and the architecture handbook. A detailed screen-by-screen user chapter is still a candidate for a future revision; this chapter documents the model and the entry points, not the screens.
 
 ## APBG Ops (Key Company Metrics)
 

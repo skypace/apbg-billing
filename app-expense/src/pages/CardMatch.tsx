@@ -130,7 +130,7 @@ function ExpenseCell({ e }: { e: CcExpense }) {
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="text-sm font-bold tracking-tight mt-6 mb-2">{children}</h2>;
+  return <h2 className="section-title mt-6 mb-2">{children}</h2>;
 }
 
 export default function CardMatch() {
@@ -262,11 +262,11 @@ export default function CardMatch() {
   };
 
   if (isSuperadmin === null) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="feedback-state"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
   if (!isSuperadmin) {
     return (
-      <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
+      <Card><CardContent className="feedback-state">
         Card Connection Services is superadmin-only.
       </CardContent></Card>
     );
@@ -282,10 +282,10 @@ export default function CardMatch() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="page-title flex items-center gap-2">
             <CreditCard className="h-5 w-5" /> Card Connection Services
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="page-description">
             Assign card last-4s to their users and merge the QBO credit-card/expense feed with Brixpense records.
           </p>
         </div>
@@ -318,7 +318,7 @@ export default function CardMatch() {
 
       {data && (
         <Card>
-          <CardContent className="pt-2 pb-6">
+          <CardContent className="p-5 pt-4 sm:p-6 sm:pt-5">
             {data.card_summary.length > 0 && (
               <>
                 <SectionTitle>💳 Cardholders ({data.card_summary.length} cards seen) — assign each card's last-4 to its user</SectionTitle>
