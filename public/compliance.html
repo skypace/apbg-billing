@@ -1748,7 +1748,9 @@ hiddenFile.style.display = 'none';
 document.body.appendChild(hiddenFile);
 
 document.addEventListener('click', async (e) => {
-  const fb = e.target.closest('.filebtn');
+  // [data-path] scopes this to bucket documents — the visitor Photo button is
+  // also a .filebtn but carries data-vphoto and is handled with the visitor log.
+  const fb = e.target.closest('.filebtn[data-path]');
   if(fb){
     const path = fb.getAttribute('data-path');
     const name = fb.getAttribute('data-name') || (path || '').split('/').pop() || 'document';

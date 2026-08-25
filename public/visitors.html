@@ -87,6 +87,15 @@ input::placeholder,textarea::placeholder{color:#5B7F94}
 .badge .bot{border-top:1px solid #CBD5E1;margin-top:.06in;padding-top:.05in;display:flex;justify-content:space-between;
             font-size:6.5pt;color:#475569}
 .badge .bot b{font-family:'JetBrains Mono',ui-monospace,monospace;color:#0B1B26;font-size:7.5pt}
+.people{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.person{border:1px solid #24506B;background:#0E2230;color:#E8F0F5;font:inherit;text-align:left;
+  border-radius:12px;padding:18px 20px;cursor:pointer;display:flex;justify-content:space-between;
+  align-items:center;gap:14px;width:100%}
+.person:hover{border-color:#4F9BC4;background:#16344E}
+.person:disabled{opacity:.55;cursor:progress}
+.person .pn{font-size:1.18rem;font-weight:800;line-height:1.2}
+.person .pc{font-size:.85rem;color:#8FB3C4;margin-top:3px}
+.person .go{font-size:.8rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#F4B400;flex-shrink:0}
 .done{text-align:center}
 .done .tick{font-size:3rem;line-height:1}
 @media print{
@@ -224,14 +233,17 @@ input::placeholder,textarea::placeholder{color:#5B7F94}
 
     <section id="s-out" class="noprint" style="display:none">
       <h1>Signing out</h1>
-      <p class="lead">Enter the badge number from your pass &mdash; it looks like <b>V-20260818-004</b>.</p>
-      <label for="f_badge">Badge number</label>
-      <input id="f_badge" type="text" autocapitalize="characters" placeholder="V-&hellip;">
+      <p class="lead">What&rsquo;s your first name? We&rsquo;ll find you on the list &mdash; then just tap your name.</p>
+      <label for="f_first">First name</label>
+      <input id="f_first" type="text" autocapitalize="words" autocomplete="off" placeholder="e.g. Maria">
       <div class="acts">
         <button class="btn ghost" onclick="go('welcome')">&larr; Back</button>
-        <button class="btn" onclick="signOut()">Sign me out</button>
+        <button class="btn" id="findBtn" onclick="findMe()">Find me</button>
       </div>
       <div class="err" id="e-out" style="display:none"></div>
+      <div id="outList" class="people" style="display:none"></div>
+      <p class="muted" id="outHint" style="margin-top:18px;display:none">
+        Not you? Type a bit more of your name, or ask at the office &mdash; they can sign you out.</p>
     </section>
 
     <section id="s-outdone" class="noprint" style="display:none">
@@ -549,30 +561,88 @@ function renderBadge(data){
 }
 
 // SIGN OUT
-function signOut(){
+// Nobody at a door remembers a badge number, and reading one off a lanyard while
+// holding a laptop is worse. So: type a first name, see who with that name is on
+// site right now, tap yourself. The badge QR still works and skips both steps.
+function fmtIn(ts){
+  try{ return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+  catch(e){ return ''; }
+}
+
+function findMe(){
   err('out', '');
-  var badge = document.getElementById('f_badge').value.trim().toUpperCase();
-  if(badge.length < 5){ err('out', 'Enter the badge number from your pass.'); return; }
-  fetch(API_OUT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ badge_number: badge }) })
+  var list = document.getElementById('outList');
+  var hint = document.getElementById('outHint');
+  list.style.display = 'none'; hint.style.display = 'none';
+  var first = document.getElementById('f_first').value.trim();
+  if(first.length < 2){ err('out', 'Type at least the first two letters of your first name.'); return; }
+
+  var btn = document.getElementById('findBtn');
+  btn.disabled = true; btn.textContent = 'Looking…';
+  fetch(API_OUT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ action: 'find', first_name: first }) })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(res){
+      if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Could not look that up');
+      var m = res.data.matches || [];
+      if(!m.length){
+        err('out', 'We can\'t find anyone signed in under that name. Check the spelling, or ask at the office.');
+        return;
+      }
+      list.innerHTML = m.map(function(v){
+        return '<button class="person" data-out-id="' + esc(v.id) + '">' +
+                 '<span><span class="pn">' + esc(v.name) + '</span>' +
+                 '<span class="pc">' + (v.company ? esc(v.company) + ' &middot; ' : '') +
+                 'here since ' + esc(fmtIn(v.signed_in_at)) + '</span></span>' +
+                 '<span class="go">Sign out &rarr;</span></button>';
+      }).join('');
+      list.style.display = 'flex';
+      hint.style.display = 'block';
+    })
+    .catch(function(e){ err('out', e.message); })
+    .then(function(){ btn.disabled = false; btn.textContent = 'Find me'; });
+}
+
+// One delegated handler so the buttons can be rebuilt on every search.
+document.getElementById('outList').addEventListener('click', function(e){
+  var b = e.target.closest ? e.target.closest('[data-out-id]') : null;
+  if(!b) return;
+  b.disabled = true;
+  b.querySelector('.go').textContent = 'Signing out…';
+  signOut({ id: b.getAttribute('data-out-id') });
+});
+
+document.getElementById('f_first').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ e.preventDefault(); findMe(); }
+});
+
+function signOut(who){
+  err('out', '');
+  fetch(API_OUT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(who) })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
       if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Sign-out failed');
       var data = res.data;
       document.getElementById('outName').textContent = 'Thanks, ' + String(data.full_name || '').split(' ')[0] + '!';
       document.getElementById('outMsg').textContent = data.already
-        ? 'You were already signed out at ' + new Date(data.signed_out_at).toLocaleTimeString() + '. Safe travels.'
-        : 'Signed out at ' + new Date(data.signed_out_at).toLocaleTimeString() + '. Please leave your badge in the tray on your way out.';
+        ? 'You were already signed out at ' + fmtIn(data.signed_out_at) + '. Safe travels.'
+        : 'Signed out at ' + fmtIn(data.signed_out_at) + '. Please leave your badge in the tray on your way out.';
       go('outdone');
     })
-    .catch(function(e){ err('out', e.message); });
+    .catch(function(e){
+      err('out', e.message);
+      var b = document.querySelector('#outList [data-out-id][disabled]');
+      if(b){ b.disabled = false; b.querySelector('.go').innerHTML = 'Sign out &rarr;'; }
+    });
 }
 
-// The badge QR lands here: /visitors?out=V-20260818-004
+// The badge QR lands here: /visitors?out=V-20260818-004 — scanning it should
+// finish the job, not drop them on a form, so this signs out straight away.
 (function(){
   var m = /[?&]out=([^&]+)/.exec(location.search);
   if(!m) return;
   go('out');
-  document.getElementById('f_badge').value = decodeURIComponent(m[1]).toUpperCase();
+  signOut({ badge_number: decodeURIComponent(m[1]).trim().toUpperCase() });
 })();
 </script>
 </body>

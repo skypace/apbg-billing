@@ -1,10 +1,17 @@
 // visitor-signout.mjs — the other half of the front-door kiosk.
 //
-// Public by design: a visitor taps "Sign out" on the kiosk or scans the QR on
-// their badge, gives their badge number, and the visit closes. Nothing is
-// returned but a confirmation, and only a badge that is currently signed in can
-// be closed, so the worst a stranger can do with the endpoint is guess badge
-// numbers to sign someone out — which staff can undo from the visitor log.
+// Public by design: a visitor taps "Sign out" on the kiosk, types their first
+// name, and taps themselves off the on-site list. (Scanning the QR on their
+// badge still works and skips straight to the confirmation.) Nothing is
+// returned but a confirmation, and only a visit that is currently open can be
+// closed, so the worst a stranger can do is sign someone out — which staff can
+// undo from the visitor log.
+//
+// `action:'find'` is the name lookup behind that list. It is deliberately
+// minimal-disclosure: only people CURRENTLY ON SITE, only first name + last
+// initial, company, and time in — never an email, phone, purpose or photo. A
+// person standing in our lobby can read the same thing off the badge of anyone
+// walking past, so it discloses nothing the front door doesn't already.
 //
 // The on-site list this maintains is what an evacuation head-count runs on, so
 // closing a visit matters more than it looks.
@@ -49,9 +56,40 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return json(400, { error: 'Expected JSON.' }); }
 
+  // ── Name lookup: who with this first name is on site right now? ──────────
+  if (body.action === 'find') {
+    // Strip anything that isn't part of a name before it reaches a PostgREST
+    // filter, and require two characters so a single letter can't list the
+    // whole building.
+    const q = String(body.first_name || '').replace(/[^A-Za-z \-']/g, '').trim().slice(0, 40);
+    if (q.length < 2) return json(400, { error: 'Type at least the first two letters of your first name.' });
+    let rows;
+    try {
+      rows = await ops('GET',
+        `visitor_visits?select=id,full_name,company,signed_in_at&signed_out_at=is.null` +
+        `&full_name=ilike.${encodeURIComponent(q + '*')}&order=signed_in_at.desc&limit=8`);
+    } catch (e) {
+      return json(500, { error: 'Could not look that up: ' + e.message });
+    }
+    const matches = (rows || []).map((v) => {
+      const parts = String(v.full_name || '').trim().split(/\s+/);
+      const first = parts[0] || '';
+      const last = parts.length > 1 ? parts[parts.length - 1] : '';
+      return {
+        id: v.id,
+        // Last initial only — enough for two Michaels to tell themselves apart,
+        // not enough to be a directory of who visits us.
+        name: last ? `${first} ${last[0].toUpperCase()}.` : first,
+        company: v.company || '',
+        signed_in_at: v.signed_in_at,
+      };
+    });
+    return json(200, { ok: true, matches });
+  }
+
   const badge = String(body.badge_number || '').trim().toUpperCase();
   const id = String(body.id || '').trim();
-  if (!badge && !id) return json(400, { error: 'Enter the badge number from your pass.' });
+  if (!badge && !id) return json(400, { error: 'Tell us your first name so we can find you.' });
 
   const filter = id
     ? `id=eq.${encodeURIComponent(id)}`
@@ -64,7 +102,9 @@ export default async (req) => {
     return json(500, { error: 'Could not look that badge up: ' + e.message });
   }
   const visit = open && open[0];
-  if (!visit) return json(404, { error: 'No visit found for that badge. Check the number on your pass, or ask at the office.' });
+  if (!visit) return json(404, { error: badge
+    ? 'No visit found for that badge. Check the number on your pass, or ask at the office.'
+    : 'We could not find that visit — please ask at the office.' });
   if (visit.signed_out_at) {
     return json(200, { ok: true, already: true, full_name: visit.full_name, badge_number: visit.badge_number,
       signed_out_at: visit.signed_out_at });
