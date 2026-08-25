@@ -173,13 +173,17 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,visit_type,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
-  const eligible = rows.filter(r => !r.prev_comp && !r.billed);
-  const skipped = rows.filter(r => r.prev_comp || r.billed)
-    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed' : 'prev comp' }));
+  // visit_type='exception' = the tech reached the site but could not service
+  // the unit (store closed / unit missing). Documented for Freshpet, never
+  // billable as a PM — enforced here as well as in the admin UI so a stale
+  // client can't invoice one (invoice #172825 shipped 5 closed-store "PMs").
+  const eligible = rows.filter(r => !r.prev_comp && !r.billed && r.visit_type !== 'exception');
+  const skipped = rows.filter(r => r.prev_comp || r.billed || r.visit_type === 'exception')
+    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed' : (r.visit_type === 'exception' ? 'site exception — not a billable PM' : 'prev comp') }));
 
   if (!eligible.length) {
     return json(400, { error: 'None of the selected PMs are billable', skipped });
