@@ -14,11 +14,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { VendorDocDrop } from '@/components/VendorDocDrop';
+import { pushVendorToQuickBooks, type VendorQboPushResult } from '@/lib/vendorQboPush';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/ui/select-field';
-import { Archive, ArchiveRestore, ArrowLeft, Banknote, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Banknote, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck, Upload } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   stripeStatus, stripeSetup, vendorPayments, statusLabel, RAIL_LABEL,
@@ -78,6 +79,9 @@ export default function VendorDetail() {
   // QBO link editor
   const [linking, setLinking] = useState(false);
   const [linkTerm, setLinkTerm] = useState('');
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<VendorQboPushResult | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
   const [linkHits, setLinkHits] = useState<QboVendorMirror[]>([]);
   const [linkSearching, setLinkSearching] = useState(false);
 
@@ -577,6 +581,53 @@ export default function VendorDetail() {
               ))}
             </div>
           )}
+
+          {/* Push the record AND the paperwork into QuickBooks. Never creates a
+              second QBO vendor — an existing link is verified, then an exact
+              name match is linked to, and only then is one created. */}
+          <div className="border-t border-border pt-3 space-y-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pushing}
+              onClick={async () => {
+                setPushing(true); setPushError(null); setPushResult(null);
+                try {
+                  const r = await pushVendorToQuickBooks(vendor.id);
+                  setPushResult(r);
+                  // The one field the push changes. Cheaper and safer than
+                  // re-running the page's load effect.
+                  setVendor({ ...vendor, qbo_vendor_id: r.qbo_vendor_id });
+                } catch (e) {
+                  setPushError(e instanceof Error ? e.message : 'QuickBooks push failed.');
+                } finally {
+                  setPushing(false);
+                }
+              }}
+              title="Create or link this vendor in QuickBooks and attach their W-9 and certificate of insurance"
+            >
+              {pushing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              {vendor.qbo_vendor_id ? 'Re-send to QuickBooks with documents' : 'Push to QuickBooks as a vendor'}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Creates the vendor in QuickBooks if they aren&rsquo;t there, then attaches their documents to that
+              vendor record. The full tax ID is never sent &mdash; we only hold the last four, so the W-9 itself
+              is what carries it.
+            </p>
+            {pushResult && (
+              <div className="text-[12px] rounded-lg p-2.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 space-y-1">
+                <p>{pushResult.message}</p>
+                {pushResult.attachments.filter((a) => a.status === 'failed').map((a) => (
+                  <p key={a.document} className="text-amber-400">{a.document}: {a.error}</p>
+                ))}
+              </div>
+            )}
+            {pushError && (
+              <div className="text-[12px] rounded-lg p-2.5 border border-destructive/40 bg-destructive/10 text-destructive">
+                {pushError}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 

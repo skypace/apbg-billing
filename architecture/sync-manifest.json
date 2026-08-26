@@ -759,6 +759,18 @@
       "last_verified": "2026-08-20"
     },
     {
+      "name": "vendor-qbo-push",
+      "kind": "netlify-function",
+      "multi_writer": true,
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (staff clicks Push to QuickBooks on a vendor)",
+      "writes": [
+        "ops.vendors"
+      ],
+      "notes": "Creates (or links) the QuickBooks Vendor for a Brixpense vendor and attaches their compliance documents \u2014 W-9, certificate of insurance \u2014 to that QBO vendor record via the Attachable API (POST /v3/company/{realm}/upload, multipart file_metadata_01 + file_content_01; Vendor is a supported AttachableRef entity). The only ops write is stamping vendors.qbo_vendor_id. NEVER creates a second QBO vendor: an existing link is verified by id, then an exact DisplayName match is linked to, and only then is one created \u2014 QBO rejects duplicate display names anyway, and a split vendor history is the same failure the W-9 drop guards against. \u26a0 A full TIN is never sent: ops.vendors holds ein_last4 only, and a partial TaxIdentifier would LOOK filled in \u2014 the whole number is on the W-9 PDF, which is why attaching the document is the load-bearing half. Vendor1099 is set only from an EXPLICIT is_1099 override, never inferred. Attachments are best-effort and reported per file, so one unreadable document cannot lose the vendor push or the others.",
+      "last_verified": "2026-08-26"
+    },
+    {
       "name": "bill-paid-sync",
       "kind": "netlify-function",
       "multi_writer": true,
