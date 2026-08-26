@@ -25,11 +25,15 @@ function srHeaders() {
 }
 
 // entityType: 'Bill' | 'Purchase'; entityId: QBO txn id; requestId: expense_requests.id
-export async function attachReceiptsToQBO(entityType, entityId, requestId) {
+// opts.attachmentId: push ONLY that one attachment row — the attach-after-post
+// path uses this so re-attaching a late-arriving bill never re-uploads files
+// QBO already has (this function has no dedup against QBO's side).
+export async function attachReceiptsToQBO(entityType, entityId, requestId, opts = {}) {
   const out = { attached: 0, skipped: 0, errors: [] };
   try {
+    const onlyOne = opts.attachmentId ? `&id=eq.${encodeURIComponent(opts.attachmentId)}` : '';
     const listRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/expense_request_attachments?request_id=eq.${requestId}&select=file_name,file_type,storage_path&limit=${MAX_FILES}`,
+      `${SUPABASE_URL}/rest/v1/expense_request_attachments?request_id=eq.${requestId}${onlyOne}&select=file_name,file_type,storage_path&limit=${MAX_FILES}`,
       { headers: { ...srHeaders(), 'Accept-Profile': 'ops' } },
     );
     if (!listRes.ok) { out.errors.push(`attachment list failed (${listRes.status})`); return out; }

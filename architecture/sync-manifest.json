@@ -771,6 +771,18 @@
       "last_verified": "2026-08-26"
     },
     {
+      "name": "sf-expense-reconcile",
+      "kind": "netlify-function",
+      "multi_writer": true,
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "weekly Mondays 16:00 UTC (pg_cron 'sf-expense-reconcile' → /api/sf-expense-reconcile-background)",
+      "writes": [
+        "ops.sync_log"
+      ],
+      "notes": "The weekly 'did we see everything?' proof for the SF→Brixpense expense pipeline. Re-reads every SF expense on Invoiced jobs updated in the last 30 days (sort=-updated_at, expand=expenses — the same signal the fresh sweep rides), computes the SAME dedup key as sf-receipt-sync's expenseKey() (⚠ the two MUST change together — candidateKey() in the function header says so), and checks each against ops.expense_requests.sf_expense_id. Stranded expenses are landed on the spot via the edge function's ?landJob= (idempotent, drafts only — the manual-post gate holds; capped at 10 jobs/run) and a digest email goes to SF_RECONCILE_ALERT_TO (default service@brixbev.com) ONLY when something was found — silence is the healthy state. Exists because every landing path is best-effort (budgeted sweeps, SF hangs, filtered emails): 12 expenses/~$9k sat invisible for weeks before 2026-08-14, found only because an operator asked. Its only ops write is the sync_log run row (source 'sf-reconcile', added to the source allow-list in 20260826b — the CHECK silently rejects unknown sources, the v0.5.0 trap); the landings themselves are writes by sf-receipt-sync, the already-declared writer. Watcher: ops.fn_sf_reconcile_health() in fn_sync_health_extra — red on an errored run or >8 days silent; green-with-note before the first run.",
+      "last_verified": "2026-08-26"
+    },
+    {
       "name": "bill-paid-sync",
       "kind": "netlify-function",
       "multi_writer": true,
