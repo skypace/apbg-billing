@@ -799,9 +799,10 @@
       "name": "vendor-payments:pay-and-webhook",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (superadmin Pay click) + Stripe webhook on payout settlement",
+      "schedule": "on-demand (superadmin Pay / Pay-run click) + Stripe webhook on payout settlement",
       "writes": [
         "ops.vendor_payments",
+        "ops.vendor_payment_groups",
         "ops.vendors",
         "ops.expense_requests"
       ],
@@ -811,8 +812,8 @@
         "Stripe webhook events",
         "QBO BillPayment writeback"
       ],
-      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase. Also stamps the BILL itself (ops.expense_requests paid_at / payment_method / qbo_billpayment_id) when a manual rail is recorded or a Stripe payout settles \u2014 multi_writer with brix-expense:app-and-functions. The ledger is the payment's story, expense_requests is the bill's, and ops.v_ap_aging keys on paid_at: leave the bill unstamped and a paid bill sits in the aging total forever.",
-      "last_verified": "2026-08-20"
+      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase. Also stamps the BILL itself (ops.expense_requests paid_at / payment_method / qbo_billpayment_id) when a manual rail is recorded or a Stripe payout settles \u2014 multi_writer with brix-expense:app-and-functions. The ledger is the payment's story, expense_requests is the bill's, and ops.v_ap_aging keys on paid_at: leave the bill unstamped and a paid bill sits in the aging total forever. PAY RUN (2026-08-26, migration 20260826d): vendor-pay-run.mjs (same superadmin gate) pays SEVERAL bills to one vendor in one action — per-bill ledger rows stay the duplicate guard (written BEFORE any money moves), and a parent ops.vendor_payment_groups row carries what is singular about the batch: the one Stripe payout id (the row-level unique index can't hold when five rows share one payout), the one multi-line QBO BillPayment, the check #, and the remittance-advice send record (lib/remittance.mjs — sent at settlement for Stripe via the webhook's settleGroup(), immediately for manual rails, resendable via action=remit). No new watcher: batch rows are ordinary vendor_payments rows, so fn_vendor_payments_health() already covers a stuck or failed pay run.",
+      "last_verified": "2026-08-26"
     },
     {
       "name": "vendor-funding:top-up-and-reconcile",

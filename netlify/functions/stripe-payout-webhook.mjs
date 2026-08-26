@@ -22,7 +22,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sendEmail, SITE_URL } from './email-helpers.mjs';
 import { stripeV2, stripeConfigured } from './lib/stripe-payouts.mjs';
-import { ops, recordQboBillPayment, patchLedger, ledgerByPayoutId, markExpensePaid } from './lib/vendor-payments-lib.mjs';
+import {
+  ops, recordQboBillPayment, recordQboBillPaymentMulti, patchLedger, ledgerByPayoutId,
+  markExpensePaid, groupByPayoutId, patchGroup, paymentsInGroup,
+} from './lib/vendor-payments-lib.mjs';
+import { sendRemittanceAdvice } from './lib/remittance.mjs';
 
 const SECRET = process.env.STRIPE_PAYOUT_WEBHOOK_SECRET || '';
 const REPORT_TO = process.env.REPORT_TO || process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
@@ -78,6 +82,90 @@ async function alert(subject, lines) {
   }
 }
 
+/** A pay-run batch settling (or failing): one payout covered N bills, so one
+ *  multi-line QBO BillPayment closes them all, every bill gets stamped, and
+ *  the vendor gets ONE remittance advice — sent HERE, at settlement, because
+ *  an in-flight payout is not yet a payment. Same posture as the single path:
+ *  the money moved either way, so a failed QBO booking settles the ledger and
+ *  alerts a human instead of silently reading as unpaid. */
+async function settleGroup(group, status, failureText, payoutId) {
+  const rows = await paymentsInGroup(group.id);
+  const expenseIds = rows.map((r) => r.expense_request_id).filter(Boolean);
+  let bills = [];
+  if (expenseIds.length) {
+    bills = await ops('GET',
+      'expense_requests?select=id,vendor_id,vendor_name,total_amount,bill_number,job_number,receipt_date'
+      + `&id=in.(${expenseIds.join(',')})`) || [];
+  }
+
+  if (status === 'posted') {
+    let billPaymentId = null, bookError = null;
+    try {
+      const qboVendorId = bills[0]?.vendor_id;
+      if (!qboVendorId) throw new Error('no QBO vendor id on the batch expenses');
+      billPaymentId = await recordQboBillPaymentMulti({
+        qboVendorId,
+        lines: rows.filter((r) => r.qbo_bill_id).map((r) => ({ qboBillId: r.qbo_bill_id, amount: r.amount })),
+        memo: `Stripe payout ${payoutId} · Brixpense pay run of ${rows.length} bill(s)`,
+      });
+    } catch (e) {
+      bookError = String(e.message || e).slice(0, 400);
+      console.error('[stripe-payout-webhook] batch QBO BillPayment failed:', bookError);
+    }
+
+    const stampErrors = [];
+    for (const r of rows) {
+      await patchLedger(r.id, {
+        status: 'settled',
+        qbo_billpayment_id: billPaymentId,
+        failure_reason: bookError ? `paid, but QBO BillPayment failed: ${bookError}` : null,
+      });
+      if (r.expense_request_id) {
+        const err = await markExpensePaid(r.expense_request_id, {
+          rail: r.rail, qboBillPaymentId: billPaymentId, reference: r.reference,
+        });
+        if (err) stampErrors.push(err);
+      }
+    }
+    await patchGroup(group.id, {
+      status: 'settled',
+      qbo_billpayment_id: billPaymentId,
+      failure_reason: bookError ? `paid, but QBO BillPayment failed: ${bookError}` : null,
+    });
+
+    const vendors = await ops('GET', `vendors?select=id,display_name,contact_email&id=eq.${group.vendor_id}&limit=1`);
+    const remit = await sendRemittanceAdvice({
+      group: { ...group, status: 'settled', qbo_billpayment_id: billPaymentId },
+      vendor: vendors && vendors[0], bills,
+    });
+    if (!remit.sent) console.error('[stripe-payout-webhook] remittance not sent:', remit.error);
+
+    if (bookError) {
+      await alert(`Vendors paid, but QuickBooks did not record it — ${payoutId}`, [
+        `Stripe payout <b>${payoutId}</b> POSTED (money left the account) for $${group.total_amount} across ${rows.length} bills.`,
+        `Booking the QuickBooks BillPayment failed: <b>${bookError}</b>`,
+        'The bills still read UNPAID in QuickBooks — record ONE payment covering them there by hand.',
+      ]);
+    }
+    if (stampErrors.length) console.error('[stripe-payout-webhook] bills paid but not stamped:', stampErrors.join(' | '));
+    return json({
+      ok: true, status, group_id: group.id, bills: rows.length,
+      qbo_billpayment_id: billPaymentId, book_error: bookError, remittance: remit,
+    });
+  }
+
+  // failed | returned | canceled — the whole batch came back.
+  const reason = String(failureText || status).slice(0, 400);
+  for (const r of rows) await patchLedger(r.id, { status: 'failed', failure_reason: reason });
+  await patchGroup(group.id, { status: 'failed', failure_reason: reason });
+  await alert(`Vendor pay run ${status} — $${group.total_amount}`, [
+    `Stripe payout <b>${payoutId}</b> came back <b>${status}</b>${failureText ? `: ${failureText}` : ''}.`,
+    `$${group.total_amount} across ${rows.length} bills. The funds returned to the Stripe balance and every bill is still unpaid.`,
+    'Re-run the payment from Brixpense once the cause is fixed, or pay another way and record it.',
+  ]);
+  return json({ ok: true, status, group_id: group.id, bills: rows.length });
+}
+
 export default async function handler(req) {
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   if (!SECRET) {
@@ -104,13 +192,22 @@ export default async function handler(req) {
   if (!payoutId) return json({ ok: true, ignored: 'no payout id on event' });
 
   const ledger = await ledgerByPayoutId(payoutId);
+  let group = null;
   if (!ledger) {
-    // A payout we didn't initiate (Dashboard-sent, or another integration).
-    console.log(`[stripe-payout-webhook] ${type} for unknown payout ${payoutId} — ignoring`);
-    return json({ ok: true, ignored: 'payout not in ledger' });
+    // A pay-run batch carries its payout id on the GROUP (its per-bill rows
+    // share one payout, and the ledger's per-row index is unique).
+    group = await groupByPayoutId(payoutId);
+    if (!group) {
+      // A payout we didn't initiate (Dashboard-sent, or another integration).
+      console.log(`[stripe-payout-webhook] ${type} for unknown payout ${payoutId} — ignoring`);
+      return json({ ok: true, ignored: 'payout not in ledger' });
+    }
   }
-  if (ledger.status === 'settled' || ledger.status === 'recorded') {
+  if (ledger && (ledger.status === 'settled' || ledger.status === 'recorded')) {
     return json({ ok: true, already: ledger.status });   // replays are safe
+  }
+  if (group && (group.status === 'settled' || group.status === 'recorded')) {
+    return json({ ok: true, already: group.status });    // replays are safe
   }
 
   // Re-fetch: the API is the authority on status, not the delivered body.
@@ -129,6 +226,8 @@ export default async function handler(req) {
   if (status === 'processing' || status === 'scheduled') {
     return json({ ok: true, status, note: 'still in flight' });
   }
+
+  if (group) return await settleGroup(group, status, failureText, payoutId);
 
   if (status === 'posted') {
     let billPaymentId = null, bookError = null;

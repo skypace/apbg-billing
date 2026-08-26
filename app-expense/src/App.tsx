@@ -13,6 +13,7 @@ const ApprovalPage = lazy(() => import('@/pages/ApprovalPage'));
 const ThirdPartyBills = lazy(() => import('@/pages/ThirdPartyBills'));
 const SFExpenses = lazy(() => import('@/pages/SFExpenses'));
 const BillsInbox = lazy(() => import('@/pages/BillsInbox'));
+const PayRun = lazy(() => import('@/pages/PayRun'));
 const MyInbox = lazy(() => import('@/pages/MyInbox'));
 const ExpenseReports = lazy(() => import('@/pages/ExpenseReports'));
 const BillRules = lazy(() => import('@/pages/BillRules'));
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="third-party" element={<ThirdPartyBills />} />
             <Route path="sf-expenses" element={<SFExpenses />} />
             <Route path="bills" element={<BillsInbox />} />
+            <Route path="pay-run" element={<PayRun />} />
             <Route path="inbox" element={<MyInbox />} />
             <Route path="reports" element={<ExpenseReports />} />
             <Route path="rules" element={<BillRules />} />
