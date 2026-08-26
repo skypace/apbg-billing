@@ -13,6 +13,8 @@ import { useIsSuperadmin } from '@/lib/useIsSuperadmin';
 // `statusLabel` is aliased — this page already has its own for expense status.
 import { paymentsForExpenses, statusLabel as paymentStatusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 import { PayBillPanel } from '@/components/PayBillPanel';
+import { LifecycleTabs } from '@/components/LifecycleTabs';
+import { lifecycleBucket, type LifecycleTab } from '@/lib/lifecycle';
 import type { ExpenseRequest } from '@/types/expense';
 
 export default function PendingList() {
@@ -22,6 +24,9 @@ export default function PendingList() {
   const [loading, setLoading] = useState(true);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // The shared lifecycle tabs — same vocabulary as SF Expenses and the Vendor
+  // Inbox, so a bill reads the same wherever it's listed.
+  const [tab, setTab] = useState<LifecycleTab>('open');
   // Paying a posted bill. Superadmin-only — /api/vendor-pay refuses everyone
   // else, so the trigger stays hidden rather than 403-ing.
   const isSuperadmin = useIsSuperadmin();
@@ -95,6 +100,10 @@ export default function PendingList() {
     posted: 'Posted',
   };
 
+  const counts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
+  for (const r of requests) counts[lifecycleBucket(r)]++;
+  const visible = requests.filter((r) => lifecycleBucket(r) === tab);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -103,6 +112,8 @@ export default function PendingList() {
         </Button>
         <h1 className="page-title">Expense History</h1>
       </div>
+
+      <LifecycleTabs tab={tab} counts={counts} onChange={setTab} />
 
       {postError && (
         <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
@@ -114,21 +125,25 @@ export default function PendingList() {
         <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : requests.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Card>
           <CardContent className="feedback-state">
             <Clock className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              No submissions yet.
+              {tab === 'open' && 'Nothing open.'}
+              {tab === 'posted' && 'No posted bills awaiting payment.'}
+              {tab === 'paid' && 'Nothing paid or closed yet.'}
             </p>
-            <Button className="mt-4" onClick={() => navigate('')}>
-              Submit Something
-            </Button>
+            {tab === 'open' && (
+              <Button className="mt-4" onClick={() => navigate('')}>
+                Submit Something
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => {
+          {visible.map((req) => {
             // PRs in 'awaiting_invoice' status are approved-and-ready-to-be-fulfilled.
             // The "Log Receipt" CTA below opens ExpenseForm pre-filled from this PR
             // so the submitter doesn't have to re-type vendor/amount/accounts after
@@ -158,7 +173,9 @@ export default function PendingList() {
                         {req.vendor_name || 'No vendor'}
                       </p>
                       <Badge variant={statusVariant[req.status] ?? 'secondary'}>
-                        {statusLabel[req.status] ?? req.status}
+                        {req.status === 'posted' && lifecycleBucket(req) === 'paid'
+                          ? (req.paid_at ? `Paid ${formatDate(req.paid_at)}` : 'Paid')
+                          : (statusLabel[req.status] ?? req.status)}
                       </Badge>
                       <DueBadge request={req} />
                       <DuplicateBadge request={req} />

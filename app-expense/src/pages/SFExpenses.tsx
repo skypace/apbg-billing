@@ -10,6 +10,8 @@ import { Archive, ArrowLeft, Banknote, Loader2, Send, Wrench } from 'lucide-reac
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 import { PayBillPanel } from '@/components/PayBillPanel';
+import { LifecycleTabs } from '@/components/LifecycleTabs';
+import { lifecycleBucket, type LifecycleTab } from '@/lib/lifecycle';
 import { paymentsForExpenses, statusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 
 // Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
@@ -32,13 +34,8 @@ export default function SFExpenses() {
   const [archiving, setArchiving] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
-  // Lifecycle tabs (Sky, 2026-08-25): Open (needs a human — attach/submit/post)
-  // → Posted (in QBO, money still owed) → Paid & closed (done). Most bills get
-  // paid OUTSIDE Brixpense (a cheque in QBO, a Bill Pay run) — the daily
-  // bill-paid-sync asks QuickBooks and stamps paid_at, which is what moves a
-  // bill to the last tab with no one touching Brixpense. A posted Purchase
-  // (as_bill=false) was paid before it ever posted, so it lands there directly.
-  const [tab, setTab] = useState<'open' | 'posted' | 'paid'>('open');
+  // The shared lifecycle tabs — see lib/lifecycle.ts for the bucketing rule.
+  const [tab, setTab] = useState<LifecycleTab>('open');
   // Payments (Phase 3): the Pay panel is superadmin-only — /api/vendor-pay
   // refuses anyone else, so the trigger stays hidden rather than 403-ing.
   const [isSuperadmin, setIsSuperadmin] = useState(false);
@@ -115,28 +112,14 @@ export default function SFExpenses() {
     }
   };
 
-  // paid_at is the decision (stamped by us at payment, or by bill-paid-sync
-  // when QuickBooks says the balance hit zero). A posted Purchase was already
-  // paid when it posted — as_bill=false means there was never money owed.
-  const isPaidClosed = (r: ExpenseRequest) =>
-    r.status === 'posted' && (r.as_bill === false || !!r.paid_at);
-  const bucketOf = (r: ExpenseRequest): 'open' | 'posted' | 'paid' =>
-    r.status !== 'posted' ? 'open' : isPaidClosed(r) ? 'paid' : 'posted';
-
-  const counts = { open: 0, posted: 0, paid: 0 };
-  for (const r of requests) counts[bucketOf(r)]++;
-  const visible = requests.filter((r) => bucketOf(r) === tab);
+  const counts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
+  for (const r of requests) counts[lifecycleBucket(r)]++;
+  const visible = requests.filter((r) => lifecycleBucket(r) === tab);
   const total = visible.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
-
-  const TABS: { key: 'open' | 'posted' | 'paid'; label: string }[] = [
-    { key: 'open', label: 'Open' },
-    { key: 'posted', label: 'Posted' },
-    { key: 'paid', label: 'Paid & closed' },
-  ];
 
   function draftBadge(req: ExpenseRequest): { label: string; variant: 'success' | 'secondary' | 'warning' } {
     if (req.status === 'posted') {
-      if (isPaidClosed(req)) {
+      if (lifecycleBucket(req) === 'paid') {
         return { label: req.paid_at ? `Paid ${formatDate(req.paid_at)}` : 'Paid', variant: 'success' };
       }
       // Partly paid: QuickBooks reported a balance above zero but below the total.
@@ -173,23 +156,7 @@ export default function SFExpenses() {
         )}
       </div>
 
-      <div className="flex gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
-              tab === t.key
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-            }`}
-          >
-            {t.label}
-            <span className={`ml-1.5 tabular-nums ${tab === t.key ? 'opacity-80' : 'opacity-60'}`}>{counts[t.key]}</span>
-          </button>
-        ))}
-      </div>
+      <LifecycleTabs tab={tab} counts={counts} onChange={setTab} />
 
       {postError && (
         <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">

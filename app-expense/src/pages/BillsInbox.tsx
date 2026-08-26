@@ -8,6 +8,8 @@ import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
+import { LifecycleTabs } from '@/components/LifecycleTabs';
+import { lifecycleBucket, type LifecycleTab } from '@/lib/lifecycle';
 import { ApAgingStrip } from '@/components/ApAgingStrip';
 import { ApInboxSettings } from '@/components/ApInboxSettings';
 import { Button } from '@/components/ui/button';
@@ -103,7 +105,10 @@ const NEEDS_ATTENTION: IntakeStatus[] = [
   'no_attachment', 'attachment_fetch_failed', 'ocr_failed', 'failed', 'sender_rejected',
 ];
 
-type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'posted' | 'unpaid' | 'all';
+// Triage sub-filters WITHIN the Open lifecycle tab. Posted / Paid & closed are
+// the shared lifecycle tabs (lib/lifecycle.ts) — the old 'posted'/'unpaid'/'all'
+// pills folded into them so a bill reads the same here as on every other list.
+type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'all';
 
 async function api(body?: unknown) {
   const token = await getAccessToken();
@@ -144,6 +149,7 @@ export default function BillsInbox() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ready');
+  const [tab, setTab] = useState<LifecycleTab>('open');
   const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [check, setCheck] = useState<SetupCheck | null>(null);
@@ -267,6 +273,12 @@ export default function BillsInbox() {
     !!me &&
     (i.request?.owner_email ?? '').toLowerCase() === me.toLowerCase();
 
+  // Lifecycle bucket first (the shared Open/Posted/Paid tabs), then the triage
+  // sub-filters apply WITHIN Open only. An intake item with no linked request
+  // (unreadable mail, failed processing) is by definition still open.
+  const bucketOf = (i: IntakeItem): LifecycleTab =>
+    i.request ? lifecycleBucket(i.request) : 'open';
+
   const match = (i: IntakeItem, f: Filter) => {
     switch (f) {
       case 'all': return true;
@@ -275,25 +287,23 @@ export default function BillsInbox() {
       case 'ready': return !!i.request?.can_post;
       case 'unassigned': return !!i.request?.unassigned;
       case 'attention': return NEEDS_ATTENTION.includes(i.status);
-      case 'posted': return !!i.request?.posted;
-      // Posted to QuickBooks but no payment recorded yet — the pay-run list.
-      case 'unpaid': return !!i.request?.posted && !payments.get(i.request.id);
       default: return true;
     }
   };
 
-  const visible = items.filter((i) => match(i, filter));
-  const countOf = (f: Filter) => items.filter((i) => match(i, f)).length;
+  const inTab = items.filter((i) => bucketOf(i) === tab);
+  const visible = tab === 'open' ? inTab.filter((i) => match(i, filter)) : inTab;
+  const countOf = (f: Filter) => items.filter((i) => bucketOf(i) === 'open' && match(i, f)).length;
   const counts = {
     mine: countOf('mine'),
     approval: countOf('approval'),
     ready: countOf('ready'),
     unassigned: countOf('unassigned'),
     attention: countOf('attention'),
-    posted: countOf('posted'),
-    unpaid: countOf('unpaid'),
-    all: items.length,
+    all: countOf('all'),
   };
+  const tabCounts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
+  for (const i of items) tabCounts[bucketOf(i)]++;
   const openRows = items.filter((i) => i.request && !i.request.posted && !i.request.archived);
   const dueTotal = openRows.reduce((s, i) => s + (i.request?.total_amount ?? 0), 0);
   const openCount = openRows.length;
@@ -388,31 +398,33 @@ export default function BillsInbox() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        {(([
-          // The approval views only exist when the gate is switched on;
-          // showing two permanently-empty pills would just read as broken.
-          ...(settings?.require_approval
-            ? [['mine', `Waiting on you (${counts.mine})`],
-               ['approval', `Awaiting approval (${counts.approval})`]] as [Filter, string][]
-            : []),
-          ['ready', `Ready to post (${counts.ready})`],
-          ['unassigned', `Unassigned (${counts.unassigned})`],
-          ['attention', `Needs attention (${counts.attention})`],
-          ['posted', `Posted (${counts.posted})`],
-          ['unpaid', `Awaiting payment (${counts.unpaid})`],
-          ['all', `Everything (${counts.all})`],
-        ] as [Filter, string][])).map(([key, label]) => (
-          <Button
-            key={key}
-            size="sm"
-            variant={filter === key ? 'default' : 'outline'}
-            onClick={() => setFilter(key)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <LifecycleTabs tab={tab} counts={tabCounts} onChange={setTab} />
+
+      {tab === 'open' && (
+        <div className="flex flex-wrap gap-1.5">
+          {(([
+            // The approval views only exist when the gate is switched on;
+            // showing two permanently-empty pills would just read as broken.
+            ...(settings?.require_approval
+              ? [['mine', `Waiting on you (${counts.mine})`],
+                 ['approval', `Awaiting approval (${counts.approval})`]] as [Filter, string][]
+              : []),
+            ['ready', `Ready to post (${counts.ready})`],
+            ['unassigned', `Unassigned (${counts.unassigned})`],
+            ['attention', `Needs attention (${counts.attention})`],
+            ['all', `Everything open (${counts.all})`],
+          ] as [Filter, string][])).map(([key, label]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={filter === key ? 'default' : 'outline'}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <ApAgingStrip />
 
@@ -424,9 +436,11 @@ export default function BillsInbox() {
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            {filter === 'mine' || filter === 'ready'
+            {tab === 'posted' && 'No posted bills awaiting payment. Bills move to Paid & closed automatically once QuickBooks reports them paid.'}
+            {tab === 'paid' && 'Nothing paid or closed yet.'}
+            {tab === 'open' && (filter === 'mine' || filter === 'ready'
               ? 'Nothing waiting. Forward a bill to the address above and it will show up here.'
-              : 'Nothing in this view.'}
+              : 'Nothing in this view.')}
           </CardContent>
         </Card>
       ) : (
