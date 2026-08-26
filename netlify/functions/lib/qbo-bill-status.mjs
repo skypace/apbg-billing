@@ -135,9 +135,13 @@ export async function runBillPaidSync() {
   const out = { checked: 0, paid: 0, partial: 0, still_open: 0, missing: 0, errors: [] };
 
   try {
+    // Bills ONLY (as_bill=true). A posted Purchase was paid at posting and its
+    // qbo_bill_id is a Purchase id — the Bill query below can never find it,
+    // so including them flagged every posted Purchase as "QuickBooks no longer
+    // returns this" (20 false positives / $21.6k on 2026-08-26).
     const rows = await ops('GET',
       'expense_requests?select=id,qbo_bill_id,vendor_name,total_amount'
-      + '&qbo_bill_id=not.is.null&paid_at=is.null&archived_at=is.null'
+      + '&qbo_bill_id=not.is.null&paid_at=is.null&archived_at=is.null&as_bill=eq.true'
       + `&order=qbo_checked_at.asc.nullsfirst&limit=${MAX_PER_RUN}`);
 
     const live = (rows || []).filter((r) => r.qbo_bill_id);
