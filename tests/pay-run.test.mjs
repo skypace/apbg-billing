@@ -71,6 +71,51 @@ test('single-line payload keeps the exact shape the single-bill rail always sent
   assert.deepEqual(p.Line, [{ Amount: 99.5, LinkedTxn: [{ TxnId: '168463', TxnType: 'Bill' }] }]);
 });
 
+test('a credit line links a VendorCredit and nets the TotalAmt down', () => {
+  const p = buildBillPaymentPayload({
+    qboVendorId: '1', bankAccountId: '72',
+    lines: [
+      { qboBillId: '173048', amount: 375 },
+      { qboBillId: '990001', amount: 100, credit: true },
+    ],
+  });
+  assert.equal(p.TotalAmt, 275);                    // money that moves = bills − credits
+  assert.equal(p.Line.length, 2);                   // but BOTH lines are on the payment
+  assert.equal(p.Line[1].Amount, 100);              // credit line amount stays positive
+  assert.deepEqual(p.Line[1].LinkedTxn, [{ TxnId: '990001', TxnType: 'VendorCredit' }]);
+});
+
+test('credits may cover the bills exactly (a $0 apply-only payment) but never exceed them', () => {
+  const zero = buildBillPaymentPayload({
+    qboVendorId: '1', bankAccountId: '72',
+    lines: [
+      { qboBillId: 'b1', amount: 50 },
+      { qboBillId: 'c1', amount: 50, credit: true },
+    ],
+  });
+  assert.equal(zero.TotalAmt, 0);
+  assert.throws(
+    () => buildBillPaymentPayload({
+      qboVendorId: '1', bankAccountId: '72',
+      lines: [
+        { qboBillId: 'b1', amount: 50 },
+        { qboBillId: 'c1', amount: 60, credit: true },
+      ],
+    }),
+    /cannot be negative/i,
+  );
+});
+
+test('a payment of only credits is refused — credits apply against bills', () => {
+  assert.throws(
+    () => buildBillPaymentPayload({
+      qboVendorId: '1', bankAccountId: '72',
+      lines: [{ qboBillId: 'c1', amount: 50, credit: true }],
+    }),
+    /at least one bill line/i,
+  );
+});
+
 // ── remittance advice ────────────────────────────────────────────────────────
 
 const GROUP = {
@@ -117,6 +162,22 @@ test('a Stripe payment shows the payout reference, not "Check #"', () => {
   assert.match(msg.html, /Bank transfer/);
   assert.match(msg.html, /Ref obp_test_123/);
   assert.ok(!msg.html.includes('Check #'));
+});
+
+test('a remittance with a credit shows it as a negative line and says so', () => {
+  const msg = buildRemittanceEmail({
+    group: { ...GROUP, total_amount: 275 },
+    vendorName: 'Vendor',
+    bills: [
+      { bill_number: 'INV-1', receipt_date: '2026-08-01', job_number: null, total_amount: 375 },
+      { bill_number: 'CM-9', receipt_date: '2026-08-10', job_number: null, total_amount: 100, is_credit: true },
+    ],
+  });
+  assert.match(msg.html, /bills and credits/);
+  assert.match(msg.html, /Credit CM-9/);
+  assert.match(msg.html, /−\$100\.00/);
+  assert.match(msg.text, /Credit CM-9 .* -\$100\.00/);
+  assert.match(msg.text, /Total paid: \$275\.00/);
 });
 
 test('esc covers the five HTML metacharacters', () => {

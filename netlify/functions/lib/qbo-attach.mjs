@@ -24,7 +24,7 @@ function srHeaders() {
   return { apikey: key, Authorization: `Bearer ${key}` };
 }
 
-// entityType: 'Bill' | 'Purchase'; entityId: QBO txn id; requestId: expense_requests.id
+// entityType: 'Bill' | 'Purchase' | 'VendorCredit'; entityId: QBO txn id; requestId: expense_requests.id
 // opts.attachmentId: push ONLY that one attachment row — the attach-after-post
 // path uses this so re-attaching a late-arriving bill never re-uploads files
 // QBO already has (this function has no dedup against QBO's side).

@@ -51,7 +51,7 @@ const MANUAL_RAILS = new Set(['venmo_manual', 'zelle_manual', 'check_manual', 'q
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const MAX_BILLS_PER_RUN = 40;   // one QBO BillPayment holds all lines — keep it human-checkable
 
-const BILL_SELECT = 'id,vendor_name,vendor_id,total_amount,bill_number,job_number,receipt_date,due_date,qbo_bill_id,status,paid_at,archived_at';
+const BILL_SELECT = 'id,vendor_name,vendor_id,total_amount,bill_number,job_number,receipt_date,due_date,qbo_bill_id,status,paid_at,archived_at,is_credit';
 
 const chunk = (arr, n = 40) => {
   const out = [];
@@ -88,6 +88,9 @@ async function livePaymentsFor(qboBillIds) {
 
 // ── list — everything payable, grouped by vendor ─────────────────────────────
 async function handleList() {
+  // One query pulls bills AND credits — same payable predicate; is_credit
+  // splits them below. A credit shows up once it is POSTED (there is a QBO
+  // VendorCredit to apply) and disappears once applied (paid_at stamped).
   const bills = await ops('GET',
     `expense_requests?select=${BILL_SELECT}`
     + '&qbo_bill_id=not.is.null&as_bill=eq.true&paid_at=is.null&archived_at=is.null'
@@ -116,7 +119,7 @@ async function handleList() {
           id: v.id, display_name: v.display_name, contact_email: v.contact_email,
           payment_method_pref: v.payment_method_pref, stripe_recipient_id: v.stripe_recipient_id,
         },
-        bills: [], in_flight: [], total: 0,
+        bills: [], credits: [], in_flight: [], total: 0, credit_total: 0,
       });
     }
     const g = groups.get(key);
@@ -125,43 +128,63 @@ async function handleList() {
       id: b.id, bill_number: b.bill_number, job_number: b.job_number,
       receipt_date: b.receipt_date, due_date: b.due_date,
       amount: Number(b.total_amount), qbo_bill_id: b.qbo_bill_id,
+      is_credit: b.is_credit === true,
     };
     if (live) g.in_flight.push({ ...row, payment_status: live.status, payment_rail: live.rail });
+    else if (row.is_credit) { g.credits.push(row); g.credit_total = Number((g.credit_total + row.amount).toFixed(2)); }
     else { g.bills.push(row); g.total = Number((g.total + row.amount).toFixed(2)); }
   }
 
   const out = [...groups.values()]
-    .filter((g) => g.bills.length || g.in_flight.length)
+    .filter((g) => g.bills.length || g.credits.length || g.in_flight.length)
     .sort((a, b) => b.total - a.total);
   return json({ ok: true, stripe, vendors: out });
 }
 
 // ── shared validation for pay_stripe / record ────────────────────────────────
-async function loadBatch(expenseIds) {
-  const ids = [...new Set((expenseIds || []).map(String))];
+// Credits validate through the SAME per-row rules as bills (posted, unpaid,
+// un-archived, no live ledger row — the ledger guard also stops a credit
+// being APPLIED twice), plus: a batch must contain at least one bill (credits
+// apply against bills, they are not payable on their own) and the applied
+// credits may never exceed the bills (a negative payment is not a thing).
+async function loadBatch(expenseIds, creditIds) {
+  const billIdList = [...new Set((expenseIds || []).map(String))];
+  const creditIdList = [...new Set((creditIds || []).map(String))];
+  const ids = [...billIdList, ...creditIdList];
   const problems = [];
-  if (!ids.length) return { problems: ['No bills selected.'] };
+  if (!billIdList.length) return { problems: ['Select at least one bill — credits apply against bills.'] };
+  if (creditIdList.some((id) => billIdList.includes(id))) return { problems: ['A row cannot be both a bill and a credit in one payment.'] };
   if (ids.length > MAX_BILLS_PER_RUN) return { problems: [`At most ${MAX_BILLS_PER_RUN} bills per payment.`] };
   if (ids.some((id) => !UUID_RE.test(id))) return { problems: ['Malformed expense id in the selection.'] };
 
-  const bills = [];
+  const rows = [];
   for (const group of chunk(ids)) {
-    const rows = await ops('GET',
+    const got = await ops('GET',
       `expense_requests?select=${BILL_SELECT}&id=in.(${group.join(',')})`);
-    bills.push(...(rows || []));
+    rows.push(...(got || []));
   }
-  if (bills.length !== ids.length) problems.push('Some selected bills no longer exist.');
+  if (rows.length !== ids.length) problems.push('Some selected rows no longer exist.');
 
-  for (const b of bills) {
-    const tag = b.bill_number ? `bill #${b.bill_number}` : (b.vendor_name || b.id);
+  const bills = rows.filter((r) => billIdList.includes(r.id));
+  const credits = rows.filter((r) => creditIdList.includes(r.id));
+
+  for (const b of rows) {
+    const noun = b.is_credit ? 'credit' : 'bill';
+    const tag = b.bill_number ? `${noun} #${b.bill_number}` : (b.vendor_name || b.id);
     if (!b.qbo_bill_id) problems.push(`${tag}: not posted to QuickBooks yet.`);
     if (!['approved', 'posted'].includes(b.status)) problems.push(`${tag}: status '${b.status}' is not payable.`);
-    if (b.paid_at) problems.push(`${tag}: already marked paid.`);
+    if (b.paid_at) problems.push(`${tag}: already ${b.is_credit ? 'applied' : 'marked paid'}.`);
     if (b.archived_at) problems.push(`${tag}: archived.`);
     if (!(Number(b.total_amount) > 0)) problems.push(`${tag}: no positive amount.`);
   }
+  for (const b of bills) {
+    if (b.is_credit) problems.push(`${b.bill_number || b.id} is a credit memo — apply it as a credit, not a bill.`);
+  }
+  for (const c of credits) {
+    if (!c.is_credit) problems.push(`${c.bill_number || c.id} is a bill, not a credit memo.`);
+  }
 
-  const vendorIds = [...new Set(bills.map((b) => String(b.vendor_id ?? '')))];
+  const vendorIds = [...new Set(rows.map((b) => String(b.vendor_id ?? '')))];
   if (vendorIds.length > 1) {
     problems.push('One payment covers ONE vendor — the selection spans '
       + `${vendorIds.length} different vendors. Pay each vendor separately.`);
@@ -173,24 +196,31 @@ async function loadBatch(expenseIds) {
   }
   if (!vendor) problems.push('No vendor in the registry is linked to this QBO vendor — add/link it in Brixpense → Vendors first.');
 
-  const liveMap = await livePaymentsFor(bills.map((b) => b.qbo_bill_id));
-  for (const b of bills) {
+  const liveMap = await livePaymentsFor(rows.map((b) => b.qbo_bill_id));
+  for (const b of rows) {
     const live = liveMap.get(String(b.qbo_bill_id));
-    if (live) problems.push(`Bill ${b.bill_number || b.qbo_bill_id} already has a ${live.status} payment (${live.rail}) — refusing a duplicate.`);
+    if (live) problems.push(`${b.is_credit ? 'Credit' : 'Bill'} ${b.bill_number || b.qbo_bill_id} already has a ${live.status} payment (${live.rail}) — refusing a duplicate.`);
   }
 
   const total = Number(bills.reduce((s, b) => s + Number(b.total_amount), 0).toFixed(2));
-  return { bills, vendor, total, problems };
+  const creditTotal = Number(credits.reduce((s, c) => s + Number(c.total_amount), 0).toFixed(2));
+  const net = Number((total - creditTotal).toFixed(2));
+  if (net < 0) {
+    problems.push(`Applied credits ($${creditTotal.toFixed(2)}) exceed the bills selected ($${total.toFixed(2)}) — `
+      + 'a payment cannot be negative. Deselect a credit or add bills.');
+  }
+
+  return { bills, credits, vendor, total, creditTotal, net, problems };
 }
 
 /** Insert the group + one ledger row per bill BEFORE any money moves. Rolls
  *  the batch to 'failed' and reports if any row collides with the per-bill
  *  duplicate guard — a race with a single-bill Pay click elsewhere. */
-async function openLedger({ bills, vendor, rail, total, actorEmail, reference, notes, remitTo }) {
+async function openLedger({ bills, credits = [], vendor, rail, total, actorEmail, reference, notes, remitTo }) {
   const group = await insertGroup({
     vendor_id: vendor.id,
     rail,
-    total_amount: total,
+    total_amount: total,   // NET of applied credits — what actually moves
     bill_count: bills.length,
     status: 'initiated',
     reference: reference ? String(reference).slice(0, 120) : null,
@@ -200,7 +230,10 @@ async function openLedger({ bills, vendor, rail, total, actorEmail, reference, n
   });
 
   const rows = [];
-  for (const b of bills) {
+  // Credits get ledger rows too: the per-bill unique index then also stops a
+  // credit being APPLIED twice, for free.
+  for (const b of [...bills, ...credits]) {
+    const noun = b.is_credit ? 'Credit' : 'Bill';
     try {
       rows.push(await insertLedger({
         vendor_id: vendor.id,
@@ -211,12 +244,12 @@ async function openLedger({ bills, vendor, rail, total, actorEmail, reference, n
         amount: Number(b.total_amount),
         status: 'initiated',
         initiated_by: actorEmail,
-        notes: b.bill_number ? `Bill #${b.bill_number}` : null,
+        notes: b.bill_number ? `${noun} #${b.bill_number}` : (b.is_credit ? 'Credit applied' : null),
       }));
     } catch (e) {
       const dup = /duplicate|unique/i.test(String(e.message || e));
       const reason = dup
-        ? `batch aborted — bill ${b.bill_number || b.qbo_bill_id} already had a live payment`
+        ? `batch aborted — ${noun.toLowerCase()} ${b.bill_number || b.qbo_bill_id} already had a live payment`
         : `batch aborted — ledger write failed: ${String(e.message || e).slice(0, 200)}`;
       for (const r of rows) await patchLedger(r.id, { status: 'failed', failure_reason: reason });
       await patchGroup(group.id, { status: 'failed', failure_reason: reason });
@@ -234,11 +267,14 @@ async function failBatch(group, rows, reason) {
 
 // ── pay_stripe — one payout for the vendor's selected bills ──────────────────
 async function handlePayStripe(body, actorEmail) {
-  const { bills, vendor, total, problems } = await loadBatch(body.expense_request_ids);
+  const { bills, credits, vendor, net, problems } = await loadBatch(body.expense_request_ids, body.credit_ids);
   if (problems.length) return json({ error: problems.join(' ') }, 409);
   if (!stripeConfigured()) return json({ error: 'Stripe payouts are not configured on this site yet (STRIPE_PAYOUTS_KEY).' }, 501);
   if (!vendor.stripe_recipient_id) {
     return json({ error: 'This vendor is not set up for Stripe payouts yet — use "Set up bank payouts" on their vendor page, or record a manual payment.' }, 409);
+  }
+  if (!(net > 0)) {
+    return json({ error: 'The applied credits cover the whole selection — there is nothing to transfer. Use "Record payment" instead: applying credits moves no money, it just books the application in QuickBooks.' }, 409);
   }
 
   let fa, st;
@@ -248,20 +284,20 @@ async function handlePayStripe(body, actorEmail) {
     return json({ error: `Stripe check failed: ${String(e.message || e).slice(0, 200)}` }, 502);
   }
   if (!st.ready) return json({ error: 'This vendor has not finished Stripe bank setup.' }, 409);
-  const totalCents = Math.round(total * 100);
-  if (fa.availableCents < totalCents) {
+  const netCents = Math.round(net * 100);
+  if (fa.availableCents < netCents) {
     const bal = fa.availableCents / 100;
     return json({
-      error: `The Stripe payout balance ($${bal.toFixed(2)}) can't cover $${total.toFixed(2)} — short $${(total - bal).toFixed(2)}.`
+      error: `The Stripe payout balance ($${bal.toFixed(2)}) can't cover $${net.toFixed(2)} — short $${(net - bal).toFixed(2)}.`
         + ' Top up from Brixpense → Vendors → Stripe vendor funding first.',
-      short_by: Number((total - bal).toFixed(2)),
+      short_by: Number((net - bal).toFixed(2)),
     }, 409);
   }
 
   // The remittance recipient can be chosen at pay time; it rides the group so
   // the webhook sends the advice to the right address at settlement.
   const opened = await openLedger({
-    bills, vendor, rail: 'stripe_payout', total, actorEmail,
+    bills, credits, vendor, rail: 'stripe_payout', total: net, actorEmail,
     notes: body.notes, remitTo: body.remit_to,
   });
   if (opened.error) return opened.error;
@@ -272,14 +308,15 @@ async function handlePayStripe(body, actorEmail) {
       financialAccountId: fa.id,
       recipientId: vendor.stripe_recipient_id,
       payoutMethodId: st.payout_method_id,
-      amountCents: totalCents,
-      description: `Brix Beverage · ${bills.length === 1 ? `bill ${bills[0].bill_number || bills[0].qbo_bill_id}` : `${bills.length} bills`}`,
+      amountCents: netCents,
+      description: `Brix Beverage · ${bills.length === 1 ? `bill ${bills[0].bill_number || bills[0].qbo_bill_id}` : `${bills.length} bills`}`
+        + (credits.length ? ` − ${credits.length} credit(s)` : ''),
     });
     await patchGroup(group.id, { external_payout_id: payout.id });
     return json({
       ok: true, group_id: group.id, payout_id: payout.id, payout_status: payout.status,
-      bills: bills.length, total,
-      note: 'Payout sent to Stripe. On settlement, QuickBooks records ONE payment covering every bill and the vendor gets the remittance advice automatically.',
+      bills: bills.length, credits: credits.length, total: net,
+      note: 'Payout sent to Stripe. On settlement, QuickBooks records ONE payment covering every bill (credits applied on the same entry) and the vendor gets the remittance advice automatically.',
     });
   } catch (e) {
     await failBatch(group, rows, `Stripe payout failed: ${String(e.message || e)}`);
@@ -291,11 +328,11 @@ async function handlePayStripe(body, actorEmail) {
 async function handleRecord(body, actorEmail) {
   const rail = String(body.rail || '');
   if (!MANUAL_RAILS.has(rail)) return json({ error: `rail must be one of ${[...MANUAL_RAILS].join(', ')}` }, 400);
-  const { bills, vendor, total, problems } = await loadBatch(body.expense_request_ids);
+  const { bills, credits, vendor, net, problems } = await loadBatch(body.expense_request_ids, body.credit_ids);
   if (problems.length) return json({ error: problems.join(' ') }, 409);
 
   const opened = await openLedger({
-    bills, vendor, rail, total, actorEmail,
+    bills, credits, vendor, rail, total: net, actorEmail,
     reference: body.reference, notes: body.notes, remitTo: body.remit_to,
   });
   if (opened.error) return opened.error;
@@ -303,14 +340,19 @@ async function handleRecord(body, actorEmail) {
 
   // qbo_billpay already posted its own payment inside QuickBooks — booking a
   // second BillPayment would pay the bills twice. Ledger + stamps only.
+  // (Credit application rides the BillPayment, so on this rail QuickBooks'
+  // own payment is assumed to have applied them there too.)
   let billPaymentId = null;
   if (rail !== 'qbo_billpay') {
     try {
       billPaymentId = await recordQboBillPaymentMulti({
         qboVendorId: bills[0].vendor_id,
-        lines: bills.map((b) => ({ qboBillId: b.qbo_bill_id, amount: Number(b.total_amount) })),
+        lines: [
+          ...bills.map((b) => ({ qboBillId: b.qbo_bill_id, amount: Number(b.total_amount) })),
+          ...credits.map((c) => ({ qboBillId: c.qbo_bill_id, amount: Number(c.total_amount), credit: true })),
+        ],
         memo: `Paid via ${rail.replace('_manual', '')}${body.reference ? ` · ref ${String(body.reference).slice(0, 60)}` : ''}`
-          + ` · pay run of ${bills.length} bill(s) recorded in Brixpense by ${actorEmail}`,
+          + ` · pay run of ${bills.length} bill(s)${credits.length ? ` − ${credits.length} credit(s)` : ''} recorded in Brixpense by ${actorEmail}`,
       });
     } catch (e) {
       // One atomic QBO write — a refusal means NOTHING was booked.
@@ -320,7 +362,8 @@ async function handleRecord(body, actorEmail) {
   }
 
   const stampErrors = [];
-  for (const [i, b] of bills.entries()) {
+  const items = [...bills, ...credits];
+  for (const [i, b] of items.entries()) {
     await patchLedger(rows[i].id, { status: 'recorded', qbo_billpayment_id: billPaymentId, reference: body.reference ? String(body.reference).slice(0, 120) : null });
     const err = await markExpensePaid(b.id, { rail, qboBillPaymentId: billPaymentId, reference: body.reference });
     if (err) stampErrors.push(`${b.bill_number || b.id}: ${err}`);
@@ -329,13 +372,13 @@ async function handleRecord(body, actorEmail) {
 
   const remit = await sendRemittanceAdvice({
     group: { ...group, status: 'recorded', qbo_billpayment_id: billPaymentId, reference: body.reference || group.reference },
-    vendor, bills, to: body.remit_to,
+    vendor, bills: items, to: body.remit_to,
   });
 
   if (stampErrors.length) console.error('[vendor-pay-run] paid but not stamped:', stampErrors.join(' | '));
   return json({
     ok: true, group_id: group.id, qbo_billpayment_id: billPaymentId,
-    bills: bills.length, total,
+    bills: bills.length, credits: credits.length, total: net,
     remittance: remit,
     stamp_errors: stampErrors.length ? stampErrors : undefined,
   });

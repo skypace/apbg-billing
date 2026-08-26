@@ -10,28 +10,35 @@ import { qboRequest } from '../qbo-helpers.mjs';
 export { ops };
 
 /** Build the QBO BillPayment payload for one vendor covering N bills — one
- *  Line per bill, each linked to its Bill. Pure and exported so the payload
- *  shape (the part QBO actually validates) is testable without QBO. */
+ *  Line per bill, each linked to its Bill. Lines flagged `credit: true` link
+ *  a VendorCredit instead: QBO's documented apply-a-credit shape is a
+ *  positive-Amount line with LinkedTxn TxnType 'VendorCredit', and TotalAmt
+ *  (the money that actually moves) = bills − credits. Pure and exported so
+ *  the payload shape (the part QBO actually validates) is testable without
+ *  QBO. */
 export function buildBillPaymentPayload({ qboVendorId, lines, memo, bankAccountId }) {
   const bank = bankAccountId || process.env.QBO_VENDOR_PAY_BANK_ACCOUNT_ID || '72';
   const clean = (lines || [])
-    .map((l) => ({ qboBillId: String(l.qboBillId || '').trim(), amount: Number(l.amount) }))
+    .map((l) => ({ qboBillId: String(l.qboBillId || '').trim(), amount: Number(l.amount), credit: !!l.credit }))
     .filter((l) => l.qboBillId && l.amount > 0);
-  if (!clean.length) throw new Error('BillPayment needs at least one bill line');
+  if (!clean.some((l) => !l.credit)) throw new Error('BillPayment needs at least one bill line');
   const seen = new Set();
   for (const l of clean) {
     if (seen.has(l.qboBillId)) throw new Error(`Duplicate bill ${l.qboBillId} in one BillPayment`);
     seen.add(l.qboBillId);
   }
-  const total = clean.reduce((s, l) => s + l.amount, 0);
+  const total = clean.reduce((s, l) => s + (l.credit ? -l.amount : l.amount), 0);
+  // A credit can offset bills down to a $0 payment (apply-only), never below:
+  // a negative payment is not a thing QBO or a bank can do.
+  if (total < -0.005) throw new Error('Applied credits exceed the bills selected — a payment cannot be negative');
   return {
     VendorRef: { value: String(qboVendorId) },
-    TotalAmt: Number(total.toFixed(2)),
+    TotalAmt: Number(Math.max(0, total).toFixed(2)),
     PayType: 'Check',
     CheckPayment: { BankAccountRef: { value: bank } },
     Line: clean.map((l) => ({
       Amount: Number(l.amount.toFixed(2)),
-      LinkedTxn: [{ TxnId: l.qboBillId, TxnType: 'Bill' }],
+      LinkedTxn: [{ TxnId: l.qboBillId, TxnType: l.credit ? 'VendorCredit' : 'Bill' }],
     })),
     ...(memo ? { PrivateNote: String(memo).slice(0, 4000) } : {}),
   };

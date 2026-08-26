@@ -45,7 +45,11 @@ function VendorSection({
   stripeConfigured: boolean;
 }) {
   const pickedBills = group.bills.filter((b) => selected.has(b.id));
+  const pickedCredits = group.credits.filter((c) => selected.has(c.id));
   const pickedTotal = pickedBills.reduce((s, b) => s + b.amount, 0);
+  const pickedCreditTotal = pickedCredits.reduce((s, c) => s + c.amount, 0);
+  // What actually moves: bills minus applied credits. Negative = over-applied.
+  const netTotal = Number((pickedTotal - pickedCreditTotal).toFixed(2));
   const allPicked = group.bills.length > 0 && pickedBills.length === group.bills.length;
   const stripeReady = stripeConfigured && !!group.vendor?.stripe_recipient_id;
 
@@ -57,17 +61,22 @@ function VendorSection({
   const [remitTo, setRemitTo] = useState(group.vendor?.contact_email || '');
 
   const ids = pickedBills.map((b) => b.id);
+  const creditIds = pickedCredits.map((c) => c.id);
+  const creditNote = pickedCredits.length
+    ? ` minus ${pickedCredits.length} credit(s) (−${formatCurrency(pickedCreditTotal)})`
+    : '';
 
   const payStripe = async () => {
     if (!window.confirm(
-      `Send ${formatCurrency(pickedTotal)} to ${group.vendor_name} by bank transfer (Stripe)?\n\n`
-      + `One payout covering ${pickedBills.length} bill(s). This moves real money now and cannot be undone from here.\n`
+      `Send ${formatCurrency(netTotal)} to ${group.vendor_name} by bank transfer (Stripe)?\n\n`
+      + `One payout covering ${pickedBills.length} bill(s)${creditNote}. This moves real money now and cannot be undone from here.\n`
       + `The remittance advice goes to ${remitTo || 'nobody — no email on file'} once the transfer settles.`,
     )) return;
     setBusy('stripe'); setError(null);
     try {
-      const r = await payRunStripe(ids, remitTo.trim() || undefined);
-      onPaid(`Sent — Stripe payout ${r.payout_id} for ${formatCurrency(r.total)} covering ${r.bills} bill(s). `
+      const r = await payRunStripe(ids, remitTo.trim() || undefined, creditIds.length ? creditIds : undefined);
+      onPaid(`Sent — Stripe payout ${r.payout_id} for ${formatCurrency(r.total)} covering ${r.bills} bill(s)`
+        + (r.credits ? ` (−${r.credits} credit(s) applied)` : '') + '. '
         + 'QuickBooks records one payment and the vendor gets the remittance advice when it settles.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Payment failed.');
@@ -76,8 +85,8 @@ function VendorSection({
 
   const record = async () => {
     if (!window.confirm(
-      `Record ${formatCurrency(pickedTotal)} to ${group.vendor_name} as already paid by ${RAIL_LABEL[rail]}?\n\n`
-      + `${pickedBills.length} bill(s), one QuickBooks payment`
+      `Record ${formatCurrency(netTotal)} to ${group.vendor_name} as already paid by ${RAIL_LABEL[rail]}?\n\n`
+      + `${pickedBills.length} bill(s)${creditNote}, one QuickBooks payment`
       + (rail === 'qbo_billpay' ? ' (Bill Pay already booked its own — this only files it here)' : '')
       + `.\nRemittance advice goes to ${remitTo || 'nobody — no email on file'} now.`,
     )) return;
@@ -86,11 +95,13 @@ function VendorSection({
       const r = await payRunRecord(ids, rail, {
         reference: reference.trim() || undefined,
         remitTo: remitTo.trim() || undefined,
+        creditIds: creditIds.length ? creditIds : undefined,
       });
       const remitNote = r.remittance?.sent
         ? `Remittance advice sent to ${r.remittance.to}.`
         : `Remittance advice NOT sent (${r.remittance?.error || 'unknown'}) — resend it below.`;
       onPaid(`Recorded ${formatCurrency(r.total)} across ${r.bills} bill(s)`
+        + (r.credits ? ` (−${r.credits} credit(s) applied)` : '')
         + (r.qbo_billpayment_id ? ` — QuickBooks BillPayment ${r.qbo_billpayment_id}. ` : '. ') + remitNote);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not record the payment.');
@@ -118,9 +129,14 @@ function VendorSection({
             <Badge variant="destructive">Not in vendor registry</Badge>
           )}
           <span className="text-sm font-bold tabular-nums">
-            {pickedBills.length > 0
-              ? `${formatCurrency(pickedTotal)} of ${formatCurrency(group.total)}`
+            {pickedBills.length > 0 || pickedCredits.length > 0
+              ? `${formatCurrency(netTotal)} of ${formatCurrency(group.total)}`
               : formatCurrency(group.total)}
+            {group.credit_total > 0 && (
+              <span className="ml-1 text-xs font-semibold text-emerald-500">
+                (−{formatCurrency(group.credit_total)} credit available)
+              </span>
+            )}
           </span>
         </div>
 
@@ -145,6 +161,25 @@ function VendorSection({
               <span className="font-semibold tabular-nums">{formatCurrency(b.amount)}</span>
             </label>
           ))}
+          {group.credits.map((c) => (
+            <label
+              key={c.id}
+              className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm cursor-pointer hover:bg-emerald-500/10"
+            >
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-emerald-500"
+                checked={selected.has(c.id)}
+                onChange={() => onToggle(c.id)}
+              />
+              <span className="font-medium text-emerald-500">Credit {c.bill_number ? `#${c.bill_number}` : ''}</span>
+              <span className="text-muted-foreground text-xs">
+                {c.receipt_date || 'no date'}{c.job_number ? ` · job ${c.job_number}` : ''} · apply against the bills above
+              </span>
+              <span className="flex-1" />
+              <span className="font-semibold tabular-nums text-emerald-500">−{formatCurrency(c.amount)}</span>
+            </label>
+          ))}
           {group.in_flight.map((b) => (
             <div key={b.id} className="flex items-center gap-2.5 rounded-lg border border-border/60 px-3 py-2 text-sm opacity-60">
               <span className="w-4" />
@@ -162,8 +197,20 @@ function VendorSection({
           <div className="text-sm rounded-lg p-2.5 border border-destructive/40 bg-destructive/10 text-destructive">{error}</div>
         )}
 
+        {pickedCredits.length > 0 && pickedBills.length === 0 && (
+          <div className="text-sm rounded-lg p-2.5 border border-amber-500/40 bg-amber-500/10 text-amber-500">
+            A credit applies against bills — tick at least one bill to apply it to.
+          </div>
+        )}
+
         {pickedBills.length > 0 && (
           <div className="rounded-lg border border-primary/40 p-3 space-y-3">
+            {netTotal < 0 && (
+              <div className="text-sm rounded-lg p-2.5 border border-amber-500/40 bg-amber-500/10 text-amber-500">
+                The credits you picked (−{formatCurrency(pickedCreditTotal)}) exceed the bills ({formatCurrency(pickedTotal)}) —
+                a payment can&rsquo;t be negative. Deselect a credit or add bills.
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <Label>Remittance advice goes to</Label>
@@ -184,12 +231,13 @@ function VendorSection({
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                disabled={busy !== null || !stripeReady || !group.vendor}
+                disabled={busy !== null || !stripeReady || !group.vendor || netTotal <= 0}
                 onClick={payStripe}
-                title={stripeReady ? undefined : 'Vendor has not finished Stripe bank setup'}
+                title={!stripeReady ? 'Vendor has not finished Stripe bank setup'
+                  : netTotal <= 0 ? 'Nothing to transfer — credits cover the selection; use Record payment to apply them' : undefined}
               >
                 {busy === 'stripe' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
-                Pay {formatCurrency(pickedTotal)} by bank transfer
+                Pay {formatCurrency(Math.max(0, netTotal))} by bank transfer
               </Button>
               <Button size="sm" variant="outline" disabled={busy !== null || !group.vendor} onClick={() => setRecordOpen((v) => !v)}>
                 Already paid another way…
@@ -208,9 +256,9 @@ function VendorSection({
                     <Input placeholder="Check #, Venmo note…" value={reference} onChange={(e) => setReference(e.target.value)} />
                   </div>
                 </div>
-                <Button size="sm" variant="outline" disabled={busy !== null} onClick={record}>
+                <Button size="sm" variant="outline" disabled={busy !== null || netTotal < 0} onClick={record}>
                   {busy === 'record' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
-                  Record {formatCurrency(pickedTotal)} as paid
+                  Record {formatCurrency(Math.max(0, netTotal))} as paid
                 </Button>
                 <p className="text-[11px] text-muted-foreground">
                   Books ONE QuickBooks payment covering all {pickedBills.length} bill(s) — except QuickBooks Bill Pay,
@@ -331,7 +379,7 @@ export default function PayRun() {
   const paid = (msg: string) => { setFlash(msg); void load(); };
 
   const openTotal = useMemo(
-    () => (data?.vendors || []).reduce((s, g) => s + g.total, 0),
+    () => (data?.vendors || []).reduce((s, g) => s + g.total - (g.credit_total || 0), 0),
     [data],
   );
   const balance = data?.stripe.balance_cents != null ? data.stripe.balance_cents / 100 : null;
