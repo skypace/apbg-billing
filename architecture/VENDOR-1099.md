@@ -140,3 +140,33 @@ first coverage to lapse. That date is what the weekly expiry digest chases.
 Shortfalls against the vendor's own `requirements` are recorded on the row, and
 so is the additional-insured caveat from SOP-11: the box being ticked is not the
 endorsement.
+
+
+## Pushing a vendor into QuickBooks
+
+The **Push to QuickBooks** button on a vendor record does the two things people
+otherwise do by hand: creates the QuickBooks Vendor, and attaches that vendor's
+paperwork to it so whoever is looking at a bill can see the vendor is actually
+documented.
+
+It **never creates a second QuickBooks vendor**. An existing `qbo_vendor_id` is
+verified first, then an exact `DisplayName` match is linked to, and only then is
+one created. QBO rejects duplicate display names anyway, so a blind create just
+400s — but linking is also the right answer, for the same reason the W-9 drop
+matches before it creates: a split vendor history is worse than a slow one.
+
+> ⚠ **The full tax ID is never sent.** `ops.vendors` holds `ein_last4` only —
+> deliberately — and a partial `TaxIdentifier` would be worse than an empty one
+> because it *looks* filled in. The whole number is on the W-9 itself, which is
+> precisely why attaching the document is the half that matters.
+
+`Vendor1099` is set only from an **explicit** `is_1099` override. Null means
+nobody has decided, and inferring it from a W-9 checkbox is the mistake this
+whole page exists to prevent.
+
+Attachments go through QuickBooks' Attachable API (`POST
+/v3/company/{realm}/upload`, multipart `file_metadata_01` + `file_content_01`;
+`Vendor` is a supported `AttachableRef` entity). They are **best effort and
+reported per file** — one unreadable document cannot lose the vendor push or
+the other attachments, and the response says exactly which did what.
+
