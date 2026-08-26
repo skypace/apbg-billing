@@ -156,6 +156,29 @@ My Pending, Approvals (manager queue).
 
 ---
 
+## Service Fusion receipts — the `SF_FETCH_RECEIPTS` switch (2026-08-25)
+
+SF-landed expenses arrive **data-only**: vendor, amount, date, job number,
+customer, and the SF# deep link come from SF's REST API (reliable); the bill
+document is **attached by a human in Brixpense** via the attach controls on the
+expense edit form. The receipt file itself only ever existed on the
+admin.servicefusion.com job page, and that cookie-authenticated scrape was the
+flakiest link in the whole pipeline (intermittent 20s+ hangs on SF's side).
+
+The scrape is not deleted — it's behind a switch:
+
+- **`SF_FETCH_RECEIPTS`** env var on the **Supabase project** (edge-function
+  env, NOT Netlify — `sf-receipt-sync` is a Supabase edge function).
+- Default/unset/`0` = data-only landing (current mode). Set to `1` to restore
+  receipt auto-attach; takes effect on the next sweep, no deploy needed.
+- Every sweep logs `fetchReceipts` in its `ops.sync_log` metadata, so which
+  mode a run used is always on record.
+- The `?receipts=<job#>` diagnostic endpoint always resolves receipt URLs
+  regardless of the flag (for one-off manual retrieval).
+
+With the flag off, attachment-less SF drafts get `ocr_status='no_attachment'`
+and a one-time email — that's the "go attach the bill" nudge, not an error.
+
 ## Expense lifecycle
 
 ```

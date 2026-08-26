@@ -32,6 +32,13 @@ export default function SFExpenses() {
   const [archiving, setArchiving] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // Lifecycle tabs (Sky, 2026-08-25): Open (needs a human — attach/submit/post)
+  // → Posted (in QBO, money still owed) → Paid & closed (done). Most bills get
+  // paid OUTSIDE Brixpense (a cheque in QBO, a Bill Pay run) — the daily
+  // bill-paid-sync asks QuickBooks and stamps paid_at, which is what moves a
+  // bill to the last tab with no one touching Brixpense. A posted Purchase
+  // (as_bill=false) was paid before it ever posted, so it lands there directly.
+  const [tab, setTab] = useState<'open' | 'posted' | 'paid'>('open');
   // Payments (Phase 3): the Pay panel is superadmin-only — /api/vendor-pay
   // refuses anyone else, so the trigger stays hidden rather than 403-ing.
   const [isSuperadmin, setIsSuperadmin] = useState(false);
@@ -108,10 +115,36 @@ export default function SFExpenses() {
     }
   };
 
-  const total = requests.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+  // paid_at is the decision (stamped by us at payment, or by bill-paid-sync
+  // when QuickBooks says the balance hit zero). A posted Purchase was already
+  // paid when it posted — as_bill=false means there was never money owed.
+  const isPaidClosed = (r: ExpenseRequest) =>
+    r.status === 'posted' && (r.as_bill === false || !!r.paid_at);
+  const bucketOf = (r: ExpenseRequest): 'open' | 'posted' | 'paid' =>
+    r.status !== 'posted' ? 'open' : isPaidClosed(r) ? 'paid' : 'posted';
+
+  const counts = { open: 0, posted: 0, paid: 0 };
+  for (const r of requests) counts[bucketOf(r)]++;
+  const visible = requests.filter((r) => bucketOf(r) === tab);
+  const total = visible.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+
+  const TABS: { key: 'open' | 'posted' | 'paid'; label: string }[] = [
+    { key: 'open', label: 'Open' },
+    { key: 'posted', label: 'Posted' },
+    { key: 'paid', label: 'Paid & closed' },
+  ];
 
   function draftBadge(req: ExpenseRequest): { label: string; variant: 'success' | 'secondary' | 'warning' } {
-    if (req.status === 'posted') return { label: 'Posted', variant: 'success' };
+    if (req.status === 'posted') {
+      if (isPaidClosed(req)) {
+        return { label: req.paid_at ? `Paid ${formatDate(req.paid_at)}` : 'Paid', variant: 'success' };
+      }
+      // Partly paid: QuickBooks reported a balance above zero but below the total.
+      if (req.qbo_balance != null && req.qbo_balance > 0 && req.total_amount != null && req.qbo_balance < req.total_amount) {
+        return { label: `Partly paid — ${formatCurrency(req.qbo_balance)} left`, variant: 'warning' };
+      }
+      return { label: 'Posted — awaiting payment', variant: 'secondary' };
+    }
     if (req.status === 'approved') return { label: 'Approved — ready to post', variant: 'secondary' };
     if (req.ocr_status === 'no_attachment') return { label: 'Needs review — no receipt', variant: 'warning' };
     if (req.ocr_status === 'failed') return { label: 'Needs review — OCR failed', variant: 'warning' };
@@ -132,12 +165,30 @@ export default function SFExpenses() {
             Service Fusion job expenses — landed in Brixpense when the job is invoiced.
           </p>
         </div>
-        {!loading && requests.length > 0 && (
+        {!loading && visible.length > 0 && (
           <div className="text-right">
             <div className="text-[15px] font-bold tabular-nums">{formatCurrency(total)}</div>
-            <div className="text-[11px] text-muted-foreground">{requests.length} expense{requests.length === 1 ? '' : 's'}</div>
+            <div className="text-[11px] text-muted-foreground">{visible.length} expense{visible.length === 1 ? '' : 's'}</div>
           </div>
         )}
+      </div>
+
+      <div className="flex gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium transition border ${
+              tab === t.key
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+            }`}
+          >
+            {t.label}
+            <span className={`ml-1.5 tabular-nums ${tab === t.key ? 'opacity-80' : 'opacity-60'}`}>{counts[t.key]}</span>
+          </button>
+        ))}
       </div>
 
       {postError && (
@@ -150,21 +201,25 @@ export default function SFExpenses() {
         <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : requests.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Card>
           <CardContent className="feedback-state">
             <Wrench className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              No Service Fusion expenses yet.
+              {tab === 'open' && 'Nothing waiting on you.'}
+              {tab === 'posted' && 'No posted bills awaiting payment.'}
+              {tab === 'paid' && 'No paid bills yet.'}
             </p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              They appear here once a SF job is billed and invoiced.
+              {tab === 'open' && 'New SF expenses land here when a job is invoiced.'}
+              {tab === 'posted' && 'Bills move here when posted to QuickBooks, and on to Paid & closed when QuickBooks reports them paid.'}
+              {tab === 'paid' && 'Bills land here automatically once QuickBooks reports them paid (checked daily), or immediately for already-paid purchases.'}
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => (
+          {visible.map((req) => (
             <div key={req.id} className="space-y-2">
             <Card
               className="cursor-pointer hover:shadow-sm transition-shadow"
