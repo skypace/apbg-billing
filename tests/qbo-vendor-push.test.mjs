@@ -59,3 +59,50 @@ test('content type follows the file extension', () => {
   assert.equal(contentTypeFor('cert.png'), 'image/png');
   assert.equal(contentTypeFor('mystery'), 'application/pdf');
 });
+
+// ── The real 400 ──────────────────────────────────────────────────────────
+// QuickBooks refused a live push with fault 2210 "does not conform to the
+// syntax rules of RFC 822", quoting the whole contact_email field:
+//   "tina@trutekaz.com, nancy@truetekaz.com, gene,cota@truetekaz.com"
+// Three contacts in one column, one of them itself malformed (a comma where a
+// dot belongs). PrimaryEmailAddr takes exactly ONE address.
+import { pickEmail, pickPhone, splitContacts } from '../netlify/functions/lib/qbo-vendor-push.mjs';
+
+const REAL = 'tina@trutekaz.com, nancy@truetekaz.com, gene,cota@truetekaz.com';
+
+test('the string that actually broke it now yields one valid address', () => {
+  const p = pickEmail(REAL);
+  assert.equal(p.email, 'tina@trutekaz.com');
+  assert.ok(p.valid > 1, 'should notice there were several');
+});
+
+test('the whole multi-address string never reaches QuickBooks', () => {
+  const payload = buildVendorPayload({ display_name: 'TruTek', contact_email: REAL });
+  assert.equal(payload.PrimaryEmailAddr.Address, 'tina@trutekaz.com');
+  assert.ok(!payload.PrimaryEmailAddr.Address.includes(','));
+});
+
+test('a malformed address is skipped, not repaired', () => {
+  // "gene,cota@x.com" must never be silently turned into "gene.cota@x.com" —
+  // that is inventing a contact. Splitting drops the unusable fragment.
+  const p = pickEmail('gene,cota@truetekaz.com');
+  assert.equal(p.email, 'cota@truetekaz.com');
+  assert.ok(!splitContacts('gene,cota@truetekaz.com').includes('gene.cota@truetekaz.com'));
+});
+
+test('no valid address means the key is omitted entirely, not sent blank', () => {
+  for (const junk of ['not an email', '@@@', '', null, 'a@b']) {
+    assert.equal(pickEmail(junk).email, null);
+    assert.equal(buildVendorPayload({ display_name: 'X', contact_email: junk }).PrimaryEmailAddr, undefined);
+  }
+});
+
+test('semicolons and newlines separate contacts too', () => {
+  assert.equal(pickEmail('ap@vendor.com; owner@vendor.com').email, 'ap@vendor.com');
+  assert.equal(pickEmail('\nap@vendor.com\nowner@vendor.com\n').email, 'ap@vendor.com');
+});
+
+test('a phone list sends one number, and junk sends none', () => {
+  assert.equal(pickPhone('928-555-0134, 928-555-0199'), '928-555-0134');
+  assert.equal(pickPhone('ask for Gene'), null);
+});

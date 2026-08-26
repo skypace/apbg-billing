@@ -7,6 +7,8 @@ export interface VendorQboPushResult {
   qbo_display_name: string;
   attachments: { document: string; status: string; error?: string }[];
   message: string;
+  email_used: string | null;
+  emails_on_file: number;
 }
 
 /** Create (or link) the QuickBooks vendor and attach their W-9 / COI to it. */

@@ -53,6 +53,18 @@ export default async function handler(req) {
   const sendTo = emailOverride || vendor.contact_email;
   if (!sendTo) return json({ error: 'No contact email on file for this vendor — add one (or pass it here) first.' }, 400);
 
+  // Everyone else on the vendor gets a copy. Chasing a W-9 through one inbox
+  // that turns out to be the wrong person is how these sit unanswered for
+  // weeks. An override sends only to that address — it is a deliberate
+  // redirect, not an addition.
+  const EMAIL_OK = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+  const copies = emailOverride
+    ? []
+    : (Array.isArray(vendor.additional_emails) ? vendor.additional_emails : [])
+        .map((e) => String(e || '').trim())
+        .filter((e) => EMAIL_OK.test(e) && e.toLowerCase() !== String(sendTo).toLowerCase());
+  const recipients = [sendTo, ...new Set(copies)];
+
   try {
     await ensureParty(vendor);
 
@@ -64,7 +76,7 @@ export default async function handler(req) {
     });
 
     await sendEmail({
-      to: sendTo,
+      to: recipients,
       subject: `${vendor.display_name} — vendor documents for Brix Beverage`,
       html: requestDocsEmailHtml({ vendorName: vendor.display_name, link, mode: 'invite' }),
       text: `Please send us your vendor documents (COI, W-9, payment preference): ${link}\nThis link expires in 14 days.`,
@@ -75,7 +87,7 @@ export default async function handler(req) {
     if (emailOverride && emailOverride !== vendor.contact_email) patch.contact_email = emailOverride;
     if (Object.keys(patch).length) await ops('PATCH', `vendors?id=eq.${vendor.id}`, patch);
 
-    return json({ ok: true, sent_to: sendTo, expires_at: expiresAt });
+    return json({ ok: true, sent_to: recipients, expires_at: expiresAt });
   } catch (e) {
     return json({ error: `Could not send the request: ${e.message?.slice(0, 300) || e}` }, 502);
   }
