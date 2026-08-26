@@ -31,6 +31,15 @@ const PORTAL_TIMEOUT_MS = 20000;
 const RECEIPT_TIMEOUT_MS = 25000;
 const HOOK_TIMEOUT_MS = 20000;
 const ATTACH_BUCKET = "expense-attachments";
+// Receipt auto-attach is OFF by default (Sky, 2026-08-25): the receipt file only
+// exists on the admin-portal job page, and that scrape is the flakiest thing in
+// this pipeline — intermittent 20s+ hangs on SF's side. The new model: land the
+// DATA (vendor/amount/date/job) from SF's real API, leave the draft open, and a
+// human attaches the actual bill in Brixpense (the edit form has attach controls
+// now). Set SF_FETCH_RECEIPTS=1 in the Supabase env to turn the scrape back on.
+// The SF# deep link (encId) still resolves — that's the cheaper search call, and
+// only runs for rows that don't have one yet.
+const FETCH_RECEIPTS = (Deno.env.get("SF_FETCH_RECEIPTS") || "0") === "1";
 const SUBMITTER_ID = "2da634b7-623d-4f73-b667-cf87975fcdb6"; // skypace@brixbev.com (system)
 const START_DATE = Deno.env.get("SF_SWEEP_START_DATE") || "2026-06-03";
 const TOKEN_LOCK_SECONDS = 45;
@@ -223,7 +232,7 @@ async function adminReq(s: any, path: string, init?: RequestInit): Promise<{ sta
 // Resolve a SF job number to its admin-portal encrypted id (for deep links) and
 // the receipt S3 URLs on its job page. encId is stable per job — store it so the
 // UI can link straight to admin.servicefusion.com/jobs/jobView?id=<encId>.
-async function resolveJobAssets(s: any, jobNumber: string): Promise<{ encId: string; urls: string[] }> {
+async function resolveJobAssets(s: any, jobNumber: string, fetchUrls = FETCH_RECEIPTS): Promise<{ encId: string; urls: string[] }> {
   const tryQueries = [jobNumber, (jobNumber.match(/\d{3,}/) || [""])[0]].filter(Boolean);
   let enc = "";
   for (const q of tryQueries) {
@@ -235,7 +244,9 @@ async function resolveJobAssets(s: any, jobNumber: string): Promise<{ encId: str
     const hit = results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "") === wantDigits) || results.find((x: any) => String(x.name || "").replace(/[^0-9]/g, "").includes(wantDigits)) || results[0];
     if (hit?.id) { enc = hit.id; break; }
   }
-  if (!enc) return { encId: "", urls: [] };
+  // With receipt fetching off, the deep link is all we need — skip the jobView
+  // scrape entirely (the slower half of the portal round-trip).
+  if (!enc || !fetchUrls) return { encId: enc, urls: [] };
   const jr = await adminReq(s, "/jobs/jobView?id=" + encodeURIComponent(enc));
   if (jr.status !== 200) return { encId: enc, urls: [] };
   const urls = [...new Set([...jr.body.matchAll(/https?:\/\/servicefusion\.s3\.amazonaws\.com\/userdocs\/\d+\/jobexpense\/[^\s"'<>\\)]+/gi)].map((m) => m[0]))];
@@ -425,8 +436,14 @@ async function landJob(s: any, job: any, log: string[], opts: { gateByDate?: boo
     }
     if (!reqId) continue;
 
-    const { data: have } = await s.from("expense_request_attachments").select("id").eq("request_id", reqId).limit(1);
-    const needReceipt = !(have && have.length);
+    // With FETCH_RECEIPTS off, the bill document is the HUMAN's to attach in
+    // Brixpense — never a reason to hit the portal. Only a missing deep link
+    // justifies a (search-only) portal call then.
+    let needReceipt = false;
+    if (FETCH_RECEIPTS) {
+      const { data: have } = await s.from("expense_request_attachments").select("id").eq("request_id", reqId).limit(1);
+      needReceipt = !(have && have.length);
+    }
     if (!needReceipt && hasEnc) continue; // nothing left to do for this draft
 
     // Resolve once: gives encId (for the deep link) + receipt URLs.
@@ -463,7 +480,8 @@ Deno.serve(async (req: Request) => {
   // ?receipts=<jobNumber> — diagnostics: resolve a job number to its admin encId + receipt URLs.
   if (u.searchParams.get("receipts")) {
     const num = u.searchParams.get("receipts")!;
-    try { const { encId, urls } = await resolveJobAssets(s, num); return json({ job: num, encId, jobView: encId ? `${ADMIN_BASE}/jobs/jobView?id=${encId}` : null, urls }); } catch (e: any) { return json({ job: num, error: e.message }, 500); }
+    // Diagnostics always resolve receipt URLs too, regardless of FETCH_RECEIPTS.
+    try { const { encId, urls } = await resolveJobAssets(s, num, true); return json({ job: num, encId, jobView: encId ? `${ADMIN_BASE}/jobs/jobView?id=${encId}` : null, urls }); } catch (e: any) { return json({ job: num, error: e.message }, 500); }
   }
 
   // ?refreshCookie=1 — force a portal-cookie refresh via the Make hook.
@@ -578,7 +596,7 @@ Deno.serve(async (req: Request) => {
   // page rather than stepping over it (a page that always times out must not be
   // silently skipped — that is how work disappears without an error).
   const nextPage = fresh ? null : (ranDry ? 1 : (lastCompleted >= page ? lastCompleted + 1 : page));
-  const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", fromPage: page, lastCompleted, ranDry, budgetHit, jobsSeen, detail, drafts, attached, expensesSeen, skippedByDate, skippedEmpty, alreadyLanded, elapsedMs: Date.now() - t0 };
+  const result: any = { ok: !fatalError, mode: fresh ? "fresh" : "crawl", fromPage: page, lastCompleted, ranDry, budgetHit, jobsSeen, detail, drafts, attached, expensesSeen, skippedByDate, skippedEmpty, alreadyLanded, elapsedMs: Date.now() - t0, fetchReceipts: FETCH_RECEIPTS };
   if (fatalError) result.error = fatalError;
   if (nextPage !== null) result.next_page = nextPage;
   await logReceiptSync(s, started, fatalError ? "error" : "success", drafts, { ...result, log: log.slice(0, 20) }, fatalError || null);
