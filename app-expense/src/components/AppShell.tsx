@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Banknote, BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, Users, Wand2, Wrench, X } from 'lucide-react';
+import { Banknote, BookOpen, Building2, ChevronLeft, ChevronRight, Clock, FileSpreadsheet, FileText, Inbox, LogOut, Mail, Menu, Moon, Receipt, Settings as SettingsIcon, Sun, TrendingUp, Users, Wand2, Wrench, X } from 'lucide-react';
 import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
@@ -41,6 +41,9 @@ const navGroups: {
       // Pay run: money out is superadmin-only server side — staff nav only
       // hides a button the API would 403 anyway.
       { path: 'pay-run', icon: Banknote, label: 'Pay Bills', staffOnly: true },
+      // Spend trends off the QBO mirror — vendor amounts are staff data on
+      // the shared project; the RPCs are staff-gated server side.
+      { path: 'spending', icon: TrendingUp, label: 'Spending', staffOnly: true },
       { path: 'reports', icon: BookOpen, label: 'Expense Reports' },
     ],
   },

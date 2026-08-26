@@ -246,6 +246,34 @@ The amount stays POSITIVE; the flag carries the sign. What changes downstream:
 
 Migration `20260826e_vendor_credits.sql` (applied live).
 
+## Spending report (2026-08-26)
+
+**Brixpense → Accounts payable → Spending** (`/expense/spending`, staff-only
+nav; the RPCs are the real gate). Answers "what are we spending, where, and
+what's growing" off the **QBO expense mirror** (`ops.qbo_expense_lines`) —
+the complete booked-spend picture including bills keyed straight into
+QuickBooks, not just what flowed through Brixpense.
+
+- **`ops.fn_spend_report(p_months)`** (migration `20260826f`, applied live) —
+  one jsonb round trip: monthly totals, by-vendor and by-account rows each
+  carrying window total, txn count, prior-window total (growth), and a
+  per-month map for sparklines. SECURITY DEFINER with the staff guard INLINE
+  (`fn_assert_staff_or_service` — the 20260820b rule); EXECUTE revoked from
+  public/anon.
+- **`ops.fn_spend_vendor_detail(p_vendor, p_months)`** — the drill: one
+  vendor's 100 most recent mirror lines, for "why did this triple".
+- **Conventions:** VendorCredit lines count NEGATIVE (same as
+  `fn_1099_candidates`); item-based lines fall back to `item_name` when
+  `account_name` is blank (without it, $5M+ of item-based spend lumps into
+  one "(no account)" bucket); "Growing fastest" sorts by absolute dollars
+  added vs the prior window, not percent (percent alone makes a $12 vendor
+  "growing 900%" outrank a $40k jump).
+- **Stated caveat, on the page and in the SQL header:** accrual-dated,
+  refreshed daily by sync-qbo, mis-dated bills land in the month they claim —
+  a trends report, not a P&L. The P&L is QuickBooks' to print.
+- CSV export prefix-quotes leading `=+-@` (OCR'd vendor names, Excel formula
+  injection — same rule as expense books).
+
 ## Expense lifecycle
 
 ```
