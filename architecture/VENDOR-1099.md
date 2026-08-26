@@ -160,6 +160,24 @@ matches before it creates: a split vendor history is worse than a slow one.
 > because it *looks* filled in. The whole number is on the W-9 itself, which is
 > precisely why attaching the document is the half that matters.
 
+### One email, and where the others live
+
+QuickBooks' `PrimaryEmailAddr` takes exactly **one** address and 400s on
+anything else (fault 2210, "does not conform to the syntax rules of RFC 822").
+A real push failed on a vendor whose `contact_email` held three contacts in one
+field — one of them itself malformed, a comma where a dot belonged.
+
+So `contact_email` is the **primary**, and it is the only address QuickBooks
+ever receives; everyone else goes in **`additional_emails`**, edited as a list
+on the vendor record. A malformed fragment is **skipped, never repaired** —
+turning `gene,cota@x.com` into `gene.cota@x.com` would be inventing a contact.
+If nothing in the field parses, the key is omitted rather than sent blank.
+
+Everyone in `additional_emails` is **copied on document-request emails**, which
+is the point: chasing a W-9 through one inbox that turns out to be the wrong
+person is how these sit unanswered for weeks. An explicit override on the
+request sends only to that address — a deliberate redirect, not an addition.
+
 `Vendor1099` is set only from an **explicit** `is_1099` override. Null means
 nobody has decided, and inferring it from a W-9 checkbox is the mistake this
 whole page exists to prevent.

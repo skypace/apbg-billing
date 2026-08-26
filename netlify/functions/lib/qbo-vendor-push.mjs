@@ -34,6 +34,39 @@ export async function getQboVendorById(id) {
   } catch { return null; }
 }
 
+// A vendor record legitimately holds several contacts in one field — AP, the
+// owner, dispatch — but QuickBooks' PrimaryEmailAddr takes exactly ONE and
+// 400s on anything else (code 2210, "does not conform to RFC 822"). Real
+// example that broke this: "tina@a.com, nancy@b.com, gene,cota@b.com" — three
+// addresses, one of them itself malformed with a comma for a dot.
+//
+// So: split, keep the first that actually parses, and send NOTHING if none
+// does. Sending an address we had to repair would put a guess in QuickBooks;
+// sending none leaves a blank a human can fill.
+const EMAIL_RE = /^[^\s@,;<>()[\]\\]+@[^\s@,;<>()[\]\\]+\.[a-z]{2,}$/i;
+
+export function splitContacts(raw) {
+  return String(raw || '')
+    .split(/[,;\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** First address that is valid on its own, plus how many candidates there were.
+ *  `extra` is what the UI reports, so nobody wonders which one QBO got. */
+export function pickEmail(raw) {
+  const parts = splitContacts(raw);
+  const valid = parts.filter((p) => EMAIL_RE.test(p));
+  return { email: valid[0] || null, valid: valid.length, candidates: parts.length };
+}
+
+/** QBO's FreeFormNumber is lenient, but a list is still wrong. Take the first
+ *  chunk that carries enough digits to be a phone number. */
+export function pickPhone(raw) {
+  const parts = String(raw || '').split(/[,;]+/).map((x) => x.trim()).filter(Boolean);
+  return parts.find((p) => (p.match(/\d/g) || []).length >= 7) || null;
+}
+
 /** Map our record onto QBO's Vendor. Only fields we actually hold — an empty
  *  key is left off rather than sent blank, so this never blanks something a
  *  human curated in QuickBooks. */
@@ -42,8 +75,10 @@ export function buildVendorPayload(v) {
   const payload = { DisplayName: String(v.display_name || '').slice(0, 100) };
 
   if (v.legal_name && v.legal_name !== v.display_name) payload.CompanyName = v.legal_name;
-  if (v.contact_email) payload.PrimaryEmailAddr = { Address: v.contact_email };
-  if (v.contact_phone) payload.PrimaryPhone = { FreeFormNumber: v.contact_phone };
+  const picked = pickEmail(v.contact_email);
+  if (picked.email) payload.PrimaryEmailAddr = { Address: picked.email };
+  const phone = pickPhone(v.contact_phone);
+  if (phone) payload.PrimaryPhone = { FreeFormNumber: phone };
   if (v.default_terms) payload.TermRef = undefined; // terms are an id in QBO, not text — left to a human
 
   const line1 = addr.line1 || addr.street || null;

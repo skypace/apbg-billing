@@ -196,6 +196,10 @@ export interface Vendor {
   vendor_type: VendorType;
   contact_name: string | null;
   contact_email: string | null;
+  /** Everyone else you email at this vendor — AP, dispatch, the owner.
+   *  All are copied on document requests. QuickBooks only ever gets
+   *  contact_email: its PrimaryEmailAddr accepts a single address. */
+  additional_emails: string[] | null;
   contact_phone: string | null;
   /** → ops.qbo_vendors.qbo_vendor_id (the daily QBO mirror); null until linked. */
   qbo_vendor_id: string | null;

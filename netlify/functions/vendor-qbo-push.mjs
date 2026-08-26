@@ -21,7 +21,7 @@
 import { requireAuth } from './lib/auth.mjs';
 import { ops } from './lib/vendor-onboard-lib.mjs';
 import {
-  ensureQboVendor, attachToQboVendor, alreadyAttached, contentTypeFor,
+  ensureQboVendor, attachToQboVendor, alreadyAttached, contentTypeFor, pickEmail,
 } from './lib/qbo-vendor-push.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
@@ -105,6 +105,13 @@ async function handle(req) {
     }
   }
 
+  // A vendor record often holds several contacts in one field; QuickBooks takes
+  // one. Say which one went, so nobody has to guess.
+  const emailPick = pickEmail(vendor.contact_email);
+  const emailNote = emailPick.valid > 1
+    ? ` QuickBooks takes one email — sent ${emailPick.email} of ${emailPick.valid} on file.`
+    : '';
+
   const attached = attachments.filter((a) => a.status === 'attached').length;
   const failed = attachments.filter((a) => a.status === 'failed').length;
   const verb = pushed.outcome === 'created' ? 'Created'
@@ -123,7 +130,10 @@ async function handle(req) {
           + (failed ? `, ${failed} failed` : '')
           + (attachments.some((a) => a.status === 'already_there')
             ? `, ${attachments.filter((a) => a.status === 'already_there').length} already there` : '')
-          + '.'),
+          + '.')
+      + emailNote,
+    email_used: emailPick.email,
+    emails_on_file: emailPick.valid,
   });
 }
 
