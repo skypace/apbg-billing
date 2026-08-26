@@ -179,6 +179,45 @@ The scrape is not deleted — it's behind a switch:
 With the flag off, attachment-less SF drafts get `ocr_status='no_attachment'`
 and a one-time email — that's the "go attach the bill" nudge, not an error.
 
+## Pay run — several bills, one payment, one remittance (2026-08-26)
+
+**Brixpense → Accounts payable → Pay Bills** (`/expense/pay-run`, superadmin).
+Every posted, unpaid bill grouped by vendor; tick a selection, and each
+vendor's picked bills go out as **one payment** — a Stripe bank transfer or a
+recorded manual payment (check / Venmo / Zelle / QBO Bill Pay) — which books
+**one multi-line QBO BillPayment** covering all of them and emails the vendor
+**one remittance advice** listing every bill, so their AR desk can apply a
+single deposit across invoices.
+
+How it hangs together:
+
+- **`/api/vendor-pay-run`** (`vendor-pay-run.mjs`, superadmin — the same gate
+  as the single-bill `/api/vendor-pay`): `list` / `pay_stripe` / `record` /
+  `remit` (resend the advice).
+- **The ledger stays per-bill.** `ops.vendor_payments` keeps one row per bill
+  (its partial unique index — one LIVE payment per `qbo_bill_id` — is the
+  duplicate guard, and it must survive batching). A parent
+  **`ops.vendor_payment_groups`** row carries what is singular about the
+  payment: the one Stripe payout id, the one BillPayment id, the check #, the
+  chosen remittance recipient (`remit_to`) and the send record
+  (`remittance_sent_at/_to/_error`).
+- **Ledger before money.** Group + per-bill rows insert BEFORE any payout or
+  QBO write; a collision (a race with a single-bill Pay click) aborts the
+  whole batch with nothing paid.
+- **Remittance timing:** manual rails send the advice immediately (the money
+  already moved); Stripe sends it from `stripe-payout-webhook.mjs`'s
+  `settleGroup()` at settlement — an in-flight payout is not yet a payment.
+  A failed send never fails a payment; it's stamped on the group and the
+  Pay Bills page offers a resend. Template lives in `lib/remittance.mjs`
+  (everything escaped — vendor names come off OCR'd PDFs).
+- **Watcher:** none added, deliberately — batch rows are ordinary
+  `vendor_payments` rows, so `ops.fn_vendor_payments_health()` already goes
+  red on a stuck (initiated >48h) or failed pay run.
+
+Migration `20260826d_pay_run.sql` (applied live). Tests in
+`tests/pay-run.test.mjs` pin the multi-line BillPayment payload and the
+remittance document.
+
 ## Expense lifecycle
 
 ```
