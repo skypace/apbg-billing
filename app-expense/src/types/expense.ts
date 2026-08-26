@@ -96,6 +96,12 @@ export interface ExpenseRequest {
    *  already-paid receipt (posts as a Purchase). */
   as_bill?: boolean | null;
   paid_at?: string | null;
+  /** Evidence from the daily bill-paid-sync (QBO is asked directly): the
+   *  bill's remaining QBO balance at last check, and when we last looked.
+   *  paid_at is the DECISION; these are the evidence behind it. A balance
+   *  between 0 and the total means partly paid. */
+  qbo_balance?: number | null;
+  qbo_checked_at?: string | null;
 
   /** When this bill is due, and how we know. A printed due date beats one
    *  computed from terms; `due_date_source` records which we had. */
