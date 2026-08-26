@@ -292,13 +292,47 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false } = body;
+  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false, attachmentId = null } = body;
   if (!requestId) return err('Missing requestId');
-  if (!['create', 'preview', 'link'].includes(mode)) return err(`Invalid mode "${mode}"`);
+  if (!['create', 'preview', 'link', 'attach'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
   const { data: request, error: fetchErr } = await supabase
     .from('expense_requests').select('*').eq('id', requestId).single();
   if (fetchErr || !request) return err('Expense request not found', 404);
+
+  // ── mode=attach: file a late-arriving document onto the EXISTING QBO txn ──
+  // Receipts are only pushed to QBO at posting time, so a bill posted before
+  // its document arrived (the normal case now that SF expenses land data-only)
+  // had no way to ever get the file into QuickBooks. This pushes exactly ONE
+  // attachment row — the one just uploaded — so re-attaching can't duplicate
+  // files QBO already has. No status change, no new transaction.
+  if (mode === 'attach') {
+    if (!attachmentId) return err('mode=attach requires attachmentId');
+    if (request.status !== 'posted' || !request.qbo_bill_id) {
+      return err('Attach-to-QuickBooks needs a posted expense with a QBO transaction on record. For an unposted expense, just attach and Submit — posting pushes the file.', 409);
+    }
+    // Verify the attachment belongs to this request under the CALLER's RLS —
+    // the push itself runs service-role, so this read is the authorization.
+    const { data: att } = await supabase
+      .from('expense_request_attachments')
+      .select('id, file_name').eq('id', attachmentId).eq('request_id', requestId).single();
+    if (!att) return err('Attachment not found on this expense', 404);
+    const kind = request.request_type === 'expense' && request.as_bill === false ? 'Purchase' : 'Bill';
+    const result = await attachReceiptsToQBO(kind, request.qbo_bill_id, requestId, { attachmentId });
+    if (!result.attached) {
+      return json({
+        success: false, error: 'attach_failed',
+        message: `The file is saved on the Brixpense record, but pushing it to QuickBooks failed${result.errors.length ? `: ${result.errors.join('; ').slice(0, 300)}` : '.'} Try again, or attach it in QuickBooks by hand.`,
+      }, 502);
+    }
+    await supabase.from('expense_approvals').insert({
+      request_id: requestId, action: 'approved',
+      decided_by: `attachment by ${user.email || user.id}`,
+      notes: `Filed "${att.file_name}" onto QBO ${kind} ${request.qbo_bill_id} after posting.`,
+      token_used: null,
+    });
+    return json({ success: true, mode: 'attach', kind, qbo_txn_id: request.qbo_bill_id, attached: result.attached });
+  }
 
   if (mode === 'link') {
     if (!qboBillId) return err('mode=link requires qboBillId');
