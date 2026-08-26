@@ -317,7 +317,8 @@ export default async function handler(req) {
       .from('expense_request_attachments')
       .select('id, file_name').eq('id', attachmentId).eq('request_id', requestId).single();
     if (!att) return err('Attachment not found on this expense', 404);
-    const kind = request.request_type === 'expense' && request.as_bill === false ? 'Purchase' : 'Bill';
+    const kind = request.is_credit === true ? 'VendorCredit'
+      : request.request_type === 'expense' && request.as_bill === false ? 'Purchase' : 'Bill';
     const result = await attachReceiptsToQBO(kind, request.qbo_bill_id, requestId, { attachmentId });
     if (!result.attached) {
       return json({
@@ -511,6 +512,14 @@ export default async function handler(req) {
   }
 
   // ── Unpaid bill (expense as_bill=true, or a purchase_request fulfillment) -> QBO Bill ──
+  // A credit memo (is_credit) takes the SAME road — same vendor match, same
+  // payload shape, same gates — but lands as a QBO VendorCredit: the amount
+  // stays positive and the entity carries the sign. It is consumed later by
+  // applying it in a pay run, never paid.
+  const creditMemo = request.is_credit === true;
+  const qboEntity = creditMemo ? 'VendorCredit' : 'Bill';
+  const kindLabel = creditMemo ? 'vendor_credit' : 'bill';
+
   const vendor = await findQBOVendor(request.vendor_name);
   if (!vendor) {
     const reason = `Could not match vendor "${request.vendor_name || '(blank)'}" in QuickBooks.`;
@@ -526,7 +535,7 @@ export default async function handler(req) {
 
   if (mode === 'preview') {
     return json({
-      success: true, mode: 'preview', kind: 'bill', request_id: requestId,
+      success: true, mode: 'preview', kind: kindLabel, request_id: requestId,
       vendor: { id: vendor.Id, name: vendor.DisplayName },
       department: departmentRef,
       payload,
@@ -535,21 +544,21 @@ export default async function handler(req) {
 
   let billResult;
   try {
-    const qboRes = await qboRequest('POST', '/bill', payload);
-    billResult = qboRes.Bill;
+    const qboRes = await qboRequest('POST', creditMemo ? '/vendorcredit' : '/bill', payload);
+    billResult = creditMemo ? qboRes.VendorCredit : qboRes.Bill;
   } catch (e) {
     const reason = qboFaultMessage(e);
-    console.error('QBO bill creation failed:', reason);
+    console.error(`QBO ${qboEntity} creation failed:`, reason);
     await notifyPostFailure(supabase, request, reason);
-    return err('QBO bill creation failed: ' + reason, 502);
+    return err(`QBO ${creditMemo ? 'vendor credit' : 'bill'} creation failed: ` + reason, 502);
   }
 
   if (!billResult || !billResult.Id) {
-    await notifyPostFailure(supabase, request, 'QBO did not return a bill ID');
-    return err('QBO did not return a bill ID', 502);
+    await notifyPostFailure(supabase, request, `QBO did not return a ${qboEntity} ID`);
+    return err(`QBO did not return a ${qboEntity} ID`, 502);
   }
 
-  try { await attachReceiptsToQBO('Bill', billResult.Id, requestId); } catch { /* non-fatal */ }
+  try { await attachReceiptsToQBO(qboEntity, billResult.Id, requestId); } catch { /* non-fatal */ }
 
   const { error: updateErr } = await supabase
     .from('expense_requests')
@@ -564,8 +573,8 @@ export default async function handler(req) {
 
   if (updateErr) {
     return json({
-      success: true, mode: 'create', kind: 'bill', partial: true,
-      message: 'Bill created in QBO but local status update failed.',
+      success: true, mode: 'create', kind: kindLabel, partial: true,
+      message: `${creditMemo ? 'Vendor credit' : 'Bill'} created in QBO but local status update failed.`,
       request_id: requestId, qbo_bill_id: billResult.Id,
       qbo_doc_number: billResult.DocNumber, qbo_total: billResult.TotalAmt,
       update_error: updateErr.message,
@@ -574,12 +583,12 @@ export default async function handler(req) {
   await supabase.from('expense_approvals').insert({
     request_id: requestId, action: 'approved',
     decided_by: `posted by ${user.email || user.id}`,
-    notes: `Posted to QBO as Bill ${billResult.DocNumber || billResult.Id} (vendor: ${vendor.DisplayName})`,
+    notes: `Posted to QBO as ${creditMemo ? 'Vendor Credit' : 'Bill'} ${billResult.DocNumber || billResult.Id} (vendor: ${vendor.DisplayName})`,
     token_used: null,
   });
 
   return json({
-    success: true, mode: 'create', kind: 'bill', request_id: requestId,
+    success: true, mode: 'create', kind: kindLabel, request_id: requestId,
     qbo_bill_id: billResult.Id, qbo_doc_number: billResult.DocNumber, qbo_total: billResult.TotalAmt,
     vendor: { id: vendor.Id, name: vendor.DisplayName },
     department: departmentRef,

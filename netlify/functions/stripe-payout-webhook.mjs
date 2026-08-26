@@ -94,9 +94,12 @@ async function settleGroup(group, status, failureText, payoutId) {
   let bills = [];
   if (expenseIds.length) {
     bills = await ops('GET',
-      'expense_requests?select=id,vendor_id,vendor_name,total_amount,bill_number,job_number,receipt_date'
+      'expense_requests?select=id,vendor_id,vendor_name,total_amount,bill_number,job_number,receipt_date,is_credit'
       + `&id=in.(${expenseIds.join(',')})`) || [];
   }
+  // A ledger row whose expense is a credit memo becomes a VendorCredit line
+  // on the BillPayment (positive amount; TotalAmt nets it out).
+  const isCreditRow = new Map(bills.map((b) => [b.id, b.is_credit === true]));
 
   if (status === 'posted') {
     let billPaymentId = null, bookError = null;
@@ -105,7 +108,10 @@ async function settleGroup(group, status, failureText, payoutId) {
       if (!qboVendorId) throw new Error('no QBO vendor id on the batch expenses');
       billPaymentId = await recordQboBillPaymentMulti({
         qboVendorId,
-        lines: rows.filter((r) => r.qbo_bill_id).map((r) => ({ qboBillId: r.qbo_bill_id, amount: r.amount })),
+        lines: rows.filter((r) => r.qbo_bill_id).map((r) => ({
+          qboBillId: r.qbo_bill_id, amount: r.amount,
+          credit: isCreditRow.get(r.expense_request_id) === true,
+        })),
         memo: `Stripe payout ${payoutId} · Brixpense pay run of ${rows.length} bill(s)`,
       });
     } catch (e) {

@@ -218,6 +218,34 @@ Migration `20260826d_pay_run.sql` (applied live). Tests in
 `tests/pay-run.test.mjs` pin the multi-line BillPayment payload and the
 remittance document.
 
+### Vendor credits (2026-08-26)
+
+A credit memo from a vendor is filed like a bill — same OCR (the extractor
+flags "Credit Memo" documents and normalizes a negative printed total), same
+review, same manual Post gate — with one flag: **`expense_requests.is_credit`**.
+The amount stays POSITIVE; the flag carries the sign. What changes downstream:
+
+- **Posting** (`expense-request-link-bill`) lands it as a QBO **VendorCredit**
+  instead of a Bill (same payload shape, different entity).
+- **Applying** happens on the Pay Bills page: posted, unapplied credits show
+  as green negative rows in the vendor's section. Ticked credits ride the
+  payment as BillPayment lines with `LinkedTxn TxnType='VendorCredit'`
+  (positive Amount; `TotalAmt` = bills − credits — never negative; a $0
+  apply-only payment is allowed on the record rail). The credit gets its own
+  `vendor_payments` ledger row, so the one-live-payment-per-txn index also
+  stops a credit being applied twice. Applied ⇒ `paid_at` stamped (consumed).
+- **The paid-sync** asks the **VendorCredit** entity for `is_credit` rows —
+  Balance there is what is still unapplied, so 0 = consumed. Asking the Bill
+  entity would repeat the 2026-08-26 false-"missing" bug, sign flipped. A
+  credit applied by hand inside QuickBooks therefore closes itself on the
+  next daily run.
+- **Excluded** from `ops.v_ap_aging` (a credit is not a payable) and refused
+  by the single-bill Pay button (apply it from Pay Bills instead).
+- **Remittance advice** shows credits as negative lines, so the vendor sees
+  exactly which credit offset which bills.
+
+Migration `20260826e_vendor_credits.sql` (applied live).
+
 ## Expense lifecycle
 
 ```

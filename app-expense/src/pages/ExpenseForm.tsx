@@ -110,6 +110,10 @@ export default function ExpenseForm() {
   // Drives `as_bill` on submit; backend routing (expense-request-notify) is
   // unchanged. Default unpaid so we never demand an account for a bill.
   const [isPaid, setIsPaid] = useState(false);
+  // Credit memo: the vendor owes US. Amount stays positive — the flag carries
+  // the sign. Posts to QBO as a VendorCredit and is consumed by applying it on
+  // the Pay Bills page. Only meaningful on the unpaid-bill branch.
+  const [isCredit, setIsCredit] = useState(false);
 
   // Per-user "sticky defaults": remember the submitter's usual entity /
   // department / COGS / payment choice on each successful submit and pre-fill
@@ -235,6 +239,7 @@ export default function ExpenseForm() {
       setPaymentAccountType(data.payment_account_type || '');
       // Paid = it was booked against a real account (not an unpaid bill).
       setIsPaid(!data.as_bill && !!data.payment_account_id);
+      setIsCredit(data.is_credit === true);
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
@@ -468,6 +473,9 @@ export default function ExpenseForm() {
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
           if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          // The document says CREDIT MEMO — flip the row to a credit (and to
+          // the bill branch, since a credit is never "already paid").
+          if (ocr.is_credit === true) { setIsCredit(true); setIsPaid(false); setPaymentAccountId('__bill__'); }
           if (ocr.payment_terms) setPaymentTerms(ocr.payment_terms);
           if (ocr.due_date) { setDueDate(ocr.due_date); setDueDateSource('printed'); }
           // A fresh attachment + a fresh OCR pass supersedes whatever held this
@@ -673,6 +681,7 @@ export default function ExpenseForm() {
         payment_account_name: asBill ? null : (pickedAcct?.name ?? paymentAccountName ?? null),
         payment_account_type: asBill ? null : (pickedAcct?.account_type ?? paymentAccountType ?? null),
         as_bill: asBill,
+        is_credit: asBill ? isCredit : false,
         line_items: nonEmptyLines,
       };
 
@@ -1342,10 +1351,28 @@ export default function ExpenseForm() {
           </div>
 
           {!isPaid ? (
-            <p className="text-xs text-amber-400 mt-2">
-              Posts as an unpaid <strong>Bill</strong> in QBO (vendor required) — pay it from QBO
-              later. No payment account needed.
-            </p>
+            <>
+              <p className="text-xs text-amber-400 mt-2">
+                {isCredit
+                  ? <>Posts as a <strong>Vendor Credit</strong> in QBO — apply it against this vendor&rsquo;s bills on the Pay Bills page.</>
+                  : <>Posts as an unpaid <strong>Bill</strong> in QBO (vendor required) — pay it from QBO later. No payment account needed.</>}
+              </p>
+              <label className="flex items-start gap-2 mt-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 mt-0.5 accent-emerald-400"
+                  disabled={readOnly}
+                  checked={isCredit}
+                  onChange={(e) => setIsCredit(e.target.checked)}
+                />
+                <span>
+                  This is a <strong>credit memo</strong> — the vendor owes us this amount.
+                  <span className="block text-xs text-muted-foreground">
+                    Enter the amount as a positive number; the credit carries the sign.
+                  </span>
+                </span>
+              </label>
+            </>
           ) : (
             <div className="mt-3">
               <Label>

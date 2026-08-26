@@ -116,6 +116,7 @@ export interface PayRunBill {
   due_date: string | null;
   amount: number;
   qbo_bill_id: string;
+  is_credit: boolean;
   payment_status?: PaymentStatus;
   payment_rail?: PaymentRail;
 }
@@ -128,8 +129,10 @@ export interface PayRunVendorGroup {
     payment_method_pref: string | null; stripe_recipient_id: string | null;
   } | null;
   bills: PayRunBill[];
+  credits: PayRunBill[];
   in_flight: PayRunBill[];
   total: number;
+  credit_total: number;
 }
 
 export interface PayRunList {
@@ -140,18 +143,19 @@ export interface PayRunList {
 
 export const payRunList = () => payRunApi<PayRunList>({ action: 'list' });
 
-export const payRunStripe = (expenseRequestIds: string[], remitTo?: string) =>
-  payRunApi<{ ok: true; group_id: string; payout_id: string; bills: number; total: number; note: string }>({
-    action: 'pay_stripe', expense_request_ids: expenseRequestIds, remit_to: remitTo,
+export const payRunStripe = (expenseRequestIds: string[], remitTo?: string, creditIds?: string[]) =>
+  payRunApi<{ ok: true; group_id: string; payout_id: string; bills: number; credits: number; total: number; note: string }>({
+    action: 'pay_stripe', expense_request_ids: expenseRequestIds, credit_ids: creditIds, remit_to: remitTo,
   });
 
 export const payRunRecord = (
-  expenseRequestIds: string[], rail: PaymentRail, opts?: { reference?: string; notes?: string; remitTo?: string },
+  expenseRequestIds: string[], rail: PaymentRail,
+  opts?: { reference?: string; notes?: string; remitTo?: string; creditIds?: string[] },
 ) => payRunApi<{
-  ok: true; group_id: string; qbo_billpayment_id: string | null; bills: number; total: number;
+  ok: true; group_id: string; qbo_billpayment_id: string | null; bills: number; credits: number; total: number;
   remittance: { sent: boolean; to: string | null; error: string | null };
 }>({
-  action: 'record', expense_request_ids: expenseRequestIds, rail,
+  action: 'record', expense_request_ids: expenseRequestIds, credit_ids: opts?.creditIds, rail,
   reference: opts?.reference, notes: opts?.notes, remit_to: opts?.remitTo,
 });
 

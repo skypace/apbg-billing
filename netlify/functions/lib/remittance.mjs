@@ -51,13 +51,18 @@ export function buildRemittanceEmail({ group, vendorName, bills, paidDate }) {
   const total = money(group.total_amount);
   const date = fmtDate(paidDate || group.updated_at || group.created_at);
 
-  const rowsHtml = (bills || []).map((b) => `
-        <tr>
-          <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6">${esc(b.bill_number || '—')}</td>
+  // Credit memos render as negative lines — the vendor sees exactly which
+  // credit offset which bills, and the total is the money that moved.
+  const rowsHtml = (bills || []).map((b) => {
+    const credit = b.is_credit === true;
+    return `
+        <tr${credit ? ' style="color:#047857"' : ''}>
+          <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6">${credit ? 'Credit ' : ''}${esc(b.bill_number || '—')}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6">${esc(fmtDate(b.receipt_date))}</td>
           <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6">${esc(b.job_number || '—')}</td>
-          <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6;text-align:right;font-variant-numeric:tabular-nums">${money(b.total_amount)}</td>
-        </tr>`).join('');
+          <td style="padding:7px 10px;border-bottom:1px solid #EDF1F6;text-align:right;font-variant-numeric:tabular-nums">${credit ? `−${money(b.total_amount)}` : money(b.total_amount)}</td>
+        </tr>`;
+  }).join('');
 
   const html = `<div style="font-family:'DM Sans',-apple-system,sans-serif;max-width:640px;margin:0 auto">
     <div style="background:#1F4E79;color:#fff;padding:16px 20px;border-radius:10px 10px 0 0">
@@ -66,7 +71,7 @@ export function buildRemittanceEmail({ group, vendorName, bills, paidDate }) {
     </div>
     <div style="border:1px solid #E4E9F0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;color:#0F172A;line-height:1.55">
       <p style="margin:0 0 12px">A payment of <b>${total}</b> to <b>${esc(vendorName)}</b> was sent on <b>${esc(date)}</b>
-        by <b>${esc(railLabel)}</b>${refLine ? ` (${esc(refLine)})` : ''}. It covers the following ${bills.length === 1 ? 'bill' : `${bills.length} bills`}:</p>
+        by <b>${esc(railLabel)}</b>${refLine ? ` (${esc(refLine)})` : ''}. It covers the following ${(bills || []).some((b) => b.is_credit) ? 'bills and credits' : bills.length === 1 ? 'bill' : `${bills.length} bills`}:</p>
       <table style="border-collapse:collapse;width:100%;font-size:13px">
         <thead>
           <tr style="text-align:left;color:#64748B;font-size:11px;text-transform:uppercase;letter-spacing:.06em">
@@ -92,7 +97,7 @@ export function buildRemittanceEmail({ group, vendorName, bills, paidDate }) {
     `Payment: ${total} to ${vendorName} on ${date} by ${railLabel}${refLine ? ` (${refLine})` : ''}`,
     '',
     ...(bills || []).map((b) =>
-      `  Bill ${b.bill_number || '—'} · ${fmtDate(b.receipt_date)} · job ${b.job_number || '—'} · ${money(b.total_amount)}`),
+      `  ${b.is_credit ? 'Credit' : 'Bill'} ${b.bill_number || '—'} · ${fmtDate(b.receipt_date)} · job ${b.job_number || '—'} · ${b.is_credit ? '-' : ''}${money(b.total_amount)}`),
     '',
     `Total paid: ${total}`,
     'Please apply this payment against the invoices listed above. Reply with any questions.',
