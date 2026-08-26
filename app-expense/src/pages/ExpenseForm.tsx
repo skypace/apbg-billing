@@ -904,7 +904,7 @@ export default function ExpenseForm() {
         {sfOcrStatus && sfOcrStatus !== 'processed' && (
           <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
             {sfOcrStatus === 'no_attachment' &&
-              'Held from auto-posting — Service Fusion had no receipt on this expense. Attach one below (or fill in the details and Bill # by hand), then submit to post it now.'}
+              "No bill attached yet — the vendor, amount, and job came over from Service Fusion, but the document is yours to add. Attach the bill below (or fill in the details and Bill # by hand), then Submit."}
             {sfOcrStatus === 'failed' &&
               `Held from auto-posting — the attached receipt couldn't be read${sfOcrErrorMsg ? `: ${sfOcrErrorMsg}` : '.'} Double-check the details below and submit to post it now.`}
           </div>
@@ -929,6 +929,74 @@ export default function ExpenseForm() {
               <X className="h-4 w-4" />
             </Button>
           </div>
+        )}
+
+        {/* A picked PDF has no image preview — show it as a named chip instead,
+            so the user can tell the bill is attached (and un-pick it). */}
+        {receiptFile && !receiptPreview && (
+          <div className="flex items-center gap-2 text-sm rounded-lg p-3 border border-emerald-500/30 bg-emerald-500/10 text-emerald-200">
+            <Receipt className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate">{receiptFile.name}</span>
+            <button type="button" onClick={() => { setReceiptFile(null); setReceiptPreview(null); }} title="Remove">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Attach-here controls. The upload step only exists on the New Expense
+            flow, so without this an OPEN draft (e.g. an SF-landed bill waiting
+            for its document — receipts no longer auto-scrape from SF) had no way
+            to take a file at all. Saved to the draft on Submit; OCR fills in
+            whatever it can read (bill #, date, line items) on pick. */}
+        {!readOnly && !receiptFile && (
+          <div
+            className="border border-dashed rounded-lg p-3 flex items-center justify-between gap-3 cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+          >
+            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+              <Receipt className="h-4 w-4 shrink-0" />
+              <span className="truncate">Attach the bill or receipt (photo, scan, or PDF)</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); cameraInputRef.current?.click(); }}
+              >
+                <Camera className="h-4 w-4 mr-1" /> Camera
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              >
+                <Upload className="h-4 w-4 mr-1" /> Upload
+              </Button>
+            </div>
+          </div>
+        )}
+        {!readOnly && (
+          <>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={onFileInput}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={onFileInput}
+            />
+          </>
         )}
 
         {ocrLoading && (
