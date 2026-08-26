@@ -1,1 +1,0 @@
-import{r,s as o}from"./index-CYHJKLAl.js";function i(){const[t,a]=r.useState(!1);return r.useEffect(()=>{let e=!0;return o.auth.getUser().then(({data:s})=>{if(!e)return;const u=s.user?.app_metadata?.role||s.user?.user_metadata?.role||"";a(u==="superadmin")}),()=>{e=!1}},[]),t}export{i as u};
