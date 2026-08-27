@@ -284,7 +284,12 @@ footer{max-width:60rem;margin:0 auto;padding:0 16px 40px;color:#64748B;font-size
 // through /api/nda-sign, which is gated entirely by the token in the URL. The
 // agreement TEXT is rendered server-side from the row's own snapshot and
 // dropped in here, so this page cannot alter a word of what gets signed.
-var API = '/api/nda-sign';
+// The function declares `export const config = { path: '/api/nda-sign' }`, so
+// Netlify serves it THERE and not under /.netlify/functions. This page is
+// reached through the gateway, which mounts apbg-billing under /billing — so
+// the gateway-relative path is /billing/api/…. Getting this wrong 404s every
+// call and the page just says the link is invalid (it did, once).
+var API = '/billing/api/nda-sign';
 var TOKEN = (function(){ var m = /[?&]t=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]) : ''; })();
 var DATA = null, PDF = null, READ = false, SIGNED_PIXELS = 0;
 
