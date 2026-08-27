@@ -128,6 +128,13 @@ table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .field.cb input{width:16px;height:16px;accent-color:#1F4E79;cursor:pointer}
 .field.cb label{text-transform:none;letter-spacing:0;font-size:.83rem;font-weight:600;color:#334155;cursor:pointer}
 .xbtn{border:0;background:none;font-size:1.4rem;line-height:1;color:#94A3B8;cursor:pointer;padding:0 4px}
+/* Same field look as the modal, for forms that live inline in a pane (NDAs). */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fgrid > div{min-width:0}
+.fgrid .full{grid-column:1 / -1}
+.fgrid label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  color:#64748B;margin-bottom:5px}
+@media(max-width:720px){.fgrid{grid-template-columns:1fr}}
 .xbtn:hover{color:#0F172A}
 .filepick{border:1px dashed #94A3B8;border-radius:8px;padding:12px;background:#F8FBFE;font-size:.82rem}
 .filepick input[type=file]{font-size:.8rem;width:100%}
@@ -355,6 +362,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
     <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
     <button class="tab" id="tabVisitors"    onclick="showTab('visitors')">Visitors</button>
+    <button class="tab" id="tabNdas"        onclick="showTab('ndas')">NDAs</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
     <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
   </nav>
@@ -837,6 +845,57 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           <li>The host and the notify list get an email the moment someone signs in. Set the host list and the notify list in <code>ops.visitor_settings</code>.</li>
           <li>Sign-out: the visitor scans the QR on their badge, types the badge number on the kiosk, or you close it from the table above.</li>
           <li>The agreement covers escort, <b>CO₂ never-enter-to-rescue</b>, forklift traffic, evacuation, PPE, food safety, no smoking, incident reporting, confidentiality, and the contractor insurance confirmation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ NDAs ═══════════════ -->
+  <!-- Send the confidentiality agreement, watch it get signed, and log what you
+       actually disclosed under it. The executed PDF files itself into the vault
+       against the counterparty, so an NDA sits beside their COI and W-9. -->
+  <div class="container" id="paneNdas" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Confidentiality agreements <span class="sub" id="ndaCounts"></span></h2>
+        <div class="noprint">
+          <button class="btn sm" onclick="ndaOpenSend()">+ Send an NDA</button>
+          <button class="btn ghost sm" onclick="ndaLoad()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Before any formulation, spec sheet, batching sheet or sample leaves the building, the receiving
+        company signs this. Send them a link — they fill in their own legal name and address, read it,
+        and sign on screen. The signed PDF is emailed to both sides and filed in the vault automatically.
+      </div>
+      <div class="twrap"><table class="grid" id="ndaTable">
+        <thead><tr><th>Reference</th><th>Company</th><th>Status</th><th>Purpose</th>
+          <th>Sent</th><th>Signed</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint" id="ndaDetail" style="display:none">
+      <div class="toolbar">
+        <h2 style="margin:0" id="ndaDetailTitle">Agreement</h2>
+        <button class="btn ghost sm" onclick="document.getElementById('ndaDetail').style.display='none'">Close</button>
+      </div>
+      <div id="ndaDetailBody"></div>
+    </div>
+
+    <div class="section noprint">
+      <h2>How this works</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li><b>We countersign when we send.</b> This is our paper on our terms — the signature we are
+            collecting is theirs, so the Company block is filled in with whoever sends it.</li>
+          <li><b>The text they sign is frozen at send time.</b> Editing the template later publishes a new
+            version for future agreements and cannot touch one already signed.</li>
+          <li><b>Log what you disclose.</b> Exhibit A on each agreement is the running record of every
+            formulation, spec sheet and sample you sent them — that log is what makes
+            "they had our formula" provable.</li>
+          <li>A link expires (30 days by default) and can be revoked until it is signed. Resending mints a
+            new link and kills the old one.</li>
         </ul>
       </div>
     </div>
@@ -1432,10 +1491,10 @@ if(!SESSION){
 // ═══ TABS ═══
 const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
                 vendors:'paneVendors', postings:'panePostings', visitors:'paneVisitors',
-                inspections:'paneInspections', handbook:'paneHandbook' };
+                ndas:'paneNdas', inspections:'paneInspections', handbook:'paneHandbook' };
 const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
                 vendors:'tabVendors', postings:'tabPostings', visitors:'tabVisitors',
-                inspections:'tabInspections', handbook:'tabHandbook' };
+                ndas:'tabNdas', inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
   if(!PANES[which]) which = 'dashboard';
   for(const k in PANES){
@@ -1539,6 +1598,7 @@ async function reloadAll(){
     renderDashboard();
     renderAll(document.getElementById('q').value.trim().toLowerCase());
     loadVisitors();
+    ndaLoad();
     return;
   }
   applyEmployeeMode();
@@ -1552,7 +1612,7 @@ let EMPLOYEE_MODE_DONE = false;
 function applyEmployeeMode(){
   if(EMPLOYEE_MODE_DONE) return;
   EMPLOYEE_MODE_DONE = true;
-  ['dashboard','inspector','insurance','vendors','visitors','inspections'].forEach(k => {
+  ['dashboard','inspector','insurance','vendors','visitors','ndas','inspections'].forEach(k => {
     const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
   });
   showTab('postings');
@@ -2018,6 +2078,315 @@ document.addEventListener('click', async (e) => {
   }
 });
 document.getElementById('visQ').addEventListener('input', e => renderVisitors(e.target.value.trim().toLowerCase()));
+
+// ═══ NDAs ═══
+// Staff side of the electronic NDA. Everything goes through /api/nda-admin with
+// the signed-in staff bearer; the signing page itself is public and token-gated.
+const NDA_API = '/billing/api/nda-admin';
+let NDAS = [], NDA_META = { entity_types: [], service_options: [] };
+const NDA_STATUS = {
+  sent:     ['info', 'Sent'],
+  viewed:   ['warn', 'Opened, not signed'],
+  signed:   ['ok',   'Signed'],
+  declined: ['crit', 'Declined'],
+  revoked:  ['dim',  'Revoked'],
+};
+
+async function ndaCall(payload){
+  const r = await fetch(NDA_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + SESSION.token },
+    body: JSON.stringify(payload),
+  });
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+function ndaDate(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  return isNaN(d) ? '—' : d.toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' });
+}
+
+async function ndaLoad(){
+  const tb = document.querySelector('#ndaTable tbody');
+  try{
+    const d = await ndaCall({ action: 'list' });
+    NDAS = d.agreements || [];
+    NDA_META = { entity_types: d.entity_types || [], service_options: d.service_options || [] };
+    const c = d.counts || {};
+    document.getElementById('ndaCounts').textContent =
+      NDAS.length ? [
+        (c.signed || 0) + ' signed',
+        ((c.sent || 0) + (c.viewed || 0)) + ' awaiting signature',
+        c.declined ? c.declined + ' declined' : '',
+      ].filter(Boolean).join(' · ') : 'none yet';
+    ndaRender();
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="7" class="muted">Could not load agreements (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+function ndaRender(){
+  const tb = document.querySelector('#ndaTable tbody');
+  if(!NDAS.length){
+    tb.innerHTML = '<tr><td colspan="7" class="muted">No agreements yet. Send one before you share a formulation.</td></tr>';
+    return;
+  }
+  tb.innerHTML = NDAS.map(a => {
+    const st = NDA_STATUS[a.status] || ['dim', a.status];
+    const expired = a.status !== 'signed' && a.expires_at && new Date(a.expires_at) < new Date();
+    return '<tr>' +
+      '<td><span class="mono">' + esc(a.agreement_number) + '</span>' +
+        '<div class="muted">' + esc(a.template_code) + ' v' + esc(a.template_version) + '</div></td>' +
+      '<td><strong>' + esc(a.recipient_legal_name || a.recipient_company) + '</strong>' +
+        '<div class="muted">' + esc(a.signer_name || a.recipient_contact || a.recipient_email) + '</div></td>' +
+      '<td><span class="chip ' + st[0] + '">' + esc(st[1]) + '</span>' +
+        (expired ? '<div class="muted">link expired</div>' : '') + '</td>' +
+      '<td class="muted">' + esc((a.purpose_scope || '—').slice(0, 60)) + '</td>' +
+      '<td>' + esc(ndaDate(a.sent_at)) + '</td>' +
+      '<td>' + esc(ndaDate(a.signed_at)) + '</td>' +
+      '<td class="noprint"><button class="actbtn" data-nda="open" data-id="' + esc(a.id) + '">Open</button>' +
+        (a.status === 'signed'
+          ? (a.pdf_path ? '<button class="actbtn" data-nda="pdf" data-id="' + esc(a.id) + '">PDF</button>' : '')
+          : '<button class="actbtn" data-nda="resend" data-id="' + esc(a.id) + '">Resend</button>' +
+            (a.status === 'revoked' ? ''
+              : '<button class="actbtn danger" data-nda="revoke" data-id="' + esc(a.id) + '">Revoke</button>')) +
+      '</td></tr>';
+  }).join('');
+}
+
+function ndaPanel(title, html){
+  document.getElementById('ndaDetailTitle').textContent = title;
+  document.getElementById('ndaDetailBody').innerHTML = html;
+  const box = document.getElementById('ndaDetail');
+  box.style.display = 'block';
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Send ────────────────────────────────────────────────────────────────────
+function ndaOpenSend(){
+  const services = NDA_META.service_options.map(o =>
+    '<label style="display:inline-flex;gap:6px;align-items:center;margin:0 14px 8px 0;font-weight:500">' +
+    '<input type="checkbox" class="ndaSvc" value="' + esc(o) + '"> ' + esc(o) + '</label>').join('');
+  ndaPanel('Send an NDA', `
+    <div class="prose" style="margin-bottom:14px">They fill in their own legal name, entity type and
+      address — you only need who to send it to and what it covers.</div>
+    <div class="fgrid">
+      <div><label>Their company <span style="color:#B91C1C">*</span></label>
+        <input id="nd_co" type="text" placeholder="e.g. Quantum J's Canning LLC"></div>
+      <div><label>Email to send it to <span style="color:#B91C1C">*</span></label>
+        <input id="nd_email" type="email" placeholder="name@company.com"></div>
+      <div><label>Contact name</label><input id="nd_contact" type="text" placeholder="Who you're writing to"></div>
+      <div><label>Link expires in (days)</label><input id="nd_days" type="number" value="30" min="1" max="120"></div>
+      <div class="full"><label>What this covers (the Purpose)</label>
+        <textarea id="nd_purpose" rows="2" placeholder="e.g. Co-packing and canning of Alameda Soda 12 oz product for the 2027 season."></textarea></div>
+      <div class="full"><label>Services contemplated</label><div>${services}</div></div>
+      <div><label>Signing for us <span style="color:#B91C1C">*</span></label>
+        <input id="nd_signer" type="text" value="${esc((SESSION.email || '').split('@')[0].replace(/[._]/g,' ').replace(/\b\w/g, c => c.toUpperCase()))}"></div>
+      <div><label>Their title for us</label><input id="nd_title" type="text" placeholder="e.g. Chief Executive Officer"></div>
+      <div class="full"><label>Note to include in the email</label>
+        <textarea id="nd_note" rows="2" placeholder="Optional — a line of context for the recipient."></textarea></div>
+    </div>
+    <div class="err" id="nd_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="nd_send" onclick="ndaSend()">Send the agreement</button>
+      <label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">
+        <input type="checkbox" id="nd_noemail"> Just give me the link, don't email it</label>
+    </div>`);
+}
+
+function ndaErr(msg){
+  const e = document.getElementById('nd_err');
+  if(!e) return;
+  e.textContent = msg || '';
+  e.style.display = msg ? 'block' : 'none';
+}
+
+async function ndaSend(){
+  ndaErr('');
+  const btn = document.getElementById('nd_send');
+  const val = id => (document.getElementById(id).value || '').trim();
+  const services = Array.from(document.querySelectorAll('.ndaSvc:checked')).map(c => c.value);
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const d = await ndaCall({
+      action: 'create',
+      recipient_company: val('nd_co'),
+      recipient_email: val('nd_email'),
+      recipient_contact: val('nd_contact'),
+      purpose_scope: val('nd_purpose'),
+      services,
+      company_signer_name: val('nd_signer'),
+      company_signer_title: val('nd_title'),
+      note: val('nd_note'),
+      expires_days: parseInt(val('nd_days'), 10) || 30,
+      send_email: !document.getElementById('nd_noemail').checked,
+    });
+    await ndaLoad();
+    ndaShowLink(d, d.emailed
+      ? 'Emailed to ' + d.agreement.recipient_email + '. Keep this link in case it needs re-sending by hand.'
+      : (d.email_error
+          ? 'We could not send the email (' + d.email_error + ') — send this link yourself.'
+          : 'Not emailed, as you asked. Send this link to them.'));
+  }catch(e){
+    ndaErr(e.message);
+    btn.disabled = false; btn.textContent = 'Send the agreement';
+  }
+}
+
+function ndaShowLink(d, msg){
+  ndaPanel(d.agreement.agreement_number + ' — link ready', `
+    <div class="prose" style="margin-bottom:12px">${esc(msg)}</div>
+    <input type="text" readonly value="${esc(d.link)}" id="nd_link"
+      style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn sm" onclick="ndaCopyLink()">Copy the link</button>
+      <a class="btn ghost sm" style="text-decoration:none" href="${esc(d.link)}" target="_blank" rel="noopener">Open it ↗</a>
+    </div>
+    <div class="muted" style="margin-top:10px">This is the only time the link is shown — it is stored as a
+      hash, so nobody can recover it from the database. Resending mints a new one.</div>`);
+}
+
+function ndaCopyLink(){
+  const el = document.getElementById('nd_link');
+  el.select();
+  navigator.clipboard.writeText(el.value).then(
+    () => { const b = event.target; const was = b.textContent; b.textContent = 'Copied ✓';
+            setTimeout(() => { b.textContent = was; }, 1800); },
+    () => alert('Copy failed — select the text and copy it by hand.'));
+}
+
+// ── Detail + Exhibit A ──────────────────────────────────────────────────────
+async function ndaOpen(id){
+  ndaPanel('Loading…', '<div class="muted">Loading the agreement…</div>');
+  try{
+    const d = await ndaCall({ action: 'get', id });
+    const a = d.agreement, st = NDA_STATUS[a.status] || ['dim', a.status];
+    const fact = (k, v) => v ? '<tr><td class="muted" style="padding:4px 14px 4px 0;white-space:nowrap">' +
+      esc(k) + '</td><td style="padding:4px 0">' + esc(v) + '</td></tr>' : '';
+    const logRows = (d.log || []).map(r =>
+      '<tr><td>' + esc(ndaDate(r.disclosed_on)) + '</td><td>' + esc(r.description) + '</td>' +
+      '<td>' + esc(r.format || '—') + '</td><td>' + esc(r.delivered_by || '—') + '</td>' +
+      '<td>' + esc(r.quantity || '—') + '</td>' +
+      '<td class="noprint"><button class="actbtn danger" data-nda="logdel" data-id="' + esc(r.id) +
+        '" data-ag="' + esc(a.id) + '">Remove</button></td></tr>').join('')
+      || '<tr><td colspan="6" class="muted">Nothing logged yet.</td></tr>';
+
+    ndaPanel(a.agreement_number + ' — ' + (a.recipient_legal_name || a.recipient_company), `
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+        <span class="chip ${st[0]}">${esc(st[1])}</span>
+        ${a.pdf_path ? '<button class="btn sm" data-nda="pdf" data-id="' + esc(a.id) + '">Download the signed PDF</button>' : ''}
+        ${a.status !== 'signed' ? '<button class="btn ghost sm" data-nda="resend" data-id="' + esc(a.id) + '">Resend the link</button>' : ''}
+      </div>
+      <table style="border-collapse:collapse;margin-bottom:18px">
+        ${fact('Legal name', a.recipient_legal_name)}
+        ${fact('Entity', [a.recipient_state, a.recipient_entity_type].filter(Boolean).join(' '))}
+        ${fact('Address', a.recipient_address)}
+        ${fact('Signed by', (a.signer_name || '') + (a.signer_title ? ', ' + a.signer_title : ''))}
+        ${fact('Their email', a.signer_email || a.recipient_email)}
+        ${fact('Purpose', a.purpose_scope)}
+        ${fact('Services', (a.services || []).join(', '))}
+        ${fact('Effective', ndaDate(a.effective_date))}
+        ${fact('Signed at', a.signed_at ? new Date(a.signed_at).toLocaleString() : '')}
+        ${fact('Signed from IP', a.signer_ip)}
+        ${fact('For us', (a.company_signer_name || '') + (a.company_signer_title ? ', ' + a.company_signer_title : ''))}
+        ${fact('Template', a.template_code + ' v' + a.template_version)}
+        ${fact('Declined', a.decline_reason)}
+        ${fact('Filing note', a.notes)}
+      </table>
+
+      <h3 style="margin:0 0 4px;font-size:1rem">Exhibit A — what we disclosed</h3>
+      <div class="prose" style="margin-bottom:10px">Every formulation, spec sheet, batching sheet and sample
+        you send them. The agreement says a missing entry does not remove protection — but this log is what
+        makes it provable.</div>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Date</th><th>What</th><th>Format</th><th>By</th><th>Qty</th><th class="noprint"></th></tr></thead>
+        <tbody>${logRows}</tbody>
+      </table></div>
+      <div class="fgrid noprint" style="margin-top:12px">
+        <div class="full"><label>Add an entry</label>
+          <input id="nl_desc" type="text" placeholder="e.g. Hangar 25 Cola batching sheet rev C"></div>
+        <div><label>Format</label>
+          <select id="nl_fmt"><option>document</option><option>sample</option><option>electronic file</option>
+            <option>verbal</option><option>other</option></select></div>
+        <div><label>Quantity</label><input id="nl_qty" type="text" placeholder="e.g. 2 cases"></div>
+      </div>
+      <div class="noprint" style="margin-top:10px">
+        <button class="btn sm" data-nda="logadd" data-id="${esc(a.id)}">Add to the log</button>
+      </div>`);
+  }catch(e){
+    ndaPanel('Could not open it', '<div class="muted">' + esc(e.message) + '</div>');
+  }
+}
+
+async function ndaPdf(id){
+  const a = NDAS.find(x => x.id === id);
+  if(!a || !a.pdf_path){ alert('No PDF filed for that agreement yet.'); return; }
+  try{
+    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/compliance-docs/' + a.pdf_path,
+      { headers: sbHeaders() });
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = a.agreement_number + '.pdf';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }catch(e){ alert('Could not open the PDF: ' + e.message); }
+}
+
+// One delegated handler for every row action on this tab.
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-nda]');
+  if(!b) return;
+  const kind = b.getAttribute('data-nda'), id = b.getAttribute('data-id');
+  const was = b.textContent;
+  try{
+    if(kind === 'open')   return void ndaOpen(id);
+    if(kind === 'pdf')    return void ndaPdf(id);
+    if(kind === 'resend'){
+      const a = NDAS.find(x => x.id === id);
+      if(!confirm('Send ' + (a ? a.recipient_company : 'this company') +
+        ' a fresh link?\n\nThe previous link stops working.')) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      const d = await ndaCall({ action: 'resend', id });
+      await ndaLoad();
+      ndaShowLink(d, d.emailed ? 'A fresh link was emailed to ' + d.agreement.recipient_email + '.'
+        : 'Email failed (' + (d.email_error || 'unknown') + ') — send this link yourself.');
+      return;
+    }
+    if(kind === 'revoke'){
+      const a = NDAS.find(x => x.id === id);
+      if(!confirm('Revoke ' + (a ? a.agreement_number : 'this agreement') +
+        '?\n\nThe link stops working immediately. Nothing is deleted.')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'revoke', id });
+      await ndaLoad();
+      return;
+    }
+    if(kind === 'logadd'){
+      const desc = (document.getElementById('nl_desc').value || '').trim();
+      if(!desc){ alert('Describe what you disclosed.'); return; }
+      b.disabled = true; b.textContent = 'Adding…';
+      await ndaCall({ action: 'log_add', agreement_id: id, description: desc,
+        format: document.getElementById('nl_fmt').value,
+        quantity: (document.getElementById('nl_qty').value || '').trim() });
+      await ndaOpen(id);
+      return;
+    }
+    if(kind === 'logdel'){
+      if(!confirm('Remove that log entry?')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'log_delete', id });
+      await ndaOpen(b.getAttribute('data-ag'));
+      return;
+    }
+  }catch(err){
+    alert(err.message);
+    b.disabled = false; b.textContent = was;
+  }
+});
 
 // ═══ POSTING BOARD — the screen that goes on the break-room monitor ═══
 // Board = every notice as a tile with a QR code. Display mode = one notice at a
