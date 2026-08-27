@@ -118,6 +118,16 @@
   to = "/visitors.html"
   status = 200
 
+# NDA signing page — the link a co-packer, lab or vendor gets by email before we
+# share formulations or samples. DELIBERATELY PUBLIC, same kiosk recipe: the
+# counterparty has no login here, the token in the URL is the entire gate, and
+# every write goes through the service-role function (nda-sign). Staff send and
+# track NDAs from /compliance → NDAs. The gateway proxies /nda here.
+[[redirects]]
+  from = "/nda"
+  to = "/nda.html"
+  status = 200
+
 # Vendor onboarding intake — the one-time link vendors get by email (Vendor
 # Portal Phase 2). DELIBERATELY PUBLIC (kiosk recipe): a vendor cannot log in;
 # the token in ?t= is the gate and all writes go through the service-role
