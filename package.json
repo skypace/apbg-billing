@@ -7,6 +7,6 @@
     "pdf-lib": "^1.17.1"
   },
   "scripts": {
-    "test": "node tests/ap-inbox.test.mjs && node --test tests/due-date.test.mjs tests/expense-guards.test.mjs tests/vendor-docs.test.mjs tests/bill-paid-sync.test.mjs"
+    "test": "node tests/ap-inbox.test.mjs && node --test tests/due-date.test.mjs tests/expense-guards.test.mjs tests/vendor-docs.test.mjs tests/bill-paid-sync.test.mjs tests/qbo-vendor-push.test.mjs tests/pay-run.test.mjs"
   }
 }

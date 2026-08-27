@@ -4,7 +4,7 @@
  * - Hashed build assets (/expense/assets/*): cache-first (they're immutable).
  * - Everything else (Supabase, fonts, APIs = cross-origin) is left untouched.
  * Bump CACHE to invalidate old caches on the next activate. */
-const CACHE = 'brixpense-v1';
+const CACHE = 'brixpense-v2';
 const SHELL = [
   '/expense/',
   '/expense/index.html',

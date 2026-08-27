@@ -25,7 +25,8 @@ Return ONLY valid JSON — no markdown, no backticks, no preamble. Schema:
   "job_number": "string or null (Service Fusion / ResQ job, work-order #, PO #)",
   "customer_name": "string or null (end-customer if this expense is being charged through)",
   "memo": "string or null (1-line summary suitable for a bill memo)",
-  "notes": "string or null (anything else worth capturing — surcharges, terms, multiple POs)"
+  "notes": "string or null (anything else worth capturing — surcharges, terms, multiple POs)",
+  "is_credit": boolean (true ONLY when the document is a CREDIT memo/credit note FROM the vendor — headed "Credit Memo", "Credit Note", "CM #", or a clearly negative invoice total. An ordinary invoice, even one mentioning a prior credit, is false)
 }
 
 Rules:
@@ -108,10 +109,15 @@ function normalize(extracted, accountLabels) {
 
   const billNumber = String(extracted.bill_number ?? extracted.billNumber ?? extracted.invoice_number ?? '').trim();
 
+  // A credit memo's amount is stored POSITIVE — the is_credit flag carries
+  // the sign. Some credit notes print the total negative; normalize.
+  const rawTotal = Number(extracted.total ?? 0) || null;
+
   return {
     vendor: String(extracted.vendor ?? extracted.vendorName ?? '').trim() || null,
     bill_number: billNumber || null,
-    total: Number(extracted.total ?? 0) || null,
+    total: rawTotal === null ? null : Math.abs(rawTotal),
+    is_credit: extracted.is_credit === true || (rawTotal !== null && rawTotal < 0),
     date: extracted.date ?? extracted.billDate ?? null,
     due_date: extracted.due_date ?? extracted.dueDate ?? null,
     payment_terms: (String(extracted.payment_terms ?? extracted.paymentTerms ?? '').trim() || null),

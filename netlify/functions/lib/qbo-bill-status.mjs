@@ -34,16 +34,20 @@ export function safeIds(ids) {
 
 const asArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 
-/** Balance for each bill id we asked about. A bill QBO does not return is
- *  ABSENT from the map — the caller must treat that as "gone", never "paid". */
-export async function fetchBillBalances(ids) {
+/** Balance for each txn id we asked about. `entity` is 'Bill' for bills and
+ *  'VendorCredit' for credit memos — a VendorCredit's Balance is what is
+ *  still UNAPPLIED, so 0 means fully consumed (its version of "paid").
+ *  Asking the wrong entity is the 2026-08-26 false-"missing" bug — a txn QBO
+ *  does not return is ABSENT from the map and the caller must treat that as
+ *  "gone", never "paid". */
+export async function fetchBillBalances(ids, entity = 'Bill') {
   const out = new Map();
   for (const group of chunk(safeIds(ids))) {
     if (!group.length) continue;
     const res = await qboQuery(
-      `SELECT Id, Balance, TotalAmt, DocNumber, TxnDate FROM Bill WHERE Id IN (${group.map((i) => `'${i}'`).join(',')})`,
+      `SELECT Id, Balance, TotalAmt, DocNumber, TxnDate FROM ${entity} WHERE Id IN (${group.map((i) => `'${i}'`).join(',')})`,
     );
-    for (const b of asArray(res?.QueryResponse?.Bill)) {
+    for (const b of asArray(res?.QueryResponse?.[entity])) {
       // Balance can legitimately be 0, so an `|| null` here would read every
       // paid bill as unknown — exactly backwards. Only undefined/null is unknown.
       const bal = b?.Balance;
@@ -59,7 +63,7 @@ export async function fetchBillBalances(ids) {
 
 /** Latest BillPayment date per bill id, from the payments that link to them.
  *  Best effort: a failure here costs a precise date, never the paid finding. */
-export async function fetchPaymentDates(billIds) {
+export async function fetchPaymentDates(billIds, txnType = 'Bill') {
   const out = new Map();
   const ids = safeIds(billIds);
   if (!ids.length) return out;
@@ -71,7 +75,7 @@ export async function fetchPaymentDates(billIds) {
       for (const p of asArray(res?.QueryResponse?.BillPayment)) {
         for (const line of asArray(p?.Line)) {
           for (const lt of asArray(line?.LinkedTxn)) {
-            if (lt?.TxnType !== 'Bill' || !lt?.TxnId) continue;
+            if (lt?.TxnType !== txnType || !lt?.TxnId) continue;
             const key = String(lt.TxnId);
             const prev = out.get(key);
             // Several payments can settle one bill; the LAST one is when it
@@ -135,22 +139,34 @@ export async function runBillPaidSync() {
   const out = { checked: 0, paid: 0, partial: 0, still_open: 0, missing: 0, errors: [] };
 
   try {
+    // Bills ONLY (as_bill=true). A posted Purchase was paid at posting and its
+    // qbo_bill_id is a Purchase id — the Bill query below can never find it,
+    // so including them flagged every posted Purchase as "QuickBooks no longer
+    // returns this" (20 false positives / $21.6k on 2026-08-26). Credit memos
+    // (is_credit) ARE in the pool but are asked of the VendorCredit entity —
+    // their Balance is what is still unapplied, so 0 = fully consumed, the
+    // credit's "paid". Same wrong-entity trap, sign flipped.
     const rows = await ops('GET',
-      'expense_requests?select=id,qbo_bill_id,vendor_name,total_amount'
-      + '&qbo_bill_id=not.is.null&paid_at=is.null&archived_at=is.null'
+      'expense_requests?select=id,qbo_bill_id,vendor_name,total_amount,is_credit'
+      + '&qbo_bill_id=not.is.null&paid_at=is.null&archived_at=is.null&as_bill=eq.true'
       + `&order=qbo_checked_at.asc.nullsfirst&limit=${MAX_PER_RUN}`);
 
     const live = (rows || []).filter((r) => r.qbo_bill_id);
-    if (live.length) {
-      const balances = await fetchBillBalances(live.map((r) => r.qbo_bill_id));
+    const partitions = [
+      ['Bill', live.filter((r) => !r.is_credit)],
+      ['VendorCredit', live.filter((r) => r.is_credit)],
+    ];
+    for (const [entity, subset] of partitions) {
+      if (!subset.length) continue;
+      const balances = await fetchBillBalances(subset.map((r) => r.qbo_bill_id), entity);
 
-      // Only bills that came back at zero need a payment date looked up.
-      const paidIds = live
+      // Only txns that came back at zero need a payment date looked up.
+      const paidIds = subset
         .map((r) => String(r.qbo_bill_id))
         .filter((id) => balances.get(id)?.balance === 0);
-      const payments = await fetchPaymentDates(paidIds);
+      const payments = await fetchPaymentDates(paidIds, entity);
 
-      for (const r of live) {
+      for (const r of subset) {
         const id = String(r.qbo_bill_id);
         const { outcome, patch } = decide(r, balances.get(id), payments.get(id));
         try {

@@ -110,6 +110,10 @@ export default function ExpenseForm() {
   // Drives `as_bill` on submit; backend routing (expense-request-notify) is
   // unchanged. Default unpaid so we never demand an account for a bill.
   const [isPaid, setIsPaid] = useState(false);
+  // Credit memo: the vendor owes US. Amount stays positive — the flag carries
+  // the sign. Posts to QBO as a VendorCredit and is consumed by applying it on
+  // the Pay Bills page. Only meaningful on the unpaid-bill branch.
+  const [isCredit, setIsCredit] = useState(false);
 
   // Per-user "sticky defaults": remember the submitter's usual entity /
   // department / COGS / payment choice on each successful submit and pre-fill
@@ -145,6 +149,14 @@ export default function ExpenseForm() {
     { description: '', qty: 1, unit_price: 0, amount: 0 },
   ]);
   const [existingStatus, setExistingStatus] = useState<string | null>(null);
+  // Posted rows only: the QBO transaction id, so a late-arriving document can
+  // still be attached and pushed onto the existing QBO Bill/Purchase
+  // (mode=attach — the row itself stays read-only).
+  const [existingQboBillId, setExistingQboBillId] = useState<string | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [attachNote, setAttachNote] = useState<string | null>(null);
+  const [attachErr, setAttachErr] = useState<string | null>(null);
+  const postedAttachInputRef = useRef<HTMLInputElement>(null);
   // Set when this expense fulfills an approved Purchase Request. The insert
   // payload below carries this in `linked_pr_id` so the PR-side row can be
   // flipped to 'fulfilled' by expense-request-notify after the QBO post.
@@ -195,6 +207,7 @@ export default function ExpenseForm() {
         return;
       }
       setExistingStatus(data.status);
+      setExistingQboBillId(data.qbo_bill_id || null);
       setEntity(data.entity || 'brix');
       setVendorName(data.vendor_name || '');
       setBillNumber(data.bill_number || '');
@@ -226,6 +239,7 @@ export default function ExpenseForm() {
       setPaymentAccountType(data.payment_account_type || '');
       // Paid = it was booked against a real account (not an unpaid bill).
       setIsPaid(!data.as_bill && !!data.payment_account_id);
+      setIsCredit(data.is_credit === true);
       if (Array.isArray(data.line_items) && data.line_items.length > 0) {
         setLineItems(data.line_items as LineItem[]);
       }
@@ -459,6 +473,9 @@ export default function ExpenseForm() {
           if (ocr.model) setOcrModel(ocr.model);
           if (ocr.vendor) setVendorName(ocr.vendor);
           if (ocr.bill_number) setBillNumber(ocr.bill_number);
+          // The document says CREDIT MEMO — flip the row to a credit (and to
+          // the bill branch, since a credit is never "already paid").
+          if (ocr.is_credit === true) { setIsCredit(true); setIsPaid(false); setPaymentAccountId('__bill__'); }
           if (ocr.payment_terms) setPaymentTerms(ocr.payment_terms);
           if (ocr.due_date) { setDueDate(ocr.due_date); setDueDateSource('printed'); }
           // A fresh attachment + a fresh OCR pass supersedes whatever held this
@@ -504,6 +521,54 @@ export default function ExpenseForm() {
     const file = e.target.files?.[0];
     if (file) handleFileSelect(file);
     e.target.value = '';
+  };
+
+  // Attach a late-arriving document to a POSTED expense: saves it on the
+  // Brixpense record AND files it onto the existing QBO Bill/Purchase in one
+  // step (mode=attach pushes only this one file, so it can't duplicate what
+  // QBO already has). No OCR, no Submit — the row is read-only; only the
+  // document was missing.
+  const attachToPosted = async (file: File) => {
+    if (!session || !id) return;
+    setAttachBusy(true);
+    setAttachNote(null);
+    setAttachErr(null);
+    try {
+      const storagePath = `${session.user.id}/${id}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage
+        .from('expense-attachments')
+        .upload(storagePath, file, { contentType: file.type, upsert: false });
+      if (upErr) throw new Error(upErr.message);
+      const { data: att, error: insErr } = await supabase
+        .from('expense_request_attachments')
+        .insert({
+          request_id: id,
+          file_name: file.name,
+          file_type: file.type,
+          file_size: file.size,
+          storage_path: storagePath,
+        })
+        .select('id')
+        .single();
+      if (insErr || !att) throw new Error(insErr?.message || 'Could not save the attachment');
+      const token = await getAccessToken();
+      const res = await fetch('/expense/api/expense-request-link-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ requestId: id, mode: 'attach', attachmentId: att.id }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        // The file IS saved in Brixpense — only the QBO push failed.
+        setAttachErr(data.message || data.error || 'Saved here, but pushing to QuickBooks failed — try again.');
+        return;
+      }
+      setAttachNote(`Attached and filed on QuickBooks ${data.kind} ${data.qbo_txn_id}.`);
+    } catch (e) {
+      setAttachErr(e instanceof Error ? e.message : 'Could not attach the file.');
+    } finally {
+      setAttachBusy(false);
+    }
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -616,6 +681,7 @@ export default function ExpenseForm() {
         payment_account_name: asBill ? null : (pickedAcct?.name ?? paymentAccountName ?? null),
         payment_account_type: asBill ? null : (pickedAcct?.account_type ?? paymentAccountType ?? null),
         as_bill: asBill,
+        is_credit: asBill ? isCredit : false,
         line_items: nonEmptyLines,
       };
 
@@ -881,7 +947,58 @@ export default function ExpenseForm() {
         {readOnly && (
           <div className="text-xs bg-secondary/40 border border-border rounded-md p-3">
             This submission has already been processed and is read-only.
-            Use <strong>New Expense</strong> from the dashboard to file a new one.
+            {existingStatus === 'posted' && existingQboBillId
+              ? ' You can still attach the bill document below — it files onto the QuickBooks transaction too.'
+              : <> Use <strong>New Expense</strong> from the dashboard to file a new one.</>}
+          </div>
+        )}
+
+        {/* Attach-after-post: the fields are locked, but a late-arriving bill
+            document can still be filed — saved here AND pushed onto the
+            existing QBO Bill/Purchase. Without this, a bill posted before its
+            document arrived could never get the file into QuickBooks. */}
+        {isEditing && existingStatus === 'posted' && existingQboBillId && (
+          <div className="space-y-2">
+            <div
+              className="border border-dashed rounded-lg p-3 flex items-center justify-between gap-3 cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => !attachBusy && postedAttachInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files?.[0];
+                if (f && !attachBusy) void attachToPosted(f);
+              }}
+            >
+              <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+                {attachBusy
+                  ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  : <Receipt className="h-4 w-4 shrink-0" />}
+                <span className="truncate">
+                  {attachBusy ? 'Attaching and filing to QuickBooks…' : 'Attach the bill — it will be filed on the QuickBooks transaction too'}
+                </span>
+              </div>
+              <Button size="sm" variant="outline" type="button" disabled={attachBusy}
+                onClick={(e) => { e.stopPropagation(); postedAttachInputRef.current?.click(); }}>
+                <Upload className="h-4 w-4 mr-1" /> Upload
+              </Button>
+            </div>
+            <input
+              ref={postedAttachInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void attachToPosted(f);
+                e.target.value = '';
+              }}
+            />
+            {attachNote && (
+              <div className="text-xs rounded-md p-2.5 border border-emerald-500/30 bg-emerald-500/10 text-emerald-200">{attachNote}</div>
+            )}
+            {attachErr && (
+              <div className="text-xs rounded-md p-2.5 border border-amber-500/40 bg-amber-500/10 text-amber-200">{attachErr}</div>
+            )}
           </div>
         )}
 
@@ -904,7 +1021,7 @@ export default function ExpenseForm() {
         {sfOcrStatus && sfOcrStatus !== 'processed' && (
           <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">
             {sfOcrStatus === 'no_attachment' &&
-              'Held from auto-posting — Service Fusion had no receipt on this expense. Attach one below (or fill in the details and Bill # by hand), then submit to post it now.'}
+              "No bill attached yet — the vendor, amount, and job came over from Service Fusion, but the document is yours to add. Attach the bill below (or fill in the details and Bill # by hand), then Submit."}
             {sfOcrStatus === 'failed' &&
               `Held from auto-posting — the attached receipt couldn't be read${sfOcrErrorMsg ? `: ${sfOcrErrorMsg}` : '.'} Double-check the details below and submit to post it now.`}
           </div>
@@ -929,6 +1046,74 @@ export default function ExpenseForm() {
               <X className="h-4 w-4" />
             </Button>
           </div>
+        )}
+
+        {/* A picked PDF has no image preview — show it as a named chip instead,
+            so the user can tell the bill is attached (and un-pick it). */}
+        {receiptFile && !receiptPreview && (
+          <div className="flex items-center gap-2 text-sm rounded-lg p-3 border border-emerald-500/30 bg-emerald-500/10 text-emerald-200">
+            <Receipt className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate">{receiptFile.name}</span>
+            <button type="button" onClick={() => { setReceiptFile(null); setReceiptPreview(null); }} title="Remove">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Attach-here controls. The upload step only exists on the New Expense
+            flow, so without this an OPEN draft (e.g. an SF-landed bill waiting
+            for its document — receipts no longer auto-scrape from SF) had no way
+            to take a file at all. Saved to the draft on Submit; OCR fills in
+            whatever it can read (bill #, date, line items) on pick. */}
+        {!readOnly && !receiptFile && (
+          <div
+            className="border border-dashed rounded-lg p-3 flex items-center justify-between gap-3 cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+          >
+            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+              <Receipt className="h-4 w-4 shrink-0" />
+              <span className="truncate">Attach the bill or receipt (photo, scan, or PDF)</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); cameraInputRef.current?.click(); }}
+              >
+                <Camera className="h-4 w-4 mr-1" /> Camera
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              >
+                <Upload className="h-4 w-4 mr-1" /> Upload
+              </Button>
+            </div>
+          </div>
+        )}
+        {!readOnly && (
+          <>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={onFileInput}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={onFileInput}
+            />
+          </>
         )}
 
         {ocrLoading && (
@@ -1166,10 +1351,28 @@ export default function ExpenseForm() {
           </div>
 
           {!isPaid ? (
-            <p className="text-xs text-amber-400 mt-2">
-              Posts as an unpaid <strong>Bill</strong> in QBO (vendor required) — pay it from QBO
-              later. No payment account needed.
-            </p>
+            <>
+              <p className="text-xs text-amber-400 mt-2">
+                {isCredit
+                  ? <>Posts as a <strong>Vendor Credit</strong> in QBO — apply it against this vendor&rsquo;s bills on the Pay Bills page.</>
+                  : <>Posts as an unpaid <strong>Bill</strong> in QBO (vendor required) — pay it from QBO later. No payment account needed.</>}
+              </p>
+              <label className="flex items-start gap-2 mt-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 mt-0.5 accent-emerald-400"
+                  disabled={readOnly}
+                  checked={isCredit}
+                  onChange={(e) => setIsCredit(e.target.checked)}
+                />
+                <span>
+                  This is a <strong>credit memo</strong> — the vendor owes us this amount.
+                  <span className="block text-xs text-muted-foreground">
+                    Enter the amount as a positive number; the credit carries the sign.
+                  </span>
+                </span>
+              </label>
+            </>
           ) : (
             <div className="mt-3">
               <Label>

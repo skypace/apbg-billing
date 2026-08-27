@@ -759,6 +759,30 @@
       "last_verified": "2026-08-20"
     },
     {
+      "name": "vendor-qbo-push",
+      "kind": "netlify-function",
+      "multi_writer": true,
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (staff clicks Push to QuickBooks on a vendor)",
+      "writes": [
+        "ops.vendors"
+      ],
+      "notes": "Creates (or links) the QuickBooks Vendor for a Brixpense vendor and attaches their compliance documents \u2014 W-9, certificate of insurance \u2014 to that QBO vendor record via the Attachable API (POST /v3/company/{realm}/upload, multipart file_metadata_01 + file_content_01; Vendor is a supported AttachableRef entity). The only ops write is stamping vendors.qbo_vendor_id. NEVER creates a second QBO vendor: an existing link is verified by id, then an exact DisplayName match is linked to, and only then is one created \u2014 QBO rejects duplicate display names anyway, and a split vendor history is the same failure the W-9 drop guards against. \u26a0 A full TIN is never sent: ops.vendors holds ein_last4 only, and a partial TaxIdentifier would LOOK filled in \u2014 the whole number is on the W-9 PDF, which is why attaching the document is the load-bearing half. Vendor1099 is set only from an EXPLICIT is_1099 override, never inferred. Attachments are best-effort and reported per file, so one unreadable document cannot lose the vendor push or the others.",
+      "last_verified": "2026-08-26"
+    },
+    {
+      "name": "sf-expense-reconcile",
+      "kind": "netlify-function",
+      "multi_writer": true,
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "weekly Mondays 16:00 UTC (pg_cron 'sf-expense-reconcile' → /api/sf-expense-reconcile-background)",
+      "writes": [
+        "ops.sync_log"
+      ],
+      "notes": "The weekly 'did we see everything?' proof for the SF→Brixpense expense pipeline. Re-reads every SF expense on Invoiced jobs updated in the last 30 days (sort=-updated_at, expand=expenses — the same signal the fresh sweep rides), computes the SAME dedup key as sf-receipt-sync's expenseKey() (⚠ the two MUST change together — candidateKey() in the function header says so), and checks each against ops.expense_requests.sf_expense_id. Stranded expenses are landed on the spot via the edge function's ?landJob= (idempotent, drafts only — the manual-post gate holds; capped at 10 jobs/run) and a digest email goes to SF_RECONCILE_ALERT_TO (default service@brixbev.com) ONLY when something was found — silence is the healthy state. Exists because every landing path is best-effort (budgeted sweeps, SF hangs, filtered emails): 12 expenses/~$9k sat invisible for weeks before 2026-08-14, found only because an operator asked. Its only ops write is the sync_log run row (source 'sf-reconcile', added to the source allow-list in 20260826b — the CHECK silently rejects unknown sources, the v0.5.0 trap); the landings themselves are writes by sf-receipt-sync, the already-declared writer. Watcher: ops.fn_sf_reconcile_health() in fn_sync_health_extra — red on an errored run or >8 days silent; green-with-note before the first run.",
+      "last_verified": "2026-08-26"
+    },
+    {
       "name": "bill-paid-sync",
       "kind": "netlify-function",
       "multi_writer": true,
@@ -768,16 +792,17 @@
         "ops.expense_requests",
         "ops.sync_log"
       ],
-      "notes": "Asks QuickBooks which posted Brixpense bills have actually been paid. Brixpense only stamps paid_at for payments IT made (vendor-payments:pay-and-webhook); a cheque written in QuickBooks, a Bill Pay run or the bookkeeper's card is invisible here, so without this the bill sits in ops.v_ap_aging forever and keeps offering a Pay button for money already gone. Nothing we mirror answers it \u2014 ops.qbo_expense_lines is line-level with no header balance \u2014 so it queries the Bill entity per id (two batched read-only queries per run, scoped to posted+unpaid+un-archived rows). Bill.Balance is the answer: 0 = paid (paid_at stamped from the linked BillPayment's real date, NOT now \u2014 a bill paid in June must not read as paid today); 0 < balance < total = PARTIAL, recorded on qbo_balance but deliberately NOT marked paid, since it is still owed; a bill QBO does not return is recorded checked with a NULL balance and never marked paid (deleted or voided there is not the same as settled). Read-only against QBO: creates nothing, pays nothing, so the manual button is safe for the AP desk. Watcher: ops.fn_bill_paid_sync_health() in fn_sync_health_extra \u2014 red on an error in 24h or no run in 48h, yellow on bills QBO no longer returns, and yellow (NOT green) when bills are waiting and the sync has never run.",
+      "notes": "Asks QuickBooks which posted Brixpense bills have actually been paid. Brixpense only stamps paid_at for payments IT made (vendor-payments:pay-and-webhook); a cheque written in QuickBooks, a Bill Pay run or the bookkeeper's card is invisible here, so without this the bill sits in ops.v_ap_aging forever and keeps offering a Pay button for money already gone. Nothing we mirror answers it \u2014 ops.qbo_expense_lines is line-level with no header balance \u2014 so it queries the Bill entity per id (two batched read-only queries per run, scoped to posted+unpaid+un-archived rows). Bill.Balance is the answer: 0 = paid (paid_at stamped from the linked BillPayment's real date, NOT now \u2014 a bill paid in June must not read as paid today); 0 < balance < total = PARTIAL, recorded on qbo_balance but deliberately NOT marked paid, since it is still owed; a bill QBO does not return is recorded checked with a NULL balance and never marked paid (deleted or voided there is not the same as settled). Read-only against QBO: creates nothing, pays nothing, so the manual button is safe for the AP desk. Scope is Bills only (as_bill=true, 2026-08-26 \u2014 posted Purchases were false-flagged as deleted) PLUS credit memos (is_credit), which are asked of the VendorCredit entity: a VendorCredit's Balance is what is still UNAPPLIED, so 0 = fully consumed \u2014 asking the wrong entity is the same false-missing bug with the sign flipped. Watcher: ops.fn_bill_paid_sync_health() in fn_sync_health_extra \u2014 red on an error in 24h or no run in 48h, yellow on bills QBO no longer returns, and yellow (NOT green) when bills are waiting and the sync has never run.",
       "last_verified": "2026-08-23"
     },
     {
       "name": "vendor-payments:pay-and-webhook",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",
-      "schedule": "on-demand (superadmin Pay click) + Stripe webhook on payout settlement",
+      "schedule": "on-demand (superadmin Pay / Pay-run click) + Stripe webhook on payout settlement",
       "writes": [
         "ops.vendor_payments",
+        "ops.vendor_payment_groups",
         "ops.vendors",
         "ops.expense_requests"
       ],
@@ -787,8 +812,8 @@
         "Stripe webhook events",
         "QBO BillPayment writeback"
       ],
-      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase. Also stamps the BILL itself (ops.expense_requests paid_at / payment_method / qbo_billpayment_id) when a manual rail is recorded or a Stripe payout settles \u2014 multi_writer with brix-expense:app-and-functions. The ledger is the payment's story, expense_requests is the bill's, and ops.v_ap_aging keys on paid_at: leave the bill unstamped and a paid bill sits in the aging total forever.",
-      "last_verified": "2026-08-20"
+      "notes": "Vendor Portal Phase 3 (migration 20260820c_vendor_payments.sql). vendor-pay.mjs is SUPERADMIN-only and the ONLY initiator — no auto-pay exists: actions stripe_status / stripe_setup (creates the v2 recipient Account + emails Stripe's hosted onboarding link; persists vendors.stripe_recipient_id, the only Stripe datum stored — bank details live with Stripe) / preview / pay (Stripe OutboundPayment) / record (manual venmo/zelle/check/qbo_billpay rails). stripe-payout-webhook.mjs (HMAC-verified, STRIPE_PAYOUT_WEBHOOK_SECRET) settles the ledger on 'posted' and books the QBO BillPayment through the hardened billing token chain; failed/returned/canceled flip to 'failed' and email REPORT_TO. Duplicate protection is a partial unique index on qbo_bill_id for live statuses. Health: ops.fn_vendor_payments_health() inside fn_sync_health_extra (red on a failure in 7d or a payout stuck 'initiated' >48h). Writes ops.vendors only to stamp stripe_recipient_id — multi_writer with brixpense-vendors:app-and-fn and vendor-onboarding:intake-and-chase. Also stamps the BILL itself (ops.expense_requests paid_at / payment_method / qbo_billpayment_id) when a manual rail is recorded or a Stripe payout settles \u2014 multi_writer with brix-expense:app-and-functions. The ledger is the payment's story, expense_requests is the bill's, and ops.v_ap_aging keys on paid_at: leave the bill unstamped and a paid bill sits in the aging total forever. PAY RUN (2026-08-26, migration 20260826d): vendor-pay-run.mjs (same superadmin gate) pays SEVERAL bills to one vendor in one action — per-bill ledger rows stay the duplicate guard (written BEFORE any money moves), and a parent ops.vendor_payment_groups row carries what is singular about the batch: the one Stripe payout id (the row-level unique index can't hold when five rows share one payout), the one multi-line QBO BillPayment, the check #, and the remittance-advice send record (lib/remittance.mjs — sent at settlement for Stripe via the webhook's settleGroup(), immediately for manual rails, resendable via action=remit). No new watcher: batch rows are ordinary vendor_payments rows, so fn_vendor_payments_health() already covers a stuck or failed pay run. VENDOR CREDITS (2026-08-26, migration 20260826e): expense_requests.is_credit rows post to QBO as VendorCredit (expense-request-link-bill) and are CONSUMED by applying them in a pay run — the BillPayment gains positive-Amount lines with LinkedTxn TxnType VendorCredit and TotalAmt = bills − credits (never negative; $0 apply-only allowed on the record rail). Credit rows get vendor_payments ledger rows too, so the per-bill unique index also stops a credit being applied twice. Credits are excluded from ops.v_ap_aging (not payables) and blocked from the single-bill Pay button.",
+      "last_verified": "2026-08-26"
     },
     {
       "name": "vendor-funding:top-up-and-reconcile",

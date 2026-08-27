@@ -126,6 +126,7 @@
     "vendor_email_tickets",
     "vendor_funding_events",
     "vendor_onboard_tokens",
+    "vendor_payment_groups",
     "vendor_payments",
     "vendor_ticket_events",
     "vendors",

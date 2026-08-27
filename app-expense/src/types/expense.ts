@@ -96,6 +96,12 @@ export interface ExpenseRequest {
    *  already-paid receipt (posts as a Purchase). */
   as_bill?: boolean | null;
   paid_at?: string | null;
+  /** Evidence from the daily bill-paid-sync (QBO is asked directly): the
+   *  bill's remaining QBO balance at last check, and when we last looked.
+   *  paid_at is the DECISION; these are the evidence behind it. A balance
+   *  between 0 and the total means partly paid. */
+  qbo_balance?: number | null;
+  qbo_checked_at?: string | null;
 
   /** When this bill is due, and how we know. A printed due date beats one
    *  computed from terms; `due_date_source` records which we had. */
@@ -196,6 +202,10 @@ export interface Vendor {
   vendor_type: VendorType;
   contact_name: string | null;
   contact_email: string | null;
+  /** Everyone else you email at this vendor — AP, dispatch, the owner.
+   *  All are copied on document requests. QuickBooks only ever gets
+   *  contact_email: its PrimaryEmailAddr accepts a single address. */
+  additional_emails: string[] | null;
   contact_phone: string | null;
   /** → ops.qbo_vendors.qbo_vendor_id (the daily QBO mirror); null until linked. */
   qbo_vendor_id: string | null;

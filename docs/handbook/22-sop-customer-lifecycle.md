@@ -1,6 +1,6 @@
 # SOP-2 · Customer Lifecycle — Application, Approval, Setup Ticket, Enable, Closure
 
-> Part II · SOP Manual · Owner: Dani · Last reviewed: 2026-07-22
+> Part II · SOP Manual · Owner: Dani · Last reviewed: 2026-08-26
 
 This SOP is the end-to-end procedure for bringing a customer onto APBG systems and taking them off again: the /apply application, admin review, Service Fusion creation, the NEW ACCOUNT SETUP ticket, portal enablement, ongoing holds, and the gated account-closure workflow. It is written for ops and admin staff working in the Brix Order admin console at `https://orders.brixbev.com/admin`.
 
@@ -8,7 +8,8 @@ This SOP is the end-to-end procedure for bringing a customer onto APBG systems a
 
 | Stage | Where | Result |
 |---|---|---|
-| 1. Application | Customer fills `https://orders.brixbev.com/apply` | `orders.onboarding_requests` row + docs |
+| 0. Invite (optional) | `/admin/onboarding` → Invite a new customer | Tracked invite email, `orders.onboarding_invites` row |
+| 1. Application | Customer fills `https://orders.brixbev.com/apply` (or `?invite=<token>`) | `orders.onboarding_requests` row + docs |
 | 2. Review | `/admin/onboarding` | Verified application |
 | 3. Approve | `/admin/onboarding` → Approve | SF customer + NEW ACCOUNT SETUP ticket |
 | 4. Setup ticket close | Service Fusion | $0 setup invoice → customer syncs into QBO |
@@ -38,6 +39,20 @@ The **BRIX Foodservice Portal** (`/melt/`) is not a second onboarding. Foodservi
 - **Granting the entitlement creates no login.** Portal access is invited per person afterwards. If someone says "we onboarded them but they can't get in", that is the expected state — invite them.
 - Provisioning is **idempotent on the QuickBooks customer id**, so re-ticking or a retried call returns the existing tenant instead of creating a duplicate. Never work around a perceived failure by creating the tenant a second time by hand.
 - Imported locations arrive as **Planning / not trading, with no street address** — on a chain sub-customer QuickBooks holds the corporate address. Fill each one in as the store actually opens.
+
+## Inviting a prospect (optional, before they apply)
+
+### Policy
+
+A superadmin who already knows a prospect wants an account doesn't have to wait for them to find `/apply` on their own. From `/admin/onboarding` → **Invite a new customer**, pick **Chain** or **Franchisee** (a tracking tag for the reviewer only — it does not shorten the application, alter pricing, or authorize a contract) and enter the prospect's email. This is distinct from the shared per-chain `/apply/:token` link (the **Links** tab) — that link is handed to a chain's corporate office and skips terms/credit/tax docs because the master account already covers them; an invite here goes to one named person who still completes the full credit application below.
+
+### Procedure
+
+1. Open `/admin/onboarding`. Expand the **Invited — waiting to hear back** panel and click **Invite a new customer**.
+2. Choose Chain or Franchisee, enter the email (+ optional contact name / internal notes), and send.
+3. The prospect receives a branded invite email with a link to `/apply?invite=<token>` — the same application everyone fills out.
+4. Track status in the panel: **Invited** (no response yet — Resend or Cancel available), **Applied** (matched to a submitted application — review it normally, it carries a category chip), **Cancelled**.
+5. A submission through the invite link matches back to the invite automatically; nothing further is required.
 
 ## New-customer application (/apply)
 
@@ -160,4 +175,4 @@ Closing an account is a **gated workflow**, not a button. From the customer Over
 - [SOP-4 · Billing & Payments](#/24-sop-billing-payments) — comms slots, payment rails, write-off booking
 - [SOP-5 · CO₂ Cylinders](#/25-sop-cylinders-audits) — closure tank audits
 - [Brix Order /admin — Staff Console](#/03-brix-order-admin)
-- Source doc: `activespacescience/brix-order/CLAUDE.md` (sessions 1.25–1.36, 1.55, 1.67)
+- Source doc: `activespacescience/brix-order/CLAUDE.md` (sessions 1.25–1.36, 1.55, 1.67, 1.116)

@@ -1,6 +1,6 @@
 # Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)
 
-> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-08-21
+> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-08-26
 
 This chapter is the staff manual for the Brix Order admin console at **https://orders.brixbev.com/admin** — the back office behind the customer portal. It covers every tab: taking phone orders, enabling and managing customers, reviewing new-account applications, reviewing emailed EDI purchase orders, accepting Order Desk email forwards, watching payments and returned payments, approving tank audits, and maintaining the AI knowledge base. It is written for owners, ops, and accounting staff who hold superadmin access.
 
@@ -99,6 +99,12 @@ Cancelled and closed closure rows are kept as the audit record. See [SOP-2 · Cu
 ## Onboarding
 
 The queue behind the public application at https://orders.brixbev.com/apply — a credit-app-grade form: business info + DUNS, Tax ID and resale certificate (text + document upload to the private `onboarding-docs` bucket), accounting/billing/orders/management contacts, delivery windows + special instructions, multiple delivery locations with ZIP-triggered address verification, optional credit application (Net 15/Net 30, 3 trade references), terms acceptance, and a required applicant signature.
+
+### Inviting a prospect (before they apply)
+
+The **"Invited — waiting to hear back"** panel at the top of `/admin/onboarding` lets a superadmin get ahead of a prospect who hasn't filled out `/apply` yet. Click **Invite a new customer**, pick **Chain** or **Franchisee** (a tracking tag only — it doesn't change pricing, contracts, or what the application asks for), enter their email (+ optional contact name / internal notes), and send. They get a warm branded email with a "why Brix" bullet list and a link to `/apply?invite=<token>` — the same full application everyone else fills out, just pre-tagged so it matches back to this invite on submission.
+
+The panel tracks status (**Invited** → **Applied** / **Cancelled**) with per-row **Resend** and **Cancel**, so the queue always shows who you're still waiting to hear back from. A matched request row shows a small teal category chip. This is a different mechanism from the shared per-chain `/apply/:token` link (see [SOP-2](#/22-sop-customer-lifecycle) and the **Links** tab) — that one is a static URL handed to a chain's corporate office and skips terms/credit/tax docs because the chain's master account already covers those; an invite here is a single tracked email to one prospect who still fills out the full credit application.
 
 ### Reviewing and approving an application
 

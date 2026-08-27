@@ -156,6 +156,124 @@ My Pending, Approvals (manager queue).
 
 ---
 
+## Service Fusion receipts — the `SF_FETCH_RECEIPTS` switch (2026-08-25)
+
+SF-landed expenses arrive **data-only**: vendor, amount, date, job number,
+customer, and the SF# deep link come from SF's REST API (reliable); the bill
+document is **attached by a human in Brixpense** via the attach controls on the
+expense edit form. The receipt file itself only ever existed on the
+admin.servicefusion.com job page, and that cookie-authenticated scrape was the
+flakiest link in the whole pipeline (intermittent 20s+ hangs on SF's side).
+
+The scrape is not deleted — it's behind a switch:
+
+- **`SF_FETCH_RECEIPTS`** env var on the **Supabase project** (edge-function
+  env, NOT Netlify — `sf-receipt-sync` is a Supabase edge function).
+- Default/unset/`0` = data-only landing (current mode). Set to `1` to restore
+  receipt auto-attach; takes effect on the next sweep, no deploy needed.
+- Every sweep logs `fetchReceipts` in its `ops.sync_log` metadata, so which
+  mode a run used is always on record.
+- The `?receipts=<job#>` diagnostic endpoint always resolves receipt URLs
+  regardless of the flag (for one-off manual retrieval).
+
+With the flag off, attachment-less SF drafts get `ocr_status='no_attachment'`
+and a one-time email — that's the "go attach the bill" nudge, not an error.
+
+## Pay run — several bills, one payment, one remittance (2026-08-26)
+
+**Brixpense → Accounts payable → Pay Bills** (`/expense/pay-run`, superadmin).
+Every posted, unpaid bill grouped by vendor; tick a selection, and each
+vendor's picked bills go out as **one payment** — a Stripe bank transfer or a
+recorded manual payment (check / Venmo / Zelle / QBO Bill Pay) — which books
+**one multi-line QBO BillPayment** covering all of them and emails the vendor
+**one remittance advice** listing every bill, so their AR desk can apply a
+single deposit across invoices.
+
+How it hangs together:
+
+- **`/api/vendor-pay-run`** (`vendor-pay-run.mjs`, superadmin — the same gate
+  as the single-bill `/api/vendor-pay`): `list` / `pay_stripe` / `record` /
+  `remit` (resend the advice).
+- **The ledger stays per-bill.** `ops.vendor_payments` keeps one row per bill
+  (its partial unique index — one LIVE payment per `qbo_bill_id` — is the
+  duplicate guard, and it must survive batching). A parent
+  **`ops.vendor_payment_groups`** row carries what is singular about the
+  payment: the one Stripe payout id, the one BillPayment id, the check #, the
+  chosen remittance recipient (`remit_to`) and the send record
+  (`remittance_sent_at/_to/_error`).
+- **Ledger before money.** Group + per-bill rows insert BEFORE any payout or
+  QBO write; a collision (a race with a single-bill Pay click) aborts the
+  whole batch with nothing paid.
+- **Remittance timing:** manual rails send the advice immediately (the money
+  already moved); Stripe sends it from `stripe-payout-webhook.mjs`'s
+  `settleGroup()` at settlement — an in-flight payout is not yet a payment.
+  A failed send never fails a payment; it's stamped on the group and the
+  Pay Bills page offers a resend. Template lives in `lib/remittance.mjs`
+  (everything escaped — vendor names come off OCR'd PDFs).
+- **Watcher:** none added, deliberately — batch rows are ordinary
+  `vendor_payments` rows, so `ops.fn_vendor_payments_health()` already goes
+  red on a stuck (initiated >48h) or failed pay run.
+
+Migration `20260826d_pay_run.sql` (applied live). Tests in
+`tests/pay-run.test.mjs` pin the multi-line BillPayment payload and the
+remittance document.
+
+### Vendor credits (2026-08-26)
+
+A credit memo from a vendor is filed like a bill — same OCR (the extractor
+flags "Credit Memo" documents and normalizes a negative printed total), same
+review, same manual Post gate — with one flag: **`expense_requests.is_credit`**.
+The amount stays POSITIVE; the flag carries the sign. What changes downstream:
+
+- **Posting** (`expense-request-link-bill`) lands it as a QBO **VendorCredit**
+  instead of a Bill (same payload shape, different entity).
+- **Applying** happens on the Pay Bills page: posted, unapplied credits show
+  as green negative rows in the vendor's section. Ticked credits ride the
+  payment as BillPayment lines with `LinkedTxn TxnType='VendorCredit'`
+  (positive Amount; `TotalAmt` = bills − credits — never negative; a $0
+  apply-only payment is allowed on the record rail). The credit gets its own
+  `vendor_payments` ledger row, so the one-live-payment-per-txn index also
+  stops a credit being applied twice. Applied ⇒ `paid_at` stamped (consumed).
+- **The paid-sync** asks the **VendorCredit** entity for `is_credit` rows —
+  Balance there is what is still unapplied, so 0 = consumed. Asking the Bill
+  entity would repeat the 2026-08-26 false-"missing" bug, sign flipped. A
+  credit applied by hand inside QuickBooks therefore closes itself on the
+  next daily run.
+- **Excluded** from `ops.v_ap_aging` (a credit is not a payable) and refused
+  by the single-bill Pay button (apply it from Pay Bills instead).
+- **Remittance advice** shows credits as negative lines, so the vendor sees
+  exactly which credit offset which bills.
+
+Migration `20260826e_vendor_credits.sql` (applied live).
+
+## Spending report (2026-08-26)
+
+**Brixpense → Accounts payable → Spending** (`/expense/spending`, staff-only
+nav; the RPCs are the real gate). Answers "what are we spending, where, and
+what's growing" off the **QBO expense mirror** (`ops.qbo_expense_lines`) —
+the complete booked-spend picture including bills keyed straight into
+QuickBooks, not just what flowed through Brixpense.
+
+- **`ops.fn_spend_report(p_months)`** (migration `20260826f`, applied live) —
+  one jsonb round trip: monthly totals, by-vendor and by-account rows each
+  carrying window total, txn count, prior-window total (growth), and a
+  per-month map for sparklines. SECURITY DEFINER with the staff guard INLINE
+  (`fn_assert_staff_or_service` — the 20260820b rule); EXECUTE revoked from
+  public/anon.
+- **`ops.fn_spend_vendor_detail(p_vendor, p_months)`** — the drill: one
+  vendor's 100 most recent mirror lines, for "why did this triple".
+- **Conventions:** VendorCredit lines count NEGATIVE (same as
+  `fn_1099_candidates`); item-based lines fall back to `item_name` when
+  `account_name` is blank (without it, $5M+ of item-based spend lumps into
+  one "(no account)" bucket); "Growing fastest" sorts by absolute dollars
+  added vs the prior window, not percent (percent alone makes a $12 vendor
+  "growing 900%" outrank a $40k jump).
+- **Stated caveat, on the page and in the SQL header:** accrual-dated,
+  refreshed daily by sync-qbo, mis-dated bills land in the month they claim —
+  a trends report, not a P&L. The P&L is QuickBooks' to print.
+- CSV export prefix-quotes leading `=+-@` (OCR'd vendor names, Excel formula
+  injection — same rule as expense books).
+
 ## Expense lifecycle
 
 ```

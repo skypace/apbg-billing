@@ -5,7 +5,7 @@
 
 import { getStore } from "@netlify/blobs";
 
-const QBO_BASE = 'https://quickbooks.api.intuit.com';
+export const QBO_BASE = 'https://quickbooks.api.intuit.com';
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
 function getBlobStore() {

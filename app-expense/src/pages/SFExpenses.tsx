@@ -10,6 +10,8 @@ import { Archive, ArrowLeft, Banknote, Loader2, Send, Wrench } from 'lucide-reac
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { ExpenseRequest } from '@/types/expense';
 import { PayBillPanel } from '@/components/PayBillPanel';
+import { LifecycleTabs } from '@/components/LifecycleTabs';
+import { lifecycleBucket, type LifecycleTab } from '@/lib/lifecycle';
 import { paymentsForExpenses, statusLabel, RAIL_LABEL, type VendorPayment } from '@/lib/vendorPay';
 
 // Service Fusion expenses: ops.expense_requests rows tagged 'Service Fusion',
@@ -32,6 +34,8 @@ export default function SFExpenses() {
   const [archiving, setArchiving] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  // The shared lifecycle tabs — see lib/lifecycle.ts for the bucketing rule.
+  const [tab, setTab] = useState<LifecycleTab>('open');
   // Payments (Phase 3): the Pay panel is superadmin-only — /api/vendor-pay
   // refuses anyone else, so the trigger stays hidden rather than 403-ing.
   const [isSuperadmin, setIsSuperadmin] = useState(false);
@@ -108,10 +112,22 @@ export default function SFExpenses() {
     }
   };
 
-  const total = requests.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+  const counts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
+  for (const r of requests) counts[lifecycleBucket(r)]++;
+  const visible = requests.filter((r) => lifecycleBucket(r) === tab);
+  const total = visible.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
 
   function draftBadge(req: ExpenseRequest): { label: string; variant: 'success' | 'secondary' | 'warning' } {
-    if (req.status === 'posted') return { label: 'Posted', variant: 'success' };
+    if (req.status === 'posted') {
+      if (lifecycleBucket(req) === 'paid') {
+        return { label: req.paid_at ? `Paid ${formatDate(req.paid_at)}` : 'Paid', variant: 'success' };
+      }
+      // Partly paid: QuickBooks reported a balance above zero but below the total.
+      if (req.qbo_balance != null && req.qbo_balance > 0 && req.total_amount != null && req.qbo_balance < req.total_amount) {
+        return { label: `Partly paid — ${formatCurrency(req.qbo_balance)} left`, variant: 'warning' };
+      }
+      return { label: 'Posted — awaiting payment', variant: 'secondary' };
+    }
     if (req.status === 'approved') return { label: 'Approved — ready to post', variant: 'secondary' };
     if (req.ocr_status === 'no_attachment') return { label: 'Needs review — no receipt', variant: 'warning' };
     if (req.ocr_status === 'failed') return { label: 'Needs review — OCR failed', variant: 'warning' };
@@ -132,13 +148,15 @@ export default function SFExpenses() {
             Service Fusion job expenses — landed in Brixpense when the job is invoiced.
           </p>
         </div>
-        {!loading && requests.length > 0 && (
+        {!loading && visible.length > 0 && (
           <div className="text-right">
             <div className="text-[15px] font-bold tabular-nums">{formatCurrency(total)}</div>
-            <div className="text-[11px] text-muted-foreground">{requests.length} expense{requests.length === 1 ? '' : 's'}</div>
+            <div className="text-[11px] text-muted-foreground">{visible.length} expense{visible.length === 1 ? '' : 's'}</div>
           </div>
         )}
       </div>
+
+      <LifecycleTabs tab={tab} counts={counts} onChange={setTab} />
 
       {postError && (
         <div className="text-sm rounded-lg p-3 border border-destructive/40 bg-destructive/10 text-destructive">
@@ -150,21 +168,25 @@ export default function SFExpenses() {
         <div className="feedback-state">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : requests.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Card>
           <CardContent className="feedback-state">
             <Wrench className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              No Service Fusion expenses yet.
+              {tab === 'open' && 'Nothing waiting on you.'}
+              {tab === 'posted' && 'No posted bills awaiting payment.'}
+              {tab === 'paid' && 'No paid bills yet.'}
             </p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              They appear here once a SF job is billed and invoiced.
+              {tab === 'open' && 'New SF expenses land here when a job is invoiced.'}
+              {tab === 'posted' && 'Bills move here when posted to QuickBooks, and on to Paid & closed when QuickBooks reports them paid.'}
+              {tab === 'paid' && 'Bills land here automatically once QuickBooks reports them paid (checked daily), or immediately for already-paid purchases.'}
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {requests.map((req) => (
+          {visible.map((req) => (
             <div key={req.id} className="space-y-2">
             <Card
               className="cursor-pointer hover:shadow-sm transition-shadow"

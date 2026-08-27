@@ -6,9 +6,24 @@
   "start_url": "/expense/",
   "scope": "/expense/",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#06121F",
-  "theme_color": "#06121F",
+  "orientation": "any",
+  "background_color": "#0b0b0e",
+  "theme_color": "#0b0b0e",
+  "categories": ["business", "finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "New Expense",
+      "short_name": "Expense",
+      "url": "/expense/new",
+      "icons": [{ "src": "/expense/Brix-Round-Logo.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Purchase Request",
+      "short_name": "Purchase",
+      "url": "/expense/new-pr",
+      "icons": [{ "src": "/expense/Brix-Round-Logo.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
   "icons": [
     { "src": "/expense/Brix-Round-Logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/expense/Brix-Round-Logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
