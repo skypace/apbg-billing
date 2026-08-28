@@ -177,9 +177,19 @@ login, not to widen this. It also cannot publish a template: a link on a fresh
 environment with no seeded agreement is told to ask the office, rather than
 improvising the terms it sends.
 
-Issue one at **Compliance & Safety → NDAs → Sender links**. The raw token is
-shown once, at creation, and emailed to the holder; after that only its sha256
-exists, so a lost link is re-issued, never recovered.
+Issue one at **Compliance & Safety → NDAs → Sender links**: type their **name
+and email**, press Issue, and we email them the link. Everything else has a
+default — label, expiry, rate, and the countersigning officer, which comes from
+the issuing staff member's **profile name**. It is never derived from an email
+address: that name is printed on executed agreements as the officer who signed
+them, and "Skypace" is not a signature. With no name on file, the issuer is
+asked for one rather than being given a guess.
+
+**Send again** on a live link mints a NEW token and kills the old one in the
+same write. That is not a limitation to work around — the raw token is stored
+only as a sha256, so re-sending the old one is impossible by construction, and
+a link that needs re-sending has usually gone astray anyway. The person, the
+signer and the limits all carry over.
 
 ---
 
@@ -193,7 +203,7 @@ exists, so a lost link is re-issued, never recovered.
 | `netlify/functions/lib/nda-pdf.mjs` | The executed PDF (pdf-lib): wrapping, signature blocks, Exhibit A, audit page. |
 | `netlify/functions/lib/nda-lib.mjs` | Tokens, PostgREST, party + vault filing, the emails. |
 | `netlify/functions/nda-sign.mjs` | `/api/nda-sign` — public: view / sign / pdf / decline. |
-| `netlify/functions/nda-admin.mjs` | `/api/nda-admin` — staff: list / get / create / resend / revoke / log / templates / sender links. |
+| `netlify/functions/nda-admin.mjs` | `/api/nda-admin` — staff: list / get / create / resend / revoke / log / templates / sender links (`link_create` / `link_list` / `link_resend` / `link_revoke`). |
 | `netlify/functions/nda-send.mjs` | `/api/nda-send` — the delegated sender link: info / send / recent, and deliberately nothing else. |
 | `supabase/migrations/20260827a_nda_sender_links.sql` | `ops.nda_sender_links`, `nda_agreements.sender_link_id`, the rolling-24h count function. |
 | `public/nda.html` | The signing page. |

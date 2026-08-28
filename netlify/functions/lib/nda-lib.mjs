@@ -292,11 +292,13 @@ export function executedEmailStaff({ a }) {
 /** Handing a delegated sender link to the person who will use it. The copy is
  *  blunt about what the link is, because the holder is the only person who can
  *  keep it from being pasted somewhere it should not be. */
-export function senderLinkEmail({ link, url, ttlDays }) {
+export function senderLinkEmail({ link, url, ttlDays, resent }) {
   const inner = `
     <p style="margin:0 0 12px">Hello ${esc(link.person_name)},</p>
-    <p style="margin:0 0 12px">Here is your personal link for sending our confidentiality agreement.
-      Open it, type the company and the email of whoever will sign, and press send — no login needed.</p>
+    <p style="margin:0 0 12px">${resent
+      ? 'Here is a fresh link for sending our confidentiality agreement. <b>Any earlier link of yours has stopped working</b> \u2014 use this one from now on.'
+      : 'Here is your personal link for sending our confidentiality agreement.'}
+      Open it, type the company and the email of whoever will sign, and press send \u2014 no login needed.</p>
     ${btn(url, 'Open your sending page →')}
     <p style="margin:0 0 12px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0;color:#7C2D12">
       <b>Treat this link like a key.</b> Anyone who has it can send email in our name. Don't forward it,
