@@ -875,6 +875,24 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
       </table></div>
     </div>
 
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Sender links <span class="sub" id="ndaLinkCount"></span></h2>
+        <div><button class="btn ghost sm" onclick="ndaOpenLink()">+ Issue a link</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        A personal link that lets someone send this NDA <b>without a login</b> — a rep at a trade show, an
+        assistant. <b>Treat it as a key:</b> whoever holds it can send email in our name, so it belongs to
+        one named person, it expires, it is capped per day, and you can switch it off instantly. It can
+        <b>only send</b> — it cannot open, edit or download anybody's agreement.
+      </div>
+      <div class="twrap"><table class="grid" id="ndaLinkTable">
+        <thead><tr><th>For</th><th>Signed by</th><th>Used</th><th>Limit</th><th>Good until</th>
+          <th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
     <div class="section noprint" id="ndaDetail" style="display:none">
       <div class="toolbar">
         <h2 style="margin:0" id="ndaDetailTitle">Agreement</h2>
@@ -1599,6 +1617,7 @@ async function reloadAll(){
     renderAll(document.getElementById('q').value.trim().toLowerCase());
     loadVisitors();
     ndaLoad();
+    ndaLoadLinks();
     return;
   }
   applyEmployeeMode();
@@ -2258,6 +2277,115 @@ function ndaCopyLink(){
     () => alert('Copy failed — select the text and copy it by hand.'));
 }
 
+// ── Sender links ────────────────────────────────────────────────────────────
+// Issued and revoked here; USED through a separate endpoint that can only send.
+let NDA_LINKS = [];
+
+async function ndaLoadLinks(){
+  const tb = document.querySelector('#ndaLinkTable tbody');
+  try{
+    const d = await ndaCall({ action: 'link_list' });
+    NDA_LINKS = d.links || [];
+    const live = NDA_LINKS.filter(l => !l.revoked_at && new Date(l.expires_at) > new Date());
+    document.getElementById('ndaLinkCount').textContent =
+      live.length ? live.length + (live.length === 1 ? ' live' : ' live') : 'none issued';
+    if(!NDA_LINKS.length){
+      tb.innerHTML = '<tr><td colspan="6" class="muted">No sender links. Everyone sends from here, ' +
+        'signed in — which is the safer default.</td></tr>';
+      return;
+    }
+    tb.innerHTML = NDA_LINKS.map(l => {
+      const dead = !!l.revoked_at;
+      const expired = !dead && new Date(l.expires_at) < new Date();
+      return '<tr' + (dead || expired ? ' class="arch"' : '') + '>' +
+        '<td><strong>' + esc(l.person_name) + '</strong>' +
+          '<div class="muted">' + esc(l.label) + ' · ' + esc(l.person_email) + '</div></td>' +
+        '<td>' + esc(l.company_signer_name) +
+          (l.company_signer_title ? '<div class="muted">' + esc(l.company_signer_title) + '</div>' : '') + '</td>' +
+        '<td>' + esc(l.sends_count || 0) + ' total' +
+          (l.sends_24h ? '<div class="muted">' + esc(l.sends_24h) + ' in 24h</div>' : '') + '</td>' +
+        '<td>' + esc(l.max_per_day) + '/day</td>' +
+        '<td>' + (dead ? '<span class="chip crit">Revoked</span>'
+                : expired ? '<span class="chip dim">Expired</span>'
+                : esc(ndaDate(l.expires_at))) + '</td>' +
+        '<td class="noprint">' + (dead || expired ? ''
+          : '<button class="actbtn danger" data-nda="linkrevoke" data-id="' + esc(l.id) + '">Switch off</button>') +
+        '</td></tr>';
+    }).join('');
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="6" class="muted">Could not load sender links (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+function ndaOpenLink(){
+  const me = (SESSION.email || '').split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  ndaPanel('Issue a sender link', `
+    <div class="prose" style="margin-bottom:14px">
+      <b>This link is a key.</b> Anyone holding it can send email in our name, so it goes to one named
+      person and nowhere else. They can only SEND — they cannot open, edit or download an agreement.
+      If a login would do instead, give them a login: it is attributable and nothing new to secure.
+    </div>
+    <div class="fgrid">
+      <div><label>Who is it for <span style="color:#B91C1C">*</span></label>
+        <input id="nk_person" type="text" placeholder="Their full name"></div>
+      <div><label>Their email <span style="color:#B91C1C">*</span></label>
+        <input id="nk_email" type="email" placeholder="They get a copy of every send"></div>
+      <div class="full"><label>What it's for <span style="color:#B91C1C">*</span></label>
+        <input id="nk_label" type="text" placeholder="e.g. Trade shows — Marco"></div>
+      <div><label>NDAs countersigned by <span style="color:#B91C1C">*</span></label>
+        <input id="nk_signer" type="text" value="${esc(me)}"></div>
+      <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. Chief Executive Officer"></div>
+      <div><label>Good for (days)</label><input id="nk_days" type="number" value="90" min="1" max="365"></div>
+      <div><label>Most per 24 hours</label><input id="nk_max" type="number" value="5" min="1" max="50"></div>
+      <div class="full"><label>Default purpose on what they send</label>
+        <textarea id="nk_purpose" rows="2" placeholder="Optional — saves them typing it every time."></textarea></div>
+    </div>
+    <div class="err" id="nk_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="nk_go" onclick="ndaIssueLink()">Issue the link</button>
+      <label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">
+        <input type="checkbox" id="nk_noemail"> Don't email it — I'll hand it over myself</label>
+    </div>`);
+}
+
+async function ndaIssueLink(){
+  const e = document.getElementById('nk_err');
+  e.style.display = 'none';
+  const btn = document.getElementById('nk_go');
+  const val = id => (document.getElementById(id).value || '').trim();
+  btn.disabled = true; btn.textContent = 'Issuing…';
+  try{
+    const d = await ndaCall({
+      action: 'link_create',
+      person_name: val('nk_person'),
+      person_email: val('nk_email'),
+      label: val('nk_label'),
+      company_signer_name: val('nk_signer'),
+      company_signer_title: val('nk_title'),
+      default_purpose: val('nk_purpose'),
+      expires_days: parseInt(val('nk_days'), 10) || 90,
+      max_per_day: parseInt(val('nk_max'), 10) || 5,
+      send_email: !document.getElementById('nk_noemail').checked,
+    });
+    await ndaLoadLinks();
+    ndaPanel('Sender link for ' + d.link.person_name, `
+      <div class="prose" style="margin-bottom:12px">${d.emailed
+        ? 'Emailed to ' + esc(d.link.person_email) + '. Here it is as well, in case it needs handing over directly.'
+        : (d.email_error
+            ? 'We could not send the email (' + esc(d.email_error) + ') — pass this on yourself.'
+            : 'Not emailed, as you asked. Pass this on yourself.')}</div>
+      <input type="text" readonly value="${esc(d.url)}" id="nd_link"
+        style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">
+      <div style="margin-top:12px"><button class="btn sm" onclick="ndaCopyLink()">Copy the link</button></div>
+      <div class="muted" style="margin-top:10px">Shown once — it is stored as a hash, so nobody can recover
+        it from the database. Switch it off from the table above at any time; that does not un-send anything
+        already sent through it.</div>`);
+  }catch(err){
+    e.textContent = err.message; e.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Issue the link';
+  }
+}
+
 // ── Detail + Exhibit A ──────────────────────────────────────────────────────
 async function ndaOpen(id){
   ndaPanel('Loading…', '<div class="muted">Loading the agreement…</div>');
@@ -2373,6 +2501,15 @@ document.addEventListener('click', async (e) => {
         format: document.getElementById('nl_fmt').value,
         quantity: (document.getElementById('nl_qty').value || '').trim() });
       await ndaOpen(id);
+      return;
+    }
+    if(kind === 'linkrevoke'){
+      const l = NDA_LINKS.find(x => x.id === id);
+      if(!confirm('Switch off the sender link for ' + (l ? l.person_name : 'this person') +
+        '?\n\nIt stops working immediately. NDAs already sent through it are unaffected.')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'link_revoke', id });
+      await ndaLoadLinks();
       return;
     }
     if(kind === 'logdel'){

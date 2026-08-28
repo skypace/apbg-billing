@@ -40,6 +40,8 @@ export async function ops(method, path, body, extra = {}) {
 export const hashToken = (raw) => createHash('sha256').update(String(raw)).digest('hex');
 export const newToken = () => randomBytes(32).toString('base64url');
 export const linkFor = (raw) => `${SIGN_PAGE}?t=${raw}`;
+export const SEND_PAGE = `${SITE_URL}/nda-send`;
+export const senderLinkFor = (raw) => `${SEND_PAGE}?k=${raw}`;
 
 export const ENTITY_TYPES = [
   'corporation', 'limited liability company', 'limited partnership',
@@ -54,6 +56,62 @@ export const SERVICE_OPTIONS = [
 export const clean = (v, max = 300) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ── delegated sender links ──────────────────────────────────────────────────
+//
+// A sender link is a CREDENTIAL: whoever holds it can send Brix-branded email.
+// These four helpers are the whole guard rail, kept pure and kept here so the
+// send endpoint and the issuing endpoint cannot drift apart on what "usable"
+// means. tests/nda.test.mjs pins each one.
+
+export const LINK_TTL_DAYS = 90;
+export const LINK_MAX_PER_DAY = 5;
+
+/** Clamp an issuer's expiry choice. A link with no end date is a key nobody
+ *  ever takes back, so there is no unlimited option — only 1..365 days. */
+export const clampLinkTtl = (days) =>
+  Math.min(Math.max(parseInt(days, 10) || LINK_TTL_DAYS, 1), 365);
+
+/** Clamp the rolling-24h send limit. Same reasoning: a cap of "none" cannot be
+ *  chosen by accident, and 50 is already far more NDAs than a day's work. */
+export const clampLinkRate = (n) =>
+  Math.min(Math.max(parseInt(n, 10) || LINK_MAX_PER_DAY, 1), 50);
+
+/**
+ * Is this link usable right now? Returns null when it is, or { error, status }.
+ *
+ * Revocation and expiry are checked HERE rather than in a database filter so
+ * the holder gets an honest sentence — "ask the office for a new one" — instead
+ * of the same "not valid" a stranger poking at the endpoint sees. The malformed
+ * case above them deliberately reads identically to a wrong token: a probe
+ * learns nothing about which tokens exist.
+ */
+export function linkUnusable(link, now = Date.now()) {
+  if (!link) return { error: 'This link is not valid.', status: 404 };
+  if (link.revoked_at) {
+    return { error: 'This link has been switched off. Ask the office for a new one.', status: 410 };
+  }
+  if (new Date(link.expires_at).getTime() < now) {
+    return { error: 'This link has expired. Ask the office for a new one.', status: 410 };
+  }
+  return null;
+}
+
+/**
+ * The services an outgoing agreement carries.
+ *
+ * Only values from SERVICE_OPTIONS survive — the list is printed into an
+ * executed legal document, so a delegate must not be able to write free text
+ * into it. An empty or absent choice falls back to the defaults the issuer set,
+ * which is what makes a rep's send one field long.
+ */
+export function pickServices(requested, link) {
+  const allowed = (v) => (Array.isArray(v)
+    ? v.map((s) => clean(s, 60)).filter((s) => SERVICE_OPTIONS.includes(s)).slice(0, 12)
+    : []);
+  const chosen = allowed(requested);
+  return chosen.length ? chosen : allowed(link?.default_services);
+}
 
 /** Today's date in Pacific as YYYY-MM-DD — the effective date must be the day
  *  the signer experienced, not whatever day it is in the Lambda's UTC clock. */
@@ -229,6 +287,31 @@ export function executedEmailStaff({ a }) {
       them on the agreement's Exhibit A in Compliance &amp; Safety → NDAs. That log is what makes
       "they had our formula" provable later.</p>`;
   return shell('Compliance & Safety', 'NDA signed', a.recipient_company, inner);
+}
+
+/** Handing a delegated sender link to the person who will use it. The copy is
+ *  blunt about what the link is, because the holder is the only person who can
+ *  keep it from being pasted somewhere it should not be. */
+export function senderLinkEmail({ link, url, ttlDays }) {
+  const inner = `
+    <p style="margin:0 0 12px">Hello ${esc(link.person_name)},</p>
+    <p style="margin:0 0 12px">Here is your personal link for sending our confidentiality agreement.
+      Open it, type the company and the email of whoever will sign, and press send — no login needed.</p>
+    ${btn(url, 'Open your sending page →')}
+    <p style="margin:0 0 12px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0;color:#7C2D12">
+      <b>Treat this link like a key.</b> Anyone who has it can send email in our name. Don't forward it,
+      don't paste it into a group chat, and tell the office straight away if you lose the device it's on —
+      we can switch it off in seconds.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:0 0 14px">
+      <tr><td style="padding:5px 0;color:#64748B">Good for</td><td style="padding:5px 0;font-weight:700">${esc(ttlDays)} days</td></tr>
+      <tr><td style="padding:5px 0;color:#64748B">Limit</td><td style="padding:5px 0;font-weight:700">${esc(link.max_per_day)} NDAs per 24 hours</td></tr>
+      <tr><td style="padding:5px 0;color:#64748B">Signed for us by</td><td style="padding:5px 0;font-weight:700">${esc(link.company_signer_name)}${link.company_signer_title ? ', ' + esc(link.company_signer_title) : ''}</td></tr>
+    </table>
+    <p style="margin:0;color:#64748B;font-size:12px">You'll get a copy of every NDA sent through this link,
+      and the signed PDF when it comes back.</p>`;
+  return shell('Alameda Point Beverage Group · Brix Beverage',
+    'Your NDA sending link', esc(link.label), inner);
 }
 
 export function declinedEmailStaff({ a, reason }) {

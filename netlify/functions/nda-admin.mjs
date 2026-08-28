@@ -14,14 +14,21 @@
 //   revoke   { id }          → kill the link; a signed agreement cannot be revoked
 //   log_add / log_delete     → Exhibit A disclosure log
 //   templates / template_save
+//   link_create / link_list / link_revoke → delegated sender links (see below)
+//
+// A SENDER LINK lets a named person send our NDA without a hub login. It is a
+// credential — whoever holds it can send Brix-branded email — so it is issued
+// and revoked here, but USED through a separate function (nda-send.mjs) that
+// contains no code for listing, opening or downloading anything.
 //
 // Env: SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY/SENDGRID_API_KEY.
 
 import { requireAuth } from './lib/auth.mjs';
 import { sendEmail } from './email-helpers.mjs';
 import {
-  ops, newToken, hashToken, linkFor, loadLog, clean,
-  DEFAULT_TTL_DAYS, ENTITY_TYPES, SERVICE_OPTIONS, inviteEmail,
+  ops, newToken, hashToken, linkFor, senderLinkFor, loadLog, clean,
+  DEFAULT_TTL_DAYS, ENTITY_TYPES, SERVICE_OPTIONS, inviteEmail, senderLinkEmail,
+  clampLinkTtl, clampLinkRate, pickServices,
 } from './lib/nda-lib.mjs';
 import { renderNdaHtml } from './lib/nda-doc.mjs';
 import { NDA_V1 } from './lib/nda/nda-v1.mjs';
@@ -42,7 +49,7 @@ const SAFE_COLS = 'id,agreement_number,status,template_code,template_version,tit
   'purpose_scope,services,company_signer_name,company_signer_title,company_signed_at,' +
   'effective_date,signed_at,typed_name,signer_ip,signer_user_agent,consent_esign,' +
   'declined_at,decline_reason,revoked_at,revoked_by,expires_at,sent_at,sent_to,resent_count,' +
-  'viewed_at,pdf_path,insured_party_id,document_id,notes,created_by,created_at';
+  'viewed_at,pdf_path,insured_party_id,document_id,sender_link_id,notes,created_by,created_at';
 
 /**
  * The active template for a code, seeding the shipped v1.0 text the first time
@@ -283,6 +290,85 @@ export default async (req) => {
         created_by: actor,
       }, { Prefer: 'return=representation' });
       return json(200, { ok: true, template: row[0] });
+    }
+
+    // ── Delegated sender links ──────────────────────────────────────────────
+    if (action === 'link_list') {
+      const rows = await ops('GET',
+        'nda_sender_links?select=id,label,person_name,person_email,company_signer_name,' +
+        'company_signer_title,default_purpose,default_services,expires_at,max_per_day,sends_count,' +
+        'last_used_at,revoked_at,revoked_by,notes,created_by,created_at&order=created_at.desc&limit=100') || [];
+      // Per-link 24h usage, so the panel shows what the rate limit currently sees.
+      for (const r of rows) {
+        if (r.revoked_at) { r.sends_24h = 0; continue; }
+        try { r.sends_24h = await ops('POST', 'rpc/fn_nda_link_sends_24h', { p_link_id: r.id }); }
+        catch { r.sends_24h = null; }
+      }
+      return json(200, { ok: true, links: rows, service_options: SERVICE_OPTIONS });
+    }
+
+    if (action === 'link_create') {
+      const label = clean(body.label, 120);
+      const person_name = clean(body.person_name, 120);
+      const person_email = clean(body.person_email, 200).toLowerCase();
+      const company_signer_name = clean(body.company_signer_name, 120);
+      if (!label) return json(400, { error: 'Give the link a label so you know what it is for later.' });
+      // A link nobody owns is a shared secret, and a shared secret is what gets
+      // pasted into a group chat. Both fields are required for that reason.
+      if (!person_name) return json(400, { error: 'Name the person this link belongs to.' });
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(person_email)) {
+        return json(400, { error: 'Enter their email — every send is copied to them.' });
+      }
+      if (!company_signer_name) {
+        return json(400, { error: 'Choose who these NDAs are countersigned by. The holder is dispatching a document, not signing for us.' });
+      }
+      const ttlDays = clampLinkTtl(body.expires_days);
+      const maxPerDay = clampLinkRate(body.max_per_day);
+      const services = pickServices(body.default_services, null);
+
+      const raw = newToken();
+      const created = await ops('POST', 'nda_sender_links', {
+        label, person_name, person_email,
+        company_signer_name,
+        company_signer_title: clean(body.company_signer_title, 120) || null,
+        default_purpose: clean(body.default_purpose, 1000) || null,
+        default_services: services,
+        token_hash: hashToken(raw),
+        expires_at: new Date(Date.now() + ttlDays * 86_400_000).toISOString(),
+        max_per_day: maxPerDay,
+        notes: clean(body.notes, 500) || null,
+        created_by: actor,
+      }, { Prefer: 'return=representation' });
+      const sendLink = senderLinkFor(raw);
+
+      let emailed = false, emailError = null;
+      if (body.send_email !== false) {
+        try {
+          await sendEmail({
+            to: person_email,
+            subject: 'Your link for sending Brix NDAs',
+            html: senderLinkEmail({ link: created[0], url: sendLink, ttlDays }),
+            replyTo: auth.user?.email || undefined,
+          });
+          emailed = true;
+        } catch (e) { emailError = e.message; }
+      }
+      // Always returned: shown once, stored only as a hash.
+      return json(200, { ok: true, link: created[0], url: sendLink, emailed, email_error: emailError });
+    }
+
+    if (action === 'link_revoke') {
+      const id = clean(body.id, 40);
+      const rows = await ops('GET', `nda_sender_links?select=id,label,revoked_at&id=eq.${id}&limit=1`);
+      const l = rows && rows[0];
+      if (!l) return json(404, { error: 'Not found.' });
+      if (l.revoked_at) return json(200, { ok: true, already: true });
+      const updated = await ops('PATCH', `nda_sender_links?id=eq.${l.id}`, {
+        revoked_at: new Date().toISOString(), revoked_by: actor,
+      }, { Prefer: 'return=representation' });
+      // Agreements it already sent are untouched — they are real agreements,
+      // and revoking the sender's link does not un-send them.
+      return json(200, { ok: true, link: updated[0] });
     }
 
     return json(400, { error: 'Unknown action.' });

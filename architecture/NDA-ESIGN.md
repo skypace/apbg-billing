@@ -123,6 +123,7 @@ by leaving the Company block blank.
 | Staff API | `requireAuth(req, ['superadmin','admin'])`, matching `ops.fn_is_staff()` and the RLS on all three tables. |
 | RLS | Staff only, both directions. An NDA names a counterparty and the scope of work we are discussing with them — not for every login on this shared Supabase project. |
 | Anon | Nothing. The public page reaches the row only through the service-role function, keyed by a hash it cannot read. |
+| Sender links | Same token model (sha256 only). Per-person, expiring, revocable, rate-limited on a rolling 24 hours, send-only, and every send copied to compliance. See below. |
 
 ---
 
@@ -146,6 +147,42 @@ The page collects that consent as an explicit tick, records it as
 
 ---
 
+## Sending without a login (delegated sender links)
+
+Sometimes the person who needs to hand out an NDA has no hub account — a rep at
+a trade show, an assistant covering the office. They get a **sender link**:
+a personal page at `/nda-send` where they fill in the counterparty and press
+send, and the recipient gets the same signing link staff would have sent.
+
+**A sender link is a credential.** Whoever holds it can send Brix-branded email
+to any address they like — that is a phishing tool with our domain on it. Every
+constraint below exists for that reason, and none of them is decorative:
+
+| | |
+|---|---|
+| Named, never shared | `person_name` + `person_email` are required. A link nobody owns is a shared secret, and a shared secret gets pasted into a group chat. |
+| Send-only | It can create and email ONE agreement. It cannot list, open, revoke, download or edit anything. |
+| Sees only its own | `recent` returns company, status and dates for agreements **this link** created — no addresses, no signer details, no PDF. |
+| Rate limited | Rolling 24 hours (default 5, max 50), computed by `ops.fn_nda_link_sends_24h` from the agreements themselves — not from a counter a failed write could corrupt. |
+| Expires | 90 days by default, 1–365. There is no unlimited option. |
+| Revocable | Instantly, from the NDAs tab. The next request is refused. |
+| Audited out of band | **Every send emails compliance AND the link's owner** — so the evidence lands in a mailbox the abuser does not control. |
+| Fixed signatory | The company signer is chosen by the **issuer**. The delegate dispatches a document an officer already executed; they never sign for us. |
+
+**The separation is structural, not a role check.** `nda-send.mjs` is a
+different function from `nda-admin.mjs` and simply contains no code for listing,
+opening or downloading an agreement — so no mistake in a gate there can expose
+one. If a delegate ever genuinely needs those, that is the moment to give them a
+login, not to widen this. It also cannot publish a template: a link on a fresh
+environment with no seeded agreement is told to ask the office, rather than
+improvising the terms it sends.
+
+Issue one at **Compliance & Safety → NDAs → Sender links**. The raw token is
+shown once, at creation, and emailed to the holder; after that only its sha256
+exists, so a lost link is re-issued, never recovered.
+
+---
+
 ## Files
 
 | | |
@@ -156,10 +193,13 @@ The page collects that consent as an explicit tick, records it as
 | `netlify/functions/lib/nda-pdf.mjs` | The executed PDF (pdf-lib): wrapping, signature blocks, Exhibit A, audit page. |
 | `netlify/functions/lib/nda-lib.mjs` | Tokens, PostgREST, party + vault filing, the emails. |
 | `netlify/functions/nda-sign.mjs` | `/api/nda-sign` — public: view / sign / pdf / decline. |
-| `netlify/functions/nda-admin.mjs` | `/api/nda-admin` — staff: list / get / create / resend / revoke / log / templates. |
+| `netlify/functions/nda-admin.mjs` | `/api/nda-admin` — staff: list / get / create / resend / revoke / log / templates / sender links. |
+| `netlify/functions/nda-send.mjs` | `/api/nda-send` — the delegated sender link: info / send / recent, and deliberately nothing else. |
+| `supabase/migrations/20260827a_nda_sender_links.sql` | `ops.nda_sender_links`, `nda_agreements.sender_link_id`, the rolling-24h count function. |
 | `public/nda.html` | The signing page. |
+| `public/nda-send.html` | The delegated sending page. |
 | `public/compliance.html` | Staff tab (NDAs). |
-| `tests/nda.test.mjs` | 16 tests over the document core. |
+| `tests/nda.test.mjs` | 22 tests over the document core and the sender-link guard rails. |
 
 **Env:** `SUPABASE_SERVICE_ROLE_KEY` (already set), `RESEND_API_KEY` /
 `SENDGRID_API_KEY`, optional `COMPLIANCE_ALERT_TO` (default `service@brixbev.com`).
