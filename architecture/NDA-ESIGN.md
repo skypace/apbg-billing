@@ -257,7 +257,8 @@ signer and the limits all carry over.
 | `netlify/functions/lib/nda/nda-logos.mjs` | Both brand marks, base64, bundled with the function for the PDF letterhead. |
 | `supabase/migrations/20260828a_nda_signatures_mutual.sql` | `ops.nda_signatories`, the snapshot columns, the mutual flag, and the widened freeze trigger. |
 | `netlify/functions/lib/nda-doc.mjs` | Markup parser + HTML renderer. The one source both renderers read. |
-| `netlify/functions/lib/nda-pdf.mjs` | The executed PDF (pdf-lib): wrapping, signature blocks, Exhibit A, audit page. |
+| `netlify/functions/lib/nda-pdf.mjs` | The executed PDF (pdf-lib): letterhead, wrapping, signature blocks, Exhibit A, audit page. |
+| `netlify/functions/lib/nda-image.mjs` | Structural PNG/JPEG validation. **Load-bearing** — see the header: pdf-lib's decoder hangs forever on some malformed files, synchronously, so neither a catch nor a timeout helps. |
 | `netlify/functions/lib/nda-lib.mjs` | Tokens, PostgREST, party + vault filing, the emails. |
 | `netlify/functions/nda-sign.mjs` | `/api/nda-sign` — public: view / sign / pdf / decline. |
 | `netlify/functions/nda-admin.mjs` | `/api/nda-admin` — staff: list / get / create / resend / revoke / log / templates / sender links (`link_create` / `link_list` / `link_resend` / `link_revoke`). |
@@ -266,7 +267,7 @@ signer and the limits all carry over.
 | `public/nda.html` | The signing page. |
 | `public/nda-send.html` | The delegated sending page. |
 | `public/compliance.html` | Staff tab (NDAs). |
-| `tests/nda.test.mjs` | 29 tests over the document core, the sender-link guard rails, the mutual variant and the stored signature. |
+| `tests/nda.test.mjs` | 34 tests over the document core, the sender-link guard rails, the mutual variant, the stored signature and malformed images. |
 
 **Env:** `SUPABASE_SERVICE_ROLE_KEY` (already set), `RESEND_API_KEY` /
 `SENDGRID_API_KEY`, optional `COMPLIANCE_ALERT_TO` (default

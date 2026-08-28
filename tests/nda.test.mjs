@@ -17,6 +17,7 @@ import {
   isMutual, partyLabels,
 } from '../netlify/functions/lib/nda-doc.mjs';
 import { wrapRuns, renderNdaPdf } from '../netlify/functions/lib/nda-pdf.mjs';
+import { safeImageBytes, describeImageProblem } from '../netlify/functions/lib/nda-image.mjs';
 import {
   todayPacific, hashToken, newToken,
   linkUnusable, pickServices, clampLinkTtl, clampLinkRate,
@@ -403,4 +404,58 @@ test('both brand marks are on the executed PDF', async () => {
   const raw = Buffer.from(bytes).toString('latin1');
   const images = (raw.match(/\/Subtype\s*\/Image/g) || []).length;
   assert.ok(images >= 2, `expected at least the two logos, found ${images} images`);
+});
+
+// ── malformed images ────────────────────────────────────────────────────────
+//
+// Found live, and worth stating plainly because the failure mode is nasty:
+// pdf-lib's PNG decoder does not throw on some malformed files, it SPINS
+// FOREVER, synchronously. A try/catch cannot catch that and a Promise timeout
+// cannot interrupt it. The sign endpoint hung past the platform timeout and the
+// agreement came out signed with no PDF, nothing filed, and no email to either
+// side — the signature is recorded before any of that, by design.
+//
+// So the container is checked before the decoder ever sees it.
+
+// A PNG header whose second chunk claims a length far past the end of the
+// buffer. This is the real file that hung production.
+const CORRUPT_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAeCAYAAABgTKr3AAAAcElEQVR42u3XMQ0AIBAEwUOCFxRgAmXY10EJDRVccpNsseWLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADgYQEbHwABlgFmVAAAAABJRU5ErkJggg==';
+
+test('a well-formed signature is accepted', () => {
+  const ok = safeImageBytes('data:image/png;base64,' + PNG_1PX);
+  assert.ok(ok && ok.png && ok.bytes.length > 0);
+  assert.equal(describeImageProblem('data:image/png;base64,' + PNG_1PX), null);
+});
+
+test('a chunk length running past the buffer is refused', () => {
+  assert.equal(safeImageBytes(CORRUPT_PNG), null,
+    'this exact file hung pdf-lib in production');
+  assert.match(describeImageProblem(CORRUPT_PNG), /could not be read/);
+});
+
+test('things that are not images at all are refused', () => {
+  for (const junk of [
+    'data:image/png;base64,bm90IGEgcG5nIGF0IGFsbA==',        // plain text
+    'data:image/png;base64,' + Buffer.from('%PDF-1.4 hello').toString('base64'),
+    'https://example.com/signature.png',                      // a URL, not a data image
+    'data:image/svg+xml;base64,PHN2Zy8+',                     // SVG is not embeddable
+    '', null, undefined, 42,
+  ]) assert.equal(safeImageBytes(junk), null, `should refuse: ${String(junk).slice(0, 40)}`);
+});
+
+test('an absent signature is allowed, an unreadable one is reported', () => {
+  // Absent is legitimate everywhere — our own Company block prints a typed name
+  // over a rule when nobody has drawn one yet.
+  assert.equal(describeImageProblem(null), null);
+  assert.equal(describeImageProblem(''), null);
+  assert.ok(describeImageProblem('data:image/png;base64,zzzz'));
+});
+
+test('a corrupt signature renders the document without it, and does not hang', async () => {
+  const t = Date.now();
+  const bytes = await renderNdaPdf(
+    { ...signed, signature_data: CORRUPT_PNG, company_signature_data: CORRUPT_PNG }, { log: [] });
+  const ms = Date.now() - t;
+  assert.ok(bytes.length > 5000, 'the agreement still renders');
+  assert.ok(ms < 10000, `took ${ms}ms — a hang here is what took production down`);
 });

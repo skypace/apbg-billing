@@ -14,6 +14,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { parseNdaSource, longDate, COMPANY, recipientDescriptor, isMutual, partyLabels } from './nda-doc.mjs';
 import { BRIX_LOGO_PNG, ALAMEDA_LOGO_PNG, logoBytes } from './nda/nda-logos.mjs';
+import { safeImageBytes } from './nda-image.mjs';
 
 const PAGE_W = 612, PAGE_H = 792;
 const M_L = 72, M_R = 72, M_T = 72, M_B = 64;
@@ -115,12 +116,14 @@ class Doc {
 }
 
 async function embedSignature(pdf, dataUrl) {
-  if (!dataUrl || typeof dataUrl !== 'string') return null;
-  const m = /^data:image\/(png|jpe?g);base64,(.+)$/i.exec(dataUrl.trim());
-  if (!m) return null;
-  const bytes = Buffer.from(m[2], 'base64');
+  // The structural check is NOT belt-and-braces around the try/catch — it is
+  // the only thing that works. pdf-lib's PNG decoder spins forever on some
+  // malformed files, synchronously, so neither a catch nor a timeout can save
+  // us. See lib/nda-image.mjs.
+  const img = safeImageBytes(dataUrl);
+  if (!img) return null;
   try {
-    return m[1].toLowerCase() === 'png' ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+    return img.png ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
   } catch { return null; }   // a corrupt signature image must not lose the document
 }
 

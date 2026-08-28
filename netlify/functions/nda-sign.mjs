@@ -28,6 +28,7 @@ import {
 } from './lib/nda-lib.mjs';
 import { renderNdaHtml } from './lib/nda-doc.mjs';
 import { renderNdaPdf } from './lib/nda-pdf.mjs';
+import { describeImageProblem } from './lib/nda-image.mjs';
 
 const ALERT_TO = process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
 const CORS = {
@@ -184,6 +185,13 @@ export default async (req) => {
   if (!/^data:image\/png;base64,/.test(sig) || sig.length > 400_000) {
     return json(400, { error: 'Please sign in the box above.' });
   }
+  // Refuse an unreadable signature HERE, while the signer is still on the page
+  // and can draw it again. Past this point the signature is recorded and the
+  // PDF, the vault and the emails are all best-effort — so a bad image would
+  // leave a signed agreement with no document and nobody told. (It also cannot
+  // reach pdf-lib, whose PNG decoder spins forever on some malformed files.)
+  const sigProblem = describeImageProblem(sig);
+  if (sigProblem) return json(400, { error: sigProblem });
 
   const signedAt = new Date().toISOString();
   const patch = {
