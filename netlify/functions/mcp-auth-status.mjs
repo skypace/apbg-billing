@@ -18,7 +18,19 @@ const HEADERS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
+
+// ⚠ The CORS preflight MUST be answered BEFORE requireAuth, and with a 2xx.
+// This page is served from alamedapointbg.com and calls apbg-billing.netlify.app
+// with an Authorization header — cross-origin + a non-simple header means the
+// browser sends an OPTIONS preflight first, and browsers do NOT put the
+// Authorization header on a preflight. So requireAuth saw no bearer, returned
+// 401, the preflight failed, and the real GET was never sent: the page could
+// only ever report the browser's generic "Failed to fetch", which names neither
+// CORS nor auth. CORS headers on the 401 do not help — a preflight has to
+// SUCCEED, not merely be labelled.
+const PREFLIGHT = { statusCode: 204, headers: { ...HEADERS, 'Access-Control-Max-Age': '86400' }, body: '' };
 
 const EXPECTED_ISSUER = 'https://gfsdpwiqzshhexkofiif.supabase.co/auth/v1';
 
@@ -105,6 +117,7 @@ async function checkServer(s) {
 }
 
 export async function handler(event) {
+  if (event.httpMethod === 'OPTIONS') return PREFLIGHT;
   const auth = await requireAuth(event);
   if (!auth.ok) return auth.response;
   if (event.httpMethod !== 'GET') {
