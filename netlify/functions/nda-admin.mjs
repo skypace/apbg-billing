@@ -83,6 +83,7 @@ export default async (req) => {
   const auth = await requireAuth(req, STAFF);
   if (!auth.ok) return auth.response;
   const actor = auth.user?.email || 'staff';
+  const staffName = clean(auth.user?.user_metadata?.full_name || auth.user?.user_metadata?.name || '', 120);
 
   let body;
   try { body = await req.json(); } catch { return json(400, { error: 'Expected JSON.' }); }
@@ -308,19 +309,25 @@ export default async (req) => {
     }
 
     if (action === 'link_create') {
-      const label = clean(body.label, 120);
+      // A name and an email are the whole of it. Everything else has a sane
+      // default, because a form with eight boxes is a form nobody fills in —
+      // and the two that ARE required are required for a reason: a link nobody
+      // owns is a shared secret, and a shared secret gets pasted into a group
+      // chat.
       const person_name = clean(body.person_name, 120);
       const person_email = clean(body.person_email, 200).toLowerCase();
-      const company_signer_name = clean(body.company_signer_name, 120);
-      if (!label) return json(400, { error: 'Give the link a label so you know what it is for later.' });
-      // A link nobody owns is a shared secret, and a shared secret is what gets
-      // pasted into a group chat. Both fields are required for that reason.
       if (!person_name) return json(400, { error: 'Name the person this link belongs to.' });
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(person_email)) {
-        return json(400, { error: 'Enter their email — every send is copied to them.' });
+        return json(400, { error: 'Enter their email — that is where the link goes, and every send is copied to them.' });
       }
+      const label = clean(body.label, 120) || person_name;
+      // Defaults to the staff member issuing it, from their PROFILE NAME only.
+      // Never derived from an email address: this name is printed on executed
+      // agreements as the officer who signed them, and "Skypace" is not a
+      // signature. With no name on file the issuer is asked for one.
+      const company_signer_name = clean(body.company_signer_name, 120) || staffName;
       if (!company_signer_name) {
-        return json(400, { error: 'Choose who these NDAs are countersigned by. The holder is dispatching a document, not signing for us.' });
+        return json(400, { error: 'Enter who these NDAs are countersigned by — it is printed on every one they send. The holder dispatches the document, they do not sign for us.' });
       }
       const ttlDays = clampLinkTtl(body.expires_days);
       const maxPerDay = clampLinkRate(body.max_per_day);
@@ -355,6 +362,43 @@ export default async (req) => {
       }
       // Always returned: shown once, stored only as a hash.
       return json(200, { ok: true, link: created[0], url: sendLink, emailed, email_error: emailError });
+    }
+
+    // ── link_resend ─────────────────────────────────────────────────────────
+    // The raw token is shown once and stored only as a hash, so "send it to me
+    // again" is impossible by design. This mints a NEW token and kills the old
+    // one in the same write — which is the honest behaviour anyway: a link that
+    // needs re-sending has usually gone astray, and the old copy should stop
+    // working. The person, the signer and the limits all stay as they were.
+    if (action === 'link_resend') {
+      const id = clean(body.id, 40);
+      const rows = await ops('GET', `nda_sender_links?select=*&id=eq.${id}&limit=1`);
+      const l = rows && rows[0];
+      if (!l) return json(404, { error: 'Not found.' });
+      if (l.revoked_at) {
+        return json(400, { error: 'That link is switched off. Issue a new one rather than reviving it.' });
+      }
+      const ttlDays = clampLinkTtl(body.expires_days);
+      const raw = newToken();
+      const updated = await ops('PATCH', `nda_sender_links?id=eq.${l.id}`, {
+        token_hash: hashToken(raw),
+        expires_at: new Date(Date.now() + ttlDays * 86_400_000).toISOString(),
+      }, { Prefer: 'return=representation' });
+      const sendLink = senderLinkFor(raw);
+
+      let emailed = false, emailError = null;
+      if (body.send_email !== false) {
+        try {
+          await sendEmail({
+            to: l.person_email,
+            subject: 'Your link for sending Brix NDAs',
+            html: senderLinkEmail({ link: updated[0], url: sendLink, ttlDays, resent: true }),
+            replyTo: auth.user?.email || undefined,
+          });
+          emailed = true;
+        } catch (e) { emailError = e.message; }
+      }
+      return json(200, { ok: true, link: updated[0], url: sendLink, emailed, email_error: emailError, replaced: true });
     }
 
     if (action === 'link_revoke') {

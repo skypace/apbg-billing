@@ -1364,7 +1364,11 @@ function readSession(){
     if(!s || !s.token) return null;
     const payload = JSON.parse(atob(s.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
     if(payload.exp && payload.exp * 1000 < Date.now() + 30000) return null;
+    // The profile NAME, never a name guessed from the email address — it gets
+    // printed on executed agreements as the officer who signed them.
+    const um = payload.user_metadata || (s.user && s.user.user_metadata) || {};
     return { token: s.token, email: (payload.email || (s.user && s.user.email) || ''), uid: payload.sub,
+             name: (um.full_name || um.name || (s.user && s.user.name) || '').trim(),
              role: (payload.app_metadata && payload.app_metadata.role) || (s.user && s.user.role) || null };
   }catch(e){ return null; }
 }
@@ -2299,7 +2303,8 @@ async function ndaLoadLinks(){
       const expired = !dead && new Date(l.expires_at) < new Date();
       return '<tr' + (dead || expired ? ' class="arch"' : '') + '>' +
         '<td><strong>' + esc(l.person_name) + '</strong>' +
-          '<div class="muted">' + esc(l.label) + ' · ' + esc(l.person_email) + '</div></td>' +
+          '<div class="muted">' + (l.label && l.label !== l.person_name ? esc(l.label) + ' · ' : '') +
+          esc(l.person_email) + '</div></td>' +
         '<td>' + esc(l.company_signer_name) +
           (l.company_signer_title ? '<div class="muted">' + esc(l.company_signer_title) + '</div>' : '') + '</td>' +
         '<td>' + esc(l.sends_count || 0) + ' total' +
@@ -2308,8 +2313,9 @@ async function ndaLoadLinks(){
         '<td>' + (dead ? '<span class="chip crit">Revoked</span>'
                 : expired ? '<span class="chip dim">Expired</span>'
                 : esc(ndaDate(l.expires_at))) + '</td>' +
-        '<td class="noprint">' + (dead || expired ? ''
-          : '<button class="actbtn danger" data-nda="linkrevoke" data-id="' + esc(l.id) + '">Switch off</button>') +
+        '<td class="noprint">' + (dead ? ''
+          : '<button class="actbtn" data-nda="linkresend" data-id="' + esc(l.id) + '">Send again</button> ' +
+            '<button class="actbtn danger" data-nda="linkrevoke" data-id="' + esc(l.id) + '">Switch off</button>') +
         '</td></tr>';
     }).join('');
   }catch(e){
@@ -2318,7 +2324,10 @@ async function ndaLoadLinks(){
 }
 
 function ndaOpenLink(){
-  const me = (SESSION.email || '').split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  // Two boxes. Everything else has a default and lives under "More options" —
+  // a form with eight blanks is a form nobody fills in, and the only two facts
+  // that genuinely have to be typed are whose link it is and where to send it.
+  const me = esc(SESSION.name || '');
   ndaPanel('Issue a sender link', `
     <div class="prose" style="margin-bottom:14px">
       <b>This link is a key.</b> Anyone holding it can send email in our name, so it goes to one named
@@ -2326,23 +2335,31 @@ function ndaOpenLink(){
       If a login would do instead, give them a login: it is attributable and nothing new to secure.
     </div>
     <div class="fgrid">
-      <div><label>Who is it for <span style="color:#B91C1C">*</span></label>
-        <input id="nk_person" type="text" placeholder="Their full name"></div>
+      <div><label>Their name <span style="color:#B91C1C">*</span></label>
+        <input id="nk_person" type="text" placeholder="e.g. Marco Ruiz" autofocus></div>
       <div><label>Their email <span style="color:#B91C1C">*</span></label>
-        <input id="nk_email" type="email" placeholder="They get a copy of every send"></div>
-      <div class="full"><label>What it's for <span style="color:#B91C1C">*</span></label>
-        <input id="nk_label" type="text" placeholder="e.g. Trade shows — Marco"></div>
-      <div><label>NDAs countersigned by <span style="color:#B91C1C">*</span></label>
-        <input id="nk_signer" type="text" value="${esc(me)}"></div>
-      <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. Chief Executive Officer"></div>
-      <div><label>Good for (days)</label><input id="nk_days" type="number" value="90" min="1" max="365"></div>
-      <div><label>Most per 24 hours</label><input id="nk_max" type="number" value="5" min="1" max="50"></div>
-      <div class="full"><label>Default purpose on what they send</label>
-        <textarea id="nk_purpose" rows="2" placeholder="Optional — saves them typing it every time."></textarea></div>
+        <input id="nk_email" type="email" placeholder="Where the link goes"></div>
     </div>
+    <div class="muted" style="margin-top:10px">We email them the link. Good for 90 days, up to 5 NDAs a
+      day, countersigned by <b id="nk_signer_lbl">${me || 'you — add your name below'}</b>.</div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-weight:600">More options</summary>
+      <div class="fgrid" style="margin-top:12px">
+        <div><label>NDAs countersigned by</label>
+          <input id="nk_signer" type="text" value="${me}" placeholder="Your full name"
+            oninput="document.getElementById('nk_signer_lbl').textContent=this.value||'—'"></div>
+        <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. President"></div>
+        <div><label>What it's for</label>
+          <input id="nk_label" type="text" placeholder="Defaults to their name"></div>
+        <div><label>Good for (days)</label><input id="nk_days" type="number" value="90" min="1" max="365"></div>
+        <div><label>Most per 24 hours</label><input id="nk_max" type="number" value="5" min="1" max="50"></div>
+        <div class="full"><label>Default purpose on what they send</label>
+          <textarea id="nk_purpose" rows="2" placeholder="Optional — saves them typing it every time."></textarea></div>
+      </div>
+    </details>
     <div class="err" id="nk_err" style="display:none;margin-top:12px"></div>
     <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button class="btn" id="nk_go" onclick="ndaIssueLink()">Issue the link</button>
+      <button class="btn" id="nk_go" onclick="ndaIssueLink()">Issue &amp; email the link</button>
       <label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">
         <input type="checkbox" id="nk_noemail"> Don't email it — I'll hand it over myself</label>
     </div>`);
@@ -2501,6 +2518,33 @@ document.addEventListener('click', async (e) => {
         format: document.getElementById('nl_fmt').value,
         quantity: (document.getElementById('nl_qty').value || '').trim() });
       await ndaOpen(id);
+      return;
+    }
+    if(kind === 'linkresend'){
+      const l = NDA_LINKS.find(x => x.id === id) || {};
+      // Says the cost out loud: the old link stops working. That is the point
+      // — a link that needs re-sending has usually gone astray — but nobody
+      // should discover it after the fact.
+      if(!confirm('Send ' + (l.person_name || 'them') + ' a fresh link?\n\n' +
+                  'Their current link stops working immediately. We never store the link itself, ' +
+                  'only a fingerprint of it, so there is no way to re-send the old one.')) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      try{
+        const d = await ndaCall({ action: 'link_resend', id });
+        await ndaLoadLinks();
+        const note = d.emailed
+          ? 'Emailed to ' + esc(d.link.person_email) + '. Their old link no longer works.'
+          : 'Could not email it (' + esc(d.email_error || 'unknown') + ') \u2014 pass this on yourself. '
+            + 'Their old link no longer works either way.';
+        ndaPanel('New link for ' + esc(d.link.person_name),
+          '<div class="prose" style="margin-bottom:12px">' + note + '</div>'
+          + '<input type="text" readonly value="' + esc(d.url) + '" id="nd_link"'
+          + ' style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">'
+          + '<div style="margin-top:12px"><button class="btn sm" onclick="ndaCopyLink()">Copy the link</button></div>'
+          + '<div class="muted" style="margin-top:10px">Shown once \u2014 it is stored as a hash, so nobody '
+          + 'can recover it from the database.</div>');
+      }catch(err){ alert(err.message); }
+      b.disabled = false; b.textContent = was;
       return;
     }
     if(kind === 'linkrevoke'){
