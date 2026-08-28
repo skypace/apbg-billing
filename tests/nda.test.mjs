@@ -16,7 +16,11 @@ import {
   parseRuns, parseNdaSource, renderNdaHtml, longDate, recipientDescriptor,
 } from '../netlify/functions/lib/nda-doc.mjs';
 import { wrapRuns, renderNdaPdf } from '../netlify/functions/lib/nda-pdf.mjs';
-import { todayPacific, hashToken, newToken } from '../netlify/functions/lib/nda-lib.mjs';
+import {
+  todayPacific, hashToken, newToken,
+  linkUnusable, pickServices, clampLinkTtl, clampLinkRate,
+  LINK_TTL_DAYS, LINK_MAX_PER_DAY,
+} from '../netlify/functions/lib/nda-lib.mjs';
 import { NDA_V1 } from '../netlify/functions/lib/nda/nda-v1.mjs';
 
 /**
@@ -242,4 +246,75 @@ test('a corrupt signature image does not lose the document', async () => {
   const bytes = await renderNdaPdf({ ...signed, signature_data: 'data:image/png;base64,notreallypng' },
     { log: [] });
   assert.ok(bytes.length > 20000, 'still renders — a bad image is not worth losing an agreement over');
+});
+
+// ── delegated sender links ──────────────────────────────────────────────────
+//
+// A sender link lets a named person send our NDA with no hub login, which
+// makes it a credential: whoever holds it can send Brix-branded email to any
+// address they like. These tests pin the guard rails that make that acceptable
+// — a link that has been switched off stays off, one with an end date reaches
+// it, the rate limit cannot be configured away, and a delegate cannot write
+// free text into the services clause of an executed legal document.
+
+test('a revoked sender link is refused, and says so plainly', () => {
+  const link = { revoked_at: '2026-08-27T10:00:00Z', expires_at: '2099-01-01T00:00:00Z' };
+  const bad = linkUnusable(link);
+  assert.ok(bad, 'revocation is instant — not "on the next send"');
+  assert.equal(bad.status, 410);
+  assert.match(bad.error, /switched off/);
+});
+
+test('an expired sender link is refused; a live one is not', () => {
+  const now = Date.parse('2026-08-27T12:00:00Z');
+  assert.equal(linkUnusable({ expires_at: '2026-12-01T00:00:00Z' }, now), null);
+  const bad = linkUnusable({ expires_at: '2026-08-27T11:59:00Z' }, now);
+  assert.equal(bad.status, 410);
+  assert.match(bad.error, /expired/);
+});
+
+test('an unknown token reads exactly like a malformed one', () => {
+  // Deliberate: a probe must not be able to tell "no such link" from "revoked"
+  // by the wording, or it learns which tokens exist.
+  const bad = linkUnusable(null);
+  assert.equal(bad.status, 404);
+  assert.equal(bad.error, 'This link is not valid.');
+});
+
+test('a sender link cannot be issued without an end date or without a limit', () => {
+  // There is no "unlimited" to pick by accident — every input lands in range.
+  assert.equal(clampLinkTtl(undefined), LINK_TTL_DAYS);
+  assert.equal(clampLinkTtl(0), LINK_TTL_DAYS, 'zero is not "forever"');
+  assert.equal(clampLinkTtl(-40), 1);
+  assert.equal(clampLinkTtl(99999), 365);
+  assert.equal(clampLinkTtl('30'), 30);
+
+  assert.equal(clampLinkRate(undefined), LINK_MAX_PER_DAY);
+  assert.equal(clampLinkRate(0), LINK_MAX_PER_DAY, 'zero is not "no limit"');
+  assert.equal(clampLinkRate(-1), 1);
+  assert.equal(clampLinkRate(9999), 50);
+  assert.equal(clampLinkRate(12), 12);
+});
+
+test('a delegate cannot write free text into the services clause', () => {
+  const link = { default_services: ['co-packing'] };
+  assert.deepEqual(
+    pickServices(['laboratory testing', 'anything they fancy', 'filling'], link),
+    ['laboratory testing', 'filling'],
+    'only values from the approved list reach an executed agreement');
+  assert.deepEqual(pickServices(['nonsense'], link), ['co-packing'],
+    'a choice that filters to nothing falls back to the defaults, not to blank');
+  assert.deepEqual(pickServices(undefined, link), ['co-packing']);
+  assert.deepEqual(pickServices(undefined, null), []);
+  assert.deepEqual(pickServices('co-packing', link), ['co-packing'],
+    'a bare string is not an array and must not slip through as one');
+});
+
+test('a sender token is never stored in a form that could mint a link', () => {
+  const raw = newToken();
+  const stored = hashToken(raw);
+  assert.notEqual(stored, raw);
+  assert.match(stored, /^[0-9a-f]{64}$/);
+  assert.ok(!stored.includes(raw.slice(0, 12)),
+    'reading the row gives you the hash, never the link');
 });

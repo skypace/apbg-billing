@@ -66,6 +66,7 @@
     "kpi_daily",
     "nda_agreements",
     "nda_disclosure_log",
+    "nda_sender_links",
     "nda_templates",
     "pl_snapshots",
     "price_book_items",
