@@ -22,7 +22,7 @@
 
 import { sendEmail } from './email-helpers.mjs';
 import {
-  ops, validateToken, loadLog, uploadPdf, ensureParty, fileInVault,
+  NDA_FROM, ops, validateToken, loadLog, uploadPdf, ensureParty, fileInVault,
   clean, clientIp, todayPacific, ENTITY_TYPES, SERVICE_OPTIONS,
   executedEmailRecipient, executedEmailStaff, declinedEmailStaff,
 } from './lib/nda-lib.mjs';
@@ -129,6 +129,7 @@ export default async (req) => {
     });
     try {
       await sendEmail({
+        from: NDA_FROM,
         to: ALERT_TO,
         subject: `NDA declined — ${a.recipient_company} (${a.agreement_number})`,
         html: declinedEmailStaff({ a, reason }),
@@ -245,6 +246,7 @@ export default async (req) => {
     : undefined;
   try {
     await sendEmail({
+      from: NDA_FROM,
       to: f.signer_email,
       subject: `Your signed NDA — ${a.agreement_number}`,
       html: executedEmailRecipient({ a }),
@@ -253,6 +255,7 @@ export default async (req) => {
   } catch (e) { warnings.push('recipient email: ' + e.message); }
   try {
     await sendEmail({
+      from: NDA_FROM,
       to: ALERT_TO,
       subject: `NDA signed — ${a.recipient_legal_name || a.recipient_company} (${a.agreement_number})`,
       html: executedEmailStaff({ a }),

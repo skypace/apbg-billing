@@ -221,15 +221,46 @@ export async function fileInVault(a, storagePath) {
 }
 
 // ── Email ───────────────────────────────────────────────────────────────────
+//
+// NDAs go out from LEGAL, not from the alerts mailbox every other pipeline
+// uses: this is the address a counterparty will reply to with "can we change
+// clause 9", and that should land somewhere a person reads.
+// ⚠ It must exist as a real, monitored mailbox and the domain must stay
+// verified in Resend — sendEmail() falls back to the alerts address if Resend
+// rejects the sender, so a misconfiguration degrades quietly rather than
+// bouncing. Check what actually went out before assuming.
+export const NDA_FROM = process.env.NDA_EMAIL_FROM
+  || 'Alameda Point Beverage Group <legal@alamedapointbg.com>';
+
+// Both marks. Absolute URLs served by the gateway — an email client has no
+// relative base, and inline attachments are worse (Outlook shows them as
+// downloads). Each carries alt text, because a good many clients block images.
+const LOGO_BRIX = 'https://alamedapointbg.com/logos/brix-round.png';
+const LOGO_ALAMEDA = 'https://alamedapointbg.com/logos/alameda-seal.png';
+
 const shell = (kicker, heading, sub, inner) => `<div style="font-family:'DM Sans',-apple-system,Segoe UI,Arial,sans-serif;background:#F5F7FA;padding:24px 12px">
   <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #E4E9F0;border-radius:14px;overflow:hidden">
     <div style="background:#1F4E79;padding:18px 22px;color:#fff">
-      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9FD0E8;font-weight:700">${esc(kicker)}</div>
-      <div style="font-size:21px;font-weight:800;margin-top:4px">${esc(heading)}</div>
-      ${sub ? `<div style="font-size:13px;color:#C9E2F0;margin-top:2px">${esc(sub)}</div>` : ''}
+      <table role="presentation" style="border-collapse:collapse;width:100%"><tr>
+        <td style="vertical-align:middle">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9FD0E8;font-weight:700">${esc(kicker)}</div>
+          <div style="font-size:21px;font-weight:800;margin-top:4px">${esc(heading)}</div>
+          ${sub ? `<div style="font-size:13px;color:#C9E2F0;margin-top:2px">${esc(sub)}</div>` : ''}
+        </td>
+        <td style="vertical-align:middle;text-align:right;white-space:nowrap;padding-left:12px">
+          <img src="${LOGO_BRIX}" alt="Brix Beverage" width="38" height="38"
+            style="display:inline-block;vertical-align:middle;border:0">
+          <img src="${LOGO_ALAMEDA}" alt="Alameda Soda Co." width="38" height="38"
+            style="display:inline-block;vertical-align:middle;border:0;margin-left:8px">
+        </td>
+      </tr></table>
     </div>
     <div style="height:4px;background:#F4B400"></div>
     <div style="padding:20px 22px;font-size:14px;color:#0F172A;line-height:1.55">${inner}</div>
+    <div style="padding:0 22px 18px;font-size:11px;color:#94A3B8;line-height:1.5">
+      Alameda Point Beverage Group, Inc. &middot; Brix Beverage &middot; Alameda Soda Co.<br>
+      1951 Monarch Street, Suite 200, Alameda, California 94501
+    </div>
   </div></div>`;
 
 const btn = (href, label) => `<p style="margin:0 0 16px"><a href="${esc(href)}" style="display:inline-block;background:#1F4E79;color:#fff;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:8px">${esc(label)}</a></p>`;

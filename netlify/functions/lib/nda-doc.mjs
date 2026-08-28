@@ -102,16 +102,35 @@ export function recipientDescriptor(a) {
   return bits.join(' ');
 }
 
+/** True when both sides disclose. Read from the agreement's OWN snapshot, never
+ *  derived from a template code — a template that is later renamed or re-coded
+ *  must not change how an executed agreement reads. */
+export const isMutual = (a) => !!(a && a.mutual);
+
+/** How the two sides are named in the document. In a one-way agreement the
+ *  counterparty IS the Recipient; in a mutual one both are, so the defined
+ *  terms move into section 1 and the preamble just names the parties. */
+export function partyLabels(a) {
+  return isMutual(a)
+    ? { us: 'Brix', them: 'Counterparty', themHeading: 'COUNTERPARTY' }
+    : { us: 'Company', them: 'Recipient', themHeading: 'RECIPIENT' };
+}
+
 /** Render the parties preamble. */
 function partiesHtml(a) {
-  return `<p>This Confidentiality and Non-Disclosure Agreement (this "Agreement") is entered into as of
+  const mutual = isMutual(a);
+  const L = partyLabels(a);
+  const kind = mutual ? 'Mutual Confidentiality and Non-Disclosure Agreement'
+                      : 'Confidentiality and Non-Disclosure Agreement';
+  return `<p>This ${kind} (this "Agreement") is entered into as of
     ${blank(longDate(a.effective_date), '12rem')} (the "Effective Date"), by and between:</p>
   <p class="party"><b>${esc(COMPANY.legalName)}</b>, ${esc(COMPANY.descriptor)}, with offices at
-    ${esc(COMPANY.address)} ("Company"); and</p>
+    ${esc(COMPANY.address)} ("${esc(L.us)}"); and</p>
   <p class="party">${blank(a.recipient_legal_name || a.recipient_company, '20rem')}, a
     ${blank(recipientDescriptor(a), '12rem')} with offices at
-    ${blank(a.recipient_address, '22rem')} ("Recipient").</p>
-  <p>Company and Recipient are each a "Party" and together the "Parties."</p>`;
+    ${blank(a.recipient_address, '22rem')} ("${esc(L.them)}").</p>
+  <p>${esc(L.us)} and ${esc(L.them)} are each a "Party" and together the "Parties."${
+    mutual ? ' Each Party may act as Discloser and as Recipient under this Agreement.' : ''}</p>`;
 }
 
 function signaturesHtml(a, opts = {}) {
@@ -120,16 +139,16 @@ function signaturesHtml(a, opts = {}) {
     : '<span class="sigline"></span>');
   return `<div class="sigs">
     <div class="sigbox">
-      <div class="sigwho">COMPANY</div>
+      <div class="sigwho">${esc(partyLabels(a).us.toUpperCase())}</div>
       <div class="signm">Alameda Point Beverage Group, Inc.</div>
-      ${img(opts.companySignature, 'Company signature')}
+      ${img(a.company_signature_data || opts.companySignature, 'Company signature')}
       <div class="sigrow">By: ${blank(a.company_signer_name, '11rem')}</div>
       <div class="sigrow">Name: ${blank(a.company_signer_name, '11rem')}</div>
       <div class="sigrow">Title: ${blank(a.company_signer_title, '11rem')}</div>
       <div class="sigrow">Date: ${blank(longDate(a.company_signed_at), '11rem')}</div>
     </div>
     <div class="sigbox">
-      <div class="sigwho">RECIPIENT</div>
+      <div class="sigwho">${esc(partyLabels(a).themHeading)}</div>
       <div class="signm">${a.recipient_legal_name || a.recipient_company
         ? esc(a.recipient_legal_name || a.recipient_company) : '<span class="sigline"></span>'}</div>
       ${img(a.signature_data, 'Recipient signature')}

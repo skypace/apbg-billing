@@ -101,13 +101,66 @@ them to download the PDF there and then.
 
 ## Who signs for us
 
-The Company block is **pre-executed at send time** by the staff member creating
-the agreement (their name and title, stamped `company_signed_at`). This is our
-paper on our terms; the assent being collected is the recipient's.
+The Company block is **pre-executed at send time**: the officer's name, title
+and **their actual signature** are stamped onto the agreement before it goes
+out. This is our paper on our terms; the assent being collected is the
+recipient's.
+
+Signatures live in `ops.nda_signatories` — draw or upload one once, under
+**Compliance & Safety → NDAs → Signatures**, and it prints in the Company block
+of every NDA sent from then on. Three rules make that safe:
+
+- **It is snapshotted onto the agreement** (`company_signature_data`), exactly
+  like `body_source`. Re-drawing your signature cannot change a document
+  somebody has already signed, and the freeze trigger covers the column.
+- **Only a `data:` image is accepted**, capped in size. This ends up embedded in
+  a legal record; a remote URL would be a live dependency inside it, and
+  arbitrary text would be an injection.
+- **A missing signature is not an error.** The agreement goes out with a typed
+  name over a rule, which is what we sent for months and is still valid. Losing
+  an agreement over a PNG would be absurd.
+
+Delegated sender links carry a `company_signatory_id` and read the signature
+**fresh at send time**, so re-drawing it takes effect on their next send rather
+than leaving a stale image on every future agreement.
 
 If you ever need a genuine two-step countersignature — a negotiated NDA on their
 paper, say — that is a different flow and should be built as one, not bolted on
 by leaving the Company block blank.
+
+---
+
+## One-way or mutual
+
+Two agreements ship, and the sender picks:
+
+| | |
+|---|---|
+| **One-way** (`copack-nda`) | They receive our information. Co-packers, labs, vendors we hand formulations to. |
+| **Mutual** (`mutual-nda`) | Both sides disclose, and it binds **us** on the same terms. |
+
+`mutual` is a flag **on the agreement**, snapshotted at send — never derived
+from the template code, so a template that is later renamed or re-coded cannot
+retroactively change how an executed agreement reads. It drives the preamble
+("Brix" and "Counterparty" rather than "Company" and "Recipient", plus a line
+saying each Party acts as both Discloser and Recipient) and the signature-block
+headings, in the on-screen document and the PDF alike.
+
+⚠ **The mutual text is an adaptation of the approved one-way agreement, not
+separately drafted paper.** Two departures from it are deliberate and worth
+knowing before you send one:
+
+- **§7 is narrower.** The one-way "shall not develop any similar product"
+  covenant cannot be reciprocal between two beverage companies without stopping
+  both of us trading, so mutually it is scoped to use *of the other side's*
+  Confidential Information, with an express carve-out for independent
+  development.
+- **The Work Product assignment is removed.** In a one-way co-packing agreement
+  a co-packer assigning its work to us is correct; mutual, the same clause would
+  assign our work to them. Each Party keeps its own, and anything joint is left
+  to a definitive agreement.
+
+Have counsel read it before it goes to a counterparty who matters.
 
 ---
 
@@ -198,7 +251,11 @@ signer and the limits all carry over.
 | | |
 |---|---|
 | `supabase/migrations/20260826a_nda_agreements.sql` | Tables, freeze trigger, GRANTs + RLS, numbering, the vault's new `legal` category. |
-| `netlify/functions/lib/nda/nda-v1.mjs` | The approved v1.0 text, in version control. Seeds the database on first use. |
+| `netlify/functions/lib/nda/nda-v1.mjs` | The approved one-way v1.0 text, in version control. Seeds the database on first use. |
+| `netlify/functions/lib/nda/mnda-v1.mjs` | The mutual variant, v1.0. Same structure, reciprocal obligations — see the header for every deliberate departure. |
+| `netlify/functions/lib/nda/index.mjs` | The shipped-agreement registry and the flavour list the pickers render. |
+| `netlify/functions/lib/nda/nda-logos.mjs` | Both brand marks, base64, bundled with the function for the PDF letterhead. |
+| `supabase/migrations/20260828a_nda_signatures_mutual.sql` | `ops.nda_signatories`, the snapshot columns, the mutual flag, and the widened freeze trigger. |
 | `netlify/functions/lib/nda-doc.mjs` | Markup parser + HTML renderer. The one source both renderers read. |
 | `netlify/functions/lib/nda-pdf.mjs` | The executed PDF (pdf-lib): wrapping, signature blocks, Exhibit A, audit page. |
 | `netlify/functions/lib/nda-lib.mjs` | Tokens, PostgREST, party + vault filing, the emails. |
@@ -209,10 +266,18 @@ signer and the limits all carry over.
 | `public/nda.html` | The signing page. |
 | `public/nda-send.html` | The delegated sending page. |
 | `public/compliance.html` | Staff tab (NDAs). |
-| `tests/nda.test.mjs` | 22 tests over the document core and the sender-link guard rails. |
+| `tests/nda.test.mjs` | 29 tests over the document core, the sender-link guard rails, the mutual variant and the stored signature. |
 
 **Env:** `SUPABASE_SERVICE_ROLE_KEY` (already set), `RESEND_API_KEY` /
-`SENDGRID_API_KEY`, optional `COMPLIANCE_ALERT_TO` (default `service@brixbev.com`).
+`SENDGRID_API_KEY`, optional `COMPLIANCE_ALERT_TO` (default
+`service@brixbev.com`), optional `NDA_EMAIL_FROM` (default
+`Alameda Point Beverage Group <legal@alamedapointbg.com>`).
+
+⚠ **`legal@alamedapointbg.com` must be a real, monitored mailbox.** It is the
+reply-to on every NDA we send, so "can we change clause 9" lands there. And note
+that `sendEmail()` falls back to the alerts address when Resend rejects a
+sender — a misconfigured or unverified address degrades quietly rather than
+bouncing, so check what actually went out before assuming it came from legal@.
 
 **No cron, no background pipeline** — staff resend by hand — so there is nothing
 new for `ops.sync_health()` to watch. If a chase cron is ever added, it needs a

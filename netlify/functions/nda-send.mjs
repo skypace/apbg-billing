@@ -29,11 +29,11 @@
 
 import { sendEmail } from './email-helpers.mjs';
 import {
-  ops, newToken, hashToken, linkFor, clean, esc,
+  NDA_FROM, ops, newToken, hashToken, linkFor, clean, esc,
   DEFAULT_TTL_DAYS, SERVICE_OPTIONS, inviteEmail,
   linkUnusable, pickServices,
 } from './lib/nda-lib.mjs';
-import { NDA_V1 } from './lib/nda/nda-v1.mjs';
+import { SHIPPED, FLAVOURS, DEFAULT_CODE } from './lib/nda/index.mjs';
 
 const ALERT_TO = process.env.COMPLIANCE_ALERT_TO || 'service@brixbev.com';
 const CORS = {
@@ -72,6 +72,9 @@ function linkView(link, used) {
     default_purpose: link.default_purpose,
     default_services: link.default_services || [],
     service_options: SERVICE_OPTIONS,
+    // Pinned by the issuer, or the delegate's choice.
+    template_code: link.template_code || null,
+    flavours: link.template_code ? FLAVOURS.filter((f) => f.code === link.template_code) : FLAVOURS,
     expires_at: link.expires_at,
     max_per_day: link.max_per_day,
     sends_left: Math.max(0, link.max_per_day - used),
@@ -128,8 +131,14 @@ export default async (req) => {
       });
     }
 
+    // Which agreement: the one the issuer pinned, else the delegate's pick,
+    // else one-way. Never an arbitrary code from the request — a delegate must
+    // not be able to send terms nobody approved.
+    const asked = clean(body.template_code, 60);
+    const wanted = link.template_code
+      || (SHIPPED[asked] ? asked : DEFAULT_CODE);
     const tplRows = await ops('GET',
-      `nda_templates?select=*&active=is.true&code=eq.${encodeURIComponent(NDA_V1.code)}&order=created_at.desc&limit=1`);
+      `nda_templates?select=*&active=is.true&code=eq.${encodeURIComponent(wanted)}&order=created_at.desc&limit=1`);
     const tpl = tplRows && tplRows[0];
     if (!tpl) {
       // Deliberately not seeded from here: a sender link must not be able to
@@ -138,6 +147,18 @@ export default async (req) => {
     }
 
     const services = pickServices(body.services, link);
+
+    // The issuer's signature as it stands right now. Read fresh rather than
+    // copied onto the link at issue time, so re-drawing it takes effect on the
+    // next send instead of leaving a stale image on every future agreement.
+    let signatory = null;
+    if (link.company_signatory_id) {
+      try {
+        const rows = await ops('GET',
+          `nda_signatories?select=signature_data&id=eq.${link.company_signatory_id}&limit=1`);
+        signatory = (rows && rows[0] && rows[0].signature_data) || null;
+      } catch { /* a missing signature is a plainer document, not a failure */ }
+    }
 
     const numRows = await ops('POST', 'rpc/fn_next_nda_number', {});
     const agreementNumber = typeof numRows === 'string' ? numRows : String(numRows);
@@ -159,10 +180,14 @@ export default async (req) => {
       recipient_contact: clean(body.recipient_contact, 120) || null,
       purpose_scope: clean(body.purpose_scope, 1000) || link.default_purpose || null,
       services,
-      // NOT the delegate. The officer who issued the link is the signatory.
+      // NOT the delegate. The officer who issued the link is the signatory,
+      // and their signature is snapshotted here the same way the text is.
       company_signer_name: link.company_signer_name,
       company_signer_title: link.company_signer_title,
       company_signed_at: new Date().toISOString(),
+      company_signature_data: signatory,
+      company_signatory_id: link.company_signatory_id || null,
+      mutual: !!tpl.mutual,
       token_hash: hashToken(raw),
       expires_at: new Date(Date.now() + ttlDays * 86_400_000).toISOString(),
       sent_to: recipient_email,
@@ -184,6 +209,7 @@ export default async (req) => {
     let emailed = false, emailError = null;
     try {
       await sendEmail({
+        from: NDA_FROM,
         to: recipient_email,
         subject: `Please sign our confidentiality agreement — ${a.agreement_number}`,
         html: inviteEmail({ a, link: signLink, note: clean(body.note, 600), ttlDays }),
@@ -197,6 +223,7 @@ export default async (req) => {
     // evidence lands in a mailbox the holder does not control.
     try {
       await sendEmail({
+        from: NDA_FROM,
         to: [ALERT_TO, link.person_email],
         subject: `NDA sent by ${link.person_name} — ${recipient_company} (${a.agreement_number})`,
         html: `<div style="font-family:'DM Sans',Arial,sans-serif;font-size:14px;color:#0F172A;line-height:1.55">
