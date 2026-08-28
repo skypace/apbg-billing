@@ -452,7 +452,9 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         <div class="phonecard">
           <h3>Insurance &amp; brokers</h3>
           <ul class="phonelist">
-            <li><div class="who"><b>Thimble / Coterie — general liability</b><span>Spinnaker NAIC 24376 · CSB-00128559-00</span></div><a href="tel:+18555661011">855-566-1011</a></li>
+            <li><div class="who"><b>Ram Risk Group — broker · ALL COI requests</b><span>coi@ramriskgroup.com · Edrill, client service · Mon–Fri 9–5</span></div><a href="tel:+15612064733">(561) 206-4733</a></li>
+            <li><div class="who"><b>Great American — general liability + umbrella</b><span>NAIC 16691 · PLF574240 · XSF574242 · via Ram Risk</span></div><a href="tel:+15612064733">(561) 206-4733</a></li>
+            <li><div class="who"><b>Thimble / Coterie — prior general liability</b><span>Spinnaker NAIC 24376 · CSB-00128559-00 · confirm if cancelled</span></div><a href="tel:+18555661011">855-566-1011</a></li>
             <li><div class="who"><b>Progressive Commercial — auto</b><span>NAIC 10193 · policy 975506554</span></div><a href="tel:+18004444487">1-800-444-4487</a></li>
             <li><div class="who"><b>Embroker — workers' comp</b><span>AmTrust / Security National NAIC 19879 · SWC1470931 · Julie Noonan</span></div><a href="tel:+18444362765">(844) 436-2765</a></li>
           </ul>
@@ -541,6 +543,78 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
   <!-- ═══════════════ OUR INSURANCE & COMPANY DOCS ═══════════════ -->
   <div class="container" id="paneInsurance" style="display:none">
+    <!-- The one thing people come to this tab to do: get a certificate out to a
+         customer, landlord or GC. Broker's stated rules, and a composed email so
+         nobody sends a request that bounces back for missing information. -->
+    <div class="section" style="border-left:4px solid #1F4E79">
+      <div class="toolbar">
+        <h2 style="margin:0">Need a certificate of insurance?</h2>
+        <div class="noprint">
+          <button class="btn sm" onclick="coiCompose()">Compose the request &rarr;</button>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Every COI request goes to our broker, <b>Ram Risk Group</b>, at
+        <a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a> — not to a carrier, and not to
+        an individual. <b>Send four things</b>, or it comes back to you for more information:
+      </div>
+      <div class="fgrid">
+        <div><label>1 · Certificate holder</label>
+          <div class="prose" style="margin:0">Their full legal name <b>and complete address</b>. This is
+            who the certificate is issued to, and it is the field most often sent incomplete.</div></div>
+        <div><label>2 · Description of operations</label>
+          <div class="prose" style="margin:0">What we are doing for them, if the contract calls for it
+            — e.g. &ldquo;beverage equipment installation and service at 123 Main St.&rdquo;</div></div>
+        <div><label>3 · Coverage types and limits</label>
+          <div class="prose" style="margin:0">Whatever their contract requires. Ours are listed below —
+            check theirs against ours <b>before</b> you promise anything.</div></div>
+        <div><label>4 · Endorsement requirements</label>
+          <div class="prose" style="margin:0">Additional Insured, Waiver of Subrogation, primary and
+            non-contributory. <b>Say so explicitly</b> — see the warning below.</div></div>
+      </div>
+      <div class="prose" style="margin-top:14px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0">
+        <b>Ticking &ldquo;additional insured&rdquo; on the form is not the same as having the endorsement.</b>
+        The ACORD certificate says so itself: if the holder is an additional insured, or subrogation is
+        waived, <i>the policy must actually be endorsed</i> — a line on the certificate confers nothing.
+        If a contract requires it, ask Ram Risk for the <b>endorsement</b>, not just the certificate.
+      </div>
+      <div class="prose" style="margin-top:12px">
+        <b>Their hours are Monday–Friday, 9:00&nbsp;AM–5:00&nbsp;PM.</b> Anything sent after hours is
+        handled the next business day, so a Friday-afternoon request for a Monday job start is a Tuesday
+        certificate. Their office is in North Palm Beach, Florida — if those are Eastern hours, their
+        5&nbsp;PM is our 2&nbsp;PM, so treat early afternoon as the cut-off.
+      </div>
+      <div class="twrap" style="margin-top:12px"><table class="grid">
+        <thead><tr><th>Ram Risk Group</th><th>Contact</th><th>Reach</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>COI requests</b><div class="muted">use this, not a person</div></td>
+            <td>Certificates desk</td>
+            <td><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></td>
+          </tr>
+          <tr>
+            <td><b>Client service</b></td>
+            <td>Edrill — Client Service Relations Team Lead</td>
+            <td><a href="tel:+15612064733">+1 (561) 206-4733</a><div class="muted"><a href="mailto:edrill@ramriskgroup.com">edrill@ramriskgroup.com</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Producer of record</b></td>
+            <td>Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted">11891 U.S. Highway 1, Suite 100, North Palm Beach FL 33408</div></td>
+          </tr>
+          <tr>
+            <td><b>Website</b></td>
+            <td>—</td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">ramriskgroup.com &rarr;</a></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div id="coiDetail" class="noprint" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #E2E8F0">
+        <h3 style="margin:0 0 8px" id="coiDetailTitle"></h3>
+        <div id="coiDetailBody"></div>
+      </div>
+    </div>
+
     <div class="section">
       <div class="toolbar">
         <h2 style="margin:0">Our insurance <span class="sub" id="insCount"></span></h2>
@@ -584,7 +658,21 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         <thead><tr><th>Line</th><th>Carrier</th><th>Broker / servicing</th><th>Contact</th><th>Portal</th></tr></thead>
         <tbody>
           <tr>
-            <td><b>General liability</b><div class="muted">CSB-00128559-00</div></td>
+            <td><b>General liability</b><div class="muted">PLF574240 · 8/25/26&ndash;8/25/27</div></td>
+            <td>Great American Insurance Co.<div class="muted">NAIC 16691</div></td>
+            <td>Ram Risk Group &middot; Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted"><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></div></td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">Ram Risk Group &rarr;</a></td>
+          </tr>
+          <tr>
+            <td><b>Umbrella / excess</b><div class="muted">XSF574242 · 8/25/26&ndash;8/25/27</div></td>
+            <td>Great American Insurance Co.<div class="muted">NAIC 16691</div></td>
+            <td>Ram Risk Group &middot; Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted"><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></div></td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">Ram Risk Group &rarr;</a></td>
+          </tr>
+          <tr class="arch">
+            <td><b>General liability (prior)</b><div class="muted">CSB-00128559-00 · 1/1&ndash;12/31/26</div></td>
             <td>Spinnaker Insurance Co.<div class="muted">NAIC 24376</div></td>
             <td>Thimble / Coterie</td>
             <td><a href="tel:+18555661011">855-566-1011</a><div class="muted">support@thimble.com</div></td>
@@ -613,8 +701,17 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           </tr>
         </tbody>
       </table></div>
+      <div class="prose" style="margin-top:10px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0">
+        <b>Two general-liability policies overlap and somebody should say which one is in force.</b>
+        The Great American policy runs 8/25/26&ndash;8/25/27 through Ram Risk Group; the Spinnaker
+        policy through Thimble/Coterie runs to 12/31/26. If the Spinnaker policy was cancelled when
+        the new one incepted, get the cancellation confirmation and this row goes away. If both are
+        live, we are paying twice. Ask Ram Risk.
+      </div>
       <div class="muted" style="margin-top:8px">
-        GEICO isn't on any certificate in the current packet — if there's a GEICO commercial policy, send the COI and it gets a row here.
+        Auto stays with Progressive and workers' comp with AmTrust/Embroker — neither is on the Ram Risk
+        certificate, so those COIs still come from their own brokers. GEICO isn't on any certificate in
+        the packet; if there's a GEICO commercial policy, send the COI and it gets a row here.
       </div>
     </div>
 
@@ -2375,6 +2472,58 @@ async function ndaSaveSignatory(id){
     e.textContent = err.message; e.style.display = 'block';
     btn.disabled = false; btn.textContent = 'Save';
   }
+}
+
+// ── COI requests ────────────────────────────────────────────────────────────
+// Ram Risk Group's four required fields, as a skeleton the requester fills in.
+// A request missing the holder's full address is the common way a certificate
+// arrives a day late, so the template asks for each one by name rather than
+// leaving the sender to remember them.
+function coiCompose(){
+  const body = [
+    'Hello,', '',
+    'Please issue a certificate of insurance for Alameda Point Beverage Group, Inc.',
+    '(1951 Monarch Street, Hangar 200, Alameda, CA 94501).', '',
+    '1. CERTIFICATE HOLDER (full legal name and complete address):',
+    '   ', '',
+    '2. DESCRIPTION OF OPERATIONS (if their contract requires one):',
+    '   ', '',
+    '3. REQUIRED COVERAGE TYPES AND LIMITS:',
+    '   ', '',
+    '4. ENDORSEMENT REQUIREMENTS (additional insured / waiver of subrogation /',
+    '   primary and non-contributory — please confirm the ENDORSEMENT, not just',
+    '   wording on the certificate):',
+    '   ', '',
+    'Needed by: ', '',
+    'Thank you,',
+  ].join('\r\n');
+  const href = 'mailto:coi@ramriskgroup.com'
+    + '?subject=' + encodeURIComponent('COI request — Alameda Point Beverage Group, Inc.')
+    + '&body=' + encodeURIComponent(body);
+  // Some desktops have no mail handler at all, so offer the text as well rather
+  // than leaving a dead button.
+  window.location.href = href;
+
+  // Plenty of desktops have no mail handler, and the mailto silently does
+  // nothing — so always show the text too rather than leaving a dead button.
+  const box = document.getElementById('coiDetail');
+  if(!box) return;
+  document.getElementById('coiDetailTitle').textContent = 'Certificate request';
+  document.getElementById('coiDetailBody').innerHTML =
+    '<div class="prose" style="margin-bottom:10px">Your mail app should have opened with this ready to '
+    + 'send. If it did not, copy the text and send it to <b>coi@ramriskgroup.com</b>.</div>'
+    + '<textarea readonly rows="18" style="width:100%;font-family:ui-monospace,monospace;font-size:.82rem"'
+    + ' onclick="this.select()">' + esc(body) + '</textarea>'
+    + '<div style="margin-top:10px"><button class="btn sm" onclick="coiCopy()">Copy the text</button> '
+    + '<button class="btn ghost sm" onclick="document.getElementById(\'coiDetail\').style.display=\'none\'">Close</button></div>';
+  box.style.display = 'block';
+}
+
+function coiCopy(){
+  const t = document.querySelector('#coiDetailBody textarea');
+  if(!t) return;
+  t.select();
+  navigator.clipboard.writeText(t.value).catch(() => document.execCommand('copy'));
 }
 
 // ── Send ────────────────────────────────────────────────────────────────────

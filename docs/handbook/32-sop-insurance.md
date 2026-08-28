@@ -13,13 +13,23 @@
 
 | Line | Carrier | Policy | Term | Key limits |
 |---|---|---|---|---|
-| **General liability** | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – 12/31/2026 | $1M each occurrence · $2M general aggregate · **$2M products–completed operations** · $1M personal & advertising injury · $50K damage to rented premises · $5K medical |
+| **General liability** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `PLF574240` | 08/25/2026 – 08/25/2027 | $1M each occurrence · $2M general aggregate · **$2M products–completed operations** · $1M personal & advertising injury · $500K damage to rented premises · $20K medical |
+| **Umbrella / excess** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `XSF574242` | 08/25/2026 – 08/25/2027 | **$5M each occurrence · $5M aggregate**, occurrence form |
+| ~~General liability (prior)~~ | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – 12/31/2026 | $1M each occurrence · $2M general aggregate · $2M products–completed operations · $50K damage to rented premises · $5K medical |
 | **Commercial auto** | Progressive Express (NAIC 10193) | `975506554` | 01/01/2026 – 12/31/2026 | **$2M combined single limit** · $1M UM/UIM · scheduled + hired + non-owned · $3,500 comp/collision deductible per vehicle |
 | **Workers' compensation** | AmTrust — Security National (NAIC 19879), via Embroker | `SWC1470931` | 01/01/2026 – **01/01/2027** | Per statute · employers' liability $1M / $1M / $1M · **officers included** (not excluded) |
 
+> ⚠ **Two GL policies overlap, and somebody must say which one is in force.** The Great American
+> policy incepted 08/25/2026; the Spinnaker policy runs to 12/31/2026. Either the old one was
+> cancelled at inception — in which case get the cancellation confirmation and file it — or we are
+> paying twice. Ask Ram Risk Group.
+
 **Who to call**
 
-- **Thimble / Coterie (GL):** 855-566-1011 · support@thimble.com · certificates via Support@coterieinsurance.com
+- **Ram Risk Group — broker of record (GL + umbrella):** **all COI requests → coi@ramriskgroup.com**
+  · (561) 206-4733 · Edrill, Client Service Relations Team Lead, edrill@ramriskgroup.com · producer
+  Corey Ramsey · 11891 U.S. Highway 1, Suite 100, North Palm Beach FL 33408 · ramriskgroup.com
+- **Thimble / Coterie (prior GL):** 855-566-1011 · support@thimble.com · certificates via Support@coterieinsurance.com
 - **Progressive Commercial (auto):** 1-800-444-4487
 - **Embroker — Julie Noonan (workers' comp):** (844) 436-2765 · certificates@embroker.com
 - **Concentra Oakland (work injuries):** downtown (510) 465-9565 · airport (510) 638-0701
@@ -32,8 +42,13 @@ one conversation at or before renewal.
 1. **Property / contents / equipment.** No property or inland-marine line appears on the current
    certificates. We hold warehouse inventory, shop and reman equipment, a forklift, and tooling.
    Confirm what covers those and for how much.
-2. **Umbrella / excess.** Nothing on the certificates. Ask what an umbrella over the $1M GL and $2M
-   auto would cost — chain customers and larger landlords increasingly require one.
+2. ~~**Umbrella / excess.** Nothing on the certificates.~~ **CLOSED 2026-08-27** — a $5M / $5M
+   umbrella is now in force (`XSF574242`, Great American, via Ram Risk Group). **But ask one
+   follow-up:** the certificate shows the umbrella over **general liability only**. Confirm in
+   writing which underlying policies it actually sits over. An umbrella that does not sit over
+   **auto** (Progressive) and **employers' liability** (AmTrust) leaves the two lines most likely to
+   produce a claim above primary limits — a fatality on the road, a serious injury in the warehouse —
+   uncovered where it matters most.
 3. **Does the GL carrier know what we actually do?** The GL is written through a small-business
    platform. Our operation includes a **6-ton CO₂ bulk tank, an on-site cylinder fill station,
    brazing and refrigeration work in customer buildings, and co-packed beverage production**.
@@ -70,6 +85,26 @@ one conversation at or before renewal.
 Landlords, chain customers, and property managers will ask for a COI. **We never write one
 ourselves** — the broker issues it.
 
+**Send every request to `coi@ramriskgroup.com`.** Not to a carrier, not to an individual at the
+brokerage — that inbox is the queue, and mail sent elsewhere waits behind someone's calendar. The
+portal has a **Compose the request** button on *Compliance & Safety → Insurance & Company* that fills
+in the four required fields for you.
+
+**Ram Risk Group requires four things.** A request missing any of them comes back for more
+information, which costs you a day:
+
+| | |
+|---|---|
+| **1. Certificate holder** | Full legal name **and complete address**. The most common omission. |
+| **2. Description of operations** | If their contract calls for one. |
+| **3. Coverage types and limits** | Whatever their contract requires — check it against §1 *before* promising anything. |
+| **4. Endorsement requirements** | Additional insured, waiver of subrogation, primary and non-contributory. State them explicitly. |
+
+**Their hours are Monday–Friday, 9:00 AM – 5:00 PM**, and anything after hours is handled the next
+business day. Their office is in Florida, so if those are Eastern hours their 5 PM is our 2 PM —
+treat early afternoon as the cut-off. **A Friday-afternoon request for a Monday job start is a
+Tuesday certificate.** Ask the day you learn a certificate is needed, not the day before it is.
+
 **How to request one**
 
 1. Get from the requester, in writing: the exact **legal name and address of the certificate holder**,
@@ -80,7 +115,9 @@ ourselves** — the broker issues it.
    - **Waiver of subrogation** — our carrier gives up the right to recover from them. Also an
      endorsement.
    - Sometimes **primary and non-contributory** wording as well.
-2. Email the broker for the relevant line (§1) with the holder details and the exact requirement.
+2. Email **coi@ramriskgroup.com** with the holder details and the exact requirement. (Auto and
+   workers' comp are still placed elsewhere — see §1 — so a certificate that must show those lines
+   may need Progressive or Embroker as well. Say up front which lines the contract requires.)
 3. When the certificate comes back, **file it in the app** against the policy, and send it on.
 
 > **The rule worth remembering:** a certificate is *evidence*, not coverage. If a contract requires
