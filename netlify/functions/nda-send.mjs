@@ -152,13 +152,20 @@ export default async (req) => {
     // copied onto the link at issue time, so re-drawing it takes effect on the
     // next send instead of leaving a stale image on every future agreement.
     let signatory = null;
-    if (link.company_signatory_id) {
-      try {
-        const rows = await ops('GET',
-          `nda_signatories?select=signature_data&id=eq.${link.company_signatory_id}&limit=1`);
+    try {
+      // By id when the link was issued with one. Otherwise fall back to MATCHING
+      // ON THE SIGNER'S NAME — links issued before signatures existed carry only
+      // a name, and re-issuing every one of them (which invalidates the link the
+      // holder already has) just to attach a picture would be a poor trade.
+      const q = link.company_signatory_id
+        ? `nda_signatories?select=signature_data&id=eq.${link.company_signatory_id}&limit=1`
+        : `nda_signatories?select=signature_data&active=is.true` +
+          `&name=eq.${encodeURIComponent(link.company_signer_name || '')}&limit=1`;
+      if (link.company_signatory_id || link.company_signer_name) {
+        const rows = await ops('GET', q);
         signatory = (rows && rows[0] && rows[0].signature_data) || null;
-      } catch { /* a missing signature is a plainer document, not a failure */ }
-    }
+      }
+    } catch { /* a missing signature is a plainer document, not a failure */ }
 
     const numRows = await ops('POST', 'rpc/fn_next_nda_number', {});
     const agreementNumber = typeof numRows === 'string' ? numRows : String(numRows);
