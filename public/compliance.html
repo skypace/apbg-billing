@@ -855,6 +855,22 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
        actually disclosed under it. The executed PDF files itself into the vault
        against the counterparty, so an NDA sits beside their COI and W-9. -->
   <div class="container" id="paneNdas" style="display:none">
+    <!-- Shown until somebody's signature is on file. Our own paper going out
+         with an empty rule where our signature belongs is the thing to fix. -->
+    <div class="section noprint" id="ndaSignPrompt"
+         style="display:none;border-left:4px solid #B45309;background:#FFFBEB">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px">
+          <h2 style="margin:0 0 4px">Sign once, and we'll use it from then on</h2>
+          <div class="prose" style="margin:0">Right now our NDAs go out with a typed name over an empty
+            rule while the other side signs properly. Sign in the box once — it is saved, printed in the
+            Company block of every agreement, and snapshotted onto each one so changing it later can
+            never alter a document somebody already signed.</div>
+        </div>
+        <button class="btn" onclick="ndaOpenSignatory('')">Sign here &rarr;</button>
+      </div>
+    </div>
+
     <div class="section">
       <div class="toolbar">
         <h2 style="margin:0">Confidentiality agreements <span class="sub" id="ndaCounts"></span></h2>
@@ -2234,6 +2250,9 @@ async function ndaLoadSignatories(){
   try{
     const d = await ndaCall({ action: 'signatories' });
     NDA_SIGNATORIES = d.signatories || [];
+    const signed = NDA_SIGNATORIES.some(x => x.active && x.signature_data);
+    const prompt = document.getElementById('ndaSignPrompt');
+    if(prompt) prompt.style.display = signed ? 'none' : '';
     if(!NDA_SIGNATORIES.length){
       tb.innerHTML = '<tr><td colspan="4" class="muted">Nobody on file. Until somebody adds a signature, '
         + 'our side of the agreement prints as a typed name over an empty rule \u2014 which is exactly what '
@@ -2261,8 +2280,9 @@ function ndaOpenSignatory(id){
   const x = NDA_SIGNATORIES.find(v => v.id === id) || {};
   SIGDREW = 0; SIGUPLOAD = null;
   ndaPanel(id ? 'Signature — ' + (x.name || '') : 'Add a signature', `
-    <div class="prose" style="margin-bottom:14px">This is printed in the Company block of every NDA sent
-      from here on. Agreements already sent keep the signature they went out with.</div>
+    <div class="prose" style="margin-bottom:14px">Sign in the box below with a mouse, a trackpad or your
+      finger, then press Save. That is the whole thing \u2014 it prints in the Company block of every NDA
+      from here on, and agreements already sent keep the signature they went out with.</div>
     <div class="fgrid">
       <div><label>Name as it should print <span style="color:#B91C1C">*</span></label>
         <input id="sg_name" type="text" value="${esc(x.name || SESSION.name || '')}"></div>
@@ -2276,7 +2296,8 @@ function ndaOpenSignatory(id){
     ${x.signature_data ? '<div class="muted" style="margin:4px 0 8px">On file: <img src="'
       + esc(x.signature_data) + '" alt="current signature" style="height:38px;vertical-align:middle;max-width:220px;object-fit:contain">'
       + ' — draw or upload below to replace it.</div>' : ''}
-    <canvas id="sg_pad" style="width:100%;height:130px;border:1px dashed #94A3B8;border-radius:10px;background:#fff;touch-action:none"></canvas>
+    <canvas id="sg_pad" style="width:100%;height:190px;border:2px dashed #94A3B8;border-radius:10px;background:#fff;touch-action:none;cursor:crosshair"></canvas>
+    <div class="muted" style="margin-top:4px">Sign above the line, as you would on paper.</div>
     <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <button class="btn ghost sm" onclick="ndaClearSigPad()">Clear</button>
       <label class="btn ghost sm" style="cursor:pointer;margin:0">Upload an image
