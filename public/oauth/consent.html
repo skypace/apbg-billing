@@ -23,7 +23,12 @@
   project login can approve a client for their own account, but tokens for
   non-allowlisted users are rejected by the protected endpoints.
 -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- PINNED deliberately. A floating `@2` tag re-resolves on jsDelivr, so this
+     page's behaviour used to change with no deploy here — including whether the
+     SDK redirects the browser itself after approveAuthorization (a newer
+     addition). An auth handshake must not silently change shape underneath us;
+     bump this on purpose, and re-test a real connector afterwards. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.min.js"></script>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -131,8 +136,21 @@
     return;
   }
 
+  // ⚠ The key supabase-js actually returns is `redirect_url` — NOT `redirect_to`.
+  // Getting this wrong is invisible and total: approveAuthorization SUCCEEDS (the
+  // consent row is written), so the page looks fine, but the authorization CODE
+  // never reaches the client's callback. The client then waits for a redirect that
+  // will never come and eventually reports a timeout, which reads as "auth is slow"
+  // rather than "the page dropped the code on the floor". Live evidence on
+  // 2026-08-28: 44 dynamically-registered Claude clients and 22 granted consents on
+  // this authorization server, and ZERO rows in auth.sessions with an oauth_client_id
+  // — i.e. not one token had ever been issued.
+  // Every spelling is accepted so a future SDK rename degrades to a working page.
   function redirectTo(data) {
-    var url = data && (data.redirect_to || data.redirectTo || (data.data && (data.data.redirect_to || data.data.redirectTo)));
+    var d = data || {};
+    var inner = d.data || {};
+    var url = d.redirect_url || d.redirectUrl || d.redirect_to || d.redirectTo ||
+              inner.redirect_url || inner.redirectUrl || inner.redirect_to || inner.redirectTo;
     if (url) { location.href = url; return true; }
     return false;
   }
@@ -168,8 +186,13 @@
       if (res.error) { fail(res.error.message); el('approve').disabled = false; el('deny').disabled = false; return; }
       if (!redirectTo(res.data)) {
         show('done');
+        // On approve, landing here means we recorded the consent but found no
+        // redirect URL to hand the authorization code back with — so the
+        // connecting application got NOTHING and will sit there until it times
+        // out. Say that, instead of "you can close this tab": a false all-clear
+        // is what made this failure take three weeks to notice.
         el('done').textContent = action === 'approve'
-          ? 'Access approved. You can close this tab and return to the application.'
+          ? 'Access was approved, but this page could not hand the authorization back to the application — so it will not finish connecting. Close this tab, start the connection again, and if it happens twice tell the APBG admin (the consent page got no redirect URL).'
           : 'Access denied. You can close this tab.';
       }
     }).catch(function (e) { fail(e && e.message ? e.message : String(e)); el('approve').disabled = false; el('deny').disabled = false; });
