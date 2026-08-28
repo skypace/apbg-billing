@@ -31,6 +31,7 @@ import {
   clampLinkTtl, clampLinkRate, pickServices,
 } from './lib/nda-lib.mjs';
 import { renderNdaHtml } from './lib/nda-doc.mjs';
+import { describeImageProblem } from './lib/nda-image.mjs';
 import { NDA_V1, SHIPPED, FLAVOURS, DEFAULT_CODE } from './lib/nda/index.mjs';
 
 const STAFF = ['superadmin', 'admin'];
@@ -372,12 +373,14 @@ export default async (req) => {
       // A data URL and nothing else. This ends up embedded in a PDF and in the
       // executed document — a remote URL would be a live dependency inside a
       // legal record, and something arbitrary would be an injection.
-      if (sig && !/^data:image\/(png|jpe?g);base64,[A-Za-z0-9+/=]+$/.test(sig)) {
-        return json(400, { error: 'That signature image was not readable. Draw it again or upload a PNG or JPEG.' });
-      }
       if (sig && sig.length > 400_000) {
         return json(400, { error: 'That signature image is too large. Draw it on screen, or upload something under about 250 KB.' });
       }
+      // Structural check, not just a prefix match: a malformed PNG stored here
+      // would be embedded into every future agreement's PDF, and pdf-lib hangs
+      // forever on some of them. Catch it at the one point a human can fix it.
+      const sigProblem = describeImageProblem(sig || null);
+      if (sigProblem) return json(400, { error: sigProblem });
       const patch = {
         name,
         title: clean(body.title, 120) || null,
