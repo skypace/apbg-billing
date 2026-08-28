@@ -877,6 +877,20 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
     <div class="section noprint">
       <div class="toolbar">
+        <h2 style="margin:0">Signatures</h2>
+        <div><button class="btn ghost sm" onclick="ndaOpenSignatory('')">+ Add a signature</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:10px">Who signs on behalf of the company, and their
+        signature. It is printed in the Company block of the executed PDF and snapshotted onto each
+        agreement when it goes out, so changing yours never alters a document somebody already signed.</div>
+      <div class="twrap"><table class="grid" id="ndaSigTable">
+        <thead><tr><th>Name</th><th>Login</th><th>Signature</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
         <h2 style="margin:0">Sender links <span class="sub" id="ndaLinkCount"></span></h2>
         <div><button class="btn ghost sm" onclick="ndaOpenLink()">+ Issue a link</button></div>
       </div>
@@ -1622,6 +1636,7 @@ async function reloadAll(){
     loadVisitors();
     ndaLoad();
     ndaLoadLinks();
+    ndaLoadSignatories();
     return;
   }
   applyEmployeeMode();
@@ -2106,7 +2121,7 @@ document.getElementById('visQ').addEventListener('input', e => renderVisitors(e.
 // Staff side of the electronic NDA. Everything goes through /api/nda-admin with
 // the signed-in staff bearer; the signing page itself is public and token-gated.
 const NDA_API = '/billing/api/nda-admin';
-let NDAS = [], NDA_META = { entity_types: [], service_options: [] };
+let NDAS = [], NDA_META = { entity_types: [], service_options: [], flavours: [] };
 const NDA_STATUS = {
   sent:     ['info', 'Sent'],
   viewed:   ['warn', 'Opened, not signed'],
@@ -2137,7 +2152,8 @@ async function ndaLoad(){
   try{
     const d = await ndaCall({ action: 'list' });
     NDAS = d.agreements || [];
-    NDA_META = { entity_types: d.entity_types || [], service_options: d.service_options || [] };
+    NDA_META = { entity_types: d.entity_types || [], service_options: d.service_options || [],
+                 flavours: d.flavours || [] };
     const c = d.counts || {};
     document.getElementById('ndaCounts').textContent =
       NDAS.length ? [
@@ -2188,6 +2204,158 @@ function ndaPanel(title, html){
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ── Who signs for us ────────────────────────────────────────────────────────
+// One-way or mutual, and whose signature goes on it. Both are snapshotted onto
+// the agreement server-side at send time, so neither can change under a
+// document somebody has already signed.
+let NDA_SIGNATORIES = [];
+
+function ndaFlavourOptions(){
+  return (NDA_META.flavours || []).map(f =>
+    '<option value="' + esc(f.code) + '">' + esc(f.label) + '</option>').join('');
+}
+function ndaFlavourHint(){
+  const sel = document.getElementById('nd_flavour');
+  const f = (NDA_META.flavours || []).find(x => x.code === (sel && sel.value));
+  const el = document.getElementById('nd_flavour_hint');
+  if(el) el.textContent = f ? f.hint : '';
+}
+function ndaSignatoryOptions(){
+  const live = NDA_SIGNATORIES.filter(x => x.active);
+  if(!live.length) return '<option value="">— nobody on file yet —</option>';
+  const mine = live.find(x => (x.email || '').toLowerCase() === (SESSION.email || '').toLowerCase());
+  return live.map(x => '<option value="' + esc(x.id) + '"' + (mine && mine.id === x.id ? ' selected' : '') + '>'
+    + esc(x.name) + (x.title ? ' — ' + esc(x.title) : '')
+    + (x.signature_data ? '' : ' (no signature yet)') + '</option>').join('');
+}
+
+async function ndaLoadSignatories(){
+  const tb = document.querySelector('#ndaSigTable tbody');
+  try{
+    const d = await ndaCall({ action: 'signatories' });
+    NDA_SIGNATORIES = d.signatories || [];
+    if(!NDA_SIGNATORIES.length){
+      tb.innerHTML = '<tr><td colspan="4" class="muted">Nobody on file. Until somebody adds a signature, '
+        + 'our side of the agreement prints as a typed name over an empty rule \u2014 which is exactly what '
+        + 'we ask the other party not to do.</td></tr>';
+      return;
+    }
+    tb.innerHTML = NDA_SIGNATORIES.map(x =>
+      '<tr' + (x.active ? '' : ' class="arch"') + '>' +
+      '<td><strong>' + esc(x.name) + '</strong>' + (x.title ? '<div class="muted">' + esc(x.title) + '</div>' : '') + '</td>' +
+      '<td>' + esc(x.email || '—') + '</td>' +
+      '<td>' + (x.signature_data
+        ? '<img src="' + esc(x.signature_data) + '" alt="signature" style="height:34px;max-width:190px;object-fit:contain">'
+        : '<span class="chip warn">None on file</span>') + '</td>' +
+      '<td class="noprint"><button class="actbtn" data-nda="sigedit" data-id="' + esc(x.id) + '">Edit</button></td>' +
+      '</tr>').join('');
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="4" class="muted">Could not load signatures (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+// A signature pad, same one the counterparty signs on — plus an upload, since
+// a scan of a real wet signature is often what an officer actually wants.
+let SIGPAD = null, SIGCTX = null, SIGDREW = 0, SIGUPLOAD = null;
+function ndaOpenSignatory(id){
+  const x = NDA_SIGNATORIES.find(v => v.id === id) || {};
+  SIGDREW = 0; SIGUPLOAD = null;
+  ndaPanel(id ? 'Signature — ' + (x.name || '') : 'Add a signature', `
+    <div class="prose" style="margin-bottom:14px">This is printed in the Company block of every NDA sent
+      from here on. Agreements already sent keep the signature they went out with.</div>
+    <div class="fgrid">
+      <div><label>Name as it should print <span style="color:#B91C1C">*</span></label>
+        <input id="sg_name" type="text" value="${esc(x.name || SESSION.name || '')}"></div>
+      <div><label>Title</label><input id="sg_title" type="text" value="${esc(x.title || '')}"
+        placeholder="e.g. President"></div>
+      <div class="full"><label>Their login email</label>
+        <input id="sg_email" type="email" value="${esc(x.email || SESSION.email || '')}"
+          placeholder="So it is picked automatically when they send"></div>
+    </div>
+    <label style="display:block;margin-top:14px">Signature</label>
+    ${x.signature_data ? '<div class="muted" style="margin:4px 0 8px">On file: <img src="'
+      + esc(x.signature_data) + '" alt="current signature" style="height:38px;vertical-align:middle;max-width:220px;object-fit:contain">'
+      + ' — draw or upload below to replace it.</div>' : ''}
+    <canvas id="sg_pad" style="width:100%;height:130px;border:1px dashed #94A3B8;border-radius:10px;background:#fff;touch-action:none"></canvas>
+    <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn ghost sm" onclick="ndaClearSigPad()">Clear</button>
+      <label class="btn ghost sm" style="cursor:pointer;margin:0">Upload an image
+        <input type="file" accept="image/png,image/jpeg" style="display:none" onchange="ndaSigUpload(this)"></label>
+      <span class="muted" id="sg_upmsg"></span>
+    </div>
+    <div class="err" id="sg_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="sg_go" onclick="ndaSaveSignatory('${esc(id || '')}')">Save</button>
+      ${id ? '<label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">'
+        + '<input type="checkbox" id="sg_inactive"' + (x.active ? '' : ' checked') + '> Retired \u2014 do not offer this one</label>' : ''}
+    </div>`);
+  ndaInitSigPad();
+}
+
+function ndaInitSigPad(){
+  SIGPAD = document.getElementById('sg_pad'); if(!SIGPAD) return;
+  const r = SIGPAD.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  SIGPAD.width = Math.round(r.width * dpr); SIGPAD.height = Math.round(r.height * dpr);
+  SIGCTX = SIGPAD.getContext('2d');
+  SIGCTX.scale(dpr, dpr);
+  SIGCTX.lineWidth = 2.2; SIGCTX.lineCap = 'round'; SIGCTX.lineJoin = 'round'; SIGCTX.strokeStyle = '#0F172A';
+  let drawing = false;
+  const pos = (e) => { const b = SIGPAD.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - b.left, y: p.clientY - b.top }; };
+  const start = (e) => { e.preventDefault(); drawing = true; const p = pos(e); SIGCTX.beginPath(); SIGCTX.moveTo(p.x, p.y); };
+  const move = (e) => { if(!drawing) return; e.preventDefault(); const p = pos(e);
+    SIGCTX.lineTo(p.x, p.y); SIGCTX.stroke(); SIGDREW++; SIGUPLOAD = null; };
+  const end = () => { drawing = false; };
+  SIGPAD.addEventListener('mousedown', start); SIGPAD.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  SIGPAD.addEventListener('touchstart', start, { passive:false });
+  SIGPAD.addEventListener('touchmove', move, { passive:false });
+  SIGPAD.addEventListener('touchend', end);
+}
+function ndaClearSigPad(){
+  if(SIGCTX) SIGCTX.clearRect(0, 0, SIGPAD.width, SIGPAD.height);
+  SIGDREW = 0; SIGUPLOAD = null;
+  const m = document.getElementById('sg_upmsg'); if(m) m.textContent = '';
+}
+function ndaSigUpload(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const msg = document.getElementById('sg_upmsg');
+  if(f.size > 250 * 1024){ msg.textContent = 'That file is over 250 KB — crop it or draw it instead.'; input.value = ''; return; }
+  const rd = new FileReader();
+  rd.onload = () => { SIGUPLOAD = String(rd.result); SIGDREW = 0; ndaClearSigPadCanvasOnly();
+    msg.textContent = f.name + ' ready to save.'; };
+  rd.readAsDataURL(f);
+}
+function ndaClearSigPadCanvasOnly(){ if(SIGCTX) SIGCTX.clearRect(0, 0, SIGPAD.width, SIGPAD.height); }
+
+async function ndaSaveSignatory(id){
+  const e = document.getElementById('sg_err'); e.style.display = 'none';
+  const btn = document.getElementById('sg_go');
+  const val = i => (document.getElementById(i) || {}).value || '';
+  const payload = {
+    action: 'signatory_save',
+    id: id || undefined,
+    name: val('sg_name').trim(),
+    title: val('sg_title').trim(),
+    email: val('sg_email').trim(),
+    active: !(document.getElementById('sg_inactive') || {}).checked,
+  };
+  // Absent means "leave the stored signature alone" — saving a title must not
+  // wipe somebody's signature.
+  if(SIGUPLOAD) payload.signature_data = SIGUPLOAD;
+  else if(SIGDREW > 12) payload.signature_data = SIGPAD.toDataURL('image/png');
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    await ndaCall(payload);
+    await ndaLoadSignatories();
+    document.getElementById('ndaDetail').style.display = 'none';
+  }catch(err){
+    e.textContent = err.message; e.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
 // ── Send ────────────────────────────────────────────────────────────────────
 function ndaOpenSend(){
   const services = NDA_META.service_options.map(o =>
@@ -2197,6 +2365,9 @@ function ndaOpenSend(){
     <div class="prose" style="margin-bottom:14px">They fill in their own legal name, entity type and
       address — you only need who to send it to and what it covers.</div>
     <div class="fgrid">
+      <div class="full"><label>Which agreement <span style="color:#B91C1C">*</span></label>
+        <select id="nd_flavour" onchange="ndaFlavourHint()">${ndaFlavourOptions()}</select>
+        <div class="muted" id="nd_flavour_hint" style="margin-top:6px"></div></div>
       <div><label>Their company <span style="color:#B91C1C">*</span></label>
         <input id="nd_co" type="text" placeholder="e.g. Quantum J's Canning LLC"></div>
       <div><label>Email to send it to <span style="color:#B91C1C">*</span></label>
@@ -2206,9 +2377,11 @@ function ndaOpenSend(){
       <div class="full"><label>What this covers (the Purpose)</label>
         <textarea id="nd_purpose" rows="2" placeholder="e.g. Co-packing and canning of Alameda Soda 12 oz product for the 2027 season."></textarea></div>
       <div class="full"><label>Services contemplated</label><div>${services}</div></div>
-      <div><label>Signing for us <span style="color:#B91C1C">*</span></label>
-        <input id="nd_signer" type="text" value="${esc((SESSION.email || '').split('@')[0].replace(/[._]/g,' ').replace(/\b\w/g, c => c.toUpperCase()))}"></div>
-      <div><label>Their title for us</label><input id="nd_title" type="text" placeholder="e.g. Chief Executive Officer"></div>
+      <div class="full"><label>Signing for us <span style="color:#B91C1C">*</span></label>
+        <select id="nd_signatory">${ndaSignatoryOptions()}</select>
+        <div class="muted" style="margin-top:6px">${NDA_SIGNATORIES.some(x => x.signature_data)
+          ? 'Their signature is printed on the agreement.'
+          : 'No signature on file yet — add one under <b>Signatures</b> below and it prints on every NDA from then on.'}</div></div>
       <div class="full"><label>Note to include in the email</label>
         <textarea id="nd_note" rows="2" placeholder="Optional — a line of context for the recipient."></textarea></div>
     </div>
@@ -2230,7 +2403,8 @@ function ndaErr(msg){
 async function ndaSend(){
   ndaErr('');
   const btn = document.getElementById('nd_send');
-  const val = id => (document.getElementById(id).value || '').trim();
+  // Null-safe: some fields only render in one branch of the form.
+  const val = id => ((document.getElementById(id) || {}).value || '').trim();
   const services = Array.from(document.querySelectorAll('.ndaSvc:checked')).map(c => c.value);
   btn.disabled = true; btn.textContent = 'Sending…';
   try{
@@ -2241,8 +2415,8 @@ async function ndaSend(){
       recipient_contact: val('nd_contact'),
       purpose_scope: val('nd_purpose'),
       services,
-      company_signer_name: val('nd_signer'),
-      company_signer_title: val('nd_title'),
+      company_signatory_id: val('nd_signatory'),
+      template_code: val('nd_flavour'),
       note: val('nd_note'),
       expires_days: parseInt(val('nd_days'), 10) || 30,
       send_email: !document.getElementById('nd_noemail').checked,
@@ -2323,11 +2497,22 @@ async function ndaLoadLinks(){
   }
 }
 
+function ndaLinkSignerHint(){
+  const sel = document.getElementById('nk_signatory');
+  const x = NDA_SIGNATORIES.find(v => v.id === (sel && sel.value));
+  const el = document.getElementById('nk_signer_lbl');
+  if(el && x) el.textContent = x.name;
+}
+
 function ndaOpenLink(){
   // Two boxes. Everything else has a default and lives under "More options" —
   // a form with eight blanks is a form nobody fills in, and the only two facts
   // that genuinely have to be typed are whose link it is and where to send it.
   const me = esc(SESSION.name || '');
+  const live = NDA_SIGNATORIES.filter(x => x.active);
+  const hasSigs = live.length > 0;
+  const defaultSig = live.find(x => (x.email || '').toLowerCase() === (SESSION.email || '').toLowerCase())
+    || live[0] || { name: '' };
   ndaPanel('Issue a sender link', `
     <div class="prose" style="margin-bottom:14px">
       <b>This link is a key.</b> Anyone holding it can send email in our name, so it goes to one named
@@ -2341,14 +2526,23 @@ function ndaOpenLink(){
         <input id="nk_email" type="email" placeholder="Where the link goes"></div>
     </div>
     <div class="muted" style="margin-top:10px">We email them the link. Good for 90 days, up to 5 NDAs a
-      day, countersigned by <b id="nk_signer_lbl">${me || 'you — add your name below'}</b>.</div>
+      day, countersigned by <b id="nk_signer_lbl">${hasSigs ? esc(defaultSig.name) : (me || 'you — add your name below')}</b>.</div>
     <details style="margin-top:12px">
       <summary style="cursor:pointer;font-weight:600">More options</summary>
       <div class="fgrid" style="margin-top:12px">
-        <div><label>NDAs countersigned by</label>
-          <input id="nk_signer" type="text" value="${me}" placeholder="Your full name"
-            oninput="document.getElementById('nk_signer_lbl').textContent=this.value||'—'"></div>
-        <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. President"></div>
+        <div class="full"><label>Which agreement they may send</label>
+          <select id="nk_template">
+            <option value="">Let them choose — one-way or mutual</option>
+            ${(NDA_META.flavours || []).map(f =>
+              '<option value="' + esc(f.code) + '">Only ' + esc(f.label) + '</option>').join('')}
+          </select></div>
+        ${hasSigs
+          ? `<div class="full"><label>NDAs countersigned by</label>
+               <select id="nk_signatory" onchange="ndaLinkSignerHint()">${ndaSignatoryOptions()}</select></div>`
+          : `<div><label>NDAs countersigned by</label>
+               <input id="nk_signer" type="text" value="${me}" placeholder="Your full name"
+                 oninput="document.getElementById('nk_signer_lbl').textContent=this.value||'—'"></div>
+             <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. President"></div>`}
         <div><label>What it's for</label>
           <input id="nk_label" type="text" placeholder="Defaults to their name"></div>
         <div><label>Good for (days)</label><input id="nk_days" type="number" value="90" min="1" max="365"></div>
@@ -2369,7 +2563,8 @@ async function ndaIssueLink(){
   const e = document.getElementById('nk_err');
   e.style.display = 'none';
   const btn = document.getElementById('nk_go');
-  const val = id => (document.getElementById(id).value || '').trim();
+  // Null-safe: some fields only render in one branch of the form.
+  const val = id => ((document.getElementById(id) || {}).value || '').trim();
   btn.disabled = true; btn.textContent = 'Issuing…';
   try{
     const d = await ndaCall({
@@ -2377,8 +2572,10 @@ async function ndaIssueLink(){
       person_name: val('nk_person'),
       person_email: val('nk_email'),
       label: val('nk_label'),
+      company_signatory_id: val('nk_signatory'),
       company_signer_name: val('nk_signer'),
       company_signer_title: val('nk_title'),
+      template_code: val('nk_template'),
       default_purpose: val('nk_purpose'),
       expires_days: parseInt(val('nk_days'), 10) || 90,
       max_per_day: parseInt(val('nk_max'), 10) || 5,
@@ -2520,6 +2717,7 @@ document.addEventListener('click', async (e) => {
       await ndaOpen(id);
       return;
     }
+    if(kind === 'sigedit') return void ndaOpenSignatory(id);
     if(kind === 'linkresend'){
       const l = NDA_LINKS.find(x => x.id === id) || {};
       // Says the cost out loud: the old link stops working. That is the point

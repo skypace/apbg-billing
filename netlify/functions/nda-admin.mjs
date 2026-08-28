@@ -26,12 +26,12 @@
 import { requireAuth } from './lib/auth.mjs';
 import { sendEmail } from './email-helpers.mjs';
 import {
-  ops, newToken, hashToken, linkFor, senderLinkFor, loadLog, clean,
+  NDA_FROM, ops, newToken, hashToken, linkFor, senderLinkFor, loadLog, clean,
   DEFAULT_TTL_DAYS, ENTITY_TYPES, SERVICE_OPTIONS, inviteEmail, senderLinkEmail,
   clampLinkTtl, clampLinkRate, pickServices,
 } from './lib/nda-lib.mjs';
 import { renderNdaHtml } from './lib/nda-doc.mjs';
-import { NDA_V1 } from './lib/nda/nda-v1.mjs';
+import { NDA_V1, SHIPPED, FLAVOURS, DEFAULT_CODE } from './lib/nda/index.mjs';
 
 const STAFF = ['superadmin', 'admin'];
 const CORS = {
@@ -58,22 +58,59 @@ const SAFE_COLS = 'id,agreement_number,status,template_code,template_version,tit
  * fresh environment must never be able to send an empty or improvised NDA.
  */
 async function activeTemplate(code) {
-  const want = code || NDA_V1.code;
+  const want = code || DEFAULT_CODE;
   const rows = await ops('GET',
     `nda_templates?select=*&active=is.true&code=eq.${encodeURIComponent(want)}&order=created_at.desc&limit=1`);
   if (rows && rows[0]) return rows[0];
-  if (want !== NDA_V1.code) return null;
+  const shipped = SHIPPED[want];
+  if (!shipped) return null;
   const seeded = await ops('POST', 'nda_templates', {
-    code: NDA_V1.code,
-    version: NDA_V1.version,
-    title: NDA_V1.title,
-    subtitle: NDA_V1.subtitle,
-    body_source: NDA_V1.body_source,
-    notes: NDA_V1.notes,
+    code: shipped.code,
+    version: shipped.version,
+    title: shipped.title,
+    subtitle: shipped.subtitle,
+    body_source: shipped.body_source,
+    notes: shipped.notes,
+    mutual: !!shipped.mutual,
     active: true,
     created_by: 'system (shipped template)',
   }, { Prefer: 'return=representation,resolution=merge-duplicates' });
   return (seeded && seeded[0]) || null;
+}
+
+/** Seed every shipped agreement, so the picker is never a list of one. */
+async function seedAllTemplates() {
+  for (const code of Object.keys(SHIPPED)) await activeTemplate(code).catch(() => null);
+}
+
+/**
+ * Resolve who countersigns, and pick up their stored signature.
+ *
+ * The signature is SNAPSHOTTED onto the agreement by the caller, exactly like
+ * body_source: re-drawing your signature later must not change a document
+ * somebody has already signed.
+ *
+ * Falls back to a name with no signature rather than refusing — an agreement
+ * with a typed company name is what we sent for months and is still valid; one
+ * that never went out because a PNG was missing helps nobody.
+ */
+async function resolveSignatory({ id, email, name, title }) {
+  let row = null;
+  if (id) {
+    const rows = await ops('GET', `nda_signatories?select=*&id=eq.${encodeURIComponent(id)}&limit=1`);
+    row = (rows && rows[0]) || null;
+  }
+  if (!row && email) {
+    const rows = await ops('GET',
+      `nda_signatories?select=*&active=is.true&email=eq.${encodeURIComponent(String(email).toLowerCase())}&limit=1`);
+    row = (rows && rows[0]) || null;
+  }
+  return {
+    id: row?.id || null,
+    name: clean(name, 120) || row?.name || '',
+    title: clean(title, 120) || row?.title || null,
+    signature: row?.signature_data || null,
+  };
 }
 
 export default async (req) => {
@@ -94,11 +131,11 @@ export default async (req) => {
     if (action === 'list') {
       const rows = await ops('GET', `nda_agreements?select=${SAFE_COLS}&order=created_at.desc&limit=300`) || [];
       const counts = rows.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
-      await activeTemplate().catch(() => null);   // first-run seed of the shipped text
+      await seedAllTemplates();   // first-run seed of every shipped agreement
       const templates = await ops('GET', 'nda_templates?select=id,code,version,title,subtitle,active&order=code,version') || [];
       return json(200, {
         ok: true, agreements: rows, counts, templates,
-        entity_types: ENTITY_TYPES, service_options: SERVICE_OPTIONS,
+        entity_types: ENTITY_TYPES, service_options: SERVICE_OPTIONS, flavours: FLAVOURS,
       });
     }
 
@@ -124,8 +161,14 @@ export default async (req) => {
       const tpl = await activeTemplate(clean(body.template_code, 60));
       if (!tpl) return json(400, { error: 'No active NDA template found. Add one under Template first.' });
 
-      const companySigner = clean(body.company_signer_name, 120);
-      if (!companySigner) return json(400, { error: 'Enter who is signing for Alameda Point Beverage Group.' });
+      const signatory = await resolveSignatory({
+        id: clean(body.company_signatory_id, 40),
+        email: body.company_signatory_id ? null : actor,
+        name: body.company_signer_name,
+        title: body.company_signer_title,
+      });
+      if (!signatory.name) return json(400, { error: 'Enter who is signing for Alameda Point Beverage Group.' });
+      const companySigner = signatory.name;
 
       const services = Array.isArray(body.services)
         ? body.services.map((s) => clean(s, 60)).filter((s) => SERVICE_OPTIONS.includes(s)).slice(0, 12)
@@ -153,8 +196,12 @@ export default async (req) => {
         purpose_scope: clean(body.purpose_scope, 1000) || null,
         services,
         company_signer_name: companySigner,
-        company_signer_title: clean(body.company_signer_title, 120) || null,
+        company_signer_title: signatory.title,
         company_signed_at: new Date().toISOString(),
+        // Snapshot, same rule as body_source above.
+        company_signature_data: signatory.signature,
+        company_signatory_id: signatory.id,
+        mutual: !!tpl.mutual,
         token_hash: hashToken(raw),
         expires_at: new Date(Date.now() + ttlDays * 86_400_000).toISOString(),
         sent_to: recipient_email,
@@ -168,6 +215,7 @@ export default async (req) => {
       if (body.send_email !== false) {
         try {
           await sendEmail({
+            from: NDA_FROM,
             to: recipient_email,
             subject: `Please sign our confidentiality agreement — ${a.agreement_number}`,
             html: inviteEmail({ a, link, note: clean(body.note, 600), ttlDays }),
@@ -308,6 +356,47 @@ export default async (req) => {
       return json(200, { ok: true, links: rows, service_options: SERVICE_OPTIONS });
     }
 
+    // ── signatories ─────────────────────────────────────────────────────────
+    // Who signs for us, and their signature, drawn or uploaded once.
+    if (action === 'signatories') {
+      const rows = await ops('GET',
+        'nda_signatories?select=*&order=active.desc,name&limit=100') || [];
+      return json(200, { ok: true, signatories: rows, me: actor, my_name: staffName });
+    }
+
+    if (action === 'signatory_save') {
+      const id = clean(body.id, 40);
+      const name = clean(body.name, 120);
+      if (!name) return json(400, { error: 'A signature needs the name it signs under.' });
+      const sig = typeof body.signature_data === 'string' ? body.signature_data.trim() : '';
+      // A data URL and nothing else. This ends up embedded in a PDF and in the
+      // executed document — a remote URL would be a live dependency inside a
+      // legal record, and something arbitrary would be an injection.
+      if (sig && !/^data:image\/(png|jpe?g);base64,[A-Za-z0-9+/=]+$/.test(sig)) {
+        return json(400, { error: 'That signature image was not readable. Draw it again or upload a PNG or JPEG.' });
+      }
+      if (sig && sig.length > 400_000) {
+        return json(400, { error: 'That signature image is too large. Draw it on screen, or upload something under about 250 KB.' });
+      }
+      const patch = {
+        name,
+        title: clean(body.title, 120) || null,
+        email: clean(body.email, 200).toLowerCase() || null,
+        active: body.active === false ? false : true,
+        notes: clean(body.notes, 500) || null,
+      };
+      // Absent means "leave it alone" — saving a title must not wipe a
+      // signature. An explicit empty string clears it.
+      if (body.signature_data !== undefined) patch.signature_data = sig || null;
+
+      const saved = id
+        ? await ops('PATCH', `nda_signatories?id=eq.${id}`, patch, { Prefer: 'return=representation' })
+        : await ops('POST', 'nda_signatories', { ...patch, created_by: actor }, { Prefer: 'return=representation' });
+      // Agreements already sent keep the signature they went out with — that is
+      // the snapshot doing its job, not a bug to fix here.
+      return json(200, { ok: true, signatory: saved[0] });
+    }
+
     if (action === 'link_create') {
       // A name and an email are the whole of it. Everything else has a sane
       // default, because a form with eight boxes is a form nobody fills in —
@@ -325,7 +414,13 @@ export default async (req) => {
       // Never derived from an email address: this name is printed on executed
       // agreements as the officer who signed them, and "Skypace" is not a
       // signature. With no name on file the issuer is asked for one.
-      const company_signer_name = clean(body.company_signer_name, 120) || staffName;
+      const signatory = await resolveSignatory({
+        id: clean(body.company_signatory_id, 40),
+        email: body.company_signatory_id ? null : actor,
+        name: body.company_signer_name,
+        title: body.company_signer_title,
+      });
+      const company_signer_name = signatory.name || staffName;
       if (!company_signer_name) {
         return json(400, { error: 'Enter who these NDAs are countersigned by — it is printed on every one they send. The holder dispatches the document, they do not sign for us.' });
       }
@@ -337,7 +432,10 @@ export default async (req) => {
       const created = await ops('POST', 'nda_sender_links', {
         label, person_name, person_email,
         company_signer_name,
-        company_signer_title: clean(body.company_signer_title, 120) || null,
+        company_signer_title: signatory.title,
+        company_signatory_id: signatory.id,
+        // Null = the delegate picks one-way or mutual; set = pinned to that one.
+        template_code: SHIPPED[clean(body.template_code, 60)] ? clean(body.template_code, 60) : null,
         default_purpose: clean(body.default_purpose, 1000) || null,
         default_services: services,
         token_hash: hashToken(raw),
@@ -352,6 +450,7 @@ export default async (req) => {
       if (body.send_email !== false) {
         try {
           await sendEmail({
+            from: NDA_FROM,
             to: person_email,
             subject: 'Your link for sending Brix NDAs',
             html: senderLinkEmail({ link: created[0], url: sendLink, ttlDays }),
@@ -390,6 +489,7 @@ export default async (req) => {
       if (body.send_email !== false) {
         try {
           await sendEmail({
+            from: NDA_FROM,
             to: l.person_email,
             subject: 'Your link for sending Brix NDAs',
             html: senderLinkEmail({ link: updated[0], url: sendLink, ttlDays, resent: true }),

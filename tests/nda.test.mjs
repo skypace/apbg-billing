@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
 import {
   parseRuns, parseNdaSource, renderNdaHtml, longDate, recipientDescriptor,
+  isMutual, partyLabels,
 } from '../netlify/functions/lib/nda-doc.mjs';
 import { wrapRuns, renderNdaPdf } from '../netlify/functions/lib/nda-pdf.mjs';
 import {
@@ -21,7 +22,10 @@ import {
   linkUnusable, pickServices, clampLinkTtl, clampLinkRate,
   LINK_TTL_DAYS, LINK_MAX_PER_DAY,
 } from '../netlify/functions/lib/nda-lib.mjs';
-import { NDA_V1 } from '../netlify/functions/lib/nda/nda-v1.mjs';
+import { NDA_V1, MNDA_V1 } from '../netlify/functions/lib/nda/index.mjs';
+
+// A real 1x1 PNG — pdf-lib refuses anything that is not one.
+const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 /**
  * Read the text back out of a generated PDF.
@@ -317,4 +321,86 @@ test('a sender token is never stored in a form that could mint a link', () => {
   assert.match(stored, /^[0-9a-f]{64}$/);
   assert.ok(!stored.includes(raw.slice(0, 12)),
     'reading the row gives you the hash, never the link');
+});
+
+// ── mutual agreements and our own signature ─────────────────────────────────
+//
+// Two things that have to be right on paper: an agreement that binds both
+// sides must SAY so throughout, and our signature must behave like the
+// counterparty's — captured once, snapshotted onto the document, and frozen
+// there afterwards.
+
+test('a mutual agreement names both parties as Discloser and Recipient', () => {
+  const a = { ...base, mutual: true, body_source: '[PARTIES]\n\n[SIGNATURES]' };
+  const html = renderNdaHtml(a, { log: [] });
+  assert.match(html, /Mutual Confidentiality and Non-Disclosure Agreement/);
+  assert.match(html, /"Brix"/, 'we are not "Company" when both sides disclose');
+  assert.match(html, /"Counterparty"/, 'and they are not merely "Recipient"');
+  assert.match(html, /act as Discloser and as Recipient/);
+  assert.ok(html.includes('>COUNTERPARTY<'), 'the signature block says so too');
+});
+
+test('a one-way agreement is untouched by the mutual work', () => {
+  const html = renderNdaHtml({ ...base, body_source: '[PARTIES]\n\n[SIGNATURES]' }, { log: [] });
+  assert.match(html, /"Company"/);
+  assert.match(html, /"Recipient"/);
+  assert.ok(!/Mutual Confidentiality/.test(html));
+  assert.ok(!/act as Discloser/.test(html));
+  assert.ok(html.includes('>RECIPIENT<'));
+});
+
+test('mutual is read from the agreement, never guessed from the template code', () => {
+  // A template that is later renamed or re-coded must not change how an
+  // executed agreement reads — so the flag travels ON the agreement.
+  assert.equal(isMutual({ template_code: 'mutual-nda' }), false,
+    'a mutual-sounding code alone does not make an agreement mutual');
+  assert.equal(isMutual({ mutual: true, template_code: 'anything' }), true);
+  assert.equal(isMutual(null), false);
+  assert.equal(partyLabels({ mutual: true }).themHeading, 'COUNTERPARTY');
+  assert.equal(partyLabels({}).themHeading, 'RECIPIENT');
+});
+
+test('the shipped MNDA is a complete, mutual agreement', () => {
+  assert.equal(MNDA_V1.mutual, true);
+  assert.notEqual(MNDA_V1.code, NDA_V1.code, 'it is a separate template, not a variant of the same one');
+  const b = MNDA_V1.body_source;
+  assert.equal((b.match(/^\d+\. \*\*/gm) || []).length, 21, 'all 21 sections survived the rewrite');
+  for (const marker of ['[PARTIES]', '[SIGNATURES]', '[EXHIBIT_A]']) assert.ok(b.includes(marker));
+  // The ESIGN section is what makes signing on screen hold up — it must not
+  // have been lost in the adaptation.
+  assert.match(b, /Electronic Signature and Records/);
+  assert.match(b, /ESIGN Act and the California Uniform Electronic Transactions Act/);
+  // The two deliberate departures from the one-way text.
+  assert.match(b, /nothing in this Section restricts either Party from independently developing/i,
+    'the no-competing-use covenant is scoped, not a blanket ban both sides could never accept');
+  assert.ok(!/hereby assigns to Company all right, title/.test(b),
+    'the one-way Work Product assignment is gone — mutual, it would assign our work to them');
+});
+
+test('our signature is snapshotted onto the document, not looked up later', async () => {
+  const sig = 'data:image/png;base64,' + PNG_1PX;
+  const html = renderNdaHtml({ ...base, company_signature_data: sig }, { log: [] });
+  assert.ok(html.includes(sig), 'the executed HTML carries the signature it went out with');
+
+  // A caller-supplied signature must never override what the agreement stored:
+  // that is the difference between a record and a re-render.
+  const other = 'data:image/png;base64,SOMETHINGELSE';
+  const html2 = renderNdaHtml({ ...base, company_signature_data: sig }, { log: [], companySignature: other });
+  assert.ok(html2.includes(sig) && !html2.includes(other));
+});
+
+test('a signed PDF carries our signature as an embedded image', async () => {
+  const bytes = await renderNdaPdf(
+    { ...signed, company_signature_data: 'data:image/png;base64,' + PNG_1PX }, { log: [] });
+  // Two brand marks in the letterhead + the recipient's signature + ours.
+  assert.ok(bytes.length > 20000);
+  const text = pdfText(bytes);
+  assert.match(text, /Sky Pace/, 'and still names who signed');
+});
+
+test('both brand marks are on the executed PDF', async () => {
+  const bytes = await renderNdaPdf(signed, { log: [] });
+  const raw = Buffer.from(bytes).toString('latin1');
+  const images = (raw.match(/\/Subtype\s*\/Image/g) || []).length;
+  assert.ok(images >= 2, `expected at least the two logos, found ${images} images`);
 });

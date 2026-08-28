@@ -12,7 +12,8 @@
 // Exhibit A table are done here by hand.
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { parseNdaSource, longDate, COMPANY, recipientDescriptor } from './nda-doc.mjs';
+import { parseNdaSource, longDate, COMPANY, recipientDescriptor, isMutual, partyLabels } from './nda-doc.mjs';
+import { BRIX_LOGO_PNG, ALAMEDA_LOGO_PNG, logoBytes } from './nda/nda-logos.mjs';
 
 const PAGE_W = 612, PAGE_H = 792;
 const M_L = 72, M_R = 72, M_T = 72, M_B = 64;
@@ -153,6 +154,29 @@ export async function renderNdaPdf(a, { log = [], companySignature = null } = {}
   };
   const doc = new Doc(pdf, fonts, a);
 
+  // ── Letterhead ───────────────────────────────────────────────────────────
+  // Both marks, because the company that signs this trades as both brands.
+  // Best-effort: an agreement without its letterhead is still the agreement,
+  // and losing one over an image would be absurd.
+  try {
+    const marks = [];
+    for (const b64 of [BRIX_LOGO_PNG, ALAMEDA_LOGO_PNG]) {
+      const bytes = logoBytes(b64);
+      if (bytes) marks.push(await pdf.embedPng(bytes));
+    }
+    if (marks.length) {
+      const H = 34, GAPX = 16;
+      const widths = marks.map((m) => (m.width / m.height) * H);
+      const total = widths.reduce((t, w) => t + w, 0) + GAPX * (marks.length - 1);
+      let x = M_L + (doc.width - total) / 2;
+      marks.forEach((m, i) => {
+        doc.page.drawImage(m, { x, y: doc.y - H, width: widths[i], height: H });
+        x += widths[i] + GAPX;
+      });
+      doc.y -= H + 14;
+    }
+  } catch { /* letterhead is decoration; the document is the point */ }
+
   // ── Title ────────────────────────────────────────────────────────────────
   doc.text(a.title || 'CONFIDENTIALITY AND NON-DISCLOSURE AGREEMENT', { size: 13.5, bold: true, align: 'center' });
   doc.y -= 16;
@@ -162,6 +186,7 @@ export async function renderNdaPdf(a, { log = [], companySignature = null } = {}
 
   const blocks = parseNdaSource(a.body_source);
   const recipientName = a.recipient_legal_name || a.recipient_company || '';
+  const L = partyLabels(a);
 
   for (const b of blocks) {
     switch (b.type) {
@@ -172,20 +197,23 @@ export async function renderNdaPdf(a, { log = [], companySignature = null } = {}
         doc.y -= 18;
         break;
       case 'parties': {
-        doc.runs([{ text: `This Confidentiality and Non-Disclosure Agreement (this "Agreement") is entered into as of ` },
+        const kind = isMutual(a) ? 'Mutual Confidentiality and Non-Disclosure Agreement'
+                                 : 'Confidentiality and Non-Disclosure Agreement';
+        doc.runs([{ text: `This ${kind} (this "Agreement") is entered into as of ` },
                   { text: longDate(a.effective_date) || '____________________', bold: true },
                   { text: ' (the "Effective Date"), by and between:' }]);
         doc.space(4);
         doc.runs([{ text: COMPANY.legalName, bold: true },
-                  { text: `, ${COMPANY.descriptor}, with offices at ${COMPANY.address} ("Company"); and` }],
+                  { text: `, ${COMPANY.descriptor}, with offices at ${COMPANY.address} ("${L.us}"); and` }],
                  { indent: 18 });
         doc.space(4);
         const desc = recipientDescriptor(a) || '____________________';
         doc.runs([{ text: recipientName || '______________________________', bold: true },
-                  { text: `, a ${desc} with offices at ${a.recipient_address || '______________________________'} ("Recipient").` }],
+                  { text: `, a ${desc} with offices at ${a.recipient_address || '______________________________'} ("${L.them}").` }],
                  { indent: 18 });
         doc.space(4);
-        doc.para('Company and Recipient are each a "Party" and together the "Parties."');
+        doc.para(`${L.us} and ${L.them} are each a "Party" and together the "Parties."`
+          + (isMutual(a) ? ' Each Party may act as Discloser and as Recipient under this Agreement.' : ''));
         doc.space();
         break;
       }
@@ -212,12 +240,12 @@ export async function renderNdaPdf(a, { log = [], companySignature = null } = {}
         const cols = [M_L, M_L + colW + 30];
         const sigTop = doc.y;
         const recImg = await embedSignature(pdf, a.signature_data);
-        const coImg = await embedSignature(pdf, companySignature);
+        const coImg = await embedSignature(pdf, a.company_signature_data || companySignature);
         const blocks2 = [
-          { who: 'COMPANY', name: COMPANY.displayName, img: coImg,
+          { who: L.us.toUpperCase(), name: COMPANY.displayName, img: coImg,
             by: a.company_signer_name, nm: a.company_signer_name,
             title: a.company_signer_title, date: longDate(a.company_signed_at) },
-          { who: 'RECIPIENT', name: recipientName, img: recImg,
+          { who: L.themHeading, name: recipientName, img: recImg,
             by: a.typed_name, nm: a.signer_name, title: a.signer_title, date: longDate(a.signed_at) },
         ];
         let lowest = sigTop;
