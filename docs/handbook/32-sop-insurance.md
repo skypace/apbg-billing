@@ -15,14 +15,26 @@
 |---|---|---|---|---|
 | **General liability** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `PLF574240` | 08/25/2026 – 08/25/2027 | $1M each occurrence · $2M general aggregate · **$2M products–completed operations** · $1M personal & advertising injury · $500K damage to rented premises · $20K medical |
 | **Umbrella / excess** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `XSF574242` | 08/25/2026 – 08/25/2027 | **$5M each occurrence · $5M aggregate**, occurrence form |
-| ~~General liability (prior)~~ | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – 12/31/2026 | $1M each occurrence · $2M general aggregate · $2M products–completed operations · $50K damage to rented premises · $5K medical |
+| ~~General liability (cancelled 08/29/2026)~~ | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – **cancelled 08/29/2026** | Occurrence form — **still answers for anything that happened 01/01–08/29/2026** |
 | **Commercial auto** | Progressive Express (NAIC 10193) | `975506554` | 01/01/2026 – 12/31/2026 | **$2M combined single limit** · $1M UM/UIM · scheduled + hired + non-owned · $3,500 comp/collision deductible per vehicle |
 | **Workers' compensation** | AmTrust — Security National (NAIC 19879), via Embroker | `SWC1470931` | 01/01/2026 – **01/01/2027** | Per statute · employers' liability $1M / $1M / $1M · **officers included** (not excluded) |
 
-> ⚠ **Two GL policies overlap, and somebody must say which one is in force.** The Great American
-> policy incepted 08/25/2026; the Spinnaker policy runs to 12/31/2026. Either the old one was
-> cancelled at inception — in which case get the cancellation confirmation and file it — or we are
-> paying twice. Ask Ram Risk Group.
+> **Spinnaker was cancelled on 08/29/2026.** Great American is our general liability. Four things
+> follow from a mid-term cancellation, and none of them happens by itself:
+>
+> 1. **Certificates issued under the old policy are void going forward**, and any additional-insured
+>    or waiver-of-subrogation **endorsement dies with the policy**. Reissue for every holder who
+>    requires current evidence — **the landlord (LPC / City of Alameda) first** — and re-do any
+>    endorsement a contract requires, under Great American.
+> 2. **Confirm the cancellation date is on or after 08/25/2026.** The new policy incepted then;
+>    backdating the cancellation to recover more premium would open a window with no GL at all.
+> 3. **Get the cancellation notice in writing and file it.** It is the proof we were not double-covered
+>    and it fixes the date.
+> 4. **Expect a return premium.** Confirm pro-rata vs short-rate.
+>
+> **Keep the archived record.** The Spinnaker policy was **occurrence form**: a claim arising from
+> something that happened during its term is made against *it*, years later if need be. Cancelled is
+> not the same as never existed — never delete a lapsed liability policy from the vault.
 
 **Who to call**
 
