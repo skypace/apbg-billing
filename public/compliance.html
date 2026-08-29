@@ -359,6 +359,7 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <button class="tab active" id="tabDashboard" onclick="showTab('dashboard')">Dashboard</button>
     <button class="tab" id="tabInspector"   onclick="showTab('inspector')">Records &amp; SDS</button>
     <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
+    <button class="tab" id="tabFleet"       onclick="showTab('fleet')">Fleet &amp; Vehicles</button>
     <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
     <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
     <button class="tab" id="tabVisitors"    onclick="showTab('visitors')">Visitors</button>
@@ -773,6 +774,59 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </div>
 
   <!-- ═══════════════ VENDORS & CONTRACTORS ═══════════════ -->
+  <!-- ═══════════════ FLEET & VEHICLES ═══════════════ -->
+  <div class="container wide" id="paneFleet" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Fleet &amp; vehicles <span class="sub" id="fleetCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="openEditor('vehicles')">+ Add a vehicle</button>
+          <button class="btn sm" onclick="openEditor('documents',{category:'vehicle',vehicle_id:'__pick__'})">+ File a vehicle document</button>
+        </div>
+      </div>
+      <div class="prose">
+        Every vehicle we own, whether or not it has a telematics unit in it. Rows marked
+        <span class="chip info">Fleet&nbsp;Complete</span> come from the hourly sync and the sync owns their
+        name, VIN, plate, make, model and year — <b>change those in Fleet Complete, not here</b>, or the next
+        sync reverts them. Everything else on the row is ours: registration, odometer readings, service
+        history, insurance, and the documents filed underneath.
+        Rows marked <span class="chip dim">Keyed in</span> were entered here because Fleet Complete cannot see them.
+      </div>
+      <div class="prose" style="margin-top:8px">
+        <b>Fleet Complete lists devices, not trucks.</b> An asset can be a second or older tracker on a vehicle that
+        already has a row, or a tracker sitting in a drawer with nobody's truck attached to it. Point a duplicate at
+        the real vehicle with <b>Same truck as</b> on its Edit form and it stops being counted — the header above
+        counts <em>vehicles</em>, not rows. Tick <b>Show archived</b> to see retired trucks and unpaired devices;
+        nothing here is ever deleted, because a registration and service history are the record for the period we
+        owned the vehicle and a claim can arrive after the truck has gone.
+      </div>
+      <div id="fleetAlerts"></div>
+      <div class="twrap"><table class="grid" id="fleetTable">
+        <thead><tr>
+          <th>Vehicle</th><th>Plate</th><th>VIN</th><th>Odometer</th>
+          <th>Last service</th><th>Registration</th><th>Insurance</th><th>Docs</th>
+          <th class="noprint">Actions</th>
+        </tr></thead>
+        <tbody><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Vehicle documents <span class="sub" id="vdocCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Registration cards and DMV renewal notices, smog certificates, titles, insurance ID cards,
+        repair invoices, inspection reports — anything about a specific truck. They live in the same
+        private vault as the rest of our compliance paper, so a registration sits beside the COI it is
+        evidence against. File one from the button above, or from <b>+ Add document</b> on the
+        Insurance &amp; Company tab with a vehicle picked.
+      </div>
+      <div class="twrap"><table class="grid" id="vdocTable">
+        <thead><tr><th>Document</th><th>Vehicle</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
   <div class="container" id="paneVendors" style="display:none">
     <div class="section">
       <div class="toolbar">
@@ -1565,7 +1619,7 @@ async function deleteFromBucket(path){
 // modal form, the row Edit/Upload/Archive actions, and the file prefix. Adding
 // a column to a table means adding one line here, nothing else. ═══
 const ENTITY_OPTS = [['brix','Brix Beverage'],['alameda_soda','Alameda Soda'],['freeflow','FreeFlow'],['shared','Shared / all entities']];
-const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['other','Other']];
+const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['legal','Legal / NDA'],['vehicle','Vehicle'],['other','Other']];
 const PARTY_TYPE_OPTS = [['co_packer','Co-packer'],['contractor','Contractor'],['vendor','Vendor'],['landlord','Landlord'],['customer','Customer'],['other','Other']];
 const JUR_OPTS = [['federal','Federal'],['state','California — state'],['local','Local (City of Alameda / county)']];
 
@@ -1578,6 +1632,7 @@ const SPECS = {
       { k:'category', l:'Category', t:'select', opts:CAT_OPTS, req:true },
       { k:'holder_entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— none / not ours —' },
       { k:'party_id', l:'Third party', t:'select', optsFrom:'parties', blank:'— ours (no third party) —', hint:'Set this and the document moves to the Vendors & Contractors tab.' },
+      { k:'vehicle_id', l:'Vehicle', t:'select', optsFrom:'vehicles', blank:'— not about a vehicle —', hint:'Set this and the document files against that truck on the Fleet & Vehicles tab.' },
       { k:'issuer', l:'Issuer / carrier', t:'text' },
       { k:'reference_number', l:'Reference / policy #', t:'text' },
       { k:'issue_date', l:'Issued', t:'date' },
@@ -1607,13 +1662,44 @@ const SPECS = {
   },
   parties: {
     table: 'insured_parties', prefix: null, label: 'party', file: false, archive: 'active',
-    order: 'name.asc',
+    order: 'name.asc', createdBy: false,
     fields: [
       { k:'name', l:'Party name', t:'text', req:true, full:true, hint:'Legal name — the one on their certificate.' },
       { k:'party_type', l:'Type', t:'select', opts:PARTY_TYPE_OPTS, req:true },
       { k:'contact_name', l:'Contact', t:'text' },
       { k:'contact_email', l:'Email', t:'text' },
       { k:'contact_phone', l:'Phone', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+  // Vehicles are the EXISTING Fleet Complete table, extended (migration 20260829a)
+  // — not a second list of the same trucks. The columns Fleet Complete owns are
+  // rendered but LOCKED on an FC row: the hourly sync upserts them, so an edit
+  // here would look saved and silently revert within the hour. Fix those in
+  // Fleet Complete. Everything else on the row is ours and survives the sync.
+  vehicles: {
+    table: 'fleet_vehicles', prefix: null, label: 'vehicle', file: false, archive: 'archived_at',
+    order: 'vehicle_name.asc', createdBy: false,
+    fields: [
+      { k:'vehicle_name', l:'Vehicle', t:'text', req:true, full:true, fc:true },
+      { k:'vin', l:'VIN', t:'text', fc:true },
+      { k:'license_plate', l:'Licence plate', t:'text', fc:true },
+      { k:'make', l:'Make', t:'text', fc:true },
+      { k:'model', l:'Model', t:'text', fc:true },
+      { k:'year', l:'Year', t:'number', fc:true },
+      { k:'entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— unassigned —' },
+      { k:'assigned_to', l:'Assigned to', t:'text', hint:'Who normally drives it.' },
+      { k:'linked_vehicle_id', l:'Same truck as', t:'select', optsFrom:'vehicles', blank:'— it is its own vehicle —', full:true, hint:'Fleet Complete lists DEVICES. If this asset is a second or older tracker on a truck that already has a row, point it there and it stops being counted as a vehicle of its own.' },
+      { k:'odometer', l:'Odometer', t:'number' },
+      { k:'odometer_at', l:'Odometer read on', t:'date', hint:'An odometer with no date is a number, not a fact.' },
+      { k:'registration_expires', l:'Registration expires', t:'date' },
+      { k:'plate_state', l:'Registered in', t:'text', hint:'State on the plate and the registration.' },
+      { k:'last_service_date', l:'Last repair / service', t:'date' },
+      { k:'next_service_due', l:'Next service due', t:'date' },
+      { k:'last_service_notes', l:'What was done', t:'textarea', full:true },
+      { k:'insurance_carrier', l:'Insurance carrier', t:'text' },
+      { k:'insurance_policy', l:'Policy #', t:'text' },
+      { k:'registration_notes', l:'Registration notices', t:'textarea', full:true, hint:'DMV renewal notices, smog, weight fee, anything that arrives in the post about this vehicle.' },
       { k:'notes', l:'Notes', t:'textarea', full:true },
     ],
   },
@@ -1656,9 +1742,11 @@ if(!SESSION){
 
 // ═══ TABS ═══
 const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
+                fleet:'paneFleet',
                 vendors:'paneVendors', postings:'panePostings', visitors:'paneVisitors',
                 ndas:'paneNdas', inspections:'paneInspections', handbook:'paneHandbook' };
 const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
+                fleet:'tabFleet',
                 vendors:'tabVendors', postings:'tabPostings', visitors:'tabVisitors',
                 ndas:'tabNdas', inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
@@ -1685,14 +1773,15 @@ function showIns(which){
   const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
                 contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings', board:'postings',
                 insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector',
+                fleet:'fleet', vehicles:'fleet', vehicle:'fleet',
                 visitors:'visitors', visitor:'visitors' };
   if(map[main]) showTab(map[main]);
   if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
 })();
 
 // ═══ DATA ═══
-let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, STAFF = true;
-const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
+let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, VEHICLES = [], VEHICLE_BY_ID = {}, STAFF = true;
+const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', legal:'Legal', vehicle:'Vehicle', other:'Other' };
 const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
 const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
 const JURLABEL = { federal:'Federal', state:'State', local:'Local' };
@@ -1747,11 +1836,12 @@ function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 // staff-only. One rejected read must not blank the board.
 async function reloadAll(){
   const arch = showArchived();
-  const [docs, sds, postings, parties] = await Promise.allSettled([
+  const [docs, sds, postings, parties, vehicles] = await Promise.allSettled([
     opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
     opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
     opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
     opsGet('insured_parties?select=*&order=name.asc'),
+    opsGet('fleet_vehicles?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.vehicles.order),
   ]);
   POSTINGS = postings.status === 'fulfilled' ? postings.value : [];
   STAFF = docs.status === 'fulfilled';
@@ -1761,6 +1851,9 @@ async function reloadAll(){
     PARTY_LIST = parties.status === 'fulfilled' ? parties.value : [];
     PARTIES = {};
     for(const p of PARTY_LIST) PARTIES[p.id] = p;
+    VEHICLES = vehicles.status === 'fulfilled' ? vehicles.value : [];
+    VEHICLE_BY_ID = {};
+    for(const v of VEHICLES) VEHICLE_BY_ID[v.id] = v;
     renderDashboard();
     renderAll(document.getElementById('q').value.trim().toLowerCase());
     loadVisitors();
@@ -1780,7 +1873,7 @@ let EMPLOYEE_MODE_DONE = false;
 function applyEmployeeMode(){
   if(EMPLOYEE_MODE_DONE) return;
   EMPLOYEE_MODE_DONE = true;
-  ['dashboard','inspector','insurance','vendors','visitors','ndas','inspections'].forEach(k => {
+  ['dashboard','inspector','insurance','fleet','vendors','visitors','ndas','inspections'].forEach(k => {
     const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
   });
   showTab('postings');
@@ -1798,6 +1891,10 @@ function renderDashboard(){
   const sdsGap  = sdsLive.filter(s => !s.storage_path && !firstUrl(s.notes));
   const postLive = POSTINGS.filter(p => !p.archived_at && p.required !== false);
   const postDue = postLive.filter(p => { const n = daysLeft(p.review_by); return n !== null && n <= 45; });
+  const vehLive = VEHICLES.filter(v => !v.archived_at && !v.linked_vehicle_id);
+  const regGone = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
+  const regSoon = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
+  const vehNoIns = vehLive.filter(v => (v.vin || v.license_plate) && !v.insurance_policy);
 
   document.getElementById('dashStats').innerHTML =
     '<div class="stat click' + (expired.length ? ' red' : '') + '" onclick="showTab(\'inspector\')"><b>' + expired.length + '</b><span>expired documents</span></div>' +
@@ -1805,7 +1902,9 @@ function renderDashboard(){
     '<div class="stat click' + (noFile.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + noFile.length + '</b><span>documents with no file attached</span></div>' +
     '<div class="stat click' + (sdsGap.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + sdsGap.length + ' / ' + sdsLive.length + '</b><span>SDS with no sheet on file</span></div>' +
     '<div class="stat click" onclick="showTab(\'postings\')"><b>' + postLive.length + '</b><span>required postings tracked</span></div>' +
-    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>';
+    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>' +
+    '<div class="stat click" onclick="showTab(\'fleet\')"><b>' + vehLive.length + '</b><span>vehicles on file</span></div>' +
+    '<div class="stat click' + ((regGone.length + regSoon.length) ? (regGone.length ? ' red' : ' amber') : '') + '" onclick="showTab(\'fleet\')"><b>' + (regGone.length + regSoon.length) + '</b><span>registrations expired or due</span></div>';
 
   const items = [];
   expired.forEach(d => items.push({ p:0, chip:'<span class="chip crit">Expired</span>',
@@ -1814,10 +1913,25 @@ function renderDashboard(){
     t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expires ' + esc(d.expiration_date), tab:'inspector' }));
   postDue.forEach(p => items.push({ p:2, chip:'<span class="chip warn">Posting</span>',
     t: esc(p.title) + ' — review or swap by ' + esc(p.review_by), tab:'postings' }));
+  regGone.forEach(v => items.push({ p:0, chip:'<span class="chip crit">Registration</span>',
+    t: esc(vehLabel(v)) + ' — registration expired ' + esc(v.registration_expires), tab:'fleet' }));
+  regSoon.forEach(v => items.push({ p:1, chip:'<span class="chip warn">' + daysLeft(v.registration_expires) + 'd</span>',
+    t: esc(vehLabel(v)) + ' — registration expires ' + esc(v.registration_expires), tab:'fleet' }));
+  if(vehNoIns.length) items.push({ p:2, chip:'<span class="chip warn">Fleet</span>',
+    t: vehNoIns.length + ' vehicle' + (vehNoIns.length === 1 ? '' : 's') + ' not matched to an insurance policy — check the schedule on each certificate', tab:'fleet' });
   if(sdsGap.length) items.push({ p:3, chip:'<span class="chip warn">SDS</span>',
     t: sdsGap.length + ' chemical product' + (sdsGap.length === 1 ? '' : 's') + ' with no safety data sheet on file — Cal/OSHA HazCom requires one regardless of quantity', tab:'inspector' });
-  if(noFile.length) items.push({ p:4, chip:'<span class="chip dim">File</span>',
-    t: noFile.length + ' document' + (noFile.length === 1 ? '' : 's') + ' filed with no PDF attached — use Upload on the row', tab:'inspector' });
+  // Split by where the document actually lives. A single lumped count that
+  // sends you to Records for a row filed under a truck is a dead end.
+  [['inspector', noFile.filter(d => !d.party_id && !d.vehicle_id), 'Records & SDS'],
+   ['fleet',     noFile.filter(d => d.vehicle_id),                 'Fleet & Vehicles'],
+   ['vendors',   noFile.filter(d => d.party_id && !d.vehicle_id),  'Vendors & Contractors']]
+    .forEach(([tab, list, where]) => {
+      if(!list.length) return;
+      items.push({ p:4, chip:'<span class="chip dim">File</span>',
+        t: list.length + ' document' + (list.length === 1 ? '' : 's') + ' on ' + where +
+           ' filed with no PDF attached — use Upload on the row', tab });
+    });
 
   items.sort((a,b) => a.p - b.p);
   const list = document.getElementById('attnList');
@@ -1829,10 +1943,117 @@ function renderDashboard(){
 }
 
 // ═══ TABLES ═══
+// A vehicle reads by what a person calls it, then what the DMV calls it. A row
+// with neither is a Fleet Complete asset with no vehicle attached to it — say so
+// rather than rendering a blank line nobody can act on.
+function vehLabel(v){
+  const name = (v.vehicle_name || '').trim();
+  const built = [v.year, v.make, v.model].filter(Boolean).join(' ').trim();
+  const base = name || built || 'Unidentified asset';
+  return v.license_plate ? base + ' · ' + v.license_plate : base;
+}
+function vehIdentified(v){ return !!(v.vin || v.license_plate); }
+
+// Fleet Complete lists DEVICES, not trucks. An asset pointed at another row is a
+// second tracker on that truck, so it must not be counted as a vehicle — that is
+// what made the fleet read as ten when we own six, and it is what an insurance
+// schedule gets reconciled against.
+function isRealVehicle(v){ return !v.linked_vehicle_id; }
+
+function renderVehicles(q){
+  const match = v => !q || (JSON.stringify(v) + (VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '')).toLowerCase().indexOf(q) > -1;
+  const list = VEHICLES.filter(match);
+  const vehicleTotal = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v)).length;
+  document.getElementById('fleetCount').textContent =
+    vehicleTotal + ' vehicle' + (vehicleTotal === 1 ? '' : 's') +
+    (list.length !== VEHICLES.length ? ' · showing ' + list.length + ' of ' + VEHICLES.length + ' rows' : '');
+
+  // Two things worth interrupting for, and only two. A registration that has
+  // lapsed is a citation waiting to happen; an asset with no VIN or plate cannot
+  // be matched against any insurance schedule, so we cannot say whether it is
+  // covered at all.
+  const live = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v));
+  const regGone = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
+  const regSoon = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
+  const noReg   = live.filter(v => !v.registration_expires && vehIdentified(v));
+  const unknown = live.filter(v => !vehIdentified(v));
+  const noIns   = live.filter(v => vehIdentified(v) && !v.insurance_policy);
+  const bits = [];
+  if(regGone.length) bits.push('<div class="chip crit">' + regGone.length + ' registration' + (regGone.length > 1 ? 's' : '') + ' expired</div>');
+  if(regSoon.length) bits.push('<div class="chip warn">' + regSoon.length + ' expiring within 45 days</div>');
+  if(noReg.length)   bits.push('<div class="chip warn">' + noReg.length + ' with no registration date on file</div>');
+  if(noIns.length)   bits.push('<div class="chip warn">' + noIns.length + ' not matched to an insurance policy</div>');
+  if(unknown.length) bits.push('<div class="chip dim">' + unknown.length + ' asset' + (unknown.length > 1 ? 's' : '') + ' with no VIN or plate</div>');
+  document.getElementById('fleetAlerts').innerHTML =
+    bits.length ? '<div class="chiprow" style="margin:10px 0">' + bits.join('') + '</div>' : '';
+
+  const docCount = {};
+  for(const d of DOCS) if(d.vehicle_id && !d.archived_at) docCount[d.vehicle_id] = (docCount[d.vehicle_id] || 0) + 1;
+
+  rowsInto('fleetTable', 'vehicles', list, v => {
+    const n = docCount[v.id] || 0;
+    const src = v.source === 'manual'
+      ? '<span class="chip dim">Keyed in</span>'
+      : '<span class="chip info">Fleet Complete</span>';
+    const link = v.linked_vehicle_id
+      ? '<div class="chip warn" style="margin-top:4px">Same truck as ' +
+        esc(VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '#' + v.linked_vehicle_id) +
+        ' — second device, not a vehicle</div>'
+      : '';
+    const reg = v.registration_expires
+      ? esc(v.registration_expires) + ' ' + expiryChip({ expiration_date: v.registration_expires })
+      : '<span class="chip warn">Not on file</span>';
+    // An odometer with no read date is a number, not a fact — never print one as
+    // though it were current.
+    const odo = v.odometer
+      ? Number(v.odometer).toLocaleString('en-US') +
+        (v.odometer_at ? '<div class="muted">read ' + esc(String(v.odometer_at).slice(0,10)) + '</div>'
+                       : '<div class="muted">no read date</div>')
+      : '<span class="muted">—</span>';
+    return [
+      '<strong>' + esc(vehLabel(v).split(' · ')[0]) + '</strong> ' + src +
+        (v.assigned_to ? '<div class="muted">' + esc(v.assigned_to) + '</div>' : '') + link,
+      esc(v.license_plate || '—') + (v.plate_state ? ' <span class="chip dim">' + esc(v.plate_state) + '</span>' : ''),
+      '<span class="muted">' + esc(v.vin || 'no VIN') + '</span>',
+      odo,
+      v.last_service_date
+        ? esc(v.last_service_date) + (v.next_service_due ? '<div class="muted">next ' + esc(v.next_service_due) + '</div>' : '')
+        : '<span class="muted">—</span>',
+      reg,
+      v.insurance_policy
+        ? esc(v.insurance_policy) + (v.insurance_carrier ? '<div class="muted">' + esc(v.insurance_carrier) + '</div>' : '')
+        : '<span class="chip warn">Unmatched</span>',
+      n ? '<button class="actbtn" onclick="filterVehicleDocs(' + esc(String(v.id)) + ')">' + n + '</button>'
+        : '<button class="actbtn" onclick="openEditor(\'documents\',{category:\'vehicle\',vehicle_id:' + esc(String(v.id)) + '})">+ File</button>',
+    ];
+  }, 'No vehicles match.', 9);
+
+  const vdocs = DOCS.filter(d => d.vehicle_id).filter(d => !q || (JSON.stringify(d) + vehLabel(VEHICLE_BY_ID[d.vehicle_id] || {})).toLowerCase().indexOf(q) > -1);
+  document.getElementById('vdocCount').textContent = vdocs.length ? vdocs.length + ' on file' : 'none filed yet';
+  rowsInto('vdocTable', 'documents', vdocs, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    esc(VEHICLE_BY_ID[d.vehicle_id] ? vehLabel(VEHICLE_BY_ID[d.vehicle_id]) : 'Unknown vehicle'),
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'Nothing filed against a vehicle yet.');
+}
+function filterVehicleDocs(id){
+  const v = VEHICLE_BY_ID[id];
+  if(!v) return;
+  const q = document.getElementById('q');
+  q.value = v.vin || v.license_plate || v.vehicle_name || '';
+  renderAll(q.value.trim().toLowerCase());
+  const t = document.getElementById('vdocTable');
+  if(t) t.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
 function renderAll(q){
   const hay = d => (JSON.stringify(d) + (partyOf(d) ? partyOf(d).name : '')).toLowerCase();
   const match = d => !q || hay(d).indexOf(q) > -1;
-  const ours = DOCS.filter(d => !d.party_id);
+  // One home per document. A party document belongs on Vendors & Contractors and
+  // a vehicle document on Fleet & Vehicles; listing either here as well would
+  // make the same row look like two.
+  const ours = DOCS.filter(d => !d.party_id && !d.vehicle_id);
   const theirs = DOCS.filter(d => d.party_id);
 
   const oursF = ours.filter(match);
@@ -1921,6 +2142,7 @@ function renderAll(q){
     esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'Nothing else filed against a third party.');
 
+  renderVehicles(q);
   renderPostings(q);
 }
 
@@ -2028,7 +2250,7 @@ document.addEventListener('click', async (e) => {
 
   if(act === 'arch' || act === 'unarch'){
     const on = act === 'arch';
-    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || '') + '"';
+    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || row.vehicle_name || '') + '"';
     if(on && !confirm('Archive this ' + what + '?\n\nIt is hidden from the normal view but nothing is deleted — tick "Show archived" to bring it back.')) return;
     ab.disabled = true;
     try{
@@ -2043,7 +2265,7 @@ document.addEventListener('click', async (e) => {
 });
 
 function rowById(specKey, id){
-  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST }[specKey] || [];
+  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST, vehicles: VEHICLES }[specKey] || [];
   return src.find(r => String(r.id) === String(id));
 }
 
@@ -2065,24 +2287,35 @@ function openEditor(specKey, seed){
     if(v === undefined || v === null) v = (pre[f.k] === '__pick__' ? '' : pre[f.k]);
     if(v === undefined || v === null) v = (f.t === 'checkbox' ? (f.k === 'required') : '');
     const idA = 'ed_' + f.k;
-    const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
+    // Fleet Complete owns these columns and rewrites them hourly. Showing them
+    // editable would produce an edit that appears to save and quietly reverts.
+    const locked = !!(f.fc && row.source === 'fleetcomplete');
+    const lockAttr = locked ? ' disabled' : '';
+    const hintText = locked ? 'Fleet Complete owns this field and overwrites it on every sync — change it there.' : f.hint;
+    const hint = hintText ? '<span class="hint">' + esc(hintText) + '</span>' : '';
     if(f.t === 'checkbox'){
-      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + '>' +
+      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + lockAttr + '>' +
              '<label for="' + idA + '">' + esc(f.l) + (hint ? ' <span class="hint">— ' + esc(f.hint) + '</span>' : '') + '</label></div>';
     }
     let input;
     if(f.t === 'textarea'){
-      input = '<textarea id="' + idA + '">' + esc(v) + '</textarea>';
+      input = '<textarea id="' + idA + '"' + lockAttr + '>' + esc(v) + '</textarea>';
     }else if(f.t === 'select'){
       const opts = f.optsFrom === 'parties'
         ? PARTY_LIST.filter(p => p.active !== false).map(p => [p.id, p.name + ' (' + (PTYLABEL[p.party_type] || p.party_type) + ')'])
+        : f.optsFrom === 'vehicles'
+        // Never offer the row itself, and for the duplicate-device link never
+        // offer a row that is already a link — one hop is all this models.
+        ? VEHICLES.filter(v => String(v.id) !== String(row.id) &&
+            (f.k === 'linked_vehicle_id' ? !v.linked_vehicle_id : !v.archived_at))
+            .map(v => [v.id, vehLabel(v) + (v.archived_at ? ' (archived)' : '')])
         : f.opts;
-      input = '<select id="' + idA + '">' +
+      input = '<select id="' + idA + '"' + lockAttr + '>' +
         (f.blank !== undefined || !f.req ? '<option value="">' + esc(f.blank || '— none —') + '</option>' : '') +
         opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') +
         '</select>';
     }else{
-      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '">';
+      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '"' + lockAttr + '>';
     }
     return '<div class="field' + (f.full ? ' full' : '') + '"><label for="' + idA + '">' + esc(f.l) + (f.req ? ' *' : '') + '</label>' + input + hint + '</div>';
   }).join('');
@@ -2111,7 +2344,9 @@ async function saveEditor(){
   const payload = {};
   for(const f of sp.fields){
     const el = document.getElementById('ed_' + f.k);
-    if(!el) continue;
+    // A disabled input is a field this row does not own (Fleet Complete's, say).
+    // Sending it would write a value the next sync reverts.
+    if(!el || el.disabled) continue;
     let v;
     if(f.t === 'checkbox') v = el.checked;
     else{
@@ -2135,7 +2370,7 @@ async function saveEditor(){
       existingPath = cur && cur.storage_path;
       await opsPatch(sp.table, id, payload);
     }else{
-      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.table !== 'insured_parties' ? { created_by: SESSION.uid } : {}));
+      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.createdBy !== false ? { created_by: SESSION.uid } : {}));
       id = created && created[0] && created[0].id;
       if(!id) throw new Error('The row saved but returned no id — reload and check.');
     }
