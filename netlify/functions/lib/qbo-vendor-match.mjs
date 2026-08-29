@@ -70,7 +70,7 @@ export async function loadQBOVendors() {
   if (vendorListCache) return vendorListCache;
   const out = [];
   for (let start = 1; start <= 9001; start += 1000) {
-    const res = await qboQuery(`SELECT Id, DisplayName FROM Vendor STARTPOSITION ${start} MAXRESULTS 1000`);
+    const res = await qboQuery(`SELECT Id, DisplayName, CompanyName FROM Vendor STARTPOSITION ${start} MAXRESULTS 1000`);
     const batch = res.QueryResponse?.Vendor || [];
     out.push(...batch);
     if (batch.length < 1000) break;
@@ -80,6 +80,15 @@ export async function loadQBOVendors() {
 }
 
 // Returns the matched QBO vendor object ({ Id, DisplayName, ... }) or null.
+//
+// Matches against BOTH DisplayName and CompanyName (whichever scores higher)
+// — SF's "Purchased From" often carries a vendor's DBA/company name (e.g.
+// "Serrano Refrigeration Htg&Ac") while the QBO vendor record's DisplayName
+// is the person's name (e.g. "Eric Serrano") and CompanyName carries the DBA
+// ("Serrano Refrigeration"). DisplayName-only matching missed this entirely
+// (verified live 2026-07-27: two SF expenses sat on "no QBO vendor match"
+// until fixed by hand). Ambiguity is judged per-vendor (max of the two field
+// scores), so a tie against a THIRD vendor still correctly holds for review.
 export async function findQBOVendor(name) {
   if (!name || !String(name).trim()) return null;
   const target = normalizeVendorName(name);
@@ -87,7 +96,10 @@ export async function findQBOVendor(name) {
   const vendors = await loadQBOVendors();
   let best = null; let bestScore = 0; let tie = false;
   for (const v of vendors) {
-    const s = scoreMatch(target, normalizeVendorName(v.DisplayName));
+    const s = Math.max(
+      scoreMatch(target, normalizeVendorName(v.DisplayName)),
+      v.CompanyName ? scoreMatch(target, normalizeVendorName(v.CompanyName)) : 0,
+    );
     if (s > bestScore) { best = v; bestScore = s; tie = false; }
     else if (s === bestScore && s > 0 && best && v.Id !== best.Id) tie = true;
   }
