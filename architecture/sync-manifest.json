@@ -559,6 +559,18 @@
       "last_verified": "2026-06-06"
     },
     {
+      "name": "expense-request-create",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (APBG Leasing/Rental requests an equipment-purchase vendor bill)",
+      "writes": [
+        "ops.expense_requests"
+      ],
+      "multi_writer": true,
+      "notes": "Token-authed cross-repo bridge. The APBG Leasing/Rental API (skypace/APBG-Leasing-Rental, Railway) calls /api/expense-request-create with a shared LEASING_BRIDGE_TOKEN to drop an equipment-purchase vendor bill into Brixpense as a purchase_request (status=pending, submitted_by=service@brixbev.com system user, manager_email=approver, tag='Equipment Purchase'). Uses the service-role key. The approver reviews + approves at /expense/review/:id like any other PR; expense-request-link-bill then posts the QBO bill.",
+      "last_verified": "2026-06-08"
+    },
+    {
       "name": "brix-stock:app-and-rpcs",
       "kind": "manual-ui",
       "source_repo": "skypace/apbg-billing",
