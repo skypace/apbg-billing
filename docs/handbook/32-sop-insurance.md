@@ -87,12 +87,15 @@ one conversation at or before renewal.
 >    serious-injury collision, the single most likely large claim this company will ever face, is
 >    capped at $1M. If GEICO is replacing Progressive rather than sitting alongside it, that is a real
 >    reduction in cover, not a like-for-like swap. Get the auto layer under the umbrella.
-> 2. **Four vehicles are on Progressive and NOT on GEICO** — 2017 Metris `WD3PG2EA7H3208761`,
->    2017 Metris `WD3PG2EA8H3209479`, 2017 Ford C-Max `1FADP5EU0HL118281`, and Ford Transit
->    `1FTBR1C89PKB65386` (plate 36162W3). **The Transit is active in Fleet Complete — it is being
->    driven.** If Progressive is cancelled the way Spinnaker was, that truck is uninsured. The other
->    three are not in Fleet Complete at all: establish whether we still own them (add to GEICO) or
->    sold them (remove from Progressive and stop paying the premium).
+> 2. **Four vehicles are on Progressive and not on GEICO — and all four are gone** (confirmed
+>    2026-08-29): 2017 Metris `WD3PG2EA7H3208761`, 2017 Metris `WD3PG2EA8H3209479`, 2017 Ford C-Max
+>    `1FADP5EU0HL118281`, and Ford Transit `1FTBR1C89PKB65386` (plate 36162W3). So **GEICO's six
+>    scheduled vehicles are exactly the six trucks we still run** — the telemetry agrees: those six
+>    are the only assets reporting trips, and the Transit last reported on 2026-05-18 near Auburn and
+>    has been silent since. Nothing is uninsured. **The outstanding job is the other direction:** get
+>    all four off the Progressive schedule so we stop paying premium on vehicles we do not own, and
+>    retire their assets in Fleet Complete. They are archived on the Fleet & Vehicles tab with that
+>    note on each row — archived, not deleted, because a claim can arrive after the truck has gone.
 > 3. **The GEICO policy is a six-month term**, expiring 12/24/2026 — one week before the Progressive
 >    and Great American renewals. Diary it separately; a six-month policy is easy to miss on an annual
 >    renewal calendar. It is also **owned autos only**, so hired and non-owned auto liability is not
@@ -267,9 +270,20 @@ Complete.** Everything else on the row — registration, odometer, service, insu
 ours and the sync never touches it.
 
 Rows marked **Keyed in** are vehicles Fleet Complete cannot see, entered here from an insurance
-schedule. A Fleet Complete asset showing no VIN and no plate is almost always a telematics unit that
-is unpaired or was pulled out of a vehicle; it cannot be matched to any insurance schedule as it
-stands, so identify it in Fleet Complete or retire the asset.
+schedule.
+
+**Fleet Complete lists devices, not trucks — do not reconcile an insurance schedule against a raw
+asset count.** On this account ten assets covered six vehicles. Two were unpaired trackers whose
+asset name is the device's own serial number and which have never produced a trip. One was a
+*second* device on a truck that already had its own asset record: on 2026-05-08 the two started
+18 seconds apart, finished 94 seconds apart and logged 246 vs 250 miles on the same Monterey run —
+one journey recorded twice. That is the test to apply when an asset looks like a duplicate: compare
+trip times and distances, not names.
+
+When an asset turns out to be a second device, set **Same truck as** on its Edit form to point it at
+the real vehicle. It stops being counted (the header counts vehicles, not rows) and the reason stays
+on the record. Then retire the asset in Fleet Complete so the roster matches. An unpaired tracker
+with nothing to link it to is left unlinked and archived, rather than guessed at.
 
 ---
 

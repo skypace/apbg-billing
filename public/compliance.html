@@ -792,6 +792,14 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         history, insurance, and the documents filed underneath.
         Rows marked <span class="chip dim">Keyed in</span> were entered here because Fleet Complete cannot see them.
       </div>
+      <div class="prose" style="margin-top:8px">
+        <b>Fleet Complete lists devices, not trucks.</b> An asset can be a second or older tracker on a vehicle that
+        already has a row, or a tracker sitting in a drawer with nobody's truck attached to it. Point a duplicate at
+        the real vehicle with <b>Same truck as</b> on its Edit form and it stops being counted — the header above
+        counts <em>vehicles</em>, not rows. Tick <b>Show archived</b> to see retired trucks and unpaired devices;
+        nothing here is ever deleted, because a registration and service history are the record for the period we
+        owned the vehicle and a claim can arrive after the truck has gone.
+      </div>
       <div id="fleetAlerts"></div>
       <div class="twrap"><table class="grid" id="fleetTable">
         <thead><tr>
@@ -1681,6 +1689,7 @@ const SPECS = {
       { k:'year', l:'Year', t:'number', fc:true },
       { k:'entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— unassigned —' },
       { k:'assigned_to', l:'Assigned to', t:'text', hint:'Who normally drives it.' },
+      { k:'linked_vehicle_id', l:'Same truck as', t:'select', optsFrom:'vehicles', blank:'— it is its own vehicle —', full:true, hint:'Fleet Complete lists DEVICES. If this asset is a second or older tracker on a truck that already has a row, point it there and it stops being counted as a vehicle of its own.' },
       { k:'odometer', l:'Odometer', t:'number' },
       { k:'odometer_at', l:'Odometer read on', t:'date', hint:'An odometer with no date is a number, not a fact.' },
       { k:'registration_expires', l:'Registration expires', t:'date' },
@@ -1882,7 +1891,7 @@ function renderDashboard(){
   const sdsGap  = sdsLive.filter(s => !s.storage_path && !firstUrl(s.notes));
   const postLive = POSTINGS.filter(p => !p.archived_at && p.required !== false);
   const postDue = postLive.filter(p => { const n = daysLeft(p.review_by); return n !== null && n <= 45; });
-  const vehLive = VEHICLES.filter(v => !v.archived_at);
+  const vehLive = VEHICLES.filter(v => !v.archived_at && !v.linked_vehicle_id);
   const regGone = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
   const regSoon = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
   const vehNoIns = vehLive.filter(v => (v.vin || v.license_plate) && !v.insurance_policy);
@@ -1945,16 +1954,25 @@ function vehLabel(v){
 }
 function vehIdentified(v){ return !!(v.vin || v.license_plate); }
 
+// Fleet Complete lists DEVICES, not trucks. An asset pointed at another row is a
+// second tracker on that truck, so it must not be counted as a vehicle — that is
+// what made the fleet read as ten when we own six, and it is what an insurance
+// schedule gets reconciled against.
+function isRealVehicle(v){ return !v.linked_vehicle_id; }
+
 function renderVehicles(q){
-  const match = v => !q || JSON.stringify(v).toLowerCase().indexOf(q) > -1;
+  const match = v => !q || (JSON.stringify(v) + (VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '')).toLowerCase().indexOf(q) > -1;
   const list = VEHICLES.filter(match);
-  document.getElementById('fleetCount').textContent = list.length + ' of ' + VEHICLES.length;
+  const vehicleTotal = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v)).length;
+  document.getElementById('fleetCount').textContent =
+    vehicleTotal + ' vehicle' + (vehicleTotal === 1 ? '' : 's') +
+    (list.length !== VEHICLES.length ? ' · showing ' + list.length + ' of ' + VEHICLES.length + ' rows' : '');
 
   // Two things worth interrupting for, and only two. A registration that has
   // lapsed is a citation waiting to happen; an asset with no VIN or plate cannot
   // be matched against any insurance schedule, so we cannot say whether it is
   // covered at all.
-  const live = VEHICLES.filter(v => !v.archived_at);
+  const live = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v));
   const regGone = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
   const regSoon = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
   const noReg   = live.filter(v => !v.registration_expires && vehIdentified(v));
@@ -1977,6 +1995,11 @@ function renderVehicles(q){
     const src = v.source === 'manual'
       ? '<span class="chip dim">Keyed in</span>'
       : '<span class="chip info">Fleet Complete</span>';
+    const link = v.linked_vehicle_id
+      ? '<div class="chip warn" style="margin-top:4px">Same truck as ' +
+        esc(VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '#' + v.linked_vehicle_id) +
+        ' — second device, not a vehicle</div>'
+      : '';
     const reg = v.registration_expires
       ? esc(v.registration_expires) + ' ' + expiryChip({ expiration_date: v.registration_expires })
       : '<span class="chip warn">Not on file</span>';
@@ -1989,7 +2012,7 @@ function renderVehicles(q){
       : '<span class="muted">—</span>';
     return [
       '<strong>' + esc(vehLabel(v).split(' · ')[0]) + '</strong> ' + src +
-        (v.assigned_to ? '<div class="muted">' + esc(v.assigned_to) + '</div>' : ''),
+        (v.assigned_to ? '<div class="muted">' + esc(v.assigned_to) + '</div>' : '') + link,
       esc(v.license_plate || '—') + (v.plate_state ? ' <span class="chip dim">' + esc(v.plate_state) + '</span>' : ''),
       '<span class="muted">' + esc(v.vin || 'no VIN') + '</span>',
       odo,
@@ -2281,7 +2304,11 @@ function openEditor(specKey, seed){
       const opts = f.optsFrom === 'parties'
         ? PARTY_LIST.filter(p => p.active !== false).map(p => [p.id, p.name + ' (' + (PTYLABEL[p.party_type] || p.party_type) + ')'])
         : f.optsFrom === 'vehicles'
-        ? VEHICLES.filter(v => !v.archived_at).map(v => [v.id, vehLabel(v)])
+        // Never offer the row itself, and for the duplicate-device link never
+        // offer a row that is already a link — one hop is all this models.
+        ? VEHICLES.filter(v => String(v.id) !== String(row.id) &&
+            (f.k === 'linked_vehicle_id' ? !v.linked_vehicle_id : !v.archived_at))
+            .map(v => [v.id, vehLabel(v) + (v.archived_at ? ' (archived)' : '')])
         : f.opts;
       input = '<select id="' + idA + '"' + lockAttr + '>' +
         (f.blank !== undefined || !f.req ? '<option value="">' + esc(f.blank || '— none —') + '</option>' : '') +
