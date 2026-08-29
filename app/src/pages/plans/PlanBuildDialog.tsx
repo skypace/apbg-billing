@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { sbInsert } from '../../lib/rpc';
+import { sbDelete, sbInsert, sbq, sbUpdate } from '../../lib/rpc';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { fm, fp } from '../../lib/formatters';
 import {
@@ -44,6 +44,13 @@ interface StoreProductRow {
   qty_per_store: number;
   unit_price: number;
   unit_cost: number;
+}
+
+interface ProductQuickTerm {
+  term: string;
+  qtyPerStore: number | null;
+  unitPrice: number | null;
+  unitCost: number | null;
 }
 
 type BuildMode = 'history' | 'stores';
@@ -264,22 +271,30 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
     }
 
     const selected = new Set(storeRows.map((r) => r.qbo_item_id));
-    const productMatches: { term: string; item: QboItemWithCategory }[] = [];
+    const productMatches: { spec: ProductQuickTerm; item: QboItemWithCategory }[] = [];
     const unmatchedProducts: string[] = [];
-    for (const term of parsed.productTerms) {
-      const item = bestItemMatch(allItems, term, selected);
+    for (const spec of parsed.productTerms) {
+      const item = bestItemMatch(allItems, spec.term, selected);
       if (item) {
-        productMatches.push({ term, item });
+        productMatches.push({ spec, item });
         selected.add(item.qbo_item_id);
       } else {
-        unmatchedProducts.push(term);
+        unmatchedProducts.push(spec.term);
       }
     }
 
     if (productMatches.length > 0) {
       setLoadingStorePrice(true);
       try {
-        const nextRows = await Promise.all(productMatches.map((m) => storeProductRowFor(m.item, sourceYear)));
+        const nextRows = await Promise.all(productMatches.map(async (m) => {
+          const row = await storeProductRowFor(m.item, sourceYear);
+          return {
+            ...row,
+            qty_per_store: m.spec.qtyPerStore ?? row.qty_per_store,
+            unit_price: m.spec.unitPrice ?? row.unit_price,
+            unit_cost: m.spec.unitCost ?? row.unit_cost,
+          };
+        }));
         setStoreRows((current) => {
           const currentIds = new Set(current.map((r) => r.qbo_item_id));
           return [...current, ...nextRows.filter((r) => !currentIds.has(r.qbo_item_id))];
@@ -390,9 +405,21 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
     setApplying(true);
     setErr(null);
     try {
-      await Promise.all(validStoreRows.map((row) => {
+      const existing = await sbq<SalesPlanLine>(
+        'sales_plan_lines',
+        'select=*&plan_id=eq.' + encodeURIComponent(planId)
+          + '&qbo_customer_id=eq.' + encodeURIComponent(selectedStoreCustomer.qbo_customer_id),
+      );
+      const generatedByItem = new Map<string, SalesPlanLine[]>();
+      for (const line of existing) {
+        if (!line.qbo_item_id || !/^New store rollout:/i.test(line.notes || '')) continue;
+        if (!generatedByItem.has(line.qbo_item_id)) generatedByItem.set(line.qbo_item_id, []);
+        generatedByItem.get(line.qbo_item_id)!.push(line);
+      }
+
+      await Promise.all(validStoreRows.map(async (row) => {
         const arrays = storeArraysFor(row, storeCount, storeStartMonth, storeDuration);
-        return sbInsert<Partial<SalesPlanLine>>('sales_plan_lines', {
+        const patch: Partial<SalesPlanLine> = {
           plan_id: planId,
           line_type: 'item',
           qbo_item_id: row.qbo_item_id,
@@ -406,7 +433,15 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
           qty: arrays.qty,
           unit_price: arrays.unitPrice,
           unit_cost: arrays.unitCost,
-        } as Partial<SalesPlanLine>);
+          updated_at: new Date().toISOString(),
+        };
+        const prior = generatedByItem.get(row.qbo_item_id) ?? [];
+        if (prior.length > 0) {
+          await sbUpdate<SalesPlanLine>('sales_plan_lines', 'id=eq.' + prior[0].id, patch);
+          await Promise.all(prior.slice(1).map((line) => sbDelete('sales_plan_lines', 'id=eq.' + line.id)));
+          return;
+        }
+        await sbInsert<Partial<SalesPlanLine>>('sales_plan_lines', patch);
       }));
 
       onApplied();
@@ -445,7 +480,7 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
               onKeyDown={(e) => {
                 if (e.key === 'Enter') applyQuickStoreSetup();
               }}
-              placeholder="3 new stores for Customer X selling Product A, Product B over 6 months"
+              placeholder="3 new stores for Customer X selling Product A 20/store @ $80, Product B over 6 months"
               style={{ ...inp(), width: '100%' }}
             />
           </label>
@@ -1038,7 +1073,7 @@ function parseStoreQuickEntry(text: string): {
   startMonth: number | null;
   duration: number | null;
   customerTerm: string;
-  productTerms: string[];
+  productTerms: ProductQuickTerm[];
 } {
   const raw = text.trim();
   const lower = raw.toLowerCase();
@@ -1047,6 +1082,7 @@ function parseStoreQuickEntry(text: string): {
   const startMonth = monthFromText(lower);
   const customerTerm = cleanQuickTerm(
     firstCapture(raw, [
+      /\binside\s+customer\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning|they\s+will)\b|[,;.]|$)/i,
       /\bfor\s+customer\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
       /\bfor\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
       /\bcustomer\s+(.+?)(?=\s+(?:selling|sell|with|over|starting|start|beginning)\b|[,;.]|$)/i,
@@ -1061,7 +1097,7 @@ function parseStoreQuickEntry(text: string): {
   };
 }
 
-function productTermsFromText(text: string): string[] {
+function productTermsFromText(text: string): ProductQuickTerm[] {
   const explicit = firstCapture(text, [
     /\b(?:selling|sell|with)\s+(.+?)(?=\s+\bover\b|\s+\bstarting\b|\s+\bstart\b|\s+\bbeginning\b|$)/i,
     /\bproducts?\s*[:=]\s*(.+?)(?=\s+\bover\b|\s+\bstarting\b|\s+\bstart\b|\s+\bbeginning\b|$)/i,
@@ -1071,11 +1107,53 @@ function productTermsFromText(text: string): string[] {
     .replace(/\bover\s+\d+\s+months?\b/gi, '')
     .replace(/\b(?:starting|start|beginning)\s+\w+\b/gi, '')
     .split(/,|\+|&|\band\b/gi)
-    .map(cleanQuickTerm)
-    .filter((term) => term.length >= 2)
-    .filter((term) => !/^\d+(?:\.\d+)?\s*(?:products?|stores?|months?)?$/i.test(term))
-    .filter((term) => !/\b(?:new\s+)?stores?\b/i.test(term))
+    .map(parseProductQuickTerm)
+    .filter((spec) => spec.term.length >= 2)
+    .filter((spec) => !/^\d+(?:\.\d+)?\s*(?:products?|stores?|months?)?$/i.test(spec.term))
+    .filter((spec) => !/\b(?:new\s+)?stores?\b/i.test(spec.term))
     .slice(0, 8);
+}
+
+function parseProductQuickTerm(segment: string): ProductQuickTerm {
+  const qty = firstNumber(segment, [
+    /(\d+(?:\.\d+)?)\s*(?:cases?|units?|ea|each|boxes?|kegs?|totes?|packs?)?\s*(?:per|\/)\s*store/i,
+    /(\d+(?:\.\d+)?)\s*(?:cases?|units?|ea|each|boxes?|kegs?|totes?|packs?)\s*(?:per|\/)\s*(?:month|mo)\b/i,
+  ]);
+  const cost = firstNumber(segment, [
+    /\bcost\s*\$?\s*(\d+(?:\.\d+)?)/i,
+    /\bunit\s+cost\s*\$?\s*(\d+(?:\.\d+)?)/i,
+  ]);
+  const price = firstNumber(segment, [
+    /(?:@|at)\s*\$?\s*(\d+(?:\.\d+)?)/i,
+    /\bprice\s*\$?\s*(\d+(?:\.\d+)?)/i,
+    /\bunit\s+price\s*\$?\s*(\d+(?:\.\d+)?)/i,
+    /\$(\d+(?:\.\d+)?)/i,
+  ]);
+  const term = cleanQuickTerm(segment)
+    .replace(/\d+(?:\.\d+)?\s*(?:cases?|units?|ea|each|boxes?|kegs?|totes?|packs?)?\s*(?:per|\/)\s*store/gi, ' ')
+    .replace(/\d+(?:\.\d+)?\s*(?:cases?|units?|ea|each|boxes?|kegs?|totes?|packs?)\s*(?:per|\/)\s*(?:month|mo)\b/gi, ' ')
+    .replace(/\b(?:unit\s+)?cost\s*\$?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/\b(?:unit\s+)?price\s*\$?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/(?:@|at)\s*\$?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/\$\s*\d+(?:\.\d+)?/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return {
+    term,
+    qtyPerStore: qty,
+    unitPrice: price,
+    unitCost: cost,
+  };
+}
+
+function firstNumber(text: string, patterns: RegExp[]): number | null {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match?.[1]) continue;
+    const n = Number(match[1]);
+    if (Number.isFinite(n)) return round2(n);
+  }
+  return null;
 }
 
 function firstCapture(text: string, patterns: RegExp[]): string {
