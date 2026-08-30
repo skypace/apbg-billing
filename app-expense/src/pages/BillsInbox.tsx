@@ -135,7 +135,7 @@ function statusBadge(item: IntakeItem): { label: string; variant: 'success' | 's
     case 'attachment_fetch_failed': return { label: "Couldn't read the attachment", variant: 'destructive' };
     case 'ocr_failed': return { label: 'OCR failed', variant: 'warning' };
     case 'sender_rejected': return { label: 'Sender blocked', variant: 'secondary' };
-    case 'ignored': return { label: 'Dismissed', variant: 'secondary' };
+    case 'ignored': return { label: 'Archived', variant: 'secondary' };
     default: return { label: 'Failed', variant: 'destructive' };
   }
 }
@@ -155,6 +155,7 @@ export default function BillsInbox() {
   const [check, setCheck] = useState<SetupCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [showDiag, setShowDiag] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   // Paying a posted bill (Vendor Portal Phase 3). Superadmin-only —
   // /api/vendor-pay refuses everyone else, so the trigger is hidden rather
   // than left to 403.
@@ -222,11 +223,25 @@ export default function BillsInbox() {
     finally { setBusy(null); }
   };
 
-  const dismiss = async (item: IntakeItem) => {
-    if (!window.confirm(`Dismiss this email from ${item.from_email || 'unknown sender'}? It stays on record and can't come back in.`)) return;
+  // Archive takes the email AND its unposted draft bill off the queue in one
+  // gesture. Dismiss used to hide only the email, which left the draft behind
+  // as an orphan in the queue and the aging view — and it was a one-way door.
+  const archive = async (item: IntakeItem) => {
+    const alsoBill = item.request && !item.request.posted && !item.request.archived;
+    const what = alsoBill
+      ? `Archive this email from ${item.from_email || 'unknown sender'} and its draft bill?`
+      : `Archive this email from ${item.from_email || 'unknown sender'}?`;
+    if (!window.confirm(`${what} Nothing is deleted — you can restore it from the Archived filter.`)) return;
     setBusy(item.id);
-    try { await api({ action: 'dismiss', intake_id: item.id }); await load(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not dismiss.'); }
+    try { await api({ action: 'archive', intake_id: item.id }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not archive that email.'); }
+    finally { setBusy(null); }
+  };
+
+  const restore = async (item: IntakeItem) => {
+    setBusy(item.id);
+    try { await api({ action: 'restore', intake_id: item.id }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not restore that email.'); }
     finally { setBusy(null); }
   };
 
@@ -291,9 +306,19 @@ export default function BillsInbox() {
     }
   };
 
-  const inTab = items.filter((i) => bucketOf(i) === tab);
-  const visible = tab === 'open' ? inTab.filter((i) => match(i, filter)) : inTab;
-  const countOf = (f: Filter) => items.filter((i) => bucketOf(i) === 'open' && match(i, f)).length;
+  // Archived rows are held out of every lifecycle tab. An archived email with
+  // no bill would otherwise bucket as 'open' (an intake with no request is open
+  // by definition) and sit in the middle of live work — which is the opposite
+  // of archiving it. They get their own view instead, so Restore has somewhere
+  // to be reached from.
+  const archivedRows = items.filter((i) => i.status === 'ignored');
+  const liveRows = items.filter((i) => i.status !== 'ignored');
+
+  const inTab = liveRows.filter((i) => bucketOf(i) === tab);
+  const visible = showArchived
+    ? archivedRows
+    : (tab === 'open' ? inTab.filter((i) => match(i, filter)) : inTab);
+  const countOf = (f: Filter) => liveRows.filter((i) => bucketOf(i) === 'open' && match(i, f)).length;
   const counts = {
     mine: countOf('mine'),
     approval: countOf('approval'),
@@ -303,8 +328,8 @@ export default function BillsInbox() {
     all: countOf('all'),
   };
   const tabCounts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
-  for (const i of items) tabCounts[bucketOf(i)]++;
-  const openRows = items.filter((i) => i.request && !i.request.posted && !i.request.archived);
+  for (const i of liveRows) tabCounts[bucketOf(i)]++;
+  const openRows = liveRows.filter((i) => i.request && !i.request.posted && !i.request.archived);
   const dueTotal = openRows.reduce((s, i) => s + (i.request?.total_amount ?? 0), 0);
   const openCount = openRows.length;
 
@@ -398,9 +423,22 @@ export default function BillsInbox() {
         </Card>
       )}
 
-      <LifecycleTabs tab={tab} counts={tabCounts} onChange={setTab} />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className={showArchived ? 'opacity-50 pointer-events-none' : undefined}>
+          <LifecycleTabs tab={tab} counts={tabCounts} onChange={setTab} />
+        </div>
+        {(archivedRows.length > 0 || showArchived) && (
+          <Button
+            size="sm"
+            variant={showArchived ? 'secondary' : 'ghost'}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            {showArchived ? 'Back to the queue' : `Archived (${archivedRows.length})`}
+          </Button>
+        )}
+      </div>
 
-      {tab === 'open' && (
+      {tab === 'open' && !showArchived && (
         <div className="flex flex-wrap gap-1.5">
           {(([
             // The approval views only exist when the gate is switched on;
@@ -436,9 +474,10 @@ export default function BillsInbox() {
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            {tab === 'posted' && 'No posted bills awaiting payment. Bills move to Paid & closed automatically once QuickBooks reports them paid.'}
-            {tab === 'paid' && 'Nothing paid or closed yet.'}
-            {tab === 'open' && (filter === 'mine' || filter === 'ready'
+            {showArchived && 'Nothing archived. Archiving an email takes it and its draft bill off the queue without deleting either.'}
+            {!showArchived && tab === 'posted' && 'No posted bills awaiting payment. Bills move to Paid & closed automatically once QuickBooks reports them paid.'}
+            {!showArchived && tab === 'paid' && 'Nothing paid or closed yet.'}
+            {!showArchived && tab === 'open' && (filter === 'mine' || filter === 'ready'
               ? 'Nothing waiting. Forward a bill to the address above and it will show up here.'
               : 'Nothing in this view.')}
           </CardContent>
@@ -583,8 +622,16 @@ export default function BillsInbox() {
                       </Button>
                     )}
                     {item.status !== 'ignored' && !r?.posted && (
-                      <Button size="sm" variant="ghost" onClick={() => void dismiss(item)} disabled={busy === item.id}>
-                        <X className="h-4 w-4 mr-1.5" /> Dismiss
+                      <Button size="sm" variant="ghost" onClick={() => void archive(item)} disabled={busy === item.id}>
+                        <X className="h-4 w-4 mr-1.5" /> Archive
+                      </Button>
+                    )}
+                    {item.status === 'ignored' && (
+                      <Button size="sm" variant="outline" onClick={() => void restore(item)} disabled={busy === item.id}>
+                        {busy === item.id
+                          ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                          : <RefreshCw className="h-4 w-4 mr-1.5" />}
+                        Restore
                       </Button>
                     )}
                     {item.diagnostics && (
