@@ -311,7 +311,7 @@ export default function BillsInbox() {
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -506,7 +506,7 @@ export default function BillsInbox() {
                   <div className="flex flex-wrap items-center gap-2 pt-0.5">
                     {r && !r.posted && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => navigate(`edit/${r.id}`)}>
+                        <Button size="sm" variant="outline" onClick={() => navigate(`/edit/${r.id}`)}>
                           Open bill
                         </Button>
 

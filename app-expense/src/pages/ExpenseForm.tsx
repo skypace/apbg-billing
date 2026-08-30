@@ -1636,7 +1636,7 @@ export default function ExpenseForm() {
           <Button variant="outline" onClick={() => navigate('/')}>
             Home
           </Button>
-          <Button onClick={() => navigate('new')}>
+          <Button onClick={() => navigate('/new')}>
             Submit Another
           </Button>
         </div>

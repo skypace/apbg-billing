@@ -107,7 +107,7 @@ export default function PendingList() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="page-title">Expense History</h1>
@@ -135,7 +135,7 @@ export default function PendingList() {
               {tab === 'paid' && 'Nothing paid or closed yet.'}
             </p>
             {tab === 'open' && (
-              <Button className="mt-4" onClick={() => navigate('')}>
+              <Button className="mt-4" onClick={() => navigate('/')}>
                 Submit Something
               </Button>
             )}

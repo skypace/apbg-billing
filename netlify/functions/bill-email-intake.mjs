@@ -29,7 +29,7 @@
 import { corsHeaders } from './qbo-helpers.mjs';
 import {
   addr, displayName, recipientsOf, loadApInboxSettings, senderAllowed,
-  looksAutomated, verifyInbound, opsInsert, opsGet,
+  looksAutomated, verifyInbound, opsInsert, opsGet, opsPatch,
 } from './lib/ap-inbox.mjs';
 
 const ok = (body) => ({ statusCode: 200, headers: corsHeaders(), body: JSON.stringify(body) });
@@ -109,11 +109,18 @@ export async function handler(event) {
   if (!intake) return ok({ ok: true, ignored: 'duplicate' });
   if (!gate.ok) return ok({ ok: true, intake_id: intake.id, status: 'sender_rejected' });
 
-  // Hand off. Netlify background functions return 202 immediately; a failed
+  // Hand off. Netlify background functions answer 202 immediately; a failed
   // kick leaves the row at `received`, which the queue shows and can re-run.
+  //
+  // ⚠ The processor declares `config.path = '/api/bill-email-process-background'`,
+  // and a v2 function with its own path is served THERE — the legacy
+  // /.netlify/functions/<name> route 404s. This kick used that legacy route,
+  // so every forwarded bill was recorded and then abandoned at 'received',
+  // which the queue renders as "Scanning…" forever. Nothing surfaced it
+  // because fetch() does not throw on 404 and only the throw was handled.
   const base = process.env.URL || process.env.DEPLOY_URL || 'https://apbg-billing.netlify.app';
   try {
-    await fetch(`${base}/.netlify/functions/bill-email-process-background`, {
+    const kick = await fetch(`${base}/api/bill-email-process-background`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -121,8 +128,19 @@ export async function handler(event) {
       },
       body: JSON.stringify({ intake_id: intake.id }),
     });
+    // A non-2xx here is the difference between a bill landing and a bill
+    // vanishing, so it is recorded ON THE ROW rather than only in a log line
+    // nobody reads.
+    if (!kick.ok) {
+      const detail = `processor kick ${kick.status} at /api/bill-email-process-background`;
+      console.error('[bill-email-intake]', detail);
+      try {
+        await opsPatch('bill_email_intake', `id=eq.${intake.id}`,
+          { status_detail: detail });
+      } catch { /* the row still shows as received and can be re-run */ }
+    }
   } catch (e) {
-    console.warn('[bill-email-intake] background kick failed:', e?.message || e);
+    console.error('[bill-email-intake] background kick failed:', e?.message || e);
   }
 
   return ok({ ok: true, intake_id: intake.id });

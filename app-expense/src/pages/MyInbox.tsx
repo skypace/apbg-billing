@@ -90,7 +90,7 @@ export default function MyInbox() {
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -127,7 +127,7 @@ export default function MyInbox() {
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
             Nothing waiting on you. Anything you've already filed is in{' '}
-            <button type="button" className="underline hover:text-foreground" onClick={() => navigate('pending')}>
+            <button type="button" className="underline hover:text-foreground" onClick={() => navigate('/pending')}>
               Expense History
             </button>.
           </CardContent>
@@ -171,9 +171,9 @@ export default function MyInbox() {
                   )}
 
                   <div className="flex flex-wrap gap-2 pt-0.5">
-                    <Button size="sm" variant="outline" onClick={() => navigate(`edit/${r.id}`)}>Open</Button>
+                    <Button size="sm" variant="outline" onClick={() => navigate(`/edit/${r.id}`)}>Open</Button>
                     {g.key === 'approve' ? (
-                      <Button size="sm" onClick={() => navigate(`review/${r.id}`)}>Review &amp; approve</Button>
+                      <Button size="sm" onClick={() => navigate(`/review/${r.id}`)}>Review &amp; approve</Button>
                     ) : (
                       <Button size="sm" onClick={() => void post(r)} disabled={busy === r.id}>
                         {busy === r.id
