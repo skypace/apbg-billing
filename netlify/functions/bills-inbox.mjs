@@ -218,14 +218,30 @@ export default async function handler(req) {
         reprocess_count: (rows?.[0]?.reprocess_count || 0) + 1,
       });
       const base = process.env.URL || 'https://apbg-billing.netlify.app';
+      // ⚠ The processor declares config.path = '/api/bill-email-process-background',
+      // and a v2 function with its own path is served ONLY there — the legacy
+      // /.netlify/functions/<name> route 404s. This kick used that dead route, so
+      // "Try again" flipped the row back to 'received' and then never processed
+      // it: the button read as working and the bill went back to "Scanning…".
+      // fetch() does not throw on a 404, so only the throw was ever reported.
+      const kickUrl = `${base}/api/bill-email-process-background`;
+      let kick;
       try {
-        await fetch(`${base}/.netlify/functions/bill-email-process-background`, {
+        kick = await fetch(kickUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-ap-inbox-secret': process.env.SUPABASE_SERVICE_ROLE_KEY || '' },
           body: JSON.stringify({ intake_id: id, force: true }),
         });
       } catch (e) {
-        return Response.json({ ok: true, queued: false, note: `queued in the table, but the background kick failed: ${e?.message || e}` });
+        const note = `queued in the table, but the background kick failed: ${e?.message || e}`;
+        try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: note }); } catch {}
+        return Response.json({ ok: true, queued: false, note });
+      }
+      if (!kick.ok) {
+        const note = `queued in the table, but the processor kick returned ${kick.status} at /api/bill-email-process-background`;
+        console.error('[bills-inbox]', note);
+        try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: note }); } catch {}
+        return Response.json({ ok: true, queued: false, note });
       }
       return Response.json({ ok: true, queued: true });
     }
