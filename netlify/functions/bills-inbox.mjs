@@ -4,8 +4,13 @@
 //                              outcome, and the bill draft it produced.
 // POST {action:'reprocess'}  → re-run one email through OCR (after fixing a
 //                              key, or once a sender re-sends a better PDF).
-// POST {action:'dismiss'}    → drop an email off the queue (soft; the row and
-//                              its dedup key stay, so it can't re-land).
+// POST {action:'archive'}    → take an email AND its unposted draft bill off
+//                              the queue. Soft: the row and its dedup key
+//                              stay, so it can't re-land, and Restore brings
+//                              both back. Refused once the bill has posted to
+//                              QuickBooks — that is a void, and it belongs in
+//                              QuickBooks. ('dismiss' is kept as an alias.)
+// POST {action:'restore'}    → undo an archive.
 // POST {action:'settings'}   → edit the inbox config (address, notify list,
 //                              sender rules) without a deploy.
 // POST {action:'check'}      → is the pipeline actually armed?
@@ -15,11 +20,56 @@
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import {
   AP_TAG, opsGet, opsPatch, loadApInboxSettings, inboundSecrets, srHeaders,
-  requireBrixpense,
+  requireBrixpense, archivePlan, restorePlan,
 } from './lib/ap-inbox.mjs';
 import { inboundResendKey, inboundKeyIsFallback } from './lib/resend-inbound.mjs';
 
 const LOOKBACK_DAYS = Number(process.env.AP_INBOX_LOOKBACK_DAYS || 120);
+
+/** the bill an intake produced, or null — archive/restore both need it */
+async function loadLinkedRequest(intake) {
+  if (!intake?.expense_request_id) return null;
+  try {
+    const rows = await opsGet(
+      `expense_requests?id=eq.${intake.expense_request_id}&limit=1`
+      + `&select=id,status,qbo_bill_id,posted_at,archived_at,vendor_name,total_amount`,
+    );
+    return rows?.[0] || null;
+  } catch {
+    return null;   // never block triage on a read
+  }
+}
+
+/**
+ * Hand one email to the processor.
+ *
+ * ⚠ The processor declares config.path = '/api/bill-email-process-background',
+ * and a v2 function with its own path is served ONLY there — the legacy
+ * /.netlify/functions/<name> route 404s. Both callers used that dead route,
+ * which is how every forwarded bill sat at "Scanning…" and how Try again read
+ * as working while doing nothing. fetch() does not throw on a 404, so the
+ * status has to be checked explicitly. tests/function-routes.test.mjs guards
+ * the URL; this function is why there is only one copy of it left.
+ */
+async function kickProcessor(intakeId) {
+  const base = process.env.URL || 'https://apbg-billing.netlify.app';
+  const path = '/api/bill-email-process-background';
+  try {
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ap-inbox-secret': process.env.SUPABASE_SERVICE_ROLE_KEY || '' },
+      body: JSON.stringify({ intake_id: intakeId, force: true }),
+    });
+    if (!res.ok) {
+      const note = `queued in the table, but the processor kick returned ${res.status} at ${path}`;
+      console.error('[bills-inbox]', note);
+      return { ok: false, note };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, note: `queued in the table, but the background kick failed: ${e?.message || e}` };
+  }
+}
 
 async function signedUrl(storagePath) {
   if (!storagePath) return null;
@@ -197,17 +247,65 @@ export default async function handler(req) {
       return Response.json({ ok: true, assigned_to: to });
     }
 
-    if (action === 'reprocess' || action === 'dismiss') {
+    if (['reprocess', 'dismiss', 'archive', 'restore'].includes(action)) {
       const id = String(body.intake_id || '');
       if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: 'intake_id required' }, { status: 400 });
 
-      if (action === 'dismiss') {
+      // 'dismiss' is the old name for 'archive' — kept so an older bundle in
+      // somebody's tab keeps working rather than 400ing.
+      if (action === 'archive' || action === 'dismiss') {
+        const [intake] = await opsGet(`bill_email_intake?id=eq.${id}&select=id,status,expense_request_id&limit=1`);
+        const req = await loadLinkedRequest(intake);
+        const plan = archivePlan(intake, req);
+        if (!plan.allowed) return Response.json({ error: plan.reason }, { status: intake ? 409 : 404 });
+
+        const who = auth.user?.email || 'staff';
+        // The draft goes FIRST. If that write fails we have hidden nothing, and
+        // the operator retries; the other order leaves the orphan this is meant
+        // to stop, with the email already out of sight.
+        if (plan.archiveRequest) {
+          await opsPatch('expense_requests', `id=eq.${req.id}`, {
+            archived_at: new Date().toISOString(),
+            archived_by: `${who} (archived with the emailed bill)`,
+          });
+        }
         await opsPatch('bill_email_intake', `id=eq.${id}`, {
           status: 'ignored',
-          status_detail: `dismissed by ${auth.user?.email || 'staff'}`,
+          status_detail: `archived by ${who}`,
           processed_at: new Date().toISOString(),
         });
-        return Response.json({ ok: true, status: 'ignored' });
+        return Response.json({ ok: true, status: 'ignored', archived: plan.reason, archived_request: plan.archiveRequest });
+      }
+
+      if (action === 'restore') {
+        const [intake] = await opsGet(`bill_email_intake?id=eq.${id}&select=id,status,expense_request_id,reprocess_count&limit=1`);
+        const req = await loadLinkedRequest(intake);
+        const plan = restorePlan(intake, req);
+        if (!plan.allowed) return Response.json({ error: plan.reason }, { status: intake ? 409 : 404 });
+
+        const who = auth.user?.email || 'staff';
+        if (plan.unarchiveRequest) {
+          await opsPatch('expense_requests', `id=eq.${req.id}`, { archived_at: null, archived_by: null });
+        }
+        if (!plan.reprocess) {
+          await opsPatch('bill_email_intake', `id=eq.${id}`, { status: 'drafted', status_detail: `restored by ${who}` });
+          return Response.json({ ok: true, restored: plan.reason, reprocessed: false });
+        }
+        // No bill was ever produced, so re-reading the email is the only way to
+        // get one — and it cannot duplicate anything, because there is nothing
+        // to duplicate.
+        await opsPatch('bill_email_intake', `id=eq.${id}`, {
+          status: 'received',
+          status_detail: `restored by ${who}`,
+          notified_at: null,
+          reprocess_count: (intake.reprocess_count || 0) + 1,
+        });
+        const kick = await kickProcessor(id);
+        if (!kick.ok) {
+          try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: kick.note }); } catch {}
+          return Response.json({ ok: true, restored: plan.reason, reprocessed: false, note: kick.note });
+        }
+        return Response.json({ ok: true, restored: plan.reason, reprocessed: true });
       }
 
       const rows = await opsGet(`bill_email_intake?id=eq.${id}&select=reprocess_count&limit=1`);
@@ -217,31 +315,10 @@ export default async function handler(req) {
         notified_at: null,          // let the outcome be announced again
         reprocess_count: (rows?.[0]?.reprocess_count || 0) + 1,
       });
-      const base = process.env.URL || 'https://apbg-billing.netlify.app';
-      // ⚠ The processor declares config.path = '/api/bill-email-process-background',
-      // and a v2 function with its own path is served ONLY there — the legacy
-      // /.netlify/functions/<name> route 404s. This kick used that dead route, so
-      // "Try again" flipped the row back to 'received' and then never processed
-      // it: the button read as working and the bill went back to "Scanning…".
-      // fetch() does not throw on a 404, so only the throw was ever reported.
-      const kickUrl = `${base}/api/bill-email-process-background`;
-      let kick;
-      try {
-        kick = await fetch(kickUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-ap-inbox-secret': process.env.SUPABASE_SERVICE_ROLE_KEY || '' },
-          body: JSON.stringify({ intake_id: id, force: true }),
-        });
-      } catch (e) {
-        const note = `queued in the table, but the background kick failed: ${e?.message || e}`;
-        try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: note }); } catch {}
-        return Response.json({ ok: true, queued: false, note });
-      }
+      const kick = await kickProcessor(id);
       if (!kick.ok) {
-        const note = `queued in the table, but the processor kick returned ${kick.status} at /api/bill-email-process-background`;
-        console.error('[bills-inbox]', note);
-        try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: note }); } catch {}
-        return Response.json({ ok: true, queued: false, note });
+        try { await opsPatch('bill_email_intake', `id=eq.${id}`, { status_detail: kick.note }); } catch {}
+        return Response.json({ ok: true, queued: false, note: kick.note });
       }
       return Response.json({ ok: true, queued: true });
     }

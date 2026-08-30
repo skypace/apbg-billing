@@ -369,4 +369,67 @@ await t('a recurring bill well outside its usual amount is called out', () => {
   assert.match(recurringNote(r, { total: null }), /no amount was read/);
 });
 
+// ─── Archive / restore ───────────────────────────────────────────────────────
+
+const { archivePlan, restorePlan } = await import('../netlify/functions/lib/ap-inbox.mjs');
+
+await t('archive: an email with no bill hides just the email', () => {
+  const p = archivePlan({ status: 'ocr_failed' }, null);
+  assert.equal(p.allowed, true);
+  assert.equal(p.archiveRequest, false);
+});
+
+// the orphan this exists to stop: a draft must go WITH its email
+await t('archive: an unposted draft is archived with its email', () => {
+  const p = archivePlan({ status: 'drafted' }, { id: 'r1', qbo_bill_id: null, posted_at: null, archived_at: null });
+  assert.equal(p.allowed, true);
+  assert.equal(p.archiveRequest, true);
+});
+
+// the one refusal that matters — QuickBooks is the record once it has posted
+await t('archive: a bill already in QuickBooks is refused, not hidden', () => {
+  const p = archivePlan({ status: 'drafted' }, { id: 'r1', qbo_bill_id: '173048', posted_at: null });
+  assert.equal(p.allowed, false);
+  assert.match(p.reason, /QuickBooks/);
+});
+
+await t('archive: posted_at alone is enough to refuse', () => {
+  assert.equal(archivePlan({ status: 'drafted' }, { id: 'r1', posted_at: '2026-08-26T00:00:00Z' }).allowed, false);
+});
+
+await t('archive: re-archiving is idempotent and does not re-stamp the bill', () => {
+  const p = archivePlan({ status: 'ignored' }, { id: 'r1', archived_at: '2026-08-30T00:00:00Z' });
+  assert.equal(p.allowed, true);
+  assert.equal(p.archiveRequest, false);
+});
+
+// ⚠ the duplicate trap: the processor's force re-run does NOT reuse an existing
+// expense_request_id, so reprocessing a restored row that already has a bill
+// mints a SECOND draft for the same invoice.
+await t('restore: a row that already has a bill comes back without reprocessing', () => {
+  const p = restorePlan({ status: 'ignored' }, { id: 'r1' });
+  assert.equal(p.allowed, true);
+  assert.equal(p.unarchiveRequest, true);
+  assert.equal(p.reprocess, false);
+});
+
+await t('restore: a row with no bill is re-read, since that is the only way to get one', () => {
+  const p = restorePlan({ status: 'ignored' }, null);
+  assert.equal(p.allowed, true);
+  assert.equal(p.reprocess, true);
+  assert.equal(p.unarchiveRequest, false);
+});
+
+await t('restore: a live row is refused and pointed at Try again', () => {
+  const p = restorePlan({ status: 'drafted' }, null);
+  assert.equal(p.allowed, false);
+  assert.match(p.reason, /Try again/);
+});
+
+await t('archive/restore: a missing intake is refused by both', () => {
+  assert.equal(archivePlan(null, null).allowed, false);
+  assert.equal(restorePlan(null, null).allowed, false);
+});
+
 console.log(`\n${pass} passed\n`);
+
