@@ -76,14 +76,14 @@ export default function LandingPage() {
           icon={<Receipt className="h-7 w-7" />}
           title="Expense"
           desc="I already bought something — snap the receipt and log it"
-          onClick={() => navigate('new')}
+          onClick={() => navigate('/new')}
         />
         <CtaTile
           icon={<ShoppingCart className="h-7 w-7" />}
           title="Purchase Request"
           desc="I need to buy something — get approval first"
           amber
-          onClick={() => navigate('new-pr')}
+          onClick={() => navigate('/new-pr')}
         />
       </div>
 
@@ -129,7 +129,7 @@ export default function LandingPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => navigate('pending')}
+                  onClick={() => navigate('/pending')}
                   className="text-xs text-primary hover:underline underline-offset-2"
                 >
                   Previous expenses →
