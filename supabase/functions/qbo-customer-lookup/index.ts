@@ -1,5 +1,6 @@
-// qbo-customer-lookup v4 — live QBO customer lookup by display name, with
-// mirror heal, deactivation, payment-settings read, and customer-master push.
+// qbo-customer-lookup v5 — live QBO customer lookup by display name, with
+// mirror heal, deactivation, payment-settings read, customer-master push, and
+// a master snapshot for the portal's drift check.
 //
 // ⚠ THIS FILE WAS RECOVERED FROM THE DEPLOYED FUNCTION (2026-08-31).
 // The repo copy had been stuck at v2 while v6 (source header v3) was live, so
@@ -305,6 +306,18 @@ Deno.serve(async (req: Request) => {
           else refused.push({ field: "payment_method", value: name, reason: "no QuickBooks PaymentMethod with that name — create it in QuickBooks first" });
         }
       }
+      // DisplayName. ⚠ QBO requires it UNIQUE across customers, so a rename
+      // can collide with an existing record; that comes back as a QBO fault
+      // rather than a silent no-op, and the caller surfaces it. Only sent on
+      // an actual name edit (the portal decides that, not this function).
+      if ("name" in body) {
+        const nm = body.name == null ? "" : String(body.name).trim();
+        if (nm) { patch.DisplayName = nm; applied.push("name"); }
+      }
+      if ("taxable" in body) {
+        patch.Taxable = body.taxable === true;
+        applied.push("taxable");
+      }
       if ("email" in body) {
         const email = body.email == null ? "" : String(body.email).trim();
         if (email) { patch.PrimaryEmailAddr = { Address: email }; applied.push("email"); }
@@ -338,6 +351,7 @@ Deno.serve(async (req: Request) => {
       try {
         const ops = getOpsSB();
         const mirror: Record<string, unknown> = { synced_at: new Date().toISOString() };
+        if (updated?.DisplayName) mirror.display_name = updated.DisplayName;
         if (updated?.PrimaryEmailAddr?.Address) mirror.email = updated.PrimaryEmailAddr.Address;
         if (updated?.BillAddr) {
           mirror.bill_addr_line1 = updated.BillAddr.Line1 ?? null;
@@ -355,6 +369,76 @@ Deno.serve(async (req: Request) => {
       return jsonRes({
         ok: true, action: "update_customer", found: true, applied, refused,
         customer: { id: String(updated?.Id ?? qboId), display_name: updated?.DisplayName ?? cust.DisplayName ?? null },
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
+    // ── action: customer_master_snapshot ── read-only.
+    //
+    // What QuickBooks holds for the customer master, so the portal can diff
+    // its own record against it. Deliberately covers the three fields the
+    // ops.qbo_customers mirror does NOT carry — SalesTermRef, PaymentMethodRef
+    // and Taxable — because those are precisely the ones the portal now pushes
+    // and therefore the ones where a disagreement would otherwise be invisible.
+    //
+    // Pages through the QBO query API rather than asking per customer: 150+
+    // customers one-at-a-time is minutes of round trips and a token-refresh
+    // hazard, where this is a handful of calls.
+    if (body?.action === "customer_master_snapshot") {
+      const wanted: string[] = Array.isArray(body?.qbo_customer_ids)
+        ? body.qbo_customer_ids.map((v: unknown) => String(v)).filter((v: string) => /^[0-9]+$/.test(v))
+        : [];
+      const want = wanted.length > 0 ? new Set(wanted) : null;
+      const token = await getAccessToken(sb);
+
+      const out: Record<string, unknown> = {};
+      const PAGE = 200;
+      const MAX_PAGES = 40; // 8,000 customers; the realm holds ~850 today
+      let start = 1;
+      let scanned = 0;
+      let truncated = false;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        if (page === MAX_PAGES - 1) truncated = true;
+        const q = "select Id, DisplayName, Active, Taxable, PrimaryEmailAddr, BillAddr, " +
+          "SalesTermRef, PaymentMethodRef from Customer startposition " + start +
+          " maxresults " + PAGE;
+        const data = await acctQuery(token, q);
+        const rows: any[] = data?.QueryResponse?.Customer ?? [];
+        if (rows.length === 0) break;
+        scanned += rows.length;
+        for (const c of rows) {
+          const id = String(c.Id);
+          if (want && !want.has(id)) continue;
+          out[id] = {
+            display_name: c.DisplayName ?? null,
+            active: c.Active !== false,
+            // ⚠ Absent means QBO did not return the field, which is NOT the
+            // same as false — reported as null so the portal can say
+            // "unknown" instead of inventing a disagreement.
+            taxable: typeof c.Taxable === "boolean" ? c.Taxable : null,
+            email: c.PrimaryEmailAddr?.Address ?? null,
+            bill_addr: c.BillAddr
+              ? {
+                  line1: c.BillAddr.Line1 ?? null,
+                  line2: c.BillAddr.Line2 ?? null,
+                  city: c.BillAddr.City ?? null,
+                  state: c.BillAddr.CountrySubDivisionCode ?? null,
+                  zip: c.BillAddr.PostalCode ?? null,
+                }
+              : null,
+            terms: c.SalesTermRef?.name ?? null,
+            payment_method: c.PaymentMethodRef?.name ?? null,
+          };
+        }
+        if (rows.length < PAGE) { truncated = false; break; }
+        start += PAGE;
+      }
+      return jsonRes({
+        ok: true, action: "customer_master_snapshot",
+        // ⚠ truncated = we hit the page cap, so a customer absent from `customers`
+        // may simply not have been reached. The caller MUST NOT report those as
+        // missing from QuickBooks — that would be a false alarm on every one.
+        scanned, truncated, returned: Object.keys(out).length, customers: out,
         duration_ms: Date.now() - startedAt,
       });
     }
