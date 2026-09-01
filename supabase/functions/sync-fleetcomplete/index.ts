@@ -1,4 +1,13 @@
 // Supabase Edge Function: sync-fleetcomplete
+//
+// ⚠ DEPLOY NOTE (2026-09-01): the DEPLOYED build is a comment-stripped
+// variant of this file - its header says so and points back here for the
+// schema discovery, stub status, trip-reconstruction algorithm and Powerfleet
+// bug log. The two were verified semantically identical on 2026-09-01 (same
+// functions, modes, constants and upsert conflict targets) before the UUID
+// guard below was shipped to both. If you change logic here, change it there
+// too - `git log` cannot warn you, because this repo is a shallow clone and
+// this file sits on the truncation boundary.
 // ------------------------------------------
 // Pulls fleet data from the Unity (Powerfleet / FleetComplete) GraphQL
 // API at https://api.fleetcomplete.com/graphql and upserts into the
@@ -319,6 +328,26 @@ interface FcLatestSnapshot {
   driver: { driverId: string | null } | null;
 }
 
+// Fleet Complete types the vehicle id as UUID (`[UUID!]!` below, `UUID!` on
+// getSnapshots). ops.fleet_vehicles does NOT only hold FC assets: a vehicle we
+// key in by hand carries a synthetic `fc_asset_id` of 'manual:<VIN>'
+// (migration 20260829a). That is not a UUID, and the server rejects the WHOLE
+// getLatestSnapshots query if even one id in the list is malformed — so three
+// hand-entered vans took live tracking down for every truck in the fleet for
+// four days (2026-08-29 → 09-01), 288 failed calls a day.
+//
+// Filter on the UUID SHAPE rather than on `source = 'fleetcomplete'`: the shape
+// is exactly the constraint the API imposes, a real FC asset always satisfies
+// it, and a row whose `source` is NULL (rows predating 20260829a) would be
+// wrongly dropped by a source filter.
+const FC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function fcAssetIds(rows: { fc_asset_id: string | null }[] | null): { ids: string[]; skipped: string[] } {
+  const all = (rows ?? []).map((v) => v.fc_asset_id).filter(Boolean) as string[];
+  const ids = all.filter((id) => FC_UUID_RE.test(id));
+  return { ids, skipped: all.filter((id) => !FC_UUID_RE.test(id)) };
+}
+
 const LATEST_QUERY = `query Latest($ids: [UUID!]!) {
   getLatestSnapshots(vehicleIds: $ids) {
     vehicleId
@@ -337,8 +366,12 @@ async function syncLatest(ctx: { accessToken: string; userId: string }) {
     .from('fleet_vehicles')
     .select('fc_asset_id');
   if (vErr) throw new Error('fleet_vehicles read: ' + vErr.message);
-  const ids = (vehicles ?? []).map((v) => v.fc_asset_id).filter(Boolean);
-  if (ids.length === 0) return { count: 0, note: 'no vehicles in fleet_vehicles yet' };
+  const { ids, skipped } = fcAssetIds(vehicles as { fc_asset_id: string | null }[] | null);
+  if (skipped.length > 0) {
+    console.warn('sync-fleetcomplete latest: skipping ' + skipped.length +
+      ' non-FleetComplete asset id(s): ' + skipped.join(', '));
+  }
+  if (ids.length === 0) return { count: 0, skipped_non_fc: skipped.length, note: 'no FleetComplete vehicles in fleet_vehicles yet' };
 
   // graphql() helper takes a query string only; pass the variables inline
   // by interpolating ids as a JSON literal. Cheaper than extending the
@@ -833,8 +866,16 @@ function buildStopVisits(
 async function syncTripsAndEvents(ctx: { accessToken: string; userId: string }) {
   const { data: vehicles, error: vErr } = await sb.from('fleet_vehicles').select('fc_asset_id');
   if (vErr) throw new Error('fleet_vehicles read: ' + vErr.message);
-  const ids = (vehicles ?? []).map((v) => v.fc_asset_id).filter(Boolean) as string[];
-  if (ids.length === 0) return { trips_upserted: 0, events_upserted: 0, vehicles_processed: 0 };
+  // Same UUID guard as syncLatest. getSnapshots takes one id at a time, so a
+  // synthetic 'manual:<VIN>' only fails its own call rather than the whole
+  // sweep — but it is still a guaranteed-failing round trip per vehicle per
+  // run, and the warning it logs is noise that masks real failures.
+  const { ids, skipped } = fcAssetIds(vehicles as { fc_asset_id: string | null }[] | null);
+  if (skipped.length > 0) {
+    console.warn('sync-fleetcomplete trips: skipping ' + skipped.length +
+      ' non-FleetComplete asset id(s): ' + skipped.join(', '));
+  }
+  if (ids.length === 0) return { trips_upserted: 0, events_upserted: 0, vehicles_processed: 0, skipped_non_fc: skipped.length };
 
   const to = new Date();
   const from = new Date(to.getTime() - TRIPS_WINDOW_MS);
