@@ -113,6 +113,11 @@ export async function handler(event) {
   // from the Freshpet invoice (freshpet-invoice.mjs) but the tech drove the stop
   // and did the work, so it is paid here at the full rate. Do not "tidy" this by
   // mirroring the invoice filter: the asymmetry is the policy.
+  //
+  // The same goes for a BILLING HOLD (completed_pms.billing_hold_at). A hold is
+  // a statement to Freshpet that we are not standing behind our documentation
+  // of that unit yet. It says nothing about whether the tech turned up and did
+  // the work, so it must not reach into his pay.
   let rows;
   try {
     let path =

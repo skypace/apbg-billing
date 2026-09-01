@@ -173,7 +173,7 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,visit_type,signed_at,gps_lat,gps_lng,assets(city,model,warranty)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,visit_type,signed_at,gps_lat,gps_lng,billing_hold_at,billing_hold_outcome,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -187,9 +187,17 @@ export async function handler(event) {
   //     our own remediation is not on. The tech is still paid in full (that runs
   //     off completed_pms.paid_out, which does not look at visit_type).
   const NOT_BILLABLE = { exception: 'site exception — not a billable PM', reshoot: 're-shoot — our remediation, never charged to Freshpet' };
-  const eligible = rows.filter(r => !r.prev_comp && !r.billed && !NOT_BILLABLE[r.visit_type]);
-  const skipped = rows.filter(r => r.prev_comp || r.billed || NOT_BILLABLE[r.visit_type])
-    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed' : (NOT_BILLABLE[r.visit_type] || 'prev comp') }));
+  // A line under a live billing hold does not go out. The hold means we are not
+  // standing behind that unit's documentation yet, and invoicing it anyway is
+  // exactly the thing the hold exists to stop — it is checked HERE, at the last
+  // step before a real QBO invoice, not only in the admin list, because that
+  // list is a convenience and this is the gate.
+  const onHold = r => !!r.billing_hold_at && !r.billing_hold_outcome;
+  const eligible = rows.filter(r => !r.prev_comp && !r.billed && !NOT_BILLABLE[r.visit_type] && !onHold(r));
+  const skipped = rows.filter(r => r.prev_comp || r.billed || NOT_BILLABLE[r.visit_type] || onHold(r))
+    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed'
+      : onHold(r) ? 'billing hold — held pending re-documentation'
+      : (NOT_BILLABLE[r.visit_type] || 'prev comp') }));
 
   if (!eligible.length) {
     return json(400, { error: 'None of the selected PMs are billable', skipped });
