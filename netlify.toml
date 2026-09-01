@@ -118,6 +118,26 @@
   to = "/visitors.html"
   status = 200
 
+# NDA signing page — the link a co-packer, lab or vendor gets by email before we
+# share formulations or samples. DELIBERATELY PUBLIC, same kiosk recipe: the
+# counterparty has no login here, the token in the URL is the entire gate, and
+# every write goes through the service-role function (nda-sign). Staff send and
+# track NDAs from /compliance → NDAs. The gateway proxies /nda here.
+[[redirects]]
+  from = "/nda"
+  to = "/nda.html"
+  status = 200
+
+# NDA sending page — the delegated sender link. A named person can send our NDA
+# without a hub login. ⚠ That link is a CREDENTIAL (whoever holds it can send
+# mail in our name), so it is rate-limited, expiring and instantly revocable,
+# and it reaches a SEPARATE function (nda-send) that can only send — never list
+# or download an agreement. Issued from /compliance → NDAs.
+[[redirects]]
+  from = "/nda-send"
+  to = "/nda-send.html"
+  status = 200
+
 # Vendor onboarding intake — the one-time link vendors get by email (Vendor
 # Portal Phase 2). DELIBERATELY PUBLIC (kiosk recipe): a vendor cannot log in;
 # the token in ?t= is the gate and all writes go through the service-role

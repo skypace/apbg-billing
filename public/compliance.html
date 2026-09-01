@@ -128,6 +128,13 @@ table.grid tr.arch td{background:#FAFBFC;opacity:.62}
 .field.cb input{width:16px;height:16px;accent-color:#1F4E79;cursor:pointer}
 .field.cb label{text-transform:none;letter-spacing:0;font-size:.83rem;font-weight:600;color:#334155;cursor:pointer}
 .xbtn{border:0;background:none;font-size:1.4rem;line-height:1;color:#94A3B8;cursor:pointer;padding:0 4px}
+/* Same field look as the modal, for forms that live inline in a pane (NDAs). */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fgrid > div{min-width:0}
+.fgrid .full{grid-column:1 / -1}
+.fgrid label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  color:#64748B;margin-bottom:5px}
+@media(max-width:720px){.fgrid{grid-template-columns:1fr}}
 .xbtn:hover{color:#0F172A}
 .filepick{border:1px dashed #94A3B8;border-radius:8px;padding:12px;background:#F8FBFE;font-size:.82rem}
 .filepick input[type=file]{font-size:.8rem;width:100%}
@@ -352,9 +359,11 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
     <button class="tab active" id="tabDashboard" onclick="showTab('dashboard')">Dashboard</button>
     <button class="tab" id="tabInspector"   onclick="showTab('inspector')">Records &amp; SDS</button>
     <button class="tab" id="tabInsurance"   onclick="showTab('insurance')">Insurance &amp; Company</button>
+    <button class="tab" id="tabFleet"       onclick="showTab('fleet')">Fleet &amp; Vehicles</button>
     <button class="tab" id="tabVendors"     onclick="showTab('vendors')">Vendors &amp; Contractors</button>
     <button class="tab" id="tabPostings"    onclick="showTab('postings')">Posting Board</button>
     <button class="tab" id="tabVisitors"    onclick="showTab('visitors')">Visitors</button>
+    <button class="tab" id="tabNdas"        onclick="showTab('ndas')">NDAs</button>
     <button class="tab" id="tabInspections" onclick="showTab('inspections')">Inspections</button>
     <button class="tab" id="tabHandbook"    onclick="showTab('handbook')">Safety Manual</button>
   </nav>
@@ -444,7 +453,9 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         <div class="phonecard">
           <h3>Insurance &amp; brokers</h3>
           <ul class="phonelist">
-            <li><div class="who"><b>Thimble / Coterie — general liability</b><span>Spinnaker NAIC 24376 · CSB-00128559-00</span></div><a href="tel:+18555661011">855-566-1011</a></li>
+            <li><div class="who"><b>Ram Risk Group — broker · ALL COI requests</b><span>coi@ramriskgroup.com · Edrill, client service · Mon–Fri 9–5</span></div><a href="tel:+15612064733">(561) 206-4733</a></li>
+            <li><div class="who"><b>Great American — general liability + umbrella</b><span>NAIC 16691 · PLF574240 · XSF574242 · via Ram Risk</span></div><a href="tel:+15612064733">(561) 206-4733</a></li>
+            <li><div class="who"><b>Thimble / Coterie — cancelled 8/29/26</b><span>Spinnaker NAIC 24376 · CSB-00128559-00 · occurrence form: still covers claims from 1/1–8/29/26</span></div><a href="tel:+18555661011">855-566-1011</a></li>
             <li><div class="who"><b>Progressive Commercial — auto</b><span>NAIC 10193 · policy 975506554</span></div><a href="tel:+18004444487">1-800-444-4487</a></li>
             <li><div class="who"><b>Embroker — workers' comp</b><span>AmTrust / Security National NAIC 19879 · SWC1470931 · Julie Noonan</span></div><a href="tel:+18444362765">(844) 436-2765</a></li>
           </ul>
@@ -533,6 +544,78 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
 
   <!-- ═══════════════ OUR INSURANCE & COMPANY DOCS ═══════════════ -->
   <div class="container" id="paneInsurance" style="display:none">
+    <!-- The one thing people come to this tab to do: get a certificate out to a
+         customer, landlord or GC. Broker's stated rules, and a composed email so
+         nobody sends a request that bounces back for missing information. -->
+    <div class="section" style="border-left:4px solid #1F4E79">
+      <div class="toolbar">
+        <h2 style="margin:0">Need a certificate of insurance?</h2>
+        <div class="noprint">
+          <button class="btn sm" onclick="coiCompose()">Compose the request &rarr;</button>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Every COI request goes to our broker, <b>Ram Risk Group</b>, at
+        <a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a> — not to a carrier, and not to
+        an individual. <b>Send four things</b>, or it comes back to you for more information:
+      </div>
+      <div class="fgrid">
+        <div><label>1 · Certificate holder</label>
+          <div class="prose" style="margin:0">Their full legal name <b>and complete address</b>. This is
+            who the certificate is issued to, and it is the field most often sent incomplete.</div></div>
+        <div><label>2 · Description of operations</label>
+          <div class="prose" style="margin:0">What we are doing for them, if the contract calls for it
+            — e.g. &ldquo;beverage equipment installation and service at 123 Main St.&rdquo;</div></div>
+        <div><label>3 · Coverage types and limits</label>
+          <div class="prose" style="margin:0">Whatever their contract requires. Ours are listed below —
+            check theirs against ours <b>before</b> you promise anything.</div></div>
+        <div><label>4 · Endorsement requirements</label>
+          <div class="prose" style="margin:0">Additional Insured, Waiver of Subrogation, primary and
+            non-contributory. <b>Say so explicitly</b> — see the warning below.</div></div>
+      </div>
+      <div class="prose" style="margin-top:14px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0">
+        <b>Ticking &ldquo;additional insured&rdquo; on the form is not the same as having the endorsement.</b>
+        The ACORD certificate says so itself: if the holder is an additional insured, or subrogation is
+        waived, <i>the policy must actually be endorsed</i> — a line on the certificate confers nothing.
+        If a contract requires it, ask Ram Risk for the <b>endorsement</b>, not just the certificate.
+      </div>
+      <div class="prose" style="margin-top:12px">
+        <b>Their hours are Monday–Friday, 9:00&nbsp;AM–5:00&nbsp;PM.</b> Anything sent after hours is
+        handled the next business day, so a Friday-afternoon request for a Monday job start is a Tuesday
+        certificate. Their office is in North Palm Beach, Florida — if those are Eastern hours, their
+        5&nbsp;PM is our 2&nbsp;PM, so treat early afternoon as the cut-off.
+      </div>
+      <div class="twrap" style="margin-top:12px"><table class="grid">
+        <thead><tr><th>Ram Risk Group</th><th>Contact</th><th>Reach</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>COI requests</b><div class="muted">use this, not a person</div></td>
+            <td>Certificates desk</td>
+            <td><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></td>
+          </tr>
+          <tr>
+            <td><b>Client service</b></td>
+            <td>Edrill — Client Service Relations Team Lead</td>
+            <td><a href="tel:+15612064733">+1 (561) 206-4733</a><div class="muted"><a href="mailto:edrill@ramriskgroup.com">edrill@ramriskgroup.com</a></div></td>
+          </tr>
+          <tr>
+            <td><b>Producer of record</b></td>
+            <td>Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted">11891 U.S. Highway 1, Suite 100, North Palm Beach FL 33408</div></td>
+          </tr>
+          <tr>
+            <td><b>Website</b></td>
+            <td>—</td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">ramriskgroup.com &rarr;</a></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <div id="coiDetail" class="noprint" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #E2E8F0">
+        <h3 style="margin:0 0 8px" id="coiDetailTitle"></h3>
+        <div id="coiDetailBody"></div>
+      </div>
+    </div>
+
     <div class="section">
       <div class="toolbar">
         <h2 style="margin:0">Our insurance <span class="sub" id="insCount"></span></h2>
@@ -576,7 +659,21 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
         <thead><tr><th>Line</th><th>Carrier</th><th>Broker / servicing</th><th>Contact</th><th>Portal</th></tr></thead>
         <tbody>
           <tr>
-            <td><b>General liability</b><div class="muted">CSB-00128559-00</div></td>
+            <td><b>General liability</b><div class="muted">PLF574240 · 8/25/26&ndash;8/25/27</div></td>
+            <td>Great American Insurance Co.<div class="muted">NAIC 16691</div></td>
+            <td>Ram Risk Group &middot; Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted"><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></div></td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">Ram Risk Group &rarr;</a></td>
+          </tr>
+          <tr>
+            <td><b>Umbrella / excess</b><div class="muted">XSF574242 · 8/25/26&ndash;8/25/27</div></td>
+            <td>Great American Insurance Co.<div class="muted">NAIC 16691</div></td>
+            <td>Ram Risk Group &middot; Corey Ramsey</td>
+            <td><a href="tel:+15612064733">(561) 206-4733</a><div class="muted"><a href="mailto:coi@ramriskgroup.com">coi@ramriskgroup.com</a></div></td>
+            <td><a href="https://www.ramriskgroup.com" target="_blank" rel="noopener">Ram Risk Group &rarr;</a></td>
+          </tr>
+          <tr class="arch">
+            <td><b>General liability (cancelled)</b><div class="muted">CSB-00128559-00 · cancelled 8/29/26 · occurrence form, still answers for its own term</div></td>
             <td>Spinnaker Insurance Co.<div class="muted">NAIC 24376</div></td>
             <td>Thimble / Coterie</td>
             <td><a href="tel:+18555661011">855-566-1011</a><div class="muted">support@thimble.com</div></td>
@@ -605,8 +702,34 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           </tr>
         </tbody>
       </table></div>
+      <div class="prose" style="margin-top:10px;padding:12px 14px;background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 8px 8px 0">
+        <b>Spinnaker was cancelled on 29 August 2026.</b> Great American is our general liability now.
+        Four things follow from cancelling a policy mid-term, and none of them happens by itself:
+        <ul style="margin:8px 0 0;padding-left:20px">
+          <li><b>Every certificate issued under Spinnaker is void going forward</b>, and any
+            additional-insured or waiver-of-subrogation endorsement written on it dies with the policy.
+            Holders who require current evidence &mdash; <b>the landlord (LPC / City of Alameda) first</b>
+            &mdash; need a reissued certificate from Ram Risk, and any contract requiring additional-insured
+            status needs that endorsement re-done under Great American.</li>
+          <li><b>Check the cancellation date is on or after 25 August.</b> The new policy incepted 8/25;
+            backdating the cancellation earlier to recover more premium would open a window with no
+            general liability at all.</li>
+          <li><b>Get the cancellation notice in writing and file it here.</b> That document is what proves
+            we were not carrying two policies, and it fixes the date if anyone asks later.</li>
+          <li><b>There should be a return premium.</b> Confirm whether it is pro-rata or short-rate.</li>
+        </ul>
+      </div>
+      <div class="prose" style="margin-top:10px">
+        <b>The archived Spinnaker record stays.</b> It was an <b>occurrence-form</b> policy, so it still
+        answers for anything that <i>happened</i> between 1 January and the cancellation date, even though
+        it is no longer in force &mdash; a claim from that window is made against that policy, and the
+        policy number is how you find it. Cancelled is not the same as never existed. Tick
+        <b>Show archived</b> on the table above to see it.
+      </div>
       <div class="muted" style="margin-top:8px">
-        GEICO isn't on any certificate in the current packet — if there's a GEICO commercial policy, send the COI and it gets a row here.
+        Auto stays with Progressive and workers' comp with AmTrust/Embroker — neither is on the Ram Risk
+        certificate, so those COIs still come from their own brokers. GEICO isn't on any certificate in
+        the packet; if there's a GEICO commercial policy, send the COI and it gets a row here.
       </div>
     </div>
 
@@ -651,6 +774,59 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
   </div>
 
   <!-- ═══════════════ VENDORS & CONTRACTORS ═══════════════ -->
+  <!-- ═══════════════ FLEET & VEHICLES ═══════════════ -->
+  <div class="container wide" id="paneFleet" style="display:none">
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Fleet &amp; vehicles <span class="sub" id="fleetCount"></span></h2>
+        <div class="noprint">
+          <button class="btn ghost sm" onclick="openEditor('vehicles')">+ Add a vehicle</button>
+          <button class="btn sm" onclick="openEditor('documents',{category:'vehicle',vehicle_id:'__pick__'})">+ File a vehicle document</button>
+        </div>
+      </div>
+      <div class="prose">
+        Every vehicle we own, whether or not it has a telematics unit in it. Rows marked
+        <span class="chip info">Fleet&nbsp;Complete</span> come from the hourly sync and the sync owns their
+        name, VIN, plate, make, model and year — <b>change those in Fleet Complete, not here</b>, or the next
+        sync reverts them. Everything else on the row is ours: registration, odometer readings, service
+        history, insurance, and the documents filed underneath.
+        Rows marked <span class="chip dim">Keyed in</span> were entered here because Fleet Complete cannot see them.
+      </div>
+      <div class="prose" style="margin-top:8px">
+        <b>Fleet Complete lists devices, not trucks.</b> An asset can be a second or older tracker on a vehicle that
+        already has a row, or a tracker sitting in a drawer with nobody's truck attached to it. Point a duplicate at
+        the real vehicle with <b>Same truck as</b> on its Edit form and it stops being counted — the header above
+        counts <em>vehicles</em>, not rows. Tick <b>Show archived</b> to see retired trucks and unpaired devices;
+        nothing here is ever deleted, because a registration and service history are the record for the period we
+        owned the vehicle and a claim can arrive after the truck has gone.
+      </div>
+      <div id="fleetAlerts"></div>
+      <div class="twrap"><table class="grid" id="fleetTable">
+        <thead><tr>
+          <th>Vehicle</th><th>Plate</th><th>VIN</th><th>Odometer</th>
+          <th>Last service</th><th>Registration</th><th>Insurance</th><th>Docs</th>
+          <th class="noprint">Actions</th>
+        </tr></thead>
+        <tbody><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <h2>Vehicle documents <span class="sub" id="vdocCount"></span></h2>
+      <div class="prose" style="margin-bottom:10px">
+        Registration cards and DMV renewal notices, smog certificates, titles, insurance ID cards,
+        repair invoices, inspection reports — anything about a specific truck. They live in the same
+        private vault as the rest of our compliance paper, so a registration sits beside the COI it is
+        evidence against. File one from the button above, or from <b>+ Add document</b> on the
+        Insurance &amp; Company tab with a vehicle picked.
+      </div>
+      <div class="twrap"><table class="grid" id="vdocTable">
+        <thead><tr><th>Document</th><th>Vehicle</th><th>Type</th><th>Ref #</th><th>Expires</th><th>Status</th><th>File</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
   <div class="container" id="paneVendors" style="display:none">
     <div class="section">
       <div class="toolbar">
@@ -837,6 +1013,105 @@ img.sigthumb{height:34px;border:1px solid #E4E9F0;border-radius:4px;background:#
           <li>The host and the notify list get an email the moment someone signs in. Set the host list and the notify list in <code>ops.visitor_settings</code>.</li>
           <li>Sign-out: the visitor scans the QR on their badge, types the badge number on the kiosk, or you close it from the table above.</li>
           <li>The agreement covers escort, <b>CO₂ never-enter-to-rescue</b>, forklift traffic, evacuation, PPE, food safety, no smoking, incident reporting, confidentiality, and the contractor insurance confirmation.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ NDAs ═══════════════ -->
+  <!-- Send the confidentiality agreement, watch it get signed, and log what you
+       actually disclosed under it. The executed PDF files itself into the vault
+       against the counterparty, so an NDA sits beside their COI and W-9. -->
+  <div class="container" id="paneNdas" style="display:none">
+    <!-- Shown until somebody's signature is on file. Our own paper going out
+         with an empty rule where our signature belongs is the thing to fix. -->
+    <div class="section noprint" id="ndaSignPrompt"
+         style="display:none;border-left:4px solid #B45309;background:#FFFBEB">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px">
+          <h2 style="margin:0 0 4px">Sign once, and we'll use it from then on</h2>
+          <div class="prose" style="margin:0">Right now our NDAs go out with a typed name over an empty
+            rule while the other side signs properly. Sign in the box once — it is saved, printed in the
+            Company block of every agreement, and snapshotted onto each one so changing it later can
+            never alter a document somebody already signed.</div>
+        </div>
+        <button class="btn" onclick="ndaOpenSignatory('')">Sign here &rarr;</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="toolbar">
+        <h2 style="margin:0">Confidentiality agreements <span class="sub" id="ndaCounts"></span></h2>
+        <div class="noprint">
+          <button class="btn sm" onclick="ndaOpenSend()">+ Send an NDA</button>
+          <button class="btn ghost sm" onclick="ndaLoad()">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        Before any formulation, spec sheet, batching sheet or sample leaves the building, the receiving
+        company signs this. Send them a link — they fill in their own legal name and address, read it,
+        and sign on screen. The signed PDF is emailed to both sides and filed in the vault automatically.
+      </div>
+      <div class="twrap"><table class="grid" id="ndaTable">
+        <thead><tr><th>Reference</th><th>Company</th><th>Status</th><th>Purpose</th>
+          <th>Sent</th><th>Signed</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Signatures</h2>
+        <div><button class="btn ghost sm" onclick="ndaOpenSignatory('')">+ Add a signature</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:10px">Who signs on behalf of the company, and their
+        signature. It is printed in the Company block of the executed PDF and snapshotted onto each
+        agreement when it goes out, so changing yours never alters a document somebody already signed.</div>
+      <div class="twrap"><table class="grid" id="ndaSigTable">
+        <thead><tr><th>Name</th><th>Login</th><th>Signature</th><th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint">
+      <div class="toolbar">
+        <h2 style="margin:0">Sender links <span class="sub" id="ndaLinkCount"></span></h2>
+        <div><button class="btn ghost sm" onclick="ndaOpenLink()">+ Issue a link</button></div>
+      </div>
+      <div class="prose" style="margin-bottom:12px">
+        A personal link that lets someone send this NDA <b>without a login</b> — a rep at a trade show, an
+        assistant. <b>Treat it as a key:</b> whoever holds it can send email in our name, so it belongs to
+        one named person, it expires, it is capped per day, and you can switch it off instantly. It can
+        <b>only send</b> — it cannot open, edit or download anybody's agreement.
+      </div>
+      <div class="twrap"><table class="grid" id="ndaLinkTable">
+        <thead><tr><th>For</th><th>Signed by</th><th>Used</th><th>Limit</th><th>Good until</th>
+          <th class="noprint">Actions</th></tr></thead>
+        <tbody><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section noprint" id="ndaDetail" style="display:none">
+      <div class="toolbar">
+        <h2 style="margin:0" id="ndaDetailTitle">Agreement</h2>
+        <button class="btn ghost sm" onclick="document.getElementById('ndaDetail').style.display='none'">Close</button>
+      </div>
+      <div id="ndaDetailBody"></div>
+    </div>
+
+    <div class="section noprint">
+      <h2>How this works</h2>
+      <div class="prose">
+        <ul style="margin:6px 0 0 20px;line-height:1.85">
+          <li><b>We countersign when we send.</b> This is our paper on our terms — the signature we are
+            collecting is theirs, so the Company block is filled in with whoever sends it.</li>
+          <li><b>The text they sign is frozen at send time.</b> Editing the template later publishes a new
+            version for future agreements and cannot touch one already signed.</li>
+          <li><b>Log what you disclose.</b> Exhibit A on each agreement is the running record of every
+            formulation, spec sheet and sample you sent them — that log is what makes
+            "they had our formula" provable.</li>
+          <li>A link expires (30 days by default) and can be revoked until it is signed. Resending mints a
+            new link and kills the old one.</li>
         </ul>
       </div>
     </div>
@@ -1287,7 +1562,11 @@ function readSession(){
     if(!s || !s.token) return null;
     const payload = JSON.parse(atob(s.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
     if(payload.exp && payload.exp * 1000 < Date.now() + 30000) return null;
+    // The profile NAME, never a name guessed from the email address — it gets
+    // printed on executed agreements as the officer who signed them.
+    const um = payload.user_metadata || (s.user && s.user.user_metadata) || {};
     return { token: s.token, email: (payload.email || (s.user && s.user.email) || ''), uid: payload.sub,
+             name: (um.full_name || um.name || (s.user && s.user.name) || '').trim(),
              role: (payload.app_metadata && payload.app_metadata.role) || (s.user && s.user.role) || null };
   }catch(e){ return null; }
 }
@@ -1340,7 +1619,7 @@ async function deleteFromBucket(path){
 // modal form, the row Edit/Upload/Archive actions, and the file prefix. Adding
 // a column to a table means adding one line here, nothing else. ═══
 const ENTITY_OPTS = [['brix','Brix Beverage'],['alameda_soda','Alameda Soda'],['freeflow','FreeFlow'],['shared','Shared / all entities']];
-const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['other','Other']];
+const CAT_OPTS = [['insurance','Insurance'],['permit','Permit / registration'],['food_safety','Food safety'],['safety','Safety'],['tax','Tax / company identity'],['legal','Legal / NDA'],['vehicle','Vehicle'],['other','Other']];
 const PARTY_TYPE_OPTS = [['co_packer','Co-packer'],['contractor','Contractor'],['vendor','Vendor'],['landlord','Landlord'],['customer','Customer'],['other','Other']];
 const JUR_OPTS = [['federal','Federal'],['state','California — state'],['local','Local (City of Alameda / county)']];
 
@@ -1353,6 +1632,7 @@ const SPECS = {
       { k:'category', l:'Category', t:'select', opts:CAT_OPTS, req:true },
       { k:'holder_entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— none / not ours —' },
       { k:'party_id', l:'Third party', t:'select', optsFrom:'parties', blank:'— ours (no third party) —', hint:'Set this and the document moves to the Vendors & Contractors tab.' },
+      { k:'vehicle_id', l:'Vehicle', t:'select', optsFrom:'vehicles', blank:'— not about a vehicle —', hint:'Set this and the document files against that truck on the Fleet & Vehicles tab.' },
       { k:'issuer', l:'Issuer / carrier', t:'text' },
       { k:'reference_number', l:'Reference / policy #', t:'text' },
       { k:'issue_date', l:'Issued', t:'date' },
@@ -1382,13 +1662,44 @@ const SPECS = {
   },
   parties: {
     table: 'insured_parties', prefix: null, label: 'party', file: false, archive: 'active',
-    order: 'name.asc',
+    order: 'name.asc', createdBy: false,
     fields: [
       { k:'name', l:'Party name', t:'text', req:true, full:true, hint:'Legal name — the one on their certificate.' },
       { k:'party_type', l:'Type', t:'select', opts:PARTY_TYPE_OPTS, req:true },
       { k:'contact_name', l:'Contact', t:'text' },
       { k:'contact_email', l:'Email', t:'text' },
       { k:'contact_phone', l:'Phone', t:'text' },
+      { k:'notes', l:'Notes', t:'textarea', full:true },
+    ],
+  },
+  // Vehicles are the EXISTING Fleet Complete table, extended (migration 20260829a)
+  // — not a second list of the same trucks. The columns Fleet Complete owns are
+  // rendered but LOCKED on an FC row: the hourly sync upserts them, so an edit
+  // here would look saved and silently revert within the hour. Fix those in
+  // Fleet Complete. Everything else on the row is ours and survives the sync.
+  vehicles: {
+    table: 'fleet_vehicles', prefix: null, label: 'vehicle', file: false, archive: 'archived_at',
+    order: 'vehicle_name.asc', createdBy: false,
+    fields: [
+      { k:'vehicle_name', l:'Vehicle', t:'text', req:true, full:true, fc:true },
+      { k:'vin', l:'VIN', t:'text', fc:true },
+      { k:'license_plate', l:'Licence plate', t:'text', fc:true },
+      { k:'make', l:'Make', t:'text', fc:true },
+      { k:'model', l:'Model', t:'text', fc:true },
+      { k:'year', l:'Year', t:'number', fc:true },
+      { k:'entity', l:'Our entity', t:'select', opts:ENTITY_OPTS, blank:'— unassigned —' },
+      { k:'assigned_to', l:'Assigned to', t:'text', hint:'Who normally drives it.' },
+      { k:'linked_vehicle_id', l:'Same truck as', t:'select', optsFrom:'vehicles', blank:'— it is its own vehicle —', full:true, hint:'Fleet Complete lists DEVICES. If this asset is a second or older tracker on a truck that already has a row, point it there and it stops being counted as a vehicle of its own.' },
+      { k:'odometer', l:'Odometer', t:'number' },
+      { k:'odometer_at', l:'Odometer read on', t:'date', hint:'An odometer with no date is a number, not a fact.' },
+      { k:'registration_expires', l:'Registration expires', t:'date' },
+      { k:'plate_state', l:'Registered in', t:'text', hint:'State on the plate and the registration.' },
+      { k:'last_service_date', l:'Last repair / service', t:'date' },
+      { k:'next_service_due', l:'Next service due', t:'date' },
+      { k:'last_service_notes', l:'What was done', t:'textarea', full:true },
+      { k:'insurance_carrier', l:'Insurance carrier', t:'text' },
+      { k:'insurance_policy', l:'Policy #', t:'text' },
+      { k:'registration_notes', l:'Registration notices', t:'textarea', full:true, hint:'DMV renewal notices, smog, weight fee, anything that arrives in the post about this vehicle.' },
       { k:'notes', l:'Notes', t:'textarea', full:true },
     ],
   },
@@ -1431,11 +1742,13 @@ if(!SESSION){
 
 // ═══ TABS ═══
 const PANES = { dashboard:'paneDashboard', inspector:'paneInspector', insurance:'paneInsurance',
+                fleet:'paneFleet',
                 vendors:'paneVendors', postings:'panePostings', visitors:'paneVisitors',
-                inspections:'paneInspections', handbook:'paneHandbook' };
+                ndas:'paneNdas', inspections:'paneInspections', handbook:'paneHandbook' };
 const TABS  = { dashboard:'tabDashboard', inspector:'tabInspector', insurance:'tabInsurance',
+                fleet:'tabFleet',
                 vendors:'tabVendors', postings:'tabPostings', visitors:'tabVisitors',
-                inspections:'tabInspections', handbook:'tabHandbook' };
+                ndas:'tabNdas', inspections:'tabInspections', handbook:'tabHandbook' };
 function showTab(which){
   if(!PANES[which]) which = 'dashboard';
   for(const k in PANES){
@@ -1460,14 +1773,15 @@ function showIns(which){
   const map = { handbook:'handbook', inspection:'inspections', inspections:'inspections', day:'inspections',
                 contacts:'dashboard', dashboard:'dashboard', postings:'postings', posting:'postings', board:'postings',
                 insurance:'insurance', vendors:'vendors', inspector:'inspector', records:'inspector',
+                fleet:'fleet', vehicles:'fleet', vehicle:'fleet',
                 visitors:'visitors', visitor:'visitors' };
   if(map[main]) showTab(map[main]);
   if(map[main] === 'inspections' && sub && INS[sub]) showIns(sub);
 })();
 
 // ═══ DATA ═══
-let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, STAFF = true;
-const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', other:'Other' };
+let DOCS = [], SDS = [], POSTINGS = [], PARTY_LIST = [], PARTIES = {}, VEHICLES = [], VEHICLE_BY_ID = {}, STAFF = true;
+const CATLABEL = { insurance:'Insurance', permit:'Permits', food_safety:'Food Safety', safety:'Safety', tax:'Tax', legal:'Legal', vehicle:'Vehicle', other:'Other' };
 const ENTLABEL = { brix:'Brix Beverage', alameda_soda:'Alameda Soda', freeflow:'FreeFlow', shared:'Shared' };
 const PTYLABEL = { co_packer:'Co-packer', contractor:'Contractor', vendor:'Vendor', landlord:'Landlord', customer:'Customer', other:'Other' };
 const JURLABEL = { federal:'Federal', state:'State', local:'Local' };
@@ -1522,11 +1836,12 @@ function partyOf(d){ return d.party_id ? PARTIES[d.party_id] : null; }
 // staff-only. One rejected read must not blank the board.
 async function reloadAll(){
   const arch = showArchived();
-  const [docs, sds, postings, parties] = await Promise.allSettled([
+  const [docs, sds, postings, parties, vehicles] = await Promise.allSettled([
     opsGet('compliance_documents?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.documents.order),
     opsGet('compliance_sds?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.sds.order),
     opsGet('compliance_postings?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.postings.order),
     opsGet('insured_parties?select=*&order=name.asc'),
+    opsGet('fleet_vehicles?select=*' + (arch ? '' : '&archived_at=is.null') + '&order=' + SPECS.vehicles.order),
   ]);
   POSTINGS = postings.status === 'fulfilled' ? postings.value : [];
   STAFF = docs.status === 'fulfilled';
@@ -1536,9 +1851,15 @@ async function reloadAll(){
     PARTY_LIST = parties.status === 'fulfilled' ? parties.value : [];
     PARTIES = {};
     for(const p of PARTY_LIST) PARTIES[p.id] = p;
+    VEHICLES = vehicles.status === 'fulfilled' ? vehicles.value : [];
+    VEHICLE_BY_ID = {};
+    for(const v of VEHICLES) VEHICLE_BY_ID[v.id] = v;
     renderDashboard();
     renderAll(document.getElementById('q').value.trim().toLowerCase());
     loadVisitors();
+    ndaLoad();
+    ndaLoadLinks();
+    ndaLoadSignatories();
     return;
   }
   applyEmployeeMode();
@@ -1552,7 +1873,7 @@ let EMPLOYEE_MODE_DONE = false;
 function applyEmployeeMode(){
   if(EMPLOYEE_MODE_DONE) return;
   EMPLOYEE_MODE_DONE = true;
-  ['dashboard','inspector','insurance','vendors','visitors','inspections'].forEach(k => {
+  ['dashboard','inspector','insurance','fleet','vendors','visitors','ndas','inspections'].forEach(k => {
     const t = document.getElementById(TABS[k]); if(t) t.style.display = 'none';
   });
   showTab('postings');
@@ -1570,6 +1891,10 @@ function renderDashboard(){
   const sdsGap  = sdsLive.filter(s => !s.storage_path && !firstUrl(s.notes));
   const postLive = POSTINGS.filter(p => !p.archived_at && p.required !== false);
   const postDue = postLive.filter(p => { const n = daysLeft(p.review_by); return n !== null && n <= 45; });
+  const vehLive = VEHICLES.filter(v => !v.archived_at && !v.linked_vehicle_id);
+  const regGone = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
+  const regSoon = vehLive.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
+  const vehNoIns = vehLive.filter(v => (v.vin || v.license_plate) && !v.insurance_policy);
 
   document.getElementById('dashStats').innerHTML =
     '<div class="stat click' + (expired.length ? ' red' : '') + '" onclick="showTab(\'inspector\')"><b>' + expired.length + '</b><span>expired documents</span></div>' +
@@ -1577,7 +1902,9 @@ function renderDashboard(){
     '<div class="stat click' + (noFile.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + noFile.length + '</b><span>documents with no file attached</span></div>' +
     '<div class="stat click' + (sdsGap.length ? ' amber' : '') + '" onclick="showTab(\'inspector\')"><b>' + sdsGap.length + ' / ' + sdsLive.length + '</b><span>SDS with no sheet on file</span></div>' +
     '<div class="stat click" onclick="showTab(\'postings\')"><b>' + postLive.length + '</b><span>required postings tracked</span></div>' +
-    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>';
+    '<div class="stat click' + (postDue.length ? ' amber' : '') + '" onclick="showTab(\'postings\')"><b>' + postDue.length + '</b><span>postings due for review</span></div>' +
+    '<div class="stat click" onclick="showTab(\'fleet\')"><b>' + vehLive.length + '</b><span>vehicles on file</span></div>' +
+    '<div class="stat click' + ((regGone.length + regSoon.length) ? (regGone.length ? ' red' : ' amber') : '') + '" onclick="showTab(\'fleet\')"><b>' + (regGone.length + regSoon.length) + '</b><span>registrations expired or due</span></div>';
 
   const items = [];
   expired.forEach(d => items.push({ p:0, chip:'<span class="chip crit">Expired</span>',
@@ -1586,10 +1913,25 @@ function renderDashboard(){
     t: esc(d.doc_type) + (partyOf(d) ? ' — ' + esc(partyOf(d).name) : '') + ' expires ' + esc(d.expiration_date), tab:'inspector' }));
   postDue.forEach(p => items.push({ p:2, chip:'<span class="chip warn">Posting</span>',
     t: esc(p.title) + ' — review or swap by ' + esc(p.review_by), tab:'postings' }));
+  regGone.forEach(v => items.push({ p:0, chip:'<span class="chip crit">Registration</span>',
+    t: esc(vehLabel(v)) + ' — registration expired ' + esc(v.registration_expires), tab:'fleet' }));
+  regSoon.forEach(v => items.push({ p:1, chip:'<span class="chip warn">' + daysLeft(v.registration_expires) + 'd</span>',
+    t: esc(vehLabel(v)) + ' — registration expires ' + esc(v.registration_expires), tab:'fleet' }));
+  if(vehNoIns.length) items.push({ p:2, chip:'<span class="chip warn">Fleet</span>',
+    t: vehNoIns.length + ' vehicle' + (vehNoIns.length === 1 ? '' : 's') + ' not matched to an insurance policy — check the schedule on each certificate', tab:'fleet' });
   if(sdsGap.length) items.push({ p:3, chip:'<span class="chip warn">SDS</span>',
     t: sdsGap.length + ' chemical product' + (sdsGap.length === 1 ? '' : 's') + ' with no safety data sheet on file — Cal/OSHA HazCom requires one regardless of quantity', tab:'inspector' });
-  if(noFile.length) items.push({ p:4, chip:'<span class="chip dim">File</span>',
-    t: noFile.length + ' document' + (noFile.length === 1 ? '' : 's') + ' filed with no PDF attached — use Upload on the row', tab:'inspector' });
+  // Split by where the document actually lives. A single lumped count that
+  // sends you to Records for a row filed under a truck is a dead end.
+  [['inspector', noFile.filter(d => !d.party_id && !d.vehicle_id), 'Records & SDS'],
+   ['fleet',     noFile.filter(d => d.vehicle_id),                 'Fleet & Vehicles'],
+   ['vendors',   noFile.filter(d => d.party_id && !d.vehicle_id),  'Vendors & Contractors']]
+    .forEach(([tab, list, where]) => {
+      if(!list.length) return;
+      items.push({ p:4, chip:'<span class="chip dim">File</span>',
+        t: list.length + ' document' + (list.length === 1 ? '' : 's') + ' on ' + where +
+           ' filed with no PDF attached — use Upload on the row', tab });
+    });
 
   items.sort((a,b) => a.p - b.p);
   const list = document.getElementById('attnList');
@@ -1601,10 +1943,117 @@ function renderDashboard(){
 }
 
 // ═══ TABLES ═══
+// A vehicle reads by what a person calls it, then what the DMV calls it. A row
+// with neither is a Fleet Complete asset with no vehicle attached to it — say so
+// rather than rendering a blank line nobody can act on.
+function vehLabel(v){
+  const name = (v.vehicle_name || '').trim();
+  const built = [v.year, v.make, v.model].filter(Boolean).join(' ').trim();
+  const base = name || built || 'Unidentified asset';
+  return v.license_plate ? base + ' · ' + v.license_plate : base;
+}
+function vehIdentified(v){ return !!(v.vin || v.license_plate); }
+
+// Fleet Complete lists DEVICES, not trucks. An asset pointed at another row is a
+// second tracker on that truck, so it must not be counted as a vehicle — that is
+// what made the fleet read as ten when we own six, and it is what an insurance
+// schedule gets reconciled against.
+function isRealVehicle(v){ return !v.linked_vehicle_id; }
+
+function renderVehicles(q){
+  const match = v => !q || (JSON.stringify(v) + (VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '')).toLowerCase().indexOf(q) > -1;
+  const list = VEHICLES.filter(match);
+  const vehicleTotal = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v)).length;
+  document.getElementById('fleetCount').textContent =
+    vehicleTotal + ' vehicle' + (vehicleTotal === 1 ? '' : 's') +
+    (list.length !== VEHICLES.length ? ' · showing ' + list.length + ' of ' + VEHICLES.length + ' rows' : '');
+
+  // Two things worth interrupting for, and only two. A registration that has
+  // lapsed is a citation waiting to happen; an asset with no VIN or plate cannot
+  // be matched against any insurance schedule, so we cannot say whether it is
+  // covered at all.
+  const live = VEHICLES.filter(v => !v.archived_at && isRealVehicle(v));
+  const regGone = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n < 0; });
+  const regSoon = live.filter(v => { const n = daysLeft(v.registration_expires); return n !== null && n >= 0 && n <= 45; });
+  const noReg   = live.filter(v => !v.registration_expires && vehIdentified(v));
+  const unknown = live.filter(v => !vehIdentified(v));
+  const noIns   = live.filter(v => vehIdentified(v) && !v.insurance_policy);
+  const bits = [];
+  if(regGone.length) bits.push('<div class="chip crit">' + regGone.length + ' registration' + (regGone.length > 1 ? 's' : '') + ' expired</div>');
+  if(regSoon.length) bits.push('<div class="chip warn">' + regSoon.length + ' expiring within 45 days</div>');
+  if(noReg.length)   bits.push('<div class="chip warn">' + noReg.length + ' with no registration date on file</div>');
+  if(noIns.length)   bits.push('<div class="chip warn">' + noIns.length + ' not matched to an insurance policy</div>');
+  if(unknown.length) bits.push('<div class="chip dim">' + unknown.length + ' asset' + (unknown.length > 1 ? 's' : '') + ' with no VIN or plate</div>');
+  document.getElementById('fleetAlerts').innerHTML =
+    bits.length ? '<div class="chiprow" style="margin:10px 0">' + bits.join('') + '</div>' : '';
+
+  const docCount = {};
+  for(const d of DOCS) if(d.vehicle_id && !d.archived_at) docCount[d.vehicle_id] = (docCount[d.vehicle_id] || 0) + 1;
+
+  rowsInto('fleetTable', 'vehicles', list, v => {
+    const n = docCount[v.id] || 0;
+    const src = v.source === 'manual'
+      ? '<span class="chip dim">Keyed in</span>'
+      : '<span class="chip info">Fleet Complete</span>';
+    const link = v.linked_vehicle_id
+      ? '<div class="chip warn" style="margin-top:4px">Same truck as ' +
+        esc(VEHICLE_BY_ID[v.linked_vehicle_id] ? vehLabel(VEHICLE_BY_ID[v.linked_vehicle_id]) : '#' + v.linked_vehicle_id) +
+        ' — second device, not a vehicle</div>'
+      : '';
+    const reg = v.registration_expires
+      ? esc(v.registration_expires) + ' ' + expiryChip({ expiration_date: v.registration_expires })
+      : '<span class="chip warn">Not on file</span>';
+    // An odometer with no read date is a number, not a fact — never print one as
+    // though it were current.
+    const odo = v.odometer
+      ? Number(v.odometer).toLocaleString('en-US') +
+        (v.odometer_at ? '<div class="muted">read ' + esc(String(v.odometer_at).slice(0,10)) + '</div>'
+                       : '<div class="muted">no read date</div>')
+      : '<span class="muted">—</span>';
+    return [
+      '<strong>' + esc(vehLabel(v).split(' · ')[0]) + '</strong> ' + src +
+        (v.assigned_to ? '<div class="muted">' + esc(v.assigned_to) + '</div>' : '') + link,
+      esc(v.license_plate || '—') + (v.plate_state ? ' <span class="chip dim">' + esc(v.plate_state) + '</span>' : ''),
+      '<span class="muted">' + esc(v.vin || 'no VIN') + '</span>',
+      odo,
+      v.last_service_date
+        ? esc(v.last_service_date) + (v.next_service_due ? '<div class="muted">next ' + esc(v.next_service_due) + '</div>' : '')
+        : '<span class="muted">—</span>',
+      reg,
+      v.insurance_policy
+        ? esc(v.insurance_policy) + (v.insurance_carrier ? '<div class="muted">' + esc(v.insurance_carrier) + '</div>' : '')
+        : '<span class="chip warn">Unmatched</span>',
+      n ? '<button class="actbtn" onclick="filterVehicleDocs(' + esc(String(v.id)) + ')">' + n + '</button>'
+        : '<button class="actbtn" onclick="openEditor(\'documents\',{category:\'vehicle\',vehicle_id:' + esc(String(v.id)) + '})">+ File</button>',
+    ];
+  }, 'No vehicles match.', 9);
+
+  const vdocs = DOCS.filter(d => d.vehicle_id).filter(d => !q || (JSON.stringify(d) + vehLabel(VEHICLE_BY_ID[d.vehicle_id] || {})).toLowerCase().indexOf(q) > -1);
+  document.getElementById('vdocCount').textContent = vdocs.length ? vdocs.length + ' on file' : 'none filed yet';
+  rowsInto('vdocTable', 'documents', vdocs, d => [
+    '<strong>' + esc(d.doc_type) + '</strong>' + (d.issuer ? '<div class="muted">' + esc(d.issuer) + '</div>' : ''),
+    esc(VEHICLE_BY_ID[d.vehicle_id] ? vehLabel(VEHICLE_BY_ID[d.vehicle_id]) : 'Unknown vehicle'),
+    '<span class="chip info">' + esc(CATLABEL[d.category] || d.category) + '</span>',
+    esc(d.reference_number || '—'), esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
+  ], 'Nothing filed against a vehicle yet.');
+}
+function filterVehicleDocs(id){
+  const v = VEHICLE_BY_ID[id];
+  if(!v) return;
+  const q = document.getElementById('q');
+  q.value = v.vin || v.license_plate || v.vehicle_name || '';
+  renderAll(q.value.trim().toLowerCase());
+  const t = document.getElementById('vdocTable');
+  if(t) t.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
 function renderAll(q){
   const hay = d => (JSON.stringify(d) + (partyOf(d) ? partyOf(d).name : '')).toLowerCase();
   const match = d => !q || hay(d).indexOf(q) > -1;
-  const ours = DOCS.filter(d => !d.party_id);
+  // One home per document. A party document belongs on Vendors & Contractors and
+  // a vehicle document on Fleet & Vehicles; listing either here as well would
+  // make the same row look like two.
+  const ours = DOCS.filter(d => !d.party_id && !d.vehicle_id);
   const theirs = DOCS.filter(d => d.party_id);
 
   const oursF = ours.filter(match);
@@ -1693,6 +2142,7 @@ function renderAll(q){
     esc(d.expiration_date || '—'), expiryChip(d), fileCell(d),
   ], 'Nothing else filed against a third party.');
 
+  renderVehicles(q);
   renderPostings(q);
 }
 
@@ -1800,7 +2250,7 @@ document.addEventListener('click', async (e) => {
 
   if(act === 'arch' || act === 'unarch'){
     const on = act === 'arch';
-    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || '') + '"';
+    const what = sp.label + ' "' + (row.doc_type || row.product_name || row.title || row.name || row.vehicle_name || '') + '"';
     if(on && !confirm('Archive this ' + what + '?\n\nIt is hidden from the normal view but nothing is deleted — tick "Show archived" to bring it back.')) return;
     ab.disabled = true;
     try{
@@ -1815,7 +2265,7 @@ document.addEventListener('click', async (e) => {
 });
 
 function rowById(specKey, id){
-  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST }[specKey] || [];
+  const src = { documents: DOCS, sds: SDS, postings: POSTINGS, parties: PARTY_LIST, vehicles: VEHICLES }[specKey] || [];
   return src.find(r => String(r.id) === String(id));
 }
 
@@ -1837,24 +2287,35 @@ function openEditor(specKey, seed){
     if(v === undefined || v === null) v = (pre[f.k] === '__pick__' ? '' : pre[f.k]);
     if(v === undefined || v === null) v = (f.t === 'checkbox' ? (f.k === 'required') : '');
     const idA = 'ed_' + f.k;
-    const hint = f.hint ? '<span class="hint">' + esc(f.hint) + '</span>' : '';
+    // Fleet Complete owns these columns and rewrites them hourly. Showing them
+    // editable would produce an edit that appears to save and quietly reverts.
+    const locked = !!(f.fc && row.source === 'fleetcomplete');
+    const lockAttr = locked ? ' disabled' : '';
+    const hintText = locked ? 'Fleet Complete owns this field and overwrites it on every sync — change it there.' : f.hint;
+    const hint = hintText ? '<span class="hint">' + esc(hintText) + '</span>' : '';
     if(f.t === 'checkbox'){
-      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + '>' +
+      return '<div class="field cb full"><input type="checkbox" id="' + idA + '"' + (v ? ' checked' : '') + lockAttr + '>' +
              '<label for="' + idA + '">' + esc(f.l) + (hint ? ' <span class="hint">— ' + esc(f.hint) + '</span>' : '') + '</label></div>';
     }
     let input;
     if(f.t === 'textarea'){
-      input = '<textarea id="' + idA + '">' + esc(v) + '</textarea>';
+      input = '<textarea id="' + idA + '"' + lockAttr + '>' + esc(v) + '</textarea>';
     }else if(f.t === 'select'){
       const opts = f.optsFrom === 'parties'
         ? PARTY_LIST.filter(p => p.active !== false).map(p => [p.id, p.name + ' (' + (PTYLABEL[p.party_type] || p.party_type) + ')'])
+        : f.optsFrom === 'vehicles'
+        // Never offer the row itself, and for the duplicate-device link never
+        // offer a row that is already a link — one hop is all this models.
+        ? VEHICLES.filter(v => String(v.id) !== String(row.id) &&
+            (f.k === 'linked_vehicle_id' ? !v.linked_vehicle_id : !v.archived_at))
+            .map(v => [v.id, vehLabel(v) + (v.archived_at ? ' (archived)' : '')])
         : f.opts;
-      input = '<select id="' + idA + '">' +
+      input = '<select id="' + idA + '"' + lockAttr + '>' +
         (f.blank !== undefined || !f.req ? '<option value="">' + esc(f.blank || '— none —') + '</option>' : '') +
         opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') +
         '</select>';
     }else{
-      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '">';
+      input = '<input type="' + (f.t === 'date' ? 'date' : f.t === 'number' ? 'number' : 'text') + '" id="' + idA + '" value="' + esc(v) + '"' + lockAttr + '>';
     }
     return '<div class="field' + (f.full ? ' full' : '') + '"><label for="' + idA + '">' + esc(f.l) + (f.req ? ' *' : '') + '</label>' + input + hint + '</div>';
   }).join('');
@@ -1883,7 +2344,9 @@ async function saveEditor(){
   const payload = {};
   for(const f of sp.fields){
     const el = document.getElementById('ed_' + f.k);
-    if(!el) continue;
+    // A disabled input is a field this row does not own (Fleet Complete's, say).
+    // Sending it would write a value the next sync reverts.
+    if(!el || el.disabled) continue;
     let v;
     if(f.t === 'checkbox') v = el.checked;
     else{
@@ -1907,7 +2370,7 @@ async function saveEditor(){
       existingPath = cur && cur.storage_path;
       await opsPatch(sp.table, id, payload);
     }else{
-      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.table !== 'insured_parties' ? { created_by: SESSION.uid } : {}));
+      const created = await opsInsert(sp.table, Object.assign({}, payload, SESSION.uid && sp.createdBy !== false ? { created_by: SESSION.uid } : {}));
       id = created && created[0] && created[0].id;
       if(!id) throw new Error('The row saved but returned no id — reload and check.');
     }
@@ -2018,6 +2481,713 @@ document.addEventListener('click', async (e) => {
   }
 });
 document.getElementById('visQ').addEventListener('input', e => renderVisitors(e.target.value.trim().toLowerCase()));
+
+// ═══ NDAs ═══
+// Staff side of the electronic NDA. Everything goes through /api/nda-admin with
+// the signed-in staff bearer; the signing page itself is public and token-gated.
+const NDA_API = '/billing/api/nda-admin';
+let NDAS = [], NDA_META = { entity_types: [], service_options: [], flavours: [] };
+const NDA_STATUS = {
+  sent:     ['info', 'Sent'],
+  viewed:   ['warn', 'Opened, not signed'],
+  signed:   ['ok',   'Signed'],
+  declined: ['crit', 'Declined'],
+  revoked:  ['dim',  'Revoked'],
+};
+
+async function ndaCall(payload){
+  const r = await fetch(NDA_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + SESSION.token },
+    body: JSON.stringify(payload),
+  });
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+function ndaDate(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  return isNaN(d) ? '—' : d.toLocaleDateString([], { month:'short', day:'numeric', year:'numeric' });
+}
+
+async function ndaLoad(){
+  const tb = document.querySelector('#ndaTable tbody');
+  try{
+    const d = await ndaCall({ action: 'list' });
+    NDAS = d.agreements || [];
+    NDA_META = { entity_types: d.entity_types || [], service_options: d.service_options || [],
+                 flavours: d.flavours || [] };
+    const c = d.counts || {};
+    document.getElementById('ndaCounts').textContent =
+      NDAS.length ? [
+        (c.signed || 0) + ' signed',
+        ((c.sent || 0) + (c.viewed || 0)) + ' awaiting signature',
+        c.declined ? c.declined + ' declined' : '',
+      ].filter(Boolean).join(' · ') : 'none yet';
+    ndaRender();
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="7" class="muted">Could not load agreements (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+function ndaRender(){
+  const tb = document.querySelector('#ndaTable tbody');
+  if(!NDAS.length){
+    tb.innerHTML = '<tr><td colspan="7" class="muted">No agreements yet. Send one before you share a formulation.</td></tr>';
+    return;
+  }
+  tb.innerHTML = NDAS.map(a => {
+    const st = NDA_STATUS[a.status] || ['dim', a.status];
+    const expired = a.status !== 'signed' && a.expires_at && new Date(a.expires_at) < new Date();
+    return '<tr>' +
+      '<td><span class="mono">' + esc(a.agreement_number) + '</span>' +
+        '<div class="muted">' + esc(a.template_code) + ' v' + esc(a.template_version) + '</div></td>' +
+      '<td><strong>' + esc(a.recipient_legal_name || a.recipient_company) + '</strong>' +
+        '<div class="muted">' + esc(a.signer_name || a.recipient_contact || a.recipient_email) + '</div></td>' +
+      '<td><span class="chip ' + st[0] + '">' + esc(st[1]) + '</span>' +
+        (expired ? '<div class="muted">link expired</div>' : '') + '</td>' +
+      '<td class="muted">' + esc((a.purpose_scope || '—').slice(0, 60)) + '</td>' +
+      '<td>' + esc(ndaDate(a.sent_at)) + '</td>' +
+      '<td>' + esc(ndaDate(a.signed_at)) + '</td>' +
+      '<td class="noprint"><button class="actbtn" data-nda="open" data-id="' + esc(a.id) + '">Open</button>' +
+        (a.status === 'signed'
+          ? (a.pdf_path ? '<button class="actbtn" data-nda="pdf" data-id="' + esc(a.id) + '">PDF</button>' : '')
+          : '<button class="actbtn" data-nda="resend" data-id="' + esc(a.id) + '">Resend</button>' +
+            (a.status === 'revoked' ? ''
+              : '<button class="actbtn danger" data-nda="revoke" data-id="' + esc(a.id) + '">Revoke</button>')) +
+      '</td></tr>';
+  }).join('');
+}
+
+function ndaPanel(title, html){
+  document.getElementById('ndaDetailTitle').textContent = title;
+  document.getElementById('ndaDetailBody').innerHTML = html;
+  const box = document.getElementById('ndaDetail');
+  box.style.display = 'block';
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Who signs for us ────────────────────────────────────────────────────────
+// One-way or mutual, and whose signature goes on it. Both are snapshotted onto
+// the agreement server-side at send time, so neither can change under a
+// document somebody has already signed.
+let NDA_SIGNATORIES = [];
+
+function ndaFlavourOptions(){
+  return (NDA_META.flavours || []).map(f =>
+    '<option value="' + esc(f.code) + '">' + esc(f.label) + '</option>').join('');
+}
+function ndaFlavourHint(){
+  const sel = document.getElementById('nd_flavour');
+  const f = (NDA_META.flavours || []).find(x => x.code === (sel && sel.value));
+  const el = document.getElementById('nd_flavour_hint');
+  if(el) el.textContent = f ? f.hint : '';
+}
+function ndaSignatoryOptions(){
+  const live = NDA_SIGNATORIES.filter(x => x.active);
+  if(!live.length) return '<option value="">— nobody on file yet —</option>';
+  const mine = live.find(x => (x.email || '').toLowerCase() === (SESSION.email || '').toLowerCase());
+  return live.map(x => '<option value="' + esc(x.id) + '"' + (mine && mine.id === x.id ? ' selected' : '') + '>'
+    + esc(x.name) + (x.title ? ' — ' + esc(x.title) : '')
+    + (x.signature_data ? '' : ' (no signature yet)') + '</option>').join('');
+}
+
+async function ndaLoadSignatories(){
+  const tb = document.querySelector('#ndaSigTable tbody');
+  try{
+    const d = await ndaCall({ action: 'signatories' });
+    NDA_SIGNATORIES = d.signatories || [];
+    const signed = NDA_SIGNATORIES.some(x => x.active && x.signature_data);
+    const prompt = document.getElementById('ndaSignPrompt');
+    if(prompt) prompt.style.display = signed ? 'none' : '';
+    if(!NDA_SIGNATORIES.length){
+      tb.innerHTML = '<tr><td colspan="4" class="muted">Nobody on file. Until somebody adds a signature, '
+        + 'our side of the agreement prints as a typed name over an empty rule \u2014 which is exactly what '
+        + 'we ask the other party not to do.</td></tr>';
+      return;
+    }
+    tb.innerHTML = NDA_SIGNATORIES.map(x =>
+      '<tr' + (x.active ? '' : ' class="arch"') + '>' +
+      '<td><strong>' + esc(x.name) + '</strong>' + (x.title ? '<div class="muted">' + esc(x.title) + '</div>' : '') + '</td>' +
+      '<td>' + esc(x.email || '—') + '</td>' +
+      '<td>' + (x.signature_data
+        ? '<img src="' + esc(x.signature_data) + '" alt="signature" style="height:34px;max-width:190px;object-fit:contain">'
+        : '<span class="chip warn">None on file</span>') + '</td>' +
+      '<td class="noprint"><button class="actbtn" data-nda="sigedit" data-id="' + esc(x.id) + '">Edit</button></td>' +
+      '</tr>').join('');
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="4" class="muted">Could not load signatures (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+// A signature pad, same one the counterparty signs on — plus an upload, since
+// a scan of a real wet signature is often what an officer actually wants.
+let SIGPAD = null, SIGCTX = null, SIGDREW = 0, SIGUPLOAD = null;
+function ndaOpenSignatory(id){
+  const x = NDA_SIGNATORIES.find(v => v.id === id) || {};
+  SIGDREW = 0; SIGUPLOAD = null;
+  ndaPanel(id ? 'Signature — ' + (x.name || '') : 'Add a signature', `
+    <div class="prose" style="margin-bottom:14px">Sign in the box below with a mouse, a trackpad or your
+      finger, then press Save. That is the whole thing \u2014 it prints in the Company block of every NDA
+      from here on, and agreements already sent keep the signature they went out with.</div>
+    <div class="fgrid">
+      <div><label>Name as it should print <span style="color:#B91C1C">*</span></label>
+        <input id="sg_name" type="text" value="${esc(x.name || SESSION.name || '')}"></div>
+      <div><label>Title</label><input id="sg_title" type="text" value="${esc(x.title || '')}"
+        placeholder="e.g. President"></div>
+      <div class="full"><label>Their login email</label>
+        <input id="sg_email" type="email" value="${esc(x.email || SESSION.email || '')}"
+          placeholder="So it is picked automatically when they send"></div>
+    </div>
+    <label style="display:block;margin-top:14px">Signature</label>
+    ${x.signature_data ? '<div class="muted" style="margin:4px 0 8px">On file: <img src="'
+      + esc(x.signature_data) + '" alt="current signature" style="height:38px;vertical-align:middle;max-width:220px;object-fit:contain">'
+      + ' — draw or upload below to replace it.</div>' : ''}
+    <canvas id="sg_pad" style="width:100%;height:190px;border:2px dashed #94A3B8;border-radius:10px;background:#fff;touch-action:none;cursor:crosshair"></canvas>
+    <div class="muted" style="margin-top:4px">Sign above the line, as you would on paper.</div>
+    <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn ghost sm" onclick="ndaClearSigPad()">Clear</button>
+      <label class="btn ghost sm" style="cursor:pointer;margin:0">Upload an image
+        <input type="file" accept="image/png,image/jpeg" style="display:none" onchange="ndaSigUpload(this)"></label>
+      <span class="muted" id="sg_upmsg"></span>
+    </div>
+    <div class="err" id="sg_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="sg_go" onclick="ndaSaveSignatory('${esc(id || '')}')">Save</button>
+      ${id ? '<label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">'
+        + '<input type="checkbox" id="sg_inactive"' + (x.active ? '' : ' checked') + '> Retired \u2014 do not offer this one</label>' : ''}
+    </div>`);
+  ndaInitSigPad();
+}
+
+function ndaInitSigPad(){
+  SIGPAD = document.getElementById('sg_pad'); if(!SIGPAD) return;
+  const r = SIGPAD.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  SIGPAD.width = Math.round(r.width * dpr); SIGPAD.height = Math.round(r.height * dpr);
+  SIGCTX = SIGPAD.getContext('2d');
+  SIGCTX.scale(dpr, dpr);
+  SIGCTX.lineWidth = 2.2; SIGCTX.lineCap = 'round'; SIGCTX.lineJoin = 'round'; SIGCTX.strokeStyle = '#0F172A';
+  let drawing = false;
+  const pos = (e) => { const b = SIGPAD.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - b.left, y: p.clientY - b.top }; };
+  const start = (e) => { e.preventDefault(); drawing = true; const p = pos(e); SIGCTX.beginPath(); SIGCTX.moveTo(p.x, p.y); };
+  const move = (e) => { if(!drawing) return; e.preventDefault(); const p = pos(e);
+    SIGCTX.lineTo(p.x, p.y); SIGCTX.stroke(); SIGDREW++; SIGUPLOAD = null; };
+  const end = () => { drawing = false; };
+  SIGPAD.addEventListener('mousedown', start); SIGPAD.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  SIGPAD.addEventListener('touchstart', start, { passive:false });
+  SIGPAD.addEventListener('touchmove', move, { passive:false });
+  SIGPAD.addEventListener('touchend', end);
+}
+function ndaClearSigPad(){
+  if(SIGCTX) SIGCTX.clearRect(0, 0, SIGPAD.width, SIGPAD.height);
+  SIGDREW = 0; SIGUPLOAD = null;
+  const m = document.getElementById('sg_upmsg'); if(m) m.textContent = '';
+}
+function ndaSigUpload(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const msg = document.getElementById('sg_upmsg');
+  if(f.size > 250 * 1024){ msg.textContent = 'That file is over 250 KB — crop it or draw it instead.'; input.value = ''; return; }
+  const rd = new FileReader();
+  rd.onload = () => { SIGUPLOAD = String(rd.result); SIGDREW = 0; ndaClearSigPadCanvasOnly();
+    msg.textContent = f.name + ' ready to save.'; };
+  rd.readAsDataURL(f);
+}
+function ndaClearSigPadCanvasOnly(){ if(SIGCTX) SIGCTX.clearRect(0, 0, SIGPAD.width, SIGPAD.height); }
+
+async function ndaSaveSignatory(id){
+  const e = document.getElementById('sg_err'); e.style.display = 'none';
+  const btn = document.getElementById('sg_go');
+  const val = i => (document.getElementById(i) || {}).value || '';
+  const payload = {
+    action: 'signatory_save',
+    id: id || undefined,
+    name: val('sg_name').trim(),
+    title: val('sg_title').trim(),
+    email: val('sg_email').trim(),
+    active: !(document.getElementById('sg_inactive') || {}).checked,
+  };
+  // Absent means "leave the stored signature alone" — saving a title must not
+  // wipe somebody's signature.
+  if(SIGUPLOAD) payload.signature_data = SIGUPLOAD;
+  else if(SIGDREW > 12) payload.signature_data = SIGPAD.toDataURL('image/png');
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    await ndaCall(payload);
+    await ndaLoadSignatories();
+    document.getElementById('ndaDetail').style.display = 'none';
+  }catch(err){
+    e.textContent = err.message; e.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
+// ── COI requests ────────────────────────────────────────────────────────────
+// Ram Risk Group's four required fields, as a skeleton the requester fills in.
+// A request missing the holder's full address is the common way a certificate
+// arrives a day late, so the template asks for each one by name rather than
+// leaving the sender to remember them.
+function coiCompose(){
+  const body = [
+    'Hello,', '',
+    'Please issue a certificate of insurance for Alameda Point Beverage Group, Inc.',
+    '(1951 Monarch Street, Hangar 200, Alameda, CA 94501).', '',
+    '1. CERTIFICATE HOLDER (full legal name and complete address):',
+    '   ', '',
+    '2. DESCRIPTION OF OPERATIONS (if their contract requires one):',
+    '   ', '',
+    '3. REQUIRED COVERAGE TYPES AND LIMITS:',
+    '   ', '',
+    '4. ENDORSEMENT REQUIREMENTS (additional insured / waiver of subrogation /',
+    '   primary and non-contributory — please confirm the ENDORSEMENT, not just',
+    '   wording on the certificate):',
+    '   ', '',
+    'Needed by: ', '',
+    'Thank you,',
+  ].join('\r\n');
+  const href = 'mailto:coi@ramriskgroup.com'
+    + '?subject=' + encodeURIComponent('COI request — Alameda Point Beverage Group, Inc.')
+    + '&body=' + encodeURIComponent(body);
+  // Some desktops have no mail handler at all, so offer the text as well rather
+  // than leaving a dead button.
+  window.location.href = href;
+
+  // Plenty of desktops have no mail handler, and the mailto silently does
+  // nothing — so always show the text too rather than leaving a dead button.
+  const box = document.getElementById('coiDetail');
+  if(!box) return;
+  document.getElementById('coiDetailTitle').textContent = 'Certificate request';
+  document.getElementById('coiDetailBody').innerHTML =
+    '<div class="prose" style="margin-bottom:10px">Your mail app should have opened with this ready to '
+    + 'send. If it did not, copy the text and send it to <b>coi@ramriskgroup.com</b>.</div>'
+    + '<textarea readonly rows="18" style="width:100%;font-family:ui-monospace,monospace;font-size:.82rem"'
+    + ' onclick="this.select()">' + esc(body) + '</textarea>'
+    + '<div style="margin-top:10px"><button class="btn sm" onclick="coiCopy()">Copy the text</button> '
+    + '<button class="btn ghost sm" onclick="document.getElementById(\'coiDetail\').style.display=\'none\'">Close</button></div>';
+  box.style.display = 'block';
+}
+
+function coiCopy(){
+  const t = document.querySelector('#coiDetailBody textarea');
+  if(!t) return;
+  t.select();
+  navigator.clipboard.writeText(t.value).catch(() => document.execCommand('copy'));
+}
+
+// ── Send ────────────────────────────────────────────────────────────────────
+function ndaOpenSend(){
+  const services = NDA_META.service_options.map(o =>
+    '<label style="display:inline-flex;gap:6px;align-items:center;margin:0 14px 8px 0;font-weight:500">' +
+    '<input type="checkbox" class="ndaSvc" value="' + esc(o) + '"> ' + esc(o) + '</label>').join('');
+  ndaPanel('Send an NDA', `
+    <div class="prose" style="margin-bottom:14px">They fill in their own legal name, entity type and
+      address — you only need who to send it to and what it covers.</div>
+    <div class="fgrid">
+      <div class="full"><label>Which agreement <span style="color:#B91C1C">*</span></label>
+        <select id="nd_flavour" onchange="ndaFlavourHint()">${ndaFlavourOptions()}</select>
+        <div class="muted" id="nd_flavour_hint" style="margin-top:6px"></div></div>
+      <div><label>Their company <span style="color:#B91C1C">*</span></label>
+        <input id="nd_co" type="text" placeholder="e.g. Quantum J's Canning LLC"></div>
+      <div><label>Email to send it to <span style="color:#B91C1C">*</span></label>
+        <input id="nd_email" type="email" placeholder="name@company.com"></div>
+      <div><label>Contact name</label><input id="nd_contact" type="text" placeholder="Who you're writing to"></div>
+      <div><label>Link expires in (days)</label><input id="nd_days" type="number" value="30" min="1" max="120"></div>
+      <div class="full"><label>What this covers (the Purpose)</label>
+        <textarea id="nd_purpose" rows="2" placeholder="e.g. Co-packing and canning of Alameda Soda 12 oz product for the 2027 season."></textarea></div>
+      <div class="full"><label>Services contemplated</label><div>${services}</div></div>
+      <div class="full"><label>Signing for us <span style="color:#B91C1C">*</span></label>
+        <select id="nd_signatory">${ndaSignatoryOptions()}</select>
+        <div class="muted" style="margin-top:6px">${NDA_SIGNATORIES.some(x => x.signature_data)
+          ? 'Their signature is printed on the agreement.'
+          : 'No signature on file yet — add one under <b>Signatures</b> below and it prints on every NDA from then on.'}</div></div>
+      <div class="full"><label>Note to include in the email</label>
+        <textarea id="nd_note" rows="2" placeholder="Optional — a line of context for the recipient."></textarea></div>
+    </div>
+    <div class="err" id="nd_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="nd_send" onclick="ndaSend()">Send the agreement</button>
+      <label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">
+        <input type="checkbox" id="nd_noemail"> Just give me the link, don't email it</label>
+    </div>`);
+}
+
+function ndaErr(msg){
+  const e = document.getElementById('nd_err');
+  if(!e) return;
+  e.textContent = msg || '';
+  e.style.display = msg ? 'block' : 'none';
+}
+
+async function ndaSend(){
+  ndaErr('');
+  const btn = document.getElementById('nd_send');
+  // Null-safe: some fields only render in one branch of the form.
+  const val = id => ((document.getElementById(id) || {}).value || '').trim();
+  const services = Array.from(document.querySelectorAll('.ndaSvc:checked')).map(c => c.value);
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const d = await ndaCall({
+      action: 'create',
+      recipient_company: val('nd_co'),
+      recipient_email: val('nd_email'),
+      recipient_contact: val('nd_contact'),
+      purpose_scope: val('nd_purpose'),
+      services,
+      company_signatory_id: val('nd_signatory'),
+      template_code: val('nd_flavour'),
+      note: val('nd_note'),
+      expires_days: parseInt(val('nd_days'), 10) || 30,
+      send_email: !document.getElementById('nd_noemail').checked,
+    });
+    await ndaLoad();
+    ndaShowLink(d, d.emailed
+      ? 'Emailed to ' + d.agreement.recipient_email + '. Keep this link in case it needs re-sending by hand.'
+      : (d.email_error
+          ? 'We could not send the email (' + d.email_error + ') — send this link yourself.'
+          : 'Not emailed, as you asked. Send this link to them.'));
+  }catch(e){
+    ndaErr(e.message);
+    btn.disabled = false; btn.textContent = 'Send the agreement';
+  }
+}
+
+function ndaShowLink(d, msg){
+  ndaPanel(d.agreement.agreement_number + ' — link ready', `
+    <div class="prose" style="margin-bottom:12px">${esc(msg)}</div>
+    <input type="text" readonly value="${esc(d.link)}" id="nd_link"
+      style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn sm" onclick="ndaCopyLink()">Copy the link</button>
+      <a class="btn ghost sm" style="text-decoration:none" href="${esc(d.link)}" target="_blank" rel="noopener">Open it ↗</a>
+    </div>
+    <div class="muted" style="margin-top:10px">This is the only time the link is shown — it is stored as a
+      hash, so nobody can recover it from the database. Resending mints a new one.</div>`);
+}
+
+function ndaCopyLink(){
+  const el = document.getElementById('nd_link');
+  el.select();
+  navigator.clipboard.writeText(el.value).then(
+    () => { const b = event.target; const was = b.textContent; b.textContent = 'Copied ✓';
+            setTimeout(() => { b.textContent = was; }, 1800); },
+    () => alert('Copy failed — select the text and copy it by hand.'));
+}
+
+// ── Sender links ────────────────────────────────────────────────────────────
+// Issued and revoked here; USED through a separate endpoint that can only send.
+let NDA_LINKS = [];
+
+async function ndaLoadLinks(){
+  const tb = document.querySelector('#ndaLinkTable tbody');
+  try{
+    const d = await ndaCall({ action: 'link_list' });
+    NDA_LINKS = d.links || [];
+    const live = NDA_LINKS.filter(l => !l.revoked_at && new Date(l.expires_at) > new Date());
+    document.getElementById('ndaLinkCount').textContent =
+      live.length ? live.length + (live.length === 1 ? ' live' : ' live') : 'none issued';
+    if(!NDA_LINKS.length){
+      tb.innerHTML = '<tr><td colspan="6" class="muted">No sender links. Everyone sends from here, ' +
+        'signed in — which is the safer default.</td></tr>';
+      return;
+    }
+    tb.innerHTML = NDA_LINKS.map(l => {
+      const dead = !!l.revoked_at;
+      const expired = !dead && new Date(l.expires_at) < new Date();
+      return '<tr' + (dead || expired ? ' class="arch"' : '') + '>' +
+        '<td><strong>' + esc(l.person_name) + '</strong>' +
+          '<div class="muted">' + (l.label && l.label !== l.person_name ? esc(l.label) + ' · ' : '') +
+          esc(l.person_email) + '</div></td>' +
+        '<td>' + esc(l.company_signer_name) +
+          (l.company_signer_title ? '<div class="muted">' + esc(l.company_signer_title) + '</div>' : '') + '</td>' +
+        '<td>' + esc(l.sends_count || 0) + ' total' +
+          (l.sends_24h ? '<div class="muted">' + esc(l.sends_24h) + ' in 24h</div>' : '') + '</td>' +
+        '<td>' + esc(l.max_per_day) + '/day</td>' +
+        '<td>' + (dead ? '<span class="chip crit">Revoked</span>'
+                : expired ? '<span class="chip dim">Expired</span>'
+                : esc(ndaDate(l.expires_at))) + '</td>' +
+        '<td class="noprint">' + (dead ? ''
+          : '<button class="actbtn" data-nda="linkresend" data-id="' + esc(l.id) + '">Send again</button> ' +
+            '<button class="actbtn danger" data-nda="linkrevoke" data-id="' + esc(l.id) + '">Switch off</button>') +
+        '</td></tr>';
+    }).join('');
+  }catch(e){
+    tb.innerHTML = '<tr><td colspan="6" class="muted">Could not load sender links (' + esc(e.message) + ').</td></tr>';
+  }
+}
+
+function ndaLinkSignerHint(){
+  const sel = document.getElementById('nk_signatory');
+  const x = NDA_SIGNATORIES.find(v => v.id === (sel && sel.value));
+  const el = document.getElementById('nk_signer_lbl');
+  if(el && x) el.textContent = x.name;
+}
+
+function ndaOpenLink(){
+  // Two boxes. Everything else has a default and lives under "More options" —
+  // a form with eight blanks is a form nobody fills in, and the only two facts
+  // that genuinely have to be typed are whose link it is and where to send it.
+  const me = esc(SESSION.name || '');
+  const live = NDA_SIGNATORIES.filter(x => x.active);
+  const hasSigs = live.length > 0;
+  const defaultSig = live.find(x => (x.email || '').toLowerCase() === (SESSION.email || '').toLowerCase())
+    || live[0] || { name: '' };
+  ndaPanel('Issue a sender link', `
+    <div class="prose" style="margin-bottom:14px">
+      <b>This link is a key.</b> Anyone holding it can send email in our name, so it goes to one named
+      person and nowhere else. They can only SEND — they cannot open, edit or download an agreement.
+      If a login would do instead, give them a login: it is attributable and nothing new to secure.
+    </div>
+    <div class="fgrid">
+      <div><label>Their name <span style="color:#B91C1C">*</span></label>
+        <input id="nk_person" type="text" placeholder="e.g. Marco Ruiz" autofocus></div>
+      <div><label>Their email <span style="color:#B91C1C">*</span></label>
+        <input id="nk_email" type="email" placeholder="Where the link goes"></div>
+    </div>
+    <div class="muted" style="margin-top:10px">We email them the link. Good for 90 days, up to 5 NDAs a
+      day, countersigned by <b id="nk_signer_lbl">${hasSigs ? esc(defaultSig.name) : (me || 'you — add your name below')}</b>.</div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-weight:600">More options</summary>
+      <div class="fgrid" style="margin-top:12px">
+        <div class="full"><label>Which agreement they may send</label>
+          <select id="nk_template">
+            <option value="">Let them choose — one-way or mutual</option>
+            ${(NDA_META.flavours || []).map(f =>
+              '<option value="' + esc(f.code) + '">Only ' + esc(f.label) + '</option>').join('')}
+          </select></div>
+        ${hasSigs
+          ? `<div class="full"><label>NDAs countersigned by</label>
+               <select id="nk_signatory" onchange="ndaLinkSignerHint()">${ndaSignatoryOptions()}</select></div>`
+          : `<div><label>NDAs countersigned by</label>
+               <input id="nk_signer" type="text" value="${me}" placeholder="Your full name"
+                 oninput="document.getElementById('nk_signer_lbl').textContent=this.value||'—'"></div>
+             <div><label>Their title</label><input id="nk_title" type="text" placeholder="e.g. President"></div>`}
+        <div><label>What it's for</label>
+          <input id="nk_label" type="text" placeholder="Defaults to their name"></div>
+        <div><label>Good for (days)</label><input id="nk_days" type="number" value="90" min="1" max="365"></div>
+        <div><label>Most per 24 hours</label><input id="nk_max" type="number" value="5" min="1" max="50"></div>
+        <div class="full"><label>Default purpose on what they send</label>
+          <textarea id="nk_purpose" rows="2" placeholder="Optional — saves them typing it every time."></textarea></div>
+      </div>
+    </details>
+    <div class="err" id="nk_err" style="display:none;margin-top:12px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" id="nk_go" onclick="ndaIssueLink()">Issue &amp; email the link</button>
+      <label style="display:inline-flex;gap:6px;align-items:center;font-weight:500">
+        <input type="checkbox" id="nk_noemail"> Don't email it — I'll hand it over myself</label>
+    </div>`);
+}
+
+async function ndaIssueLink(){
+  const e = document.getElementById('nk_err');
+  e.style.display = 'none';
+  const btn = document.getElementById('nk_go');
+  // Null-safe: some fields only render in one branch of the form.
+  const val = id => ((document.getElementById(id) || {}).value || '').trim();
+  btn.disabled = true; btn.textContent = 'Issuing…';
+  try{
+    const d = await ndaCall({
+      action: 'link_create',
+      person_name: val('nk_person'),
+      person_email: val('nk_email'),
+      label: val('nk_label'),
+      company_signatory_id: val('nk_signatory'),
+      company_signer_name: val('nk_signer'),
+      company_signer_title: val('nk_title'),
+      template_code: val('nk_template'),
+      default_purpose: val('nk_purpose'),
+      expires_days: parseInt(val('nk_days'), 10) || 90,
+      max_per_day: parseInt(val('nk_max'), 10) || 5,
+      send_email: !document.getElementById('nk_noemail').checked,
+    });
+    await ndaLoadLinks();
+    ndaPanel('Sender link for ' + d.link.person_name, `
+      <div class="prose" style="margin-bottom:12px">${d.emailed
+        ? 'Emailed to ' + esc(d.link.person_email) + '. Here it is as well, in case it needs handing over directly.'
+        : (d.email_error
+            ? 'We could not send the email (' + esc(d.email_error) + ') — pass this on yourself.'
+            : 'Not emailed, as you asked. Pass this on yourself.')}</div>
+      <input type="text" readonly value="${esc(d.url)}" id="nd_link"
+        style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">
+      <div style="margin-top:12px"><button class="btn sm" onclick="ndaCopyLink()">Copy the link</button></div>
+      <div class="muted" style="margin-top:10px">Shown once — it is stored as a hash, so nobody can recover
+        it from the database. Switch it off from the table above at any time; that does not un-send anything
+        already sent through it.</div>`);
+  }catch(err){
+    e.textContent = err.message; e.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Issue the link';
+  }
+}
+
+// ── Detail + Exhibit A ──────────────────────────────────────────────────────
+async function ndaOpen(id){
+  ndaPanel('Loading…', '<div class="muted">Loading the agreement…</div>');
+  try{
+    const d = await ndaCall({ action: 'get', id });
+    const a = d.agreement, st = NDA_STATUS[a.status] || ['dim', a.status];
+    const fact = (k, v) => v ? '<tr><td class="muted" style="padding:4px 14px 4px 0;white-space:nowrap">' +
+      esc(k) + '</td><td style="padding:4px 0">' + esc(v) + '</td></tr>' : '';
+    const logRows = (d.log || []).map(r =>
+      '<tr><td>' + esc(ndaDate(r.disclosed_on)) + '</td><td>' + esc(r.description) + '</td>' +
+      '<td>' + esc(r.format || '—') + '</td><td>' + esc(r.delivered_by || '—') + '</td>' +
+      '<td>' + esc(r.quantity || '—') + '</td>' +
+      '<td class="noprint"><button class="actbtn danger" data-nda="logdel" data-id="' + esc(r.id) +
+        '" data-ag="' + esc(a.id) + '">Remove</button></td></tr>').join('')
+      || '<tr><td colspan="6" class="muted">Nothing logged yet.</td></tr>';
+
+    ndaPanel(a.agreement_number + ' — ' + (a.recipient_legal_name || a.recipient_company), `
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+        <span class="chip ${st[0]}">${esc(st[1])}</span>
+        ${a.pdf_path ? '<button class="btn sm" data-nda="pdf" data-id="' + esc(a.id) + '">Download the signed PDF</button>' : ''}
+        ${a.status !== 'signed' ? '<button class="btn ghost sm" data-nda="resend" data-id="' + esc(a.id) + '">Resend the link</button>' : ''}
+      </div>
+      <table style="border-collapse:collapse;margin-bottom:18px">
+        ${fact('Legal name', a.recipient_legal_name)}
+        ${fact('Entity', [a.recipient_state, a.recipient_entity_type].filter(Boolean).join(' '))}
+        ${fact('Address', a.recipient_address)}
+        ${fact('Signed by', (a.signer_name || '') + (a.signer_title ? ', ' + a.signer_title : ''))}
+        ${fact('Their email', a.signer_email || a.recipient_email)}
+        ${fact('Purpose', a.purpose_scope)}
+        ${fact('Services', (a.services || []).join(', '))}
+        ${fact('Effective', ndaDate(a.effective_date))}
+        ${fact('Signed at', a.signed_at ? new Date(a.signed_at).toLocaleString() : '')}
+        ${fact('Signed from IP', a.signer_ip)}
+        ${fact('For us', (a.company_signer_name || '') + (a.company_signer_title ? ', ' + a.company_signer_title : ''))}
+        ${fact('Template', a.template_code + ' v' + a.template_version)}
+        ${fact('Declined', a.decline_reason)}
+        ${fact('Filing note', a.notes)}
+      </table>
+
+      <h3 style="margin:0 0 4px;font-size:1rem">Exhibit A — what we disclosed</h3>
+      <div class="prose" style="margin-bottom:10px">Every formulation, spec sheet, batching sheet and sample
+        you send them. The agreement says a missing entry does not remove protection — but this log is what
+        makes it provable.</div>
+      <div class="twrap"><table class="grid">
+        <thead><tr><th>Date</th><th>What</th><th>Format</th><th>By</th><th>Qty</th><th class="noprint"></th></tr></thead>
+        <tbody>${logRows}</tbody>
+      </table></div>
+      <div class="fgrid noprint" style="margin-top:12px">
+        <div class="full"><label>Add an entry</label>
+          <input id="nl_desc" type="text" placeholder="e.g. Hangar 25 Cola batching sheet rev C"></div>
+        <div><label>Format</label>
+          <select id="nl_fmt"><option>document</option><option>sample</option><option>electronic file</option>
+            <option>verbal</option><option>other</option></select></div>
+        <div><label>Quantity</label><input id="nl_qty" type="text" placeholder="e.g. 2 cases"></div>
+      </div>
+      <div class="noprint" style="margin-top:10px">
+        <button class="btn sm" data-nda="logadd" data-id="${esc(a.id)}">Add to the log</button>
+      </div>`);
+  }catch(e){
+    ndaPanel('Could not open it', '<div class="muted">' + esc(e.message) + '</div>');
+  }
+}
+
+async function ndaPdf(id){
+  const a = NDAS.find(x => x.id === id);
+  if(!a || !a.pdf_path){ alert('No PDF filed for that agreement yet.'); return; }
+  try{
+    const r = await fetch(SB_URL + '/storage/v1/object/authenticated/compliance-docs/' + a.pdf_path,
+      { headers: sbHeaders() });
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = a.agreement_number + '.pdf';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }catch(e){ alert('Could not open the PDF: ' + e.message); }
+}
+
+// One delegated handler for every row action on this tab.
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-nda]');
+  if(!b) return;
+  const kind = b.getAttribute('data-nda'), id = b.getAttribute('data-id');
+  const was = b.textContent;
+  try{
+    if(kind === 'open')   return void ndaOpen(id);
+    if(kind === 'pdf')    return void ndaPdf(id);
+    if(kind === 'resend'){
+      const a = NDAS.find(x => x.id === id);
+      if(!confirm('Send ' + (a ? a.recipient_company : 'this company') +
+        ' a fresh link?\n\nThe previous link stops working.')) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      const d = await ndaCall({ action: 'resend', id });
+      await ndaLoad();
+      ndaShowLink(d, d.emailed ? 'A fresh link was emailed to ' + d.agreement.recipient_email + '.'
+        : 'Email failed (' + (d.email_error || 'unknown') + ') — send this link yourself.');
+      return;
+    }
+    if(kind === 'revoke'){
+      const a = NDAS.find(x => x.id === id);
+      if(!confirm('Revoke ' + (a ? a.agreement_number : 'this agreement') +
+        '?\n\nThe link stops working immediately. Nothing is deleted.')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'revoke', id });
+      await ndaLoad();
+      return;
+    }
+    if(kind === 'logadd'){
+      const desc = (document.getElementById('nl_desc').value || '').trim();
+      if(!desc){ alert('Describe what you disclosed.'); return; }
+      b.disabled = true; b.textContent = 'Adding…';
+      await ndaCall({ action: 'log_add', agreement_id: id, description: desc,
+        format: document.getElementById('nl_fmt').value,
+        quantity: (document.getElementById('nl_qty').value || '').trim() });
+      await ndaOpen(id);
+      return;
+    }
+    if(kind === 'sigedit') return void ndaOpenSignatory(id);
+    if(kind === 'linkresend'){
+      const l = NDA_LINKS.find(x => x.id === id) || {};
+      // Says the cost out loud: the old link stops working. That is the point
+      // — a link that needs re-sending has usually gone astray — but nobody
+      // should discover it after the fact.
+      if(!confirm('Send ' + (l.person_name || 'them') + ' a fresh link?\n\n' +
+                  'Their current link stops working immediately. We never store the link itself, ' +
+                  'only a fingerprint of it, so there is no way to re-send the old one.')) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      try{
+        const d = await ndaCall({ action: 'link_resend', id });
+        await ndaLoadLinks();
+        const note = d.emailed
+          ? 'Emailed to ' + esc(d.link.person_email) + '. Their old link no longer works.'
+          : 'Could not email it (' + esc(d.email_error || 'unknown') + ') \u2014 pass this on yourself. '
+            + 'Their old link no longer works either way.';
+        ndaPanel('New link for ' + esc(d.link.person_name),
+          '<div class="prose" style="margin-bottom:12px">' + note + '</div>'
+          + '<input type="text" readonly value="' + esc(d.url) + '" id="nd_link"'
+          + ' style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem" onclick="this.select()">'
+          + '<div style="margin-top:12px"><button class="btn sm" onclick="ndaCopyLink()">Copy the link</button></div>'
+          + '<div class="muted" style="margin-top:10px">Shown once \u2014 it is stored as a hash, so nobody '
+          + 'can recover it from the database.</div>');
+      }catch(err){ alert(err.message); }
+      b.disabled = false; b.textContent = was;
+      return;
+    }
+    if(kind === 'linkrevoke'){
+      const l = NDA_LINKS.find(x => x.id === id);
+      if(!confirm('Switch off the sender link for ' + (l ? l.person_name : 'this person') +
+        '?\n\nIt stops working immediately. NDAs already sent through it are unaffected.')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'link_revoke', id });
+      await ndaLoadLinks();
+      return;
+    }
+    if(kind === 'logdel'){
+      if(!confirm('Remove that log entry?')) return;
+      b.disabled = true;
+      await ndaCall({ action: 'log_delete', id });
+      await ndaOpen(b.getAttribute('data-ag'));
+      return;
+    }
+  }catch(err){
+    alert(err.message);
+    b.disabled = false; b.textContent = was;
+  }
+});
 
 // ═══ POSTING BOARD — the screen that goes on the break-room monitor ═══
 // Board = every notice as a tile with a QR code. Display mode = one notice at a

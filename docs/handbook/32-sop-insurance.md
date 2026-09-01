@@ -13,13 +13,37 @@
 
 | Line | Carrier | Policy | Term | Key limits |
 |---|---|---|---|---|
-| **General liability** | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – 12/31/2026 | $1M each occurrence · $2M general aggregate · **$2M products–completed operations** · $1M personal & advertising injury · $50K damage to rented premises · $5K medical |
-| **Commercial auto** | Progressive Express (NAIC 10193) | `975506554` | 01/01/2026 – 12/31/2026 | **$2M combined single limit** · $1M UM/UIM · scheduled + hired + non-owned · $3,500 comp/collision deductible per vehicle |
+| **General liability** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `PLF574240` | 08/25/2026 – 08/25/2027 | $1M each occurrence · $2M general aggregate · **$2M products–completed operations** · $1M personal & advertising injury · $500K damage to rented premises · $20K medical |
+| **Umbrella / excess** | Great American Insurance Co. (NAIC 16691), via **Ram Risk Group** | `XSF574242` | 08/25/2026 – 08/25/2027 | **$5M each occurrence · $5M aggregate**, occurrence form |
+| ~~General liability (cancelled 08/29/2026)~~ | Spinnaker Insurance Co. (NAIC 24376), via Thimble / Coterie | `CSB-00128559-00` | 01/01/2026 – **cancelled 08/29/2026** | Occurrence form — **still answers for anything that happened 01/01–08/29/2026** |
+| **Commercial auto** | **GEICO Protection Insurance Company** | `9300171094-02` | 06/24/2026 – **12/24/2026** | **$1M combined single limit** · owned autos only · **6 scheduled vehicles** |
+| **Commercial auto** | Progressive Express (NAIC 10193) | `975506554` | 01/01/2026 – 12/31/2026 | **$2M combined single limit** · $1M UM/UIM · scheduled + hired + non-owned · $3,500 comp/collision deductible per vehicle · **7 scheduled vehicles** |
 | **Workers' compensation** | AmTrust — Security National (NAIC 19879), via Embroker | `SWC1470931` | 01/01/2026 – **01/01/2027** | Per statute · employers' liability $1M / $1M / $1M · **officers included** (not excluded) |
+
+> **Spinnaker was cancelled on 08/29/2026.** Great American is our general liability. Four things
+> follow from a mid-term cancellation, and none of them happens by itself:
+>
+> 1. **Certificates issued under the old policy are void going forward**, and any additional-insured
+>    or waiver-of-subrogation **endorsement dies with the policy**. Reissue for every holder who
+>    requires current evidence — **the landlord (LPC / City of Alameda) first** — and re-do any
+>    endorsement a contract requires, under Great American.
+> 2. **Confirm the cancellation date is on or after 08/25/2026.** The new policy incepted then;
+>    backdating the cancellation to recover more premium would open a window with no GL at all.
+> 3. **Get the cancellation notice in writing and file it.** It is the proof we were not double-covered
+>    and it fixes the date.
+> 4. **Expect a return premium.** Confirm pro-rata vs short-rate.
+>
+> **Keep the archived record.** The Spinnaker policy was **occurrence form**: a claim arising from
+> something that happened during its term is made against *it*, years later if need be. Cancelled is
+> not the same as never existed — never delete a lapsed liability policy from the vault.
 
 **Who to call**
 
-- **Thimble / Coterie (GL):** 855-566-1011 · support@thimble.com · certificates via Support@coterieinsurance.com
+- **Ram Risk Group — broker of record (GL + umbrella):** **all COI requests → coi@ramriskgroup.com**
+  · (561) 206-4733 · Edrill, Client Service Relations Team Lead, edrill@ramriskgroup.com · producer
+  Corey Ramsey · 11891 U.S. Highway 1, Suite 100, North Palm Beach FL 33408 · ramriskgroup.com
+- **Thimble / Coterie (prior GL):** 855-566-1011 · support@thimble.com · certificates via Support@coterieinsurance.com
+- **GEICO (auto):** 1-866-509-9444 · R1COMMEND@GEICO.COM
 - **Progressive Commercial (auto):** 1-800-444-4487
 - **Embroker — Julie Noonan (workers' comp):** (844) 436-2765 · certificates@embroker.com
 - **Concentra Oakland (work injuries):** downtown (510) 465-9565 · airport (510) 638-0701
@@ -32,8 +56,13 @@ one conversation at or before renewal.
 1. **Property / contents / equipment.** No property or inland-marine line appears on the current
    certificates. We hold warehouse inventory, shop and reman equipment, a forklift, and tooling.
    Confirm what covers those and for how much.
-2. **Umbrella / excess.** Nothing on the certificates. Ask what an umbrella over the $1M GL and $2M
-   auto would cost — chain customers and larger landlords increasingly require one.
+2. ~~**Umbrella / excess.** Nothing on the certificates.~~ **CLOSED 2026-08-27** — a $5M / $5M
+   umbrella is now in force (`XSF574242`, Great American, via Ram Risk Group). **But ask one
+   follow-up:** the certificate shows the umbrella over **general liability only**. Confirm in
+   writing which underlying policies it actually sits over. An umbrella that does not sit over
+   **auto** (Progressive) and **employers' liability** (AmTrust) leaves the two lines most likely to
+   produce a claim above primary limits — a fatality on the road, a serious injury in the warehouse —
+   uncovered where it matters most.
 3. **Does the GL carrier know what we actually do?** The GL is written through a small-business
    platform. Our operation includes a **6-ton CO₂ bulk tank, an on-site cylinder fill station,
    brazing and refrigeration work in customer buildings, and co-packed beverage production**.
@@ -48,6 +77,30 @@ one conversation at or before renewal.
    certificate holder and additional insured, request a reissued certificate plus the AI endorsement
    (see §3 — the endorsement is the thing that matters, not the certificate).
 
+> **⚠ Two auto policies are in force at once, and they are not equivalent.** Both are filed and both
+> vehicle schedules are on the Fleet & Vehicles tab. Three things to settle before either is allowed
+> to lapse:
+>
+> 1. **The GEICO limit is half the Progressive limit, and there is nothing above it.** Progressive
+>    carries $2M combined single limit plus $1M uninsured/underinsured motorist. GEICO shows $1M CSL
+>    and no UM/UIM line, and the Great American umbrella sits over **general liability only** — so a
+>    serious-injury collision, the single most likely large claim this company will ever face, is
+>    capped at $1M. If GEICO is replacing Progressive rather than sitting alongside it, that is a real
+>    reduction in cover, not a like-for-like swap. Get the auto layer under the umbrella.
+> 2. **Four vehicles are on Progressive and not on GEICO — and all four are gone** (confirmed
+>    2026-08-29): 2017 Metris `WD3PG2EA7H3208761`, 2017 Metris `WD3PG2EA8H3209479`, 2017 Ford C-Max
+>    `1FADP5EU0HL118281`, and Ford Transit `1FTBR1C89PKB65386` (plate 36162W3). So **GEICO's six
+>    scheduled vehicles are exactly the six trucks we still run** — the telemetry agrees: those six
+>    are the only assets reporting trips, and the Transit last reported on 2026-05-18 near Auburn and
+>    has been silent since. Nothing is uninsured. **The outstanding job is the other direction:** get
+>    all four off the Progressive schedule so we stop paying premium on vehicles we do not own, and
+>    retire their assets in Fleet Complete. They are archived on the Fleet & Vehicles tab with that
+>    note on each row — archived, not deleted, because a claim can arrive after the truck has gone.
+> 3. **The GEICO policy is a six-month term**, expiring 12/24/2026 — one week before the Progressive
+>    and Great American renewals. Diary it separately; a six-month policy is easy to miss on an annual
+>    renewal calendar. It is also **owned autos only**, so hired and non-owned auto liability is not
+>    shown on it — confirm where that sits before anyone runs an errand in their own car.
+
 ---
 
 ## 2. Renewal calendar
@@ -55,13 +108,17 @@ one conversation at or before renewal.
 | When | What | Owner |
 |---|---|---|
 | **1 October** | Start renewal. Pull loss runs, update payroll and vehicle counts, update equipment values, list any new operations (new equipment, new services, new locations). | Sky |
+| **First week of November** | **GEICO auto (`9300171094-02`) renews 12/24/2026** — a six-month term, not annual. Decide before this point whether GEICO or Progressive is the auto programme going forward, and get every vehicle onto whichever one survives (§1). | Sky |
 | **1 November** | Broker submissions out. Ask specifically about the six items in §1. | Sky |
 | **1 December** | Quotes reviewed and bound. **Do not let this slip** — GL and auto both expire 12/31. | Sky |
 | **First week of January** | New certificates issued and filed in the app. Send updated COIs to the landlord and to every customer who has one on file. | Sky / office |
 | **Anytime** | Vehicle added or sold, employee count changes materially, new operation begins, new location | Same-day call to the carrier |
 
-**Renewal dates are staggered by one day** — GL and auto end 12/31/2026, workers' comp ends
-01/01/2027. Treat them as one renewal cycle.
+**The dates no longer line up, and that is the trap.** General liability and the umbrella now run
+08/25 to 08/25 on their own cycle; the GEICO auto policy expires **12/24/2026** (six-month term);
+Progressive auto expires 12/31/2026; workers' comp expires 01/01/2027. Four dates, four diary
+entries — the old habit of treating December as *the* renewal now misses the GL cycle entirely, and
+a six-month auto policy is exactly the kind of thing an annual calendar drops.
 
 ---
 
@@ -69,6 +126,26 @@ one conversation at or before renewal.
 
 Landlords, chain customers, and property managers will ask for a COI. **We never write one
 ourselves** — the broker issues it.
+
+**Send every request to `coi@ramriskgroup.com`.** Not to a carrier, not to an individual at the
+brokerage — that inbox is the queue, and mail sent elsewhere waits behind someone's calendar. The
+portal has a **Compose the request** button on *Compliance & Safety → Insurance & Company* that fills
+in the four required fields for you.
+
+**Ram Risk Group requires four things.** A request missing any of them comes back for more
+information, which costs you a day:
+
+| | |
+|---|---|
+| **1. Certificate holder** | Full legal name **and complete address**. The most common omission. |
+| **2. Description of operations** | If their contract calls for one. |
+| **3. Coverage types and limits** | Whatever their contract requires — check it against §1 *before* promising anything. |
+| **4. Endorsement requirements** | Additional insured, waiver of subrogation, primary and non-contributory. State them explicitly. |
+
+**Their hours are Monday–Friday, 9:00 AM – 5:00 PM**, and anything after hours is handled the next
+business day. Their office is in Florida, so if those are Eastern hours their 5 PM is our 2 PM —
+treat early afternoon as the cut-off. **A Friday-afternoon request for a Monday job start is a
+Tuesday certificate.** Ask the day you learn a certificate is needed, not the day before it is.
 
 **How to request one**
 
@@ -80,7 +157,9 @@ ourselves** — the broker issues it.
    - **Waiver of subrogation** — our carrier gives up the right to recover from them. Also an
      endorsement.
    - Sometimes **primary and non-contributory** wording as well.
-2. Email the broker for the relevant line (§1) with the holder details and the exact requirement.
+2. Email **coi@ramriskgroup.com** with the holder details and the exact requirement. (Auto and
+   workers' comp are still placed elsewhere — see §1 — so a certificate that must show those lines
+   may need Progressive or Embroker as well. Say up front which lines the contract requires.)
 3. When the certificate comes back, **file it in the app** against the policy, and send it on.
 
 > **The rule worth remembering:** a certificate is *evidence*, not coverage. If a contract requires
@@ -122,7 +201,9 @@ Follow the safety handbook **§C8** at the scene: stop, cones, people first, cal
 admit fault**, photograph everything, collect witnesses. Then:
 
 1. **Report to the office the same day**, however minor.
-2. Office reports to **Progressive: 1-800-444-4487** (or the app/portal). Have the policy number
+2. Office reports to the carrier that schedules **that vehicle** — check the Fleet & Vehicles tab
+   first, because the two auto policies do not cover the same trucks. **GEICO: 1-866-509-9444**
+   (policy `9300171094-02`) or **Progressive: 1-800-444-4487** (or the app/portal). Have the policy number
    `975506554`, the vehicle VIN, date/time/location, the other party's information, the police report
    number, and the photos.
 3. **Remember the $3,500 deductible.** Damage below that is effectively self-insured — but *still
@@ -162,12 +243,47 @@ GL at $2M aggregate. Do not discuss cause or fault with the customer beyond gath
 
 ## 6. Fleet administration
 
-- **Adding a vehicle:** call Progressive the day it is acquired, before it is driven. Add the VIN to
-  the schedule in the app.
-- **Selling or retiring one:** call Progressive, remove it from the schedule, stop paying for it.
+Every vehicle we own lives on **Compliance & Safety → Fleet & Vehicles**, whether or not it has a
+telematics unit in it — registration, odometer readings, service history, insurance policy, and the
+documents filed underneath.
+
+- **Adding a vehicle:** call the carrier the day it is acquired, **before it is driven**, and get it
+  on the schedule of *every* auto policy we intend to rely on — right now that means GEICO *and*
+  Progressive, and a vehicle on only one of them is the gap described in §1. Then add it on the Fleet
+  & Vehicles tab.
+- **Selling or retiring one:** call the carrier, remove it from the schedule, stop paying for it, and
+  **archive** the row on the Fleet tab. Archive, never delete: its registration and service history
+  are the record for the period we owned it, and a claim can arrive after the truck is gone.
 - **Drivers:** anyone driving a company vehicle must be listed and eligible. Pull MVRs at hire and
   annually. A driver whose licence is suspended stops driving that day (safety handbook §C1).
-- **The seven currently scheduled vehicles** are listed in the app under Insurance & Company Docs.
+- **Registration:** file the renewal notice against the vehicle as it arrives and set the expiry date
+  on the row. The Dashboard turns red on an expired registration and amber inside 45 days.
+- **Odometer readings** always carry the date they were taken. An odometer with no read date is a
+  number, not a fact, and the tab says so rather than implying it is current.
+
+### Where the data comes from — and what you must not edit here
+
+Rows marked **Fleet Complete** arrive from the hourly telematics sync, which **owns** the vehicle
+name, VIN, plate, make, model and year and rewrites them every hour. Those fields are locked on the
+Fleet tab on purpose: an edit would appear to save and silently revert. **Fix them in Fleet
+Complete.** Everything else on the row — registration, odometer, service, insurance, assignment — is
+ours and the sync never touches it.
+
+Rows marked **Keyed in** are vehicles Fleet Complete cannot see, entered here from an insurance
+schedule.
+
+**Fleet Complete lists devices, not trucks — do not reconcile an insurance schedule against a raw
+asset count.** On this account ten assets covered six vehicles. Two were unpaired trackers whose
+asset name is the device's own serial number and which have never produced a trip. One was a
+*second* device on a truck that already had its own asset record: on 2026-05-08 the two started
+18 seconds apart, finished 94 seconds apart and logged 246 vs 250 miles on the same Monterey run —
+one journey recorded twice. That is the test to apply when an asset looks like a duplicate: compare
+trip times and distances, not names.
+
+When an asset turns out to be a second device, set **Same truck as** on its Edit form to point it at
+the real vehicle. It stops being counted (the header counts vehicles, not rows) and the reason stays
+on the record. Then retire the asset in Fleet Complete so the roster matches. An unpaired tracker
+with nothing to link it to is left unlinked and archived, rather than guessed at.
 
 ---
 

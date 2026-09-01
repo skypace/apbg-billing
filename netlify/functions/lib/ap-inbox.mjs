@@ -418,3 +418,81 @@ export async function uploadAttachment({ base64, mediaType, filename, intakeId }
   if (!res.ok) throw new Error(`attachment upload failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   return { storage_path: path, file_name: filename, file_type: mediaType, file_size: bytes.length };
 }
+
+// ─── Archiving an emailed bill ───────────────────────────────────────────────
+//
+// "Dismiss" used to soft-hide the INTAKE row only, and said so in its own
+// confirm: it can't come back in. Two problems with that.
+//
+// 1. A dismissed intake that had already produced a bill draft left the DRAFT
+//    BEHIND — an orphan nobody wanted, still in the queue and still in the
+//    aging view. Getting the email out of the way and getting the money row
+//    out of the way have to be one gesture, or the second one never happens.
+//
+// 2. A one-way door is the wrong shape for a triage button. Everything else
+//    in this schema soft-hides (archived_at/archived_by) precisely so it can
+//    come back.
+//
+// The one thing archive must NOT do is quietly hide a bill that is already a
+// real transaction in QuickBooks. That is a VOID, QBO is the source of truth
+// for it, and nothing in this repo writes QBO without an explicit human post.
+// So a posted bill is refused with a sentence saying where to go instead.
+//
+// Kept as pure functions because the archive and restore endpoints, and any
+// future caller, must not drift on what "may be archived" means.
+
+/**
+ * @param {{status?: string}|null} intake
+ * @param {{id?: string, qbo_bill_id?: string|null, posted_at?: string|null, archived_at?: string|null}|null} request
+ * @returns {{allowed: boolean, reason: string, archiveRequest: boolean}}
+ */
+export function archivePlan(intake, request) {
+  if (!intake) return { allowed: false, reason: 'That email is not on file.', archiveRequest: false };
+
+  const posted = !!(request && (request.qbo_bill_id || request.posted_at));
+  if (posted) {
+    return {
+      allowed: false,
+      archiveRequest: false,
+      reason: 'This bill is already posted to QuickBooks. Void or delete it there first — '
+        + 'QuickBooks is the record for anything that has posted, and hiding our copy '
+        + 'would leave the two disagreeing.',
+    };
+  }
+
+  // An unposted draft goes with the email. Already-archived is not an error:
+  // archiving is idempotent, so a double-click or a retry lands the same way.
+  const archiveRequest = !!(request && request.id && !request.archived_at);
+  return { allowed: true, reason: archiveRequest ? 'email and its draft bill' : 'email', archiveRequest };
+}
+
+/**
+ * What restoring an archived intake should do.
+ *
+ * ⚠ Re-running the processor is only safe when the email never produced a
+ * bill. `bill-email-process-background` with `force: true` re-runs whatever
+ * the row's status, and does NOT reuse an existing expense_request_id — so
+ * reprocessing a restored row that already has a draft mints a SECOND draft
+ * for the same invoice. That is the duplicate this pipeline exists to avoid.
+ *
+ * @param {{status?: string}|null} intake
+ * @param {{id?: string, qbo_bill_id?: string|null, posted_at?: string|null}|null} request
+ * @returns {{allowed: boolean, reason: string, unarchiveRequest: boolean, reprocess: boolean}}
+ */
+export function restorePlan(intake, request) {
+  if (!intake) {
+    return { allowed: false, reason: 'That email is not on file.', unarchiveRequest: false, reprocess: false };
+  }
+  if (intake.status !== 'ignored') {
+    return {
+      allowed: false,
+      reason: `That email is not archived (it is ${intake.status}) — use Try again to re-run it.`,
+      unarchiveRequest: false,
+      reprocess: false,
+    };
+  }
+  if (request?.id) {
+    return { allowed: true, reason: 'brought the bill back', unarchiveRequest: true, reprocess: false };
+  }
+  return { allowed: true, reason: 'queued the email to be read again', unarchiveRequest: false, reprocess: true };
+}

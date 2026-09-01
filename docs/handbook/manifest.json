@@ -78,7 +78,7 @@
       "title": "Brix Order /admin — Staff Console (Customers, Onboarding, Payments, Audits)",
       "part": "guide",
       "owner": "Sky Pace",
-      "last_reviewed": "2026-08-21",
+      "last_reviewed": "2026-08-26",
       "sources": [
         {
           "repo": "activespacescience/brix-order",
@@ -293,7 +293,7 @@
       "title": "SOP-2 · Customer Lifecycle — Application, Approval, Setup Ticket, Enable, Closure",
       "part": "sop",
       "owner": "Dani",
-      "last_reviewed": "2026-08-21",
+      "last_reviewed": "2026-08-26",
       "sources": [
         {
           "repo": "activespacescience/brix-order",

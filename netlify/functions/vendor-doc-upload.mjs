@@ -178,6 +178,9 @@ function normName(v) {
 
 async function ensureParty(vendor) {
   if (vendor.insured_party_id) return vendor.insured_party_id;
+  // return=representation for the same reason as the vendor insert below: a
+  // bare POST comes back with no body, so partyId would always be undefined
+  // and this would throw on every vendor that has no party yet.
   const rows = await ops('POST', 'insured_parties', {
     name: vendor.display_name,
     party_type: vendor.vendor_type === 'contractor' ? 'contractor' : 'vendor',
@@ -185,14 +188,19 @@ async function ensureParty(vendor) {
     contact_email: vendor.contact_email,
     contact_phone: vendor.contact_phone,
     notes: 'Created when a document was filed on the vendor record.',
-  });
+  }, { Prefer: 'return=representation' });
   const partyId = rows?.[0]?.id;
   if (!partyId) throw new Error('could not create the compliance-vault party for this vendor');
   await ops('PATCH', `vendors?id=eq.${vendor.id}`, { insured_party_id: partyId });
   return partyId;
 }
 
-export default async (req) => {
+// Everything below runs behind handle(); the export wraps it so a throw comes
+// back as a readable message instead of a bare 500. That distinction is not
+// cosmetic — a vendors_vendor_type_check violation surfaced as an unexplained
+// failure, which is a much harder thing to report than "the database refused
+// this value".
+async function handle(req) {
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
 
@@ -338,13 +346,20 @@ export default async (req) => {
       const rows = await ops('GET', `vendors?id=eq.${matchedExisting.vendor.id}&select=*&limit=1`);
       vendor = rows?.[0];
     } else {
+      // vendor_type MUST be one of ops.vendors_vendor_type_check:
+      // contractor | supplier | service | other. 'vendor' is not on that list
+      // (it was the first shape of this code and every create died on the
+      // constraint), and 'supplier' is both the column default and what the
+      // Vendors page itself offers. Prefer: return=representation is required
+      // — without it PostgREST answers 201 with an EMPTY body, so `created[0]`
+      // is undefined and this reads as a failure while the row lands anyway.
       const created = await ops('POST', 'vendors', {
         display_name: name,
         legal_name: extracted?.legal_name || null,
-        vendor_type: 'vendor',
+        vendor_type: 'supplier',
         created_by: auth.user?.id || null,
         notes: 'Created from a W-9 filed on the Vendors page.',
-      });
+      }, { Prefer: 'return=representation' });
       vendor = created?.[0];
       if (!vendor) return json({ error: 'Could not create the vendor.' }, 500);
       createdVendor = true;
@@ -429,6 +444,16 @@ export default async (req) => {
       ? `Certificate filed — it lapses ${applied.expiration}, and the compliance digest will chase it.`
       : 'Certificate filed. No expiry could be read, so it will not be chased automatically — set one by hand.',
   });
+};
+
+export default async (req) => {
+  try {
+    return await handle(req);
+  } catch (e) {
+    const detail = String(e?.message || e).slice(0, 300);
+    console.error('[vendor-doc-upload]', detail);
+    return json({ error: 'upload_failed', message: `That didn't file: ${detail}` }, 500);
+  }
 };
 
 export const config = { path: '/api/vendor-doc-upload' };

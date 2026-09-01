@@ -38,6 +38,50 @@ function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s, 
 function err(m, s = 400) { return json({ error: m }, s); }
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
 
+// Second layer of the duplicate gate: HAND-KEYED QuickBooks bills. findDuplicate
+// (expense-dupes.mjs) catches a Brixpense twin — another expense_requests row for
+// the same bill already posted. But a bill someone keyed straight into QBO has no
+// Brixpense row, so that check can't see it. This one scans the QBO mirror
+// (ops.qbo_expense_lines) for bills/purchases in the last 60 days with the same
+// amount that NO Brixpense row owns. Amount-only on purpose: hand-keyed vendor
+// spellings differ ("ERIC SERRANO" vs "Serrano Refrigeration HTG&AC"), so a
+// vendor filter would miss exactly the entries this exists to catch. Excluding
+// every txn already linked to an expense_requests.qbo_bill_id keeps real sibling
+// expenses (Serrano bills $170 flat, repeatedly) from false-positiving.
+// Best-effort like its sibling: a mirror check that can't run never blocks a post.
+async function findLikelyQboDuplicates(request) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const amt = Number(request.total_amount) || 0;
+  if (!serviceKey || !amt) return [];
+  try {
+    const svc = createClient(SUPABASE_URL, serviceKey, { db: { schema: 'ops' } });
+    const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    const { data: lines } = await svc.from('qbo_expense_lines')
+      .select('qbo_txn_id, qbo_txn_type, txn_date, vendor_name, amount')
+      .gte('txn_date', since)
+      .gte('amount', amt - 0.005).lte('amount', amt + 0.005)
+      .order('txn_date', { ascending: false })
+      .limit(40);
+    if (!lines?.length) return [];
+    const txnIds = [...new Set(lines.map((l) => l.qbo_txn_id))];
+    const { data: linked } = await svc.from('expense_requests')
+      .select('qbo_bill_id').in('qbo_bill_id', txnIds);
+    const linkedSet = new Set((linked || []).map((r) => r.qbo_bill_id));
+    const seen = new Set();
+    const out = [];
+    for (const l of lines) {
+      if (linkedSet.has(l.qbo_txn_id) || seen.has(l.qbo_txn_id)) continue;
+      seen.add(l.qbo_txn_id);
+      out.push({ txn_type: l.qbo_txn_type, txn_id: l.qbo_txn_id, txn_date: l.txn_date, vendor_name: l.vendor_name || null, amount: Number(l.amount) });
+      if (out.length >= 5) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('mirror duplicate-check failed (non-fatal, post proceeds):', e?.message);
+    return [];
+  }
+}
+
 // qboRequest throws `Error("QBO API error: <status> " + rawResponseText)` —
 // rawResponseText is QBO's Fault JSON. Pull out the actual human message
 // ("Account Period Closed…") instead of surfacing the raw blob to a person
@@ -248,13 +292,48 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false } = body;
+  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false, attachmentId = null } = body;
   if (!requestId) return err('Missing requestId');
-  if (!['create', 'preview', 'link'].includes(mode)) return err(`Invalid mode "${mode}"`);
+  if (!['create', 'preview', 'link', 'attach'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
   const { data: request, error: fetchErr } = await supabase
     .from('expense_requests').select('*').eq('id', requestId).single();
   if (fetchErr || !request) return err('Expense request not found', 404);
+
+  // ── mode=attach: file a late-arriving document onto the EXISTING QBO txn ──
+  // Receipts are only pushed to QBO at posting time, so a bill posted before
+  // its document arrived (the normal case now that SF expenses land data-only)
+  // had no way to ever get the file into QuickBooks. This pushes exactly ONE
+  // attachment row — the one just uploaded — so re-attaching can't duplicate
+  // files QBO already has. No status change, no new transaction.
+  if (mode === 'attach') {
+    if (!attachmentId) return err('mode=attach requires attachmentId');
+    if (request.status !== 'posted' || !request.qbo_bill_id) {
+      return err('Attach-to-QuickBooks needs a posted expense with a QBO transaction on record. For an unposted expense, just attach and Submit — posting pushes the file.', 409);
+    }
+    // Verify the attachment belongs to this request under the CALLER's RLS —
+    // the push itself runs service-role, so this read is the authorization.
+    const { data: att } = await supabase
+      .from('expense_request_attachments')
+      .select('id, file_name').eq('id', attachmentId).eq('request_id', requestId).single();
+    if (!att) return err('Attachment not found on this expense', 404);
+    const kind = request.is_credit === true ? 'VendorCredit'
+      : request.request_type === 'expense' && request.as_bill === false ? 'Purchase' : 'Bill';
+    const result = await attachReceiptsToQBO(kind, request.qbo_bill_id, requestId, { attachmentId });
+    if (!result.attached) {
+      return json({
+        success: false, error: 'attach_failed',
+        message: `The file is saved on the Brixpense record, but pushing it to QuickBooks failed${result.errors.length ? `: ${result.errors.join('; ').slice(0, 300)}` : '.'} Try again, or attach it in QuickBooks by hand.`,
+      }, 502);
+    }
+    await supabase.from('expense_approvals').insert({
+      request_id: requestId, action: 'approved',
+      decided_by: `attachment by ${user.email || user.id}`,
+      notes: `Filed "${att.file_name}" onto QBO ${kind} ${request.qbo_bill_id} after posting.`,
+      token_used: null,
+    });
+    return json({ success: true, mode: 'attach', kind, qbo_txn_id: request.qbo_bill_id, attached: result.attached });
+  }
 
   if (mode === 'link') {
     if (!qboBillId) return err('mode=link requires qboBillId');
@@ -321,6 +400,31 @@ export default async function handler(req) {
           ? { duplicate_cleared_by: `${user.email} (posted anyway)` }
           : {}),
       }).eq('id', requestId);
+    }
+
+    // Layer two: bills hand-keyed straight into QuickBooks (no Brixpense row,
+    // so findDuplicate above can't see them). Same 409 protocol, so the shared
+    // postToQbo confirm flow handles it — and one confirmDuplicate clears both
+    // layers, since the human sees the full picture in either prompt.
+    if (!confirmDuplicate) {
+      const mirror = await findLikelyQboDuplicates(request);
+      if (mirror.length) {
+        const list = mirror
+          .map((d) => `${d.txn_type} #${d.txn_id} — ${d.vendor_name || 'unknown vendor'} $${d.amount.toFixed(2)} on ${d.txn_date}`)
+          .join('; ');
+        const reason = `QuickBooks already has a transaction with this amount that Brixpense didn't create: ${list}`;
+        await supabase.from('expense_requests').update({
+          duplicate_reason: reason.slice(0, 500),
+          duplicate_checked_at: new Date().toISOString(),
+        }).eq('id', requestId);
+        return json({
+          success: false,
+          error: 'possible_duplicate',
+          message: `${reason}. If it was keyed into QuickBooks by hand, don't post this copy. Post it anyway only if it's genuinely a different bill.`,
+          duplicate_matches: mirror,
+          can_override: true,
+        }, 409);
+      }
     }
   }
 
@@ -408,6 +512,14 @@ export default async function handler(req) {
   }
 
   // ── Unpaid bill (expense as_bill=true, or a purchase_request fulfillment) -> QBO Bill ──
+  // A credit memo (is_credit) takes the SAME road — same vendor match, same
+  // payload shape, same gates — but lands as a QBO VendorCredit: the amount
+  // stays positive and the entity carries the sign. It is consumed later by
+  // applying it in a pay run, never paid.
+  const creditMemo = request.is_credit === true;
+  const qboEntity = creditMemo ? 'VendorCredit' : 'Bill';
+  const kindLabel = creditMemo ? 'vendor_credit' : 'bill';
+
   const vendor = await findQBOVendor(request.vendor_name);
   if (!vendor) {
     const reason = `Could not match vendor "${request.vendor_name || '(blank)'}" in QuickBooks.`;
@@ -423,7 +535,7 @@ export default async function handler(req) {
 
   if (mode === 'preview') {
     return json({
-      success: true, mode: 'preview', kind: 'bill', request_id: requestId,
+      success: true, mode: 'preview', kind: kindLabel, request_id: requestId,
       vendor: { id: vendor.Id, name: vendor.DisplayName },
       department: departmentRef,
       payload,
@@ -432,21 +544,21 @@ export default async function handler(req) {
 
   let billResult;
   try {
-    const qboRes = await qboRequest('POST', '/bill', payload);
-    billResult = qboRes.Bill;
+    const qboRes = await qboRequest('POST', creditMemo ? '/vendorcredit' : '/bill', payload);
+    billResult = creditMemo ? qboRes.VendorCredit : qboRes.Bill;
   } catch (e) {
     const reason = qboFaultMessage(e);
-    console.error('QBO bill creation failed:', reason);
+    console.error(`QBO ${qboEntity} creation failed:`, reason);
     await notifyPostFailure(supabase, request, reason);
-    return err('QBO bill creation failed: ' + reason, 502);
+    return err(`QBO ${creditMemo ? 'vendor credit' : 'bill'} creation failed: ` + reason, 502);
   }
 
   if (!billResult || !billResult.Id) {
-    await notifyPostFailure(supabase, request, 'QBO did not return a bill ID');
-    return err('QBO did not return a bill ID', 502);
+    await notifyPostFailure(supabase, request, `QBO did not return a ${qboEntity} ID`);
+    return err(`QBO did not return a ${qboEntity} ID`, 502);
   }
 
-  try { await attachReceiptsToQBO('Bill', billResult.Id, requestId); } catch { /* non-fatal */ }
+  try { await attachReceiptsToQBO(qboEntity, billResult.Id, requestId); } catch { /* non-fatal */ }
 
   const { error: updateErr } = await supabase
     .from('expense_requests')
@@ -461,8 +573,8 @@ export default async function handler(req) {
 
   if (updateErr) {
     return json({
-      success: true, mode: 'create', kind: 'bill', partial: true,
-      message: 'Bill created in QBO but local status update failed.',
+      success: true, mode: 'create', kind: kindLabel, partial: true,
+      message: `${creditMemo ? 'Vendor credit' : 'Bill'} created in QBO but local status update failed.`,
       request_id: requestId, qbo_bill_id: billResult.Id,
       qbo_doc_number: billResult.DocNumber, qbo_total: billResult.TotalAmt,
       update_error: updateErr.message,
@@ -471,12 +583,12 @@ export default async function handler(req) {
   await supabase.from('expense_approvals').insert({
     request_id: requestId, action: 'approved',
     decided_by: `posted by ${user.email || user.id}`,
-    notes: `Posted to QBO as Bill ${billResult.DocNumber || billResult.Id} (vendor: ${vendor.DisplayName})`,
+    notes: `Posted to QBO as ${creditMemo ? 'Vendor Credit' : 'Bill'} ${billResult.DocNumber || billResult.Id} (vendor: ${vendor.DisplayName})`,
     token_used: null,
   });
 
   return json({
-    success: true, mode: 'create', kind: 'bill', request_id: requestId,
+    success: true, mode: 'create', kind: kindLabel, request_id: requestId,
     qbo_bill_id: billResult.Id, qbo_doc_number: billResult.DocNumber, qbo_total: billResult.TotalAmt,
     vendor: { id: vendor.Id, name: vendor.DisplayName },
     department: departmentRef,

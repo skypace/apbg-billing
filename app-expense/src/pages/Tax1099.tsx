@@ -91,7 +91,7 @@ export default function Tax1099() {
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('vendors')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/vendors')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -214,7 +214,7 @@ export default function Tax1099() {
                       <button
                         type="button"
                         className="text-[11px] underline text-muted-foreground hover:text-foreground mt-0.5"
-                        onClick={() => navigate(`vendors/${r.vendor_id}`)}
+                        onClick={() => navigate(`/vendors/${r.vendor_id}`)}
                       >
                         Open vendor
                       </button>

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Send an NDA · Brix Beverage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#EEF2F6;color:#0F172A;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+  font-size:16px;line-height:1.55;-webkit-text-size-adjust:100%}
+.top{background:#1F4E79;color:#fff;padding:18px 20px}
+.top .wrap{max-width:44rem;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.top .kick{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:#9FD0E8;font-weight:800}
+.top h1{margin:2px 0 0;font-size:1.15rem;font-weight:800;letter-spacing:-.01em}
+.top .who{font-size:.8rem;color:#C9E2F0;text-align:right}
+.bar{height:4px;background:#F4B400}
+main{max-width:44rem;margin:0 auto;padding:22px 16px 80px}
+.card{background:#fff;border:1px solid #DDE4EC;border-radius:14px;padding:22px 24px;margin-bottom:18px;
+  box-shadow:0 1px 2px rgba(15,23,42,.05)}
+.card h2{margin:0 0 4px;font-size:1.02rem;font-weight:800}
+.card .sub{margin:0 0 16px;color:#5A6B7C;font-size:.88rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+.full{grid-column:1/-1}
+label{display:block;font-size:.78rem;font-weight:700;color:#334155;margin:0 0 5px}
+label .req{color:#B42318}
+input[type=text],input[type=email],textarea{width:100%;font:inherit;font-size:1rem;padding:11px 12px;
+  border:1px solid #C7D2DE;border-radius:9px;background:#fff;color:#0F172A}
+input:focus,textarea:focus{outline:2px solid #1F4E79;outline-offset:-1px;border-color:#1F4E79}
+input.bad{border-color:#B42318;background:#FEF6F6}
+textarea{min-height:70px;resize:vertical}
+.hint{font-size:.76rem;color:#64748B;margin-top:5px}
+.svc{display:flex;flex-wrap:wrap;gap:8px}
+.svc label{display:inline-flex;align-items:center;gap:7px;border:1px solid #C7D2DE;border-radius:999px;
+  padding:7px 13px;font-size:.85rem;font-weight:600;color:#334155;cursor:pointer;margin:0;text-transform:none}
+.svc input{accent-color:#1F4E79;cursor:pointer}
+.btn{border:0;font:inherit;font-size:1rem;font-weight:800;padding:14px 26px;border-radius:10px;cursor:pointer;
+  background:#1F4E79;color:#fff}
+.btn:hover{background:#255C8E}
+.btn:disabled{background:#A9BDCE;cursor:not-allowed}
+.btn.ghost{background:#fff;color:#1F4E79;border:1px solid #C7D2DE}
+.btn.sm{font-size:.85rem;padding:9px 15px}
+.acts{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;align-items:center}
+.err{background:#FEF3F2;border:1px solid #F3B5B0;color:#8A2018;border-radius:10px;padding:13px 15px;
+  font-size:.92rem;margin-top:16px}
+.ok{background:#ECFDF3;border:1px solid #A6E9C1;color:#065F46;border-radius:10px;padding:16px 18px;margin-bottom:18px}
+.ok b{color:#04543D}
+.warn{background:#FFF7ED;border-left:3px solid #C2410C;border-radius:0 9px 9px 0;padding:13px 15px;
+  font-size:.86rem;color:#7C2D12;margin:0 0 16px}
+.meta{display:flex;gap:18px;flex-wrap:wrap;font-size:.82rem;color:#5A6B7C;margin-top:4px}
+.meta b{color:#0F172A}
+.muted{color:#64748B;font-size:.85rem}
+table.recent{width:100%;border-collapse:collapse;font-size:.86rem;margin-top:6px}
+table.recent th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#64748B;
+  padding:6px 8px 6px 0;border-bottom:1px solid #E4E9F0}
+table.recent td{padding:9px 8px 9px 0;border-bottom:1px solid #F1F5F9;vertical-align:top}
+.chip{display:inline-block;font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px}
+.chip.sent{background:#EFF6FF;color:#1D4ED8}
+.chip.viewed{background:#FFFBEB;color:#92400E}
+.chip.signed{background:#ECFDF3;color:#047857}
+.chip.declined{background:#FEF2F2;color:#B91C1C}
+.chip.revoked{background:#F1F5F9;color:#64748B}
+.linkbox{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem;padding:10px 12px;
+  border:1px solid #C7D2DE;border-radius:9px;background:#F8FAFC}
+footer{max-width:44rem;margin:0 auto;padding:0 16px 40px;color:#64748B;font-size:.78rem;line-height:1.6}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div>
+      <div class="kick">Brix Beverage &middot; Alameda Soda Co.</div>
+      <h1>Send an NDA</h1>
+    </div>
+    <div class="who" id="who"></div>
+  </div>
+</header>
+<div class="bar"></div>
+
+<main>
+  <div id="loading" class="card muted" style="text-align:center">Checking your link&hellip;</div>
+
+  <div id="deadend" class="card" style="display:none">
+    <h2>This link isn&rsquo;t working</h2>
+    <p class="sub" id="deadMsg"></p>
+    <p class="muted">Email <a href="mailto:service@brixbev.com">service@brixbev.com</a> and we&rsquo;ll send you a new one.</p>
+  </div>
+
+  <div id="flow" style="display:none">
+    <div class="ok" id="sentBox" style="display:none">
+      <b id="sentHead"></b>
+      <p style="margin:8px 0 10px" id="sentSub"></p>
+      <input class="linkbox" id="sentLink" readonly onclick="this.select()">
+      <div class="acts" style="margin-top:12px">
+        <button class="btn ghost sm" onclick="copyLink()">Copy the signing link</button>
+        <button class="btn sm" onclick="again()">Send another</button>
+      </div>
+      <p class="muted" style="margin:12px 0 0">Handy if you&rsquo;re standing next to them &mdash; it&rsquo;s the
+        same link they just got by email.</p>
+    </div>
+
+    <div class="card" id="form">
+      <h2>Who is it for?</h2>
+      <p class="sub">They&rsquo;ll get an email with a link. They fill in their own legal name and address,
+        read the agreement, and sign on screen. You&rsquo;ll get a copy of the signed PDF.</p>
+
+      <div class="grid">
+        <div class="full">
+          <div id="flavwrap" style="display:none">
+            <label for="f_flavour">Which agreement</label>
+            <select id="f_flavour" onchange="flavourHint()"></select>
+            <div class="muted" id="f_flavour_hint" style="margin:4px 0 12px"></div>
+          </div>
+          <label for="f_co">Their company <span class="req">*</span></label>
+          <input id="f_co" type="text" placeholder="e.g. Quantum J&rsquo;s Canning LLC">
+          <div class="hint">Whatever you know them as &mdash; they&rsquo;ll enter the exact legal name themselves.</div>
+        </div>
+        <div>
+          <label for="f_email">Email to send it to <span class="req">*</span></label>
+          <input id="f_email" type="email" placeholder="name@company.com">
+        </div>
+        <div>
+          <label for="f_contact">Their name</label>
+          <input id="f_contact" type="text" placeholder="Who you&rsquo;re writing to">
+        </div>
+        <div class="full">
+          <label for="f_purpose">What this covers</label>
+          <textarea id="f_purpose" placeholder="e.g. Co-packing and canning of Alameda Soda 12 oz product."></textarea>
+        </div>
+        <div class="full">
+          <label>What they&rsquo;d be doing</label>
+          <div class="svc" id="svc"></div>
+        </div>
+        <div class="full">
+          <label for="f_note">A line to include in the email</label>
+          <textarea id="f_note" placeholder="Optional &mdash; e.g. Great meeting you at the expo."></textarea>
+        </div>
+      </div>
+
+      <div class="err" id="err" style="display:none"></div>
+
+      <div class="acts">
+        <button class="btn" id="sendBtn" onclick="doSend()">Send the NDA</button>
+        <span class="muted" id="left"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>What you&rsquo;ve sent</h2>
+      <p class="sub">The NDAs sent from this link, and whether they&rsquo;ve been signed.</p>
+      <div id="recent" class="muted">Loading&hellip;</div>
+    </div>
+
+    <div class="warn">
+      <b>This link is a key.</b> Anyone who has it can send email in our name. Don&rsquo;t forward it or paste it
+      into a chat, and tell the office straight away if you lose the device it&rsquo;s on &mdash; we can switch it
+      off in seconds. Every NDA you send here is copied to you and to the office.
+    </div>
+  </div>
+</main>
+
+<footer>
+  Alameda Point Beverage Group, Inc. &middot; 1951 Monarch Street, Suite 200, Alameda, California 94501 &middot;
+  <a href="mailto:service@brixbev.com">service@brixbev.com</a>
+</footer>
+
+<script>
+// The delegated sending page. It holds no credentials of its own — everything
+// goes through /billing/api/nda-send, gated entirely by the key in the URL.
+// That endpoint can ONLY send: it has no code for opening, editing or
+// downloading anybody's agreement, so there is nothing here to widen.
+var API = '/billing/api/nda-send';
+var KEY = (function(){ var m = /[?&]k=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]) : ''; })();
+var INFO = null;
+
+function $(id){ return document.getElementById(id); }
+function show(id, on){ var e = $(id); if(e) e.style.display = on ? 'block' : 'none'; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+
+function fail(msg){
+  show('loading', false); show('flow', false);
+  $('deadMsg').textContent = msg;
+  show('deadend', true);
+}
+function err(msg){
+  var e = $('err');
+  if(!msg){ e.style.display = 'none'; return; }
+  e.textContent = msg; e.style.display = 'block';
+  e.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function post(payload){
+  return fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({ token: KEY }, payload)) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, data:d }; }); })
+    .then(function(res){
+      if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Something went wrong.');
+      return res.data;
+    });
+}
+
+function fmt(ts){
+  if(!ts) return '—';
+  var d = new Date(ts);
+  return isNaN(d) ? '—' : d.toLocaleDateString([], { month:'short', day:'numeric' });
+}
+
+function flavourHint(){
+  var sel = $('f_flavour');
+  var f = (INFO.flavours || []).filter(function(x){ return x.code === sel.value; })[0];
+  $('f_flavour_hint').textContent = f ? f.hint : '';
+}
+
+function renderLeft(n){
+  $('left').textContent = n > 0
+    ? n + (n === 1 ? ' send left today' : ' sends left today')
+    : 'Daily limit reached — it frees up as the day rolls on.';
+  $('sendBtn').disabled = n <= 0;
+}
+
+function boot(){
+  if(!KEY){ fail('This page needs the personal link the office sent you.'); return; }
+  post({ action: 'info' }).then(function(d){
+    INFO = d;
+    $('who').innerHTML = esc(d.person_name) + '<br><span style="opacity:.8">' + esc(d.label) + '</span>';
+    $('svc').innerHTML = (d.service_options || []).map(function(o){
+      var on = (d.default_services || []).indexOf(o) > -1;
+      return '<label><input type="checkbox" class="svcbox" value="' + esc(o) + '"' + (on ? ' checked' : '') +
+             '> ' + esc(o) + '</label>';
+    }).join('');
+    // One-way or mutual. If the office pinned this link to one of them there
+    // is nothing to choose, so the picker stays out of the way and the page
+    // just says which agreement it sends.
+    var fl = d.flavours || [];
+    if(fl.length > 1){
+      $('f_flavour').innerHTML = fl.map(function(f){
+        return '<option value="' + esc(f.code) + '">' + esc(f.label) + '</option>';
+      }).join('');
+      show('flavwrap', true);
+      flavourHint();
+    } else if(fl.length === 1){
+      // The label reads "Mutual — both sides share"; only the name belongs in
+      // a sentence, so cut it at the dash.
+      var only = fl[0].label.split('\u2014')[0].trim().toLowerCase();
+      $('f_flavour_hint').textContent = 'This link sends the ' + only + ' agreement. ' + fl[0].hint;
+      $('f_flavour_hint').style.display = 'block';
+      show('flavwrap', true);
+      $('f_flavour').style.display = 'none';
+    }
+    if(d.default_purpose) $('f_purpose').value = d.default_purpose;
+    renderLeft(d.sends_left);
+    show('loading', false); show('flow', true);
+    loadRecent();
+  }).catch(function(e){ fail(e.message); });
+}
+
+function loadRecent(){
+  post({ action: 'recent' }).then(function(d){
+    var rows = d.agreements || [];
+    if(!rows.length){ $('recent').innerHTML = '<span class="muted">Nothing sent from this link yet.</span>'; return; }
+    $('recent').innerHTML = '<table class="recent"><thead><tr><th>Company</th><th>Status</th>' +
+      '<th>Sent</th><th>Signed</th></tr></thead><tbody>' +
+      rows.map(function(r){
+        return '<tr><td><b>' + esc(r.recipient_company) + '</b><div class="muted">' +
+          esc(r.recipient_email) + '</div></td>' +
+          '<td><span class="chip ' + esc(r.status) + '">' + esc(r.status) + '</span></td>' +
+          '<td>' + esc(fmt(r.sent_at)) + '</td><td>' + esc(fmt(r.signed_at)) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }).catch(function(){ $('recent').innerHTML = '<span class="muted">Could not load that just now.</span>'; });
+}
+
+function doSend(){
+  err('');
+  // Null-safe: the flavour picker only renders when there is a choice.
+  var v = function(id){ var el = $(id); return el ? el.value.trim() : ''; };
+  var bad = [];
+  if(!v('f_co')) bad.push('f_co');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('f_email'))) bad.push('f_email');
+  ['f_co','f_email'].forEach(function(id){ $(id).classList.remove('bad'); });
+  bad.forEach(function(id){ $(id).classList.add('bad'); });
+  if(bad.length){ err('Fill in the highlighted fields.'); $(bad[0]).focus(); return; }
+
+  var btn = $('sendBtn'); btn.disabled = true; btn.textContent = 'Sending…';
+  post({
+    action: 'send',
+    template_code: v('f_flavour'),
+    recipient_company: v('f_co'),
+    recipient_email: v('f_email'),
+    recipient_contact: v('f_contact'),
+    purpose_scope: v('f_purpose'),
+    note: v('f_note'),
+    services: Array.prototype.slice.call(document.querySelectorAll('.svcbox:checked')).map(function(c){ return c.value; })
+  }).then(function(d){
+    $('sentHead').textContent = d.emailed
+      ? 'Sent to ' + d.recipient_email
+      : 'Created — but the email did not go out';
+    $('sentSub').textContent = d.emailed
+      ? d.recipient_company + ' will get a link to read and sign. Reference ' + d.agreement_number + '.'
+      : 'Send them this link yourself. Reference ' + d.agreement_number +
+        (d.email_error ? ' · ' + d.email_error : '');
+    $('sentLink').value = d.link;
+    show('sentBox', true);
+    show('form', false);
+    renderLeft(d.sends_left);
+    loadRecent();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }).catch(function(e){
+    err(e.message);
+    btn.disabled = false; btn.textContent = 'Send the NDA';
+  });
+}
+
+function again(){
+  ['f_co','f_email','f_contact','f_note'].forEach(function(id){ $(id).value = ''; });
+  show('sentBox', false);
+  show('form', true);
+  var btn = $('sendBtn'); btn.textContent = 'Send the NDA';
+  renderLeft(INFO ? INFO.sends_left : 1);
+  $('f_co').focus();
+}
+
+function copyLink(){
+  var el = $('sentLink');
+  el.select();
+  var b = event.target, was = b.textContent;
+  navigator.clipboard.writeText(el.value).then(function(){
+    b.textContent = 'Copied ✓'; setTimeout(function(){ b.textContent = was; }, 1800);
+  }, function(){ alert('Copy failed — select the text and copy it by hand.'); });
+}
+
+boot();
+</script>
+</body>
+</html>

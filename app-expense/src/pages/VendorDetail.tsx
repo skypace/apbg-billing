@@ -14,11 +14,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { VendorDocDrop } from '@/components/VendorDocDrop';
+import { pushVendorToQuickBooks, type VendorQboPushResult } from '@/lib/vendorQboPush';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/ui/select-field';
-import { Archive, ArchiveRestore, ArrowLeft, Banknote, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Banknote, ExternalLink, FileText, Link2, Loader2, Save, Search, Send, ShieldCheck, Upload } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   stripeStatus, stripeSetup, vendorPayments, statusLabel, RAIL_LABEL,
@@ -78,6 +79,9 @@ export default function VendorDetail() {
   // QBO link editor
   const [linking, setLinking] = useState(false);
   const [linkTerm, setLinkTerm] = useState('');
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<VendorQboPushResult | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
   const [linkHits, setLinkHits] = useState<QboVendorMirror[]>([]);
   const [linkSearching, setLinkSearching] = useState(false);
 
@@ -114,6 +118,7 @@ export default function VendorDetail() {
           vendor_type: v.vendor_type,
           contact_name: v.contact_name,
           contact_email: v.contact_email,
+          additional_emails: v.additional_emails ?? [],
           contact_phone: v.contact_phone,
           payment_method_pref: v.payment_method_pref,
           payment_handle: v.payment_handle,
@@ -145,8 +150,19 @@ export default function VendorDetail() {
     try {
       const ein = (draft.ein_last4 || '').trim();
       if (ein && !/^\d{4}$/.test(ein)) throw new Error('EIN last-4 must be exactly four digits (the full number stays on the W-9 PDF).');
+      // Drop blanks, de-duplicate, and never let the primary appear twice —
+      // otherwise a doc request emails the same person two copies.
+      const primary = String(draft.contact_email || '').trim().toLowerCase();
+      const extras = [...new Set((draft.additional_emails ?? [])
+        .map((e) => String(e || '').trim())
+        .filter(Boolean))]
+        .filter((e) => e.toLowerCase() !== primary);
+      const bad = extras.find((e) => !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(e));
+      if (bad) throw new Error(`"${bad}" does not look like an email address.`);
+
       const updated = await updateVendor(vendor.id, {
         ...draft,
+        additional_emails: extras,
         display_name: (draft.display_name || '').trim() || vendor.display_name,
         payment_method_pref: (draft.payment_method_pref as string) === '' ? null : draft.payment_method_pref,
         payment_handle: (draft.payment_handle || '').trim() || null,
@@ -343,6 +359,43 @@ export default function VendorDetail() {
             <div>
               <Label>Contact email</Label>
               <Input type="email" value={draft.contact_email ?? ''} onChange={(e) => set('contact_email', e.target.value || null)} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Additional emails</Label>
+              <p className="text-[11px] text-muted-foreground mb-1.5">
+                Anyone else to copy on document requests. QuickBooks only ever receives the contact email
+                above &mdash; it accepts a single address.
+              </p>
+              <div className="space-y-1.5">
+                {(draft.additional_emails ?? []).map((addr, i) => (
+                  <div key={i} className="flex gap-2">
+                    <Input
+                      type="email"
+                      placeholder="name@vendor.com"
+                      value={addr}
+                      onChange={(e) => {
+                        const next = [...(draft.additional_emails ?? [])];
+                        next[i] = e.target.value;
+                        set('additional_emails', next);
+                      }}
+                    />
+                    <Button
+                      size="sm" variant="ghost"
+                      onClick={() => set('additional_emails',
+                        (draft.additional_emails ?? []).filter((_, j) => j !== i))}
+                      title="Remove"
+                    >
+                      &times;
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => set('additional_emails', [...(draft.additional_emails ?? []), ''])}
+                >
+                  + Add another email
+                </Button>
+              </div>
             </div>
             <div>
               <Label>Contact phone</Label>
@@ -577,6 +630,53 @@ export default function VendorDetail() {
               ))}
             </div>
           )}
+
+          {/* Push the record AND the paperwork into QuickBooks. Never creates a
+              second QBO vendor — an existing link is verified, then an exact
+              name match is linked to, and only then is one created. */}
+          <div className="border-t border-border pt-3 space-y-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pushing}
+              onClick={async () => {
+                setPushing(true); setPushError(null); setPushResult(null);
+                try {
+                  const r = await pushVendorToQuickBooks(vendor.id);
+                  setPushResult(r);
+                  // The one field the push changes. Cheaper and safer than
+                  // re-running the page's load effect.
+                  setVendor({ ...vendor, qbo_vendor_id: r.qbo_vendor_id });
+                } catch (e) {
+                  setPushError(e instanceof Error ? e.message : 'QuickBooks push failed.');
+                } finally {
+                  setPushing(false);
+                }
+              }}
+              title="Create or link this vendor in QuickBooks and attach their W-9 and certificate of insurance"
+            >
+              {pushing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              {vendor.qbo_vendor_id ? 'Re-send to QuickBooks with documents' : 'Push to QuickBooks as a vendor'}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Creates the vendor in QuickBooks if they aren&rsquo;t there, then attaches their documents to that
+              vendor record. The full tax ID is never sent &mdash; we only hold the last four, so the W-9 itself
+              is what carries it.
+            </p>
+            {pushResult && (
+              <div className="text-[12px] rounded-lg p-2.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 space-y-1">
+                <p>{pushResult.message}</p>
+                {pushResult.attachments.filter((a) => a.status === 'failed').map((a) => (
+                  <p key={a.document} className="text-amber-400">{a.document}: {a.error}</p>
+                ))}
+              </div>
+            )}
+            {pushError && (
+              <div className="text-[12px] rounded-lg p-2.5 border border-destructive/40 bg-destructive/10 text-destructive">
+                {pushError}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 

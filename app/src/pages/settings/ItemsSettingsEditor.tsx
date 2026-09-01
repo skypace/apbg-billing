@@ -1,3 +1,18 @@
+// ⚠ CATEGORIES ARE NOT PUSHED TO QUICKBOOKS (2026-08-26, Sky).
+// QBO item Categories were removed company-wide — every one of the 475 items
+// in QuickBooks is now a bare name with no Category parent, and that is how
+// it stays. The 'Push to QBO' button that lived here created QBO Category
+// Items and set each item's ParentRef, so one click would have put all of
+// them straight back; it and its review modal are gone.
+//
+// What REMAINS is deliberate: inventory_settings.category_override, 'Align
+// all to P&L' and 'Smart suggest' are BRIX-LOCAL categorization used for
+// margin reporting. They never touch QuickBooks. The red 'Clean up QBO
+// categories' button also stays — it is the UNDO, useful if any category
+// ever reappears.
+//
+// push-qbo-item's bulkSyncCategories action still exists server-side but has
+// no caller. Do not wire a new one.
 import { useEffect, useMemo, useState } from 'react';
 import {
   DataGridPro,
@@ -8,11 +23,10 @@ import {
 } from '@mui/x-data-grid-pro';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
-import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, UploadCloud, Zap, X, Eraser } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, Search, Sparkles, Zap, X, Eraser } from 'lucide-react';
 import { QboCategoryCleanupModal } from './QboCategoryCleanupModal';
 import { KPICard } from '../../components/KPICard';
 import { QboConfirmModal } from '../../components/QboConfirmModal';
-import { PushCategoriesReviewModal, type CategoryChange } from '../../components/PushCategoriesReviewModal';
 import { fm, fmtNum } from '../../lib/formatters';
 import { inp } from '../../lib/styles';
 import { sbrpc } from '../../lib/rpc';
@@ -21,7 +35,6 @@ import {
   fetchCategoryList, setItemActiveAudited, logQboWritebackCancelled, logQboWriteback,
   pullQboItemsNow,
   fetchItemPlAudit, applyPlCategorySuggestions,
-  bulkSyncCategoriesToQbo,
   fetchItemHygieneSummary,
   alignCategoriesToPl,
   fetchProductFamilies, fetchProductTypes, fetchSegmentOptions,
@@ -219,11 +232,6 @@ export function ItemsSettingsEditor() {
       setQboSyncing(false);
     }
   }
-  const [pushReview, setPushReview] = useState<{
-    categoriesToCreate: string[];
-    changes: CategoryChange[];
-    alreadyCorrect: number;
-  } | null>(null);
 
   // Column layout persistence (order + widths + visibility). Uses MUI X
   // Pro's built-in exportState/restoreState — much more reliable than
@@ -620,86 +628,8 @@ export function ItemsSettingsEditor() {
     }
   }
 
-  async function pushCategoriesToQbo() {
-    setPushing(true);
-    try {
-      const dryRun = await bulkSyncCategoriesToQbo(false);
-      const s = dryRun.summary;
-      const creating = dryRun.categories_created ?? [];
-      if (!s || (s.would_update === 0 && creating.length === 0)) {
-        toast.info('Everything in QBO already matches.');
-        setPushing(false);
-        return;
-      }
-      // Build the per-item diff from local rows. The dry-run RPC only
-      // returns summary counts; we already have category_path (current
-      // QBO parent) and category_override (target) on every row.
-      const changes: CategoryChange[] = (rows ?? [])
-        .filter((r) => r.category_override
-                    && r.category_override !== (r.category_path ?? ''))
-        .map((r) => ({
-          qbo_item_id: r.qbo_item_id,
-          item_name: r.item_name,
-          current_parent: r.category_path ?? '(none)',
-          new_parent: r.category_override!,
-        }))
-        .sort((a, b) => a.new_parent.localeCompare(b.new_parent) || a.item_name.localeCompare(b.item_name));
-      setPushReview({
-        categoriesToCreate: creating,
-        changes,
-        alreadyCorrect: s.already_correct ?? 0,
-      });
-    } catch (e) {
-      toast.error('Push preview failed: ' + (e as Error).message);
-    } finally {
-      setPushing(false);
-    }
-  }
 
-  async function confirmPushToQbo() {
-    if (!pushReview) return;
-    setPushing(true);
-    const before = {
-      categories_to_create: pushReview.categoriesToCreate,
-      items_to_reparent: pushReview.changes.length,
-    };
-    try {
-      const result = await bulkSyncCategoriesToQbo(true);
-      const u = result.summary?.updated ?? 0;
-      const c = result.categories_created?.length ?? 0;
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before, after: { items_updated: u, categories_created: c },
-        result: 'success',
-      }).catch(() => undefined);
-      toast.success(`QBO sync complete: ${u} items updated, ${c} categories created.`);
-      setPushReview(null);
-      load();
-    } catch (e) {
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before, after: {}, result: 'failure',
-        error: (e as Error).message,
-      }).catch(() => undefined);
-      toast.error('QBO sync failed: ' + (e as Error).message);
-    } finally {
-      setPushing(false);
-    }
-  }
 
-  function cancelPushToQbo() {
-    if (pushReview) {
-      logQboWriteback({
-        action: 'bulkSyncCategories', qbo_item_id: null,
-        before: {
-          categories_to_create: pushReview.categoriesToCreate,
-          items_to_reparent: pushReview.changes.length,
-        },
-        after: {}, result: 'cancelled',
-      }).catch(() => undefined);
-    }
-    setPushReview(null);
-  }
 
   const alignmentSummary = useMemo(() => {
     const summary: Record<AlignmentStatus, number> = {
@@ -1306,16 +1236,6 @@ export function ItemsSettingsEditor() {
 
   return (
     <div>
-      <PushCategoriesReviewModal
-        open={!!pushReview}
-        busy={pushing}
-        expectedPassword={pushPassword}
-        categoriesToCreate={pushReview?.categoriesToCreate ?? []}
-        changes={pushReview?.changes ?? []}
-        alreadyCorrect={pushReview?.alreadyCorrect ?? 0}
-        onCancel={cancelPushToQbo}
-        onConfirm={confirmPushToQbo}
-      />
       <QboConfirmModal
         open={!!activePrompt}
         title={activePrompt?.next ? 'Reactivate item in QuickBooks?' : 'Deactivate item in QuickBooks?'}
@@ -1459,16 +1379,6 @@ export function ItemsSettingsEditor() {
         >
           <Sparkles size={12} strokeWidth={2.4} aria-hidden="true" />
           {applying ? 'Applying…' : `Smart suggest (${alignmentSummary.suggestions})`}
-        </button>
-        <button
-          onClick={pushCategoriesToQbo}
-          disabled={pushing || withOverrideCount === 0}
-          className="tb-btn"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          title={withOverrideCount === 0 ? 'No category overrides to push' : 'Sync all category overrides back to QuickBooks (creates missing Category Items + sets each item ParentRef)'}
-        >
-          <UploadCloud size={12} strokeWidth={2.4} aria-hidden="true" />
-          {pushing ? 'Syncing…' : `Push to QBO (${withOverrideCount})`}
         </button>
         <button
           onClick={() => setCleanupOpen(true)}

@@ -51,7 +51,7 @@ async function loadVendor(vendorId) {
 
 async function loadExpense(expenseId) {
   const rows = await ops('GET',
-    `expense_requests?select=id,vendor_name,vendor_id,total_amount,qbo_bill_id,status,as_bill,bill_number,job_number&id=eq.${expenseId}&limit=1`);
+    `expense_requests?select=id,vendor_name,vendor_id,total_amount,qbo_bill_id,status,as_bill,bill_number,job_number,is_credit&id=eq.${expenseId}&limit=1`);
   return rows && rows[0];
 }
 
@@ -122,6 +122,7 @@ async function handleStripeSetup(vendor, actorEmail) {
 
 async function buildPreview(expense) {
   const problems = [];
+  if (expense.is_credit) problems.push('This is a credit memo — it cannot be paid. Apply it against bills from Accounts payable → Pay Bills.');
   if (!expense.qbo_bill_id) problems.push('This expense has no QBO bill yet — post it to QuickBooks first.');
   if (!['approved', 'posted'].includes(expense.status)) problems.push(`Expense status is '${expense.status}' — only approved/posted bills can be paid.`);
   const amount = Number(expense.total_amount);

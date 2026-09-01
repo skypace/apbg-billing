@@ -8,6 +8,8 @@ import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
+import { LifecycleTabs } from '@/components/LifecycleTabs';
+import { lifecycleBucket, type LifecycleTab } from '@/lib/lifecycle';
 import { ApAgingStrip } from '@/components/ApAgingStrip';
 import { ApInboxSettings } from '@/components/ApInboxSettings';
 import { Button } from '@/components/ui/button';
@@ -103,7 +105,10 @@ const NEEDS_ATTENTION: IntakeStatus[] = [
   'no_attachment', 'attachment_fetch_failed', 'ocr_failed', 'failed', 'sender_rejected',
 ];
 
-type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'posted' | 'unpaid' | 'all';
+// Triage sub-filters WITHIN the Open lifecycle tab. Posted / Paid & closed are
+// the shared lifecycle tabs (lib/lifecycle.ts) — the old 'posted'/'unpaid'/'all'
+// pills folded into them so a bill reads the same here as on every other list.
+type Filter = 'mine' | 'approval' | 'ready' | 'unassigned' | 'attention' | 'all';
 
 async function api(body?: unknown) {
   const token = await getAccessToken();
@@ -130,7 +135,7 @@ function statusBadge(item: IntakeItem): { label: string; variant: 'success' | 's
     case 'attachment_fetch_failed': return { label: "Couldn't read the attachment", variant: 'destructive' };
     case 'ocr_failed': return { label: 'OCR failed', variant: 'warning' };
     case 'sender_rejected': return { label: 'Sender blocked', variant: 'secondary' };
-    case 'ignored': return { label: 'Dismissed', variant: 'secondary' };
+    case 'ignored': return { label: 'Archived', variant: 'secondary' };
     default: return { label: 'Failed', variant: 'destructive' };
   }
 }
@@ -144,11 +149,13 @@ export default function BillsInbox() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('ready');
+  const [tab, setTab] = useState<LifecycleTab>('open');
   const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [check, setCheck] = useState<SetupCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [showDiag, setShowDiag] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   // Paying a posted bill (Vendor Portal Phase 3). Superadmin-only —
   // /api/vendor-pay refuses everyone else, so the trigger is hidden rather
   // than left to 403.
@@ -216,11 +223,25 @@ export default function BillsInbox() {
     finally { setBusy(null); }
   };
 
-  const dismiss = async (item: IntakeItem) => {
-    if (!window.confirm(`Dismiss this email from ${item.from_email || 'unknown sender'}? It stays on record and can't come back in.`)) return;
+  // Archive takes the email AND its unposted draft bill off the queue in one
+  // gesture. Dismiss used to hide only the email, which left the draft behind
+  // as an orphan in the queue and the aging view — and it was a one-way door.
+  const archive = async (item: IntakeItem) => {
+    const alsoBill = item.request && !item.request.posted && !item.request.archived;
+    const what = alsoBill
+      ? `Archive this email from ${item.from_email || 'unknown sender'} and its draft bill?`
+      : `Archive this email from ${item.from_email || 'unknown sender'}?`;
+    if (!window.confirm(`${what} Nothing is deleted — you can restore it from the Archived filter.`)) return;
     setBusy(item.id);
-    try { await api({ action: 'dismiss', intake_id: item.id }); await load(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not dismiss.'); }
+    try { await api({ action: 'archive', intake_id: item.id }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not archive that email.'); }
+    finally { setBusy(null); }
+  };
+
+  const restore = async (item: IntakeItem) => {
+    setBusy(item.id);
+    try { await api({ action: 'restore', intake_id: item.id }); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not restore that email.'); }
     finally { setBusy(null); }
   };
 
@@ -267,6 +288,12 @@ export default function BillsInbox() {
     !!me &&
     (i.request?.owner_email ?? '').toLowerCase() === me.toLowerCase();
 
+  // Lifecycle bucket first (the shared Open/Posted/Paid tabs), then the triage
+  // sub-filters apply WITHIN Open only. An intake item with no linked request
+  // (unreadable mail, failed processing) is by definition still open.
+  const bucketOf = (i: IntakeItem): LifecycleTab =>
+    i.request ? lifecycleBucket(i.request) : 'open';
+
   const match = (i: IntakeItem, f: Filter) => {
     switch (f) {
       case 'all': return true;
@@ -275,33 +302,41 @@ export default function BillsInbox() {
       case 'ready': return !!i.request?.can_post;
       case 'unassigned': return !!i.request?.unassigned;
       case 'attention': return NEEDS_ATTENTION.includes(i.status);
-      case 'posted': return !!i.request?.posted;
-      // Posted to QuickBooks but no payment recorded yet — the pay-run list.
-      case 'unpaid': return !!i.request?.posted && !payments.get(i.request.id);
       default: return true;
     }
   };
 
-  const visible = items.filter((i) => match(i, filter));
-  const countOf = (f: Filter) => items.filter((i) => match(i, f)).length;
+  // Archived rows are held out of every lifecycle tab. An archived email with
+  // no bill would otherwise bucket as 'open' (an intake with no request is open
+  // by definition) and sit in the middle of live work — which is the opposite
+  // of archiving it. They get their own view instead, so Restore has somewhere
+  // to be reached from.
+  const archivedRows = items.filter((i) => i.status === 'ignored');
+  const liveRows = items.filter((i) => i.status !== 'ignored');
+
+  const inTab = liveRows.filter((i) => bucketOf(i) === tab);
+  const visible = showArchived
+    ? archivedRows
+    : (tab === 'open' ? inTab.filter((i) => match(i, filter)) : inTab);
+  const countOf = (f: Filter) => liveRows.filter((i) => bucketOf(i) === 'open' && match(i, f)).length;
   const counts = {
     mine: countOf('mine'),
     approval: countOf('approval'),
     ready: countOf('ready'),
     unassigned: countOf('unassigned'),
     attention: countOf('attention'),
-    posted: countOf('posted'),
-    unpaid: countOf('unpaid'),
-    all: items.length,
+    all: countOf('all'),
   };
-  const openRows = items.filter((i) => i.request && !i.request.posted && !i.request.archived);
+  const tabCounts: Record<LifecycleTab, number> = { open: 0, posted: 0, paid: 0 };
+  for (const i of liveRows) tabCounts[bucketOf(i)]++;
+  const openRows = liveRows.filter((i) => i.request && !i.request.posted && !i.request.archived);
   const dueTotal = openRows.reduce((s, i) => s + (i.request?.total_amount ?? 0), 0);
   const openCount = openRows.length;
 
   return (
     <div className="space-y-4 pb-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -388,31 +423,46 @@ export default function BillsInbox() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        {(([
-          // The approval views only exist when the gate is switched on;
-          // showing two permanently-empty pills would just read as broken.
-          ...(settings?.require_approval
-            ? [['mine', `Waiting on you (${counts.mine})`],
-               ['approval', `Awaiting approval (${counts.approval})`]] as [Filter, string][]
-            : []),
-          ['ready', `Ready to post (${counts.ready})`],
-          ['unassigned', `Unassigned (${counts.unassigned})`],
-          ['attention', `Needs attention (${counts.attention})`],
-          ['posted', `Posted (${counts.posted})`],
-          ['unpaid', `Awaiting payment (${counts.unpaid})`],
-          ['all', `Everything (${counts.all})`],
-        ] as [Filter, string][])).map(([key, label]) => (
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className={showArchived ? 'opacity-50 pointer-events-none' : undefined}>
+          <LifecycleTabs tab={tab} counts={tabCounts} onChange={setTab} />
+        </div>
+        {(archivedRows.length > 0 || showArchived) && (
           <Button
-            key={key}
             size="sm"
-            variant={filter === key ? 'default' : 'outline'}
-            onClick={() => setFilter(key)}
+            variant={showArchived ? 'secondary' : 'ghost'}
+            onClick={() => setShowArchived((v) => !v)}
           >
-            {label}
+            {showArchived ? 'Back to the queue' : `Archived (${archivedRows.length})`}
           </Button>
-        ))}
+        )}
       </div>
+
+      {tab === 'open' && !showArchived && (
+        <div className="flex flex-wrap gap-1.5">
+          {(([
+            // The approval views only exist when the gate is switched on;
+            // showing two permanently-empty pills would just read as broken.
+            ...(settings?.require_approval
+              ? [['mine', `Waiting on you (${counts.mine})`],
+                 ['approval', `Awaiting approval (${counts.approval})`]] as [Filter, string][]
+              : []),
+            ['ready', `Ready to post (${counts.ready})`],
+            ['unassigned', `Unassigned (${counts.unassigned})`],
+            ['attention', `Needs attention (${counts.attention})`],
+            ['all', `Everything open (${counts.all})`],
+          ] as [Filter, string][])).map(([key, label]) => (
+            <Button
+              key={key}
+              size="sm"
+              variant={filter === key ? 'default' : 'outline'}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <ApAgingStrip />
 
@@ -424,9 +474,12 @@ export default function BillsInbox() {
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             <Inbox className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            {filter === 'mine' || filter === 'ready'
+            {showArchived && 'Nothing archived. Archiving an email takes it and its draft bill off the queue without deleting either.'}
+            {!showArchived && tab === 'posted' && 'No posted bills awaiting payment. Bills move to Paid & closed automatically once QuickBooks reports them paid.'}
+            {!showArchived && tab === 'paid' && 'Nothing paid or closed yet.'}
+            {!showArchived && tab === 'open' && (filter === 'mine' || filter === 'ready'
               ? 'Nothing waiting. Forward a bill to the address above and it will show up here.'
-              : 'Nothing in this view.'}
+              : 'Nothing in this view.')}
           </CardContent>
         </Card>
       ) : (
@@ -492,7 +545,7 @@ export default function BillsInbox() {
                   <div className="flex flex-wrap items-center gap-2 pt-0.5">
                     {r && !r.posted && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => navigate(`edit/${r.id}`)}>
+                        <Button size="sm" variant="outline" onClick={() => navigate(`/edit/${r.id}`)}>
                           Open bill
                         </Button>
 
@@ -569,8 +622,16 @@ export default function BillsInbox() {
                       </Button>
                     )}
                     {item.status !== 'ignored' && !r?.posted && (
-                      <Button size="sm" variant="ghost" onClick={() => void dismiss(item)} disabled={busy === item.id}>
-                        <X className="h-4 w-4 mr-1.5" /> Dismiss
+                      <Button size="sm" variant="ghost" onClick={() => void archive(item)} disabled={busy === item.id}>
+                        <X className="h-4 w-4 mr-1.5" /> Archive
+                      </Button>
+                    )}
+                    {item.status === 'ignored' && (
+                      <Button size="sm" variant="outline" onClick={() => void restore(item)} disabled={busy === item.id}>
+                        {busy === item.id
+                          ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                          : <RefreshCw className="h-4 w-4 mr-1.5" />}
+                        Restore
                       </Button>
                     )}
                     {item.diagnostics && (

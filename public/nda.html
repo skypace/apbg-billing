@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Confidentiality Agreement · Alameda Point Beverage Group</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#EEF2F6;color:#0F172A;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+  font-size:16px;line-height:1.55;-webkit-text-size-adjust:100%}
+.top{background:#1F4E79;color:#fff;padding:18px 20px}
+.top .wrap{max-width:60rem;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.top .kick{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:#9FD0E8;font-weight:800}
+.top h1{margin:2px 0 0;font-size:1.15rem;font-weight:800;letter-spacing:-.01em}
+.top .ref{font-size:.78rem;color:#C9E2F0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.bar{height:4px;background:#F4B400}
+main{max-width:60rem;margin:0 auto;padding:22px 16px 90px}
+.card{background:#fff;border:1px solid #DDE4EC;border-radius:14px;padding:22px 24px;margin-bottom:18px;
+  box-shadow:0 1px 2px rgba(15,23,42,.05)}
+.card h2{margin:0 0 4px;font-size:1.02rem;font-weight:800;letter-spacing:-.01em}
+.card .sub{margin:0 0 16px;color:#5A6B7C;font-size:.88rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px}
+@media(max-width:680px){.grid{grid-template-columns:1fr}}
+.full{grid-column:1/-1}
+label{display:block;font-size:.78rem;font-weight:700;color:#334155;margin:0 0 5px;letter-spacing:.01em}
+label .req{color:#B42318}
+input[type=text],input[type=email],input[type=tel],select,textarea{
+  width:100%;font:inherit;font-size:1rem;padding:11px 12px;border:1px solid #C7D2DE;border-radius:9px;
+  background:#fff;color:#0F172A}
+input:focus,select:focus,textarea:focus{outline:2px solid #1F4E79;outline-offset:-1px;border-color:#1F4E79}
+input.bad,select.bad,textarea.bad{border-color:#B42318;background:#FEF6F6}
+textarea{min-height:78px;resize:vertical}
+.hint{font-size:.76rem;color:#64748B;margin-top:5px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+.chip{border:1px solid #C7D2DE;background:#fff;border-radius:999px;padding:8px 14px;font-size:.85rem;
+  font-weight:600;color:#334155;cursor:pointer;user-select:none}
+.chip.on{background:#1F4E79;border-color:#1F4E79;color:#fff}
+
+/* ── the agreement itself ───────────────────────────────────────────────── */
+.doc{background:#fff;border:1px solid #DDE4EC;border-radius:14px;margin-bottom:18px;overflow:hidden}
+.dochead{padding:14px 20px;border-bottom:1px solid #E7EDF3;display:flex;justify-content:space-between;
+  align-items:center;gap:12px;flex-wrap:wrap;background:#F8FAFC}
+.dochead .t{font-size:.82rem;font-weight:800;color:#1F4E79;letter-spacing:.02em}
+.scroller{max-height:56vh;overflow-y:auto;padding:26px 30px;font-size:.93rem;line-height:1.62;
+  font-family:'DM Sans',Georgia,serif;color:#152233;scroll-behavior:smooth}
+@media(max-width:680px){.scroller{padding:20px 18px;max-height:60vh}}
+.scroller h1{font-size:1.05rem;text-align:center;margin:0 0 6px}
+.scroller h2{font-size:.92rem;text-align:center;margin:22px 0 12px;letter-spacing:.04em}
+.scroller p{margin:0 0 11px}
+.scroller p.party{margin-left:22px}
+.scroller p.sec{margin-top:14px}
+.scroller .secno{font-weight:800}
+.scroller ol.items{list-style:none;margin:0 0 12px;padding:0 0 0 26px}
+.scroller ol.items li{margin:0 0 8px;text-indent:-20px;padding-left:20px}
+.scroller ol.items .mk{font-weight:700}
+.fill{border-bottom:1px solid #94A3B8;padding:0 4px;font-weight:700;display:inline-block;min-width:6rem}
+.fill.empty{border-bottom:1px solid #94A3B8;display:inline-block;height:1.05em;vertical-align:baseline}
+.sigs{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:26px}
+@media(max-width:680px){.sigs{grid-template-columns:1fr}}
+.sigbox .sigwho{font-size:.7rem;font-weight:800;letter-spacing:.12em;color:#1F4E79}
+.sigbox .signm{font-weight:700;margin:4px 0 8px}
+.sigbox .sigrow{font-size:.85rem;margin:7px 0}
+.sigimg{display:block;max-height:44px;max-width:100%;margin:6px 0}
+.sigline{display:inline-block;border-bottom:1px solid #94A3B8;min-width:10rem;height:1em}
+.exhibit{margin-top:30px;border-top:1px solid #E2E8F0;padding-top:20px}
+.exhibit h2{margin-top:0}
+.exhibit h3{text-align:center;font-size:.9rem;font-weight:700;margin:0 0 12px}
+.logtable{width:100%;border-collapse:collapse;font-size:.78rem;margin:10px 0}
+.logtable th,.logtable td{border:1px solid #CBD5E1;padding:6px 7px;text-align:left;vertical-align:top}
+.logtable th{background:#F1F5F9;font-weight:700}
+.logtable td{height:22px}
+.reps{font-size:.85rem;margin-top:14px}
+
+.readbar{padding:11px 20px;border-top:1px solid #E7EDF3;background:#FFF9E9;color:#7A5B00;font-size:.83rem;
+  font-weight:600;display:flex;align-items:center;gap:10px}
+.readbar.done{background:#EDFCF3;color:#166534}
+.readbar .dot{width:9px;height:9px;border-radius:50%;background:#F4B400;flex-shrink:0}
+.readbar.done .dot{background:#16A34A}
+
+.pad{border:2px dashed #7FA9C9;border-radius:11px;background:#fff;touch-action:none;display:block;width:100%;
+  height:150px;cursor:crosshair}
+.padrow{display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:12px;flex-wrap:wrap}
+.link{background:none;border:0;color:#1F4E79;font:inherit;font-size:.84rem;font-weight:700;cursor:pointer;
+  text-decoration:underline;padding:0}
+.check{display:flex;gap:12px;align-items:flex-start;margin-top:16px;background:#F8FAFC;border:1px solid #DDE4EC;
+  border-radius:11px;padding:14px 16px}
+.check input{width:22px;height:22px;flex-shrink:0;accent-color:#1F4E79;cursor:pointer;margin-top:2px}
+.check span{font-size:.9rem;line-height:1.5}
+
+.btn{border:0;font:inherit;font-size:1rem;font-weight:800;padding:14px 26px;border-radius:10px;cursor:pointer;
+  background:#1F4E79;color:#fff}
+.btn:hover{background:#255C8E}
+.btn:disabled{background:#A9BDCE;cursor:not-allowed}
+.btn.ghost{background:#fff;color:#1F4E79;border:1px solid #C7D2DE}
+.btn.ghost:hover{background:#F1F6FB}
+.acts{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;align-items:center}
+.err{background:#FEF3F2;border:1px solid #F3B5B0;color:#8A2018;border-radius:10px;padding:13px 15px;
+  font-size:.92rem;margin-top:16px}
+.note{background:#F1F6FB;border-left:3px solid #1F4E79;border-radius:0 9px 9px 0;padding:13px 15px;
+  font-size:.88rem;color:#22405C;margin:0 0 16px}
+.done{text-align:center;padding:14px 0}
+.done .tick{font-size:2.6rem;line-height:1}
+.done h2{font-size:1.35rem;margin:10px 0 6px}
+.muted{color:#64748B;font-size:.85rem}
+.center{text-align:center}
+footer{max-width:60rem;margin:0 auto;padding:0 16px 40px;color:#64748B;font-size:.78rem;line-height:1.6}
+
+@media print{
+  body{background:#fff}
+  .top,.bar{background:#fff!important;color:#000!important;border-bottom:1px solid #000}
+  .noprint,.readbar,.acts,.check{display:none!important}
+  .card,.doc{border:0;box-shadow:none;padding:0;margin:0}
+  .scroller{max-height:none;overflow:visible;padding:0}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div>
+      <div class="kick">Alameda Point Beverage Group &middot; Brix Beverage &middot; Alameda Soda Co.</div>
+      <h1 id="docTitle">Confidentiality and Non-Disclosure Agreement</h1>
+    </div>
+    <div class="ref" id="ref"></div>
+  </div>
+</header>
+<div class="bar"></div>
+
+<main>
+  <div id="loading" class="card center muted">Loading your agreement&hellip;</div>
+
+  <div id="deadend" class="card" style="display:none">
+    <h2>We can&rsquo;t open this agreement</h2>
+    <p class="sub" id="deadMsg"></p>
+    <p class="muted">Email <a href="mailto:service@brixbev.com">service@brixbev.com</a> or call the office and
+      we&rsquo;ll send a fresh link straight away.</p>
+  </div>
+
+  <!-- ── SIGNING ─────────────────────────────────────────────────────────── -->
+  <div id="flow" style="display:none">
+
+    <div class="card noprint">
+      <h2>Before we share anything confidential</h2>
+      <p class="sub">Fill in your company&rsquo;s details, read the agreement, and sign at the bottom.
+        We&rsquo;ll email you a PDF of the signed agreement the moment you&rsquo;re done &mdash; and you can
+        download it right here too.</p>
+      <div class="note" id="purposeNote" style="display:none"></div>
+
+      <div class="grid">
+        <div class="full">
+          <label for="f_legal">Your company&rsquo;s full legal name <span class="req">*</span></label>
+          <input id="f_legal" type="text" autocomplete="organization" placeholder="e.g. Quantum J&rsquo;s Canning LLC">
+          <div class="hint">Exactly as it appears on your formation documents &mdash; this is the party that
+            will be bound.</div>
+        </div>
+        <div>
+          <label for="f_entity">What kind of entity is it? <span class="req">*</span></label>
+          <select id="f_entity"><option value="">Choose&hellip;</option></select>
+        </div>
+        <div>
+          <label for="f_state">State it&rsquo;s organized in</label>
+          <input id="f_state" type="text" placeholder="e.g. Colorado">
+        </div>
+        <div class="full">
+          <label for="f_addr">Business address <span class="req">*</span></label>
+          <input id="f_addr" type="text" autocomplete="street-address"
+                 placeholder="Street, city, state, ZIP">
+        </div>
+        <div>
+          <label for="f_signer">Who is signing? <span class="req">*</span></label>
+          <input id="f_signer" type="text" autocomplete="name" placeholder="Full name">
+        </div>
+        <div>
+          <label for="f_title">Their title <span class="req">*</span></label>
+          <input id="f_title" type="text" autocomplete="organization-title" placeholder="e.g. President">
+        </div>
+        <div>
+          <label for="f_email">Email for the signed copy <span class="req">*</span></label>
+          <input id="f_email" type="email" autocomplete="email" placeholder="name@company.com">
+        </div>
+        <div>
+          <label for="f_phone">Phone</label>
+          <input id="f_phone" type="tel" autocomplete="tel" placeholder="Optional">
+        </div>
+      </div>
+    </div>
+
+    <div class="doc">
+      <div class="dochead noprint">
+        <div class="t">Read the agreement</div>
+        <button class="link" onclick="window.print()">Print this page</button>
+      </div>
+      <div class="scroller" id="scroller"></div>
+      <div class="readbar noprint" id="readbar"><span class="dot"></span>
+        <span id="readmsg">Scroll to the end of the agreement to continue.</span></div>
+    </div>
+
+    <div class="card noprint" id="signCard">
+      <h2>Sign</h2>
+      <p class="sub">Type your name, then sign in the box. Both together are your signature.</p>
+
+      <div class="grid">
+        <div class="full">
+          <label for="f_typed">Type your full name <span class="req">*</span></label>
+          <input id="f_typed" type="text" placeholder="Your name, typed">
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <label>Draw your signature <span class="req">*</span></label>
+        <canvas class="pad" id="pad"></canvas>
+        <div class="padrow">
+          <span class="muted">Use your finger, a stylus, or the mouse.</span>
+          <button class="link" type="button" onclick="clearPad()">Clear signature</button>
+        </div>
+      </div>
+
+      <div class="check">
+        <input type="checkbox" id="f_consent">
+        <span><b>I agree to sign electronically.</b> I have read this Agreement, I have authority to sign it
+          for the company named above, and I agree that my typed name and the signature I drew have the same
+          legal effect as a handwritten signature. I understand I&rsquo;ll receive a PDF copy by email and can
+          download it now, and that I can ask for a paper copy at any time.</span>
+      </div>
+
+      <div class="err" id="err" style="display:none"></div>
+
+      <div class="acts">
+        <button class="btn" id="signBtn" onclick="doSign()" disabled>Sign the agreement</button>
+        <button class="link" type="button" onclick="showDecline()">I can&rsquo;t sign this</button>
+      </div>
+
+      <div id="declineBox" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #E7EDF3">
+        <label for="f_reason">Tell us why, and we&rsquo;ll follow up</label>
+        <textarea id="f_reason" placeholder="Optional &mdash; e.g. our legal team needs to review clause 7"></textarea>
+        <div class="acts">
+          <button class="btn ghost" onclick="hideDecline()">Back</button>
+          <button class="btn" style="background:#B42318" onclick="doDecline()">Decline this agreement</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── EXECUTED ────────────────────────────────────────────────────────── -->
+  <div id="executed" style="display:none">
+    <div class="card noprint">
+      <div class="done">
+        <div class="tick">&#10003;</div>
+        <h2 id="exHead">This agreement is signed</h2>
+        <p class="muted" id="exSub"></p>
+      </div>
+      <div class="err" id="exWarn" style="display:none"></div>
+      <div class="acts" style="justify-content:center">
+        <button class="btn" id="dlBtn" onclick="downloadPdf()">Download the signed PDF</button>
+        <button class="btn ghost" onclick="window.print()">Print</button>
+      </div>
+    </div>
+    <div class="doc">
+      <div class="dochead noprint"><div class="t">Your executed agreement</div></div>
+      <div class="scroller" id="exScroller" style="max-height:none"></div>
+    </div>
+  </div>
+
+  <div id="declined" class="card" style="display:none">
+    <h2>Thanks &mdash; we&rsquo;ve recorded that</h2>
+    <p class="sub">Nothing has been signed. Someone from our team will be in touch.</p>
+  </div>
+</main>
+
+<footer>
+  Alameda Point Beverage Group, Inc. &middot; 1951 Monarch Street, Suite 200, Alameda, California 94501 &middot;
+  <a href="mailto:service@brixbev.com">service@brixbev.com</a><br>
+  This page is a private link. Please don&rsquo;t forward it &mdash; ask us and we&rsquo;ll send one to the right person.
+</footer>
+
+<script>
+// Public signing page. It holds no credentials of any kind: everything goes
+// through /api/nda-sign, which is gated entirely by the token in the URL. The
+// agreement TEXT is rendered server-side from the row's own snapshot and
+// dropped in here, so this page cannot alter a word of what gets signed.
+// The function declares `export const config = { path: '/api/nda-sign' }`, so
+// Netlify serves it THERE and not under /.netlify/functions. This page is
+// reached through the gateway, which mounts apbg-billing under /billing — so
+// the gateway-relative path is /billing/api/…. Getting this wrong 404s every
+// call and the page just says the link is invalid (it did, once).
+var API = '/billing/api/nda-sign';
+var TOKEN = (function(){ var m = /[?&]t=([^&]+)/.exec(location.search); return m ? decodeURIComponent(m[1]) : ''; })();
+var DATA = null, PDF = null, READ = false, SIGNED_PIXELS = 0;
+
+function $(id){ return document.getElementById(id); }
+function show(id, on){ var e = $(id); if(e) e.style.display = on ? 'block' : 'none'; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+
+function fail(msg){
+  show('loading', false); show('flow', false); show('executed', false);
+  $('deadMsg').textContent = msg;
+  show('deadend', true);
+}
+function err(msg){
+  var e = $('err');
+  if(!msg){ e.style.display = 'none'; return; }
+  e.textContent = msg; e.style.display = 'block';
+  e.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function post(payload){
+  return fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(Object.assign({ token: TOKEN }, payload)) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, data:d }; }); })
+    .then(function(res){
+      if(!res.ok || !res.data.ok) throw new Error(res.data.error || 'Something went wrong.');
+      return res.data;
+    });
+}
+
+// ── Signature pad ──────────────────────────────────────────────────────────
+var pad, ctx, drawing = false;
+function initPad(){
+  pad = $('pad'); if(!pad) return;
+  var r = pad.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  pad.width = Math.round(r.width * dpr); pad.height = Math.round(r.height * dpr);
+  ctx = pad.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0F172A';
+  var pos = function(e){
+    var b = pad.getBoundingClientRect();
+    var p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - b.left, y: p.clientY - b.top };
+  };
+  var start = function(e){ e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
+  var move = function(e){ if(!drawing) return; e.preventDefault(); var p = pos(e);
+    ctx.lineTo(p.x, p.y); ctx.stroke(); SIGNED_PIXELS++; gate(); };
+  var end = function(){ drawing = false; };
+  pad.addEventListener('mousedown', start); pad.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  pad.addEventListener('touchstart', start, { passive:false });
+  pad.addEventListener('touchmove', move, { passive:false });
+  pad.addEventListener('touchend', end);
+}
+function clearPad(){ if(ctx) ctx.clearRect(0, 0, pad.width, pad.height); SIGNED_PIXELS = 0; gate(); }
+function hasSignature(){ return SIGNED_PIXELS > 12; }
+
+// ── Read gate ──────────────────────────────────────────────────────────────
+// Not a legal requirement, and it is never the only thing standing between the
+// signer and the terms — but nudging someone to the end of the document before
+// the button lights up is the least a signing page can do.
+function watchScroll(){
+  var s = $('scroller');
+  var check = function(){
+    if(READ) return;
+    if(s.scrollTop + s.clientHeight >= s.scrollHeight - 40 || s.scrollHeight <= s.clientHeight + 40){
+      READ = true;
+      var bar = $('readbar'); bar.className = 'readbar noprint done';
+      $('readmsg').textContent = 'You have read to the end of the agreement.';
+      gate();
+    }
+  };
+  s.addEventListener('scroll', check);
+  setTimeout(check, 400);   // short documents and tall screens
+}
+
+function gate(){
+  var ok = READ && hasSignature() && $('f_consent').checked && $('f_typed').value.trim().length > 1;
+  $('signBtn').disabled = !ok;
+}
+
+// ── Load ───────────────────────────────────────────────────────────────────
+function fillForm(d){
+  var sel = $('f_entity');
+  (d.entity_types || []).forEach(function(t){
+    var o = document.createElement('option'); o.value = t;
+    o.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+    sel.appendChild(o);
+  });
+  if(d.recipient_legal_name) $('f_legal').value = d.recipient_legal_name;
+  else if(d.recipient_company) $('f_legal').value = d.recipient_company;
+  if(d.recipient_entity_type) sel.value = d.recipient_entity_type;
+  if(d.recipient_state) $('f_state').value = d.recipient_state;
+  if(d.recipient_address) $('f_addr').value = d.recipient_address;
+  if(d.recipient_contact) $('f_signer').value = d.recipient_contact;
+  if(d.signer_title) $('f_title').value = d.signer_title;
+  $('f_email').value = d.signer_email || d.recipient_email || '';
+  if(d.purpose_scope){
+    $('purposeNote').innerHTML = '<b>What this covers:</b> ' + esc(d.purpose_scope) +
+      ((d.services || []).length ? '<br><span class="muted">Services: ' + esc(d.services.join(', ')) + '</span>' : '');
+    show('purposeNote', true);
+  }
+}
+
+function renderExecuted(d, warnings){
+  show('loading', false); show('flow', false); show('deadend', false);
+  $('exScroller').innerHTML = d.html;
+  $('exHead').textContent = d.already ? 'This agreement is already signed' : 'Signed — thank you';
+  $('exSub').textContent = 'Reference ' + d.agreement_number +
+    (d.effective_date ? ' · effective ' + d.effective_date : '') +
+    (d.signer_email ? ' · a copy was emailed to ' + d.signer_email : '');
+  if(warnings && warnings.length){
+    // Say it plainly rather than implying everything landed. The signature is
+    // recorded either way; what may have failed is the copy going out.
+    $('exWarn').textContent = 'Your signature is recorded, but we had trouble emailing your copy. '
+      + 'Please download the PDF now — and let us know so we can fix it.';
+    show('exWarn', true);
+  }
+  show('executed', true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function boot(){
+  if(!TOKEN){ fail('This page needs the personal link we emailed you.'); return; }
+  post({ action: 'view' }).then(function(d){
+    DATA = d;
+    $('ref').textContent = d.agreement_number;
+    if(d.title) $('docTitle').textContent = d.title.replace(/^CONFIDENTIALITY AND NON-DISCLOSURE AGREEMENT$/i,
+      'Confidentiality and Non-Disclosure Agreement');
+    if(d.status === 'signed'){ renderExecuted(d); return; }
+    if(d.status === 'declined'){ show('loading', false); show('declined', true); return; }
+    $('scroller').innerHTML = d.html;
+    fillForm(d);
+    show('loading', false); show('flow', true);
+    initPad(); watchScroll();
+    ['f_consent','f_typed'].forEach(function(id){
+      $(id).addEventListener('input', gate); $(id).addEventListener('change', gate);
+    });
+  }).catch(function(e){ fail(e.message); });
+}
+
+// ── Sign ───────────────────────────────────────────────────────────────────
+function markBad(ids){
+  ['f_legal','f_entity','f_addr','f_signer','f_title','f_email','f_typed'].forEach(function(id){
+    $(id).classList.remove('bad');
+  });
+  ids.forEach(function(id){ $(id).classList.add('bad'); });
+  if(ids.length) $(ids[0]).scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function doSign(){
+  err('');
+  var bad = [];
+  var v = function(id){ return $(id).value.trim(); };
+  if(!v('f_legal')) bad.push('f_legal');
+  if(!v('f_entity')) bad.push('f_entity');
+  if(!v('f_addr')) bad.push('f_addr');
+  if(!v('f_signer')) bad.push('f_signer');
+  if(!v('f_title')) bad.push('f_title');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v('f_email'))) bad.push('f_email');
+  if(!v('f_typed')) bad.push('f_typed');
+  markBad(bad);
+  if(bad.length){ err('Please fill in the highlighted fields.'); return; }
+  if(!hasSignature()){ err('Please sign in the box above.'); return; }
+
+  var btn = $('signBtn'); btn.disabled = true; btn.textContent = 'Signing…';
+  post({
+    action: 'sign',
+    recipient_legal_name: v('f_legal'),
+    recipient_entity_type: v('f_entity'),
+    recipient_state: v('f_state'),
+    recipient_address: v('f_addr'),
+    signer_name: v('f_signer'),
+    signer_title: v('f_title'),
+    signer_email: v('f_email'),
+    signer_phone: v('f_phone'),
+    typed_name: v('f_typed'),
+    consent: $('f_consent').checked,
+    signature_data: pad.toDataURL('image/png')
+  }).then(function(d){
+    if(d.pdf_base64){ PDF = { b64: d.pdf_base64, name: d.file_name }; }
+    renderExecuted(d, d.warnings);
+  }).catch(function(e){
+    err(e.message);
+    btn.disabled = false; btn.textContent = 'Sign the agreement';
+  });
+}
+
+function showDecline(){ show('declineBox', true); $('f_reason').focus(); }
+function hideDecline(){ show('declineBox', false); }
+function doDecline(){
+  post({ action: 'decline', reason: $('f_reason').value.trim() })
+    .then(function(){ show('flow', false); show('declined', true); window.scrollTo({top:0}); })
+    .catch(function(e){ err(e.message); });
+}
+
+// ── Download ───────────────────────────────────────────────────────────────
+function saveB64(b64, name){
+  var bin = atob(b64), bytes = new Uint8Array(bin.length);
+  for(var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  var url = URL.createObjectURL(new Blob([bytes], { type:'application/pdf' }));
+  var a = document.createElement('a');
+  a.href = url; a.download = name || 'nda.pdf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+function downloadPdf(){
+  var b = $('dlBtn');
+  if(PDF){ saveB64(PDF.b64, PDF.name); return; }
+  b.disabled = true; b.textContent = 'Preparing…';
+  post({ action: 'pdf' }).then(function(d){
+    PDF = { b64: d.pdf_base64, name: d.file_name };
+    saveB64(PDF.b64, PDF.name);
+  }).catch(function(e){
+    alert('Could not build the PDF: ' + e.message + '\nEmail service@brixbev.com and we will send it over.');
+  }).then(function(){ b.disabled = false; b.textContent = 'Download the signed PDF'; });
+}
+
+window.addEventListener('resize', function(){ if(pad && !hasSignature()) initPad(); });
+boot();
+</script>
+</body>
+</html>
