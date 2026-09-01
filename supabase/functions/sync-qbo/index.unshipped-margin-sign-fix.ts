@@ -1,35 +1,83 @@
-// sync-qbo edge function — APBG-BILLING Supabase project
-// version 46 (2026-09-01): CDC window CLAMP. mode=cdc resumes from the last
-//   SUCCESSFUL run, so every failure widened the window by another interval —
-//   a blip on Intuit's side (their 2026-09-01 "intermittent timeout errors"
-//   incident) turned into a permanent outage, because the widening window made
-//   each retry heavier than the last and it could never succeed again. The
-//   window is now capped at MAX_LOOKBACK_MIN (default 6h, override
-//   ?max_lookback_min=). When the cap bites the run still succeeds, but the
-//   skipped window is recorded in sync_log metadata as skipped_window_from —
-//   it is NEVER silently dropped. qbo-reconcile-daily (150-day prune) is the
-//   backstop that repairs anything a clamped run skipped.
-//   Also adds ?since=<iso> for a deliberate manual catch-up, which bypasses
-//   the clamp (an operator asking for a wide window means it) but is still
-//   floored at 29 days by Intuit's own CDC limit.
-// version 45 (2026-06-30): add mode=cdc (Change Data Capture backstop). One
-//   /cdc call returns every sales txn changed since the last run WITH line
-//   detail; upsert header + lines from the payload (no per-invoice reads).
-//   Pairs with the live qbo-webhook (real-time payment/status). Additive —
-//   existing modes unchanged.
-// version 44 (2026-06-15): FIX line-sync regression. mode=fast no longer
-//   force-skips invoice lines. (Companion migration repairs the line crons.)
-// version 40-42: SF job-id extraction + invoice_payment_url (InvoiceLink).
-// version 39: UPSERT line writes + mode=refresh-lines.
-// version 36-38: ops schema client, polymorphic sales-txn sync, ?types= filter.
+// ⚠ NOT DEPLOYED. NOT THE LIVE FUNCTION. DO NOT DEPLOY THIS FILE.
 //
-// ⚠ DRIFT NOTE (2026-09-01): this file is reconstructed from the DEPLOYED
-//   function, which had forked from the repo copy. The repo's own "v45"
-//   (2026-07-03, "Margin Minder integrity + stale-data hardening") carried a
-//   CreditMemo/RefundReceipt line-quantity sign fix and mv_refresh hardening
-//   that were NEVER DEPLOYED, and had no mode=cdc at all — so deploying it
-//   would have wiped CDC. That unshipped work is preserved alongside this file
-//   as index.unshipped-margin-sign-fix.ts and still needs reconciling.
+// This is the repo's own fork of sync-qbo (its header calls itself "version 45",
+// 2026-07-03, "Margin Minder integrity + stale-data hardening"). It was never
+// deployed, and it diverged from the live function in BOTH directions:
+//
+//   IN HERE, NOT LIVE  — signedQty() on CreditMemo/RefundReceipt line
+//                        quantities (so margin COGS reverses on returns),
+//                        qboJson() Fault/HTTP error surfacing, mv_refresh
+//                        logged to sync_log, LEASE_POLL_MAX_ATTEMPTS 40.
+//   LIVE, NOT IN HERE  — mode=cdc, the entire 15-minute Change Data Capture
+//                        backstop. Deploying this file would DELETE it.
+//
+// index.ts is now the live function (v46). Reconciling the work below into it
+// is a deliberate, separate task: the signedQty change alters financial
+// reporting (margin COGS on credits/refunds), so it needs an owner's sign-off
+// and a verification pass, not a silent merge.
+//
+// ── original file follows ──
+// sync-qbo edge function — APBG-BILLING Supabase project
+// version 45 (2026-07-03): Margin Minder integrity + stale-data hardening.
+//   CreditMemo/RefundReceipt line quantities now carry the same sign as their
+//   revenue so margin COGS reverses with returns/credits instead of showing
+//   negative revenue with positive cost. QBO token lease polling now waits
+//   longer than the lease TTL to avoid false "jammed" failures while another
+//   worker is refreshing. Materialized-view refreshes are logged as qbo:mv_refresh
+//   and failed refreshes return HTTP 500 so pg_net failure scanning and the
+//   watchdog alert before Margin serves stale data.
+// version 44 (2026-06-15): FIX line-sync regression. `mode=fast` no longer
+//   force-skips invoice lines. Previously the nightly cron (jobid 2) ran
+//   `?mode=fast`, which set skipLines=true, so the scheduled sync upserted
+//   HEADERS into ops.qbo_invoices but never fetched the per-invoice LINE
+//   detail. Lines for the rolling window were only ever filled by the
+//   `refresh-lines-rolling` cron — which has been returning 401 on every run
+//   (it called the function with no Authorization header) — and by the
+//   `backfill-invoice-lines` cron whose offset had marched past the end of the
+//   table. Net effect: invoices from ~Apr 2026 onward accumulated headers with
+//   no lines. The nightly incremental run now fetches + upserts lines for every
+//   invoice it touches (header + lines together). Cost stays bounded because
+//   syncOneType only reads an invoice when its lines are missing (or its
+//   payment URL is missing) — repeat runs skip already-lined invoices. Line
+//   skipping is now an explicit opt-in via `?skip_lines=true` only; the
+//   historical `mode=full` header-sweep already passes that flag explicitly so
+//   its behavior is unchanged. (Companion migration repairs the two broken
+//   line crons.)
+// version 42 (2026-05-28): extend SF job-id extraction beyond memo/CustomerMemo
+//   to also scan the FIRST 5 description-only lines on the invoice. Brix's
+//   FreeFlow invoicing automation places the Service Fusion job id (and order
+//   metadata) in the top 3-4 "empty" line items at the top of the invoice as
+//   DescriptionOnly entries rather than in PrivateNote / CustomerMemo. Pattern
+//   stays Job #?\d{8,12} or SF[-\s]?\d{8,12}; in line descriptions we also
+//   accept a bare 8-12 digit token. refresh-lines + lines + incremental sync
+//   all persist sf_job_id during their per-invoice reads.
+// version 41 (2026-05-28): extract Service Fusion job id from QBO PrivateNote /
+//   CustomerMemo via regex (Job #?\d{8,12} | SF[-\s]?\d{8,12}) and persist to
+//   ops.qbo_invoices.sf_job_id on every header upsert. NULL when the memo
+//   carries no job reference. Surfaces to brix-order /invoices/:id so
+//   customers can cross-reference an invoice with its delivery/service job.
+// version 40 (2026-05-28): populate ops.qbo_invoices.invoice_payment_url with
+//   Invoice.InvoiceLink (QBO-hosted "Pay now" URL) on every per-invoice read.
+//   Read path now passes ?include=invoiceLink&minorversion=70 for Invoice-type
+//   txns; for SalesReceipt / CreditMemo / RefundReceipt the field is N/A and
+//   left NULL. We no longer short-circuit the per-invoice read when lines are
+//   already present *and* the URL is missing — that gate now requires both
+//   conditions to be satisfied before skipping, so back-pressure refills the
+//   URL on the next scheduled run without forcing a full refetch_lines pass.
+//   Surfaces to brix-order via orders.v_invoices_all.
+// version 39 (2026-05-17): UPSERT line writes + mode=refresh-lines for chunked
+//   historical refetch without an empty-cache window.
+//   v38's delete-then-insert had two problems: (1) brief window where cache
+//   showed $0 revenue for an invoice, (2) if 150s idle timeout killed the
+//   function mid-loop, some invoices lost their lines entirely.
+//   v39: schema migration 20260518b added UNIQUE(invoice_id, line_num); now we
+//   UPSERT lines on that key. No empty window, no risk of orphaning lines.
+//   New mode `refresh-lines` iterates a date+id-range window and refetches each
+//   invoice's lines, designed for parallel slicing.
+// version 38: smarter line-fetch skip + ?types= filter
+// version 37: polymorphic sales-txn sync (Invoice, SalesReceipt, CreditMemo,
+//   RefundReceipt). Sign-flip credits/refunds. Parse Discount line type.
+// version 36: createClient { db: { schema: 'ops' } } so client targets ops.*
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -43,10 +91,7 @@ const REFRESH_TOKEN_TTL_SECONDS = 100 * 24 * 3600;
 const REFRESH_MIN_REMAINING_SECONDS = 300;
 const LEASE_SECONDS = 20;
 const LEASE_POLL_INTERVAL_MS = 750;
-const LEASE_POLL_MAX_ATTEMPTS = 20;
-// Hard ceiling on how far back one CDC run may reach. Without this the cursor
-// (last SUCCESSFUL run) widens forever while runs are failing.
-const CDC_MAX_LOOKBACK_MIN_DEFAULT = 360;
+const LEASE_POLL_MAX_ATTEMPTS = 40;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -81,9 +126,57 @@ function jsonRes(d: unknown, s = 200) {
 }
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+async function qboJson(res: Response, context: string): Promise<any> {
+  const text = await res.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_e) {
+      data = { raw: text.slice(0, 1000) };
+    }
+  }
+  if (!res.ok) {
+    throw new Error(`${context}: HTTP ${res.status}: ${text.slice(0, 1000)}`);
+  }
+  if (data?.Fault) {
+    throw new Error(`${context}: QBO Fault: ${JSON.stringify(data.Fault).slice(0, 1000)}`);
+  }
+  return data;
+}
+
 async function refreshSalesLines(sb: SupabaseClient) {
-  try { const { error } = await sb.rpc("refresh_sales_lines"); return { ok: !error, error: error?.message }; }
-  catch (e) { return { ok: false, error: (e as Error).message }; }
+  const startedAt = new Date().toISOString();
+  try {
+    const { error } = await sb.rpc("refresh_sales_lines");
+    const result = { ok: !error, error: error?.message };
+    await sb.from("sync_log").insert({
+      source: "qbo",
+      sync_type: "mv_refresh",
+      status: result.ok ? "success" : "error",
+      records_synced: 0,
+      error_message: result.error || null,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      metadata: { relation: "ops.mv_sales_lines" },
+    });
+    return result;
+  } catch (e) {
+    const result = { ok: false, error: (e as Error).message };
+    try {
+      await sb.from("sync_log").insert({
+        source: "qbo",
+        sync_type: "mv_refresh",
+        status: "error",
+        records_synced: 0,
+        error_message: result.error,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        metadata: { relation: "ops.mv_sales_lines" },
+      });
+    } catch (_logErr) { /* non-fatal */ }
+    return result;
+  }
 }
 async function loadRevenueMap(sb: SupabaseClient): Promise<Record<string, string>> {
   try {
@@ -107,7 +200,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, e: number
   const aE = new Date(Date.now() + e * 1000).toISOString();
   const rE = x ? new Date(Date.now() + x * 1000).toISOString() : new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist",
-    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v46" });
+    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v45" });
   if (error) throw new Error("persist: " + error.message);
 }
 async function releaseFailedLease(sb: SupabaseClient, m: string) {
@@ -154,7 +247,7 @@ async function qboQ(sb: SupabaseClient, q: string): Promise<any> {
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, "QBO query");
 }
 async function qboRead(sb: SupabaseClient, p: string, id: string, opts: { include?: string; minorVersion?: string } = {}): Promise<any> {
   const realm = getRealm();
@@ -170,7 +263,7 @@ async function qboRead(sb: SupabaseClient, p: string, id: string, opts: { includ
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, `QBO read ${p}/${id}`);
 }
 async function qboReport(sb: SupabaseClient, n: string, p: Record<string, string>) {
   const realm = getRealm();
@@ -182,26 +275,12 @@ async function qboReport(sb: SupabaseClient, n: string, p: Record<string, string
     token = await getAccessToken(sb);
     res = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
   }
-  return res.json();
+  return qboJson(res, `QBO report ${n}`);
 }
 
-// Change Data Capture: GET /cdc returns every entity of the requested types
-// changed since changedSince — in ONE call, with full Line detail.
-async function cdcGet(sb: SupabaseClient, entities: string, changedSince: string): Promise<any> {
-  const realm = getRealm();
-  let token = await getAccessToken(sb);
-  const u = QBO_BASE + "/" + realm + "/cdc?entities=" + encodeURIComponent(entities)
-    + "&changedSince=" + encodeURIComponent(changedSince) + "&minorversion=70";
-  let res = await fetch(u, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
-  if (res.status === 401) {
-    await sb.rpc("qbo_token_release_failed", { p_realm_id: realm, p_error: "401 cdc" });
-    token = await getAccessToken(sb);
-    res = await fetch(u, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
-  }
-  if (!res.ok) throw new Error("QBO CDC (" + res.status + "): " + (await res.text()).slice(0, 300));
-  return res.json();
-}
-
+// readSalesTxn — wraps qboRead with the right include/minorversion combo per
+// txn type. Invoice gets ?include=invoiceLink so the response carries the
+// hosted payment URL; other txn types use the plain read path.
 async function readSalesTxn(sb: SupabaseClient, cfg: TxnConfig, id: string): Promise<any> {
   if (cfg.hasInvoiceLink) {
     return qboRead(sb, cfg.readPath, id, { include: "invoiceLink", minorVersion: QBO_MINOR_VERSION_INVOICE_LINK });
@@ -209,19 +288,37 @@ async function readSalesTxn(sb: SupabaseClient, cfg: TxnConfig, id: string): Pro
   return qboRead(sb, cfg.readPath, id);
 }
 
+// extractSfJobId — best-effort extraction of a Service Fusion job id from a
+// QBO invoice. Two passes:
+//
+//   1. PrivateNote / CustomerMemo, prefix required ("Job #...", "SF-...").
+//   2. First 5 description-only lines at the top of the invoice. Brix's
+//      FreeFlow invoicing automation places the SF job id (and ancillary
+//      order metadata) into the first 3-4 lines as DescriptionOnly entries.
+//      In a line description we ALSO accept a bare 8-12 digit token, since
+//      line descriptions don't carry phone numbers or other digit noise.
+//
+// Returns the first match or null.
 const SF_JOB_ID_RE = /(?:Job\s*#?|SF[-\s]?)(\d{8,12})\b/i;
 const BARE_JOB_ID_RE = /\b(\d{8,12})\b/;
 function extractSfJobId(txn: any): string | null {
+  // Pass 1: memo fields, prefix required.
   for (const c of [txn.PrivateNote, txn.CustomerMemo?.value]) {
     if (!c) continue;
     const m = String(c).match(SF_JOB_ID_RE);
     if (m && m[1]) return m[1];
   }
+
+  // Pass 2: the top description-only / "empty" lines on the invoice. Skip
+  // real item lines (SalesItemLineDetail with an ItemRef). Scan up to 5
+  // candidate lines before giving up so we don't drift into product
+  // descriptions.
   const lines = Array.isArray(txn.Line) ? txn.Line : [];
   let scanned = 0;
   for (const l of lines) {
     if (scanned >= 5) break;
-    const hasItem = l?.DetailType === "SalesItemLineDetail" && l?.SalesItemLineDetail?.ItemRef?.value;
+    const hasItem =
+      l?.DetailType === "SalesItemLineDetail" && l?.SalesItemLineDetail?.ItemRef?.value;
     if (hasItem) continue;
     const desc = l?.Description;
     if (!desc) continue;
@@ -234,8 +331,13 @@ function extractSfJobId(txn: any): string | null {
   return null;
 }
 
+// updateInvoiceSfJobId — writes the extracted SF job id back to the header
+// row. Called from the per-invoice read paths (refresh-lines, lines, and the
+// secondary read in syncOneType) so existing invoices get backfilled without
+// requiring a full bulk re-sync.
 async function updateInvoiceSfJobId(sb: SupabaseClient, invRowId: number, jobId: string | null) {
-  const { error } = await sb.from("qbo_invoices").update({ sf_job_id: jobId }).eq("id", invRowId);
+  const { error } = await sb.from("qbo_invoices")
+    .update({ sf_job_id: jobId }).eq("id", invRowId);
   if (error) console.error(`update sf_job_id id=${invRowId}: ${error.message}`);
 }
 
@@ -254,11 +356,20 @@ function headerRow(txn: any, txnType: string, sign: 1 | -1) {
     sf_job_id: extractSfJobId(txn),
     synced_at: new Date().toISOString(),
     qbo_updated_at: txn.MetaData?.LastUpdatedTime || null,
+    // InvoiceLink only comes back when the read includes ?include=invoiceLink;
+    // the bulk SELECT * query never returns it, so on the initial header upsert
+    // this is left undefined (i.e. column not touched) and gets filled in by
+    // the per-invoice read below.
   };
 }
 function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Record<string, string>): any[] {
   const out: any[] = [];
   let idx = 0;
+  const signedQty = (q: unknown, s: 1 | -1): number | null => {
+    if (q == null) return null;
+    const n = Number(q);
+    return Number.isFinite(n) ? n * s : null;
+  };
   for (const l of (txn.Line || [])) {
     const dt = l.DetailType;
     let acctId = "", acctName: string | null = null;
@@ -279,6 +390,9 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
       acctName = d.DiscountAccountRef?.name || "Discounts";
       lineSign = (sign * -1) as 1 | -1;
     } else if (dt === "GroupLineDetail") {
+      // Group/bundle item — expand its child lines. Each child has its own
+      // SalesItemLineDetail. The parent line's Amount is the sum and gets
+      // skipped; the children get individually emitted.
       const group = l.GroupLineDetail || {};
       for (const child of (group.Line || [])) {
         const cd = child.DetailType;
@@ -288,7 +402,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
         out.push({
           invoice_id: invRowId, line_num: idx,
           description: child.Description || null,
-          quantity: cdd.Qty ?? null,
+          quantity: signedQty(cdd.Qty, sign),
           unit_price: cdd.UnitPrice ?? null,
           amount: (parseFloat(child.Amount) || 0) * sign,
           item_ref_id: cdd.ItemRef?.value || null,
@@ -307,7 +421,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
     out.push({
       invoice_id: invRowId, line_num: idx,
       description: l.Description || null,
-      quantity: qty, unit_price: unitPrice,
+      quantity: signedQty(qty, lineSign), unit_price: unitPrice,
       amount: raw * lineSign,
       item_ref_id: itemRefId, item_name: itemName,
       account_ref_id: acctId, account_name: acctName,
@@ -320,15 +434,25 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
 
 async function writeLines(sb: SupabaseClient, invRowId: number, lines: any[]) {
   if (lines.length === 0) return 0;
-  const { error } = await sb.from("qbo_invoice_lines").upsert(lines, { onConflict: "invoice_id,line_num" });
+  // UPSERT on (invoice_id, line_num). Removes the empty-window risk; safe if
+  // killed mid-flight.
+  const { error } = await sb.from("qbo_invoice_lines")
+    .upsert(lines, { onConflict: "invoice_id,line_num" });
   if (error) throw new Error("upsert lines: " + error.message);
+  // Remove any orphan lines with line_num greater than what we wrote (in case
+  // QBO removed a line since the previous sync).
   const maxLineNum = Math.max(...lines.map((l) => l.line_num));
   await sb.from("qbo_invoice_lines").delete().eq("invoice_id", invRowId).gt("line_num", maxLineNum);
   return lines.length;
 }
 
+// updateInvoicePaymentUrl — writes Invoice.InvoiceLink back to the header row.
+// Only meaningful for txn_type=Invoice; the column stays NULL for everything
+// else. We always write (even when InvoiceLink is null) so QBO toggling
+// e-invoicing off retracts the URL on the next sync.
 async function updateInvoicePaymentUrl(sb: SupabaseClient, invRowId: number, url: string | null) {
-  const { error } = await sb.from("qbo_invoices").update({ invoice_payment_url: url }).eq("id", invRowId);
+  const { error } = await sb.from("qbo_invoices")
+    .update({ invoice_payment_url: url }).eq("id", invRowId);
   if (error) console.error(`update invoice_payment_url id=${invRowId}: ${error.message}`);
 }
 
@@ -392,10 +516,15 @@ Deno.serve(async (req: Request) => {
 
   if (mode === "refresh-mv") {
     const r = await refreshSalesLines(sb);
-    return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
+    return jsonRes({ status: r.ok ? "success" : "error", refresh: r }, r.ok ? 200 : 500);
   }
-  if (mode === "whoami") return jsonRes({ version: 46, txn_types_supported: ALL_TXN_TYPES, modes: ["incremental","full","fast","lines","refresh-lines","cdc","refresh-mv"], cdc_max_lookback_min_default: CDC_MAX_LOOKBACK_MIN_DEFAULT });
+  if (mode === "whoami") return jsonRes({ version: 45, txn_types_supported: ALL_TXN_TYPES });
 
+  // === refresh-lines mode ===
+  // Reads a slice of qbo_invoices by date+offset and refetches their lines via
+  // upsert. Designed for parallel use: fire N calls with offsets 0, batch, 2*batch...
+  // Each call is bounded; safe under the 150s timeout. v40 also refreshes
+  // invoice_payment_url for Invoice-type rows.
   if (mode === "refresh-lines") {
     const start = url.searchParams.get("start") || "2026-01-01";
     const end = url.searchParams.get("end") || new Date().toISOString().split("T")[0];
@@ -431,6 +560,13 @@ Deno.serve(async (req: Request) => {
       }
     }
     const mvResult = await refreshSalesLines(sb);
+    if (!mvResult.ok) {
+      return jsonRes({
+        status: "error", mode: "refresh-lines",
+        message: "Invoice lines refreshed, but mv_sales_lines refresh failed",
+        mv_refresh: mvResult,
+      }, 500);
+    }
     return jsonRes({
       status: "success", mode: "refresh-lines",
       start, end, offset, batch,
@@ -448,7 +584,7 @@ Deno.serve(async (req: Request) => {
     const { data: allInvs } = await sb.from("qbo_invoices")
       .select("id, qbo_invoice_id, txn_type, invoice_payment_url")
       .range(offset, offset + batchSize - 1);
-    let processed = 0, linesAdded = 0;
+    let processed = 0, linesAdded = 0, errors = 0;
     for (const inv of (allInvs || []) as any[]) {
       const cfg = TXN_CONFIGS[inv.txn_type] || TXN_CONFIGS.Invoice;
       const needsUrl = cfg.hasInvoiceLink && !inv.invoice_payment_url;
@@ -468,139 +604,33 @@ Deno.serve(async (req: Request) => {
         processed++;
         await sleep(80);
       } catch (e: any) {
+        errors++;
         console.error(`Line read ${inv.qbo_invoice_id} (${inv.txn_type}): ${e.message}`);
       }
     }
     const mvResult = await refreshSalesLines(sb);
+    const syncStatus = mvResult.ok ? (errors > 0 ? "partial" : "success") : "error";
     await sb.from("sync_log").insert({
-      source: "qbo", sync_type: "lines_backfill", status: "success",
-      records_synced: linesAdded, completed_at: new Date().toISOString(),
-      metadata: { offset, batch: batchSize, processed, mv_refresh: mvResult },
+      source: "qbo", sync_type: "lines_backfill", status: syncStatus,
+      records_synced: linesAdded,
+      error_message: mvResult.ok
+        ? (errors > 0 ? `${errors} invoice line read error(s)` : null)
+        : `mv_sales_lines refresh failed: ${mvResult.error || "unknown"}`,
+      completed_at: new Date().toISOString(),
+      metadata: { offset, batch: batchSize, processed, errors, mv_refresh: mvResult },
     });
-    return jsonRes({
-      status: "success", mode: "lines",
-      invoices_checked: allInvs?.length || 0, invoices_processed: processed,
-      lines_added: linesAdded, next_offset: offset + batchSize, mv_refresh: mvResult,
-    });
-  }
-
-  // === cdc mode (Change Data Capture backstop) ===
-  if (mode === "cdc") {
-    const lookbackMin = parseInt(url.searchParams.get("lookback_min") || "45");
-    const maxLookbackMin = parseInt(url.searchParams.get("max_lookback_min") || String(CDC_MAX_LOOKBACK_MIN_DEFAULT));
-    const sinceParam = url.searchParams.get("since");
-
-    const { data: lastRows } = await sb.from("sync_log")
-      .select("completed_at").eq("sync_type", "cdc").eq("status", "success")
-      .order("completed_at", { ascending: false }).limit(1);
-    const lastTs = (lastRows as any[])?.[0]?.completed_at;
-
-    // An explicit ?since= is a deliberate operator catch-up and bypasses the
-    // clamp below — asking for a wide window on purpose is allowed.
-    const manualSince = sinceParam ? new Date(sinceParam) : null;
-    const manualValid = !!(manualSince && !isNaN(manualSince.getTime()));
-
-    let since = manualValid
-      ? manualSince!
-      : (lastTs
-        ? new Date(new Date(lastTs).getTime() - 5 * 60 * 1000)
-        : new Date(Date.now() - lookbackMin * 60 * 1000));
-
-    // ⚠ THE CLAMP. The cursor is the last SUCCESSFUL run, so while runs are
-    // failing the window widens by one interval every interval — each retry
-    // heavier than the last, until it can never succeed again. Cap it, and
-    // RECORD what was skipped rather than dropping it silently.
-    let clamped = false;
-    let skippedWindowFrom: string | null = null;
-    if (!manualValid && maxLookbackMin > 0) {
-      const ceiling = new Date(Date.now() - maxLookbackMin * 60 * 1000);
-      if (since < ceiling) {
-        skippedWindowFrom = since.toISOString();
-        since = ceiling;
-        clamped = true;
-        console.warn(`cdc: window clamped to ${maxLookbackMin}min; skipped ${skippedWindowFrom} -> ${since.toISOString()} (qbo-reconcile-daily is the backstop)`);
-      }
-    }
-
-    const minSince = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
-    if (since < minSince) since = minSince;
-    const sinceIso = since.toISOString();
-
-    try {
-      const revMap = await loadRevenueMap(sb);
-      const entities = ["Invoice", "CreditMemo", "SalesReceipt", "RefundReceipt"];
-      const cdc = await cdcGet(sb, entities.join(","), sinceIso);
-      const qrs: any[] = cdc?.CDCResponse?.[0]?.QueryResponse || [];
-      const perType: Record<string, any> = {};
-      let totalHeaders = 0, totalLines = 0, totalErrors = 0, totalDeleted = 0;
-
-      for (const qr of qrs) {
-        for (const txnType of entities) {
-          const list = qr[txnType];
-          if (!Array.isArray(list) || list.length === 0) continue;
-          const cfg = TXN_CONFIGS[txnType];
-
-          const live = list.filter((t: any) => !(t.status === "Deleted" || t.Deleted));
-          const dead = list.filter((t: any) => (t.status === "Deleted" || t.Deleted));
-
-          if (live.length > 0) {
-            const headerRows = live.map((txn: any) => headerRow(txn, txnType, cfg.sign));
-            await sb.from("qbo_invoices").upsert(headerRows, { onConflict: "qbo_invoice_id,txn_type" });
-          }
-          const ids = list.map((t: any) => String(t.Id));
-          const { data: invRows } = await sb.from("qbo_invoices")
-            .select("id, qbo_invoice_id").in("qbo_invoice_id", ids).eq("txn_type", txnType);
-          const idMap = new Map<string, number>();
-          for (const r of (invRows as any[]) || []) idMap.set(r.qbo_invoice_id, r.id);
-
-          let h = 0, ln = 0, err = 0, del = 0;
-          for (const txn of live) {
-            try {
-              const rid = idMap.get(String(txn.Id));
-              if (!rid) continue;
-              const lineRows = lineRowsFromTxn(txn, rid, cfg.sign, revMap);
-              ln += await writeLines(sb, rid, lineRows);
-              await updateInvoiceSfJobId(sb, rid, extractSfJobId(txn));
-              h++;
-            } catch (e: any) { err++; console.error(`cdc ${txnType} ${txn.Id}: ${e.message}`); }
-          }
-          for (const txn of dead) {
-            const rid = idMap.get(String(txn.Id));
-            if (!rid) continue;
-            await sb.from("qbo_invoice_lines").delete().eq("invoice_id", rid);
-            await sb.from("qbo_invoices").delete().eq("id", rid);
-            del++;
-          }
-          perType[txnType] = { changed: list.length, processed: h, lines: ln, deleted: del, errors: err };
-          totalHeaders += h; totalLines += ln; totalErrors += err; totalDeleted += del;
-        }
-      }
-
-      const mvResult = await refreshSalesLines(sb);
-      await sb.from("sync_log").insert({
-        source: "qbo", sync_type: "cdc", status: "success",
-        records_synced: totalHeaders, completed_at: new Date().toISOString(),
-        metadata: {
-          changed_since: sinceIso, per_type: perType, lines: totalLines,
-          deleted: totalDeleted, errors: totalErrors,
-          ...(clamped ? { clamped: true, skipped_window_from: skippedWindowFrom, max_lookback_min: maxLookbackMin } : {}),
-          ...(manualValid ? { manual_since: true } : {}),
-        },
-      });
+    if (!mvResult.ok) {
       return jsonRes({
-        status: "success", mode: "cdc", changed_since: sinceIso,
-        clamped, skipped_window_from: skippedWindowFrom,
-        per_type: perType, total_headers: totalHeaders, total_lines: totalLines,
-        deleted: totalDeleted, errors: totalErrors, mv_refresh: mvResult,
-      });
-    } catch (err: any) {
-      await sb.from("sync_log").insert({
-        source: "qbo", sync_type: "cdc", status: "error",
-        error_message: (err?.message || String(err)).slice(0, 500), completed_at: new Date().toISOString(),
-        metadata: { changed_since: sinceIso, clamped, ...(clamped ? { skipped_window_from: skippedWindowFrom } : {}) },
-      }).then(() => {}, () => {});
-      return jsonRes({ status: "error", mode: "cdc", changed_since: sinceIso, clamped, message: err?.message || String(err) }, 500);
+        status: "error", mode: "lines",
+        message: "Line backfill ran, but mv_sales_lines refresh failed",
+        mv_refresh: mvResult,
+      }, 500);
     }
+    return jsonRes({
+      status: errors > 0 ? "partial" : "success", mode: "lines",
+      invoices_checked: allInvs?.length || 0, invoices_processed: processed,
+      lines_added: linesAdded, errors, next_offset: offset + batchSize, mv_refresh: mvResult,
+    }, errors > 0 ? 207 : 200);
   }
 
   const now = new Date();
@@ -608,6 +638,14 @@ Deno.serve(async (req: Request) => {
   let startDate = url.searchParams.get("start") || (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-01");
   let endDate = url.searchParams.get("end") || now.toISOString().split("T")[0];
   if (mode === "full") startDate = "2025-01-01";
+  // Line skipping is an explicit opt-in only. `mode=fast` used to imply
+  // skip_lines=true, which left the nightly scheduled sync header-only and is
+  // the root cause of the missing-lines regression (recent invoices got
+  // headers but no line detail). The current-month window is small and
+  // syncOneType only issues a per-invoice read when lines (or the payment URL)
+  // are missing, so fetching lines here is cheap on repeat runs. Historical
+  // header-only sweeps must now pass `?skip_lines=true` explicitly (the
+  // `mode=full` cron/manual invocations already do).
   const skipLines = url.searchParams.get("skip_lines") === "true";
   const refetchExistingLines = url.searchParams.get("refetch_lines") === "true";
   const requestedTypes = (url.searchParams.get("types") || ALL_TXN_TYPES.join(","))
@@ -619,16 +657,19 @@ Deno.serve(async (req: Request) => {
     const revMap = await loadRevenueMap(sb);
     const perTypeResults: Record<string, any> = {};
     let totalHeaders = 0;
+    let totalErrors = 0;
     for (const t of types) {
       const r = await syncOneType(sb, t, startDate, endDate, skipLines, refetchExistingLines, revMap);
       perTypeResults[t] = r;
       totalHeaders += r.headers;
+      totalErrors += r.errors || 0;
     }
     await sb.from("sync_log").insert({
       source: "qbo", sync_type: skipLines ? "headers_only" : "invoices",
-      status: "success", records_synced: totalHeaders,
+      status: totalErrors > 0 ? "partial" : "success", records_synced: totalHeaders,
+      error_message: totalErrors > 0 ? `${totalErrors} QBO transaction read error(s)` : null,
       completed_at: new Date().toISOString(),
-      metadata: { start_date: startDate, end_date: endDate, mode, skip_lines: skipLines, types, per_type: perTypeResults },
+      metadata: { start_date: startDate, end_date: endDate, mode, skip_lines: skipLines, types, per_type: perTypeResults, errors: totalErrors },
     });
 
     let plCount = 0;
@@ -678,11 +719,19 @@ Deno.serve(async (req: Request) => {
       });
     }
     const mvResult = await refreshSalesLines(sb);
+    if (!mvResult.ok) {
+      return jsonRes({
+        status: "error", mode, types, skip_lines: skipLines,
+        message: "QBO sync ran, but mv_sales_lines refresh failed",
+        total_headers: totalHeaders, per_type: perTypeResults,
+        pl_rows: plCount, mv_refresh: mvResult,
+      }, 500);
+    }
     return jsonRes({
-      status: "success", mode, types, skip_lines: skipLines,
+      status: totalErrors > 0 ? "partial" : "success", mode, types, skip_lines: skipLines,
       total_headers: totalHeaders, per_type: perTypeResults,
       pl_rows: plCount, mv_refresh: mvResult,
-    });
+    }, totalErrors > 0 ? 207 : 200);
   } catch (err: any) {
     console.error("FATAL:", err);
     try {
