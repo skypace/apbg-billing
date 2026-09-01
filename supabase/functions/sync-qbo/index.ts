@@ -1,4 +1,13 @@
 // sync-qbo edge function — APBG-BILLING Supabase project
+// version 47 (2026-09-01): signed line quantities on CreditMemo/RefundReceipt.
+//   QBO returns a POSITIVE Qty on a credit (the document is the negation), and
+//   ops.v_sales_lines computes est_cost = effective_unit_cost * quantity — so a
+//   credit reversed its revenue while ADDING its cost. Live at the time of the
+//   fix: 82 CreditMemo lines, est_cost +$18,084.62 where it should be
+//   -$18,084.62, understating margin by $36,169.24. signedQty() stores the
+//   quantity with the same sign as its amount. Migration 20260901a backfills
+//   the existing rows — the code fix alone repairs nothing historical, because
+//   syncOneType skips an invoice that already has lines.
 // version 46 (2026-09-01): CDC window CLAMP. mode=cdc resumes from the last
 //   SUCCESSFUL run, so every failure widened the window by another interval —
 //   a blip on Intuit's side (their 2026-09-01 "intermittent timeout errors"
@@ -25,11 +34,11 @@
 //
 // ⚠ DRIFT NOTE (2026-09-01): this file is reconstructed from the DEPLOYED
 //   function, which had forked from the repo copy. The repo's own "v45"
-//   (2026-07-03, "Margin Minder integrity + stale-data hardening") carried a
-//   CreditMemo/RefundReceipt line-quantity sign fix and mv_refresh hardening
-//   that were NEVER DEPLOYED, and had no mode=cdc at all — so deploying it
-//   would have wiped CDC. That unshipped work is preserved alongside this file
-//   as index.unshipped-margin-sign-fix.ts and still needs reconciling.
+//   (2026-07-03, "Margin Minder integrity + stale-data hardening") carried the
+//   signedQty fix now shipped above, plus qboJson()/mv_refresh hardening that
+//   is STILL unshipped, and had no mode=cdc at all — so deploying it would
+//   have wiped CDC. The remaining unshipped work is preserved alongside this
+//   file as index.unshipped-hardening.ts.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -107,7 +116,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, e: number
   const aE = new Date(Date.now() + e * 1000).toISOString();
   const rE = x ? new Date(Date.now() + x * 1000).toISOString() : new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist",
-    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v46" });
+    { p_realm_id: getRealm(), p_access_token: a, p_access_expires: aE, p_refresh_token: r, p_refresh_expires: rE, p_refreshed_by: "sync-qbo@v47" });
   if (error) throw new Error("persist: " + error.message);
 }
 async function releaseFailedLease(sb: SupabaseClient, m: string) {
@@ -259,6 +268,17 @@ function headerRow(txn: any, txnType: string, sign: 1 | -1) {
 function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Record<string, string>): any[] {
   const out: any[] = [];
   let idx = 0;
+  // A CreditMemo/RefundReceipt line carries a POSITIVE Qty in QBO — the
+  // document itself is the negation. Store the quantity with the same sign
+  // as its amount, or ops.v_sales_lines computes
+  //   est_cost = effective_unit_cost * quantity
+  // as a POSITIVE cost on a negative-revenue line, so a credit reverses the
+  // sale's revenue while ADDING its cost instead of reversing it.
+  const signedQty = (q: unknown, s: 1 | -1): number | null => {
+    if (q == null) return null;
+    const n = Number(q);
+    return Number.isFinite(n) ? n * s : null;
+  };
   for (const l of (txn.Line || [])) {
     const dt = l.DetailType;
     let acctId = "", acctName: string | null = null;
@@ -288,7 +308,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
         out.push({
           invoice_id: invRowId, line_num: idx,
           description: child.Description || null,
-          quantity: cdd.Qty ?? null,
+          quantity: signedQty(cdd.Qty, sign),
           unit_price: cdd.UnitPrice ?? null,
           amount: (parseFloat(child.Amount) || 0) * sign,
           item_ref_id: cdd.ItemRef?.value || null,
@@ -307,7 +327,7 @@ function lineRowsFromTxn(txn: any, invRowId: number, sign: 1 | -1, revMap: Recor
     out.push({
       invoice_id: invRowId, line_num: idx,
       description: l.Description || null,
-      quantity: qty, unit_price: unitPrice,
+      quantity: signedQty(qty, lineSign), unit_price: unitPrice,
       amount: raw * lineSign,
       item_ref_id: itemRefId, item_name: itemName,
       account_ref_id: acctId, account_name: acctName,
@@ -394,7 +414,7 @@ Deno.serve(async (req: Request) => {
     const r = await refreshSalesLines(sb);
     return jsonRes({ status: r.ok ? "success" : "error", refresh: r });
   }
-  if (mode === "whoami") return jsonRes({ version: 46, txn_types_supported: ALL_TXN_TYPES, modes: ["incremental","full","fast","lines","refresh-lines","cdc","refresh-mv"], cdc_max_lookback_min_default: CDC_MAX_LOOKBACK_MIN_DEFAULT });
+  if (mode === "whoami") return jsonRes({ version: 47, txn_types_supported: ALL_TXN_TYPES, modes: ["incremental","full","fast","lines","refresh-lines","cdc","refresh-mv"], cdc_max_lookback_min_default: CDC_MAX_LOOKBACK_MIN_DEFAULT });
 
   if (mode === "refresh-lines") {
     const start = url.searchParams.get("start") || "2026-01-01";

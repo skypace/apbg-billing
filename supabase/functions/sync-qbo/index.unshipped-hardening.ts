@@ -1,20 +1,27 @@
 // ⚠ NOT DEPLOYED. NOT THE LIVE FUNCTION. DO NOT DEPLOY THIS FILE.
 //
-// This is the repo's own fork of sync-qbo (its header calls itself "version 45",
+// This is the repo's old fork of sync-qbo (its header calls itself "version 45",
 // 2026-07-03, "Margin Minder integrity + stale-data hardening"). It was never
-// deployed, and it diverged from the live function in BOTH directions:
+// deployed, and it had diverged from the live function in BOTH directions.
 //
-//   IN HERE, NOT LIVE  — signedQty() on CreditMemo/RefundReceipt line
-//                        quantities (so margin COGS reverses on returns),
-//                        qboJson() Fault/HTTP error surfacing, mv_refresh
-//                        logged to sync_log, LEASE_POLL_MAX_ATTEMPTS 40.
-//   LIVE, NOT IN HERE  — mode=cdc, the entire 15-minute Change Data Capture
-//                        backstop. Deploying this file would DELETE it.
+// SHIPPED 2026-09-01 in index.ts v47 — no longer pending:
+//   • signedQty() on CreditMemo/RefundReceipt line quantities, plus migration
+//     20260901a to repair the 82 rows already on file.
 //
-// index.ts is now the live function (v46). Reconciling the work below into it
-// is a deliberate, separate task: the signedQty change alters financial
-// reporting (margin COGS on credits/refunds), so it needs an owner's sign-off
-// and a verification pass, not a silent merge.
+// STILL UNSHIPPED, still only in this file:
+//   • qboJson()  — surfaces QBO Faults and non-2xx bodies as thrown errors
+//                  instead of returning the payload. A real improvement, but it
+//                  changes error semantics on every QBO call path, so it needs
+//                  its own verification pass.
+//   • mv_refresh logged to ops.sync_log, and a failed refresh returning HTTP
+//     500 so pg_net failure scanning catches stale Margin data. Changes the
+//     function's response contract.
+//   • LEASE_POLL_MAX_ATTEMPTS 40 (live is 20) — longer token-lease polling to
+//     avoid false "jammed" failures while another worker refreshes.
+//
+// What this file does NOT have is mode=cdc, the entire 15-minute Change Data
+// Capture backstop. Deploying it would DELETE that. Port the items above into
+// index.ts individually; never deploy this file as the entrypoint.
 //
 // ── original file follows ──
 // sync-qbo edge function — APBG-BILLING Supabase project
