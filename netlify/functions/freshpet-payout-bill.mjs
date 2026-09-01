@@ -108,10 +108,15 @@ export async function handler(event) {
   if (!rate) return json(400, { error: `Set a per-PM rate for ${tech.name || tech.email} first` });
 
   // ── payable PMs (not prev_comp, not already paid out) ──
+  // Deliberately does NOT filter on visit_type. A 'reshoot' visit is one we sent
+  // the tech back to because our own documentation was unusable — it is excluded
+  // from the Freshpet invoice (freshpet-invoice.mjs) but the tech drove the stop
+  // and did the work, so it is paid here at the full rate. Do not "tidy" this by
+  // mirroring the invoice filter: the asymmetry is the policy.
   let rows;
   try {
     let path =
-      `completed_pms?tech_user_id=eq.${encodeURIComponent(techUserId)}&prev_comp=eq.false&paid_out=eq.false&select=id,store,serial,pm_date,added_asset`;
+      `completed_pms?tech_user_id=eq.${encodeURIComponent(techUserId)}&prev_comp=eq.false&paid_out=eq.false&select=id,store,serial,pm_date,added_asset,visit_type`;
     if (pmIds) path += `&id=in.(${pmIds.join(',')})`;
     rows = await fpGet(path, jwt);
   } catch (e) {

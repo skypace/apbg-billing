@@ -177,13 +177,19 @@ export async function handler(event) {
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
-  // visit_type='exception' = the tech reached the site but could not service
-  // the unit (store closed / unit missing). Documented for Freshpet, never
-  // billable as a PM — enforced here as well as in the admin UI so a stale
-  // client can't invoice one (invoice #172825 shipped 5 closed-store "PMs").
-  const eligible = rows.filter(r => !r.prev_comp && !r.billed && r.visit_type !== 'exception');
-  const skipped = rows.filter(r => r.prev_comp || r.billed || r.visit_type === 'exception')
-    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed' : (r.visit_type === 'exception' ? 'site exception — not a billable PM' : 'prev comp') }));
+  // Two visit types are never billable to Freshpet, enforced here as well as in
+  // the admin UI so a stale client can't invoice one:
+  //   'exception' — the tech reached the site but could not service the unit
+  //     (store closed / unit missing). Documented for Freshpet, not a PM.
+  //     Invoice #172825 shipped 5 closed-store "PMs" before this gate existed.
+  //   'reshoot'   — a stop we sent someone back to because OUR documentation was
+  //     unusable. The customer already paid for that stop once; charging them for
+  //     our own remediation is not on. The tech is still paid in full (that runs
+  //     off completed_pms.paid_out, which does not look at visit_type).
+  const NOT_BILLABLE = { exception: 'site exception — not a billable PM', reshoot: 're-shoot — our remediation, never charged to Freshpet' };
+  const eligible = rows.filter(r => !r.prev_comp && !r.billed && !NOT_BILLABLE[r.visit_type]);
+  const skipped = rows.filter(r => r.prev_comp || r.billed || NOT_BILLABLE[r.visit_type])
+    .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed' : (NOT_BILLABLE[r.visit_type] || 'prev comp') }));
 
   if (!eligible.length) {
     return json(400, { error: 'None of the selected PMs are billable', skipped });
