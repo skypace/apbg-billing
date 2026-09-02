@@ -591,8 +591,13 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   }
 
   const doGeneratePos = () => run('Purchase orders generated', async () => {
-    const pos = await generateWoPurchaseOrders(wo.id);
-    toast.info(pos.map((p) => p.po_number).join(', ') + ' created');
+    const res = await generateWoPurchaseOrders(wo.id);
+    toast.info(res.pos.map((p) => p.po_number).join(', ') + ' created'
+      + (res.recipe_detail.attached
+        ? ' · ' + res.recipe_detail.attached + ' ingredient line'
+          + (res.recipe_detail.attached === 1 ? '' : 's') + ' filed under the gallon'
+        : ''));
+    for (const o of res.recipe_detail.orphans) toast.error(o.reason);
   }, `Generate purchase orders for ${wo.batch_code}?\n\nOne PO per vendor will be created for the total of every sub-item, shipping to ${wo.copacker_location_label ?? 'the co-packer'}.`);
 
   // The other end of the run: the finished cases coming back IN from ALAMEDA

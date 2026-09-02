@@ -367,7 +367,9 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
                 </thead>
                 <tbody>
                   {reqs.map((r, i) => {
-                    const onBom = recipeLines.some((l) => l.component_qbo_item_id === r.qbo_item_id);
+                    // A recipe line is identified by its material, not by a
+                    // QuickBooks item — rolled-up ingredients have no item at all.
+                    const onBom = recipeLines.some((l) => l.ingredient_id === r.ingredient_id);
                     return (
                       <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
                         <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
@@ -383,11 +385,9 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
                         <td style={{ padding: '3px 5px' }}>
                           {!r.is_purchased
                             ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
-                            : !r.qbo_item_id
-                              ? <span style={{ color: 'var(--am)' }}>needs a QuickBooks item</span>
-                              : onBom
-                                ? <span style={{ color: 'var(--gn)' }}>yes</span>
-                                : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
+                            : onBom
+                              ? <span style={{ color: 'var(--gn)' }}>yes</span>
+                              : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
                         </td>
                       </tr>
                     );
@@ -400,8 +400,10 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
               A case is {Number(cansPerCase) || 24} × {Number(ozPerCan) || 12} oz ={' '}
               {(((Number(cansPerCase) || 24) * (Number(ozPerCan) || 12)) / 128).toFixed(4)} gal of finished
               product; each material's weight is that volume × the formula's density × its percent by weight.
-              Rebuilding replaces the recipe lines only — the cans, tray and co-packer charges below are
-              yours and are never touched.
+              These materials are <strong>billed inside the flavour's 1-gallon line</strong> below — the
+              purchase order shows every quantity so the supplier knows what to buy, but QuickBooks sees one
+              gallon line at the gallon price. Rebuilding replaces the recipe only; the gallon, cans, tray and
+              co-packer charges are yours and are never touched.
             </div>
           </div>
         )}

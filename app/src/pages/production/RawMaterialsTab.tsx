@@ -18,6 +18,7 @@ function num(v: string): number | null {
 }
 
 type Draft = {
+  purchase_mode: 'rollup' | 'direct';
   purchase_uom: string;
   pack_size: string;
   order_multiple: string;
@@ -28,6 +29,7 @@ type Draft = {
 
 function draftOf(r: RawIngredient): Draft {
   return {
+    purchase_mode:  r.purchase_mode ?? 'rollup',
     purchase_uom:   r.purchase_uom ?? '',
     pack_size:      r.pack_size == null ? '' : String(r.pack_size),
     order_multiple: String(r.order_multiple ?? 1),
@@ -43,12 +45,16 @@ function dirty(a: Draft, b: Draft): boolean {
 /**
  * The ingredient master.
  *
- * A formula says a case holds 2.2056 lbs of cane sugar. That sentence cannot
- * become a purchase order until four separate facts exist: a QuickBooks item
- * to put on the line, a vendor to send it to, the pack the vendor sells (a
- * 50-lb bag), and what that pack costs. This page is where those four live,
- * and it names WHICH of them is missing rather than showing a bare red dot —
- * each one is a different job for a different person.
+ * A formula says a case holds 2.2056 lbs of cane sugar. This page is where the
+ * rest of that sentence lives: who supplies it, the pack they sell, and what
+ * the pack costs.
+ *
+ * Most materials are BILLED INSIDE the flavour's 1-gallon item rather than
+ * bought on their own — which is how AC Calderoni has always invoiced, per
+ * gallon of a flavour and never per ingredient. Those need no QuickBooks item
+ * at all; the quantity exists so the supplier knows what to buy and so we can
+ * see what the gallon breaks down to. Only a material we buy ourselves needs
+ * an item, and switching a row to "bought directly" is what says so.
  */
 export function RawMaterialsTab({ vendors, onChanged }: {
   vendors: QboVendor[] | null;
@@ -82,7 +88,8 @@ export function RawMaterialsTab({ vendors, onChanged }: {
     return {
       total: list.length,
       purchased: purchased.length,
-      noItem: purchased.filter((r) => !r.qbo_item_id).length,
+      noItem: purchased.filter((r) => r.purchase_mode === 'direct' && !r.qbo_item_id).length,
+      rolled: purchased.filter((r) => r.purchase_mode === 'rollup').length,
       noCost: purchased.filter((r) => r.purchase_cost == null).length,
       noPack: purchased.filter((r) => r.pack_size == null).length,
       ready: purchased.filter((r) => r.gaps.length === 0).length,
@@ -95,6 +102,7 @@ export function RawMaterialsTab({ vendors, onChanged }: {
     setSaving(r.id);
     try {
       await updateRawIngredient(r.id, {
+        purchase_mode:  d.purchase_mode,
         purchase_uom:   d.purchase_uom.trim() || null,
         pack_size:      num(d.pack_size),
         order_multiple: num(d.order_multiple) ?? 1,
@@ -140,37 +148,43 @@ export function RawMaterialsTab({ vendors, onChanged }: {
         <div className="toolbar-row">
           <strong style={{ fontSize: 12.5 }}>Raw materials</strong>
           <span style={{ fontSize: 11, color: 'var(--mt)' }}>
-            {stats.purchased} purchased · {stats.ready} ready to order · {stats.total - stats.purchased} sourced on site
+            {stats.rolled} billed inside the gallon · {stats.purchased - stats.rolled} bought directly
+            {' · '}{stats.total - stats.purchased} sourced on site
           </span>
           <div className="toolbar-spacer" />
           <button style={btnSecondary()} onClick={load}>
             <RefreshCw size={12} style={{ verticalAlign: -2, marginRight: 5 }} />Reload
           </button>
-          <button style={btnPrimary()} disabled={busy || stats.noItem === 0} onClick={runPreview}>
+          <button style={btnSecondary()} disabled={busy || stats.noItem === 0} onClick={runPreview}
+            title={stats.noItem === 0
+              ? 'Only a material bought directly needs one, and each of those has one'
+              : ''}>
             {stats.noItem === 0
-              ? 'Every material has an item'
+              ? 'No QuickBooks items needed'
               : 'Create the ' + stats.noItem + ' missing QuickBooks item' + (stats.noItem === 1 ? '' : 's') + '…'}
           </button>
         </div>
       </div>
 
-      {(stats.noItem > 0 || stats.noCost > 0) && (
-        <div className="card" style={{ marginBottom: 12, borderColor: 'var(--am)' }}>
-          <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-            <AlertTriangle size={12} style={{ verticalAlign: -2, marginRight: 5, color: 'var(--am)' }} />
-            <strong>What is still missing.</strong>{' '}
-            {stats.noItem > 0 && <>
-              <b>{stats.noItem}</b> material{stats.noItem === 1 ? ' has' : 's have'} no QuickBooks item, so
-              {stats.noItem === 1 ? ' it' : ' they'} cannot appear on a bill of materials or a purchase order at all.{' '}
-            </>}
-            {stats.noCost > 0 && <>
-              <b>{stats.noCost}</b> {stats.noCost === 1 ? 'has' : 'have'} no cost on file. A work order will still
-              order the right quantity — the per-case cost simply comes out short until a price is entered, and
-              nothing here invents one.
-            </>}
-          </div>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11.5, lineHeight: 1.65 }}>
+          <strong>How this is billed.</strong> An ingredient marked <em>billed inside the gallon</em> rolls up
+          into the flavour's 1-gallon item. The purchase order in Refractor lists every material and its
+          quantity, so the supplier knows exactly what to buy — but the line that reaches QuickBooks is a
+          single one: N gallons of the flavour, at the gallon price. The gallon holds the price; each
+          material's share is allocated out of it by weight, so the breakdown always adds back to what we
+          are actually billed.
+          {stats.noCost > 0 && (
+            <>
+              {' '}
+              <AlertTriangle size={12} style={{ verticalAlign: -2, margin: '0 4px 0 2px', color: 'var(--am)' }} />
+              <b>{stats.noCost}</b> {stats.noCost === 1 ? 'material has' : 'materials have'} no cost of their
+              own on file. That is fine for ordering and for the gallon price — it only means the allocated
+              figures cannot be checked against a real quote yet, and nothing here invents one.
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       {preview && (
         <div className="card" style={{ marginBottom: 12, borderColor: 'var(--ac)' }}>
@@ -212,6 +226,7 @@ export function RawMaterialsTab({ vendors, onChanged }: {
             <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 10, textTransform: 'uppercase' }}>
               <th style={{ padding: '6px 6px' }}>Material</th>
               <th style={{ padding: '6px 6px' }}>Formulas</th>
+              <th style={{ padding: '6px 6px' }}>Billed as</th>
               <th style={{ padding: '6px 6px' }}>QuickBooks item</th>
               <th style={{ padding: '6px 6px' }}>Vendor</th>
               <th style={{ padding: '6px 6px' }}>Bought as</th>
@@ -223,7 +238,7 @@ export function RawMaterialsTab({ vendors, onChanged }: {
           </thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={9} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
+              <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
             )}
             {rows?.map((r) => {
               const d = drafts[r.id] ?? draftOf(r);
@@ -242,12 +257,26 @@ export function RawMaterialsTab({ vendors, onChanged }: {
                   </td>
                   <td style={{ padding: '5px 6px' }} className="mn">{r.formula_count}</td>
                   <td style={{ padding: '5px 6px' }}>
+                    <select
+                      style={{ ...inp(), width: 168 }}
+                      disabled={!r.is_purchased}
+                      value={d.purchase_mode}
+                      onChange={(e) => setDrafts({
+                        ...drafts,
+                        [r.id]: { ...d, purchase_mode: e.target.value as 'rollup' | 'direct' },
+                      })}
+                    >
+                      <option value="rollup">Inside the gallon</option>
+                      <option value="direct">Bought directly</option>
+                    </select>
+                  </td>
+                  <td style={{ padding: '5px 6px' }}>
                     {r.qbo_item_id
                       ? <span style={{ color: 'var(--gn)' }}>
                           <Check size={11} style={{ verticalAlign: -1 }} /> {r.qbo_item_name ?? r.qbo_item_id}
                         </span>
-                      : r.is_purchased
-                        ? <span style={{ color: 'var(--am)' }}>none yet</span>
+                      : r.is_purchased && r.purchase_mode === 'direct'
+                        ? <span style={{ color: 'var(--am)' }}>needed — none yet</span>
                         : <span style={{ color: 'var(--mt)' }}>not needed</span>}
                   </td>
                   <td style={{ padding: '5px 6px' }}>
@@ -309,8 +338,10 @@ export function RawMaterialsTab({ vendors, onChanged }: {
         <b>Recipe units per pack</b> is how many of the recipe's unit are inside one thing the vendor
         sells — 50 for a 50-lb bag of sugar. A work order needs 1 103 lbs of sugar, so it orders 23 bags.
         Leave it blank when the vendor sells in the recipe unit itself.
+        {' '}<b>Billed as</b> decides whether a material becomes its own purchase order line. Switching one to
+        <em> bought directly</em> means it needs a QuickBooks item and will stop being rolled into the gallon.
         {settings?.clearing_account_name && <>
-          {' '}New items are expensed to <b>{settings.clearing_account_name}</b>, the account every
+          {' '}Any item created here is expensed to <b>{settings.clearing_account_name}</b>, the account every
           production cost is offset through.
         </>}
       </div>

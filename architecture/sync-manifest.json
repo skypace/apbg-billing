@@ -667,9 +667,11 @@
         "ops.purchase_orders",
         "ops.purchase_order_lines",
         "ops.raw_ingredients",
-        "ops.production_settings"
+        "ops.production_settings",
+        "ops.work_order_recipe_lines",
+        "ops.purchase_order_line_details"
       ],
-      "notes": "2026-09-02: gains ops.raw_ingredients (the shared ingredient master \u2014 how a material is bought, as distinct from the percent-by-weight on the formula) and ops.production_settings (single row: the production vendor the finished cases are bought back from, and the clearing account every production cost is offset through). Both are written from Refractor -> Production; nothing else writes them."
+      "notes": "2026-09-02: gains ops.raw_ingredients (the shared ingredient master \u2014 how a material is bought, as distinct from the percent-by-weight on the formula) and ops.production_settings (single row: the production vendor the finished cases are bought back from, and the clearing account every production cost is offset through). Both are written from Refractor -> Production; nothing else writes them. Same day, the gallon roll-up: ops.work_order_recipe_lines is the ingredient specification for a run and ops.purchase_order_line_details is that breakdown filed under the purchase order line that carries its price. Both are SPEC, not spend \u2014 they never become purchase order lines of their own, never move inventory and are never counted in the component cost, because the flavour 1-gallon line they roll into already carries all three. Nothing outside Refractor -> Production writes them, and nothing sends them to QuickBooks."
     },
     {
       "name": "brix-compliance:app",

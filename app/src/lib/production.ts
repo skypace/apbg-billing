@@ -420,12 +420,31 @@ export interface GeneratedPo {
   subtotal: number;
 }
 
-/** One PO per vendor from the WO's unassigned materials; draft → ordered. */
+export interface GeneratePosResult {
+  pos: GeneratedPo[];
+  /**
+   * The ingredient breakdown filed underneath the gallon lines. `orphans` names
+   * any flavour whose ingredients had no gallon line to be billed inside —
+   * a visible gap, not a silent drop.
+   */
+  recipe_detail: {
+    attached: number;
+    orphans: { rollup_qbo_item_id: string; reason: string }[];
+  };
+}
+
+/**
+ * One PO per vendor from the WO's unassigned materials; draft → ordered.
+ *
+ * The ingredients do NOT get purchase order lines of their own: they are filed
+ * as detail under the flavour's 1-gallon line, which is what the vendor bills
+ * and the only thing QuickBooks sees.
+ */
 export async function generateWoPurchaseOrders(
   woId: string,
   expectedDate?: string | null,
-): Promise<GeneratedPo[]> {
-  return sbrpc<GeneratedPo[]>('fn_wo_generate_pos', {
+): Promise<GeneratePosResult> {
+  return sbrpc<GeneratePosResult>('fn_wo_generate_pos', {
     p_wo_id: woId,
     p_expected_date: expectedDate ?? null,
   });

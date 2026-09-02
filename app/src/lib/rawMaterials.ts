@@ -21,6 +21,16 @@ export interface RawIngredient {
   recipe_uom: string;
   /** false = real in the batch, never on a purchase order. Water. */
   is_purchased: boolean;
+  /**
+   * 'rollup' — billed inside the flavour's 1-gallon item. The quantity is shown
+   * to the supplier so they know what to buy, but it never becomes its own
+   * purchase order line and needs NO QuickBooks item. This is every ingredient
+   * today, and it matches how AC Calderoni has always billed: per gallon of a
+   * flavour, never per ingredient.
+   * 'direct' — we buy this material ourselves, so it gets its own PO line and
+   * does need an item.
+   */
+  purchase_mode: 'rollup' | 'direct';
   purchase_uom: string | null;
   /** Recipe units in ONE purchase unit. 50 for a 50-lb bag. */
   pack_size: number | null;
@@ -93,10 +103,15 @@ export interface BomSyncResult {
   bom_id: string;
   removed: number;
   added: number;
-  /** Materials with no QuickBooks item — they cannot become a BOM line yet. */
-  unlinked: { name: string; qty_per_case: number; uom: string }[];
+  /** How many of those lines roll up into the flavour's gallon item. */
+  rolled_up: number;
+  gallon_qbo_item_id: string | null;
+  /** Directly-bought materials with no QuickBooks item — they cannot be lines. */
+  unlinked: { name: string; qty_per_case: number; uom: string; reason?: string }[];
   /** Materials deliberately left off, e.g. water. */
   skipped: { name: string; reason: string }[];
+  /** Anything structurally wrong, e.g. no gallon item to roll into. */
+  warnings: string[];
   scrap_pct: number;
 }
 
@@ -122,7 +137,7 @@ export async function updateRawIngredient(
   patch: Partial<Pick<RawIngredient,
     'name' | 'recipe_uom' | 'is_purchased' | 'purchase_uom' | 'pack_size'
     | 'order_multiple' | 'purchase_cost' | 'qbo_item_id' | 'qbo_vendor_id'
-    | 'vendor_part_no' | 'notes' | 'active'>>,
+    | 'vendor_part_no' | 'notes' | 'active' | 'purchase_mode'>>,
 ): Promise<void> {
   const token = await _sbToken();
   const res = await fetch(

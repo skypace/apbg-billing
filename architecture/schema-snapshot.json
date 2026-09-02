@@ -81,6 +81,7 @@
     "product_formula_revisions",
     "product_formulas",
     "production_settings",
+    "purchase_order_line_details",
     "purchase_order_lines",
     "purchase_orders",
     "qbo_customers",
@@ -142,6 +143,7 @@
     "work_order_costs",
     "work_order_events",
     "work_order_materials",
+    "work_order_recipe_lines",
     "work_orders"
   ]
 }

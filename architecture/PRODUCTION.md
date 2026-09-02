@@ -24,7 +24,8 @@ WORK ORDER  ("make 500 cases")
    │  materials: recipe quantity → whole vendor packs
    ▼
 PURCHASE ORDERS  — ONE PER VENDOR, generated from the work order
-   │  AC Calderoni  → the ingredients
+   │  AC Calderoni  → N gallons of the flavour, with the ingredient
+   │                  breakdown printed underneath (see The roll-up)
    │  Quantum Canning → fill labour, pack off
    │  Craft Beverage Packaging → cans, trays
    ▼
@@ -37,6 +38,57 @@ PRODUCTION PURCHASE ORDER
    ▼
 SHIP (BOL) back to Brix → RECEIVE into inventory → CLOSE
 ```
+
+## The roll-up — ingredients in, one gallon line out
+
+**AC Calderoni bills per gallon of a flavour, never per ingredient.** Every bill
+on file says so: `3G6121 HANGAR 25 COLA, 210 @ 28.75 — "Cola Syrup 5XB0"`. They
+compound the batch; the ingredient list is the *specification* of what goes into
+it, not a set of things we buy separately.
+
+So a BOM component line is one of two things:
+
+| | carries | is | reaches QuickBooks |
+|---|---|---|---|
+| **stocked** | `component_qbo_item_id` | the gallon, cans, tray, fill labour, pack off | yes — as its own PO line |
+| **recipe** | `ingredient_id`, usually no item | sugar, citric acid, flavor | **no** |
+
+A recipe line points at the flavour's 1-gallon item through
+`rollup_qbo_item_id`. When purchase orders are generated:
+
+- the **gallon** gets an ordinary PO line — *500 gal of `1GNS6121` @ $5.38* —
+  and that is the only thing the QuickBooks push sends. **`postPurchaseOrder`
+  needed no change at all**, which is the point of modelling it this way rather
+  than teaching the push to collapse lines.
+- the **ingredients** are filed underneath it in
+  `ops.purchase_order_line_details` — *Cane Sugar 1 102.8 lbs, Cola Flavor 41.4
+  lbs, Sodium Gluconate 0.945 lbs* — which is what Refractor shows and what the
+  printed PO tells the supplier to buy.
+
+### Two costs, and which one is true
+
+`allocated_cost` splits the gallon line's price across the materials **by
+weight**, so the breakdown always adds back to what we are actually billed
+($2 590.53 + $97.25 + $2.22 = $2 690.00 on the run above). ⚠ It is an
+*allocation*, not a quote: flavour is a rounding error by weight and a large
+share of the real cost, so weight-allocation flatters sugar and starves flavour.
+It answers "what does this gallon break down to arithmetically", nothing more.
+
+`quoted_cost` is filled only where a material has a real price on file. When
+enough of them do, the sum can be compared against the gallon price and the
+difference is a real number — the supplier's margin and handling — rather than
+a guess.
+
+**The gallon holds the price. Everything else is derived from it.**
+
+### Buying a material directly
+
+`raw_ingredients.purchase_mode` is `rollup` (the default, and every ingredient
+today) or `direct`. Only a `direct` material gets its own PO line, and only a
+`direct` material needs a QuickBooks item. The mode is explicit precisely so
+that creating an item for a material does not by itself change how it is
+bought — otherwise one click on *create the missing items* would turn a
+Calderoni gallon order into seventeen ingredient lines.
 
 ## Where each number comes from
 
@@ -79,6 +131,13 @@ either wipes the operator's packaging lines or adds a second copy of the recipe.
 the per-case cost comes out short and says so. A plausible-looking number here
 becomes a QuickBooks bill.
 
+**A rolled-up ingredient is never costed twice.** Its price is allocated OUT of
+the gallon line it rolls into, and it is never a purchase order line, never an
+inventory movement and never part of the component cost — which is enforced
+structurally, by keeping recipe lines in `ops.work_order_recipe_lines` where
+`fn_wo_advance` cannot see them, rather than by remembering to filter them in
+the consume and the yield.
+
 **The production PO is refused before a yield is recorded.** Until then there is
 no measured per-case cost, only an estimate nobody weighed.
 
@@ -114,9 +173,13 @@ real run measures one. Set it from the first run's actuals.
 
 ## Creating the QuickBooks items
 
-Refractor → Production → **Raw Materials** → *Create the N missing QuickBooks
-items*. It previews first and writes nothing until the second click, because a
-QuickBooks item cannot be deleted once created, only made inactive.
+**Most materials do not need one.** A rolled-up ingredient is billed inside the
+gallon, so it never appears in QuickBooks at all. Only a material switched to
+*bought directly* needs an item — and today none are.
+
+For those, Refractor → Production → **Raw Materials** → *Create the N missing
+QuickBooks items*. It previews first and writes nothing until the second click,
+because a QuickBooks item cannot be deleted once created, only made inactive.
 
 Items are created as **non-inventory purchase items** named `RM <material>`
 (SKU `RM-<SLUG>`), expensed to the clearing account. An item of the same name
@@ -129,9 +192,17 @@ service-role key and the shared QBO OAuth lease, same posture as every other
 
 ## Known gaps, 2026-09-02
 
-1. **No costs and no pack sizes.** All 17 purchased materials have both blank.
-   Quantities are right; per-case cost is not computable until a Calderoni price
-   list is entered on the Raw Materials tab.
+1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
+   blank. This no longer blocks costing a run — the gallon price does that — but
+   until some are filled in, `quoted_cost` is empty and the allocated split
+   cannot be checked against anything real.
+1b. **How many gallons of the 1-gallon item go into a case is still assumed.**
+   The BOM says **1 gal per case**, which is what a run will order. A case is
+   2.25 gal of finished product, and Calderoni's own BIB syrups are 5:1
+   concentrates, so 1 gal/case is neither of the two obvious readings and nobody
+   has confirmed it. It is a single field — `qty_per` on the gallon BOM line —
+   and it multiplies the whole ingredient bill, so it is worth checking before a
+   real purchase order goes out.
 2. **Six of seven BOMs have no empty-can line.** Items `685`, `686`, `688`,
    `689`, `690`, `691` are INACTIVE in QuickBooks (someone deactivated them —
    QBO appends "(deleted)" to the name); only Old Fountain's `687` is live.
@@ -142,6 +213,10 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    process as described. It is not a bug in the code — PO generation groups by
    whatever vendor is on the line, so today a run produces three POs, not two.
    Change the vendor on the BOM lines if the description is the correct one.
+   (The gallon line's vendor WAS wrong and has been corrected: it pointed at
+   ALAMEDA SODA COMPANY PRODUCTION, and every gallon ever billed came from AC
+   CALDERONI. Alameda Soda Production remains the vendor for the finished cases
+   at the other end of the run.)
 4. **`fn_wo_advance`'s `record_yield` still values components from
    `work_order_materials`.** With pack rounding in play that is the cost of what
    was BOUGHT rather than what was CONSUMED. For a first run they are the same
