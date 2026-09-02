@@ -78,9 +78,37 @@ export interface CaseRequirement {
   notes: string | null;
 }
 
+/**
+ * The derived geometry of one case, and the independent check on it.
+ *
+ * The concentrate volume is NOT typed: it is finished volume / (1 + throw
+ * ratio). The ingredient weights then confirm it — every non-water material
+ * ends up inside that concentrate, so their weight over its volume gives the
+ * syrup's solids loading, and a fountain syrup carries roughly 5-8 lb/gal.
+ * Get the throw ratio wrong and the number goes somewhere obviously silly.
+ */
+export interface BatchBasis {
+  cans_per_case: number;
+  oz_per_can: number;
+  gal_per_case: number;
+  density_lbs_per_gal: number;
+  liquid_lbs_per_case: number;
+  /** Parts water per one part concentrate. 5 = a 5:1 syrup. */
+  dilution_ratio: number;
+  concentrate_gal_per_case: number;
+  solids_lbs_per_case: number;
+  solids_lbs_per_concentrate_gal: number | null;
+  /** false for a diet formula — the solids band does not apply to it. */
+  bulk_sweetened: boolean;
+  yield_pct: number;
+  verdict: string;
+}
+
 export interface BatchPlanTank {
   tank_gal: number;
   cases_from_tank: number;
+  /** Gallons of concentrate a full tank of this size needs. */
+  concentrate_gal: number;
   /** How many MORE cases than asked for a full tank of this size yields. */
   extra_cases: number;
   fits: boolean;
@@ -92,9 +120,12 @@ export interface BatchPlan {
   cases_requested: number;
   gal_per_case: number;
   yield_pct: number;
+  dilution_ratio: number;
   finished_gal: number;
   /** What must go IN the tank — finished gallons divided by the yield rate. */
   gal_to_batch: number;
+  /** Gallons of syrup that must arrive for the run. */
+  concentrate_gal: number;
   recommended_tank: number | null;
   tanks: BatchPlanTank[];
 }
@@ -106,6 +137,7 @@ export interface BomSyncResult {
   /** How many of those lines roll up into the flavour's gallon item. */
   rolled_up: number;
   gallon_qbo_item_id: string | null;
+  basis: BatchBasis;
   /** Directly-bought materials with no QuickBooks item — they cannot be lines. */
   unlinked: { name: string; qty_per_case: number; uom: string; reason?: string }[];
   /** Materials deliberately left off, e.g. water. */
@@ -166,6 +198,11 @@ export async function fetchCaseRequirements(bomId: string): Promise<CaseRequirem
 /** Write the formula's ingredients onto the BOM. Hand-entered lines survive. */
 export async function syncBomFromFormula(bomId: string): Promise<BomSyncResult> {
   return sbrpc<BomSyncResult>('fn_bom_sync_from_formula', { p_bom_id: bomId });
+}
+
+/** The derived per-case geometry, and whether the ingredients agree with it. */
+export async function fetchBatchBasis(bomId: string): Promise<BatchBasis> {
+  return sbrpc<BatchBasis>('fn_formula_batch_basis', { p_bom_id: bomId });
 }
 
 /** Gallons needed and, per tank, how many more cases would fill it. */

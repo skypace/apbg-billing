@@ -407,13 +407,21 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
           <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
             Batch plan — filling the tank
           </div>
-          <div style={{ fontSize: 12, marginBottom: 10 }}>
-            {fmtNum(plan.cases_requested)} cases x {plan.gal_per_case} gal ={' '}
-            <strong>{fmtNum(plan.finished_gal)} gal</strong> of finished product
+          <div style={{ fontSize: 12, marginBottom: 10, lineHeight: 1.7 }}>
+            {fmtNum(plan.cases_requested)} cases × {plan.gal_per_case} gal ={' '}
+            <strong>{fmtNum(plan.finished_gal)} gal</strong> of finished soda
             {plan.yield_pct < 1 && (
               <> — at a {(plan.yield_pct * 100).toFixed(1)}% yield that means{' '}
               <strong>{fmtNum(plan.gal_to_batch)} gal</strong> into the tank</>
             )}.
+            {plan.dilution_ratio > 0 && (
+              <div style={{ color: 'var(--mt)' }}>
+                The tank is finished product — the co-packer dilutes and carbonates. At{' '}
+                {plan.dilution_ratio}:1 that run needs{' '}
+                <strong style={{ color: 'var(--tx)' }}>{fmtNum(plan.concentrate_gal)} gal of concentrate</strong>{' '}
+                delivered, which is what the ingredient purchase order orders.
+              </div>
+            )}
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
@@ -438,6 +446,11 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
                   </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                     {fmtNum(tk.cases_from_tank)} cases
+                    {plan.dilution_ratio > 0 && (
+                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>
+                        {fmtNum(tk.concentrate_gal)} gal conc.
+                      </div>
+                    )}
                   </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                     {tk.fits && tk.extra_cases > 0

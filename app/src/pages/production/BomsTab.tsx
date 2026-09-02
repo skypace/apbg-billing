@@ -7,7 +7,8 @@ import {
 } from '../../lib/production';
 import { ProductFormula } from '../../lib/formulas';
 import {
-  CaseRequirement, BomSyncResult, fetchCaseRequirements, syncBomFromFormula,
+  BatchBasis, CaseRequirement, BomSyncResult,
+  fetchBatchBasis, fetchCaseRequirements, syncBomFromFormula,
 } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
@@ -173,6 +174,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   const [lines, setLines] = useState<LineRow[]>([{ ...EMPTY_LINE }]);
   const [recipeLines, setRecipeLines] = useState<ProductBomLine[]>([]);
   const [reqs, setReqs] = useState<CaseRequirement[] | null>(null);
+  const [basis, setBasis] = useState<BatchBasis | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -253,6 +255,9 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
     fetchCaseRequirements(bom.id)
       .then((r) => { if (alive) setReqs(r); })
       .catch(() => { if (alive) setReqs(null); });
+    fetchBatchBasis(bom.id)
+      .then((b) => { if (alive) setBasis(b); })
+      .catch(() => { if (alive) setBasis(null); });
     return () => { alive = false; };
   }, [bom, formulaId]);
 
@@ -270,6 +275,8 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
       else toast.success(parts.join('. '));
       const all = await fetchBomLines(bom.id);
       setRecipeLines(all.filter((l) => l.source === 'formula'));
+      setBasis(await fetchBatchBasis(bom.id).catch(() => null));
+      for (const w of res.warnings ?? []) toast.info(w);
       onSaved();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setRebuilding(false); }
@@ -396,14 +403,41 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
               </table>
             )}
 
+            {basis && (
+              <div style={{
+                marginTop: 10, padding: 10, borderRadius: 4,
+                background: 'rgba(255,255,255,0.03)', fontSize: 11, lineHeight: 1.75,
+              }}>
+                <div style={{ fontSize: 9.5, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 5 }}>
+                  How the concentrate volume is worked out
+                </div>
+                <div>
+                  A case is {basis.cans_per_case} × {basis.oz_per_can} oz ={' '}
+                  <strong>{basis.gal_per_case} gal</strong> of finished soda. At{' '}
+                  <strong>{basis.dilution_ratio}:1</strong> the concentrate is one part in{' '}
+                  {basis.dilution_ratio + 1} — <strong>{basis.concentrate_gal_per_case} gal per case</strong>,
+                  which is what the gallon line below carries. It is computed, not typed.
+                </div>
+                <div style={{ marginTop: 4, color: 'var(--mt)' }}>
+                  Cross-check: every material here ends up inside that concentrate —{' '}
+                  {basis.solids_lbs_per_case} lb in {basis.concentrate_gal_per_case} gal ={' '}
+                  <strong style={{ color: 'var(--tx)' }}>
+                    {basis.solids_lbs_per_concentrate_gal ?? '—'} lb per gallon
+                  </strong>
+                  {' · '}
+                  <span style={{
+                    color: basis.verdict.startsWith('consistent') ? 'var(--gn)'
+                      : basis.verdict.startsWith('diet') ? 'var(--mt)' : 'var(--am)',
+                  }}>{basis.verdict}</span>.
+                </div>
+              </div>
+            )}
             <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
-              A case is {Number(cansPerCase) || 24} × {Number(ozPerCan) || 12} oz ={' '}
-              {(((Number(cansPerCase) || 24) * (Number(ozPerCan) || 12)) / 128).toFixed(4)} gal of finished
-              product; each material's weight is that volume × the formula's density × its percent by weight.
               These materials are <strong>billed inside the flavour's 1-gallon line</strong> below — the
               purchase order shows every quantity so the supplier knows what to buy, but QuickBooks sees one
-              gallon line at the gallon price. Rebuilding replaces the recipe only; the gallon, cans, tray and
-              co-packer charges are yours and are never touched.
+              gallon line at the gallon price. Rebuilding replaces the recipe and recomputes the gallon
+              quantity; the vendor, the price, the cans, the tray and the co-packer charges are yours and are
+              never touched.
             </div>
           </div>
         )}

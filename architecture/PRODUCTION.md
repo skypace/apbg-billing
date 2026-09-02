@@ -24,7 +24,7 @@ WORK ORDER  ("make 500 cases")
    │  materials: recipe quantity → whole vendor packs
    ▼
 PURCHASE ORDERS  — ONE PER VENDOR, generated from the work order
-   │  AC Calderoni  → N gallons of the flavour, with the ingredient
+   │  AC Calderoni  → N gallons of CONCENTRATE, with the ingredient
    │                  breakdown printed underneath (see The roll-up)
    │  Quantum Canning → fill labour, pack off
    │  Craft Beverage Packaging → cans, trays
@@ -38,6 +38,55 @@ PRODUCTION PURCHASE ORDER
    ▼
 SHIP (BOL) back to Brix → RECEIVE into inventory → CLOSE
 ```
+
+## The concentrate — 5:1, and the check that proves it
+
+Every Alameda Soda flavour is a **5:1 fountain syrup**: one part concentrate to
+five parts water, so the concentrate is **one sixth of the finished volume**.
+Calderoni's own product codes say so on the bills — `Cola Syrup - 5XB0`,
+`Root Beer 5XW0`.
+
+Nothing here is typed. It is derived:
+
+```
+finished per case = cans × oz ÷ 128            = 24 × 12 ÷ 128 = 2.25 gal
+concentrate       = finished ÷ (1 + throw)     = 2.25 ÷ 6      = 0.375 gal
+```
+
+`fn_bom_sync_from_formula` writes that onto the flavour's gallon BOM line on
+every rebuild, so it cannot drift and cannot be quietly wrong. **The BOM used to
+say 1 gal per case** — a placeholder that was neither of the two defensible
+readings and that multiplied the whole ingredient bill by 2.7.
+
+### The ingredients are the independent check
+
+Every material on the sheet except water ends up inside that concentrate. So
+their weight over its volume is the syrup's **solids loading**, which anyone who
+knows fountain syrup reads instantly. `fn_formula_batch_basis` computes it:
+
+| flavour | solids / case | ÷ 0.375 gal | verdict |
+|---|---|---|---|
+| Hangar 25 Cola | 2.290 lb | **6.11 lb/gal** | consistent with 5:1 |
+| Golden Gate Orange | 2.371 lb | 6.32 lb/gal | consistent with 5:1 |
+| Lost Island Ginger Beer | 2.441 lb | 6.51 lb/gal | consistent with 5:1 |
+| Cable Car Lemon-Lime | 2.139 lb | 5.70 lb/gal | consistent with 5:1 |
+| Olde Fountain Crème | 2.121 lb | 5.66 lb/gal | consistent with 5:1 |
+| Oaktown Root Beer | 2.112 lb | 5.63 lb/gal | consistent with 5:1 |
+| Hangar 25 **Diet** Cola | 0.092 lb | 0.25 lb/gal | *diet — check does not apply* |
+
+Six flavours land between 5.6 and 6.5 lb/gal — textbook for 5:1 — and they agree
+with each other, which is what makes the ratio believable rather than asserted.
+Set the throw wrong and the number goes somewhere obviously silly.
+
+⚠ **Diet Cola's 0.25 lb/gal is correct, not a fault.** It is monk-fruit
+sweetened and carries no bulk sugar, so its syrup genuinely is almost all water.
+The check detects that (no material above 2% of the finished weight) and says
+the band does not apply, rather than printing a warning on one of seven products
+that could never be cleared.
+
+The throw ratio lives on the **formula** (`dilution_ratio`) and is written down
+to `product_bom.dilution_ratio`, which the older `fn_bom_scale_runs` reads. One
+source, one derived copy, maintained by the rebuild.
 
 ## The roll-up — ingredients in, one gallon line out
 
@@ -56,8 +105,8 @@ So a BOM component line is one of two things:
 A recipe line points at the flavour's 1-gallon item through
 `rollup_qbo_item_id`. When purchase orders are generated:
 
-- the **gallon** gets an ordinary PO line — *500 gal of `1GNS6121` @ $5.38* —
-  and that is the only thing the QuickBooks push sends. **`postPurchaseOrder`
+- the **gallon** gets an ordinary PO line — for 500 cases, *187.5 gal of
+  `1GNS6121` @ $5.38* — and that is the only thing the QuickBooks push sends. **`postPurchaseOrder`
   needed no change at all**, which is the point of modelling it this way rather
   than teaching the push to collapse lines.
 - the **ingredients** are filed underneath it in
@@ -69,7 +118,7 @@ A recipe line points at the flavour's 1-gallon item through
 
 `allocated_cost` splits the gallon line's price across the materials **by
 weight**, so the breakdown always adds back to what we are actually billed
-($2 590.53 + $97.25 + $2.22 = $2 690.00 on the run above). ⚠ It is an
+($971.45 + $36.47 + $0.83 = $1 008.75 on the run above). ⚠ It is an
 *allocation*, not a quote: flavour is a rounding error by weight and a large
 share of the real cost, so weight-allocation flatters sugar and starves flavour.
 It answers "what does this gallon break down to arithmetically", nothing more.
@@ -196,13 +245,13 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    blank. This no longer blocks costing a run — the gallon price does that — but
    until some are filled in, `quoted_cost` is empty and the allocated split
    cannot be checked against anything real.
-1b. **How many gallons of the 1-gallon item go into a case is still assumed.**
-   The BOM says **1 gal per case**, which is what a run will order. A case is
-   2.25 gal of finished product, and Calderoni's own BIB syrups are 5:1
-   concentrates, so 1 gal/case is neither of the two obvious readings and nobody
-   has confirmed it. It is a single field — `qty_per` on the gallon BOM line —
-   and it multiplies the whole ingredient bill, so it is worth checking before a
-   real purchase order goes out.
+1b. **The gallon prices in QuickBooks look stale, and everything now hinges on
+   them.** The 1GNS items carry $4.25–$7.44. The only 1GNS lines ever billed
+   were $32–$38/gal in May 2025 (a pilot), while the current 3-gallon BIB price
+   works out to roughly **$9.58/gal** (`3G6121, 50 @ $28.75`). Since the gallon
+   is now the master price and the ingredient breakdown is allocated out of it,
+   refreshing these from the current Calderoni sheet is the single highest-value
+   data fix left.
 2. **Six of seven BOMs have no empty-can line.** Items `685`, `686`, `688`,
    `689`, `690`, `691` are INACTIVE in QuickBooks (someone deactivated them —
    QBO appends "(deleted)" to the name); only Old Fountain's `687` is live.
