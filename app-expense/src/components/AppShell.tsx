@@ -4,13 +4,18 @@ import { supabase, signOutLocal } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 import { BrixMark, BrixWordmark } from './BrixMark';
 import { currentTheme, toggleTheme, type Theme } from '@/lib/theme';
+import { useExpenseRole } from '@/lib/useExpenseRole';
 
 const navGroups: {
   label?: string;
-  items: { path: string; icon: typeof Receipt; label: string; staffOnly?: boolean }[];
+  items: { path: string; icon: typeof Receipt; label: string; staffOnly?: boolean; apOnly?: boolean }[];
   /** Only rendered for gateway superadmin/admin roles (the first role-aware
    *  nav group — role fetched once below; RLS is the real gate). */
   staffOnly?: boolean;
+  /** Accounts-payable surfaces: the whole company's payables, not yours.
+   *  Driven by ops.expense_people.ap_admin — NOT the gateway role, which every
+   *  staff login here holds. */
+  apOnly?: boolean;
 }[] = [
   { items: [{ path: '', icon: Receipt, label: 'Dashboard' }] },
   {
@@ -19,7 +24,9 @@ const navGroups: {
     label: 'Expenses',
     items: [
       { path: 'inbox', icon: Inbox, label: 'My Inbox' },
-      { path: 'sf-expenses', icon: Wrench, label: 'Service Fusion' },
+      // Vendor bills off Service Fusion jobs — the company's payables, not
+      // anybody's own expenses, so AP only.
+      { path: 'sf-expenses', icon: Wrench, label: 'Service Fusion', apOnly: true },
       { path: 'pending', icon: Clock, label: 'Expense History' },
     ],
   },
@@ -31,11 +38,13 @@ const navGroups: {
     ],
   },
   {
-    // The master vendor inbox (bills@alamedapointbg.com). NOT staffOnly:
-    // unassigned vendor mail is everybody's problem, so everyone in Brixpense
-    // can work it. `ops.fn_has_brixpense()` is the real gate, in the RLS and
-    // in requireBrixpense() — this list only decides what the sidebar shows.
+    // The whole company's payables. This group used to be open to everyone in
+    // Brixpense, which on a project where every staff login is a gateway
+    // superadmin meant everyone saw every vendor bill. It now follows
+    // ops.expense_people.ap_admin, the same row requireApAdmin() and the RLS
+    // read — this list only decides what the sidebar shows.
     label: 'Accounts payable',
+    apOnly: true,
     items: [
       { path: 'bills', icon: Mail, label: 'Vendor Inbox' },
       // Pay run: money out is superadmin-only server side — staff nav only
@@ -86,6 +95,7 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isStaff, setIsStaff] = useState(false);
+  const role = useExpenseRole();
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   const currentPath = location.pathname.replace(/^\/expense\/?/, '');
@@ -261,12 +271,16 @@ export function AppShell() {
         </div>
 
         <nav className="nav">
-          {navGroups.filter((g) => !g.staffOnly || isStaff).map((group, gi) => (
+          {navGroups
+            .filter((g) => (!g.staffOnly || isStaff) && (!g.apOnly || role.apAdmin))
+            .map((group, gi) => (
             <div key={group.label ?? `g${gi}`}>
               {group.label && !collapsed && (
                 <div className="nav-section">{group.label}</div>
               )}
-              {group.items.filter((item) => !item.staffOnly || isStaff).map((item) => {
+              {group.items
+                .filter((item) => (!item.staffOnly || isStaff) && (!item.apOnly || role.apAdmin))
+                .map((item) => {
                 const isActive =
                   item.path === ''
                     ? currentPath === '' || currentPath === '/'

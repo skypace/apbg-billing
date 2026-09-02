@@ -15,7 +15,11 @@
 // Read: anyone in Brixpense. Write: the book's creator, or staff — matching
 // the RLS, which is the real gate.
 
-import { opsGet, opsInsert, opsPatch, srHeaders, requireBrixpense } from './lib/ap-inbox.mjs';
+// ⚠ Accounts-payable only. `?candidates` returns EVERY expense_request through the
+// service role, so requireBrixpense here meant any staff login could list the
+// whole company's expenses regardless of what the RLS said — the same leak the
+// policies were tightened to close, through a second door.
+import { opsGet, opsInsert, opsPatch, srHeaders, requireApAdmin } from './lib/ap-inbox.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 
 const LINE_COLS = 'id,vendor_name,bill_number,total_amount,receipt_date,status,tag,job_number,'
@@ -131,7 +135,7 @@ async function loadBookLines(bookId) {
 }
 
 export default async function handler(req) {
-  const auth = await requireBrixpense(req);
+  const auth = await requireApAdmin(req);
   if (!auth.ok) return auth.response;
   const isStaff = auth.isStaff;
   const me = auth.user?.email || null;

@@ -15,12 +15,16 @@
 //                              sender rules) without a deploy.
 // POST {action:'check'}      → is the pipeline actually armed?
 //
-// Everyone in Brixpense, via requireBrixpense — the same predicate as the RLS.
+// Accounts-payable only, via requireApAdmin (ops.expense_people.ap_admin) — the
+// same row the RLS reads. This used to be requireBrixpense, which answers from
+// the gateway's superadmin flag, so every staff login saw the whole company's
+// vendor bills. This endpoint reads with the SERVICE ROLE, so the gate is the
+// only thing standing here — RLS does not apply.
 
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import {
   AP_TAG, opsGet, opsPatch, loadApInboxSettings, inboundSecrets, srHeaders,
-  requireBrixpense, archivePlan, restorePlan,
+  requireApAdmin, archivePlan, restorePlan,
 } from './lib/ap-inbox.mjs';
 import { inboundResendKey, inboundKeyIsFallback } from './lib/resend-inbound.mjs';
 
@@ -136,7 +140,7 @@ export default async function handler(req) {
   // mail is everybody's problem (Sky, 2026-08-23). Same predicate as the RLS
   // on ops.bill_email_intake, so the API and the database agree by
   // construction rather than by two hand-maintained role lists.
-  const auth = await requireBrixpense(req);
+  const auth = await requireApAdmin(req);
   if (!auth.ok) return auth.response;
 
   const settings = await loadApInboxSettings();

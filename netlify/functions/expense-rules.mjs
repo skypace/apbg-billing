@@ -10,7 +10,11 @@
 //
 // Read: anyone in Brixpense. Write: staff — matching the RLS.
 
-import { opsGet, opsInsert, opsPatch, requireBrixpense } from './lib/ap-inbox.mjs';
+// ⚠ Accounts-payable only. Bill rules decide the GL coding on emailed vendor
+// bills, and the dry-run replays a draft rule against the last 100 REAL
+// expenses (vendor, amount, account) through the service role — so the Test
+// button was a company-wide expense read for anyone with Brixpense access.
+import { opsGet, opsInsert, opsPatch, requireApAdmin } from './lib/ap-inbox.mjs';
 import { pickRule, ruleMatches, applyRule, recurringNote } from './lib/expense-rules.mjs';
 
 const PERIODS = ['weekly', 'monthly', 'quarterly', 'annual'];
@@ -71,7 +75,7 @@ function validate(row) {
 }
 
 export default async function handler(req) {
-  const auth = await requireBrixpense(req);
+  const auth = await requireApAdmin(req);
   if (!auth.ok) return auth.response;
   const isStaff = auth.isStaff;
 

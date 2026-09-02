@@ -31,6 +31,7 @@
     "expense_bucket_types",
     "expense_buckets",
     "expense_card_map",
+    "expense_people",
     "expense_request_approvals",
     "expense_request_attachments",
     "expense_requests",

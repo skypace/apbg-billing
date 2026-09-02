@@ -6,7 +6,10 @@
 // NO_VENDOR_IN_SF). No writes, no emails. Superadmin Bearer or the one-off
 // x-list-secret (SF_AUTOPOST_LIST_SECRET).
 
-import { requireAuth } from './lib/auth.mjs';
+// Accounts-payable only. Service Fusion rows are the company's vendor bills, not
+// anybody's personal expenses, so they follow ops.expense_people.ap_admin — the
+// same row the RLS on expense_requests reads.
+import { requireApAdmin } from './lib/ap-inbox.mjs';
 import { findQBOVendor } from './lib/qbo-vendor-match.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 
@@ -22,7 +25,7 @@ export default async function handler(req) {
   const listSecret = req.headers.get('x-list-secret') || '';
   const listSecretOk = listSecret && process.env.SF_AUTOPOST_LIST_SECRET && listSecret === process.env.SF_AUTOPOST_LIST_SECRET;
   if (!listSecretOk) {
-    const auth = await requireAuth(req);
+    const auth = await requireApAdmin(req);
     if (!auth.ok) return auth.response;
   }
   try {
