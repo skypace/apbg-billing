@@ -7,8 +7,8 @@ import {
 } from '../../lib/production';
 import { ProductFormula } from '../../lib/formulas';
 import {
-  BatchBasis, CaseRequirement, BomSyncResult,
-  fetchBatchBasis, fetchCaseRequirements, syncBomFromFormula,
+  BatchBasis, CaseRequirement, BomSyncResult, BomPreflight,
+  fetchBatchBasis, fetchCaseRequirements, syncBomFromFormula, fetchBomPreflight,
 } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
@@ -175,6 +175,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   const [recipeLines, setRecipeLines] = useState<ProductBomLine[]>([]);
   const [reqs, setReqs] = useState<CaseRequirement[] | null>(null);
   const [basis, setBasis] = useState<BatchBasis | null>(null);
+  const [preflight, setPreflight] = useState<BomPreflight | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -249,6 +250,17 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   // The recipe preview reads the SAME function the rebuild and the work order
   // read, so what is shown here is what will be ordered — not a second copy of
   // the arithmetic that can drift from it.
+  // The pre-flight answers "how many POs, to whom, and what would stop them".
+  // It is about the whole BOM, so it runs whether or not a formula is attached.
+  useEffect(() => {
+    if (!bom) { setPreflight(null); return; }
+    let alive = true;
+    fetchBomPreflight(bom.id)
+      .then((p) => { if (alive) setPreflight(p); })
+      .catch(() => { if (alive) setPreflight(null); });
+    return () => { alive = false; };
+  }, [bom]);
+
   useEffect(() => {
     if (!bom || !formulaId) { setReqs(null); return; }
     let alive = true;
@@ -276,6 +288,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
       const all = await fetchBomLines(bom.id);
       setRecipeLines(all.filter((l) => l.source === 'formula'));
       setBasis(await fetchBatchBasis(bom.id).catch(() => null));
+      setPreflight(await fetchBomPreflight(bom.id).catch(() => null));
       for (const w of res.warnings ?? []) toast.info(w);
       onSaved();
     } catch (e) { toast.error(errMsg(e)); }
@@ -333,6 +346,52 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             <input type="number" min={0} step="any" style={inp()} value={ozPerCan} onChange={(e) => setOzPerCan(e.target.value)} />
           </LField>
         </div>
+
+        {preflight && (
+          <div style={{
+            marginTop: 16, padding: 12, border: '1px solid var(--bd)', borderRadius: 5,
+            background: 'rgba(255,255,255,0.02)',
+          }}>
+            <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
+              Who gets a purchase order · {preflight.po_count} PO{preflight.po_count === 1 ? '' : 's'} per run
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
+              {preflight.vendors.map((v) => (
+                <div key={v.qbo_vendor_id ?? 'none'} style={{
+                  padding: 9, borderRadius: 4, background: 'rgba(255,255,255,0.03)',
+                  border: v.qbo_vendor_id ? '1px solid transparent' : '1px solid var(--am)',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: v.qbo_vendor_id ? 'var(--tx)' : 'var(--am)' }}>
+                    {v.vendor_name}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3, lineHeight: 1.6 }}>
+                    {v.items.join(' · ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {preflight.blockers.length > 0 && (
+              <div style={{
+                marginTop: 9, padding: 9, borderRadius: 4,
+                background: 'rgba(245,158,11,0.10)', border: '1px solid var(--am)', fontSize: 11, lineHeight: 1.7,
+              }}>
+                <strong style={{ color: 'var(--am)' }}>
+                  {preflight.blockers.length} line{preflight.blockers.length === 1 ? '' : 's'} would stop the
+                  purchase order reaching QuickBooks
+                </strong>
+                {preflight.blockers.map((b) => (
+                  <div key={b.qbo_item_id} style={{ marginTop: 4, color: 'var(--mt)' }}>
+                    <span style={{ color: 'var(--tx)' }}>{b.item_name}</span> — {b.detail}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
+              A run raises one purchase order per vendor on this list. The ingredients are not counted here —
+              they ride under the flavour's gallon line as detail, so they never become a PO line of their own.
+            </div>
+          </div>
+        )}
 
         {!isNew && (
           <div style={{

@@ -11,7 +11,7 @@ import {
 import {
   ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
 } from '../../lib/formulas';
-import { BatchPlan, createProductionPo, fetchBatchPlan } from '../../lib/rawMaterials';
+import { BatchPlan, BomPreflight, createProductionPo, fetchBatchPlan, fetchBomPreflight } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
@@ -228,6 +228,7 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
   const [notes, setNotes] = useState('');
   const [bomLines, setBomLines] = useState<ProductBomLine[] | null>(null);
   const [plan, setPlan] = useState<BatchPlan | null>(null);
+  const [preflight, setPreflight] = useState<BomPreflight | null>(null);
   const [saving, setSaving] = useState(false);
 
   const bom = boms.find((b) => b.id === bomId) ?? null;
@@ -281,6 +282,18 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
     }, 250);
     return () => { alive = false; clearTimeout(h); };
   }, [bomId, qty]);
+
+  // Which vendors this run will raise a PO for, and anything that would stop
+  // one reaching QuickBooks. Not debounced -- it depends on the BOM, not the
+  // quantity, so it runs once when the flavour is picked.
+  useEffect(() => {
+    if (!bomId) { setPreflight(null); return; }
+    let alive = true;
+    fetchBomPreflight(bomId)
+      .then((p) => { if (alive) setPreflight(p); })
+      .catch(() => { if (alive) setPreflight(null); });
+    return () => { alive = false; };
+  }, [bomId]);
 
   const materialsPreview = useMemo(() => {
     if (!bomLines || !(Number(qty) > 0)) return [];
@@ -396,6 +409,38 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
           background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)', borderRadius: 4, color: 'var(--am)',
         }}>
           This BOM has no formula / spec sheet linked. Link one in the BOMs tab so the batching sheet can drive production.
+        </div>
+      )}
+
+      {preflight && (
+        <div style={{
+          marginTop: 12, padding: 10, border: '1px solid var(--bd)', borderRadius: 5,
+          background: 'rgba(255,255,255,0.02)', fontSize: 11, lineHeight: 1.7,
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
+            This run raises {preflight.po_count} purchase order{preflight.po_count === 1 ? '' : 's'}
+          </div>
+          {preflight.vendors.map((v) => (
+            <div key={v.qbo_vendor_id ?? 'none'}>
+              <strong style={{ color: v.qbo_vendor_id ? 'var(--tx)' : 'var(--am)' }}>{v.vendor_name}</strong>
+              <span style={{ color: 'var(--mt)' }}> — {v.items.join(' · ')}</span>
+            </div>
+          ))}
+          {preflight.blockers.length > 0 && (
+            <div style={{
+              marginTop: 7, padding: 8, borderRadius: 4,
+              background: 'rgba(245,158,11,0.10)', border: '1px solid var(--am)',
+            }}>
+              <strong style={{ color: 'var(--am)' }}>
+                Fix before pushing to QuickBooks
+              </strong>
+              {preflight.blockers.map((b) => (
+                <div key={b.qbo_item_id} style={{ marginTop: 3, color: 'var(--mt)' }}>
+                  <span style={{ color: 'var(--tx)' }}>{b.item_name}</span> — {b.detail}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

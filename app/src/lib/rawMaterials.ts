@@ -201,6 +201,38 @@ export async function syncBomFromFormula(bomId: string): Promise<BomSyncResult> 
 }
 
 /** The derived per-case geometry, and whether the ingredients agree with it. */
+/**
+ * What a run off this BOM will actually raise, and anything that would stop it.
+ *
+ * Two questions that used to need a work order to answer: how many purchase
+ * orders and to whom, and whether a component points at a QuickBooks item that
+ * has been deactivated. The second one does not fail in Refractor -- the PO
+ * writes fine -- it fails at the QuickBooks push, so it is asked here instead.
+ */
+export interface PreflightVendor {
+  qbo_vendor_id: string | null;
+  vendor_name: string;
+  line_count: number;
+  items: string[];
+}
+
+export interface PreflightBlocker {
+  kind: 'inactive_in_qbo' | 'no_vendor';
+  qbo_item_id: string;
+  item_name: string;
+  detail: string;
+}
+
+export interface BomPreflight {
+  po_count: number;
+  vendors: PreflightVendor[];
+  blockers: PreflightBlocker[];
+}
+
+export async function fetchBomPreflight(bomId: string): Promise<BomPreflight> {
+  return sbrpc<BomPreflight>('fn_bom_preflight', { p_bom_id: bomId });
+}
+
 export async function fetchBatchBasis(bomId: string): Promise<BatchBasis> {
   return sbrpc<BatchBasis>('fn_formula_batch_basis', { p_bom_id: bomId });
 }

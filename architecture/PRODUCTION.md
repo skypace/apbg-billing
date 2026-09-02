@@ -26,8 +26,7 @@ WORK ORDER  ("make 500 cases")
 PURCHASE ORDERS  — ONE PER VENDOR, generated from the work order
    │  AC Calderoni  → N gallons of CONCENTRATE, with the ingredient
    │                  breakdown printed underneath (see The roll-up)
-   │  Quantum Canning → fill labour, pack off
-   │  Craft Beverage Packaging → cans, trays
+   │  Quantum Canning → cans, tray, fill labour, pack off
    ▼
 PRODUCTION  at the co-packer: materials land → consume → record yield
    │  the yield rate is per flavour and lives on the formula
@@ -194,6 +193,37 @@ no measured per-case cost, only an estimate nobody weighed.
 `purchase_orders.po_kind` keeps them apart (`materials` vs `production`). Summing
 them as spend double-counts the whole batch.
 
+## The pre-flight — which vendor gets which PO
+
+`ops.fn_bom_preflight(bom_id)` answers two questions off the BOM, before anyone
+commits a run: **how many purchase orders this flavour raises and to whom**, and
+**anything that would stop one reaching QuickBooks**. It renders on the BOM
+editor and again on the work-order form.
+
+Today every case BOM is exactly **two** materials POs:
+
+| Vendor | Lines |
+|---|---|
+| **AC Calderoni** (1099) | the flavour's 1-gallon concentrate — with the ingredients filed underneath as detail |
+| **Quantum Canning** (1744) | 24 printed cans · 1 sleek tray · 24 × fill labour · 24 × pack off |
+
+⚠ **The ingredients are deliberately not counted as POs.** They ride under the
+gallon line and never become a PO line of their own — that is the whole point of
+the roll-up, so a pre-flight that counted them would contradict it.
+
+⚠ **A deactivated QuickBooks item is a blocker, not a warning.** Refractor will
+write the PO happily; the push is what fails, which is the worst moment to find
+out. So it is asked here instead. A line with no vendor is the same shape —
+`fn_wo_generate_pos` already raises on it.
+
+**Why cans and trays are Quantum's and not Craft's.** Both vendors were on the
+BOM until 2026-09-02, which produced three POs instead of two. The billing
+history settles it: every Craft Beverage Packaging line ever booked is a monthly
+period charge — "May 2025 hours log", "Oct 20th-31st", "Dec-25", "Jan-26" — i.e.
+labour, never a can or a tray. Quantum's lines are where the can units appear:
+"Deposit - 202,000 units @ $0.31", "Cream soda cans". Craft is not a packaging
+supplier to this run.
+
 ## The accounting
 
 Everything settles through **Can Raw Materials** (QuickBooks account `294`),
@@ -252,20 +282,21 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    is now the master price and the ingredient breakdown is allocated out of it,
    refreshing these from the current Calderoni sheet is the single highest-value
    data fix left.
-2. **Six of seven BOMs have no empty-can line.** Items `685`, `686`, `688`,
-   `689`, `690`, `691` are INACTIVE in QuickBooks (someone deactivated them —
-   QBO appends "(deleted)" to the name); only Old Fountain's `687` is live.
-   Reactivating them is a deliberate decision about whether those can designs
-   are current, so it has been left to a human.
-3. **Cans and trays are vendored to Craft Beverage Packaging Solutions, not
-   Quantum Canning.** That is what the live BOM data says and it contradicts the
-   process as described. It is not a bug in the code — PO generation groups by
-   whatever vendor is on the line, so today a run produces three POs, not two.
-   Change the vendor on the BOM lines if the description is the correct one.
-   (The gallon line's vendor WAS wrong and has been corrected: it pointed at
-   ALAMEDA SODA COMPANY PRODUCTION, and every gallon ever billed came from AC
-   CALDERONI. Alameda Soda Production remains the vendor for the finished cases
-   at the other end of the run.)
+2. **Six of the seven can items are deactivated in QuickBooks.** Items `685`,
+   `686`, `688`, `689`, `690`, `691` carry the "(deleted)" suffix QBO appends
+   when an item is made inactive; only Old Fountain's `687` is live. The BOM
+   lines are on — a case genuinely contains 24 cans and leaving the line off
+   under-states the Quantum PO by about $6 a case — and the **pre-flight**
+   (`ops.fn_bom_preflight`, shown on the BOM editor and the work-order form)
+   names them as blockers, because QuickBooks refuses a transaction that
+   references an inactive item. Reactivating them, or repointing the lines at
+   current artwork, is a decision about whether those can designs are still
+   right, so it stays with a human rather than being done silently.
+3. **The can price looks stale too.** The BOM carries $0.26. Quantum's own
+   billing says "Deposit - 202,000 units @ $0.31" (Apr 2025) and "adjusted to
+   251,988 units @ $0.37". Same shape as the gallon: worth refreshing before a
+   real run, and it is part of why a computed case costs $17.52 against the
+   $21.36 the finished-case items in QuickBooks carry.
 4. **`fn_wo_advance`'s `record_yield` still values components from
    `work_order_materials`.** With pack rounding in play that is the cost of what
    was BOUGHT rather than what was CONSUMED. For a first run they are the same
