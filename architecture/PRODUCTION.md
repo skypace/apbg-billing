@@ -193,6 +193,73 @@ no measured per-case cost, only an estimate nobody weighed.
 `purchase_orders.po_kind` keeps them apart (`materials` vs `production`). Summing
 them as spend double-counts the whole batch.
 
+## Prices and vendors — one master, one precedence
+
+`ops.production_items` is where a stocked component's **vendor and price** live —
+the flavour gallons, the printed cans, the tray, fill labour, pack-off. It is
+edited on **Production → Materials & Pricing → Purchased items & vendors**, and
+it exists because neither number could be managed anywhere sensible before:
+the price came from the QuickBooks item mirror (nightly, and stale — $0.26 a can
+against $0.31–0.37 billed) and the vendor lived on each BOM line separately, so
+moving trays to another supplier meant editing seven BOMs.
+
+Everywhere a cost or vendor is read, the precedence is:
+
+```
+BOM line override  >  production_items  >  raw_ingredients  >  QBO mirror
+```
+
+`fn_wo_create_pipeline` (what the work order prices its POs at) and
+`fn_bom_preflight` (which vendor gets which PO) both read it. **The BOM line's
+own vendor slot is now an OVERRIDE, not the default** — the migration cleared
+every line vendor that merely repeated the master, so the master actually
+governs instead of being shadowed by seven identical copies. Use the line slot
+for the genuine exception (this one flavour buys its tray elsewhere).
+
+⚠ The QuickBooks purchase cost is shown alongside for comparison and is **never
+written to** from here. A price seeded from QuickBooks carries the note "seeded
+from QuickBooks purchase cost" until somebody confirms it against the vendor's
+sheet and saves — an unconfirmed price should look unconfirmed.
+
+## The documents — PO, BOL, batching sheet, as PDFs
+
+`netlify/functions/production-doc.mjs` renders the three documents the
+pipeline produces, in the same design as The Melt system's PO and BOL
+(melt-dashboard `generate-po.mjs` / `generate-bol.mjs`): both brand marks, the
+red accent rule, company block left / document number right, grey meta blocks,
+accent table header, grand total, signatures, footer. One renderer
+(`lib/production-docs.mjs`, pure — payload in, bytes out) serves all three, so
+the batching sheet a co-packer receives looks like the PO that came with it.
+
+| Document | Source | Where |
+|---|---|---|
+| Purchase order | `purchase_orders` + lines + the ingredient detail under the gallon line | Production → Purchase Orders → open one → **View PDF / Email…** |
+| Bill of lading | `inventory_transfers` + lines, shipper/consignee from `inventory_locations` | Stock → Transfers → open one → **View BOL PDF / Email…** — Quantum ↔ Brix moves are ordinary transfers |
+| Batching sheet | formula + ingredients, scaled to a batch size or to a work order's run | Formulas → **Batching sheet PDF**; Work Orders → **Batching sheet** (sized to the run) |
+
+**Emailing is server-side and the PDF we email is the PDF we keep.** The bytes
+go to the private `production-docs` bucket first, then out as an attachment,
+and `ops.production_doc_sends` records recipients, subject, note, storage path
+and Resend id — a failed send still records what was built. The email modal
+shows what has already gone out for the same document before offering to send
+again, because the usual reason to open it twice is "did that go out?".
+
+The company identity on every document (name, address, email, web, accent
+colour, From: address) is on `ops.production_settings` and edits without a
+deploy. ⚠ `doc_from` must be a Resend-verified sender; `sendEmail()` quietly
+falls back to `alerts@alamedapointbg.com` if it is not, so a misconfiguration
+degrades rather than bounces.
+
+⚠ **Auth on the function is hub superadmin/admin**, and a `window.open` cannot
+carry a bearer — the client fetches the PDF with the token and hands the browser
+a blob URL (`lib/productionDocs.ts openDocPdf`). Same trap melt-dashboard
+documents for its admin GETs.
+
+⚠ Every string the renderer draws goes through `winAnsi()` first. pdf-lib's
+standard fonts throw on a character outside WinAnsi, and the wrap step measures
+before it draws — so a raw em dash in a vendor name would crash the render one
+line earlier than the drawing call anyone would look at (the 2026-08-31 lesson).
+
 ## The pre-flight — which vendor gets which PO
 
 `ops.fn_bom_preflight(bom_id)` answers two questions off the BOM, before anyone
@@ -301,7 +368,10 @@ service-role key and the shared QBO OAuth lease, same posture as every other
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
    blank. This no longer blocks costing a run — the gallon price does that — but
    until some are filled in, `quoted_cost` is empty and the allocated split
-   cannot be checked against anything real.
+   cannot be checked against anything real. (Stocked-component prices — cans,
+   tray, labour, gallons — now have a home of their own: Materials & Pricing →
+   Purchased items. The gallon and can prices there are still the seeded
+   QuickBooks figures until confirmed.)
 1b. **The gallon prices in QuickBooks look stale, and everything now hinges on
    them.** The 1GNS items carry $4.25–$7.44. The only 1GNS lines ever billed
    were $32–$38/gal in May 2025 (a pilot), while the current 3-gallon BIB price

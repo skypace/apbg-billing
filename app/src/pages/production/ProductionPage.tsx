@@ -33,7 +33,7 @@ type TabId = 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_o
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
-  { id: 'raw_materials',   label: 'Raw Materials'          },
+  { id: 'raw_materials',   label: 'Materials & Pricing'    },
   { id: 'boms',            label: 'Bills of Materials'     },
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },

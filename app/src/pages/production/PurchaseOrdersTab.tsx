@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, Truck, CheckCircle2 } from 'lucide-react';
+import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail } from 'lucide-react';
 import {
   PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
   closePurchaseOrder, createPurchaseOrder, fetchPoLines,
@@ -14,6 +14,8 @@ import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
 import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
+import { openDocPdf } from '../../lib/productionDocs';
+import { EmailDocModal } from './EmailDocModal';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -482,6 +484,7 @@ function PoDetailModal({
   const [lines, setLines] = useState<PurchaseOrderLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [receiving, setReceiving] = useState<Record<string, string>>({});
+  const [emailOpen, setEmailOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -670,7 +673,14 @@ function PoDetailModal({
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--bd)' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => openDocPdf({ kind: 'po', id: poId }).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
+              style={btnSecondary()} title="The branded purchase order as a PDF">
+              <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> View PDF
+            </button>
+            <button onClick={() => setEmailOpen(true)} style={btnSecondary()} title="Email the PDF to the vendor">
+              <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
+            </button>
             {canVoid && (
               <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
             )}
@@ -687,6 +697,9 @@ function PoDetailModal({
             )}
           </div>
         </div>
+        {emailOpen && (
+          <EmailDocModal ref={{ kind: 'po', id: poId }} title={'purchase order ' + po.po_number} onClose={() => setEmailOpen(false)} />
+        )}
       </div>
     </div>
   );

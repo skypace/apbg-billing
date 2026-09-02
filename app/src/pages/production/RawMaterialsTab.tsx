@@ -8,6 +8,7 @@ import {
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
+import { PurchasedItemsPanel } from './PurchasedItemsPanel';
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 function num(v: string): number | null {
@@ -144,7 +145,9 @@ export function RawMaterialsTab({ vendors, onChanged }: {
 
   return (
     <div>
-      <div className="toolbar" style={{ marginBottom: 12 }}>
+      <PurchasedItemsPanel vendors={vendors} onChanged={onChanged} />
+
+      <div className="toolbar" style={{ marginBottom: 12, marginTop: 18 }}>
         <div className="toolbar-row">
           <strong style={{ fontSize: 12.5 }}>Raw materials</strong>
           <span style={{ fontSize: 11, color: 'var(--mt)' }}>

@@ -153,6 +153,16 @@ export interface ProductionSettings {
   clearing_account_name: string | null;
   default_tank_sizes_gal: number[];
   raw_material_vendor_qbo_id: string | null;
+  // company identity printed on every PO / BOL / batch sheet
+  company_name: string;
+  company_addr1: string;
+  company_addr2: string | null;
+  company_city_state_zip: string;
+  company_phone: string | null;
+  company_email: string;
+  company_web: string;
+  doc_accent: string;
+  doc_from: string;
 }
 
 export async function fetchRawIngredients(): Promise<RawIngredient[]> {
@@ -316,4 +326,91 @@ export async function createRawMaterialItems(
     throw new Error(j.error || ('qbo-raw-materials failed: HTTP ' + res.status));
   }
   return j;
+}
+
+/**
+ * The purchased-item master: vendor + price for each stocked component the
+ * production system buys (cans, tray, fill labour, pack off, the flavour
+ * gallons). Beats the QuickBooks mirror; a BOM line's own override beats this.
+ * This is where a price or a supplier is changed -- not in QuickBooks, and not
+ * seven times across seven BOMs.
+ */
+export interface ProductionItem {
+  qbo_item_id: string;
+  qbo_vendor_id: string | null;
+  unit_cost: number | null;
+  cost_uom: string;
+  cost_note: string | null;
+  active: boolean;
+  updated_at: string;
+  // joined
+  item_name: string;
+  qbo_type: string | null;
+  qbo_active: boolean | null;
+  qbo_purchase_cost: number | null;
+  bom_count: number;
+}
+
+export async function fetchProductionItems(): Promise<ProductionItem[]> {
+  const [items, qbo, lines] = await Promise.all([
+    sbq<Omit<ProductionItem, 'item_name' | 'qbo_type' | 'qbo_active' | 'qbo_purchase_cost' | 'bom_count'>>(
+      'production_items', 'select=*&order=qbo_item_id'),
+    sbq<{ qbo_item_id: string; name: string; type: string | null; active: boolean | null; purchase_cost: number | null }>(
+      'qbo_items', 'select=qbo_item_id,name,type,active,purchase_cost'),
+    sbq<{ component_qbo_item_id: string; bom_id: string }>(
+      'product_bom_lines', 'select=component_qbo_item_id,bom_id&component_qbo_item_id=not.is.null'),
+  ]);
+  const byId = new Map(qbo.map((q) => [q.qbo_item_id, q]));
+  const boms = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!boms.has(l.component_qbo_item_id)) boms.set(l.component_qbo_item_id, new Set());
+    boms.get(l.component_qbo_item_id)!.add(l.bom_id);
+  }
+  return items.map((i) => {
+    const q = byId.get(i.qbo_item_id);
+    return {
+      ...i,
+      unit_cost: i.unit_cost == null ? null : Number(i.unit_cost),
+      item_name: q?.name ?? i.qbo_item_id,
+      qbo_type: q?.type ?? null,
+      qbo_active: q?.active ?? null,
+      qbo_purchase_cost: q?.purchase_cost == null ? null : Number(q.purchase_cost),
+      bom_count: boms.get(i.qbo_item_id)?.size ?? 0,
+    };
+  }).sort((a, b) => a.item_name.localeCompare(b.item_name));
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  return { apikey: SB_KEY, Authorization: 'Bearer ' + (await _sbToken()) };
+}
+
+export async function saveProductionItem(
+  qboItemId: string,
+  patch: Pick<ProductionItem, 'qbo_vendor_id' | 'unit_cost' | 'cost_uom' | 'cost_note' | 'active'>,
+): Promise<void> {
+  // upsert: the row may not exist yet for an item newly put on a BOM
+  const res = await fetch(SB_URL + '/rest/v1/production_items?on_conflict=qbo_item_id', {
+    method: 'POST',
+    headers: {
+      ...(await authHeaders()),
+      'Content-Type': 'application/json',
+      'Content-Profile': 'ops',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({ qbo_item_id: qboItemId, ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error('save failed (' + res.status + '): ' + (await res.text()).slice(0, 200));
+}
+
+export async function saveProductionSettings(
+  patch: Partial<Pick<ProductionSettings,
+    'company_name' | 'company_addr1' | 'company_addr2' | 'company_city_state_zip' |
+    'company_phone' | 'company_email' | 'company_web' | 'doc_accent' | 'doc_from'>>,
+): Promise<void> {
+  const res = await fetch(SB_URL + '/rest/v1/production_settings?id=eq.true', {
+    method: 'PATCH',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json', 'Content-Profile': 'ops', Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error('save failed (' + res.status + '): ' + (await res.text()).slice(0, 200));
 }

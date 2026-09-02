@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale } from 'lucide-react';
+import { Plus, X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail } from 'lucide-react';
 import {
   ProductBom, ProductBomLine, WorkOrderCosts, WorkOrderStatus, WorkOrderView,
   WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction,
@@ -12,6 +12,8 @@ import {
   ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
 } from '../../lib/formulas';
 import { BatchPlan, BomPreflight, createProductionPo, fetchBatchPlan, fetchBomPreflight } from '../../lib/rawMaterials';
+import { openDocPdf } from '../../lib/productionDocs';
+import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
@@ -676,6 +678,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   // co-pack fee actually came to. The RPC refuses before a yield is recorded —
   // until then there is no measured per-case cost, only an estimate nobody
   // weighed — and refuses a second one, so no client-side guard is needed.
+  const [emailSheet, setEmailSheet] = useState(false);
+
   const doCreateProductionPo = () => run('Production PO created', async () => {
     const res = await createProductionPo(wo.id);
     toast.info('Production PO ' + res.po_number + ' — ' + fmtNum(res.qty)
@@ -922,7 +926,18 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
         )}
 
         {/* Actions */}
+        {emailSheet && (
+          <EmailDocModal ref={{ kind: 'batch_sheet', wo_id: wo.id }}
+            title={'batching sheet · ' + wo.batch_code} onClose={() => setEmailSheet(false)} />
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <button disabled={busy} style={btnSecondary()} title="Batching sheet PDF sized to this run"
+            onClick={() => openDocPdf({ kind: 'batch_sheet', wo_id: wo.id }).catch((e) => toast.error(errMsg(e)))}>
+            <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Batching sheet
+          </button>
+          <button disabled={busy} style={btnSecondary()} title="Email the batching sheet to the co-packer" onClick={() => setEmailSheet(true)}>
+            <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email sheet…
+          </button>
           {['draft', 'ordered', 'at_copacker'].includes(wo.status) && (
             <button disabled={busy} style={btnDanger()} onClick={() => {
               const reason = prompt('Void reason? (Open POs without receipts will be voided with it.)');
