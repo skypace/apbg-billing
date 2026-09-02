@@ -441,6 +441,19 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
               ))}
             </div>
           )}
+          {(preflight.warnings ?? []).length > 0 && (
+            <div style={{
+              marginTop: 7, padding: 8, borderRadius: 4,
+              background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--bd)',
+            }}>
+              <strong style={{ color: 'var(--tx)' }}>Worth a look — this will still post</strong>
+              {preflight.warnings.map((w) => (
+                <div key={w.qbo_item_id} style={{ marginTop: 3, color: 'var(--mt)' }}>
+                  <span style={{ color: 'var(--tx)' }}>{w.item_name}</span> — {w.detail}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -224,6 +224,33 @@ labour, never a can or a tray. Quantum's lines are where the can units appear:
 "Deposit - 202,000 units @ $0.31", "Cream soda cans". Craft is not a packaging
 supplier to this run.
 
+## Item types — Service or Non-inventory, never Inventory
+
+**The rule:** everything the production system consumes is a **Service** or a
+**Non-inventory** item in QuickBooks. The only **Inventory** items are the
+finished cases that come back into the warehouse, and those already exist.
+
+| Role | QBO type | Why |
+|---|---|---|
+| Fill labour, pack off | **Service** | a charge, nothing arrives |
+| Flavour gallon, cans, tray, raw materials | **NonInventory** | consumed at the co-packer; we never count them |
+| `24P####  … CASE` (the seven finished goods) | **Inventory** | these physically arrive at Brix and are counted |
+
+An Inventory-type raw material does not fail loudly — the purchase order posts
+perfectly well — it quietly starts tracking a quantity and a valuation for
+something nobody counts, and it surfaces later as an inventory-adjustment
+problem. So the pre-flight reports it as a **warning, not a blocker**: a blocker
+stops the push and this does not, and calling it one would teach people to click
+past the category that means stop.
+
+Two places hold the line:
+
+* `ops.fn_bom_preflight` warns on any component whose QBO type is `Inventory`.
+* `qbo-raw-materials` creates every raw-material item as `NonInventory` with
+  `TrackQtyOnHand: false`, and its `restore_components` action **refuses** an
+  Inventory item outright — reviving one revives a quantity and a valuation,
+  which is an accounting decision rather than housekeeping.
+
 ## The accounting
 
 Everything settles through **Can Raw Materials** (QuickBooks account `294`),
@@ -282,16 +309,14 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    is now the master price and the ingredient breakdown is allocated out of it,
    refreshing these from the current Calderoni sheet is the single highest-value
    data fix left.
-2. **Six of the seven can items are deactivated in QuickBooks.** Items `685`,
-   `686`, `688`, `689`, `690`, `691` carry the "(deleted)" suffix QBO appends
-   when an item is made inactive; only Old Fountain's `687` is live. The BOM
-   lines are on — a case genuinely contains 24 cans and leaving the line off
-   under-states the Quantum PO by about $6 a case — and the **pre-flight**
-   (`ops.fn_bom_preflight`, shown on the BOM editor and the work-order form)
-   names them as blockers, because QuickBooks refuses a transaction that
-   references an inactive item. Reactivating them, or repointing the lines at
-   current artwork, is a decision about whether those can designs are still
-   right, so it stays with a human rather than being done silently.
+2. ~~Six of the seven can items are deactivated in QuickBooks.~~ **Closed
+   2026-09-02.** All six were **restored, not recreated** — they were already
+   `NonInventory` on the right expense account at the right cost and they carry
+   the purchase history, so a fresh near-identical item would have split that
+   history and left two confusable names in the list. Names normalised to the
+   live one's convention (`CAN <FLAVOUR> 12OZ SLEEK EMPTY`); `685` and `690`
+   needed `EMPTY` adding as well as the `(deleted)` strip. Every BOM now
+   pre-flights at 2 POs, 0 blockers.
 3. **The can price looks stale too.** The BOM carries $0.26. Quantum's own
    billing says "Deposit - 202,000 units @ $0.31" (Apr 2025) and "adjusted to
    251,988 units @ $0.37". Same shape as the gallon: worth refreshing before a

@@ -1,5 +1,5 @@
-// qbo-raw-materials v1 — create the QuickBooks items for raw ingredients.
-//
+// qbo-raw-materials v2 — QuickBooks items for raw ingredients, and restoring
+// the BOM components QuickBooks is holding inactive.
 // Every raw ingredient on a batching sheet needs a real QuickBooks item before
 // it can reach a purchase order. Until 2026-09-02 not one existed — no sugar,
 // no citric acid, no flavor — which is why each case BOM carried a single
@@ -10,6 +10,19 @@
 //   { action: 'preview' }                 → what WOULD be created. Writes nothing.
 //   { action: 'create', commit: true }    → creates them and links the ids back.
 //   optional { slugs: ['cane-sugar'] }    → limit to specific materials.
+//
+//   { action: 'restore_components' }      → every BOM component that is
+//     INACTIVE in QuickBooks: reactivate it and strip the " (deleted)" suffix
+//     QBO appends on deactivation. Preview by default; needs commit:true.
+//     optional { rename: { "685": "CAN HANGAR 25 COLA 12OZ SLEEK EMPTY" } }
+//     for a name that needs more than the mechanical suffix strip.
+//
+//     ⚠ It REFUSES an Inventory-type item, by design. Everything the
+//     production system consumes is Service or NonInventory; the only
+//     Inventory items are the finished cases that come BACK to the warehouse,
+//     and those are somebody else's to switch on. Reactivating an inventory
+//     item also revives a quantity and a valuation, which is an accounting
+//     decision, not a housekeeping one.
 //
 // This lives beside push-qbo-item rather than inside it on purpose: that
 // function is the shared item/PO pusher that pg_cron and several pages depend
@@ -157,6 +170,94 @@ async function qboFetch(sb: SupabaseClient, path: string, body?: any): Promise<a
   return res.json();
 }
 
+
+/**
+ * Bring back the BOM components QuickBooks is holding as inactive.
+ *
+ * A deactivated item is invisible to a transaction: QBO refuses any PO that
+ * references one, and it refuses it at the PUSH, long after the run was
+ * planned. Six of the seven empty-can items were in that state, which is why
+ * six case BOMs had no can line at all.
+ *
+ * Restoring beats recreating here and the difference matters: the existing
+ * items are already NonInventory, on the right expense account, at the right
+ * cost, and they carry the purchase history. A fresh near-identical item would
+ * split that history in two and leave two confusable names in the item list.
+ */
+async function restoreComponents(sb: SupabaseClient, body: any, startedAt: number) {
+  const commit = body?.commit === true;
+  const rename: Record<string, string> = (body?.rename && typeof body.rename === "object")
+    ? body.rename : {};
+
+  // Only items a BOM actually depends on. This is not a general "reactivate
+  // everything" button -- QuickBooks is full of deliberately retired items.
+  const { data: lines, error: lErr } = await sb.schema("ops")
+    .from("product_bom_lines").select("component_qbo_item_id")
+    .not("component_qbo_item_id", "is", null);
+  if (lErr) throw new Error("read product_bom_lines: " + lErr.message);
+  const ids = [...new Set((lines ?? []).map((l: any) => String(l.component_qbo_item_id)))];
+  if (!ids.length) return jsonRes({ ok: true, commit, candidates: 0, restored: [], skipped: [], failed: [] });
+
+  const restored: any[] = [], skipped: any[] = [], failed: any[] = [], planned: any[] = [];
+
+  for (const id of ids) {
+    let item: any;
+    try {
+      item = (await qboFetch(sb, "/item/" + encodeURIComponent(id)))?.Item;
+    } catch (e) {
+      failed.push({ qbo_item_id: id, error: String((e as Error).message || e) });
+      continue;
+    }
+    if (!item?.Id) { failed.push({ qbo_item_id: id, error: "not found in QBO" }); continue; }
+    if (item.Active !== false) continue; // already live, nothing to do
+
+    const currentName = String(item.Name || "");
+    // QBO appends " (deleted)" to the NAME when an item is made inactive, and
+    // does not take it off again on reactivation. Stripping it is mechanical.
+    const stripped = currentName.replace(/\s*\(deleted\)\s*$/i, "").trim();
+    const targetName = (rename[id] ?? stripped).slice(0, 100);
+
+    if (String(item.Type) === "Inventory") {
+      skipped.push({
+        qbo_item_id: id, name: currentName, type: item.Type,
+        reason: "Inventory item — reviving it revives a quantity and a valuation. "
+              + "Switch it back on in QuickBooks deliberately if that is what you mean.",
+      });
+      continue;
+    }
+
+    if (!commit) {
+      planned.push({ qbo_item_id: id, from: currentName, to: targetName, type: item.Type });
+      continue;
+    }
+
+    try {
+      const patch: any = { Id: item.Id, SyncToken: item.SyncToken, sparse: true, Active: true };
+      // Name is only sent when it actually changes: QBO enforces unique item
+      // names, so a needless rename is a needless chance of a collision.
+      if (targetName && targetName !== currentName) patch.Name = targetName;
+      const out = (await qboFetch(sb, "/item", patch))?.Item;
+      const outName = String(out?.Name ?? targetName);
+
+      await sb.schema("ops").from("qbo_items")
+        .update({ name: outName, fully_qualified_name: outName, active: true,
+                  synced_at: new Date().toISOString() })
+        .eq("qbo_item_id", id);
+
+      restored.push({ qbo_item_id: id, from: currentName, to: outName, type: String(item.Type) });
+    } catch (e) {
+      failed.push({ qbo_item_id: id, name: currentName, error: String((e as Error).message || e) });
+    }
+  }
+
+  return jsonRes({
+    ok: true, commit, candidates: ids.length,
+    restored, skipped, failed,
+    planned: commit ? undefined : planned,
+    duration_ms: Date.now() - startedAt,
+  });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return jsonRes({ ok: false, error: "POST required" }, 405);
@@ -170,9 +271,14 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "preview").trim();
-    if (action !== "preview" && action !== "create") {
+    if (action !== "preview" && action !== "create" && action !== "restore_components") {
       return jsonRes({ ok: false, error: "unknown action: " + action }, 400);
     }
+
+    if (action === "restore_components") {
+      return await restoreComponents(sb, body, startedAt);
+    }
+
     const commit = action === "create" && body?.commit === true;
     const only: string[] = Array.isArray(body?.slugs) ? body.slugs.map(String) : [];
 

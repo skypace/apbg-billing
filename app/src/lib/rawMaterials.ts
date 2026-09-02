@@ -223,10 +223,23 @@ export interface PreflightBlocker {
   detail: string;
 }
 
+/**
+ * A warning does NOT stop the push — that is the whole difference from a
+ * blocker, and worth keeping straight: calling an inventory component a
+ * blocker would teach people to click past the category that means "stop".
+ */
+export interface PreflightWarning {
+  kind: 'inventory_component';
+  qbo_item_id: string;
+  item_name: string;
+  detail: string;
+}
+
 export interface BomPreflight {
   po_count: number;
   vendors: PreflightVendor[];
   blockers: PreflightBlocker[];
+  warnings: PreflightWarning[];
 }
 
 export async function fetchBomPreflight(bomId: string): Promise<BomPreflight> {

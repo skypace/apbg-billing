@@ -386,6 +386,21 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
                 ))}
               </div>
             )}
+            {(preflight.warnings ?? []).length > 0 && (
+              <div style={{
+                marginTop: 9, padding: 9, borderRadius: 4,
+                background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--bd)', fontSize: 11, lineHeight: 1.7,
+              }}>
+                <strong style={{ color: 'var(--tx)' }}>
+                  Worth a look — this will still post
+                </strong>
+                {preflight.warnings.map((w) => (
+                  <div key={w.qbo_item_id} style={{ marginTop: 4, color: 'var(--mt)' }}>
+                    <span style={{ color: 'var(--tx)' }}>{w.item_name}</span> — {w.detail}
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
               A run raises one purchase order per vendor on this list. The ingredients are not counted here —
               they ride under the flavour's gallon line as detail, so they never become a PO line of their own.
