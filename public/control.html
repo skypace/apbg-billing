@@ -825,6 +825,11 @@ function sfCardHtml(){
 }
 function renderResqSync(s){
   const write=!!s.write_enabled;
+  // Unknown/missing resolves to the supported mode, matching normalizeAuthMode
+  // in the edge function — the panel must never imply we're on the bridge when
+  // the sync isn't, or vice versa.
+  const authMode=String(s.auth_mode||'api_key').toLowerCase()==='login'?'login':'api_key';
+  const onLogin=authMode==='login';
   const crons=Array.isArray(s.crons)?s.crons:[];
   const cronsOn=crons.length>0 && crons.every(c=>c.active);
   const tickStale=s.last_tick_at?((Date.now()-new Date(s.last_tick_at).getTime())/60000>30):true;
@@ -854,7 +859,17 @@ function renderResqSync(s){
         <button onclick="toggleResqWrite(${write})" style="${btnCss(write?'#D97706':'#475569')}">${write?'✍️ WRITE mode — click for Observe':'👁 Observe only — click to enable WRITE'}</button>
         <div style="font-size:0.72rem;color:#9CA3AF;margin-top:4px">${write?'Mutating ResQ &amp; Service Fusion.':'Reads only; records what it would do.'}</div>
       </div>
+      <div>
+        <div style="font-size:0.72rem;color:#6B7280;text-transform:uppercase;margin-bottom:6px">ResQ auth</div>
+        <button onclick="toggleResqAuth('${esc(authMode)}')" style="${btnCss(onLogin?'#D97706':'#059669')}">${onLogin?'🔑 My LOGIN (temporary) — click for API key':'🛡 API key — click to use my LOGIN'}</button>
+        <div style="font-size:0.72rem;color:${onLogin?'#B45309':'#9CA3AF'};margin-top:4px">${onLogin?'Bridge mode on ResQ&rsquo;s internal surface. Switch back when the new key arrives.':'ResQ&rsquo;s supported Vendor Integration API.'}</div>
+      </div>
     </div>
+    ${onLogin?`<div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:0.78rem;color:#92400E">
+      <strong>Running on your ResQ login, not the vendor API key.</strong> This is a temporary bridge while ResQ issues a replacement <code>resq_key_…</code>.
+      It uses ResQ&rsquo;s internal cookie/CSRF endpoints, which their documentation says may change without notice, and it authenticates as
+      <em>your user</em> rather than the org&rsquo;s API machine user &mdash; so ResQ permissions can differ. Switch back to the API key as soon as you have a new one.
+    </div>`:''}
 
     <!-- Status tiles -->
     <div class="keepalive-grid" style="margin-bottom:16px">
@@ -901,6 +916,14 @@ async function toggleResqWrite(isOn){
   const msg=isOn?'Switch to Observe mode? The sync will stop writing to ResQ/SF (reads only).':'Enable WRITE mode? The sync will start creating SF jobs, pushing photos, and submitting ResQ invoices for real.';
   if(!confirm(msg)) return;
   await postResqControl({action:'set_write',enabled:!isOn}, `Mode → ${!isOn?'WRITE':'OBSERVE'}`);
+}
+async function toggleResqAuth(current){
+  const next=(current==='login')?'api_key':'login';
+  const msg=(next==='login')
+    ? 'Switch ResQ auth to YOUR LOGIN?\n\nThis is a temporary bridge for when the vendor API key is rejected. It uses ResQ\'s internal cookie/CSRF endpoints (not their documented API) and authenticates as your user, so ResQ permissions may differ.\n\nRequires RESQ_EMAIL and RESQ_PASSWORD in the Supabase Edge Function secrets.'
+    : 'Switch ResQ auth back to the vendor API KEY?\n\nThis is ResQ\'s supported surface. If the key is still rejected, the sync will start failing again — keep LOGIN mode on until you have a new resq_key_… from ResQ.';
+  if(!confirm(msg)) return;
+  await postResqControl({action:'set_auth_mode',mode:next}, `ResQ auth → ${next==='login'?'MY LOGIN (temporary bridge)':'API KEY'}`);
 }
 async function runResqTick(){ await postResqControl({action:'run_tick'}, 'Triggered a full sync tick'); }
 async function reconcileResqSf(){
