@@ -7,6 +7,14 @@
 <meta name="description" content="APBG Master Handbook — user guides for every app plus the Operations SOP Manual.">
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<script>
+  // Runs before paint so the sidebar never flashes inside a frame.
+  try {
+    if (window.self !== window.top || /[?&]embed=1\b/.test(location.search)) {
+      document.documentElement.classList.add('embed');
+    }
+  } catch (e) { document.documentElement.classList.add('embed'); }
+</script>
 <style>
 /* Monochrome + navy (Brix) + crimson (Alameda Soda) accents.
    Apple system type. Theme: black-on-white or white-on-black,
@@ -51,6 +59,17 @@ code,pre,.brand-sub,.search-meta,.crumb,.pager .dir{font-family:"SF Mono",ui-mon
   padding:22px 18px;
 }
 .content{padding:52px 64px 110px;max-width:1080px}
+
+/* Embed mode — the viewer framed inside another APBG app (Refractor →
+   Production → Run Guide). Its own sidebar would be chrome inside chrome, and
+   "Back to the Hub" inside a frame strands a whole hub in someone's tab. The
+   chapter itself is unchanged: one guide, one source, two presentations. */
+html.embed .sidebar,
+html.embed .menu-btn,
+html.embed .scrim{display:none}
+html.embed .app{grid-template-columns:1fr}
+html.embed .content{padding:28px 40px 80px}
+@media(max-width:900px){html.embed .content{padding:20px 18px 70px}}
 
 .brand{display:flex;align-items:center;gap:12px;padding:6px 4px 18px;border-bottom:1px solid var(--border);margin-bottom:12px}
 .brand-logos{display:flex;align-items:center;gap:8px;flex-shrink:0}

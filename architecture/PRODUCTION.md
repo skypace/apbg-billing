@@ -602,6 +602,31 @@ is the same case deducted twice. It stays as the DELIVERY and per-case fee
 record — the thing a delivery PO and the "their invoice matches ours" check
 will be built on — and simply stopped being a second stock writer.
 
+## The run guide, inside the app
+
+The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**
+(`docs/handbook/`), rendered by the viewer at `public/docs/handbook/index.html`.
+**Production → Run Guide** frames that viewer rather than holding a second copy
+of the text — one guide, one source, or the two disagree the first time somebody
+edits one.
+
+Three things are worth knowing before touching it:
+
+- **The viewer has an embed mode.** Framed (or given `?embed=1`) it hides its own
+  sidebar and its *Back to the Hub* link — chrome inside chrome, and a hub link
+  inside a frame strands a whole hub in somebody's tab. The chapter renders
+  unchanged; only the viewer's furniture goes.
+- **Two different path bases, and they are not interchangeable.** The handbook is
+  at `/margin/docs/handbook/` behind the gateway and `/docs/handbook/` on the bare
+  Netlify site. The PDF is at **`/billing/production-guide/`** behind the gateway
+  and `/production-guide/` bare — `/margin/*` proxies to the Vite bundle, not to
+  the site root, so `/margin/production-guide/` is a 404. `RunGuideTab.tsx` derives
+  both from `location.pathname`; do not "tidy" them into one helper.
+- **The PDF is a committed artifact** (`public/production-guide/Brix-Production-Run-Guide.pdf`),
+  beside the screenshots the chapter already uses. It is what you hand a QC tester;
+  the online copy is the one that stays current, and the tab says so. Re-export it
+  whenever the chapter changes materially — nothing regenerates it automatically.
+
 ## Known gaps, 2026-09-02
 
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both

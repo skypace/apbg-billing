@@ -10,6 +10,12 @@ click, in order, with a picture of every screen.
 There is a **test script at the end**. If you are checking the system rather than
 running a real batch, start there and use the rest of the chapter as the map.
 
+You can reach this chapter from the application itself — **Production → Run
+Guide** — and there is a printable copy:
+**[Download the PDF](/billing/production-guide/Brix-Production-Run-Guide.pdf)**
+(22 pages). Hand the PDF to whoever is testing; this page is the copy that stays
+current, so check it before a real run.
+
 > **Screens in this chapter are the real application** with real BOM data. Your
 > numbers will differ; the buttons will not.
 
@@ -23,7 +29,7 @@ At the top of the Production page is a **lane** switch — **BIB Product** and
 decides which formulas, BOMs and work orders you see; picking the wrong one is
 the usual reason "my BOM has disappeared".
 
-Six tabs run left to right roughly in the order you use them:
+Seven tabs run left to right roughly in the order you use them:
 
 | Tab | What it is for |
 |---|---|
@@ -33,6 +39,7 @@ Six tabs run left to right roughly in the order you use them:
 | **Work Orders** | The run itself, start to finish |
 | **Purchase Orders** | The vendor POs a run raises, and receiving against them |
 | **Compliance & Safety** | Certificates and audit paperwork (not part of a run) |
+| **Run Guide** | This chapter, and the PDF — inside the app, so it is never far from the screen it describes |
 
 ---
 
