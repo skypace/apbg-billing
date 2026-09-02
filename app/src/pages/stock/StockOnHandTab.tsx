@@ -4,14 +4,14 @@ import { Search, X } from 'lucide-react';
 import { fmtNum } from '../../lib/formatters';
 import { btnSecondary } from '../../lib/styles';
 import { downloadCsv, toCsv } from '../../lib/csv';
-import { DriftRow, InventoryLocation, OnHandRow, fetchDrift } from '../../lib/inventoryControl';
+import { DriftRow, InventoryLocationView, OnHandRow, fetchDrift } from '../../lib/inventoryControl';
 import { LedgerStatusStrip } from './LedgerStatusStrip';
 import type { ItemLookup } from './StockPage';
 import { GRID_SX, GRID_DEFAULTS } from './stockStyles';
 
 interface Props {
   rows: OnHandRow[] | null;
-  locationById: Map<string, InventoryLocation>;
+  locationById: Map<string, InventoryLocationView>;
   itemLookup: ItemLookup;
   onRefresh: () => void;
 }
@@ -46,11 +46,12 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         location_kind: loc?.kind ?? 'warehouse',
         on_hand: Number(r.on_hand),
         // QuickBooks counts what we OWN, with no notion of where it sits, so
-        // the comparison only means anything on a warehouse row. On a
-        // co-packer or in-transit row it is left blank rather than repeated,
-        // which would read as that location being short.
-        qbo_qty:  loc?.kind === 'warehouse' ? (drift.get(r.qbo_item_id)?.qbo_qty ?? null) : null,
-        variance: loc?.kind === 'warehouse' ? (drift.get(r.qbo_item_id)?.drift   ?? null) : null,
+        // the comparison belongs on rows whose stock is ours -- our warehouses
+        // AND a partner holding consignment, since that is still ours until
+        // they sell it. On a co-packer or in-transit row it is left blank
+        // rather than repeated, which would read as that location being short.
+        qbo_qty:  loc?.counts_as_our_stock ? (drift.get(r.qbo_item_id)?.qbo_qty ?? null) : null,
+        variance: loc?.counts_as_our_stock ? (drift.get(r.qbo_item_id)?.drift   ?? null) : null,
       };
     });
   }, [rows, itemLookup, locationById, drift]);
@@ -121,9 +122,13 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
     },
     {
       field: 'qbo_qty',
-      headerName: 'QuickBooks',
+      // QuickBooks has no notion of location, so both of these describe the
+      // ITEM, not the row. The headers say so: on an item held in two places
+      // the same total appears twice, and without "item" in the name a reader
+      // could reasonably add the two variances together.
+      headerName: 'QB item total',
       type: 'number',
-      width: 110,
+      width: 125,
       cellClassName: 'mn',
       renderCell: (p) => (p.value == null
         ? <span style={{ color: 'var(--mt)' }}>—</span>
@@ -131,7 +136,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
     },
     {
       field: 'variance',
-      headerName: 'Variance',
+      headerName: 'Item variance',
       type: 'number',
       width: 110,
       cellClassName: 'mn',
@@ -146,7 +151,8 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
 
   function exportCsv() {
     if (filtered.length === 0) return;
-    const head = ['Item', 'Item ID', 'Location Code', 'Location Name', 'Kind', 'On Hand', 'QuickBooks', 'Variance'];
+    const head = ['Item', 'Item ID', 'Location Code', 'Location Name', 'Kind', 'On Hand',
+      'QB item total', 'Item variance'];
     const data = filtered.map((r) => [
       r.item_name, r.qbo_item_id, r.location_code, r.location_name, r.location_kind, r.on_hand,
       r.qbo_qty ?? '', r.variance ?? '',

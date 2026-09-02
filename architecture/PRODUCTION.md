@@ -500,19 +500,48 @@ post a second time. It is a hard stop rather than a warning on purpose: an
 amber notice on a screen that is about to double-count a batch is one somebody
 clicks past.
 
-### Two things about the drift view worth knowing before leaning on it
+### Ownership is not a kind of building
 
-- `brix_qty` sums every location of kind `warehouse`, which today includes
-  CRAFT-COFFEE-SVCS, DESERT-BEVERAGE and ORIGINS-CRAFT-SODA. All three are
-  empty, and consignment stock we still own arguably belongs in the total —
-  but note that **DESERT-BEVERAGE / ORIGINS-CRAFT-SODA (kind `warehouse`) and
-  DESERTBEV / ORIGINS (kind `distributor`) are the same two partners entered
-  twice under different kinds.** Which pair is live is a question for an
-  operator, not something to guess at in code.
-- **Two different screens say "inventory" and only one of them was ever
-  stale.** *Inventory Planning* (reorder, velocity) reads `fn_items_master` →
-  QuickBooks' own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always
-  current. *Stock → On-Hand* reads this ledger. Do not conflate them.
+⚠ `inventory_locations.kind` was answering two unrelated questions at once:
+*what sort of place is this* (a building, a truck, a virtual counter) and
+*does the stock in it still count as ours*. That is why Desert Beverage and
+Origins — each a **warehouse we ship to** and a **distributor we have terms
+with** — ended up entered twice, once under each kind, and why neither entry
+was right on its own.
+
+They are one place. `ops.v_inventory_locations` separates the two questions:
+
+| | |
+|---|---|
+| `is_physical` | Somewhere stock can actually sit. False for TRANSIT and the adjustment counter. |
+| `counts_as_our_stock` | Ours: our own warehouses always; a partner's site **only while the agreement is consignment** |
+
+**Ownership comes from `ops.sub_distributors.model`, never from the kind.** On
+consignment the stock is still ours until the partner sells it — which is
+exactly why QuickBooks keeps counting it in `qty_on_hand`, so it belongs in the
+comparison. On sell-in they own it the moment it ships, QuickBooks drops it,
+and it stops counting **by itself**. A boolean copied onto the location would
+be a second home for one fact, and would disagree with it the first time
+somebody changed one.
+
+⚠ **It fails closed.** A distributor location with no partner record, or one on
+any model but consignment, does **not** count as ours. Get this backwards and
+the failure is silent: over-counting our side *cancels* real drift and shows
+green, while under-counting shows as drift and someone goes and looks.
+
+The duplicates (`DESERT-BEVERAGE`, `ORIGINS-CRAFT-SODA`) are deactivated, not
+deleted — a location id is the kind of thing an old document points at. There
+was nothing to merge: both had zero movements, zero transfers, were no
+partner's site, no item's default receiving location, and on no work order or
+PO. **`CRAFT-COFFEE-SVCS` is deliberately left alone** — unlike those two it
+has no partner record to fall back on, so whether it is a sub-distributor or a
+dead name is an operator's question.
+
+### Two screens say "inventory" and only one was ever stale
+
+*Inventory Planning* (reorder, velocity) reads `fn_items_master` → QuickBooks'
+own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always current.
+*Stock → On-Hand* reads this ledger. Do not conflate them.
 
 ### What still has no feed
 
@@ -521,8 +550,16 @@ self-maintaining: a sale still does not decrement it and an ordinary purchase
 still does not increment it. **The production pipeline is its first real
 feed** — a run consumes materials, records a yield, ships a BOL and receives
 finished cases, all as movements — and the first live run is what proves it.
-Until other feeds exist, the honest workflow is to reconcile when the strip
-says to, and to read the strip before trusting a number.
+
+⚠ **How fast it goes stale is now measured, not guessed.** The 2026-09-02
+re-seed left the ledger at zero drift at 09:02 UTC. By 16:30 the QuickBooks
+mirror had pulled in the day's real invoices and the ledger was **176 units
+behind across 24 items** — seven hours, because stock shipped and nothing told
+the ledger. The strip caught it the same afternoon, which is the feature
+working; but it also means **reconciling by hand is a stopgap, not the
+answer.** The sales feed (`ops.qbo_invoice_lines` → shipment movements) is the
+next build, and until it exists the honest workflow is to read the strip before
+trusting a number and reconcile when it says to.
 
 ## Known gaps, 2026-09-02
 

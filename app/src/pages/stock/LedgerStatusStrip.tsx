@@ -81,6 +81,14 @@ export function LedgerStatusStrip({ onReconciled }: { onReconciled: () => void }
           )}
           {' '}Last movement <strong>{ago(status.last_movement_at)}</strong>
           {' · '}{fmtNum(status.movement_count)} in the ledger.
+          {Number(status.qty_on_consignment) !== 0 && (
+            <>
+              {' '}<span style={{ color: 'var(--mt)' }}>
+                {fmtNum(Number(status.qty_on_consignment))} of that is at a partner on
+                consignment — still ours until they sell it, so it counts here.
+              </span>
+            </>
+          )}
           {blocked && (
             <>
               {' '}<span style={{ color: 'var(--am)' }}>

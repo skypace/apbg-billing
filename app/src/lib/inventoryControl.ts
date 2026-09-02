@@ -133,9 +133,12 @@ export interface OnHandRow {
 
 // ── Reads ────────────────────────────────────────────────────────────────
 
-export async function fetchLocations(): Promise<InventoryLocation[]> {
-  return sbq<InventoryLocation>(
-    'inventory_locations',
+// Reads go through the view so callers get `counts_as_our_stock` without
+// re-deriving it; writes still go to the table (createLocation/updateLocation).
+// A view cannot drift from what it derives, which a copied boolean would.
+export async function fetchLocations(): Promise<InventoryLocationView[]> {
+  return sbq<InventoryLocationView>(
+    'v_inventory_locations',
     'select=*&order=is_active.desc,name.asc',
   );
 }
@@ -166,6 +169,26 @@ export async function fetchMovements(limit = 500): Promise<InventoryMovement[]> 
     'inventory_movements',
     `select=*&order=occurred_at.desc&limit=${limit}`,
   );
+}
+
+/**
+ * A location, plus the two questions `kind` was conflating.
+ *
+ * `kind` answers "what sort of place is this" — a building, a truck, a virtual
+ * counter. It was ALSO being read as "does the stock here belong to us", which
+ * is why a partner who is both a warehouse and a distributor had nowhere to
+ * live. Ownership is a commercial fact and comes from the partner's model:
+ * consignment stock is still ours until they sell it (which is why QuickBooks
+ * keeps counting it), sell-in stock is theirs the moment it ships.
+ */
+export interface InventoryLocationView extends InventoryLocation {
+  /** A real place stock can sit. False for TRANSIT and the adjustment counter. */
+  is_physical: boolean;
+  /** Counts toward the QuickBooks comparison. */
+  counts_as_our_stock: boolean;
+  partner_code: string | null;
+  partner_name: string | null;
+  partner_model: string | null;
 }
 
 export async function fetchOnHand(): Promise<OnHandRow[]> {
@@ -329,13 +352,18 @@ export interface LedgerStatus {
   abs_drift: number;
   /** At a co-packer or on a truck. Non-zero blocks a reconcile — see below. */
   qty_away_from_warehouse: number;
+  /** Ours, but sitting at a partner on consignment. Counted in the comparison. */
+  qty_on_consignment: number;
 }
 
 export interface DriftRow {
   qbo_item_id: string;
   item_name: string;
   qbo_qty: number;
+  /** Everything that is ours, wherever it sits: our warehouses + consignment. */
   brix_qty: number;
+  brix_warehouse_only: number;
+  brix_consigned: number;
   brix_in_transit: number;
   drift: number;
   track_locations: boolean;
@@ -360,7 +388,8 @@ export async function fetchLedgerStatus(): Promise<LedgerStatus | null> {
 export async function fetchDrift(): Promise<DriftRow[]> {
   return sbq<DriftRow>(
     'v_inventory_drift',
-    'select=qbo_item_id,item_name,qbo_qty,brix_qty,brix_in_transit,drift,track_locations'
+    'select=qbo_item_id,item_name,qbo_qty,brix_qty,brix_warehouse_only,brix_consigned,'
+    + 'brix_in_transit,drift,track_locations'
     + '&or=(track_locations.eq.true,brix_qty.neq.0)&order=item_name.asc',
   );
 }
