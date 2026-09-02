@@ -310,3 +310,71 @@ export async function recordAdjustment(args: {
     p_occurred_at: args.occurred_at ?? null,
   });
 }
+
+// ── Reconciling to QuickBooks ────────────────────────────────────────────
+//
+// The division of labour: QuickBooks owns HOW MANY of a thing we hold; this
+// ledger owns WHERE it is. So drift means our warehouse total has come adrift
+// from QuickBooks, and a reconcile posts the correcting movement rather than
+// rewriting history.
+//
+// This exists because the ledger sat frozen from 2026-05-14 to 2026-09-02 --
+// 31 of 34 tracked items adrift, 3,345 units -- with nothing on any screen
+// saying so. The numbers below are what stop that happening quietly again.
+
+export interface LedgerStatus {
+  movement_count: number;
+  last_movement_at: string | null;
+  items_drifting: number;
+  abs_drift: number;
+  /** At a co-packer or on a truck. Non-zero blocks a reconcile — see below. */
+  qty_away_from_warehouse: number;
+}
+
+export interface DriftRow {
+  qbo_item_id: string;
+  item_name: string;
+  qbo_qty: number;
+  brix_qty: number;
+  brix_in_transit: number;
+  drift: number;
+  track_locations: boolean;
+}
+
+export interface ReconcilePreviewRow {
+  qbo_item_id: string;
+  item_name: string;
+  qbo_qty: number;
+  brix_qty: number;
+  drift: number;
+  applied: boolean;
+}
+
+export async function fetchLedgerStatus(): Promise<LedgerStatus | null> {
+  const rows = await sbq<LedgerStatus>('v_inventory_ledger_status', 'select=*&limit=1');
+  return rows[0] ?? null;
+}
+
+/** Only the rows worth showing: something we track by location, or something
+ *  carrying a balance we did not expect it to have. */
+export async function fetchDrift(): Promise<DriftRow[]> {
+  return sbq<DriftRow>(
+    'v_inventory_drift',
+    'select=qbo_item_id,item_name,qbo_qty,brix_qty,brix_in_transit,drift,track_locations'
+    + '&or=(track_locations.eq.true,brix_qty.neq.0)&order=item_name.asc',
+  );
+}
+
+/** Preview by default. `commit` writes one correcting movement per drifting
+ *  item — and the server REFUSES outright while any stock is at a co-packer or
+ *  in transit, because those units are not warehouse drift and adjusting them
+ *  in would double-count the batch when it is received. */
+export async function reconcileInventoryBulk(
+  reason: string | null,
+  commit: boolean,
+): Promise<ReconcilePreviewRow[]> {
+  return sbrpc<ReconcilePreviewRow[]>('fn_reconcile_inventory_bulk', {
+    p_reason: reason,
+    p_commit: commit,
+  });
+}

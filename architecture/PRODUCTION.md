@@ -441,6 +441,89 @@ Backed by the `qbo-raw-materials` edge function (`verify_jwt=false`, gated by th
 service-role key and the shared QBO OAuth lease, same posture as every other
 `qbo-*` function on this project).
 
+## The stock ledger, and what it is actually for
+
+**QuickBooks owns HOW MANY of a thing we hold. This ledger owns WHERE it is.**
+That one sentence decides everything else here, and it is the reason the ledger
+is not — and must not become — a second copy of QuickBooks' quantities.
+
+QuickBooks has no notion of place. It cannot tell you that 500 cases are on a
+truck between Frederick and Alameda, or that 12,000 cans are sitting at
+Quantum waiting to be filled. `ops.inventory_movements` can, and that is its
+whole job: a co-packer move, a BOL, a lot's traceability, a sub-distributor's
+consignment. Where the two overlap — the total on the warehouse floor — they
+must agree, and `ops.v_inventory_drift` is what says whether they do.
+
+### What went wrong, and what it cost
+
+The ledger was seeded once on **2026-05-14** — 49 movements, every one an
+`adjustment`, 5,631 units into BRIX-WAREHOUSE — and then nothing moved it for
+**111 days**. Nothing fed it: no sale decremented it, no ordinary purchase
+incremented it, and the production pipeline that would have was not yet run.
+QuickBooks meanwhile carried on, so by 2026-09-02 **31 of the 34
+location-tracked items had drifted, 3,345 units in absolute terms**. Oaktown
+Root Beer cases read **1,198 here against 249 in QuickBooks**.
+
+⚠ **The drift was not the defect. The silence was.** The On-Hand grid printed
+those numbers with no date beside them and no comparison to anything, so a
+number 111 days stale looked exactly like one counted that morning. A quantity
+with no date cannot be judged, and nobody could have known to distrust it.
+
+⚠ **The machinery to detect and fix this already existed and had never been
+used.** `ops.v_inventory_drift` and `ops.fn_reconcile_inventory_to_qbo` were
+live on the database with **no migration file and no caller anywhere in the
+repo**. Migration `20260902v` wrote them down as they stood, added
+`ops.v_inventory_ledger_status` and a bulk entry point, and put all of it on
+the screen.
+
+### Reconciling
+
+A reconcile **corrects, it never rewrites**: one new movement per drifting
+item, dated today, carrying its reason and both numbers. The May seed stays in
+history. A ledger you can edit is not a ledger, and the movement that explains
+a 949-case correction is worth more later than a tidy balance is now.
+
+| | |
+|---|---|
+| `ops.v_inventory_drift` | Per item: what QuickBooks says, what our warehouses say, the difference |
+| `ops.v_inventory_ledger_status` | The one-line answer: when it last moved, how many items disagree, by how much |
+| `ops.fn_reconcile_inventory_to_qbo(item)` | Fix one item |
+| `ops.fn_reconcile_inventory_bulk(reason, commit)` | Fix all of them; **preview by default**, `commit` writes |
+
+⚠ **The bulk reconcile REFUSES while any stock is at a co-packer or in
+transit, and this is the part a later edit will want to soften.** The drift
+view measures QuickBooks against **warehouse-kind locations only** — goods at
+Quantum or on a truck are counted separately, deliberately. So mid-run every
+one of those cases reads as warehouse drift, and reconciling would post
+adjustments inventing stock we have not received, which the receipt would then
+post a second time. It is a hard stop rather than a warning on purpose: an
+amber notice on a screen that is about to double-count a batch is one somebody
+clicks past.
+
+### Two things about the drift view worth knowing before leaning on it
+
+- `brix_qty` sums every location of kind `warehouse`, which today includes
+  CRAFT-COFFEE-SVCS, DESERT-BEVERAGE and ORIGINS-CRAFT-SODA. All three are
+  empty, and consignment stock we still own arguably belongs in the total —
+  but note that **DESERT-BEVERAGE / ORIGINS-CRAFT-SODA (kind `warehouse`) and
+  DESERTBEV / ORIGINS (kind `distributor`) are the same two partners entered
+  twice under different kinds.** Which pair is live is a question for an
+  operator, not something to guess at in code.
+- **Two different screens say "inventory" and only one of them was ever
+  stale.** *Inventory Planning* (reorder, velocity) reads `fn_items_master` →
+  QuickBooks' own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always
+  current. *Stock → On-Hand* reads this ledger. Do not conflate them.
+
+### What still has no feed
+
+The re-seed makes the ledger true as of 2026-09-02. It does not make it
+self-maintaining: a sale still does not decrement it and an ordinary purchase
+still does not increment it. **The production pipeline is its first real
+feed** — a run consumes materials, records a yield, ships a BOL and receives
+finished cases, all as movements — and the first live run is what proves it.
+Until other feeds exist, the honest workflow is to reconcile when the strip
+says to, and to read the strip before trusting a number.
+
 ## Known gaps, 2026-09-02
 
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
