@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
 import { qboQuery } from './qbo-helpers.mjs';
+import { routeForApproval } from './lib/expense-approval.mjs';
+import { brixpenseEmail, kvRow, kvTable, esc, money } from './lib/brixpense-email.mjs';
 
 // Hardcoded on purpose — the anon key is a PUBLIC client identifier per
 // Supabase's architecture (security is via RLS, not key secrecy). Same
@@ -122,6 +124,68 @@ export default async function handler(req) {
       return err('payment_account_id is required for expense receipts. Pick a "Paid with" account on the form.', 422);
     }
 
+    // APPROVAL LIMITS (Sky, 2026-09-02). Expenses used to auto-approve
+    // unconditionally. Now the submitter's own limit decides: within it, this
+    // behaves exactly as before; over it, the expense goes to the first person
+    // up their chain who can actually sign for that amount. The QBO gate is
+    // untouched either way — approval is not posting.
+    const { data: people } = await sb.schema('ops').from('expense_people')
+      .select('email,full_name,job,approval_limit,approver_email,active').eq('active', true);
+    const route = routeForApproval({
+      amount: request.total_amount,
+      submitterEmail: request.submitter_email,
+      people: people || [],
+    });
+
+    if (!route.autoApprove) {
+      // A gap is reported, never auto-approved and never parked in a queue
+      // nobody owns — an unowned approval is the failure that makes a limit
+      // worthless.
+      if (route.gap || !route.approver?.email) return err(route.reason, 422);
+
+      const { error: pendErr } = await sb.schema('ops').from('expense_requests').update({
+        status: 'pending', auto_approved: false,
+        approved_by: null, approved_at: null,
+        manager_email: route.approver.email, approval_token: null,
+      }).eq('id', requestId);
+      if (pendErr) return err('Failed to send this for approval', 500);
+      await sb.schema('ops').from('expense_approvals').insert({
+        request_id: requestId, action: 'submitted',
+        decided_by: request.submitter_email || 'submitter',
+        notes: route.reason, token_used: null,
+      });
+
+      let sentTo = null;
+      try {
+        const reviewUrl = `${SITE_URL.replace(/\/$/, '')}/expense/review/${requestId}`;
+        const html = brixpenseEmail('#F59E0B', 'Approval needed', `
+          <p style="margin:0 0 12px;color:#CBD5E1">${esc(route.reason)}</p>
+          ${kvTable([
+            kvRow('Submitted by', esc(request.submitter_name || request.submitter_email || '—')),
+            kvRow('Vendor', esc(request.vendor_name || '—')),
+            kvRow('Amount', money(request.total_amount || 0)),
+            kvRow('Date', esc(request.receipt_date || '—')),
+            ...(request.job_number ? [kvRow('Job', esc(request.job_number))] : []),
+          ].join(''))}
+          <p style="margin:18px 0 0"><a href="${reviewUrl}"
+            style="background:#F59E0B;color:#0F172A;padding:10px 18px;border-radius:6px;
+                   text-decoration:none;font-weight:600">Review it →</a></p>`);
+        const ok = await sendEmail({
+          to: route.approver.email,
+          subject: `Approval needed — ${request.vendor_name || 'expense'} ${money(request.total_amount)}`,
+          html,
+          replyTo: request.submitter_email || EMAIL_FROM,
+        });
+        if (ok) sentTo = route.approver.email;
+      } catch { /* the row is in their queue regardless; the email is a nudge */ }
+
+      return json({
+        success: true, auto_approved: false, new_status: 'pending', request_id: requestId,
+        needs_approval: true, approver: route.approver.email, notified: sentTo,
+        reason: route.reason, mode: request.as_bill ? 'bill' : 'purchase',
+      });
+    }
+
     const { error: updateErr } = await sb.schema('ops').from('expense_requests').update({
       status: 'approved', auto_approved: true,
       approved_by: 'auto', approved_at: now,
@@ -133,7 +197,7 @@ export default async function handler(req) {
       decided_by: 'system (auto-approve)',
       notes: wasAlreadyApproved
         ? 'Re-validated after edit — still awaiting manual post to QuickBooks.'
-        : 'Auto-approved — awaiting manual post to QuickBooks.',
+        : `Auto-approved (${route.reason}) — awaiting manual post to QuickBooks.`,
       token_used: null,
     });
     return json({

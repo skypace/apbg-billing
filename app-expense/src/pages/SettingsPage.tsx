@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { SelectField } from '@/components/ui/select-field';
+import { PeopleApprovals } from '@/components/PeopleApprovals';
 
 interface QboAccount {
   id: string;
@@ -542,6 +543,11 @@ export default function SettingsPage() {
       {/* ────────────────────── Organization ────────────────────── */}
       {activeTab === 'org' && isAdmin && (
         <>
+          {/* Who sees what, and who may sign for how much. First card in the
+              tab because it is the one that decides whether the rest of these
+              settings are even visible to a given person. */}
+          <PeopleApprovals />
+
           {orgErr && (
             <Card className="border-red-500/40">
               <CardContent className="p-3 text-sm text-red-300">{orgErr}</CardContent>

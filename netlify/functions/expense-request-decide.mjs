@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { canApprove, limitFor } from './lib/expense-approval.mjs';
+
 import { sendEmail, EMAIL_FROM } from './email-helpers.mjs';
+const fmtMoney = (n) => (n === null || n === undefined)
+  ? 'that amount'
+  : `$${Number(n).toFixed(2)}`;
 
 // Hardcoded — anon key is a PUBLIC client identifier per Supabase
 // architecture. Hardcoding here prevents a mis-set Netlify env var
@@ -130,6 +135,33 @@ export default async function handler(req) {
   const routedTo = String(request.manager_email || '').toLowerCase();
   if (!routedTo || routedTo !== callerEmail) {
     return err(`This request is routed to ${request.manager_email || 'no one'}, not to you (${user.email}).`, 403);
+  }
+
+  // APPROVAL LIMIT (Sky, 2026-09-02). Being the person a request is routed to
+  // is not the same as having the authority to sign for the amount — a ceiling
+  // that only the routing respects is decoration, because the routing can be
+  // wrong (a stale manager_email, a hand-edited row, an amount raised after it
+  // was sent). This is the check that actually holds it.
+  //
+  // ⚠ Deliberately applies to superadmins too. Every staff login on this
+  // project is a gateway superadmin, so exempting them would exempt everyone
+  // and there would be no ceiling at all.
+  // ⚠ isApprove, not action === 'approve' — this endpoint also accepts
+  // 'approved', so matching the literal would let a caller skip the ceiling
+  // entirely by sending the other spelling.
+  if (isApprove) {
+    const { data: me } = await supabase.from('expense_people')
+      .select('email,full_name,job,approval_limit,active').eq('email', callerEmail)
+      .eq('active', true).maybeSingle();
+    if (!canApprove(me, request.total_amount)) {
+      const lim = limitFor(me);
+      return err(
+        lim === 0
+          ? `You are not set up to approve expenses in Brixpense. Ask an admin to add you on Settings → People & approvals.`
+          : `${fmtMoney(request.total_amount)} is over your ${fmtMoney(lim)} approval limit — this has to go to whoever approves you.`,
+        403,
+      );
+    }
   }
 
   const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';

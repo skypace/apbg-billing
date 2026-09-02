@@ -279,6 +279,61 @@ export async function requireBrixpense(reqOrEvent) {
   return { ...auth, isStaff: ['superadmin', 'admin'].includes(auth.role) };
 }
 
+/**
+ * The Brixpense roster row for one login, or null.
+ *
+ * Read with the SERVICE ROLE on purpose: this is the gate itself, so it must
+ * not be subject to the policies it is deciding.
+ */
+export async function expensePerson(email) {
+  const wanted = String(email || '').trim().toLowerCase();
+  if (!wanted) return null;
+  try {
+    const rows = await opsGet(
+      `expense_people?email=eq.${encodeURIComponent(wanted)}&active=is.true&limit=1`
+      + `&select=email,full_name,job,approval_limit,approver_email,ap_admin`,
+    );
+    return rows?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gate an endpoint on "may see the company's payables".
+ *
+ * ⚠ THIS IS NOT requireBrixpense, and the difference is the whole point.
+ * requireBrixpense asks whether you are in Brixpense at all, and it answers
+ * from the GATEWAY's user_metadata.role — where all seven staff logins are
+ * 'superadmin'. Every AP surface used that, so every one of them saw every
+ * Service Fusion expense and every emailed bill.
+ *
+ * ⚠ And RLS alone cannot fix that, because these endpoints read with the
+ * service role, which bypasses RLS entirely. Tightening the policies without
+ * tightening the gates would have looked like a fix and changed nothing —
+ * expense-books?candidates would still have listed every expense in the
+ * company. The gate and the policy have to move together, and they read the
+ * same row: ops.expense_people.ap_admin.
+ */
+export async function requireApAdmin(reqOrEvent) {
+  const auth = await requireAuth(reqOrEvent, null);
+  if (!auth.ok) return auth;
+  const person = await expensePerson(auth.user?.email);
+  if (!person?.ap_admin) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          error: 'Forbidden — this is an accounts-payable view. '
+            + 'Your own expenses are in My Inbox and Expense History.',
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ...auth, person, isStaff: true, isApAdmin: true };
+}
+
 /** An internal Brixpense user by email, or null. Never a customer login. */
 export async function findInternalUser(email) {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
