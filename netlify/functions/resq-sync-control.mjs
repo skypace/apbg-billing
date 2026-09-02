@@ -5,6 +5,7 @@
 //   GET                              -> status snapshot (ops.resq_sync_status)
 //   POST { action:"set_write",  enabled:bool }  -> observe <-> write
 //   POST { action:"set_active", enabled:bool }  -> enable/disable the crons
+//   POST { action:"set_auth_mode", mode:"api_key"|"login" } -> how it authenticates to ResQ
 //   POST { action:"run_tick" }                  -> trigger one full discovery tick
 //   POST { action:"drive", codes:["R1046442"] } -> drive specific WO(s) only
 //
@@ -134,6 +135,21 @@ export async function handler(event) {
       const enabled = body.enabled === true;
       await rpc('resq_sync_set_active', { p_enabled: enabled });
       return json({ ok: true, crons_active: enabled, status: await rpc('resq_sync_status') });
+    }
+    // Switch how the sync authenticates to ResQ: 'api_key' (their supported
+    // Vendor Integration API) or 'login' (temporary bridge on RESQ_EMAIL /
+    // RESQ_PASSWORD while waiting for a replacement vendor key).
+    //
+    // Validated here AND in the RPC, which raises on anything unrecognized —
+    // a mode the panel displays must be the mode the sync actually uses, so
+    // neither layer coerces a bad value into a working one.
+    if (action === 'set_auth_mode') {
+      const mode = String(body.mode || '').trim().toLowerCase();
+      if (mode !== 'api_key' && mode !== 'login') {
+        return json({ error: "mode must be 'api_key' or 'login'" }, 400);
+      }
+      await rpc('resq_sync_set_auth_mode', { p_mode: mode });
+      return json({ ok: true, auth_mode: mode, status: await rpc('resq_sync_status') });
     }
     if (action === 'run_tick') {
       const result = await callTick({ source: `control:${auth.user?.email || 'superadmin'}` });
