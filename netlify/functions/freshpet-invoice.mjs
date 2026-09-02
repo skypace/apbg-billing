@@ -173,7 +173,7 @@ export async function handler(event) {
   try {
     // completed_pms has no city column — embed it from the linked asset via FK.
     rows = await fpGet(
-      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,visit_type,signed_at,gps_lat,gps_lng,billing_hold_at,billing_hold_outcome,assets(city,model,warranty)`, jwt);
+      `completed_pms?id=in.(${pmIds.join(',')})&select=id,store,serial,pm_date,tech_name,prev_comp,billed,added_asset,visit_type,signed_at,gps_lat,gps_lng,billing_hold_at,billing_hold_outcome,revisit_done_pm_id,assets(city,model,warranty)`, jwt);
   } catch (e) {
     return json(502, { error: 'Could not load PMs: ' + e.message });
   }
@@ -187,15 +187,28 @@ export async function handler(event) {
   //     our own remediation is not on. The tech is still paid in full (that runs
   //     off completed_pms.paid_out, which does not look at visit_type).
   const NOT_BILLABLE = { exception: 'site exception — not a billable PM', reshoot: 're-shoot — our remediation, never charged to Freshpet' };
+  // A RE-SHOOT IS NEVER BILLED, and that means the STOP, not just the new
+  // report. Excluding visit_type 'reshoot' only covers half of it: the ORIGINAL
+  // is an ordinary 'pm' row, and closing its billing hold as 'released' used to
+  // drop it straight back in here. On the 19 held lines that were never
+  // invoiced that would not have reinstated a charge, it would have CREATED one
+  // — for the very stop whose documentation we told the customer we could not
+  // stand behind. A stop we sent someone back to is not charged, full stop.
+  // Also enforced by tg_reshot_never_billed in Postgres, which refuses to set
+  // billed on such a row at all.
+  const wasReshot = r => !!r.revisit_done_pm_id;
   // A line under a live billing hold does not go out. The hold means we are not
   // standing behind that unit's documentation yet, and invoicing it anyway is
   // exactly the thing the hold exists to stop — it is checked HERE, at the last
   // step before a real QBO invoice, not only in the admin list, because that
   // list is a convenience and this is the gate.
   const onHold = r => !!r.billing_hold_at && !r.billing_hold_outcome;
-  const eligible = rows.filter(r => !r.prev_comp && !r.billed && !NOT_BILLABLE[r.visit_type] && !onHold(r));
-  const skipped = rows.filter(r => r.prev_comp || r.billed || NOT_BILLABLE[r.visit_type] || onHold(r))
+  const eligible = rows.filter(r => !r.prev_comp && !r.billed && !NOT_BILLABLE[r.visit_type]
+    && !wasReshot(r) && !onHold(r));
+  const skipped = rows.filter(r => r.prev_comp || r.billed || NOT_BILLABLE[r.visit_type]
+    || wasReshot(r) || onHold(r))
     .map(r => ({ id: r.id, store: r.store, reason: r.billed ? 'already billed'
+      : wasReshot(r) ? 're-shot stop — never charged to Freshpet (replaced by report ' + r.revisit_done_pm_id + ')'
       : onHold(r) ? 'billing hold — held pending re-documentation'
       : (NOT_BILLABLE[r.visit_type] || 'prev comp') }));
 
