@@ -44,7 +44,7 @@ function escHtml(s) {
 }
 
 const SEV_COLOR = { critical: '#B3261E', high: '#B3261E', medium: '#8A5A1A', low: '#5F6B7A' };
-const EVENT_LABEL = { opened: 'OPENED', closed: 'CLOSED', status: 'UPDATED' };
+const EVENT_LABEL = { opened: 'OPENED', closed: 'CLOSED', reopened: 'REOPENED', status: 'UPDATED' };
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders(), body: '' };
