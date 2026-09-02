@@ -330,8 +330,9 @@ export async function createRawMaterialItems(
 
 /**
  * The purchased-item master: vendor + price for each stocked component the
- * production system buys (cans, tray, fill labour, pack off, the flavour
- * gallons). Beats the QuickBooks mirror; a BOM line's own override beats this.
+ * production system buys (cans, the tolling charge, Velcorin, dunnage, the
+ * flavour gallons). Beats the QuickBooks mirror; a BOM line's own override
+ * beats this.
  * This is where a price or a supplier is changed -- not in QuickBooks, and not
  * seven times across seven BOMs.
  */

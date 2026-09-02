@@ -61,8 +61,8 @@ export interface ProductBomLine {
   sort_order: number;
   /**
    * 'formula' = written by the formula sync and owned by it — a rebuild
-   * replaces exactly these. 'manual' = a human put it there (cans, tray, fill
-   * labour, tolling) and the rebuild never touches it. The BOM editor edits
+   * replaces exactly these. 'manual' = a human put it there (cans, tolling,
+   * Velcorin, dunnage) and the rebuild never touches it. The BOM editor edits
    * ONLY manual lines; saving it re-writes just those.
    */
   source: 'manual' | 'formula';

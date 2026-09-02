@@ -69,8 +69,8 @@ Read it top to bottom:
 
 1. **Who gets a purchase order.** The pre-flight, in the grey panel. It should
    say **2 POs per run** — AC Calderoni for the syrup and the compounding fee,
-   Quantum Canning for the cans, tray, fill, Velcorin and dunnage. If it names a
-   third vendor, a component is pointed at the wrong supplier.
+   Quantum Canning for the cans, the tolling charge, Velcorin and dunnage. If it
+   names a third vendor, a component is pointed at the wrong supplier.
 2. **Blockers, in red, stop a run.** The two that happen: a component that is
    **deactivated in QuickBooks** (QuickBooks will refuse the PO push, and you
    want to know now rather than at the push) and a component with **no vendor
@@ -91,8 +91,8 @@ Read it top to bottom:
    work order however big it is. The syrup compounding fee is per run.
 
 **Rebuild from formula** re-writes only the recipe rows from the current formula.
-It never touches the sub-items you typed (cans, tray, fill, tolling) — those are
-yours.
+It never touches the sub-items you typed (cans, tolling, Velcorin, dunnage) —
+those are yours.
 
 ## Step 3 · Raise the work order
 
@@ -142,7 +142,7 @@ Go to **Production → Purchase Orders**.
 
 Open each one.
 
-![The Quantum purchase order — cans, tray, fill, Velcorin, dunnage](/billing/production-guide/11-po-detail.jpg)
+![The Quantum purchase order — cans, tolling, Velcorin, dunnage](/billing/production-guide/11-po-detail.jpg)
 
 ![The Calderoni purchase order — the syrup and the flat run fee](/billing/production-guide/11b-po-detail-calderoni.jpg)
 
@@ -296,8 +296,10 @@ it is worth more than a description.
 
 ## Things that are deliberate, not faults
 
-- **A case BOM shows a tray, cans, fill labour and dunnage but no water.** Water
-  comes out of the wall at the co-packer and is never purchased.
+- **A case BOM shows cans, a tolling charge, Velcorin and dunnage but no water.**
+  Water comes out of the wall at the co-packer and is never purchased. **And no
+  tray** — the 24-pk tray came off every BOM on 2026-09-02 because it appears on
+  no Quantum invoice; the tolling charge is taken to cover it.
 - **The ingredient list does not become PO lines.** Sugar, flavour and acid ride
   underneath the flavour's 1-gallon line as detail. Calderoni bills us per gallon
   of compounded syrup, so the gallon is the line and the ingredients are the

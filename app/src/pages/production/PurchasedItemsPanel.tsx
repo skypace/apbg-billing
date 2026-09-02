@@ -9,8 +9,8 @@ import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
  * Purchased items — what we buy, from whom, at what price.
  *
  * One row per stocked component the production system orders: the flavour
- * gallons, the printed cans, the tray, fill labour and pack-off. This is the
- * place a price or a supplier changes. It beats the QuickBooks purchase cost
+ * gallons, the printed cans, the tolling charge, Velcorin and dunnage. This is
+ * the place a price or a supplier changes. It beats the QuickBooks purchase cost
  * (which cannot be managed from QuickBooks for this purpose and goes stale) and
  * is beaten only by an explicit override on a single BOM line.
  */
@@ -122,7 +122,7 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11.5, lineHeight: 1.65 }}>
           <strong>This is where a price or a supplier changes.</strong> Every work order prices its purchase
-          orders from this table, and groups them by the vendor set here — so moving the trays from one
+          orders from this table, and groups them by the vendor set here — so moving the cans from one
           supplier to another is one change, not seven. A BOM line can still override a single item for a
           single flavour; nothing else beats this. The QuickBooks purchase cost is shown alongside for
           comparison and is never written to.

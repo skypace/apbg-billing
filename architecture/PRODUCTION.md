@@ -16,7 +16,7 @@ RAW MATERIALS  (ops.raw_ingredients — one row per physical material)
    │  how it is BOUGHT: vendor, pack, cost, QuickBooks item
    ▼
 BILL OF MATERIALS  (one per sellable case SKU)
-   │  ingredients (from the formula) + 24 cans + 1 tray
+   │  ingredients (from the formula) + 24 cans
    │  + fill charge + tolling charge          ← per case
    ▼
 WORK ORDER  ("make 500 cases")
@@ -26,7 +26,7 @@ WORK ORDER  ("make 500 cases")
 PURCHASE ORDERS  — ONE PER VENDOR, generated from the work order
    │  AC Calderoni  → N gallons of CONCENTRATE, with the ingredient
    │                  breakdown printed underneath (see The roll-up)
-   │  Quantum Canning → cans, tray, fill labour, pack off
+   │  Quantum Canning → cans, tolling, Velcorin, dunnage
    ▼
 PRODUCTION  at the co-packer: materials land → consume → record yield
    │  the yield rate is per flavour and lives on the formula
@@ -98,7 +98,7 @@ So a BOM component line is one of two things:
 
 | | carries | is | reaches QuickBooks |
 |---|---|---|---|
-| **stocked** | `component_qbo_item_id` | the gallon, cans, tray, fill labour, pack off | yes — as its own PO line |
+| **stocked** | `component_qbo_item_id` | the gallon, cans, tolling, Velcorin, dunnage | yes — as its own PO line |
 | **recipe** | `ingredient_id`, usually no item | sugar, citric acid, flavor | **no** |
 
 A recipe line points at the flavour's 1-gallon item through
@@ -170,7 +170,7 @@ Collapsing the two is how a PO ends up ordering 11.7 bags of sugar.
 
 **A BOM line has an owner.** `product_bom_lines.source` is `'formula'` (written
 by `fn_bom_sync_from_formula`, replaced wholesale on every rebuild) or
-`'manual'` (cans, tray, fill labour, tolling — written by `fn_bom_save_v2`,
+`'manual'` (cans, tolling, Velcorin, dunnage — written by `fn_bom_save_v2`,
 never touched by a rebuild). The BOM editor loads only manual lines into its
 form and shows the recipe read-only beside them. Break that split and a rebuild
 either wipes the operator's packaging lines or adds a second copy of the recipe.
@@ -196,12 +196,12 @@ them as spend double-counts the whole batch.
 ## Prices and vendors — one master, one precedence
 
 `ops.production_items` is where a stocked component's **vendor and price** live —
-the flavour gallons, the printed cans, the tray, fill labour, pack-off. It is
+the flavour gallons, the printed cans, tolling, Velcorin, dunnage. It is
 edited on **Production → Materials & Pricing → Purchased items & vendors**, and
 it exists because neither number could be managed anywhere sensible before:
 the price came from the QuickBooks item mirror (nightly, and stale — $0.26 a can
 against $0.31–0.37 billed) and the vendor lived on each BOM line separately, so
-moving trays to another supplier meant editing seven BOMs.
+moving the cans to another supplier meant editing seven BOMs.
 
 Everywhere a cost or vendor is read, the precedence is:
 
@@ -214,7 +214,7 @@ BOM line override  >  production_items  >  raw_ingredients  >  QBO mirror
 own vendor slot is now an OVERRIDE, not the default** — the migration cleared
 every line vendor that merely repeated the master, so the master actually
 governs instead of being shadowed by seven identical copies. Use the line slot
-for the genuine exception (this one flavour buys its tray elsewhere).
+for the genuine exception (this one flavour buys its cans elsewhere).
 
 ⚠ The QuickBooks purchase cost is shown alongside for comparison and is **never
 written to** from here. A price seeded from QuickBooks carries the note "seeded
@@ -235,7 +235,7 @@ to Can Raw Materials since 2025:
 | Velcorin (DMDC) | Quantum | $0.02/can × 233,088 on 1462 | `VELCORIN 12OZ CAN` (1390, new) × 24 @ $0.02 |
 | Dunnage | Quantum | "CHEP Pallet, 4-way polystrap, shrinkwrap" **$50 × 114 pallets** for 233,088 cans ≈ 85 cases/pallet | `DUNNAGE FEE PER PALLET` (565) × 1/85 @ $50 |
 | Printed cans | Quantum | $0.328 on bill 171778 (07/2026); 2025 deposits $0.31–0.37 | six can items @ $0.328 (was $0.26) |
-| 24-pk tray | **nobody, on any Quantum invoice** | — | still on the BOM at the QBO mirror value with a note saying so — who supplies it is a question for a human |
+| 24-pk tray | **nobody, on any Quantum invoice** | — | **removed from every BOM (`20260902u`)** — taken to be inside the $0.62 tolling line, the same way pack-off was |
 | Syrup | Calderoni | lump-sum "can ingredients" per run ($5,073 May, $9,236 + $3,544 June) | the 1GNS gallon line, 0.375 gal/case |
 | Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | `CANNING RUN FEE (SYRUP COMPOUNDING)` (1391, new) — **1 per run** |
 | Freight | Calderoni | a separate line most runs ($98–$3,200) | not on the BOM — entered as landed freight at Record yield |
@@ -349,7 +349,7 @@ Today every case BOM is exactly **two** materials POs:
 | Vendor | Lines |
 |---|---|
 | **AC Calderoni** (1099) | the flavour's 1-gallon concentrate — with the ingredients filed underneath as detail |
-| **Quantum Canning** (1744) | 24 printed cans · 1 sleek tray · 24 × fill labour · 24 × pack off |
+| **Quantum Canning** (1744) | 24 printed cans · 24 × tolling · 24 × Velcorin · pallet dunnage |
 
 ⚠ **The ingredients are deliberately not counted as POs.** They ride under the
 gallon line and never become a PO line of their own — that is the whole point of
@@ -366,7 +366,8 @@ history settles it: every Craft Beverage Packaging line ever booked is a monthly
 period charge — "May 2025 hours log", "Oct 20th-31st", "Dec-25", "Jan-26" — i.e.
 labour, never a can or a tray. Quantum's lines are where the can units appear:
 "Deposit - 202,000 units @ $0.31", "Cream soda cans". Craft is not a packaging
-supplier to this run.
+supplier to this run. (The tray came off the BOM entirely on 2026-09-02 —
+`20260902u` — because it is on no Quantum invoice either; the cans stayed.)
 
 ## Item types — Service or Non-inventory, never Inventory
 
@@ -377,7 +378,7 @@ finished cases that come back into the warehouse, and those already exist.
 | Role | QBO type | Why |
 |---|---|---|
 | Fill labour, pack off | **Service** | a charge, nothing arrives |
-| Flavour gallon, cans, tray, raw materials | **NonInventory** | consumed at the co-packer; we never count them |
+| Flavour gallon, cans, raw materials | **NonInventory** | consumed at the co-packer; we never count them |
 | `24P####  … CASE` (the seven finished goods) | **Inventory** | these physically arrive at Brix and are counted |
 
 An Inventory-type raw material does not fail loudly — the purchase order posts
@@ -446,7 +447,7 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    blank. This no longer blocks costing a run — the gallon price does that — but
    until some are filled in, `quoted_cost` is empty and the allocated split
    cannot be checked against anything real. (Stocked-component prices — cans,
-   tray, labour, gallons — now have a home of their own: Materials & Pricing →
+   labour, gallons, cans — now have a home of their own: Materials & Pricing →
    Purchased items. The gallon and can prices there are still the seeded
    QuickBooks figures until confirmed.)
 1b. **The gallon prices in QuickBooks look stale, and everything now hinges on
@@ -468,12 +469,22 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    side was reconciled to Quantum's invoices (see "What the vendors actually
    bill"): cans $0.328, tolling one $0.62 line, Velcorin and pallet dunnage
    added, Calderoni's flat canning fee added as a per-run line. Per-case
-   variable cost is now **$25.85** against the **$21.36** the finished-case
+   variable cost is now **$25.84** against the **$21.36** the finished-case
    QuickBooks items carry — the QuickBooks number is the one that is wrong.
-3b. **The 24-pk tray is on no Quantum invoice.** It is vendored to Quantum on
-   instruction at the QBO mirror value ($0.01583) with a note saying so.
-   Whether Quantum supplies it inside the tolling, someone else supplies it, or
-   it was never billed is a question for Sky, not a guess.
+   (It was $25.85 before the tray came off; the tray was 1.6 cents.)
+3b. **The 24-pk tray is off the BOM** (`20260902u`, 2026-09-02). It appeared on
+   no Quantum invoice — 1462, 1741 and can bill 171778 all checked — while
+   every other Quantum line appears on at least one, so it was flagged rather
+   than guessed at, and Sky's answer was to take it out. The reading that makes
+   that a correction rather than an omission: the tray is inside the $0.62/can
+   tolling line, exactly as pack-off turned out to be, and carrying it
+   separately charged the case for it twice.
+   ⚠ It cost $0.0158 in the QBO mirror — about a fiftieth of what a corrugated
+   24-pk tray really costs — which is its own evidence that the number was a
+   placeholder for something nobody buys. Item 563 is retired in the master and
+   deliberately **not** deactivated in QuickBooks (it carries purchase history).
+   **If trays turn out to be bought separately, put the line back with the
+   vendor who actually bills for one — not Quantum, who never has.**
 4. **`fn_wo_advance`'s `record_yield` still values components from
    `work_order_materials`.** With pack rounding in play that is the cost of what
    was BOUGHT rather than what was CONSUMED. For a first run they are the same

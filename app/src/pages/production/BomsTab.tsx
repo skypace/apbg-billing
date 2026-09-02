@@ -543,8 +543,8 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
               These materials are <strong>billed inside the flavour's 1-gallon line</strong> below — the
               purchase order shows every quantity so the supplier knows what to buy, but QuickBooks sees one
               gallon line at the gallon price. Rebuilding replaces the recipe and recomputes the gallon
-              quantity; the vendor, the price, the cans, the tray and the co-packer charges are yours and are
-              never touched.
+              quantity; the vendor, the price, the cans and the co-packer charges are yours and are never
+              touched.
             </div>
           </div>
         )}
