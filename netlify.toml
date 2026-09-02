@@ -37,6 +37,9 @@
 [functions."sf-expense-sweep-background"]
   timeout = 900
 
+[functions."production-doc"]
+  timeout = 26
+
 [functions."sf-receipt-pull"]
   timeout = 26
 

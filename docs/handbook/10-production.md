@@ -1,20 +1,30 @@
 # Production — Formulas, BOMs, Work Orders & Purchase Orders
 
-> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-07-22
+> Part I · User Guide · Owner: Sky Pace · Last reviewed: 2026-09-02
+
+> **Looking for what to click?** [Running a Production Run — Click by Click](#/10a-production-run-guide)
+> walks one run from "we need 500 cases" to received stock, with a screenshot of
+> every screen and a QC test script. This chapter is the reference behind it.
 
 The Production section of BRIX Refractor runs co-pack production end to end: the product formula drives the batch, the BOM lists the parts, the work order snapshots materials and generates purchase orders, and a staged pipeline moves the run from draft to finished goods in inventory. This chapter is the operator's guide to running a production run, written against the 2026-07-21 formula-driven redesign.
 
 ## Where it lives
 
-Open **https://alamedapointbg.com/margin/** → **Production**. Five tabs:
+Open **https://alamedapointbg.com/margin/** → **Production**, and set the lane
+switch at the top to **Cans 24pks** (the other lane, **BIB Product**, shows only
+Purchase Orders). Six tabs:
 
 | Tab | Purpose |
 |---|---|
 | **Formulas & Spec Sheets** | The recipes — % by weight, QC specs, batching instructions, revisions, batch scaler, printable batching sheet |
-| **Bills of Materials** | Pure parts lists per finished good, with preferred vendors |
-| **Work Orders** | The production runs — material snapshots, PO generation, the status pipeline |
+| **Materials & Pricing** | The purchased-item master — one vendor and one price per component, plus the raw-ingredient list |
+| **Bills of Materials** | Parts list per finished good, the recipe from the formula, and the pre-flight that says who gets a purchase order |
+| **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline |
 | **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders |
-| **Co-Pack (Legacy)** | The retired pre-redesign co-pack order flow, kept for reference |
+| **Compliance & Safety** | Certificates, audits and the document vault |
+
+The **Co-Pack (Legacy)** tab was removed on 2026-07-26; its data is retained
+read-only in `ops.copack_orders`.
 
 Data lives in `ops.product_formulas` / `_ingredients` / `_revisions`, `ops.product_bom(_lines)`, `ops.work_orders` / `work_order_materials` / `work_order_events`, and `ops.purchase_orders`; original spec spreadsheets live in the private `product-formulas` Storage bucket.
 

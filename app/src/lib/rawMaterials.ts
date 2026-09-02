@@ -1,0 +1,417 @@
+import { sbq, sbrpc } from './rpc';
+import { SB_KEY, SB_URL, _sbToken } from './supabase';
+
+// ── Raw materials ─────────────────────────────────────────────────────────
+//
+// ops.raw_ingredients is the shared ingredient master: ONE row per physical
+// material, used by every formula that batches it. It keeps two facts apart
+// that are easy to conflate and expensive to conflate:
+//
+//   how a material is BATCHED   percent by weight on the formula, in lbs
+//   how a material is BOUGHT    a 50-lb bag from AC Calderoni at $X
+//
+// The formula owns the first. This table owns the second. The work order is
+// where they meet: it needs `recipe_qty` lbs, so it orders ceil(lbs / 50) bags.
+
+export interface RawIngredient {
+  id: string;
+  name: string;
+  slug: string;
+  category: 'ingredient' | 'packaging' | 'service' | 'other';
+  recipe_uom: string;
+  /** false = real in the batch, never on a purchase order. Water. */
+  is_purchased: boolean;
+  /**
+   * 'rollup' — billed inside the flavour's 1-gallon item. The quantity is shown
+   * to the supplier so they know what to buy, but it never becomes its own
+   * purchase order line and needs NO QuickBooks item. This is every ingredient
+   * today, and it matches how AC Calderoni has always billed: per gallon of a
+   * flavour, never per ingredient.
+   * 'direct' — we buy this material ourselves, so it gets its own PO line and
+   * does need an item.
+   */
+  purchase_mode: 'rollup' | 'direct';
+  purchase_uom: string | null;
+  /** Recipe units in ONE purchase unit. 50 for a 50-lb bag. */
+  pack_size: number | null;
+  order_multiple: number;
+  /** Per PURCHASE unit. null is a visible gap, never a guess. */
+  purchase_cost: number | null;
+  qbo_item_id: string | null;
+  qbo_vendor_id: string | null;
+  vendor_part_no: string | null;
+  notes: string | null;
+  active: boolean;
+  // from v_raw_ingredients
+  qbo_item_name: string | null;
+  qbo_item_active: boolean | null;
+  expense_account_name: string | null;
+  vendor_name: string | null;
+  formula_count: number;
+  /** Which of item / vendor / pack / cost is still missing. */
+  gaps: string[];
+}
+
+/** One ingredient's share of ONE case, straight off the formula. */
+export interface CaseRequirement {
+  ingredient_id: string | null;
+  /** What the batching sheet literally calls it. */
+  sheet_name: string;
+  /** The canonical master name. */
+  material_name: string;
+  pct_by_weight: number;
+  recipe_uom: string;
+  gal_per_case: number;
+  /** lbs of finished liquid in a whole case. */
+  lbs_per_case: number;
+  /** lbs of THIS material in one case. */
+  qty_per_case: number;
+  is_purchased: boolean;
+  qbo_item_id: string | null;
+  qbo_vendor_id: string | null;
+  vendor_name: string | null;
+  pack_size: number | null;
+  purchase_uom: string | null;
+  purchase_cost: number | null;
+  cost_per_case: number | null;
+  sort_order: number;
+  notes: string | null;
+}
+
+/**
+ * The derived geometry of one case, and the independent check on it.
+ *
+ * The concentrate volume is NOT typed: it is finished volume / (1 + throw
+ * ratio). The ingredient weights then confirm it — every non-water material
+ * ends up inside that concentrate, so their weight over its volume gives the
+ * syrup's solids loading, and a fountain syrup carries roughly 5-8 lb/gal.
+ * Get the throw ratio wrong and the number goes somewhere obviously silly.
+ */
+export interface BatchBasis {
+  cans_per_case: number;
+  oz_per_can: number;
+  gal_per_case: number;
+  density_lbs_per_gal: number;
+  liquid_lbs_per_case: number;
+  /** Parts water per one part concentrate. 5 = a 5:1 syrup. */
+  dilution_ratio: number;
+  concentrate_gal_per_case: number;
+  solids_lbs_per_case: number;
+  solids_lbs_per_concentrate_gal: number | null;
+  /** false for a diet formula — the solids band does not apply to it. */
+  bulk_sweetened: boolean;
+  yield_pct: number;
+  verdict: string;
+}
+
+export interface BatchPlanTank {
+  tank_gal: number;
+  cases_from_tank: number;
+  /** Gallons of concentrate a full tank of this size needs. */
+  concentrate_gal: number;
+  /** How many MORE cases than asked for a full tank of this size yields. */
+  extra_cases: number;
+  fits: boolean;
+  unused_gal: number;
+  over_by_gal: number;
+}
+
+export interface BatchPlan {
+  cases_requested: number;
+  gal_per_case: number;
+  yield_pct: number;
+  dilution_ratio: number;
+  finished_gal: number;
+  /** What must go IN the tank — finished gallons divided by the yield rate. */
+  gal_to_batch: number;
+  /** Gallons of syrup that must arrive for the run. */
+  concentrate_gal: number;
+  recommended_tank: number | null;
+  tanks: BatchPlanTank[];
+}
+
+export interface BomSyncResult {
+  bom_id: string;
+  removed: number;
+  added: number;
+  /** How many of those lines roll up into the flavour's gallon item. */
+  rolled_up: number;
+  gallon_qbo_item_id: string | null;
+  basis: BatchBasis;
+  /** Directly-bought materials with no QuickBooks item — they cannot be lines. */
+  unlinked: { name: string; qty_per_case: number; uom: string; reason?: string }[];
+  /** Materials deliberately left off, e.g. water. */
+  skipped: { name: string; reason: string }[];
+  /** Anything structurally wrong, e.g. no gallon item to roll into. */
+  warnings: string[];
+  scrap_pct: number;
+}
+
+export interface ProductionSettings {
+  production_vendor_qbo_id: string | null;
+  clearing_account_ref_id: string | null;
+  clearing_account_name: string | null;
+  default_tank_sizes_gal: number[];
+  raw_material_vendor_qbo_id: string | null;
+  // company identity printed on every PO / BOL / batch sheet
+  company_name: string;
+  company_addr1: string;
+  company_addr2: string | null;
+  company_city_state_zip: string;
+  company_phone: string | null;
+  company_email: string;
+  company_web: string;
+  doc_accent: string;
+  doc_from: string;
+}
+
+export async function fetchRawIngredients(): Promise<RawIngredient[]> {
+  return sbq<RawIngredient>('v_raw_ingredients', 'select=*&order=name.asc');
+}
+
+export async function fetchProductionSettings(): Promise<ProductionSettings | null> {
+  const rows = await sbq<ProductionSettings>('production_settings', 'select=*&limit=1');
+  return rows[0] ?? null;
+}
+
+export async function updateRawIngredient(
+  id: string,
+  patch: Partial<Pick<RawIngredient,
+    'name' | 'recipe_uom' | 'is_purchased' | 'purchase_uom' | 'pack_size'
+    | 'order_multiple' | 'purchase_cost' | 'qbo_item_id' | 'qbo_vendor_id'
+    | 'vendor_part_no' | 'notes' | 'active' | 'purchase_mode'>>,
+): Promise<void> {
+  const token = await _sbToken();
+  const res = await fetch(
+    SB_URL + '/rest/v1/raw_ingredients?id=eq.' + encodeURIComponent(id),
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: 'Bearer ' + token,
+        'Accept-Profile': 'ops',
+        'Content-Profile': 'ops',
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (!res.ok) throw new Error('save material failed: ' + res.status + ' ' + (await res.text()));
+}
+
+/** Per-case requirements for a BOM's formula. The one source of the math. */
+export async function fetchCaseRequirements(bomId: string): Promise<CaseRequirement[]> {
+  return sbrpc<CaseRequirement[]>('fn_formula_case_requirements', { p_bom_id: bomId });
+}
+
+/** Write the formula's ingredients onto the BOM. Hand-entered lines survive. */
+export async function syncBomFromFormula(bomId: string): Promise<BomSyncResult> {
+  return sbrpc<BomSyncResult>('fn_bom_sync_from_formula', { p_bom_id: bomId });
+}
+
+/** The derived per-case geometry, and whether the ingredients agree with it. */
+/**
+ * What a run off this BOM will actually raise, and anything that would stop it.
+ *
+ * Two questions that used to need a work order to answer: how many purchase
+ * orders and to whom, and whether a component points at a QuickBooks item that
+ * has been deactivated. The second one does not fail in Refractor -- the PO
+ * writes fine -- it fails at the QuickBooks push, so it is asked here instead.
+ */
+export interface PreflightVendor {
+  qbo_vendor_id: string | null;
+  vendor_name: string;
+  line_count: number;
+  items: string[];
+}
+
+export interface PreflightBlocker {
+  kind: 'inactive_in_qbo' | 'no_vendor';
+  qbo_item_id: string;
+  item_name: string;
+  detail: string;
+}
+
+/**
+ * A warning does NOT stop the push — that is the whole difference from a
+ * blocker, and worth keeping straight: calling an inventory component a
+ * blocker would teach people to click past the category that means "stop".
+ */
+export interface PreflightWarning {
+  kind: 'inventory_component';
+  qbo_item_id: string;
+  item_name: string;
+  detail: string;
+}
+
+export interface BomPreflight {
+  po_count: number;
+  vendors: PreflightVendor[];
+  blockers: PreflightBlocker[];
+  warnings: PreflightWarning[];
+}
+
+export async function fetchBomPreflight(bomId: string): Promise<BomPreflight> {
+  return sbrpc<BomPreflight>('fn_bom_preflight', { p_bom_id: bomId });
+}
+
+export async function fetchBatchBasis(bomId: string): Promise<BatchBasis> {
+  return sbrpc<BatchBasis>('fn_formula_batch_basis', { p_bom_id: bomId });
+}
+
+/** Gallons needed and, per tank, how many more cases would fill it. */
+export async function fetchBatchPlan(bomId: string, cases: number): Promise<BatchPlan> {
+  return sbrpc<BatchPlan>('fn_batch_plan', { p_bom_id: bomId, p_cases: cases });
+}
+
+export interface ProductionPoResult {
+  po_id: string;
+  po_number: string;
+  qbo_vendor_id: string;
+  qty: number;
+  unit_cost: number;
+  subtotal: number;
+}
+
+/** The finished cases coming back from ALAMEDA SODA COMPANY PRODUCTION. */
+export async function createProductionPo(
+  woId: string,
+  expectedDate?: string | null,
+): Promise<ProductionPoResult> {
+  return sbrpc<ProductionPoResult>('fn_wo_create_production_po', {
+    p_wo_id: woId,
+    p_expected_date: expectedDate || null,
+  });
+}
+
+export interface RawMaterialItemsResult {
+  ok: boolean;
+  commit: boolean;
+  expense_account: { id: string; name: string };
+  candidates: number;
+  created: { slug: string; name: string; qbo_item_id: string }[];
+  linked: { slug: string; name: string; qbo_item_id: string }[];
+  failed: { slug: string; name: string; error: string }[];
+  planned?: { slug: string; name: string; sku: string; has_cost: boolean }[];
+  error?: string;
+}
+
+/**
+ * Create the QuickBooks items for every purchased material that has none.
+ *
+ * Preview by default. `commit` is a separate, deliberate act because a
+ * QuickBooks item cannot be deleted once created — only deactivated — and the
+ * names are the operator's to approve.
+ */
+export async function createRawMaterialItems(
+  opts: { commit?: boolean; slugs?: string[] } = {},
+): Promise<RawMaterialItemsResult> {
+  const token = await _sbToken();
+  const res = await fetch(SB_URL + '/functions/v1/qbo-raw-materials', {
+    method: 'POST',
+    headers: {
+      apikey: SB_KEY,
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action: opts.commit ? 'create' : 'preview',
+      commit: opts.commit === true,
+      ...(opts.slugs?.length ? { slugs: opts.slugs } : {}),
+    }),
+  });
+  const j = (await res.json()) as RawMaterialItemsResult;
+  if (!res.ok || j.ok === false) {
+    throw new Error(j.error || ('qbo-raw-materials failed: HTTP ' + res.status));
+  }
+  return j;
+}
+
+/**
+ * The purchased-item master: vendor + price for each stocked component the
+ * production system buys (cans, the tolling charge, Velcorin, dunnage, the
+ * flavour gallons). Beats the QuickBooks mirror; a BOM line's own override
+ * beats this.
+ * This is where a price or a supplier is changed -- not in QuickBooks, and not
+ * seven times across seven BOMs.
+ */
+export interface ProductionItem {
+  qbo_item_id: string;
+  qbo_vendor_id: string | null;
+  unit_cost: number | null;
+  cost_uom: string;
+  cost_note: string | null;
+  active: boolean;
+  updated_at: string;
+  // joined
+  item_name: string;
+  qbo_type: string | null;
+  qbo_active: boolean | null;
+  qbo_purchase_cost: number | null;
+  bom_count: number;
+}
+
+export async function fetchProductionItems(): Promise<ProductionItem[]> {
+  const [items, qbo, lines] = await Promise.all([
+    sbq<Omit<ProductionItem, 'item_name' | 'qbo_type' | 'qbo_active' | 'qbo_purchase_cost' | 'bom_count'>>(
+      'production_items', 'select=*&order=qbo_item_id'),
+    sbq<{ qbo_item_id: string; name: string; type: string | null; active: boolean | null; purchase_cost: number | null }>(
+      'qbo_items', 'select=qbo_item_id,name,type,active,purchase_cost'),
+    sbq<{ component_qbo_item_id: string; bom_id: string }>(
+      'product_bom_lines', 'select=component_qbo_item_id,bom_id&component_qbo_item_id=not.is.null'),
+  ]);
+  const byId = new Map(qbo.map((q) => [q.qbo_item_id, q]));
+  const boms = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!boms.has(l.component_qbo_item_id)) boms.set(l.component_qbo_item_id, new Set());
+    boms.get(l.component_qbo_item_id)!.add(l.bom_id);
+  }
+  return items.map((i) => {
+    const q = byId.get(i.qbo_item_id);
+    return {
+      ...i,
+      unit_cost: i.unit_cost == null ? null : Number(i.unit_cost),
+      item_name: q?.name ?? i.qbo_item_id,
+      qbo_type: q?.type ?? null,
+      qbo_active: q?.active ?? null,
+      qbo_purchase_cost: q?.purchase_cost == null ? null : Number(q.purchase_cost),
+      bom_count: boms.get(i.qbo_item_id)?.size ?? 0,
+    };
+  }).sort((a, b) => a.item_name.localeCompare(b.item_name));
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  return { apikey: SB_KEY, Authorization: 'Bearer ' + (await _sbToken()) };
+}
+
+export async function saveProductionItem(
+  qboItemId: string,
+  patch: Pick<ProductionItem, 'qbo_vendor_id' | 'unit_cost' | 'cost_uom' | 'cost_note' | 'active'>,
+): Promise<void> {
+  // upsert: the row may not exist yet for an item newly put on a BOM
+  const res = await fetch(SB_URL + '/rest/v1/production_items?on_conflict=qbo_item_id', {
+    method: 'POST',
+    headers: {
+      ...(await authHeaders()),
+      'Content-Type': 'application/json',
+      'Content-Profile': 'ops',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({ qbo_item_id: qboItemId, ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error('save failed (' + res.status + '): ' + (await res.text()).slice(0, 200));
+}
+
+export async function saveProductionSettings(
+  patch: Partial<Pick<ProductionSettings,
+    'company_name' | 'company_addr1' | 'company_addr2' | 'company_city_state_zip' |
+    'company_phone' | 'company_email' | 'company_web' | 'doc_accent' | 'doc_from'>>,
+): Promise<void> {
+  const res = await fetch(SB_URL + '/rest/v1/production_settings?id=eq.true', {
+    method: 'PATCH',
+    headers: { ...(await authHeaders()), 'Content-Type': 'application/json', 'Content-Profile': 'ops', Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error('save failed (' + res.status + '): ' + (await res.text()).slice(0, 200));
+}

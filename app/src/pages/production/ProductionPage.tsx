@@ -27,11 +27,13 @@ import { BomsTab } from './BomsTab';
 import { WorkOrdersTab } from './WorkOrdersTab';
 import { PurchaseOrdersTab } from './PurchaseOrdersTab';
 import { ComplianceTab } from './ComplianceTab';
+import { RawMaterialsTab } from './RawMaterialsTab';
 
-type TabId = 'formulas' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance';
+type TabId = 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
+  { id: 'raw_materials',   label: 'Materials & Pricing'    },
   { id: 'boms',            label: 'Bills of Materials'     },
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },
@@ -39,8 +41,8 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 function coerceTab(value: unknown): TabId | null {
-  return value === 'formulas' || value === 'boms' || value === 'work_orders'
-    || value === 'purchase_orders' || value === 'compliance'
+  return value === 'formulas' || value === 'raw_materials' || value === 'boms'
+    || value === 'work_orders' || value === 'purchase_orders' || value === 'compliance'
     ? value
     : null;
 }
@@ -159,9 +161,19 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     }
     return ids;
   }, [poLines, itemLookup, lane]);
+  const laneWoIds = useMemo(
+    () => new Set((filteredWos ?? []).map((w) => w.id)),
+    [filteredWos],
+  );
+  // A PO belongs to this lane if it carries a lane item OR it was raised by a work
+  // order in this lane. The second half matters: an ingredient PO is all `excluded`
+  // items (a gallon of syrup and a run fee are not finished goods), so on lines
+  // alone the AC Calderoni half of every run would be invisible and unopenable.
   const filteredPos = useMemo(
-    () => pos && poLines ? pos.filter((po) => lanePoIds.has(po.id)) : null,
-    [pos, poLines, lanePoIds],
+    () => pos && poLines
+      ? pos.filter((po) => lanePoIds.has(po.id) || (po.work_order_id ? laneWoIds.has(po.work_order_id) : false))
+      : null,
+    [pos, poLines, lanePoIds, laneWoIds],
   );
 
   const activeLabel = visibleTabs.find((t) => t.id === tab)?.label ?? 'Production';
@@ -193,7 +205,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           <InventoryLaneSelector value={lane} onChange={setLane} />
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-            {lane === 'bib_product' ? 'Purchasing only' : 'Formula → BOM → work order → POs → co-packer → yield → ship → receive'}
+            {lane === 'bib_product' ? 'Purchasing only' : 'Formula → raw materials → BOM → work order → POs → co-packer → yield → production PO → receive'}
           </span>
         </div>
       </div>
@@ -223,6 +235,9 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           itemLookup={itemLookup}
           onChanged={reloadAll}
         />
+      )}
+      {tab === 'raw_materials' && (
+        <RawMaterialsTab vendors={vendors} onChanged={reloadAll} />
       )}
       {tab === 'compliance' && <ComplianceTab />}
       {tab === 'purchase_orders' && (

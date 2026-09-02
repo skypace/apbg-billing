@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, FileText, Paperclip, Pencil } from 'lucide-react';
+import { Plus, X as XIcon, FileText, Paperclip, Pencil, Mail } from 'lucide-react';
+import { openDocPdf } from '../../lib/productionDocs';
+import { EmailDocModal } from './EmailDocModal';
 import {
   ProductFormula, FormulaIngredient, FormulaRevision,
   FormulaIngredientInput, FormulaStatus,
@@ -168,58 +170,12 @@ function FormulaDetailModal({ formula, onClose, onEdit, onChanged }: {
     finally { setUploading(false); }
   }
 
-  function printBatchingSheet() {
-    const w = window.open('', '_blank');
-    if (!w) return;
-    const rows = batch.map((b, i) => `<tr>
-      <td>${i + 1}</td>
-      <td>${escapeHtml(b.ingredient_name)}</td>
-      <td style="text-align:right">${(b.pct_by_weight * 100).toFixed(4)}%</td>
-      <td style="text-align:right">${b.target_weight_lbs.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${escapeHtml(b.uom)}</td>
-      <td></td><td></td><td></td>
-    </tr>`).join('');
-    const qc = Object.entries(formula.qc_specs ?? {}).map(([k, v]) =>
-      `<tr><td>${escapeHtml(k)}</td><td style="width:120px"></td><td>${escapeHtml(v)}</td></tr>`).join('');
-    const steps = (formula.batching_instructions ?? []).map((s) => `<li>${escapeHtml(s)}</li>`).join('');
-    w.document.write(`<html><head><title>${escapeHtml(formula.name)} — Batching Sheet</title>
-      <style>
-        @page{size:letter;margin:0.5in}
-        body{font-family:system-ui,sans-serif;color:#0a0e17;font-size:11px;margin:0}
-        h1{font-size:18px;border-bottom:3px solid #0a0e17;padding-bottom:6px;margin:0 0 10px}
-        .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-        .kv{border:1px solid #0a0e17;padding:5px 8px}
-        .lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:#475569;text-transform:uppercase}
-        table{width:100%;border-collapse:collapse;font-size:10.5px;border:1px solid #0a0e17;margin-top:10px}
-        th{background:#0a0e17;color:#fff;padding:4px 6px;font-size:8.5px;text-align:left;text-transform:uppercase;letter-spacing:1px}
-        td{padding:5px 6px;border:1px solid #cbd5e1}
-        h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:16px 0 4px}
-        ol{margin:4px 0 0 18px;padding:0}
-        li{margin-bottom:3px}
-        .sig{margin-top:24px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;font-size:10px}
-      </style></head><body>
-      <h1>${escapeHtml(formula.title ?? 'Batching Data')} · ${escapeHtml(formula.name)}</h1>
-      <div class="meta">
-        <div class="kv"><div class="lbl">Doc rev / effective</div>${escapeHtml(formula.doc_rev)} · ${escapeHtml(formula.effective_date ?? '—')}</div>
-        <div class="kv"><div class="lbl">Batch size</div>${gal.toLocaleString()} gal</div>
-        <div class="kv"><div class="lbl">Can size / target units</div>${formula.can_size_oz ?? '—'} oz · ${targetUnits ? Math.round(targetUnits).toLocaleString() : '—'} cans</div>
-        <div class="kv"><div class="lbl">Density</div>${formula.density_lbs_per_gal ?? '—'} lbs/gal</div>
-        <div class="kv"><div class="lbl">Total batch weight</div>${totalLbs.toLocaleString(undefined, { maximumFractionDigits: 1 })} lbs</div>
-        <div class="kv"><div class="lbl">Production date</div>____________</div>
-      </div>
-      <table>
-        <thead><tr><th>#</th><th>Ingredient</th><th style="text-align:right">%</th><th style="text-align:right">Target weight</th><th>Lot / batch #</th><th>Measured</th><th>✓</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${qc ? `<h2>Product specs</h2><table><thead><tr><th>Check</th><th>Actual</th><th>Spec</th></tr></thead><tbody>${qc}</tbody></table>` : ''}
-      ${steps ? `<h2>Batching instructions</h2><ol>${steps}</ol>` : ''}
-      <div class="sig">
-        <div>Client signature: ______________</div>
-        <div>Operations signature: ______________</div>
-        <div>QA/QC signature: ______________</div>
-      </div>
-      <script>setTimeout(function(){window.print()},300);</script>
-    </body></html>`);
-    w.document.close();
+  // The batching sheet is rendered server-side as a PDF, in the same design as
+  // the purchase order and the bill of lading it travels with.
+  const [emailOpen, setEmailOpen] = useState(false);
+  function openBatchingSheet() {
+    openDocPdf({ kind: 'batch_sheet', id: formula.id, gal: gal > 0 ? gal : undefined })
+      .catch((e) => toast.error(errMsg(e)));
   }
 
   return (
@@ -351,13 +307,20 @@ function FormulaDetailModal({ formula, onClose, onEdit, onChanged }: {
             <Paperclip size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
             {uploading ? 'Uploading…' : formula.attachment_path ? 'Replace attachment' : 'Attach spec sheet'}
           </button>
-          <button style={btnSecondary()} onClick={printBatchingSheet}>
-            <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Print batching sheet
+          <button style={btnSecondary()} onClick={openBatchingSheet} title="Batching sheet PDF at the batch size shown">
+            <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Batching sheet PDF
+          </button>
+          <button style={btnSecondary()} onClick={() => setEmailOpen(true)} title="Email the batching sheet to the co-packer">
+            <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
           </button>
           <button style={btnPrimary()} onClick={onEdit}>
             <Pencil size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Edit formula
           </button>
         </div>
+        {emailOpen && (
+          <EmailDocModal ref={{ kind: 'batch_sheet', id: formula.id, gal: gal > 0 ? gal : undefined }}
+            title={'batching sheet · ' + formula.name + ' · ' + gal.toLocaleString() + ' gal'} onClose={() => setEmailOpen(false)} />
+        )}
       </div>
     </div>
   );

@@ -79,6 +79,10 @@ export interface InventoryTransferLine {
   created_at: string;
   line_weight_lbs: number | null;
   line_pallets: number | null;
+  /** Producer lot / batch code. A production return is one line per lot. */
+  lot_code: string | null;
+  born_on_date: string | null;
+  best_by_date: string | null;
 }
 
 export type InventoryTransferLineSummary = Pick<InventoryTransferLine, 'transfer_id' | 'qbo_item_id'>;
@@ -90,6 +94,9 @@ export interface InventoryTransferLineInput {
   notes?: string | null;
   line_weight_lbs?: number | null;
   line_pallets?: number | null;
+  lot_code?: string | null;
+  born_on_date?: string | null;
+  best_by_date?: string | null;
 }
 
 export type MovementType =

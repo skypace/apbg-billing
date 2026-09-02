@@ -11,6 +11,12 @@ export const inp = (): CSSProperties => ({
   borderRadius: 4,
   fontSize: 11,
   fontFamily: 'inherit',
+  // A grid item's default min-width is `auto`, so a <select> holding a long
+  // option ("24P126121 HANGAR 25 COLA CASE · Hangar 25 Cola 24pk case · v1")
+  // overflows its cell and prints underneath the next field. These two clamp
+  // every control to the space it was given; nothing that already fits moves.
+  minWidth: 0,
+  maxWidth: '100%',
 });
 
 export const btnPrimary = (): CSSProperties => ({

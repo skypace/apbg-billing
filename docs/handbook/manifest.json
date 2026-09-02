@@ -2,7 +2,7 @@
   "$comment": "APBG Master Handbook manifest. The viewer (public/docs/handbook/index.html) renders the chapter list from this file; the sweep function (netlify/functions/handbook-sweep.mjs) compares each chapter's last_reviewed date against the latest commit touching its registered sources. Update last_reviewed whenever a chapter is re-verified against its sources.",
   "title": "APBG Master Handbook",
   "version": "1.0.0",
-  "updated": "2026-08-21",
+  "updated": "2026-09-02",
   "parts": [
     {
       "id": "intro",
@@ -194,6 +194,35 @@
         {
           "repo": "skypace/apbg-billing",
           "path": "CLAUDE.md"
+        }
+      ]
+    },
+    {
+      "slug": "10a-production-run-guide",
+      "title": "Running a Production Run — Click by Click (with a QC test script)",
+      "part": "guide",
+      "owner": "Sky Pace",
+      "last_reviewed": "2026-09-02",
+      "sources": [
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/pages/production/WorkOrdersTab.tsx"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/pages/production/BomsTab.tsx"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/pages/production/PurchaseOrdersTab.tsx"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "app/src/pages/stock/StockTransfersTab.tsx"
+        },
+        {
+          "repo": "skypace/apbg-billing",
+          "path": "architecture/PRODUCTION.md"
         }
       ]
     },

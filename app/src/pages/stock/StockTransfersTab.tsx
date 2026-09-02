@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, FileText, X as XIcon, Trash2 } from 'lucide-react';
+import { Plus, FileText, X as XIcon, Trash2, Mail } from 'lucide-react';
+import { openDocPdf } from '../../lib/productionDocs';
+import { EmailDocModal } from '../production/EmailDocModal';
 import {
   FreightTerms,
   InventoryLocation,
@@ -176,7 +178,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
   const [totalPalletsOverride, setTotalPalletsOverride] = useState<string>('');
   const [declaredValueOverride, setDeclaredValueOverride] = useState<string>('');
   const [lines, setLines] = useState<InventoryTransferLineInput[]>([
-    { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null },
+    { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null, lot_code: null, born_on_date: null },
   ]);
   const [saving, setSaving] = useState(false);
 
@@ -203,7 +205,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
     lines.every((l) => l.qbo_item_id && Number(l.qty) > 0);
 
   function addLine() {
-    setLines([...lines, { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null }]);
+    setLines([...lines, { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null, lot_code: null, born_on_date: null }]);
   }
   function rmLine(i: number) {
     setLines(lines.filter((_, idx) => idx !== i));
@@ -343,6 +345,8 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
           <tr style={{ borderBottom: '1px solid var(--bd)' }}>
             <th style={cellTh}>Item</th>
             <th style={{ ...cellTh, width: 80,  textAlign: 'right' }}>Qty</th>
+            <th style={{ ...cellTh, width: 90 }}>Lot</th>
+            <th style={{ ...cellTh, width: 120 }}>Born on</th>
             <th style={{ ...cellTh, width: 90,  textAlign: 'right' }}>Wt (lb)</th>
             <th style={{ ...cellTh, width: 80,  textAlign: 'right' }}>Pallets</th>
             <th style={{ ...cellTh, width: 100, textAlign: 'right' }}>Unit Cost</th>
@@ -378,6 +382,14 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
                 <td style={{ ...cellTd, textAlign: 'right' }}>
                   <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
                     value={l.qty} onChange={(e) => patchLine(i, { qty: Number(e.target.value) })} />
+                </td>
+                <td style={cellTd}>
+                  <input style={{ ...inp(), width: '100%', fontFamily: 'var(--ff-mono)' }} placeholder="lot"
+                    value={l.lot_code ?? ''} onChange={(e) => patchLine(i, { lot_code: e.target.value || null })} />
+                </td>
+                <td style={cellTd}>
+                  <input type="date" style={{ ...inp(), width: '100%' }}
+                    value={l.born_on_date ?? ''} onChange={(e) => patchLine(i, { born_on_date: e.target.value || null })} />
                 </td>
                 <td style={{ ...cellTd, textAlign: 'right' }}>
                   <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
@@ -455,6 +467,7 @@ function TransferDetailModal({
   const toast = useToast();
   const [lines, setLines] = useState<InventoryTransferLine[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   const laneItemIds = useMemo(() => new Set(itemLookup.options.map((option) => option.id)), [itemLookup]);
 
   useEffect(() => {
@@ -535,173 +548,6 @@ function TransferDetailModal({
     finally { setBusy(false); }
   }
 
-  function printBol() {
-    const t = transfer;
-    if (!t) return;
-    const w = window.open('', '_blank');
-    if (!w) return;
-
-    const lineRows = (lines ?? []).map((l, idx) => {
-      const it = itemLookup.byId.get(l.qbo_item_id);
-      const qty = Number(l.qty);
-      const wt = l.line_weight_lbs ?? (it?.weight_per_unit_lbs ? Number(it.weight_per_unit_lbs) * qty : null);
-      const pal = l.line_pallets ?? (it?.units_per_pallet ? qty / Number(it.units_per_pallet) : null);
-      const dim = (it?.dim_l_in && it?.dim_w_in && it?.dim_h_in)
-        ? `${it.dim_l_in}×${it.dim_w_in}×${it.dim_h_in}"`
-        : '';
-      const unitType = it?.unit_type ? ` ${it.unit_type}` : '';
-      return `<tr>
-        <td style="width:22px;color:#64748b">${idx + 1}</td>
-        <td>${escapeHtml(it?.item_name ?? l.qbo_item_id)}${dim || unitType ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${escapeHtml(dim)}${escapeHtml(unitType)}</div>` : ''}${l.notes ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${escapeHtml(l.notes)}</div>` : ''}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtNum(qty)}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums">${wt == null ? '—' : round1(wt).toString()}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums">${pal == null ? '—' : round2(pal).toString()}</td>
-        <td style="text-align:center">${escapeHtml(it?.freight_class ?? '—')}</td>
-        <td style="text-align:center;font-family:monospace;font-size:9.5px">${escapeHtml(it?.nmfc_code ?? '—')}</td>
-      </tr>`;
-    }).join('');
-
-    const totWt = t.total_weight_lbs   ?? (lineTotals.anyData ? round1(lineTotals.wt)  : null);
-    const totPal = t.total_pallets      ?? (lineTotals.anyData ? round2(lineTotals.pal) : null);
-    const totVal = t.declared_value_usd ?? (lineTotals.anyData ? round2(lineTotals.val) : null);
-    const totQty = (lines ?? []).reduce((s, l) => s + Number(l.qty), 0);
-
-    const fmtAddr = (loc?: InventoryLocation) => {
-      if (!loc) return '';
-      const parts = [loc.address_line1, [loc.city, loc.state, loc.postal_code].filter(Boolean).join(', ')].filter(Boolean);
-      return parts.map((p) => `<div>${escapeHtml(p as string)}</div>`).join('');
-    };
-
-    const termsLabel = t.freight_terms === 'prepaid' ? 'PREPAID'
-                    : t.freight_terms === 'collect' ? 'COLLECT'
-                    : t.freight_terms === 'third_party' ? 'THIRD PARTY' : '—';
-
-    w.document.write(`<html><head><title>BOL ${t.bol_number}</title>
-      <style>
-        @page { size: letter; margin: 0.5in; }
-        *{box-sizing:border-box}
-        body{font-family:system-ui,-apple-system,sans-serif;color:#0a0e17;margin:0;padding:0;font-size:11px;line-height:1.4}
-        .doc{max-width:7.5in;margin:0 auto}
-        .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0a0e17;padding-bottom:8px;margin-bottom:12px}
-        .hdr h1{margin:0;font-size:20px;letter-spacing:1px}
-        .hdr .subtitle{font-size:9px;color:#64748b;letter-spacing:1.5px;text-transform:uppercase}
-        .hdr .right{text-align:right}
-        .hdr .right .bol{font-family:monospace;font-size:17px;font-weight:700;letter-spacing:1px}
-        .hdr .right .stamp{display:inline-block;border:2px solid #0a0e17;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:1px;margin-top:3px}
-        .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
-        .box{border:1px solid #0a0e17;padding:6px 8px;min-height:90px}
-        .box .lbl{font-size:8px;font-weight:700;letter-spacing:1.5px;color:#475569;text-transform:uppercase;border-bottom:1px solid #cbd5e1;padding-bottom:2px;margin-bottom:4px}
-        .box .big{font-size:12px;font-weight:600;margin-bottom:2px}
-        .row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px}
-        .kv{border:1px solid #0a0e17;padding:5px 8px}
-        .kv .lbl{font-size:8px;font-weight:700;letter-spacing:1px;color:#475569;text-transform:uppercase}
-        .kv .val{font-size:12px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
-        table.items{width:100%;border-collapse:collapse;border:1px solid #0a0e17;font-size:10.5px}
-        table.items th{background:#0a0e17;color:#fff;padding:4px 6px;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;text-align:left}
-        table.items td{padding:5px 6px;border-bottom:1px solid #e2e8f0;vertical-align:top}
-        table.items tr:nth-child(even) td{background:#f8fafc}
-        table.items tfoot td{background:#0a0e17;color:#fff;font-weight:700;padding:5px 6px;border:none}
-        .instr{margin-top:10px;border:1px solid #0a0e17;padding:6px 8px;min-height:34px}
-        .instr .lbl{font-size:8px;font-weight:700;letter-spacing:1.5px;color:#475569;text-transform:uppercase;margin-bottom:3px}
-        .sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
-        .sig .box{min-height:60px}
-        .sig .sigline{border-bottom:1px solid #0a0e17;height:34px;margin-top:6px}
-        .legal{margin-top:10px;font-size:8px;color:#64748b;line-height:1.5}
-        @media print{body{font-size:10.5px}}
-      </style></head><body>
-      <div class="doc">
-        <div class="hdr">
-          <div>
-            <div class="subtitle">Bill of Lading · Internal Transfer</div>
-            <h1>BRIX BEVERAGE</h1>
-          </div>
-          <div class="right">
-            <div class="bol">${escapeHtml(t.bol_number)}</div>
-            <div class="stamp" style="color:${t.status === 'void' ? '#dc2626' : t.status === 'received' ? '#16a34a' : t.status === 'in_transit' ? '#d97706' : '#0a0e17'};border-color:${t.status === 'void' ? '#dc2626' : t.status === 'received' ? '#16a34a' : t.status === 'in_transit' ? '#d97706' : '#0a0e17'}">${(t.status || '').replace('_', ' ').toUpperCase()}</div>
-          </div>
-        </div>
-
-        <div class="row3">
-          <div class="box">
-            <div class="lbl">Shipper / From</div>
-            <div class="big">${escapeHtml(fromLoc?.name ?? '?')}</div>
-            <div style="color:#475569">${escapeHtml(fromLoc?.code ?? '')}</div>
-            ${fmtAddr(fromLoc)}
-          </div>
-          <div class="box">
-            <div class="lbl">Consignee / To</div>
-            <div class="big">${escapeHtml(toLoc?.name ?? '?')}</div>
-            <div style="color:#475569">${escapeHtml(toLoc?.code ?? '')}</div>
-            ${fmtAddr(toLoc)}
-          </div>
-          <div class="box">
-            <div class="lbl">Carrier</div>
-            <div class="big">${escapeHtml(t.carrier ?? '—')}</div>
-            <div style="color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-top:6px">PRO #</div>
-            <div style="font-family:monospace">${escapeHtml(t.pro_number ?? '—')}</div>
-            <div style="color:#475569;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">Tracking</div>
-            <div style="font-family:monospace">${escapeHtml(t.tracking_number ?? '—')}</div>
-          </div>
-        </div>
-
-        <div class="row4">
-          <div class="kv"><div class="lbl">Ship Date</div><div class="val">${escapeHtml(t.ship_date ?? '—')}</div></div>
-          <div class="kv"><div class="lbl">Received Date</div><div class="val">${escapeHtml(t.received_date ?? '—')}</div></div>
-          <div class="kv"><div class="lbl">Freight Terms</div><div class="val">${termsLabel}</div></div>
-          <div class="kv"><div class="lbl">Declared Value</div><div class="val">${totVal == null ? '—' : `$${fmtNum(round2(totVal))}`}</div></div>
-        </div>
-
-        <table class="items">
-          <thead>
-            <tr>
-              <th style="width:22px">#</th>
-              <th>Item / Description</th>
-              <th style="text-align:right;width:60px">Qty</th>
-              <th style="text-align:right;width:80px">Weight (lb)</th>
-              <th style="text-align:right;width:60px">Pallets</th>
-              <th style="text-align:center;width:55px">Class</th>
-              <th style="text-align:center;width:65px">NMFC #</th>
-            </tr>
-          </thead>
-          <tbody>${lineRows || '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:14px">No lines</td></tr>'}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="2" style="text-align:right">TOTAL</td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtNum(totQty)}</td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums">${totWt == null ? '—' : fmtNum(round1(totWt))}</td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums">${totPal == null ? '—' : fmtNum(round2(totPal))}</td>
-              <td></td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-
-        ${t.special_instructions ? `<div class="instr"><div class="lbl">Special Instructions</div>${escapeHtml(t.special_instructions)}</div>` : ''}
-        ${t.notes ? `<div class="instr"><div class="lbl">Notes</div>${escapeHtml(t.notes)}</div>` : ''}
-
-        <div class="sig">
-          <div class="box">
-            <div class="lbl">Shipper signature / date</div>
-            <div class="sigline">&nbsp;</div>
-          </div>
-          <div class="box">
-            <div class="lbl">Carrier (driver) signature / date</div>
-            <div class="sigline">&nbsp;</div>
-          </div>
-          <div class="box">
-            <div class="lbl">Consignee signature / date</div>
-            <div class="sigline">&nbsp;</div>
-          </div>
-        </div>
-
-        <div class="legal">
-          Received the goods described above in apparent good order, except as noted. Internal company transfer document &mdash; not subject to common-carrier liability rules unless a third-party carrier is named. Discrepancies must be reported to the Shipper within 48 hours of receipt.
-        </div>
-      </div>
-      <script>setTimeout(function(){window.print()},350);</script>
-    </body></html>`);
-    w.document.close();
-  }
 
   return (
     <div onClick={onClose} style={{
@@ -779,6 +625,8 @@ function TransferDetailModal({
             <tr style={{ borderBottom: '1px solid var(--bd)' }}>
               <th style={cellTh}>Item</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Qty</th>
+              <th style={cellTh}>Lot</th>
+              <th style={cellTh}>Born on</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Wt (lb)</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Pallets</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Received</th>
@@ -798,6 +646,10 @@ function TransferDetailModal({
                     {it?.freight_class && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--mt)', letterSpacing: 0.4 }}>· cls {it.freight_class}</span>}
                   </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(qty)}</td>
+                  <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)' }}>{l.lot_code ?? '—'}</td>
+                  <td style={{ ...cellTd, color: 'var(--mt)' }}>
+                    {l.born_on_date ?? '—'}{l.best_by_date ? <span style={{ fontSize: 9.5 }}> · best by {l.best_by_date}</span> : null}
+                  </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
                     {wt == null ? '—' : fmtNum(round1(wt))}
                   </td>
@@ -814,7 +666,7 @@ function TransferDetailModal({
               );
             })}
             {lines && lines.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 14, textAlign: 'center', color: 'var(--mt)' }}>No lines</td></tr>
+              <tr><td colSpan={8} style={{ padding: 14, textAlign: 'center', color: 'var(--mt)' }}>No lines</td></tr>
             )}
           </tbody>
         </table>
@@ -827,8 +679,12 @@ function TransferDetailModal({
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
-          <button onClick={printBol} style={btnSecondary()}>
-            <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Print BOL
+          <button onClick={() => openDocPdf({ kind: 'bol', id: transferId }).catch((e) => toast.error(errMsg(e)))} style={btnSecondary()}
+            title="The branded bill of lading as a PDF — print it or save it from there">
+            <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> View BOL PDF
+          </button>
+          <button onClick={() => setEmailOpen(true)} style={btnSecondary()} title="Email the BOL PDF to the shipper, carrier or receiver">
+            <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
           </button>
           {status === 'draft' && (
             <>
@@ -840,6 +696,9 @@ function TransferDetailModal({
             <button onClick={doReceive} disabled={busy} style={btnPrimary()}>Mark Received</button>
           )}
         </div>
+        {emailOpen && (
+          <EmailDocModal ref={{ kind: 'bol', id: transferId }} title={'BOL ' + transfer.bol_number} onClose={() => setEmailOpen(false)} />
+        )}
       </div>
     </div>
   );

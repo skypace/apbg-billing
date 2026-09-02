@@ -34,7 +34,7 @@ export const SITE_URL   = readEnv('URL') || 'https://alamedapointbg.com';
 
 // `attachments` (optional): [{ filename, content }] where content is base64
 // (Resend format). Only wired through the Resend path.
-export async function sendEmail({ to, subject, html, text, replyTo, from, attachments }) {
+export async function sendEmail({ to, subject, html, text, replyTo, from, attachments, cc }) {
   const sendgridKey = readEnv('SENDGRID_API_KEY');
   const resendKey   = readEnv('RESEND_API_KEY');
 
@@ -45,7 +45,7 @@ export async function sendEmail({ to, subject, html, text, replyTo, from, attach
     return sendViaSendGrid({ to, subject, html, replyTo, from: from || EMAIL_FROM, sendgridKey });
   }
   if (resendKey) {
-    return sendViaResendWithFallback({ to, subject, html, text, replyTo, from: from || EMAIL_FROM, resendKey, attachments });
+    return sendViaResendWithFallback({ to, subject, html, text, replyTo, from: from || EMAIL_FROM, resendKey, attachments, cc });
   }
   if (sendgridKey) {
     return sendViaSendGrid({ to, subject, html, replyTo, from: from || EMAIL_FROM, sendgridKey });
@@ -54,22 +54,22 @@ export async function sendEmail({ to, subject, html, text, replyTo, from, attach
   return false;
 }
 
-async function sendViaResendWithFallback({ to, subject, html, text, replyTo, from, resendKey, attachments }) {
+async function sendViaResendWithFallback({ to, subject, html, text, replyTo, from, resendKey, attachments, cc }) {
   try {
-    return await sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments });
+    return await sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments, cc });
   } catch (e) {
     const msg = String(e?.message || '');
     if (/domain|from|verified|403|unauthorized/i.test(msg)) {
       // Caller-specified or env-specified domain isn't verified in Resend.
       // Retry with the known-good APBG sender.
       console.warn(`Resend rejected from="${from}" (${msg}); retrying with ${FALLBACK_FROM}`);
-      return await sendViaResend({ to, subject, html, text, replyTo, from: FALLBACK_FROM, resendKey, attachments });
+      return await sendViaResend({ to, subject, html, text, replyTo, from: FALLBACK_FROM, resendKey, attachments, cc });
     }
     throw e;
   }
 }
 
-async function sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments }) {
+async function sendViaResend({ to, subject, html, text, replyTo, from, resendKey, attachments, cc }) {
   const payload = {
     from,
     to: Array.isArray(to) ? to : [to],
@@ -77,6 +77,8 @@ async function sendViaResend({ to, subject, html, text, replyTo, from, resendKey
     html,
   };
   if (text) payload.text = text;
+  // `cc` (optional): Resend path only, like attachments.
+  if (cc && (Array.isArray(cc) ? cc.length : cc)) payload.cc = Array.isArray(cc) ? cc : [cc];
   if (attachments && attachments.length) payload.attachments = attachments;
   if (replyTo) payload.reply_to = replyTo;
 

@@ -80,6 +80,10 @@
     "product_formula_ingredients",
     "product_formula_revisions",
     "product_formulas",
+    "production_doc_sends",
+    "production_items",
+    "production_settings",
+    "purchase_order_line_details",
     "purchase_order_lines",
     "purchase_orders",
     "qbo_customers",
@@ -95,6 +99,7 @@
     "qbo_purchase_orders",
     "qbo_token_cache",
     "qbo_vendors",
+    "raw_ingredients",
     "rebate_programs",
     "rebate_rules",
     "rebate_settlements",
@@ -139,7 +144,9 @@
     "visitor_visits",
     "work_order_costs",
     "work_order_events",
+    "work_order_lots",
     "work_order_materials",
+    "work_order_recipe_lines",
     "work_orders"
   ]
 }
