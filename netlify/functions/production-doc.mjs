@@ -214,7 +214,8 @@ async function buildBol(id) {
       lines: lines.map((l) => {
         const it = items.get(String(l.qbo_item_id));
         return { itemNo: itemNo(it, l.qbo_item_id), description: it?.name || l.qbo_item_id,
-                 qty: Number(l.qty), uom: '', weight: l.line_weight_lbs, pallets: l.line_pallets };
+                 qty: Number(l.qty), uom: '', weight: l.line_weight_lbs, pallets: l.line_pallets,
+                 lot: l.lot_code, bornOn: l.born_on_date, bestBy: l.best_by_date };
       }),
     },
     label: t.bol_number, filename: `${t.bol_number}.pdf`,

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
 import {
-  BomLineInput, BomLineType, ProductBom, ProductBomLine,
+  BomLineInput, BomLineType, BomQtyBasis, ProductBom, ProductBomLine,
   fetchBomLines, saveBomV2, updateBom,
 } from '../../lib/production';
 import { ProductFormula } from '../../lib/formulas';
@@ -142,6 +142,7 @@ interface LineRow {
   service_label: string;
   qty_per: string;
   qty_uom: string;
+  qty_basis: BomQtyBasis;
   scrap_pct: string;   // percent, e.g. "2" = 2%
   default_cost: string;
   vendor_id: string;
@@ -150,7 +151,7 @@ interface LineRow {
 
 const EMPTY_LINE: LineRow = {
   line_type: 'component', component_qbo_item_id: '', service_label: '',
-  qty_per: '', qty_uom: 'each', scrap_pct: '', default_cost: '', vendor_id: '', notes: '',
+  qty_per: '', qty_uom: 'each', qty_basis: 'per_yield', scrap_pct: '', default_cost: '', vendor_id: '', notes: '',
 };
 
 function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onClose, onSaved }: {
@@ -196,6 +197,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
         service_label: l.service_label ?? '',
         qty_per: String(l.qty_per),
         qty_uom: l.qty_uom || 'each',
+        qty_basis: l.qty_basis ?? 'per_yield',
         scrap_pct: l.scrap_pct ? String(Number(l.scrap_pct) * 100) : '',
         default_cost: l.default_cost != null ? String(l.default_cost) : '',
         vendor_id: l.preferred_qbo_vendor_id ?? '',
@@ -221,6 +223,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
         service_label: l.line_type === 'service' ? l.service_label.trim() : null,
         qty_per: Number(l.qty_per),
         qty_uom: l.qty_uom || 'each',
+        qty_basis: l.qty_basis,
         scrap_pct: l.scrap_pct ? Number(l.scrap_pct) / 100 : 0,
         default_cost: l.default_cost ? Number(l.default_cost) : null,
         preferred_qbo_vendor_id: l.vendor_id || null,
@@ -527,11 +530,11 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 4, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          <span>Type</span><span>Sub-item / service</span><span>Qty per unit</span><span>UoM</span><span>Scrap %</span><span>Est unit $</span><span>Vendor</span><span />
+        <div style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 70px 90px 70px 62px 80px 1.2fr 28px', gap: 6, marginBottom: 4, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span>Type</span><span>Sub-item / service</span><span>Qty</span><span>Per</span><span>UoM</span><span>Scrap %</span><span>Est unit $</span><span>Vendor</span><span />
         </div>
         {lines.map((l, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 90px 75px 70px 90px 1.2fr 28px', gap: 6, marginBottom: 6 }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '95px 1.6fr 70px 90px 70px 62px 80px 1.2fr 28px', gap: 6, marginBottom: 6 }}>
             <select style={inp()} value={l.line_type} onChange={(e) => setLine(i, { line_type: e.target.value as BomLineType })}>
               <option value="component">Component</option>
               <option value="service">Service</option>
@@ -547,6 +550,11 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             )}
             <input type="number" min={0} step="any" style={inp()} value={l.qty_per}
               onChange={(e) => setLine(i, { qty_per: e.target.value })} />
+            <select style={inp()} value={l.qty_basis} title="Per unit scales with the run; per run is a flat quantity per work order (a vendor's fixed fee)"
+              onChange={(e) => setLine(i, { qty_basis: e.target.value as BomQtyBasis })}>
+              <option value="per_yield">per unit</option>
+              <option value="per_run">per run</option>
+            </select>
             <input style={inp()} value={l.qty_uom} onChange={(e) => setLine(i, { qty_uom: e.target.value })} />
             <input type="number" min={0} step="any" style={inp()} value={l.scrap_pct}
               onChange={(e) => setLine(i, { scrap_pct: e.target.value })} />

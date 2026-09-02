@@ -221,6 +221,44 @@ written to** from here. A price seeded from QuickBooks carries the note "seeded
 from QuickBooks purchase cost" until somebody confirms it against the vendor's
 sheet and saves — an unconfirmed price should look unconfirmed.
 
+## What the vendors actually bill — the BOM reconciled to their invoices
+
+Asked on 2026-09-02 whether the BOM carried every charge from both vendors, the
+honest answer was no — and the way to find out was to read the vendors' own
+paper, not our item list. Quantum invoices 1462 (05/2025 final), 1741 (04/2026
+deposit), 1583 and 1766, bill 171778 (cans), and every AC Calderoni line booked
+to Can Raw Materials since 2025:
+
+| Charge | Who bills it | What the paper says | On the BOM now as |
+|---|---|---|---|
+| Tolling (fill + pack-off) | Quantum | ONE line, `Basic Fill: Tolling`, **$0.62/can** on 1462 and 1741 | `12OZ CAN FILL LABOR` (531) × 24 @ $0.62 — the PACK OFF line (532) is gone; Quantum never billed it |
+| Velcorin (DMDC) | Quantum | $0.02/can × 233,088 on 1462 | `VELCORIN 12OZ CAN` (1390, new) × 24 @ $0.02 |
+| Dunnage | Quantum | "CHEP Pallet, 4-way polystrap, shrinkwrap" **$50 × 114 pallets** for 233,088 cans ≈ 85 cases/pallet | `DUNNAGE FEE PER PALLET` (565) × 1/85 @ $50 |
+| Printed cans | Quantum | $0.328 on bill 171778 (07/2026); 2025 deposits $0.31–0.37 | six can items @ $0.328 (was $0.26) |
+| 24-pk tray | **nobody, on any Quantum invoice** | — | still on the BOM at the QBO mirror value with a note saying so — who supplies it is a question for a human |
+| Syrup | Calderoni | lump-sum "can ingredients" per run ($5,073 May, $9,236 + $3,544 June) | the 1GNS gallon line, 0.375 gal/case |
+| Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | `CANNING RUN FEE (SYRUP COMPOUNDING)` (1391, new) — **1 per run** |
+| Freight | Calderoni | a separate line most runs ($98–$3,200) | not on the BOM — entered as landed freight at Record yield |
+
+A flat per-run charge cannot be a per-case quantity, so a BOM line now has a
+**basis**: `per_yield` (the default — scales with the run) or `per_run` (one per
+work order, whatever the size). `fn_wo_create_pipeline` and
+`fn_bom_material_requirements` honour it; the BOM editor shows it as
+"per unit / per run".
+
+**Per-case variable cost is now $25.85 for Hangar 25 Cola** (was $17.52 before
+the tolling and the missing lines were fixed), plus $1,173.33 a run. The
+finished-case QuickBooks items carry $21.36 — a number nobody can trace, and
+now demonstrably too low. ⚠ The gallon price is the piece still worth
+checking: Calderoni bills syrup as a lump sum, and May's $5,073 for a run
+Quantum deposited as 4,400 gal finished works out to about **$6.92 per gallon
+of concentrate**, which is in the range the 1GNS items carry ($4.25–$7.44) — so
+the gallon is plausible, not proven.
+
+⚠ Two QuickBooks items were created for this (1390 Velcorin, NonInventory;
+1391 canning fee, Service — both expensed to Can Raw Materials 294). Nothing
+Inventory; see "Item types" below.
+
 ## The documents — PO, BOL, batching sheet, as PDFs
 
 `netlify/functions/production-doc.mjs` renders the three documents the
@@ -259,6 +297,45 @@ documents for its admin GETs.
 standard fonts throw on a character outside WinAnsi, and the wrap step measures
 before it draws — so a raw em dash in a vendor name would crash the render one
 line earlier than the drawing call anyone would look at (the 2026-08-31 lesson).
+
+## Lots and born-on dates — QC on the way home
+
+Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling
+with its batch codes in parentheses (`Q375, Q379, 390, 393, 397`). Until
+2026-09-02 nothing here could hold them: a work order had ONE batch code (ours)
+and the shipment back was ONE transfer line for the whole yield.
+
+```
+record_yield ── lots: [{lot_code, born_on_date, best_by_date, qty}, …]   (optional here)
+       │             └─ quantities MUST total the yield — a case is in exactly one lot
+       ▼
+ yield_recorded ── "Edit lots" on the work order, or enter them in the Ship dialog
+       │
+       ▼
+   ship ── the co-packer → warehouse transfer is written ONE LINE PER LOT
+       │   (inventory_transfer_lines.lot_code / born_on_date / best_by_date)
+       │   and the BOL prints Lot · Born on beside every line, Best by underneath
+       ▼
+ receive ── fn_ship_transfer / fn_receive_transfer stamp every movement with
+            source_doc_line_id, so each movement traces to its lot with NEITHER
+            function changing
+```
+
+- `ops.work_order_lots` — the lots on a run. Written only through
+  `fn_wo_set_lots` (allowed while `in_production` or `yield_recorded`) and
+  `fn_wo_advance` (`record_yield` and `ship` both accept a `lots` array).
+- **The quantities must add up to the recorded yield.** A total that disagrees
+  is refused with the two numbers in the message — it is a typo to fix, not a
+  rounding difference to accept. Verified live: 410 against a 500 yield is
+  refused; 210 + 205 + 85 lands as three BOL lines and three received lines.
+- `ops.v_lot_trace` — one row per lot: the run, the BOL it left on, ship and
+  receive dates, and how many movements reference it. This is the recall query.
+- Ordinary warehouse transfers carry the same optional Lot / Born-on fields on
+  the Stock → Transfers form; nothing demands them there.
+
+⚠ Deliberately not done: a lot column on `inventory_movements`. The movement
+already points at the transfer line that carries the lot, and a second copy is
+the kind that drifts.
 
 ## The pre-flight — which vendor gets which PO
 
@@ -387,11 +464,16 @@ service-role key and the shared QBO OAuth lease, same posture as every other
    live one's convention (`CAN <FLAVOUR> 12OZ SLEEK EMPTY`); `685` and `690`
    needed `EMPTY` adding as well as the `(deleted)` strip. Every BOM now
    pre-flights at 2 POs, 0 blockers.
-3. **The can price looks stale too.** The BOM carries $0.26. Quantum's own
-   billing says "Deposit - 202,000 units @ $0.31" (Apr 2025) and "adjusted to
-   251,988 units @ $0.37". Same shape as the gallon: worth refreshing before a
-   real run, and it is part of why a computed case costs $17.52 against the
-   $21.36 the finished-case items in QuickBooks carry.
+3. ~~The can price looks stale too.~~ **Closed 2026-09-02** — the whole Quantum
+   side was reconciled to Quantum's invoices (see "What the vendors actually
+   bill"): cans $0.328, tolling one $0.62 line, Velcorin and pallet dunnage
+   added, Calderoni's flat canning fee added as a per-run line. Per-case
+   variable cost is now **$25.85** against the **$21.36** the finished-case
+   QuickBooks items carry — the QuickBooks number is the one that is wrong.
+3b. **The 24-pk tray is on no Quantum invoice.** It is vendored to Quantum on
+   instruction at the QBO mirror value ($0.01583) with a note saying so.
+   Whether Quantum supplies it inside the tolling, someone else supplies it, or
+   it was never billed is a question for Sky, not a guess.
 4. **`fn_wo_advance`'s `record_yield` still values components from
    `work_order_materials`.** With pack rounding in play that is the cost of what
    was BOUGHT rather than what was CONSUMED. For a first run they are the same

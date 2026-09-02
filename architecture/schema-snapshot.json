@@ -144,6 +144,7 @@
     "visitor_visits",
     "work_order_costs",
     "work_order_events",
+    "work_order_lots",
     "work_order_materials",
     "work_order_recipe_lines",
     "work_orders"

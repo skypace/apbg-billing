@@ -39,6 +39,10 @@ export interface ProductBom {
 }
 
 export type BomLineType = 'component' | 'service';
+/** per_yield: qty_per is per finished unit and scales with the run. per_run: a
+ *  fixed quantity per work order — a vendor's flat fee (Calderoni's canning
+ *  fee is the live case). */
+export type BomQtyBasis = 'per_yield' | 'per_run';
 
 export interface ProductBomLine {
   id: string;
@@ -48,6 +52,7 @@ export interface ProductBomLine {
   service_label: string | null;
   qty_per: number;
   qty_uom: string;
+  qty_basis: BomQtyBasis;
   scrap_pct: number;
   default_cost: number | null;
   /** Which vendor this sub-item is purchased from. Drives PO generation. */
@@ -71,6 +76,7 @@ export interface BomLineInput {
   service_label?: string | null;
   qty_per: number;
   qty_uom?: string;
+  qty_basis?: BomQtyBasis;
   scrap_pct?: number;
   default_cost?: number | null;
   preferred_qbo_vendor_id?: string | null;
@@ -236,6 +242,29 @@ export interface WorkOrderEvent {
   created_at: string;
 }
 
+/** A co-packer lot on a work order: their lot code, the born-on (production)
+ *  date, an optional best-by, and how many cases. Lot quantities must total the
+ *  recorded yield; the return BOL is written one line per lot. */
+export interface WorkOrderLot {
+  id: string;
+  wo_id: string;
+  lot_code: string;
+  born_on_date: string | null;
+  best_by_date: string | null;
+  qty: number;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface WorkOrderLotInput {
+  lot_code: string;
+  born_on_date?: string | null;
+  best_by_date?: string | null;
+  qty: number;
+  notes?: string | null;
+}
+
 export type WoAdvanceAction =
   | 'materials_at_copacker' | 'start_production' | 'record_yield'
   | 'ship' | 'receive' | 'close' | 'void';
@@ -257,6 +286,16 @@ export async function fetchWorkOrders(limit = 200): Promise<WorkOrder[]> {
 
 export async function fetchWorkOrderViews(limit = 200): Promise<WorkOrderView[]> {
   return sbq<WorkOrderView>('v_work_orders', `select=*&order=created_at.desc&limit=${limit}`);
+}
+
+export async function fetchWorkOrderLots(woId: string): Promise<WorkOrderLot[]> {
+  return sbq<WorkOrderLot>('work_order_lots', `select=*&wo_id=eq.${woId}&order=sort_order.asc`);
+}
+
+/** Replace the lots on a work order (allowed while in_production or
+ *  yield_recorded). Once a yield is recorded the quantities must total it. */
+export async function setWorkOrderLots(woId: string, lots: WorkOrderLotInput[]): Promise<void> {
+  await sbrpc('fn_wo_set_lots', { p_wo_id: woId, p_lots: lots });
 }
 
 export async function fetchWorkOrderMaterials(woId: string): Promise<WorkOrderMaterial[]> {

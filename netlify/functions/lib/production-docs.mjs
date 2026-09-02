@@ -467,24 +467,38 @@ export async function renderBillOfLadingPdf(p) {
       ].filter(Boolean) },
   ]);
 
-  // stat strip: pieces / weight / pallets
+  // stat strip: pieces / weight / pallets (+ lots, when the shipment carries them)
   const totalQty = p.lines.reduce((t, l) => t + (Number(l.qty) || 0), 0);
+  const hasLots = p.lines.some((l) => l.lot);
   doc.metaBlocks([
     { label: 'Lines', lines: [{ text: String(p.lines.length), bold: true }] },
     { label: 'Total units', lines: [{ text: fmtQty(totalQty, 0), bold: true }] },
     { label: 'Total weight', lines: [{ text: p.weight != null ? `${fmtQty(p.weight, 0)} lbs` : '-', bold: true }] },
-    { label: 'Pallets', lines: [{ text: p.pallets != null ? fmtQty(p.pallets, 2) : '-', bold: true }] },
+    hasLots
+      ? { label: 'Lots', lines: [{ text: String(new Set(p.lines.filter((l) => l.lot).map((l) => l.lot)).size), bold: true }] }
+      : { label: 'Pallets', lines: [{ text: p.pallets != null ? fmtQty(p.pallets, 2) : '-', bold: true }] },
   ]);
 
+  // A production return is one line per lot: the lot code and born-on date sit
+  // beside the quantity, which is what the receiving dock and a recall both
+  // read. Ordinary warehouse transfers carry no lots and keep the plain layout.
   doc.table({
-    columns: [
+    columns: hasLots ? [
+      { key: 'itemNo', label: 'Item', width: 80, bold: true, accent: true },
+      { key: 'description', label: 'Description' },
+      { key: 'lot', label: 'Lot', width: 74, bold: true, format: (v) => v || '-' },
+      { key: 'bornOn', label: 'Born on', width: 68, format: (v) => v ? fmtDate(v) : '-' },
+      { key: 'qty', label: 'Qty', width: 62, align: 'right', format: (v, r) => `${fmtQty(v)}${r.uom ? ' ' + r.uom : ''}` },
+      { key: 'weight', label: 'Wt (lbs)', width: 58, align: 'right', format: (v) => v == null ? '-' : fmtQty(v, 1) },
+      { key: 'pallets', label: 'Plt', width: 44, align: 'right', format: (v) => v == null ? '-' : fmtQty(v, 2) },
+    ] : [
       { key: 'itemNo', label: 'Item', width: 90, bold: true, accent: true },
       { key: 'description', label: 'Description' },
       { key: 'qty', label: 'Qty', width: 80, align: 'right', format: (v, r) => `${fmtQty(v)}${r.uom ? ' ' + r.uom : ''}` },
       { key: 'weight', label: 'Wt (lbs)', width: 70, align: 'right', format: (v) => v == null ? '-' : fmtQty(v, 1) },
       { key: 'pallets', label: 'Pallets', width: 60, align: 'right', format: (v) => v == null ? '-' : fmtQty(v, 2) },
     ],
-    rows: p.lines,
+    rows: p.lines.map((l) => ({ ...l, _detail: l.bestBy ? [`Best by ${fmtDate(l.bestBy)}`] : [] })),
   });
 
   doc.notes('Special instructions', p.specialInstructions);

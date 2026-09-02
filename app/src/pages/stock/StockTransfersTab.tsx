@@ -178,7 +178,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
   const [totalPalletsOverride, setTotalPalletsOverride] = useState<string>('');
   const [declaredValueOverride, setDeclaredValueOverride] = useState<string>('');
   const [lines, setLines] = useState<InventoryTransferLineInput[]>([
-    { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null },
+    { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null, lot_code: null, born_on_date: null },
   ]);
   const [saving, setSaving] = useState(false);
 
@@ -205,7 +205,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
     lines.every((l) => l.qbo_item_id && Number(l.qty) > 0);
 
   function addLine() {
-    setLines([...lines, { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null }]);
+    setLines([...lines, { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null, lot_code: null, born_on_date: null }]);
   }
   function rmLine(i: number) {
     setLines(lines.filter((_, idx) => idx !== i));
@@ -345,6 +345,8 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
           <tr style={{ borderBottom: '1px solid var(--bd)' }}>
             <th style={cellTh}>Item</th>
             <th style={{ ...cellTh, width: 80,  textAlign: 'right' }}>Qty</th>
+            <th style={{ ...cellTh, width: 90 }}>Lot</th>
+            <th style={{ ...cellTh, width: 120 }}>Born on</th>
             <th style={{ ...cellTh, width: 90,  textAlign: 'right' }}>Wt (lb)</th>
             <th style={{ ...cellTh, width: 80,  textAlign: 'right' }}>Pallets</th>
             <th style={{ ...cellTh, width: 100, textAlign: 'right' }}>Unit Cost</th>
@@ -380,6 +382,14 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
                 <td style={{ ...cellTd, textAlign: 'right' }}>
                   <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
                     value={l.qty} onChange={(e) => patchLine(i, { qty: Number(e.target.value) })} />
+                </td>
+                <td style={cellTd}>
+                  <input style={{ ...inp(), width: '100%', fontFamily: 'var(--ff-mono)' }} placeholder="lot"
+                    value={l.lot_code ?? ''} onChange={(e) => patchLine(i, { lot_code: e.target.value || null })} />
+                </td>
+                <td style={cellTd}>
+                  <input type="date" style={{ ...inp(), width: '100%' }}
+                    value={l.born_on_date ?? ''} onChange={(e) => patchLine(i, { born_on_date: e.target.value || null })} />
                 </td>
                 <td style={{ ...cellTd, textAlign: 'right' }}>
                   <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
@@ -615,6 +625,8 @@ function TransferDetailModal({
             <tr style={{ borderBottom: '1px solid var(--bd)' }}>
               <th style={cellTh}>Item</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Qty</th>
+              <th style={cellTh}>Lot</th>
+              <th style={cellTh}>Born on</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Wt (lb)</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Pallets</th>
               <th style={{ ...cellTh, textAlign: 'right' }}>Received</th>
@@ -634,6 +646,10 @@ function TransferDetailModal({
                     {it?.freight_class && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--mt)', letterSpacing: 0.4 }}>· cls {it.freight_class}</span>}
                   </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(qty)}</td>
+                  <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)' }}>{l.lot_code ?? '—'}</td>
+                  <td style={{ ...cellTd, color: 'var(--mt)' }}>
+                    {l.born_on_date ?? '—'}{l.best_by_date ? <span style={{ fontSize: 9.5 }}> · best by {l.best_by_date}</span> : null}
+                  </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
                     {wt == null ? '—' : fmtNum(round1(wt))}
                   </td>
@@ -650,7 +666,7 @@ function TransferDetailModal({
               );
             })}
             {lines && lines.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 14, textAlign: 'center', color: 'var(--mt)' }}>No lines</td></tr>
+              <tr><td colSpan={8} style={{ padding: 14, textAlign: 'center', color: 'var(--mt)' }}>No lines</td></tr>
             )}
           </tbody>
         </table>
