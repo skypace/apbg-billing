@@ -6,6 +6,9 @@ import {
   fetchBomLines, saveBomV2, updateBom,
 } from '../../lib/production';
 import { ProductFormula } from '../../lib/formulas';
+import {
+  CaseRequirement, BomSyncResult, fetchCaseRequirements, syncBomFromFormula,
+} from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
@@ -168,14 +171,23 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   const [ozPerCan, setOzPerCan] = useState(String(bom?.oz_per_can ?? 12));
   const [notes, setNotes] = useState(bom?.notes ?? '');
   const [lines, setLines] = useState<LineRow[]>([{ ...EMPTY_LINE }]);
+  const [recipeLines, setRecipeLines] = useState<ProductBomLine[]>([]);
+  const [reqs, setReqs] = useState<CaseRequirement[] | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!bom) return;
     let alive = true;
-    fetchBomLines(bom.id).then((rows: ProductBomLine[]) => {
+    fetchBomLines(bom.id).then((all: ProductBomLine[]) => {
       if (!alive) return;
-      setLines(rows.map((l) => ({
+      // Only the hand-entered lines are editable here. The ingredient lines
+      // belong to the formula and are shown read-only in the Recipe panel —
+      // loading them into this form would re-save them as manual and the next
+      // rebuild would add a second copy of the whole recipe.
+      setRecipeLines(all.filter((l) => l.source === 'formula'));
+      const rows = all.filter((l) => l.source !== 'formula');
+      setLines(rows.length ? rows.map((l) => ({
         line_type: l.line_type,
         component_qbo_item_id: l.component_qbo_item_id ?? '',
         service_label: l.service_label ?? '',
@@ -185,7 +197,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
         default_cost: l.default_cost != null ? String(l.default_cost) : '',
         vendor_id: l.preferred_qbo_vendor_id ?? '',
         notes: l.notes ?? '',
-      })));
+      })) : [{ ...EMPTY_LINE }]);
     }).catch(() => undefined);
     return () => { alive = false; };
   }, [bom]);
@@ -193,7 +205,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   const validLines = lines.filter((l) =>
     Number(l.qty_per) > 0 &&
     (l.line_type === 'component' ? l.component_qbo_item_id : l.service_label.trim()));
-  const canSave = !!finishedId && validLines.length > 0;
+  const canSave = !!finishedId && (validLines.length > 0 || (!isNew && recipeLines.length > 0));
   const missingVendors = validLines.filter((l) => l.line_type === 'component' && !l.vendor_id).length;
 
   async function submit() {
@@ -230,6 +242,37 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
       onSaved();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setSaving(false); }
+  }
+
+  // The recipe preview reads the SAME function the rebuild and the work order
+  // read, so what is shown here is what will be ordered — not a second copy of
+  // the arithmetic that can drift from it.
+  useEffect(() => {
+    if (!bom || !formulaId) { setReqs(null); return; }
+    let alive = true;
+    fetchCaseRequirements(bom.id)
+      .then((r) => { if (alive) setReqs(r); })
+      .catch(() => { if (alive) setReqs(null); });
+    return () => { alive = false; };
+  }, [bom, formulaId]);
+
+  async function rebuildFromFormula() {
+    if (!bom) return;
+    setRebuilding(true);
+    try {
+      const res: BomSyncResult = await syncBomFromFormula(bom.id);
+      const parts = [res.added + ' ingredient line' + (res.added === 1 ? '' : 's') + ' written'];
+      if (res.unlinked.length) {
+        parts.push(res.unlinked.length + ' left off — no QuickBooks item yet: '
+          + res.unlinked.map((u) => u.name).join(', '));
+      }
+      if (res.unlinked.length) toast.error(parts.join('. '));
+      else toast.success(parts.join('. '));
+      const all = await fetchBomLines(bom.id);
+      setRecipeLines(all.filter((l) => l.source === 'formula'));
+      onSaved();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setRebuilding(false); }
   }
 
   function setLine(i: number, patch: Partial<LineRow>) {
@@ -283,6 +326,85 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             <input type="number" min={0} step="any" style={inp()} value={ozPerCan} onChange={(e) => setOzPerCan(e.target.value)} />
           </LField>
         </div>
+
+        {!isNew && (
+          <div style={{
+            marginTop: 16, padding: 12, border: '1px solid var(--bd)', borderRadius: 5,
+            background: 'rgba(255,255,255,0.02)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                Recipe — from the formula, per 1 case
+              </div>
+              <div style={{ flex: 1 }} />
+              <button
+                style={btnSecondary()}
+                disabled={!formulaId || rebuilding}
+                title={formulaId ? '' : 'Link a formula first'}
+                onClick={rebuildFromFormula}
+              >
+                <FlaskConical size={12} style={{ verticalAlign: -2, marginRight: 5 }} />
+                {rebuilding ? 'Rebuilding…' : 'Rebuild from formula'}
+              </button>
+            </div>
+
+            {!formulaId && (
+              <div style={{ fontSize: 11, color: 'var(--am)' }}>
+                No formula linked, so there is no recipe to explode. Pick one above and save.
+              </div>
+            )}
+
+            {formulaId && reqs && reqs.length > 0 && (
+              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase' }}>
+                    <th style={{ padding: '3px 5px' }}>Material</th>
+                    <th style={{ padding: '3px 5px' }}>% by weight</th>
+                    <th style={{ padding: '3px 5px' }}>Per case</th>
+                    <th style={{ padding: '3px 5px' }}>Vendor</th>
+                    <th style={{ padding: '3px 5px' }}>On the BOM?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reqs.map((r, i) => {
+                    const onBom = recipeLines.some((l) => l.component_qbo_item_id === r.qbo_item_id);
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
+                        <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
+                        <td style={{ padding: '3px 5px' }} className="mn">
+                          {(Number(r.pct_by_weight) * 100).toFixed(4)}%
+                        </td>
+                        <td style={{ padding: '3px 5px' }} className="mn">
+                          {Number(r.qty_per_case).toFixed(5)} {r.recipe_uom}
+                        </td>
+                        <td style={{ padding: '3px 5px', color: r.vendor_name ? undefined : 'var(--am)' }}>
+                          {r.vendor_name ?? (r.is_purchased ? 'no vendor' : '—')}
+                        </td>
+                        <td style={{ padding: '3px 5px' }}>
+                          {!r.is_purchased
+                            ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
+                            : !r.qbo_item_id
+                              ? <span style={{ color: 'var(--am)' }}>needs a QuickBooks item</span>
+                              : onBom
+                                ? <span style={{ color: 'var(--gn)' }}>yes</span>
+                                : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
+              A case is {Number(cansPerCase) || 24} × {Number(ozPerCan) || 12} oz ={' '}
+              {(((Number(cansPerCase) || 24) * (Number(ozPerCan) || 12)) / 128).toFixed(4)} gal of finished
+              product; each material's weight is that volume × the formula's density × its percent by weight.
+              Rebuilding replaces the recipe lines only — the cans, tray and co-packer charges below are
+              yours and are never touched.
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 16, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>

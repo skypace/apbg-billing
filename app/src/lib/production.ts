@@ -54,6 +54,14 @@ export interface ProductBomLine {
   preferred_qbo_vendor_id: string | null;
   notes: string | null;
   sort_order: number;
+  /**
+   * 'formula' = written by the formula sync and owned by it — a rebuild
+   * replaces exactly these. 'manual' = a human put it there (cans, tray, fill
+   * labour, tolling) and the rebuild never touches it. The BOM editor edits
+   * ONLY manual lines; saving it re-writes just those.
+   */
+  source: 'manual' | 'formula';
+  ingredient_id: string | null;
   created_at: string;
 }
 

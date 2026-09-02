@@ -11,6 +11,7 @@ import {
 import {
   ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
 } from '../../lib/formulas';
+import { BatchPlan, createProductionPo, fetchBatchPlan } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
@@ -226,6 +227,7 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
   const [scheduled, setScheduled] = useState('');
   const [notes, setNotes] = useState('');
   const [bomLines, setBomLines] = useState<ProductBomLine[] | null>(null);
+  const [plan, setPlan] = useState<BatchPlan | null>(null);
   const [saving, setSaving] = useState(false);
 
   const bom = boms.find((b) => b.id === bomId) ?? null;
@@ -265,6 +267,20 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [copackerLocs]);
+
+  // Tank / MOQ plan. Debounced because it re-runs on every keystroke in the
+  // quantity box, and it is a round trip.
+  useEffect(() => {
+    const cases = Number(qty);
+    if (!bomId || !(cases > 0)) { setPlan(null); return; }
+    let alive = true;
+    const h = setTimeout(() => {
+      fetchBatchPlan(bomId, cases)
+        .then((p) => { if (alive) setPlan(p); })
+        .catch(() => { if (alive) setPlan(null); });
+    }, 250);
+    return () => { alive = false; clearTimeout(h); };
+  }, [bomId, qty]);
 
   const materialsPreview = useMemo(() => {
     if (!bomLines || !(Number(qty) > 0)) return [];
@@ -383,6 +399,76 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
         </div>
       )}
 
+      {plan && (
+        <div style={{
+          marginTop: 12, padding: 12, border: '1px solid var(--bd)', borderRadius: 5,
+          background: 'rgba(255,255,255,0.02)',
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+            Batch plan — filling the tank
+          </div>
+          <div style={{ fontSize: 12, marginBottom: 10 }}>
+            {fmtNum(plan.cases_requested)} cases x {plan.gal_per_case} gal ={' '}
+            <strong>{fmtNum(plan.finished_gal)} gal</strong> of finished product
+            {plan.yield_pct < 1 && (
+              <> — at a {(plan.yield_pct * 100).toFixed(1)}% yield that means{' '}
+              <strong>{fmtNum(plan.gal_to_batch)} gal</strong> into the tank</>
+            )}.
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                <th style={cellTh}>Tank</th>
+                <th style={{ ...cellTh, textAlign: 'right' }}>A full tank makes</th>
+                <th style={{ ...cellTh, textAlign: 'right' }}>Add to fill it</th>
+                <th style={cellTh}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.tanks.map((tk) => (
+                <tr key={tk.tank_gal} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td style={cellTd}>
+                    <strong>{fmtNum(tk.tank_gal)} gal</strong>
+                    {plan.recommended_tank === tk.tank_gal && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 9, fontWeight: 700, color: 'var(--gn)',
+                        border: '1px solid var(--gn)', borderRadius: 12, padding: '1px 7px',
+                      }}>SMALLEST THAT HOLDS THIS RUN</span>
+                    )}
+                  </td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                    {fmtNum(tk.cases_from_tank)} cases
+                  </td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                    {tk.fits && tk.extra_cases > 0
+                      ? (
+                        <button
+                          onClick={() => setQty(String(tk.cases_from_tank))}
+                          style={{
+                            background: 'transparent', border: 'none', cursor: 'pointer',
+                            color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', padding: 0,
+                          }}
+                          title={'Set the order to ' + tk.cases_from_tank + ' cases'}
+                        >+{fmtNum(tk.extra_cases)}</button>
+                      )
+                      : <span style={{ color: 'var(--mt)' }}>—</span>}
+                  </td>
+                  <td style={{ ...cellTd, color: 'var(--mt)', fontSize: 11 }}>
+                    {tk.fits
+                      ? fmtNum(tk.unused_gal) + ' gal of capacity unused as ordered'
+                      : 'too small — over by ' + fmtNum(tk.over_by_gal) + ' gal'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
+            Tank sizes come from the formula, so a flavour that cannot run in a given tank simply does not
+            list it. Clicking a <span style={{ color: 'var(--ac)' }}>+n</span> sets the order to a full tank.
+          </div>
+        </div>
+      )}
+
       {materialsPreview.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
@@ -392,6 +478,11 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
                 {missingVendorCount} without a vendor — assign on the BOM or on the WO before generating POs
               </span>
             )}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 6 }}>
+            Quantities are the recipe's own units. Where a material has a pack size on file the work order
+            converts these to whole vendor packs — you cannot buy 0.4 of a bag — so the ordered figure on the
+            purchase order rounds up from what is shown here.
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
@@ -503,6 +594,19 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
     const pos = await generateWoPurchaseOrders(wo.id);
     toast.info(pos.map((p) => p.po_number).join(', ') + ' created');
   }, `Generate purchase orders for ${wo.batch_code}?\n\nOne PO per vendor will be created for the total of every sub-item, shipping to ${wo.copacker_location_label ?? 'the co-packer'}.`);
+
+  // The other end of the run: the finished cases coming back IN from ALAMEDA
+  // SODA COMPANY PRODUCTION, priced at the cost the material POs and the
+  // co-pack fee actually came to. The RPC refuses before a yield is recorded —
+  // until then there is no measured per-case cost, only an estimate nobody
+  // weighed — and refuses a second one, so no client-side guard is needed.
+  const doCreateProductionPo = () => run('Production PO created', async () => {
+    const res = await createProductionPo(wo.id);
+    toast.info('Production PO ' + res.po_number + ' — ' + fmtNum(res.qty)
+      + ' cases at ' + fm(res.unit_cost) + ' each · ' + fm(res.subtotal));
+  }, 'Create the purchase order for the finished cases from ALAMEDA SODA COMPANY PRODUCTION?'
+   + '\n\nIt is priced at the per-case cost this work order measured, and pushing it from the '
+   + 'Purchase Orders tab is what puts a real cost per case into QuickBooks.');
 
   const advance = (action: WoAdvanceAction, label: string, payload: Record<string, unknown> = {}, confirmText?: string) =>
     run(label, () => advanceWorkOrder(wo.id, action, payload), confirmText);
@@ -778,6 +882,11 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
           {wo.status === 'yield_recorded' && (
             <button disabled={busy} style={btnPrimary()} onClick={() => setDialog('ship')}>
               <Truck size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Create shipping record →
+            </button>
+          )}
+          {['yield_recorded', 'in_transit', 'received', 'closed'].includes(wo.status) && (
+            <button disabled={busy} style={btnSecondary()} onClick={doCreateProductionPo}>
+              <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Create production PO →
             </button>
           )}
           {wo.status === 'in_transit' && (
