@@ -247,7 +247,6 @@ export function PurchaseOrdersTab({
           poId={openId}
           po={(purchaseOrders ?? []).find((p) => p.id === openId) ?? null}
           itemLookup={itemLookup}
-          lane={lane}
           locById={locById}
           onClose={() => setOpenId(null)}
           onChanged={() => { setOpenId(null); onChanged(); }}
@@ -470,12 +469,11 @@ function CreatePoForm({
 // ── Detail modal ───────────────────────────────────────────────────────
 
 function PoDetailModal({
-  poId, po, itemLookup, lane, locById, onClose, onChanged,
+  poId, po, itemLookup, locById, onClose, onChanged,
 }: {
   poId: string;
   po: PurchaseOrderRow | null;
   itemLookup: ProductionItemLookup;
-  lane: InventoryLane;
   locById: Map<string, InventoryLocation>;
   onClose: () => void;
   onChanged: () => void;
@@ -488,11 +486,16 @@ function PoDetailModal({
 
   useEffect(() => {
     let alive = true;
+    // Every line on the PO, never a lane-filtered subset. A materials PO is mostly
+    // `excluded` items by design (a can body and a tolling charge are not finished
+    // goods), so filtering by lane here hid 6 of the 7 lines on a real Quantum PO
+    // and left nothing to receive. Lane scoping belongs on the LIST, not inside a
+    // document whose totals have to match the PDF and QuickBooks.
     fetchPoLines(poId)
-      .then((ls) => alive && setLines(ls.filter((line) => itemLookup.byId.get(line.qbo_item_id)?.inventory_lane === lane)))
+      .then((ls) => alive && setLines(ls))
       .catch(() => alive && setLines([]));
     return () => { alive = false; };
-  }, [poId, itemLookup, lane]);
+  }, [poId]);
 
   if (!po) return null;
   const destLabel = locById.get(po.destination_location_id)?.name ?? po.location_label ?? '—';
@@ -639,7 +642,11 @@ function PoDetailModal({
                       {fmtNum(Number(ln.qty_received))}
                       {fullyReceived && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
                     </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(Number(ln.unit_cost))}</td>
+                    {/* 4 dp, not fm() — a can body is $0.328 and a tolling charge $0.62;
+                        whole dollars renders both as "$0" and the line stops being checkable. */}
+                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {'$' + Number(ln.unit_cost).toFixed(4)}
+                    </td>
                     <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
                       {fm(Number(ln.qty_ordered) * Number(ln.unit_cost))}
                     </td>

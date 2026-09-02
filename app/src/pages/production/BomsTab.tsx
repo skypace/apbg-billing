@@ -11,6 +11,8 @@ import {
   fetchBatchBasis, fetchCaseRequirements, syncBomFromFormula, fetchBomPreflight,
 } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
+import { ProductionItem, fetchProductionItems } from '../../lib/rawMaterials';
+import { componentVendorId, masterIndex } from '../../lib/componentSourcing';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
@@ -177,7 +179,13 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
   const [reqs, setReqs] = useState<CaseRequirement[] | null>(null);
   const [basis, setBasis] = useState<BatchBasis | null>(null);
   const [preflight, setPreflight] = useState<BomPreflight | null>(null);
+  const [masterItems, setMasterItems] = useState<ProductionItem[]>([]);
   const [rebuilding, setRebuilding] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetchProductionItems().then((r) => { if (alive) setMasterItems(r); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -211,7 +219,29 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
     Number(l.qty_per) > 0 &&
     (l.line_type === 'component' ? l.component_qbo_item_id : l.service_label.trim()));
   const canSave = !!finishedId && (validLines.length > 0 || (!isNew && recipeLines.length > 0));
-  const missingVendors = validLines.filter((l) => l.line_type === 'component' && !l.vendor_id).length;
+  // A component with no vendor on its LINE is fine when Materials & Pricing
+  // has one — the line slot is an override, not the default. The pre-flight
+  // (server-side, master-aware) is the authority once it has loaded.
+  const masters = useMemo(() => masterIndex(masterItems), [masterItems]);
+  const vendorName = (id: string | null | undefined) => vendors.find((v) => v.qbo_vendor_id === id)?.display_name ?? null;
+  const missingVendors = preflight
+    ? preflight.blockers.filter((b) => b.kind === 'no_vendor').length
+    : validLines.filter((l) => l.line_type === 'component'
+        && !componentVendorId({ component_qbo_item_id: l.component_qbo_item_id, preferred_qbo_vendor_id: l.vendor_id || null, qty_per: l.qty_per }, masters)).length;
+  // The picker lists the stocked components (track_locations), every item
+  // Materials & Pricing knows, and whatever the lines already reference —
+  // the gallon, tolling, cans and Velcorin are none of them tracked by
+  // location, and a line whose item the picker cannot name reads as blank.
+  const componentOptions = useMemo(() => {
+    const seen = new Map<string, string>(itemLookup.componentOptions.map((o) => [o.id, o.label]));
+    for (const m of masterItems) if (!seen.has(m.qbo_item_id)) seen.set(m.qbo_item_id, m.item_name);
+    for (const l of lines) {
+      if (l.component_qbo_item_id && !seen.has(l.component_qbo_item_id)) {
+        seen.set(l.component_qbo_item_id, itemLookup.byId.get(l.component_qbo_item_id)?.item_name ?? l.component_qbo_item_id);
+      }
+    }
+    return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [itemLookup, masterItems, lines]);
 
   async function submit() {
     if (!canSave) return;
@@ -525,7 +555,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
           </div>
           {missingVendors > 0 && (
             <span style={{ fontSize: 10.5, color: 'var(--am)' }}>
-              {missingVendors} component{missingVendors === 1 ? '' : 's'} without a vendor — assign vendors so work orders can generate POs automatically.
+              {missingVendors} component{missingVendors === 1 ? '' : 's'} without a vendor — set one under Materials & Pricing (or override it here) so work orders can generate POs.
             </span>
           )}
         </div>
@@ -542,7 +572,7 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             {l.line_type === 'component' ? (
               <select style={inp()} value={l.component_qbo_item_id} onChange={(e) => setLine(i, { component_qbo_item_id: e.target.value })}>
                 <option value="">—</option>
-                {itemLookup.componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                {componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             ) : (
               <input style={inp()} placeholder="Service label (e.g. Canning fee)" value={l.service_label}
@@ -561,8 +591,11 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             <input type="number" min={0} step="any" style={inp()} value={l.default_cost}
               onChange={(e) => setLine(i, { default_cost: e.target.value })} />
             {l.line_type === 'component' ? (
-              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}>
-                <option value="">— vendor —</option>
+              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}
+                title="Blank = the vendor set under Materials & Pricing for this item. Pick one here only to override it for this BOM.">
+                <option value="">{masters.get(l.component_qbo_item_id)?.qbo_vendor_id
+                  ? `master · ${vendorName(masters.get(l.component_qbo_item_id)!.qbo_vendor_id) ?? 'set'}`
+                  : '— vendor —'}</option>
                 {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
               </select>
             ) : <span style={{ fontSize: 10, color: 'var(--mt)', alignSelf: 'center' }}>cost-only</span>}

@@ -11,7 +11,11 @@ import {
 import {
   ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
 } from '../../lib/formulas';
-import { BatchPlan, BomPreflight, createProductionPo, fetchBatchPlan, fetchBomPreflight } from '../../lib/rawMaterials';
+import {
+  BatchPlan, BomPreflight, ProductionItem, createProductionPo, fetchBatchPlan, fetchBomPreflight,
+  fetchProductionItems,
+} from '../../lib/rawMaterials';
+import { componentRequiredQty, componentUnitCost, componentVendorId, masterIndex } from '../../lib/componentSourcing';
 import { openDocPdf } from '../../lib/productionDocs';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
@@ -231,6 +235,7 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
   const [bomLines, setBomLines] = useState<ProductBomLine[] | null>(null);
   const [plan, setPlan] = useState<BatchPlan | null>(null);
   const [preflight, setPreflight] = useState<BomPreflight | null>(null);
+  const [masterItems, setMasterItems] = useState<ProductionItem[]>([]);
   const [saving, setSaving] = useState(false);
 
   const bom = boms.find((b) => b.id === bomId) ?? null;
@@ -285,6 +290,14 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
     return () => { alive = false; clearTimeout(h); };
   }, [bomId, qty]);
 
+  // The Materials & Pricing master — the vendor and price for any component
+  // whose BOM line does not override them.
+  useEffect(() => {
+    let alive = true;
+    fetchProductionItems().then((r) => { if (alive) setMasterItems(r); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+
   // Which vendors this run will raise a PO for, and anything that would stop
   // one reaching QuickBooks. Not debounced -- it depends on the BOM, not the
   // quantity, so it runs once when the flavour is picked.
@@ -297,22 +310,33 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
     return () => { alive = false; };
   }, [bomId]);
 
+  // What the server will snapshot onto the work order. Three rules have to match
+  // fn_wo_create_pipeline exactly or this preview quietly disagrees with the POs
+  // it is previewing: stocked components only, per_run is a flat charge, and the
+  // vendor and price fall back to the Materials & Pricing master.
+  const masters = useMemo(() => masterIndex(masterItems), [masterItems]);
   const materialsPreview = useMemo(() => {
     if (!bomLines || !(Number(qty) > 0)) return [];
-    return bomLines.filter((l) => l.line_type === 'component').map((l) => {
-      const required = Number(qty) * Number(l.qty_per) * (1 + Number(l.scrap_pct || 0));
-      const item = itemLookup.byId.get(l.component_qbo_item_id ?? '');
-      const cost = l.default_cost ?? item?.purchase_cost ?? null;
-      const vendor = vendors.find((v) => v.qbo_vendor_id === l.preferred_qbo_vendor_id);
-      return {
-        id: l.id,
-        label: item?.item_name ?? l.component_qbo_item_id ?? '?',
-        required, uom: l.qty_uom || 'each',
-        cost, ext: cost != null ? required * Number(cost) : null,
-        vendor: vendor?.display_name ?? (l.preferred_qbo_vendor_id ? l.preferred_qbo_vendor_id : null),
-      };
-    });
-  }, [bomLines, qty, itemLookup, vendors]);
+    return bomLines
+      // A recipe line has no item of its own and never becomes a PO line — it
+      // rides under the flavour's gallon as detail. It also has no name here, so
+      // including it renders a row of question marks.
+      .filter((l) => l.line_type === 'component' && l.component_qbo_item_id)
+      .map((l) => {
+        const item = itemLookup.byId.get(l.component_qbo_item_id ?? '');
+        const required = componentRequiredQty(l, Number(qty));
+        const cost = componentUnitCost(l, masters, item?.purchase_cost ?? null);
+        const vendorId = componentVendorId(l, masters);
+        const vendor = vendors.find((v) => v.qbo_vendor_id === vendorId);
+        return {
+          id: l.id,
+          label: item?.item_name ?? l.component_qbo_item_id ?? '?',
+          required, uom: l.qty_uom || 'each',
+          cost, ext: cost != null ? required * Number(cost) : null,
+          vendor: vendor?.display_name ?? vendorId,
+        };
+      });
+  }, [bomLines, qty, itemLookup, vendors, masters]);
   const previewTotal = materialsPreview.reduce((s, m) => s + (m.ext ?? 0), 0);
   const missingVendorCount = materialsPreview.filter((m) => !m.vendor).length;
 
@@ -548,7 +572,7 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
             Materials that will be calculated onto this work order
             {missingVendorCount > 0 && (
               <span style={{ color: 'var(--am)', textTransform: 'none', letterSpacing: 0, marginLeft: 8 }}>
-                {missingVendorCount} without a vendor — assign on the BOM or on the WO before generating POs
+                {missingVendorCount} without a vendor — set one under Materials &amp; Pricing, or on the BOM, before generating POs
               </span>
             )}
           </div>

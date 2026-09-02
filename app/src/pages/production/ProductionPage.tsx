@@ -161,9 +161,19 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     }
     return ids;
   }, [poLines, itemLookup, lane]);
+  const laneWoIds = useMemo(
+    () => new Set((filteredWos ?? []).map((w) => w.id)),
+    [filteredWos],
+  );
+  // A PO belongs to this lane if it carries a lane item OR it was raised by a work
+  // order in this lane. The second half matters: an ingredient PO is all `excluded`
+  // items (a gallon of syrup and a run fee are not finished goods), so on lines
+  // alone the AC Calderoni half of every run would be invisible and unopenable.
   const filteredPos = useMemo(
-    () => pos && poLines ? pos.filter((po) => lanePoIds.has(po.id)) : null,
-    [pos, poLines, lanePoIds],
+    () => pos && poLines
+      ? pos.filter((po) => lanePoIds.has(po.id) || (po.work_order_id ? laneWoIds.has(po.work_order_id) : false))
+      : null,
+    [pos, poLines, lanePoIds, laneWoIds],
   );
 
   const activeLabel = visibleTabs.find((t) => t.id === tab)?.label ?? 'Production';
