@@ -551,7 +551,9 @@ still does not increment it. **The production pipeline is its first real
 feed** — a run consumes materials, records a yield, ships a BOL and receives
 finished cases, all as movements — and the first live run is what proves it.
 
-⚠ **How fast it goes stale is now measured, not guessed.** The 2026-09-02
+### The sales feed — what finally maintains it
+
+⚠ **How fast it goes stale was measured, not guessed.** The 2026-09-02
 re-seed left the ledger at zero drift at 09:02 UTC. By 16:30 the QuickBooks
 mirror had pulled in the day's real invoices and the ledger was **176 units
 behind across 24 items** — seven hours, because stock shipped and nothing told
@@ -560,6 +562,45 @@ working; but it also means **reconciling by hand is a stopgap, not the
 answer.** The sales feed (`ops.qbo_invoice_lines` → shipment movements) is the
 next build, and until it exists the honest workflow is to read the strip before
 trusting a number and reconcile when it says to.
+
+**`ops.fn_apply_sales_to_ledger` closes it.** Every invoice line for a
+location-tracked item becomes a movement: Invoice and SalesReceipt take stock
+out, CreditMemo and RefundReceipt put it back.
+
+**An invoice cannot say WHICH building the case left, so the customer decides
+it.** `ops.fn_sales_ledger_location` reads `ops.sub_distributor_accounts` —
+attach a customer to a partner under **Sub-Distributors → Accounts** and their
+invoices deduct from that partner's warehouse; everyone else falls through to
+Brix Warehouse. That works because **a sub-distributor is always on
+consignment and our system bills their customers**: the stock is ours until
+the end customer is invoiced, so the invoice is the depletion signal for their
+warehouse exactly as it is for ours.
+
+⚠ **Not by state.** 315 of the 324 customers who buy stock are in California,
+and the state field itself holds `CA`, `California` and `San Francisco`. State
+sorts 97% of customers into one bucket. Per-customer is also cheaper than it
+sounds — only the exceptions are entered.
+
+**Three cases, and only the first is obvious.** A NEW line deducts. An EDITED
+line — QuickBooks upserts a line in place — posts the DIFFERENCE against
+`ops.sales_ledger_applied`, never a second full deduction. A VOIDED line, gone
+from the mirror, is reversed and its applied row stamped rather than deleted,
+because "why did 12 cases come back on the 4th" needs an answer.
+
+⚠ **Shadow by default, and that is the cutover plan rather than a
+placeholder.** The feed and the reconcile must never both be authoritative:
+reconcile sets the ledger EQUAL to QuickBooks, so if it runs while the mirror's
+quantities are a few hours behind the invoices the feed already deducted, it
+puts them straight back. In shadow the feed computes and writes nothing — even
+when called with `commit` — so its numbers can be checked against the drift the
+strip reports for a day or two first. Once it is live, **reconcile becomes the
+audit, not the mechanism**, and should only be run deliberately.
+
+⚠ **`fn_distributor_record_depletion` no longer moves stock** (`20260902x`). It
+posted its own shipment out of the partner's location, which with the feed live
+is the same case deducted twice. It stays as the DELIVERY and per-case fee
+record — the thing a delivery PO and the "their invoice matches ours" check
+will be built on — and simply stopped being a second stock writer.
 
 ## Known gaps, 2026-09-02
 

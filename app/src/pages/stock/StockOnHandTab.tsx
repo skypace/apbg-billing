@@ -6,6 +6,7 @@ import { btnSecondary } from '../../lib/styles';
 import { downloadCsv, toCsv } from '../../lib/csv';
 import { DriftRow, InventoryLocationView, OnHandRow, fetchDrift } from '../../lib/inventoryControl';
 import { LedgerStatusStrip } from './LedgerStatusStrip';
+import { SalesFeedPanel } from './SalesFeedPanel';
 import type { ItemLookup } from './StockPage';
 import { GRID_SX, GRID_DEFAULTS } from './stockStyles';
 
@@ -163,6 +164,7 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
   return (
     <div>
       <LedgerStatusStrip onReconciled={onRefresh} />
+      <SalesFeedPanel onChanged={onRefresh} />
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SearchInput value={search} onChange={setSearch} placeholder="Search item or location…" />

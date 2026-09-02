@@ -407,3 +407,39 @@ export async function reconcileInventoryBulk(
     p_commit: commit,
   });
 }
+
+// ── The sales feed ───────────────────────────────────────────────────────
+//
+// A sale is the one movement nothing was writing, and it is why the ledger
+// lost a day of stock a day: on 2026-09-01 we invoiced 174 units of tracked
+// stock and the ledger was 176 adrift the next morning.
+//
+// An invoice cannot say WHICH building the case left, so the customer decides
+// it: a customer attached to a sub-distributor (Refractor → Sub-Distributors →
+// Accounts) deducts from that partner's warehouse, and everyone else from
+// ours. Partners are always consignment and our system bills their customers,
+// so the invoice is the depletion signal for their stock exactly as it is for
+// ours.
+
+export type SalesFeedMode = 'off' | 'shadow' | 'live';
+
+export interface SalesFeedRow {
+  mode: SalesFeedMode;
+  apply_from: string;
+  location_code: string;
+  location_name: string;
+  /** 'default_warehouse' or 'distributor:<CODE>' — why it routed there. */
+  route_reason: string;
+  lines_pending: number;
+  units_pending: number;
+}
+
+export async function fetchSalesFeed(): Promise<SalesFeedRow[]> {
+  return sbq<SalesFeedRow>('v_sales_ledger_summary', 'select=*&order=units_pending.desc');
+}
+
+/** ⚠ Writing needs BOTH live mode and an explicit commit; in shadow this
+ *  computes and records nothing, which is how the cutover is checked. */
+export async function setSalesFeedMode(mode: SalesFeedMode): Promise<string> {
+  return sbrpc<string>('fn_sales_ledger_set_mode', { p_mode: mode });
+}
