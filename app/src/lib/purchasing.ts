@@ -49,6 +49,9 @@ export interface PurchaseOrderRow {
   qty_received_total: number;
   created_at: string;
   updated_at: string;
+  /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
+  bucket?: string | null;
+  po_kind?: 'materials' | 'production' | 'other' | null;
 }
 
 export interface PurchaseOrderLine {

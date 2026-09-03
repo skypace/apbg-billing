@@ -209,6 +209,8 @@ export interface WorkOrderView extends WorkOrder {
   services_cost: number | null;
   po_count: number | null;
   po_open_count: number | null;
+  /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
+  bucket?: string | null;
 }
 
 /** A WO material requirement row — the quantity calc lives here, per vendor. */

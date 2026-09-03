@@ -86,6 +86,7 @@
     "product_formula_ingredients",
     "product_formula_revisions",
     "product_formulas",
+    "production_doc_events",
     "production_doc_sends",
     "production_items",
     "production_settings",

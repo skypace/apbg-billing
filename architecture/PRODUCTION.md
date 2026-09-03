@@ -347,6 +347,68 @@ standard fonts throw on a character outside WinAnsi, and the wrap step measures
 before it draws — so a raw em dash in a vendor name would crash the render one
 line earlier than the drawing call anyone would look at (the 2026-08-31 lesson).
 
+## Buckets and bulk actions — one vocabulary on every list
+
+Sky, 2026-09-03: "open, pending, closed and voided on different tabs" and
+"delete, edit, and receive multiple items in any table… a void on each that I
+can select all." Every production list — Work Orders, Purchase Orders, Stock →
+Transfers — now opens on the same four pills, with counts:
+
+| Bucket | Means | Work order | Purchase order | Transfer |
+|---|---|---|---|---|
+| **Open** | a step is still to be taken | ordered → received | open, partial, **received** | in transit |
+| **Pending** | a draft; edit or delete freely | draft | draft | draft |
+| **Closed** | nothing more happens | closed, consumed | closed | **received** |
+| **Voided** | cancelled, reason on the row | void | void | void |
+
+**The rule lives once, in SQL** — `ops.fn_status_bucket(kind, status)`,
+exposed as `bucket` on `v_work_orders` and `v_purchase_orders`; the client's
+`lib/lifecycleBuckets.ts` mirrors it for lists that read a bare table
+(transfers) and says so at the top of the file. Two placements are deliberate
+and worth stating: a **received purchase order or work order is still Open**,
+because a click (Close) remains and a document you still have to act on must
+not hide under Closed; a **received transfer is Closed**, because nothing
+remains — the stock has landed.
+
+**Bulk actions** (migration `20260903b`): tick rows → the bar offers **Edit…**,
+**Void…** and, on the Pending bucket, **Delete drafts…**. Rules:
+
+- **Nothing half-applies silently.** Each id runs in its own sub-transaction
+  and the RPC returns `{done[], skipped[{id, number, reason}]}`; the dialog
+  shows *before* you press the button which rows will be voided and which will
+  be left alone and why (a work order past `at_copacker`, a PO with receipts, a
+  shipped transfer), and the toast afterwards names anything the server still
+  refused. `window.prompt()` is gone from every void — the `ReasonDialog` is
+  the one place a reason is typed, for one row or fifty.
+- **The eligibility rules did not move.** The bulk functions call the existing
+  single-row inner functions (`fn_wo_advance__i 'void'`, `fn_void_purchase_order__i`,
+  `fn_void_transfer__i`), so what may be voided is decided in one place.
+- **Delete is draft-only and the only hard delete in the module.** A draft
+  with no QuickBooks id, no receipts and no dependent document (a PO raised
+  from a work order, a transfer that is a work order's return shipment or
+  fulfils a sub-distributor order) can be deleted; anything else is voided,
+  and the void reason is the record.
+- **Edits are whitelisted per document** — PO `expected_date`/`notes`, work
+  order `scheduled_date`/`notes`, transfer `carrier`/`tracking_number`/
+  `special_instructions`/`notes` — and a field left blank in the dialog is not
+  sent, so an empty box cannot blank ten rows; tick *clear* to blank one on
+  purpose.
+- **Every action is audited.** Work orders already had `work_order_events`;
+  purchase orders and transfers gain `ops.production_doc_events`
+  (void / delete / edit, with the reason or the patch), written only inside
+  the SECURITY DEFINER functions.
+- ⚠ **Voiding a PO also releases its work-order materials** (`po_id` /
+  `po_line_id` cleared) so **Generate POs** can raise a replacement — a gap
+  the single-row void had: a voided PO left the materials marked "on PO" and
+  the work order could never re-order them.
+
+Verified live in a rolled-back block: a draft PO voided while an unknown id
+was skipped with `PO not found`; the void PO then refused deletion (*is void;
+only a draft can be deleted*) and edit (*is void; reopen it first*); a patch
+carrying `subtotal` was refused by name; a draft transfer took `carrier=XPO`
+and dropped an empty `notes` without blanking it, then voided; four audit
+rows were written.
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling

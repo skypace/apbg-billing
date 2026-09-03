@@ -25,6 +25,13 @@ import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
+import { StatusBuckets } from '../../components/StatusBuckets';
+import { BulkActionBar } from '../../components/BulkActionBar';
+import { ReasonDialog } from '../../components/ReasonDialog';
+import { BulkEditDialog } from '../../components/BulkEditDialog';
+import { useGridSelection } from '../../lib/useGridSelection';
+import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
+import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 // ── Pipeline metadata ────────────────────────────────────────────────────
 
@@ -75,14 +82,43 @@ export function WorkOrdersTab({
 }: Props) {
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | WorkOrderStatus>('open');
+  const toast = useToast();
+  const [bucket, setBucket] = useState<Bucket>('open');
+  const [stage, setStage] = useState<'all' | WorkOrderStatus>('all');
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sel = useGridSelection([bucket, stage]);
 
+  const counts = useMemo(() => countBuckets('work_order', workOrders ?? []), [workOrders]);
   const filtered = useMemo(() => {
-    const list = workOrders ?? [];
-    if (statusFilter === 'all') return list;
-    if (statusFilter === 'open') return list.filter((w) => !['closed', 'void', 'consumed'].includes(w.status));
-    return list.filter((w) => w.status === statusFilter);
-  }, [workOrders, statusFilter]);
+    const list = (workOrders ?? []).filter((w) => rowBucket('work_order', w) === bucket);
+    return bucket === 'open' && stage !== 'all' ? list.filter((w) => w.status === stage) : list;
+  }, [workOrders, bucket, stage]);
+  const selectedRows = useMemo(
+    () => filtered.filter((w) => sel.selected.includes(w.id)),
+    [filtered, sel.selected], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  async function runBulk(verb: string, fn: () => Promise<BulkResult>) {
+    setBusy(true);
+    try {
+      const r = await fn();
+      (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
+      setBulk(null); sel.clear(); onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  const VOIDABLE = ['draft', 'ordered', 'at_copacker'];
+  const voidItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: VOIDABLE.includes(w.status),
+    why: w.status === 'void' ? 'already void'
+      : ['closed', 'consumed'].includes(w.status) ? 'closed — nothing to void'
+      : 'production has started — close it out instead',
+  }));
+  const deleteItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status === 'draft' && !(Number(w.po_count ?? 0) > 0),
+    why: w.status !== 'draft' ? 'not a draft — void it instead' : 'has purchase orders — void it instead',
+  }));
 
   const columns: GridColDef[] = useMemo(() => [
     {
@@ -147,15 +183,15 @@ export function WorkOrdersTab({
     <div>
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span className="toolbar-label">Stage</span>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} style={inp()}>
-              <option value="open">All open</option>
-              <option value="all">Everything</option>
-              {PIPELINE.map((s) => <option key={s.status} value={s.status}>{s.label}</option>)}
-              <option value="void">Void</option>
-            </select>
-          </div>
+          <StatusBuckets kind="work_order" value={bucket} counts={counts} onChange={setBucket}>
+            {bucket === 'open' && (
+              <select value={stage} onChange={(e) => setStage(e.target.value as typeof stage)} style={inp()} aria-label="Stage">
+                <option value="all">Every stage</option>
+                {PIPELINE.filter((s) => !['draft', 'closed'].includes(s.status))
+                  .map((s) => <option key={s.status} value={s.status}>{s.label}</option>)}
+              </select>
+            )}
+          </StatusBuckets>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
           <button onClick={() => setCreating(true)} style={btnPrimary()} disabled={activeBoms.length === 0}>
             <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New Work Order
@@ -194,9 +230,37 @@ export function WorkOrdersTab({
           density="compact"
           loading={workOrders === null}
           initialState={{ sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] } }}
-          disableRowSelectionOnClick
+          {...sel.gridProps}
         />
       </div>
+
+      <BulkActionBar count={sel.selected.length} noun="work order" onClear={sel.clear}>
+        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
+        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'pending' && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
+        )}
+      </BulkActionBar>
+      {bulk === 'void' && (
+        <ReasonDialog title="Void work orders" verb={`Void ${voidItems.filter((i) => i.eligible).length} work order${voidItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={voidItems} busy={busy}
+          note="A voided work order voids its open purchase orders too (refused if one already carries receipts). Nothing is deleted — the reason stays on every row."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('voided', () => voidDocs('work_order', ids, reason))} />
+      )}
+      {bulk === 'delete' && (
+        <ReasonDialog title="Delete draft work orders" verb={`Delete ${deleteItems.filter((i) => i.eligible).length} draft${deleteItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={deleteItems} needReason={false} busy={busy}
+          note="Only a draft with no purchase orders can be deleted. This is permanent — anything further along is voided instead, which keeps the record."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('work_order', ids))} />
+      )}
+      {bulk === 'edit' && (
+        <BulkEditDialog title="Edit work orders" count={sel.selected.length} busy={busy}
+          fields={[{ key: 'scheduled_date', label: 'Scheduled date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea' }]}
+          onCancel={() => setBulk(null)}
+          onConfirm={(patch) => runBulk('edited', () => updateDocs('work_order', sel.selected, patch))} />
+      )}
 
       {openWo && (
         <PipelineDetailModal
@@ -654,6 +718,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ActionDialog>(null);
+  const [voidAsk, setVoidAsk] = useState(false);
 
   const formula = wo.formula_id ? formulas.find((f) => f.id === wo.formula_id) ?? null : null;
 
@@ -1003,6 +1068,13 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
         )}
 
         {/* Actions */}
+        {voidAsk && (
+          <ReasonDialog title={'Void ' + wo.batch_code} verb="Void work order"
+            items={[{ id: wo.id, number: wo.batch_code, eligible: true }]} busy={busy}
+            note="Open purchase orders without receipts are voided with it. Nothing is deleted."
+            onCancel={() => setVoidAsk(false)}
+            onConfirm={(reason) => { setVoidAsk(false); void advance('void', 'Work order voided', { reason }); }} />
+        )}
         {emailSheet && (
           <EmailDocModal ref={{ kind: 'batch_sheet', wo_id: wo.id }}
             title={'batching sheet · ' + wo.batch_code} onClose={() => setEmailSheet(false)} />
@@ -1016,10 +1088,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email sheet…
           </button>
           {['draft', 'ordered', 'at_copacker'].includes(wo.status) && (
-            <button disabled={busy} style={btnDanger()} onClick={() => {
-              const reason = prompt('Void reason? (Open POs without receipts will be voided with it.)');
-              if (reason) void advance('void', 'Work order voided', { reason });
-            }}>Void</button>
+            <button disabled={busy} style={btnDanger()} onClick={() => setVoidAsk(true)}>Void</button>
           )}
           {['draft', 'ordered'].includes(wo.status) && (
             <button disabled={busy || materialsMissingVendor > 0} style={btnPrimary()} onClick={doGeneratePos}

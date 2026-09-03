@@ -16,6 +16,13 @@ import { OpenPOsTab } from '../inventory/OpenPOsTab';
 import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
 import { openDocPdf } from '../../lib/productionDocs';
 import { EmailDocModal } from './EmailDocModal';
+import { StatusBuckets } from '../../components/StatusBuckets';
+import { BulkActionBar } from '../../components/BulkActionBar';
+import { ReasonDialog } from '../../components/ReasonDialog';
+import { BulkEditDialog } from '../../components/BulkEditDialog';
+import { useGridSelection } from '../../lib/useGridSelection';
+import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
+import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -72,7 +79,11 @@ export function PurchaseOrdersTab({
   const [prefill] = useState<PoPrefillState | null>(() => readPrefill());
   const [creating, setCreating] = useState(prefill !== null);
   const [openId, setOpenId] = useState<string | null>(initialPoId);
-  const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
+  const toast = useToast();
+  const [bucket, setBucket] = useState<Bucket>('open');
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sel = useGridSelection([bucket, lane]);
 
   // One-shot: clear sessionStorage so refreshing doesn't keep opening the form.
   useEffect(() => {
@@ -94,11 +105,39 @@ export function PurchaseOrdersTab({
     [vendors],
   );
 
-  const filtered = useMemo(() => {
-    const list = purchaseOrders ?? [];
-    if (statusFilter === 'all') return list;
-    return list.filter((p) => p.status === statusFilter);
-  }, [purchaseOrders, statusFilter]);
+  const counts = useMemo(() => countBuckets('purchase_order', purchaseOrders ?? []), [purchaseOrders]);
+  const filtered = useMemo(
+    () => (purchaseOrders ?? []).filter((p) => rowBucket('purchase_order', p) === bucket),
+    [purchaseOrders, bucket],
+  );
+  const selectedRows = useMemo(
+    () => filtered.filter((p) => sel.selected.includes(p.id)),
+    [filtered, sel.selected], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  async function runBulk(verb: string, fn: () => Promise<BulkResult>) {
+    setBusy(true);
+    try {
+      const r = await fn();
+      (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
+      setBulk(null); sel.clear(); onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  const voidItems = selectedRows.map((p) => ({
+    id: p.id, number: p.po_number,
+    eligible: (p.status === 'draft' || p.status === 'open') && !(Number(p.qty_received_total) > 0),
+    why: p.status === 'void' ? 'already void'
+      : Number(p.qty_received_total) > 0 || p.status === 'partial' || p.status === 'received' ? 'has receipts booked — close it out instead'
+      : p.status === 'closed' ? 'closed — nothing to void' : 'not voidable from ' + p.status,
+    detail: p.qbo_purchase_order_id ? 'Already in QuickBooks as PO ' + p.qbo_purchase_order_id + ' — close it there by hand' : undefined,
+  }));
+  const deleteItems = selectedRows.map((p) => ({
+    id: p.id, number: p.po_number,
+    eligible: p.status === 'draft' && !p.qbo_purchase_order_id && !(Number(p.qty_received_total) > 0),
+    why: p.status !== 'draft' ? 'not a draft — void it instead'
+      : p.qbo_purchase_order_id ? 'already in QuickBooks — void it instead' : 'has receipts',
+  }));
 
   const enriched = useMemo(() => filtered.map((p) => ({ ...p, id: p.id })), [filtered]);
 
@@ -184,17 +223,7 @@ export function PurchaseOrdersTab({
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span className="toolbar-label">Status</span>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | PoStatus)} style={inp()}>
-              <option value="all">All</option>
-              <option value="open">Open</option>
-              <option value="partial">Partial</option>
-              <option value="received">Received</option>
-              <option value="closed">Closed</option>
-              <option value="void">Void</option>
-            </select>
-          </div>
+          <StatusBuckets kind="purchase_order" value={bucket} counts={counts} onChange={setBucket} />
           <div className="toolbar-spacer" style={{ flex: 1 }} />
           <button
             onClick={() => setCreating(true)}
@@ -238,9 +267,37 @@ export function PurchaseOrdersTab({
           density="compact"
           loading={purchaseOrders === null}
           initialState={{ sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] } }}
-          disableRowSelectionOnClick
+          {...sel.gridProps}
         />
       </div>
+
+      <BulkActionBar count={sel.selected.length} noun="purchase order" onClear={sel.clear}>
+        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
+        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'pending' && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
+        )}
+      </BulkActionBar>
+      {bulk === 'void' && (
+        <ReasonDialog title="Void purchase orders" verb={`Void ${voidItems.filter((i) => i.eligible).length} PO${voidItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={voidItems} busy={busy}
+          note="A voided PO releases the work-order materials it covered, so Generate POs can raise a replacement. A PO already pushed to QuickBooks is voided here only — close it in QuickBooks by hand."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('voided', () => voidDocs('purchase_order', ids, reason))} />
+      )}
+      {bulk === 'delete' && (
+        <ReasonDialog title="Delete draft purchase orders" verb={`Delete ${deleteItems.filter((i) => i.eligible).length} draft${deleteItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={deleteItems} needReason={false} busy={busy}
+          note="Only a draft that is not in QuickBooks and has no receipts can be deleted. This is permanent — anything further along is voided instead."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('purchase_order', ids))} />
+      )}
+      {bulk === 'edit' && (
+        <BulkEditDialog title="Edit purchase orders" count={sel.selected.length} busy={busy}
+          fields={[{ key: 'expected_date', label: 'Expected date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea' }]}
+          onCancel={() => setBulk(null)}
+          onConfirm={(patch) => runBulk('edited', () => updateDocs('purchase_order', sel.selected, patch))} />
+      )}
 
       {openId && (
         <PoDetailModal
@@ -483,6 +540,7 @@ function PoDetailModal({
   const [busy, setBusy] = useState(false);
   const [receiving, setReceiving] = useState<Record<string, string>>({});
   const [emailOpen, setEmailOpen] = useState(false);
+  const [voidAsk, setVoidAsk] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -530,9 +588,8 @@ function PoDetailModal({
     finally { setBusy(false); }
   }
 
-  async function doVoid() {
-    const reason = prompt('Void reason:');
-    if (!reason || !reason.trim()) return;
+  async function doVoid(reason: string) {
+    setVoidAsk(false);
     setBusy(true);
     try {
       await voidPurchaseOrder(poId, reason.trim());
@@ -689,7 +746,15 @@ function PoDetailModal({
               <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
             </button>
             {canVoid && (
-              <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
+              <button onClick={() => setVoidAsk(true)} disabled={busy} style={btnDanger()}>Void</button>
+            )}
+            {voidAsk && (
+              <ReasonDialog title={'Void ' + po.po_number} verb="Void purchase order"
+                items={[{ id: po.id, number: po.po_number, eligible: true }]} busy={busy}
+                note={po.qbo_purchase_order_id
+                  ? 'This PO is already in QuickBooks (PO ' + po.qbo_purchase_order_id + '). Voiding here does not close it there — do that by hand.'
+                  : 'Nothing is deleted; the reason stays on the row.'}
+                onCancel={() => setVoidAsk(false)} onConfirm={(reason) => void doVoid(reason)} />
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

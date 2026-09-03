@@ -22,6 +22,13 @@ import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS, STATUS_COLOR } from './stockStyles';
 import type { ItemLookup } from './StockPage';
+import { StatusBuckets } from '../../components/StatusBuckets';
+import { BulkActionBar } from '../../components/BulkActionBar';
+import { ReasonDialog } from '../../components/ReasonDialog';
+import { BulkEditDialog } from '../../components/BulkEditDialog';
+import { useGridSelection } from '../../lib/useGridSelection';
+import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
+import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 interface Props {
   transfers: InventoryTransfer[] | null;
@@ -36,18 +43,46 @@ function errMsg(e: unknown): string { return e instanceof Error ? e.message : St
 export function StockTransfersTab({ transfers, locations, locationById, itemLookup, onChanged }: Props) {
   const [creating, setCreating] = useState(false);
   const [openTransferId, setOpenTransferId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | TransferStatus>('all');
+  const toast = useToast();
+  const [bucket, setBucket] = useState<Bucket>('open');
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sel = useGridSelection([bucket, transfers?.length]);
 
   const physicalLocs = useMemo(
     () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment'),
     [locations],
   );
 
-  const filtered = useMemo(() => {
-    const list = transfers ?? [];
-    if (statusFilter === 'all') return list;
-    return list.filter((t) => t.status === statusFilter);
-  }, [transfers, statusFilter]);
+  const counts = useMemo(() => countBuckets('transfer', transfers ?? []), [transfers]);
+  const filtered = useMemo(
+    () => (transfers ?? []).filter((t) => rowBucket('transfer', t) === bucket),
+    [transfers, bucket],
+  );
+  const selectedRows = useMemo(
+    () => filtered.filter((t) => sel.selected.includes(t.id)),
+    [filtered, sel.selected], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  async function runBulk(verb: string, fn: () => Promise<BulkResult>) {
+    setBusy(true);
+    try {
+      const r = await fn();
+      (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
+      setBulk(null); sel.clear(); onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  const voidItems = selectedRows.map((t) => ({
+    id: t.id, number: t.bol_number, eligible: t.status === 'draft',
+    why: t.status === 'void' ? 'already void'
+      : t.status === 'in_transit' ? 'already shipped — receive it, or reverse the shipment from its detail'
+      : 'received — stock has landed',
+  }));
+  const deleteItems = selectedRows.map((t) => ({
+    id: t.id, number: t.bol_number, eligible: t.status === 'draft',
+    why: 'not a draft — void it instead',
+  }));
 
   const enriched = useMemo(() => filtered.map((t) => ({
     ...t,
@@ -103,17 +138,7 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
     <div>
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span className="toolbar-label">Status</span>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TransferStatus)}
-              style={inp()}>
-              <option value="all">All</option>
-              <option value="draft">Draft</option>
-              <option value="in_transit">In Transit</option>
-              <option value="received">Received</option>
-              <option value="void">Void</option>
-            </select>
-          </div>
+          <StatusBuckets kind="transfer" value={bucket} counts={counts} onChange={setBucket} />
           <div className="toolbar-spacer" style={{ flex: 1 }} />
           <button onClick={() => setCreating(true)} style={btnPrimary()}>
             <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New Transfer
@@ -139,9 +164,42 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
           density="compact"
           loading={transfers === null}
           initialState={{ sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] } }}
-          disableRowSelectionOnClick
+          {...sel.gridProps}
         />
       </div>
+
+      <BulkActionBar count={sel.selected.length} noun="transfer" onClear={sel.clear}>
+        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
+        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'pending' && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
+        )}
+      </BulkActionBar>
+      {bulk === 'void' && (
+        <ReasonDialog title="Void transfers" verb={`Void ${voidItems.filter((i) => i.eligible).length} transfer${voidItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={voidItems} busy={busy}
+          note="Only a draft can be voided — once shipped, stock has moved and the ledger is corrected by receiving or reversing, never by voiding."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('voided', () => voidDocs('transfer', ids, reason))} />
+      )}
+      {bulk === 'delete' && (
+        <ReasonDialog title="Delete draft transfers" verb={`Delete ${deleteItems.filter((i) => i.eligible).length} draft${deleteItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={deleteItems} needReason={false} busy={busy}
+          note="Only a draft can be deleted, and never one that is a work order's return shipment or fulfils a sub-distributor order."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('transfer', ids))} />
+      )}
+      {bulk === 'edit' && (
+        <BulkEditDialog title="Edit transfers" count={sel.selected.length} busy={busy}
+          fields={[
+            { key: 'carrier', label: 'Carrier', type: 'text' },
+            { key: 'tracking_number', label: 'Tracking / PRO #', type: 'text' },
+            { key: 'special_instructions', label: 'Special instructions', type: 'textarea' },
+            { key: 'notes', label: 'Notes', type: 'textarea' },
+          ]}
+          onCancel={() => setBulk(null)}
+          onConfirm={(patch) => runBulk('edited', () => updateDocs('transfer', sel.selected, patch))} />
+      )}
 
       {openTransferId && (
         <TransferDetailModal
@@ -468,6 +526,7 @@ function TransferDetailModal({
   const [lines, setLines] = useState<InventoryTransferLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [voidAsk, setVoidAsk] = useState(false);
   const laneItemIds = useMemo(() => new Set(itemLookup.options.map((option) => option.id)), [itemLookup]);
 
   useEffect(() => {
@@ -527,9 +586,8 @@ function TransferDetailModal({
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
-  async function doVoid() {
-    const reason = prompt('Void reason?');
-    if (!reason) return;
+  async function doVoid(reason: string) {
+    setVoidAsk(false);
     setBusy(true);
     try {
       await voidTransfer(transferId, reason);
@@ -686,9 +744,15 @@ function TransferDetailModal({
           <button onClick={() => setEmailOpen(true)} style={btnSecondary()} title="Email the BOL PDF to the shipper, carrier or receiver">
             <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
           </button>
+          {voidAsk && (
+            <ReasonDialog title={'Void ' + transfer.bol_number} verb="Void transfer"
+              items={[{ id: transfer.id, number: transfer.bol_number, eligible: true }]} busy={busy}
+              note="Nothing has shipped yet, so nothing moves in the ledger. The reason stays on the row."
+              onCancel={() => setVoidAsk(false)} onConfirm={(reason) => void doVoid(reason)} />
+          )}
           {status === 'draft' && (
             <>
-              <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
+              <button onClick={() => setVoidAsk(true)} disabled={busy} style={btnDanger()}>Void</button>
               <button onClick={doShip} disabled={busy} style={btnPrimary()}>Mark Shipped</button>
             </>
           )}
