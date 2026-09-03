@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SelectField } from '@/components/ui/select-field';
 import { Badge } from '@/components/ui/badge';
+import { SelfBilledInvoice } from '@/components/SelfBilledInvoice';
 import { useSession, useExpenseSettings } from '@/lib/hooks';
 import { getAccessToken, supabase } from '@/lib/supabase';
 import { postToQuickBooks as postExpenseToQbo } from '@/lib/postToQbo';
@@ -1017,6 +1018,10 @@ export default function ExpenseForm() {
             Vendor, amount, and accounts are pre-filled from the PR — just attach the receipt and pick the "Paid with" account.
           </div>
         )}
+
+        {/* Suppliers who authorised us to raise their invoices. Renders itself
+            away for everyone else, so it costs nothing on a normal expense. */}
+        {id && <SelfBilledInvoice expenseId={id} />}
 
         {sfOcrStatus && sfOcrStatus !== 'processed' && (
           <div className="text-sm rounded-lg p-3 border border-amber-500/40 bg-amber-500/10 text-amber-200">

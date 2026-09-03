@@ -115,6 +115,8 @@
     "sales_plans",
     "saved_views",
     "segments",
+    "self_billed_invoices",
+    "self_billing_profiles",
     "service_jobs",
     "sf_customer_snapshot",
     "sf_token_cache",

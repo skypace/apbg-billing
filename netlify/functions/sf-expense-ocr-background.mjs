@@ -104,6 +104,43 @@ async function emailHeld(r, headline, reason) {
   });
 }
 
+/**
+ * Raise the supplier's invoice ourselves, where they authorised it.
+ *
+ * Calls the one endpoint that does this, so the automatic path and the button
+ * in Brixpense cannot drift on what the document says or how it is numbered.
+ *
+ * ⚠ self-bill-invoice declares config.path = '/api/self-bill-invoice', so it is
+ * served THERE and the legacy /.netlify/functions/<name> route 404s — the trap
+ * that left every emailed bill stuck at "Scanning".
+ */
+async function tryRaiseSelfBilledInvoice(expense) {
+  const base = process.env.URL || 'https://apbg-billing.netlify.app';
+  try {
+    const res = await fetch(`${base}/api/self-bill-invoice`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-ap-inbox-secret': process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+      },
+      body: JSON.stringify({ action: 'create', expense_request_id: expense.id }),
+    });
+    if (!res.ok) {
+      // 409 is the normal case: no profile claims this vendor, because most
+      // suppliers do send their own invoices. Not worth logging as noise.
+      if (res.status !== 409) {
+        console.error('[sf-expense-ocr] self-bill raise failed:', res.status, (await res.text()).slice(0, 200));
+      }
+      return false;
+    }
+    const out = await res.json();
+    return !!out?.invoice_number;
+  } catch (e) {
+    console.error('[sf-expense-ocr] self-bill raise threw:', e?.message || e);
+    return false;
+  }
+}
+
 export default async (req) => {
   const url = new URL(req.url);
 
@@ -124,7 +161,7 @@ export default async (req) => {
       `expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft&qbo_bill_id=is.null&archived_at=is.null&ocr_status=is.null&order=created_at.asc&limit=${MAX_PER_RUN}&select=${sel}`
     );
 
-    let processed = 0, noAttachment = 0, failed = 0, noBillNumber = 0;
+    let processed = 0, noAttachment = 0, failed = 0, noBillNumber = 0, selfBilled = 0;
     const accountLabels = rows.length ? await loadAccountLabels() : [];
 
     for (const r of rows) {
@@ -137,6 +174,16 @@ export default async (req) => {
       }
 
       if (!attachments.length) {
+        // SELF-BILLING. Some suppliers do not issue invoices at all — Origins
+        // Craft Soda authorised us to raise theirs. For those, "no attachment"
+        // is not something to hold and chase: the document does not exist
+        // because it is OURS to produce. Raising it files the PDF, attaches it
+        // and stamps the bill number — precisely what this gate waits for — so
+        // the draft leaves held and becomes postable.
+        //
+        // Best-effort by design: a failure must leave the row exactly where it
+        // would have been anyway (held, then chased), never lose it.
+        if (await tryRaiseSelfBilledInvoice(r)) { selfBilled++; continue; }
         noAttachment++;
         await opsPatch('expense_requests', r.id, { ocr_status: 'no_attachment', ocr_processed_at: new Date().toISOString() });
         if (url.searchParams.get('mode') !== 'quiet') {
@@ -180,7 +227,7 @@ export default async (req) => {
       }
     }
 
-    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber };
+    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber, self_billed: selfBilled };
     await logRun(started, 'success', processed, summary);
     return new Response(JSON.stringify({ ok: true, ...summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
