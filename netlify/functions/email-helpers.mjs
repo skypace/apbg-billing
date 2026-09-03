@@ -22,7 +22,27 @@ function readEnv(name) {
   return process.env[name];
 }
 
-export const APPROVAL_EMAIL = readEnv('APPROVAL_EMAIL') || 'wgrandell@brixbev.com';
+// Where integration-health alerts go (health-watchdog, master-health-core).
+//
+// The name is historical: this also carried the AP tool's bill-approval email
+// until that page was retired on 2026-09-03. Health alerts are now its only
+// consumer — the name is left alone because it is a live Netlify env var.
+//
+// ⚠ The old fallback here was 'wgrandell@brixbev.com', an address that does not
+// exist. It hard-bounced and Resend SUPPRESSED it on 2026-05-15, so from that
+// day every AP bill-approval email, every approval confirmation, and every
+// integration-health alert was accepted by Resend and silently dropped — for
+// three and a half months, with nothing failing anywhere (found 2026-09-03).
+//
+// The default is now service@brixbev.com, which is what this system already
+// says the answer is: ops.expense_settings.ap_inbox.notify — the notify list
+// for the modern emailed-bill pipeline — is exactly that address, as is every
+// other alert default in this repo. Set APPROVAL_EMAIL to override.
+//
+// ⚠ Never default this to an address nobody reads. The approve link in that
+// email CREATES A BILL IN QUICKBOOKS, so a dead recipient does not merely lose
+// a notification — it silently stops AP.
+export const APPROVAL_EMAIL = readEnv('APPROVAL_EMAIL') || 'service@brixbev.com';
 
 // Verified Resend sender on the APBG tenant. Same address Melt's
 // send-order-approval falls back to — guaranteed to pass SPF/DKIM.
