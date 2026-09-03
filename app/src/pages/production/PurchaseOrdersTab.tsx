@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail } from 'lucide-react';
+import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil } from 'lucide-react';
 import {
   PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
   closePurchaseOrder, createPurchaseOrder, fetchPoLines,
-  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder,
+  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder, reopenPurchaseOrder,
 } from '../../lib/purchasing';
+import { ReceiveLinesDialog } from './ReceiveLinesDialog';
+import { AdjustReceiptDialog } from './AdjustReceiptDialog';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -22,7 +24,7 @@ import { ReasonDialog } from '../../components/ReasonDialog';
 import { BulkEditDialog } from '../../components/BulkEditDialog';
 import { useGridSelection } from '../../lib/useGridSelection';
 import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
-import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
+import { closePurchaseOrders, deleteDrafts, reopenDocs, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -81,7 +83,7 @@ export function PurchaseOrdersTab({
   const [openId, setOpenId] = useState<string | null>(initialPoId);
   const toast = useToast();
   const [bucket, setBucket] = useState<Bucket>('open');
-  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'receive' | 'close' | 'reopen' | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = useGridSelection([bucket, lane]);
 
@@ -115,15 +117,23 @@ export function PurchaseOrdersTab({
     [filtered, sel.selected], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  function finishBulk(r: BulkResult, verb: string) {
+    (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
+    setBulk(null); sel.clear(); onChanged();
+  }
   async function runBulk(verb: string, fn: () => Promise<BulkResult>) {
     setBusy(true);
-    try {
-      const r = await fn();
-      (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
-      setBulk(null); sel.clear(); onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
+    try { finishBulk(await fn(), verb); }
+    catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
+  const closeItems = selectedRows.map((p) => ({
+    id: p.id, number: p.po_number, eligible: p.status === 'received' || p.status === 'partial',
+    why: p.status === 'closed' ? 'already closed' : p.status === 'void' ? 'void' : 'nothing received yet — receive it, or void it',
+  }));
+  const reopenItems = selectedRows.map((p) => ({
+    id: p.id, number: p.po_number, eligible: p.status === 'closed', why: 'not closed',
+  }));
   const voidItems = selectedRows.map((p) => ({
     id: p.id, number: p.po_number,
     eligible: (p.status === 'draft' || p.status === 'open') && !(Number(p.qty_received_total) > 0),
@@ -272,8 +282,19 @@ export function PurchaseOrdersTab({
       </div>
 
       <BulkActionBar count={sel.selected.length} noun="purchase order" onClear={sel.clear}>
-        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
-        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'open' && (
+          <button type="button" className="tb-btn tb-btn--primary" disabled={busy} onClick={() => setBulk('receive')}>Receive…</button>
+        )}
+        {bucket === 'open' && (
+          <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('close')}>Close…</button>
+        )}
+        {bucket === 'closed' && (
+          <button type="button" className="tb-btn tb-btn--primary" disabled={busy} onClick={() => setBulk('reopen')}>Reopen…</button>
+        )}
+        {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
+        {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        )}
         {bucket === 'pending' && (
           <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
         )}
@@ -291,6 +312,24 @@ export function PurchaseOrdersTab({
           note="Only a draft that is not in QuickBooks and has no receipts can be deleted. This is permanent — anything further along is voided instead."
           onCancel={() => setBulk(null)}
           onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('purchase_order', ids))} />
+      )}
+      {bulk === 'receive' && (
+        <ReceiveLinesDialog pos={selectedRows} itemLookup={itemLookup} busy={busy}
+          onCancel={() => setBulk(null)} onDone={(r) => finishBulk(r, 'lines received')} />
+      )}
+      {bulk === 'close' && (
+        <ReasonDialog title="Close purchase orders" verb={`Close ${closeItems.filter((i) => i.eligible).length} PO${closeItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={closeItems} needReason={false} busy={busy}
+          note="Closing says nothing more is expected on the PO. Any line still short stays short (the vendor shipped less) — a closed PO can be reopened, and a receipt corrected, from its detail."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => runBulk('closed', () => closePurchaseOrders(ids))} />
+      )}
+      {bulk === 'reopen' && (
+        <ReasonDialog title="Reopen purchase orders" verb={`Reopen ${reopenItems.filter((i) => i.eligible).length} PO${reopenItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={reopenItems} busy={busy}
+          note="Each PO's status is recomputed from its lines (received, partial or open). The QuickBooks purchase order is not touched."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('purchase_order', ids, reason))} />
       )}
       {bulk === 'edit' && (
         <BulkEditDialog title="Edit purchase orders" count={sel.selected.length} busy={busy}
@@ -541,6 +580,8 @@ function PoDetailModal({
   const [receiving, setReceiving] = useState<Record<string, string>>({});
   const [emailOpen, setEmailOpen] = useState(false);
   const [voidAsk, setVoidAsk] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
+  const [adjustLine, setAdjustLine] = useState<PurchaseOrderLine | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -588,6 +629,17 @@ function PoDetailModal({
     finally { setBusy(false); }
   }
 
+  async function doReopen(reason: string) {
+    setReopenAsk(false);
+    setBusy(true);
+    try {
+      const st = await reopenPurchaseOrder(poId, reason);
+      toast.success('PO reopened — now ' + st);
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
   async function doVoid(reason: string) {
     setVoidAsk(false);
     setBusy(true);
@@ -615,6 +667,8 @@ function PoDetailModal({
   const canClose   = po.status === 'received' || po.status === 'partial';
   const canVoid    = po.status === 'draft' || po.status === 'open';
   const canPush    = !po.qbo_purchase_order_id && po.status !== 'void';
+  const canReopen  = po.status === 'closed';
+  const canAdjust  = po.status !== 'draft' && po.status !== 'void';
 
   return (
     <div onClick={onClose} style={{
@@ -648,6 +702,9 @@ function PoDetailModal({
             )}
             {po.void_reason && (
               <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>Voided: {po.void_reason}</div>
+            )}
+            {po.reopened_at && (
+              <div style={{ fontSize: 10, color: 'var(--am)', marginTop: 4 }}>Reopened {new Date(po.reopened_at).toLocaleString()}: {po.reopen_reason}</div>
             )}
           </div>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
@@ -698,6 +755,12 @@ function PoDetailModal({
                       color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
                       {fmtNum(Number(ln.qty_received))}
                       {fullyReceived && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
+                      {canAdjust && (
+                        <button type="button" title="Correct this receipt" disabled={busy} onClick={() => setAdjustLine(ln)}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: '0 0 0 5px', verticalAlign: -1 }}>
+                          <Pencil size={10} />
+                        </button>
+                      )}
                     </td>
                     {/* 4 dp, not fm() — a can body is $0.328 and a tolling charge $0.62;
                         whole dollars renders both as "$0" and the line stops being checkable. */}
@@ -747,6 +810,21 @@ function PoDetailModal({
             </button>
             {canVoid && (
               <button onClick={() => setVoidAsk(true)} disabled={busy} style={btnDanger()}>Void</button>
+            )}
+            {canReopen && (
+              <button onClick={() => setReopenAsk(true)} disabled={busy} style={btnSecondary()} title="Closed → back to received / partial / open, recomputed from the lines">Reopen</button>
+            )}
+            {reopenAsk && (
+              <ReasonDialog title={'Reopen ' + po.po_number} verb="Reopen purchase order"
+                items={[{ id: po.id, number: po.po_number, eligible: true }]} busy={busy}
+                note="Its status is recomputed from the lines (received, partial or open) so a receipt can be corrected. The QuickBooks purchase order is not touched."
+                onCancel={() => setReopenAsk(false)} onConfirm={(reason) => void doReopen(reason)} />
+            )}
+            {adjustLine && (
+              <AdjustReceiptDialog line={adjustLine} poStatus={po.status}
+                itemName={itemLookup.byId.get(adjustLine.qbo_item_id)?.item_name ?? adjustLine.qbo_item_id}
+                onCancel={() => setAdjustLine(null)}
+                onDone={(r) => { setAdjustLine(null); toast.success(`Receipt corrected ${fmtNum(r.from)} → ${fmtNum(r.to)} · PO now ${r.status}`); onChanged(); }} />
             )}
             {voidAsk && (
               <ReasonDialog title={'Void ' + po.po_number} verb="Void purchase order"

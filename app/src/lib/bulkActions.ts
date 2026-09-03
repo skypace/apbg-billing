@@ -33,6 +33,24 @@ export async function updateDocs(kind: DocKind, ids: string[], patch: Record<str
   return norm(await sbrpc<BulkResult>(fn, { p_ids: ids, p_patch: patch }));
 }
 
+/** Closed → open again (PO status recomputed from lines; transfer lines reversed to TRANSIT). */
+export async function reopenDocs(kind: DocKind, ids: string[], reason: string): Promise<BulkResult> {
+  if (!ids.length) return EMPTY;
+  return norm(await sbrpc<BulkResult>('fn_reopen_docs', { p_kind: kind, p_ids: ids, p_reason: reason }));
+}
+
+export async function closePurchaseOrders(ids: string[]): Promise<BulkResult> {
+  if (!ids.length) return EMPTY;
+  return norm(await sbrpc<BulkResult>('fn_close_purchase_orders', { p_ids: ids }));
+}
+
+export interface ReceiveLineInput { po_line_id: string; qty: number; unit_cost?: number | null; receipt_date?: string | null }
+/** Many lines, one call; each line in its own sub-transaction on the server. */
+export async function receivePoLines(lines: ReceiveLineInput[]): Promise<BulkResult> {
+  if (!lines.length) return EMPTY;
+  return norm(await sbrpc<BulkResult>('fn_receive_po_lines', { p_lines: lines }));
+}
+
 /** One sentence for the toast: "3 voided · 1 skipped (PO-2026-00012: has receipts)". */
 export function summarizeBulk(r: BulkResult, verb: string): string {
   const parts = [`${r.done.length} ${verb}`];

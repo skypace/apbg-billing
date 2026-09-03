@@ -52,6 +52,8 @@ export interface PurchaseOrderRow {
   /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
   bucket?: string | null;
   po_kind?: 'materials' | 'production' | 'other' | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
 }
 
 export interface PurchaseOrderLine {
@@ -160,6 +162,21 @@ export async function closePurchaseOrder(poId: string): Promise<void> {
 
 export async function voidPurchaseOrder(poId: string, reason: string): Promise<void> {
   await sbrpc('fn_void_purchase_order', { p_po_id: poId, p_reason: reason });
+}
+
+/** Closed → recomputed from its lines (received / partial / open). QBO PurchaseOrder is untouched. */
+export async function reopenPurchaseOrder(poId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_purchase_order', { p_po_id: poId, p_reason: reason });
+}
+
+/** Correct a line's received quantity up or down (a compensating movement, never an edit). */
+export async function adjustReceipt(args: {
+  po_line_id: string; new_qty_received: number; reason: string; occurred_at?: string | null;
+}): Promise<{ po_id: string; from: number; to: number; delta: number; status: string }> {
+  return sbrpc('fn_adjust_receipt', {
+    p_po_line_id: args.po_line_id, p_new_qty_received: args.new_qty_received,
+    p_reason: args.reason, p_occurred_at: args.occurred_at ?? new Date().toISOString(),
+  });
 }
 
 // ── QBO writebacks via push-qbo-item ─────────────────────────────────────

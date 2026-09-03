@@ -6,7 +6,7 @@ import {
   WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction, WorkOrderLot, WorkOrderLotInput,
   advanceWorkOrder, createWorkOrderPipeline, fetchBomLines,
   fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots,
-  generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots,
+  generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder,
 } from '../../lib/production';
 import {
   ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
@@ -31,7 +31,7 @@ import { ReasonDialog } from '../../components/ReasonDialog';
 import { BulkEditDialog } from '../../components/BulkEditDialog';
 import { useGridSelection } from '../../lib/useGridSelection';
 import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
-import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
+import { deleteDrafts, reopenDocs, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 // ── Pipeline metadata ────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ export function WorkOrdersTab({
   const toast = useToast();
   const [bucket, setBucket] = useState<Bucket>('open');
   const [stage, setStage] = useState<'all' | WorkOrderStatus>('all');
-  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = useGridSelection([bucket, stage]);
 
@@ -114,6 +114,9 @@ export function WorkOrdersTab({
     why: w.status === 'void' ? 'already void'
       : ['closed', 'consumed'].includes(w.status) ? 'closed — nothing to void'
       : 'production has started — close it out instead',
+  }));
+  const reopenItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status === 'closed', why: 'not closed',
   }));
   const deleteItems = selectedRows.map((w) => ({
     id: w.id, number: w.batch_code, eligible: w.status === 'draft' && !(Number(w.po_count ?? 0) > 0),
@@ -235,8 +238,13 @@ export function WorkOrdersTab({
       </div>
 
       <BulkActionBar count={sel.selected.length} noun="work order" onClear={sel.clear}>
-        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
-        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'closed' && (
+          <button type="button" className="tb-btn tb-btn--primary" disabled={busy} onClick={() => setBulk('reopen')}>Reopen…</button>
+        )}
+        {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
+        {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        )}
         {bucket === 'pending' && (
           <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
         )}
@@ -254,6 +262,13 @@ export function WorkOrdersTab({
           note="Only a draft with no purchase orders can be deleted. This is permanent — anything further along is voided instead, which keeps the record."
           onCancel={() => setBulk(null)}
           onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('work_order', ids))} />
+      )}
+      {bulk === 'reopen' && (
+        <ReasonDialog title="Reopen work orders" verb={`Reopen ${reopenItems.filter((i) => i.eligible).length} work order${reopenItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={reopenItems} busy={busy}
+          note="A closed run goes back to Received, so its receipt can be corrected and it can be closed again."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('work_order', ids, reason))} />
       )}
       {bulk === 'edit' && (
         <BulkEditDialog title="Edit work orders" count={sel.selected.length} busy={busy}
@@ -719,6 +734,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ActionDialog>(null);
   const [voidAsk, setVoidAsk] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
 
   const formula = wo.formula_id ? formulas.find((f) => f.id === wo.formula_id) ?? null : null;
 
@@ -1075,6 +1091,13 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             onCancel={() => setVoidAsk(false)}
             onConfirm={(reason) => { setVoidAsk(false); void advance('void', 'Work order voided', { reason }); }} />
         )}
+        {reopenAsk && (
+          <ReasonDialog title={'Reopen ' + wo.batch_code} verb="Reopen work order"
+            items={[{ id: wo.id, number: wo.batch_code, eligible: true }]} busy={busy}
+            note="The run goes back to Received. Its costs and lots stay as recorded; close it again when the correction is made."
+            onCancel={() => setReopenAsk(false)}
+            onConfirm={(reason) => { setReopenAsk(false); void run('Work order reopened — back to Received', () => reopenWorkOrder(wo.id, reason).then(() => undefined)); }} />
+        )}
         {emailSheet && (
           <EmailDocModal ref={{ kind: 'batch_sheet', wo_id: wo.id }}
             title={'batching sheet · ' + wo.batch_code} onClose={() => setEmailSheet(false)} />
@@ -1089,6 +1112,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
           </button>
           {['draft', 'ordered', 'at_copacker'].includes(wo.status) && (
             <button disabled={busy} style={btnDanger()} onClick={() => setVoidAsk(true)}>Void</button>
+          )}
+          {wo.status === 'closed' && (
+            <button disabled={busy} style={btnSecondary()} onClick={() => setReopenAsk(true)} title="Back to Received so the receipt can be corrected">Reopen</button>
           )}
           {['draft', 'ordered'].includes(wo.status) && (
             <button disabled={busy || materialsMissingVendor > 0} style={btnPrimary()} onClick={doGeneratePos}

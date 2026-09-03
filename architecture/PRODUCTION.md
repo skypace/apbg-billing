@@ -409,6 +409,49 @@ carrying `subtotal` was refused by name; a draft transfer took `carrier=XPO`
 and dropped an empty `notes` without blanking it, then voided; four audit
 rows were written.
 
+## Receive, reopen, correct — a closed document is not a locked one
+
+Sky, 2026-09-03: "When I receive something I should be able to edit it if I
+closed it and reopen. That should be on all items." Migration `20260903c`:
+
+| Action | Where | What actually happens |
+|---|---|---|
+| **Receive…** several POs at once | Purchase Orders → tick rows (Open) → Receive… | every outstanding line of the selected POs, grouped by PO with its destination, quantity defaulting to what is still short; one call, `fn_receive_po_lines`, each line in its own sub-transaction |
+| **Close…** | tick rows (Open) → Close… | the existing single-row close, in bulk; refused for a PO with nothing received |
+| **Reopen** | PO / work order / transfer detail, or tick rows (Closed) → Reopen… | closed → open again, with a reason stamped `reopened_at/by/reason` |
+| **Correct a receipt** | PO detail → pencil beside Received | the line's received quantity set to a new figure, up or down, dated, with a reason |
+
+**The ledger is append-only, so a correction is a movement, not an edit.** A
+receipt corrected UP posts another `receipt`; corrected DOWN posts a
+**`receipt_reversal`** (a new movement type — the table's `qty > 0` CHECK
+holds and the direction carries the sign). The original receipt stays: "why
+did 3 cases leave the warehouse on the 4th" must remain answerable from the
+movements, and an edited row cannot answer it.
+
+**A correction is refused once the goods have moved on.** Reversing 3 units
+needs 3 on hand at the PO's destination; if they have already shipped to a
+store, the stock is somewhere else and the fix belongs where it is, not on a
+document that was right when it was written. The same rule reopens a
+received transfer: every line is reversed from the destination back to
+TRANSIT, refused if the destination no longer holds them — and refused
+outright when the transfer is a work order's return shipment that the run has
+already received, because the run's receipt is the record.
+
+**A reopened PO's status is recomputed from its lines, never guessed**
+(`fn_po_recompute_status`: all lines full → received; some received →
+partial; none → open). Correcting a receipt on a closed PO so that a line is
+short again reopens it by itself, with the reason on the row. **The
+QuickBooks purchase order is never touched by any of this**; the dialogs say
+so.
+
+Verified live in a rolled-back block: two lines received in one call with a
+third refused by name (*receiving 9 would exceed qty_ordered (4)*); the PO
+closed, then a line corrected 10 → 7 posted one `receipt_reversal`, reopened
+the PO to *partial* with *Receipt corrected: counted 7 not 10* on it; a
+partial PO refused Reopen (*only a closed PO can be reopened*); a shipped and
+received transfer reopened to in transit with the destination back at 0 and
+TRANSIT at 2; eight audit rows written in order.
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling

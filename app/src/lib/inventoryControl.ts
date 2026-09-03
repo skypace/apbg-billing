@@ -66,6 +66,8 @@ export interface InventoryTransfer {
   shipper_signature_at: string | null;
   receiver_signature_name: string | null;
   receiver_signature_at: string | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
 }
 
 export interface InventoryTransferLine {
@@ -106,7 +108,9 @@ export type MovementType =
   | 'shipment'
   | 'adjustment'
   | 'production_consume'
-  | 'production_yield';
+  | 'production_yield'
+  /** A receipt corrected down or a received transfer reopened (20260903c). */
+  | 'receipt_reversal';
 
 export interface InventoryMovement {
   id: string;
@@ -301,6 +305,11 @@ export async function receiveTransfer(
     p_received_date: receivedDate ?? null,
     p_receiver_signature_name: receiverSignatureName ?? null,
   });
+}
+
+/** Received → in transit: every line reversed back to TRANSIT (refused once the stock has moved on). */
+export async function reopenTransfer(transferId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_transfer', { p_transfer_id: transferId, p_reason: reason });
 }
 
 export async function voidTransfer(transferId: string, reason: string): Promise<void> {

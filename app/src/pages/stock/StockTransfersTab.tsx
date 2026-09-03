@@ -16,6 +16,7 @@ import {
   shipTransfer,
   updateTransferFreight,
   voidTransfer,
+  reopenTransfer,
 } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -28,7 +29,7 @@ import { ReasonDialog } from '../../components/ReasonDialog';
 import { BulkEditDialog } from '../../components/BulkEditDialog';
 import { useGridSelection } from '../../lib/useGridSelection';
 import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
-import { deleteDrafts, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
+import { deleteDrafts, reopenDocs, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 interface Props {
   transfers: InventoryTransfer[] | null;
@@ -45,7 +46,7 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
   const [openTransferId, setOpenTransferId] = useState<string | null>(null);
   const toast = useToast();
   const [bucket, setBucket] = useState<Bucket>('open');
-  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | null>(null);
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = useGridSelection([bucket, transfers?.length]);
 
@@ -82,6 +83,9 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
   const deleteItems = selectedRows.map((t) => ({
     id: t.id, number: t.bol_number, eligible: t.status === 'draft',
     why: 'not a draft — void it instead',
+  }));
+  const reopenItems = selectedRows.map((t) => ({
+    id: t.id, number: t.bol_number, eligible: t.status === 'received', why: 'not received',
   }));
 
   const enriched = useMemo(() => filtered.map((t) => ({
@@ -169,8 +173,13 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
       </div>
 
       <BulkActionBar count={sel.selected.length} noun="transfer" onClear={sel.clear}>
-        <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>
-        <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        {bucket === 'closed' && (
+          <button type="button" className="tb-btn tb-btn--primary" disabled={busy} onClick={() => setBulk('reopen')}>Reopen…</button>
+        )}
+        {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
+        {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        )}
         {bucket === 'pending' && (
           <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
         )}
@@ -188,6 +197,13 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
           note="Only a draft can be deleted, and never one that is a work order's return shipment or fulfils a sub-distributor order."
           onCancel={() => setBulk(null)}
           onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('transfer', ids))} />
+      )}
+      {bulk === 'reopen' && (
+        <ReasonDialog title="Reopen transfers" verb={`Reopen ${reopenItems.filter((i) => i.eligible).length} transfer${reopenItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={reopenItems} busy={busy}
+          note="Every line is reversed from the destination back to In Transit with a new movement. Refused once the stock has moved on, or when the transfer is a work order's return shipment that the run has already received."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('transfer', ids, reason))} />
       )}
       {bulk === 'edit' && (
         <BulkEditDialog title="Edit transfers" count={sel.selected.length} busy={busy}
@@ -527,6 +543,7 @@ function TransferDetailModal({
   const [busy, setBusy] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [voidAsk, setVoidAsk] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
   const laneItemIds = useMemo(() => new Set(itemLookup.options.map((option) => option.id)), [itemLookup]);
 
   useEffect(() => {
@@ -582,6 +599,16 @@ function TransferDetailModal({
     try {
       await receiveTransfer(transferId);
       toast.success('Marked received');
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  async function doReopen(reason: string) {
+    setReopenAsk(false);
+    setBusy(true);
+    try {
+      await reopenTransfer(transferId, reason);
+      toast.success('Reopened — back in transit');
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
@@ -758,6 +785,15 @@ function TransferDetailModal({
           )}
           {status === 'in_transit' && (
             <button onClick={doReceive} disabled={busy} style={btnPrimary()}>Mark Received</button>
+          )}
+          {status === 'received' && (
+            <button onClick={() => setReopenAsk(true)} disabled={busy} style={btnSecondary()} title="Reverse the receipt back to In Transit">Reopen</button>
+          )}
+          {reopenAsk && (
+            <ReasonDialog title={'Reopen ' + transfer.bol_number} verb="Reopen transfer"
+              items={[{ id: transfer.id, number: transfer.bol_number, eligible: true }]} busy={busy}
+              note="Every line is reversed from the destination back to In Transit with a new movement (nothing is edited). Refused once the stock has moved on."
+              onCancel={() => setReopenAsk(false)} onConfirm={(reason) => void doReopen(reason)} />
           )}
         </div>
         {emailOpen && (

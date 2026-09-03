@@ -211,6 +211,8 @@ export interface WorkOrderView extends WorkOrder {
   po_open_count: number | null;
   /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
   bucket?: string | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
 }
 
 /** A WO material requirement row — the quantity calc lives here, per vendor. */
@@ -422,6 +424,11 @@ export async function closeWorkOrder(woId: string, qtyProducedActual: number, cl
     p_qty_produced_actual: qtyProducedActual,
     p_close_date: closeDate ?? null,
   });
+}
+
+/** Closed → received, so the receipt can be corrected. */
+export async function reopenWorkOrder(woId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_work_order', { p_wo_id: woId, p_reason: reason });
 }
 
 export async function voidWorkOrder(woId: string, reason: string): Promise<void> {
