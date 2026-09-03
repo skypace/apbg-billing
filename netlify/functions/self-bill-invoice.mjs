@@ -62,9 +62,19 @@ async function uploadInvoicePdf(bytes, expenseId, invoiceNumber) {
   return { path, filename, size: bytes.length };
 }
 
+// Hunter green. ⚠ Deliberately NOT production_settings.doc_accent — that is the
+// Melt red our OWN documents wear (POs, BOLs, batching sheets), and this is the
+// supplier's invoice, which for the same reason carries none of our brand marks.
+// Per-profile so a second self-billing supplier can differ without touching the
+// renderer or disturbing the red on our paperwork.
+const SELF_BILL_ACCENT = '#355E3B';
+
 async function renderFor(profile, expense, company, invoiceNumber, invoiceDate) {
   const model = buildInvoiceModel({ profile, expense, company, invoiceNumber, invoiceDate });
-  const bytes = await renderSelfBilledInvoicePdf({ ...model, accent: company.doc_accent || '#dc2626' });
+  const bytes = await renderSelfBilledInvoicePdf({
+    ...model,
+    accent: profile.accent_hex || SELF_BILL_ACCENT,
+  });
   return { model, bytes };
 }
 
@@ -155,7 +165,7 @@ export default async function handler(req) {
       const ALLOWED = ['active', 'vendor_patterns', 'qbo_vendor_id', 'seller_name', 'seller_addr1', 'seller_addr2',
         'seller_city_state_zip', 'seller_email', 'seller_phone', 'buyer_name', 'buyer_addr1', 'buyer_addr2',
         'buyer_city_state_zip', 'buyer_email', 'number_prefix', 'number_separator', 'number_pad', 'next_number',
-        'terms', 'footer_note', 'send_to', 'send_cc', 'auto_create', 'auto_send', 'authorized_by', 'authorized_at',
+        'terms', 'footer_note', 'send_to', 'send_cc', 'auto_create', 'auto_send', 'accent_hex', 'authorized_by', 'authorized_at',
         'authority_note'];
       const patch = {};
       for (const k of ALLOWED) if (k in body) patch[k] = body[k];
