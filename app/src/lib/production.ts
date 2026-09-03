@@ -213,6 +213,9 @@ export interface WorkOrderView extends WorkOrder {
   bucket?: string | null;
   reopened_at?: string | null;
   reopen_reason?: string | null;
+  /** The production run this work order is a line of (20260903f); null for a standalone WO. */
+  run_id?: string | null;
+  run_number?: string | null;
 }
 
 /** A WO material requirement row — the quantity calc lives here, per vendor. */

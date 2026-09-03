@@ -36,7 +36,8 @@ Seven tabs run left to right roughly in the order you use them:
 | **Formulas & Spec Sheets** | The recipe — % by weight, QC specs, batching instructions |
 | **Materials & Pricing** | What each purchased thing costs and who we buy it from |
 | **Bills of Materials** | The parts list for one case, and who gets a purchase order |
-| **Work Orders** | The run itself, start to finish |
+| **Production Orders** | The order — one or several flavours, one purchase order per vendor, one truck home. Start here. |
+| **Work Orders** | One flavour of a run: its yield, lots and cost |
 | **Purchase Orders** | The vendor POs a run raises, and receiving against them |
 | **Compliance & Safety** | Certificates and audit paperwork (not part of a run) |
 | **Run Guide** | This chapter, and the PDF — inside the app, so it is never far from the screen it describes |
@@ -117,7 +118,32 @@ Read it top to bottom:
 It never touches the sub-items you typed (cans, tolling, Velcorin, dunnage) —
 those are yours.
 
-## Step 3 · Raise the work order
+## Step 3 · Raise the production order
+
+> **Since 2026-09-03 a run starts on Production → Production Orders.** One order
+> can carry several flavours — Hangar 25 Cola 500 and Oaktown Root Beer 300 on
+> the same fill — and it raises **one purchase order per vendor for the lot**,
+> not one pair per flavour. Each flavour still becomes its own work order
+> underneath (its own yield, lots and cost), so the Work Orders steps below
+> still apply per flavour; the per-flavour **+ New Work Order** remains for a
+> single standalone run.
+>
+> **Production Orders → + New production order.** Pick the co-packer and where
+> the finished goods return to, then add a line per flavour (BOM + cases; the
+> batch gallons fill from the formula). The panel underneath is the server's
+> own answer, not an estimate: for each vendor, every item's **Needed**
+> (across all flavours), **From stock** (raw material already at the co-packer
+> and not spoken for), **Ordered** (lifted to the MOQ / pack, with the surplus
+> flagged) and the total. Press **Create production order**, then on the order:
+> **Generate POs per vendor →** (exactly one PO per vendor), receive the
+> Calderoni PO as it lands (every flavour jumps to *Materials at co-packer* by
+> itself when the last line is in), **Start production →**, **Record yield**
+> per flavour, **Ship the run →** (ONE bill of lading for the truck — refused
+> until every flavour has a yield), **Receive into inventory →**, **Close
+> order**. **Void order** takes every work order and purchase order with it,
+> and is refused once production has started.
+
+### Step 3 (single flavour) · Raise the work order
 
 **Production → Work Orders → + New Work Order.**
 
@@ -305,6 +331,10 @@ what should happen; anything else is a finding.
 | 2 | Change a price, save, re-open | Keep the new price; the note about being seeded from QuickBooks is gone |
 | 3 | **Bills of Materials** → open one | Show **2 POs per run**, **0 blockers** |
 | 4 | Read the sub-items **Per** column | Every line reads **per unit**; no compounding-fee line is on the BOM (it lives on the Licensing tab) |
+| 4b | **Production Orders → + New production order**, two flavours (100 cases each), co-packer Quantum | The preview shows **2** purchase orders; the tolling line's **Needed** is the two flavours added together; a can line with an MOQ shows the **+MOQ** lift once |
+| 4c | **Create production order**, then **Generate POs per vendor →** | Exactly **two** POs on the order, each naming both work orders; the Work Orders tab shows both flavours with the order number in the **Order** column and no Ship / Void buttons of their own |
+| 4d | Receive the Calderoni PO in full | The PO closes by itself and **both** flavours jump to **Materials at co-packer** |
+| 4e | On the order, **Void order** | Refused if production has started; on a fresh order it voids both work orders and both POs and says so |
 | 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run |
 | 6 | **Create work order** | Lands at **Draft** |
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |

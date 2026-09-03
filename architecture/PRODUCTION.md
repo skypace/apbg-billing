@@ -602,6 +602,94 @@ BRIX-WAREHOUSE, recorded 4,618 Oaktown cans at $0.328 (which took that item's
 balance from −4,618 to exactly 0), skipped an unknown item and a zero by
 reason, and refused a second opening for the same item.
 
+## The production order — several flavours, one PO per vendor, one truck home
+
+Ask (Sky, 2026-09-03): "create a work order that has MULTIPLE bills of materials
+on it as one huge order to quantum and calderoni." Until now a run was one work
+order, one BOM, and two purchase orders; a fill with three flavours meant six
+purchase orders to the same two vendors and three trucks on paper.
+
+**The model (migration `20260903f`): a `production_runs` row is the ORDER, and
+each flavour on it is an ordinary `work_orders` row carrying `run_id`.** That is
+deliberate. Widening a work order to N BOMs would have rewritten `record_yield`
+(one finished item, one cost row), lots (which must sum to one yield), `ship`,
+the BOL PDF and the run guide. Instead every one of those stays exactly what it
+was, per flavour, and the things that are genuinely about the ORDER move up a
+level: purchase orders, stock netting, the truck, close, reopen and void.
+
+| Level | Owns |
+|---|---|
+| Run (`Production Orders` tab) | PO generation (one per vendor for the lot), reservations of stock at the co-packer, the single BOL home, `start_production` / `receive` / `close` for every flavour together, reopen, **the master void** |
+| Work order (one per flavour) | Its yield, its lots and born-on dates, its cost snapshot, its licensing accrual, its batching sheet |
+
+**One PO per vendor, for the lot.** `fn_run_generate_pos` groups every
+`work_order_materials` row on the run by vendor and by item: a tolling line for
+19,200 cans is one line whose `demand_total` is the sum of both flavours, and
+`purchase_order_line_demand` maps it back to the two material rows it covers —
+that table is the join, so a later "which flavour was this for" is answerable
+and the recipe detail under a shared gallon line is filed per work order
+(`purchase_order_line_details.wo_id`). Then the MOQ rule (`fn_order_qty`) lifts
+each line once, on the aggregate — which is the whole point: two 6,000-can
+flavours at a 20,000 minimum lift to 20,000 once, not twice. The co-packer's
+own PO carries `close_rule = 'on_run_yield'` exactly as before; the Calderoni
+PO closes on receipt, and **when the run's last on_receipt PO closes, every
+flavour on it moves to `at_copacker` and the run is recomputed** (that half was
+missed on the first apply — `20260903g` — the live proof left both work orders
+at `ordered` after a full receipt, because the 20260903d block keyed on
+`work_order_id`, which a run PO does not carry).
+
+**Stock at the co-packer is used before more is ordered.** `net_against_stock`
+(default on) makes generation look at `v_copacker_stock` — on hand at the
+co-packer's location minus what other runs have already reserved — and take
+what is free first: an `inventory_reservations` row (`active`) per item, and
+only the shortfall goes on the PO, then lifted to the MOQ. At
+`start_production` the reservation is `consumed` alongside the consume
+movement; a void `release`s it. Verified live: after run 1 landed 20,000 cans
+and consumed 12,000, run 2 for the same flavour previewed *need 12,000 · from
+stock 8,000 · ordered 20,000* (the 4,000 shortfall lifted to the 20,000 MOQ),
+generated one reservation, and `v_copacker_stock` read on hand 8,000 /
+reserved 8,000.
+
+**One bill of lading for the truck.** `fn_run_ship` refuses until every
+non-void flavour has its yield recorded — the truck does not leave with one
+flavour still in the tank — then writes one `inventory_transfers` row with one
+line per lot per flavour (a flavour with no lots ships as one line), stamps the
+same `transfer_id` on every work order, and closes the co-packer's PO
+(`run_shipped`). `v_lot_trace` joins the transfer line to the work order on
+`finished_qbo_item_id` now, since one transfer carries several flavours.
+
+**The master void** (`fn_run_void`): refused once production has started on
+any flavour ("close it out instead"); otherwise every work order is voided
+(the run-scope bypass lets `fn_wo_advance__i` void a run WO — a work order on a
+run cannot be voided, shipped or have POs generated on its own, and the Work
+Orders tab says so), a PO with no receipts is voided and its materials
+released, a PO with receipts is **short-closed** (`short_close_run_void` — goods
+physically at the co-packer stay on hand), reservations are released, and any
+PO already pushed to QuickBooks is returned by number for a human to close
+there. Nothing is deleted; `fn_run_delete_drafts` is the only hard delete and
+takes a draft with no POs and its draft work orders with it.
+
+**Preview is the server's answer.** The New production order form calls
+`fn_run_preview` with the same lines the create call will send; it returns the
+per-vendor POs with need / from stock / ordered / MOQ lift per line, the
+blockers and warnings from every BOM's pre-flight, and the total — so the form
+cannot disagree with the order it is about to create. A one-flavour order is
+the old single work order, and the Work Orders tab still exists for the
+per-flavour view (yield, lots, batching sheet) and for standalone work orders
+created before today.
+
+**Verified live, rolled back:** Hangar 25 Cola 500 + Oaktown Root Beer 300 →
+exactly two POs (Calderoni `on_receipt` $1,796.25 with two gallon lines each
+carrying its recipe detail; Quantum `on_run_yield` $25,878.60 with tolling /
+Velcorin / dunnage merged — `demand_total` 19,200 tolling across 2 demand
+rows — and each flavour's cans lifted to 20,000); one Calderoni line received →
+`partial`, both WOs still `ordered`; the second → PO `closed/received`, both
+WOs `at_copacker`, two events; `start_production` → 2 done, 0 skipped, cans on
+hand at Quantum 8,000; yields → 2 royalty accruals; `fn_run_ship` → one
+transfer, two lines, both WOs `in_transit`, Quantum PO `closed/run_shipped`;
+void on the shipped run refused by name; WO-level ship refused; receive + close
+→ run `closed`, bucket `closed`; 17 movements, all rolled back.
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling
@@ -932,6 +1020,17 @@ Three things are worth knowing before touching it:
   whenever the chapter changes materially — nothing regenerates it automatically.
 
 ## Known gaps, 2026-09-02
+
+**Deferred on purpose with the production-order work (2026-09-03), each a
+decision rather than an oversight:** FIFO / lot costing of raw-material
+surplus at the co-packer (the surplus is valued at the last landed cost);
+netting against any location other than the run's own co-packer; reservation
+expiry (an abandoned draft holds its reservation until it is voided or
+deleted); voiding one line of a PO; updating a QuickBooks PurchaseOrder after
+it was pushed (a voided run returns the pushed PO numbers for manual close);
+a run-level batching sheet (per-flavour sheets remain); delivery POs to
+sub-distributors.
+
 
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
    blank. This no longer blocks costing a run — the gallon price does that — but

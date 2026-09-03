@@ -9,7 +9,7 @@
 // stated on screen rather than assumed.
 
 export type Bucket = 'open' | 'pending' | 'closed' | 'voided';
-export type DocKind = 'work_order' | 'purchase_order' | 'transfer';
+export type DocKind = 'work_order' | 'purchase_order' | 'transfer' | 'run';
 
 export const BUCKETS: { id: Bucket; label: string }[] = [
   { id: 'open',    label: 'Open' },
@@ -30,6 +30,12 @@ export const BUCKET_HINT: Record<DocKind, Record<Bucket, string>> = {
     pending: 'Drafts: not yet sent to a vendor. Edit or delete freely.',
     closed:  'Closed — nothing more is expected. Reopen from the detail if a receipt needs correcting.',
     voided:  'Voided. Nothing was received against these.',
+  },
+  run: {
+    open:    'Ordered through received — purchase orders out, production at the co-packer, or the truck on its way. Closes when every work order on it is closed.',
+    pending: 'Draft orders: nothing ordered yet. Add or remove flavours freely, or delete.',
+    closed:  'Closed runs. Reopen one from its detail if a receipt needs correcting.',
+    voided:  'Voided before production started — every work order and purchase order on it went with it. The reason is on each row.',
   },
   transfer: {
     open:    'In transit — shipped, not yet received.',

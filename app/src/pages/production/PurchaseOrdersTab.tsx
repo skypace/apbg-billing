@@ -175,10 +175,14 @@ export function PurchaseOrdersTab({
     { field: 'vendor_name', headerName: 'Vendor', flex: 1, minWidth: 200,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value ?? '—')}</span> },
     {
-      field: 'work_order_batch_code', headerName: 'Work Order', width: 130,
+      field: 'work_order_batch_code', headerName: 'Work Order', width: 150,
+      // A run PO carries several work orders: name the order, and the WOs on hover.
       renderCell: (p) => p.value
         ? <span style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontSize: 11 }}>{String(p.value)}</span>
-        : <span style={{ color: 'var(--mt)' }}>—</span>,
+        : p.row.run_number
+          ? <span title={p.row.work_order_batch_codes ? `Work orders ${p.row.work_order_batch_codes}` : 'Production order'}
+              style={{ color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontSize: 10.5, border: '1px solid var(--bd)', borderRadius: 4, padding: '1px 6px' }}>{String(p.row.run_number)}</span>
+          : <span style={{ color: 'var(--mt)' }}>—</span>,
     },
     { field: 'location_label', headerName: 'Destination', width: 140,
       valueFormatter: (v) => String(v ?? '—') },

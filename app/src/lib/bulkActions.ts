@@ -16,18 +16,21 @@ function norm(r: Partial<BulkResult> | null | undefined): BulkResult {
 export async function voidDocs(kind: DocKind, ids: string[], reason: string): Promise<BulkResult> {
   if (!ids.length) return EMPTY;
   const fn = kind === 'work_order' ? 'fn_void_work_orders'
-    : kind === 'purchase_order' ? 'fn_void_purchase_orders' : 'fn_void_transfers';
+    : kind === 'purchase_order' ? 'fn_void_purchase_orders'
+    : kind === 'run' ? 'fn_void_runs' : 'fn_void_transfers';
   return norm(await sbrpc<BulkResult>(fn, { p_ids: ids, p_reason: reason }));
 }
 
 export async function deleteDrafts(kind: DocKind, ids: string[]): Promise<BulkResult> {
   if (!ids.length) return EMPTY;
+  if (kind === 'run') return norm(await sbrpc<BulkResult>('fn_run_delete_drafts', { p_ids: ids }));
   return norm(await sbrpc<BulkResult>('fn_delete_drafts', { p_kind: kind, p_ids: ids }));
 }
 
 /** Whitelisted per kind on the server: PO expected_date/notes · WO scheduled_date/notes · transfer notes/special_instructions/carrier/tracking_number. */
 export async function updateDocs(kind: DocKind, ids: string[], patch: Record<string, string | null>): Promise<BulkResult> {
   if (!ids.length) return EMPTY;
+  if (kind === 'run') throw new Error('runs are edited from their detail');
   const fn = kind === 'work_order' ? 'fn_update_work_orders'
     : kind === 'purchase_order' ? 'fn_update_purchase_orders' : 'fn_update_transfers';
   return norm(await sbrpc<BulkResult>(fn, { p_ids: ids, p_patch: patch }));
@@ -36,6 +39,15 @@ export async function updateDocs(kind: DocKind, ids: string[], patch: Record<str
 /** Closed → open again (PO status recomputed from lines; transfer lines reversed to TRANSIT). */
 export async function reopenDocs(kind: DocKind, ids: string[], reason: string): Promise<BulkResult> {
   if (!ids.length) return EMPTY;
+  if (kind === 'run') {
+    // one at a time on the server; the same {done, skipped} shape comes back
+    const done: BulkRow[] = []; const skipped: BulkRow[] = [];
+    for (const id of ids) {
+      try { await sbrpc('fn_run_reopen', { p_run_id: id, p_reason: reason }); done.push({ id, number: null }); }
+      catch (e) { skipped.push({ id, number: null, reason: e instanceof Error ? e.message : String(e) }); }
+    }
+    return { done, skipped };
+  }
   return norm(await sbrpc<BulkResult>('fn_reopen_docs', { p_kind: kind, p_ids: ids, p_reason: reason }));
 }
 

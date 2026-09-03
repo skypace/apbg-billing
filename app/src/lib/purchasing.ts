@@ -58,17 +58,24 @@ export interface PurchaseOrderRow {
   close_rule?: PoCloseRule | null;
   closed_reason?: string | null;
   receivable_line_count?: number | null;
+  /** The run this PO was raised from (20260903f); work_order_id is null on a run PO. */
+  production_run_id?: string | null;
+  run_number?: string | null;
+  /** Every WO the lines cover, comma-joined — a run PO carries several. */
+  work_order_batch_codes?: string | null;
+  /** Σ (ordered − demand) — the MOQ / pack surplus that will sit at the co-packer. */
+  qty_surplus_total?: number | null;
 }
 
 export type PoCloseRule = 'on_receipt' | 'on_run_yield';
 
 /** What the close rule means, in the words the screen uses. */
-export function closeRuleCopy(po: { close_rule?: PoCloseRule | null; work_order_id?: string | null; receivable_line_count?: number | null }): { label: string; detail: string } {
+export function closeRuleCopy(po: { close_rule?: PoCloseRule | null; work_order_id?: string | null; production_run_id?: string | null; receivable_line_count?: number | null }): { label: string; detail: string } {
   if (po.close_rule === 'on_run_yield') {
-    return { label: 'Closes when the run ships', detail: 'The co-packer supplies and performs these itself — nothing is received against this PO. It closes by itself when the work order ships its finished goods.' };
+    return { label: 'Closes when the run ships', detail: 'The co-packer supplies and performs these itself — nothing is received against this PO. It closes by itself when the run ships its finished goods.' };
   }
-  if (po.work_order_id) {
-    return { label: 'Closes on receipt', detail: 'Closes by itself once every receivable line is fully received; the work order moves to "materials at co-packer" when its last such PO closes.' };
+  if (po.work_order_id || po.production_run_id) {
+    return { label: 'Closes on receipt', detail: 'Closes by itself once every receivable line is fully received; every work order on it moves to "materials at co-packer" when the last such PO closes.' };
   }
   return { label: 'Closes on Close', detail: 'A standalone PO: receive its lines, then press Close.' };
 }
@@ -86,6 +93,10 @@ export interface PurchaseOrderLine {
   created_at: string;
   /** false on a service line or any line of an on_run_yield PO — nothing arrives, nothing is received. */
   receivable?: boolean | null;
+  /** ordered − shortfall when the vendor's terms lifted this line (run POs). */
+  moq_applied?: number | null;
+  /** Σ demand the line covers; surplus = qty_ordered − demand_total. */
+  demand_total?: number | null;
 }
 
 export type PurchaseOrderLineSummary = Pick<PurchaseOrderLine, 'po_id' | 'qbo_item_id'>;
