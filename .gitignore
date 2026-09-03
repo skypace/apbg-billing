@@ -27,3 +27,4 @@ app-expense/package-lock.json
 # conflicts with every parallel PR (the 2026-08-18 lesson). Those directories
 # are still tracked as historical artifacts and are stale by design;
 # production never serves them.
+.test-build/
