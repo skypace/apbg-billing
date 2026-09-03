@@ -7,6 +7,6 @@
     "pdf-lib": "^1.17.1"
   },
   "scripts": {
-    "test": "node tests/ap-inbox.test.mjs && node --test tests/due-date.test.mjs tests/expense-guards.test.mjs tests/vendor-docs.test.mjs tests/nda.test.mjs tests/bill-paid-sync.test.mjs tests/qbo-vendor-push.test.mjs tests/pay-run.test.mjs tests/mcp-oauth.test.mjs tests/spa-routes.test.mjs tests/function-routes.test.mjs tests/expense-approval.test.mjs && esbuild app/src/lib/appMenus.ts --bundle --platform=node --format=esm --outfile=.test-build/appMenus.mjs && node --test tests/refractor-menus.test.mjs"
+    "test": "node tests/ap-inbox.test.mjs && node --test tests/due-date.test.mjs tests/expense-guards.test.mjs tests/vendor-docs.test.mjs tests/nda.test.mjs tests/bill-paid-sync.test.mjs tests/qbo-vendor-push.test.mjs tests/pay-run.test.mjs tests/mcp-oauth.test.mjs tests/spa-routes.test.mjs tests/function-routes.test.mjs tests/expense-approval.test.mjs tests/self-billing.test.mjs && esbuild app/src/lib/appMenus.ts --bundle --platform=node --format=esm --outfile=.test-build/appMenus.mjs && node --test tests/refractor-menus.test.mjs"
   }
 }

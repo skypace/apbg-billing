@@ -178,6 +178,9 @@ class Doc {
     this.y -= H + 10;
   }
 
+  /** The vertical space brandBar() would have taken, without the marks. */
+  topPad() { this.y -= 40 + 10; }
+
   // ── Header strip: company left, document title + number right ────────────
   header({ company, title, number, dateLines = [] }) {
     this.hr(this.y, this.accent, 3);
@@ -601,6 +604,95 @@ export async function renderBatchSheetPdf(p) {
   doc.notes('Comments', p.comments);
   doc.smallPrint(`Confidential — formula ${p.formula.code || p.formula.name} is the property of ${p.company.name} and is disclosed to the co-packer under NDA for the production of this batch only.`);
   doc.signatures(['Client', 'Operations', 'QA / QC'], { sub: ['Name / date', 'Name / date', 'Name / date'] });
+  doc.finishPage();
+  return pdf.save();
+}
+
+// ── Self-billed invoice ──────────────────────────────────────────────────────
+// The supplier's invoice, raised by us with their agreement. It runs the other
+// way from every other document in this file — FROM the vendor, TO us — so the
+// meta blocks are labelled from the READER's point of view (they are "From",
+// we are "Bill to"), and the document states on its face that we prepared it.
+// Anyone finding this in a file years from now should not have to work out why
+// our system produced their invoice.
+export async function renderSelfBilledInvoicePdf(p) {
+  const { pdf, doc } = await open(p.accent);
+  pdf.setTitle(`Invoice ${p.invoiceNumber}`);
+  pdf.setProducer('Brixpense · self-billing');
+  doc.footerText = `${p.seller.name}  ·  Invoice ${p.invoiceNumber}  ·  Generated ${new Date().toLocaleString('en-US')}`;
+
+  // ⚠ NO brandBar here, deliberately. Every other document in this file is
+  // ours and wears our marks. This one is the SUPPLIER'S invoice, and putting
+  // the Brix roundel and the Alameda Soda seal at the top of it would send
+  // Origins a document that looks like theirs but is branded by the company
+  // paying it — which is misleading on the one page whose whole job is to
+  // record who owes whom. The small print says we prepared it; the letterhead
+  // must not say we issued it.
+  doc.topPad();
+  // The header carries the SELLER as the issuing company — it is their invoice.
+  doc.header({
+    company: {
+      name: p.seller.name,
+      addr1: p.seller.addr1,
+      addr2: p.seller.addr2,
+      city_state_zip: p.seller.city_state_zip,
+      email: p.seller.email,
+      phone: p.seller.phone,
+    },
+    title: 'Invoice',
+    number: p.invoiceNumber,
+    dateLines: [
+      `Invoice date ${fmtDate(p.invoiceDate)}`,
+      p.jobNumber ? `Job ${p.jobNumber}` : null,
+      p.terms ? `Terms: ${p.terms}` : null,
+    ].filter(Boolean),
+  });
+
+  doc.metaBlocks([
+    { label: 'From', lines: [{ text: p.seller.name, bold: true }, ...addressLines(p.seller)] },
+    { label: 'Bill to', lines: [{ text: p.buyer.name || '-', bold: true }, ...addressLines(p.buyer)] },
+    { label: 'Reference', lines: [
+        p.jobNumber ? { text: `Job ${p.jobNumber}`, bold: true } : null,
+        { text: `Invoice ${p.invoiceNumber}` },
+        { text: `Issued ${fmtDate(p.invoiceDate)}`, muted: true },
+      ].filter(Boolean) },
+  ]);
+
+  doc.table({
+    columns: [
+      { key: 'description', label: 'Description' },
+      { key: 'qty', label: 'Qty', width: 60, align: 'right', format: (v) => fmtQty(v) },
+      { key: 'unitPrice', label: 'Rate', width: 90, align: 'right', format: (v) => fmtMoney(v) },
+      { key: 'lineTotal', label: 'Amount', width: 95, align: 'right', bold: true, format: (v) => fmtMoney(v) },
+    ],
+    rows: p.lines,
+  });
+
+  doc.totals([
+    { label: 'Subtotal', value: fmtMoney(p.subtotal) },
+    { label: 'Total due', value: fmtMoney(p.total), grand: true },
+  ]);
+
+  // A line/total disagreement is PRINTED, not quietly reconciled. The invoice
+  // has to equal the bill being paid, and if the itemisation does not add up to
+  // it the reader is entitled to see that rather than be handed a tidy lie.
+  if (p.lineMismatch) {
+    doc.notes('Please note',
+      `The itemised lines total ${fmtMoney(p.lineMismatch.lineSum)} against an invoice total of `
+      + `${fmtMoney(p.lineMismatch.total)}. The invoice total is the amount agreed for this work.`);
+  }
+
+  doc.notes('Notes', p.notes);
+
+  doc.smallPrint(
+    (p.authorityNote
+      ? `${p.authorityNote} `
+      : `This invoice was prepared by ${p.buyer.name || 'the buyer'} on behalf of ${p.seller.name}, by agreement. `)
+    + `It records amounts payable by ${p.buyer.name || 'the buyer'} to ${p.seller.name} for the work described above. `
+    + `Please reference invoice ${p.invoiceNumber} on any correspondence. If anything here is wrong, reply to this `
+    + `invoice and it will be corrected and reissued — do not issue a separate invoice for the same work, or the `
+    + `same charge may be paid twice.`);
+
   doc.finishPage();
   return pdf.save();
 }
