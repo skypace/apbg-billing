@@ -141,6 +141,37 @@ async function tryRaiseSelfBilledInvoice(expense) {
   }
 }
 
+/**
+ * Rescue drafts ALREADY held at 'no_attachment' that a self-billing profile can
+ * now cover.
+ *
+ * ⚠ Without this the feature only works going forward. The main pool takes
+ * ocr_status IS NULL, so a row held before the supplier's profile existed — or
+ * before this feature shipped — is stranded permanently, and a supplier who
+ * NEVER issues invoices lands at 'no_attachment' every single time by
+ * definition. Origins had two sitting in exactly that state.
+ *
+ * Deliberately silent on a miss: a row no profile claims is left completely
+ * untouched — no patch, no email — so this cannot re-notify anybody about a
+ * hold they were already told about. The cost is a few cheap 409s a day,
+ * bounded by the limit.
+ */
+async function rescueHeldSelfBillables(sel) {
+  let rescued = 0;
+  let rows = [];
+  try {
+    rows = await opsGet(
+      `expense_requests?tag=eq.Service%20Fusion&request_type=eq.expense&status=eq.draft`
+      + `&qbo_bill_id=is.null&archived_at=is.null&ocr_status=eq.no_attachment`
+      + `&bill_number=is.null&order=created_at.asc&limit=25&select=${sel}`,
+    );
+  } catch { return 0; }
+  for (const r of rows) {
+    if (await tryRaiseSelfBilledInvoice(r)) rescued++;
+  }
+  return rescued;
+}
+
 export default async (req) => {
   const url = new URL(req.url);
 
@@ -227,7 +258,9 @@ export default async (req) => {
       }
     }
 
-    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber, self_billed: selfBilled };
+    // Also pick up anything already held that a self-billing profile now covers.
+    const rescued = await rescueHeldSelfBillables(sel);
+    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber, self_billed: selfBilled + rescued, self_billed_rescued: rescued };
     await logRun(started, 'success', processed, summary);
     return new Response(JSON.stringify({ ok: true, ...summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
