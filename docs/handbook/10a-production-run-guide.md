@@ -170,11 +170,16 @@ Per PO you can:
   must not.
 - **Push to QBO →** — creates the purchase order in QuickBooks.
 - **Receive** — type the quantity that arrived in the box on the line and press
-  the truck. Receiving is per line, so a part shipment is fine.
+  the truck. Receiving is per line, so a part shipment is fine. **Only the
+  Calderoni PO is received.** The Quantum PO carries the chip **Closes when
+  the run ships** and has no Receive column: cans, tolling, Velcorin and
+  dunnage are things Quantum supplies to itself, nothing ships there from us,
+  and the PO closes on its own when you ship the finished cases home (Step 6).
 - **Close** force-closes any unreceived lines; **Void** cancels the PO.
 
-Back on the work order, press **Materials at co-packer** when the goods have
-landed, then **Start production →** when the co-packer begins. Starting
+When the last gallon on the Calderoni PO is received, that PO closes by
+itself and the work order moves to **Materials at co-packer** — you do not
+press it. Then press **Start production →** when the co-packer begins. Starting
 production consumes the material quantities from the co-packer's location, so
 only press it when it is true.
 
@@ -291,6 +296,8 @@ what should happen; anything else is a finding.
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |
 | 8 | Purchase Orders → open each → **View PDF** | Both PDFs render; the Calderoni one lists the ingredient breakdown under the gallon line |
 | 9 | Receive one PO line short (say 10 of 100) | The line shows the partial; the PO goes to **partial**, not closed |
+| 9b | Open the Quantum PO and look for a Receive column | There is none — the header chip reads **Closes when the run ships** |
+| 9c | Receive the Calderoni gallon line in full | The PO closes by itself (**Closed · received**) and the work order stage jumps to **Materials at co-packer** without a click |
 | 10 | Work order → **Materials at co-packer** → **Start production →** | Stage advances; the timeline records both |
 | 11 | **Record yield →**, enter a yield of 100, add lots totalling **90** | **Refused**, naming both numbers |
 | 12 | Fix the lots to total 100 → **Record yield + lock costs** | Accepted; cost rollup appears with a unit cost; the timeline records the lots |

@@ -19,8 +19,9 @@ export function ReceiveLinesDialog({ pos, itemLookup, busy, onCancel, onDone }: 
   onCancel: () => void;
   onDone: (result: BulkResult) => void;
 }) {
-  const receivable = useMemo(() => pos.filter((p) => p.status === 'open' || p.status === 'partial'), [pos]);
-  const skippedPos = useMemo(() => pos.filter((p) => !(p.status === 'open' || p.status === 'partial')), [pos]);
+  const isReceivable = (p: PurchaseOrderRow) => (p.status === 'open' || p.status === 'partial') && p.close_rule !== 'on_run_yield';
+  const receivable = useMemo(() => pos.filter(isReceivable), [pos]);
+  const skippedPos = useMemo(() => pos.filter((p) => !isReceivable(p)), [pos]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [qty, setQty] = useState<Record<string, string>>({});
   const [cost, setCost] = useState<Record<string, string>>({});
@@ -33,7 +34,8 @@ export function ReceiveLinesDialog({ pos, itemLookup, busy, onCancel, onDone }: 
     Promise.all(receivable.map((po) => fetchPoLines(po.id).then((ls) => ls.map((line) => ({ line, po, remaining: Number(line.qty_ordered) - Number(line.qty_received) })))))
       .then((all) => {
         if (!alive) return;
-        const flat = all.flat().filter((r) => r.remaining > 0);
+        // a service line, or any line on the co-packer's own PO, is never received
+        const flat = all.flat().filter((r) => r.remaining > 0 && r.line.receivable !== false);
         setRows(flat);
         setQty(Object.fromEntries(flat.map((r) => [r.line.id, String(r.remaining)])));
       })
@@ -77,7 +79,7 @@ export function ReceiveLinesDialog({ pos, itemLookup, busy, onCancel, onDone }: 
         </div>
         {skippedPos.length > 0 && (
           <div style={{ marginBottom: 10, padding: 8, background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)', borderRadius: 4, fontSize: 11 }}>
-            <span style={{ color: 'var(--am)' }}>Not receivable:</span> {skippedPos.map((p) => `${p.po_number} (${p.status})`).join(', ')}
+            <span style={{ color: 'var(--am)' }}>Not receivable:</span> {skippedPos.map((p) => `${p.po_number} (${p.close_rule === 'on_run_yield' ? 'closes when the run ships' : p.status})`).join(', ')}
           </div>
         )}
         {err && <div style={{ color: 'var(--rd)', fontSize: 11, marginBottom: 8 }}>{err}</div>}

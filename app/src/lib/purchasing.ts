@@ -54,6 +54,23 @@ export interface PurchaseOrderRow {
   po_kind?: 'materials' | 'production' | 'other' | null;
   reopened_at?: string | null;
   reopen_reason?: string | null;
+  /** on_receipt (closes itself when every receivable line is in) | on_run_yield (the co-packer's PO — closes when the run ships). */
+  close_rule?: PoCloseRule | null;
+  closed_reason?: string | null;
+  receivable_line_count?: number | null;
+}
+
+export type PoCloseRule = 'on_receipt' | 'on_run_yield';
+
+/** What the close rule means, in the words the screen uses. */
+export function closeRuleCopy(po: { close_rule?: PoCloseRule | null; work_order_id?: string | null; receivable_line_count?: number | null }): { label: string; detail: string } {
+  if (po.close_rule === 'on_run_yield') {
+    return { label: 'Closes when the run ships', detail: 'The co-packer supplies and performs these itself — nothing is received against this PO. It closes by itself when the work order ships its finished goods.' };
+  }
+  if (po.work_order_id) {
+    return { label: 'Closes on receipt', detail: 'Closes by itself once every receivable line is fully received; the work order moves to "materials at co-packer" when its last such PO closes.' };
+  }
+  return { label: 'Closes on Close', detail: 'A standalone PO: receive its lines, then press Close.' };
 }
 
 export interface PurchaseOrderLine {
@@ -67,6 +84,8 @@ export interface PurchaseOrderLine {
   sort_order: number;
   notes: string | null;
   created_at: string;
+  /** false on a service line or any line of an on_run_yield PO — nothing arrives, nothing is received. */
+  receivable?: boolean | null;
 }
 
 export type PurchaseOrderLineSummary = Pick<PurchaseOrderLine, 'po_id' | 'qbo_item_id'>;

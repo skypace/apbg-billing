@@ -452,6 +452,88 @@ partial PO refused Reopen (*only a closed PO can be reopened*); a shipped and
 received transfer reopened to in transit with the destination back at 0 and
 TRANSIT at 2; eight audit rows written in order.
 
+## What is received, and when a purchase order closes
+
+Sky, walking the run: *"tolling items and services should just be a part of
+the order process. nothing needs to ship to Quantum… no need to receive the
+services PO"*; the Quantum PO closes *"as a part of the production run when
+you build the yield and what's getting shipped back"*; the Calderoni PO closes
+when Quantum receives the raw materials. Migration `20260903d`.
+
+**Two facts, two columns, one place each.** `purchase_orders.close_rule` says
+how a PO ends: `on_receipt` (the default — it closes by itself the moment
+every receivable line is fully in) or `on_run_yield` (the co-packer's own PO,
+which closes when the run ships and against which nothing is ever received).
+`purchase_order_lines.receivable` says whether a line is a thing that arrives:
+false on every line of an `on_run_yield` PO and on every **Service** item
+anywhere. `fn_wo_generate_pos` stamps both — vendor equals the work order's
+co-packer → `on_run_yield`, anyone else → `on_receipt` — and the PO's own note
+says *closes when the run ships (nothing is received against it)* so the rule
+is on the document, not only in a column.
+
+**Receiving refuses a non-receivable line by name** — *this line is not
+received — the co-packer's PO closes when the run ships* or *… it is a
+service, not stock* — and completion counts receivable lines only, so a
+tolling line can never hold a Calderoni PO open. When a run's `on_receipt` PO
+completes it CLOSES (`closed_reason = 'received'`), and when the run's last
+`on_receipt` PO closes the work order moves **ordered → at_copacker** by
+itself: the Calderoni PO closing *is* "the materials are at Quantum", and
+pressing a second button to say so was the step people forgot.
+
+**What Quantum supplies to itself lands at Quantum, once, at start of
+production.** The cans and the Velcorin on the Quantum PO are real stock the
+co-packer owns until the batch consumes them — so `start_production` posts a
+`receipt` for every non-Service line of an `on_run_yield` PO into the PO's
+destination (idempotent on the line id), then consumes. ⚠ **Service items are
+never consumed as stock.** Before this, `start_production` posted a
+`production_consume` for FILL LABOR and DUNNAGE and the co-packer's on-hand
+for a tolling charge went to −4,618 — a number that means nothing and drifts
+forever. The consume now skips `qbo_items.type = 'Service'`. ⚠ The
+record-yield **cost** roll-up deliberately does NOT skip them: tolling is a
+cost of the batch even though it is never a thing on a shelf. Those are two
+different questions and the migration anchors them separately — the same
+`FROM … work_order_materials` appears twice in `fn_wo_advance__i`, and only the
+consume copy was changed (anchored on its `WO consume ·` note line).
+
+**Ship closes the co-packer's PO.** When the work order ships, every
+`on_run_yield` PO on it has its lines marked received-in-full (no movement — a
+service does not arrive), a `production_doc_events` close row, and
+`status = 'closed'`, `closed_reason = 'run_shipped'`. Nobody receives the
+Quantum PO; the run does.
+
+**Void releases.** `fn_void_purchase_order` now clears
+`work_order_materials.po_id/po_line_id` and the recipe lines' `po_line_id`, so
+Generate POs can raise a replacement — 20260903b had closed that gap on the
+bulk path only.
+
+On screen: the PO header carries a chip — **Closes when the run ships** /
+**Closes on receipt** (hover for the sentence) — and a closed PO prints its
+`closed_reason`. A PO with no receivable line has no Receive column at all;
+on a mixed PO a service line reads *service — not received* where the truck
+would be, and the pencil (receipt correction) only appears on receivable
+lines. The bulk **Receive…** dialog skips `on_run_yield` POs and names them
+(*PO-2026-00025 (closes when the run ships)*) rather than offering lines that
+would be refused.
+
+Verified live in a rolled-back block on a 500-case Hangar 25 Cola run:
+two POs — Calderoni `on_receipt` (gallon, receivable) and Quantum
+`on_run_yield` (fill labour, cans, Velcorin, dunnage, all non-receivable);
+receiving a Quantum line refused with the sentence above; receiving the gallon
+closed the Calderoni PO `received` and moved the WO to `at_copacker` with a
+`materials_at_copacker` event; `start_production` landed 12,000 cans + 12,000
+Velcorin at Quantum once and consumed three items with **zero** Service
+consumption; `record_yield` + `ship` left the WO `in_transit`, the Quantum PO
+`closed/run_shipped` with all four lines received, two doc events in order,
+and the $250 royalty on the cost row.
+
+⚠ **Pre-existing negatives at QUANTUM-CANNING are NOT corrected by this** —
+the ledger is append-only. WO-2026-00009 (closed) consumed 4,618 of FILL
+LABOR, DUNNAGE 0.353 and 4,618 Velcorin and 4,618 Oaktown cans with nothing
+landed first, so those four items read negative at Quantum today. They are the
+last runs before the fix, not live stock; an `adjustment` to zero the two
+Service items is an operator's call (Stock → Adjustments), and the can/Velcorin
+balances are what P5's opening-stock form is for.
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling

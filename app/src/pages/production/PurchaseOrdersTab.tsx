@@ -4,7 +4,7 @@ import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil } from 'l
 import {
   PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
   closePurchaseOrder, createPurchaseOrder, fetchPoLines,
-  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder, reopenPurchaseOrder,
+  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder, reopenPurchaseOrder, closeRuleCopy,
 } from '../../lib/purchasing';
 import { ReceiveLinesDialog } from './ReceiveLinesDialog';
 import { AdjustReceiptDialog } from './AdjustReceiptDialog';
@@ -663,7 +663,9 @@ function PoDetailModal({
     finally { setBusy(false); }
   }
 
-  const canReceive = po.status === 'open' || po.status === 'partial';
+  const hasReceivable = (lines ?? []).some((l) => l.receivable !== false);
+  const canReceive = (po.status === 'open' || po.status === 'partial') && (lines === null || hasReceivable);
+  const rule = closeRuleCopy(po);
   const canClose   = po.status === 'received' || po.status === 'partial';
   const canVoid    = po.status === 'draft' || po.status === 'open';
   const canPush    = !po.qbo_purchase_order_id && po.status !== 'void';
@@ -690,6 +692,12 @@ function PoDetailModal({
             <div style={{ fontSize: 11, color: 'var(--mt)' }}>
               {po.vendor_name ?? po.qbo_vendor_id} · destination {destLabel}
               {po.expected_date && ' · expected ' + po.expected_date}
+            </div>
+            <div style={{ fontSize: 10, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }} title={rule.detail}>
+              <span style={{ border: '1px solid var(--bd)', borderRadius: 10, padding: '1px 7px', color: po.close_rule === 'on_run_yield' ? 'var(--am)' : 'var(--mt)', fontWeight: 600, letterSpacing: 0.3 }}>
+                {rule.label}
+              </span>
+              {po.closed_reason && <span style={{ color: 'var(--mt)' }}>closed: {po.closed_reason === 'run_shipped' ? 'the run shipped' : po.closed_reason === 'received' ? 'fully received' : po.closed_reason}</span>}
             </div>
             {po.qbo_purchase_order_id && (
               <div style={{ fontSize: 10, color: 'var(--gn)', marginTop: 4, fontWeight: 600 }}>
@@ -755,7 +763,7 @@ function PoDetailModal({
                       color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
                       {fmtNum(Number(ln.qty_received))}
                       {fullyReceived && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
-                      {canAdjust && (
+                      {canAdjust && ln.receivable !== false && (
                         <button type="button" title="Correct this receipt" disabled={busy} onClick={() => setAdjustLine(ln)}
                           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: '0 0 0 5px', verticalAlign: -1 }}>
                           <Pencil size={10} />
@@ -772,7 +780,11 @@ function PoDetailModal({
                     </td>
                     {canReceive && (
                       <td style={td}>
-                        {fullyReceived ? (
+                        {ln.receivable === false ? (
+                          <span style={{ fontSize: 10, color: 'var(--mt)' }} title="A service, or the co-packer's own supply — nothing arrives here">
+                            {po.close_rule === 'on_run_yield' ? 'closes with the run' : 'service — not received'}
+                          </span>
+                        ) : fullyReceived ? (
                           <span style={{ fontSize: 10, color: 'var(--mt)' }}>complete</span>
                         ) : (
                           <div style={{ display: 'flex', gap: 4 }}>
