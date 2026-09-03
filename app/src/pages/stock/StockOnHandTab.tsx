@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Search, X } from 'lucide-react';
 import { fmtNum } from '../../lib/formatters';
 import { btnSecondary } from '../../lib/styles';
 import { downloadCsv, toCsv } from '../../lib/csv';
-import { InventoryLocation, OnHandRow } from '../../lib/inventoryControl';
+import { DriftRow, InventoryLocationView, OnHandRow, fetchDrift } from '../../lib/inventoryControl';
+import { LedgerStatusStrip } from './LedgerStatusStrip';
+import { SalesFeedPanel } from './SalesFeedPanel';
 import type { ItemLookup } from './StockPage';
 import { GRID_SX, GRID_DEFAULTS } from './stockStyles';
 
 interface Props {
   rows: OnHandRow[] | null;
-  locationById: Map<string, InventoryLocation>;
+  locationById: Map<string, InventoryLocationView>;
   itemLookup: ItemLookup;
   onRefresh: () => void;
 }
@@ -20,6 +22,13 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
   const [hideZero, setHideZero] = useState(true);
   const [hideVirtual, setHideVirtual] = useState(true);
   const [trackedOnly, setTrackedOnly] = useState(true);
+  // Per-ITEM, not per item-and-location: what QuickBooks says we hold in total.
+  const [drift, setDrift] = useState<Map<string, DriftRow>>(new Map());
+  useEffect(() => {
+    fetchDrift()
+      .then((rows) => setDrift(new Map(rows.map((r) => [r.qbo_item_id, r]))))
+      .catch(() => setDrift(new Map()));
+  }, [rows]);
 
   const enriched = useMemo(() => {
     if (!rows) return [];
@@ -37,9 +46,16 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         location_name: loc?.name ?? '?',
         location_kind: loc?.kind ?? 'warehouse',
         on_hand: Number(r.on_hand),
+        // QuickBooks counts what we OWN, with no notion of where it sits, so
+        // the comparison belongs on rows whose stock is ours -- our warehouses
+        // AND a partner holding consignment, since that is still ours until
+        // they sell it. On a co-packer or in-transit row it is left blank
+        // rather than repeated, which would read as that location being short.
+        qbo_qty:  loc?.counts_as_our_stock ? (drift.get(r.qbo_item_id)?.qbo_qty ?? null) : null,
+        variance: loc?.counts_as_our_stock ? (drift.get(r.qbo_item_id)?.drift   ?? null) : null,
       };
     });
-  }, [rows, itemLookup, locationById]);
+  }, [rows, itemLookup, locationById, drift]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -105,19 +121,50 @@ export function StockOnHandTab({ rows, locationById, itemLookup, onRefresh }: Pr
         return <span style={{ color, fontWeight: 600 }}>{fmtNum(v)}</span>;
       },
     },
+    {
+      field: 'qbo_qty',
+      // QuickBooks has no notion of location, so both of these describe the
+      // ITEM, not the row. The headers say so: on an item held in two places
+      // the same total appears twice, and without "item" in the name a reader
+      // could reasonably add the two variances together.
+      headerName: 'QB item total',
+      type: 'number',
+      width: 125,
+      cellClassName: 'mn',
+      renderCell: (p) => (p.value == null
+        ? <span style={{ color: 'var(--mt)' }}>—</span>
+        : <span style={{ color: 'var(--mt)' }}>{fmtNum(Number(p.value))}</span>),
+    },
+    {
+      field: 'variance',
+      headerName: 'Item variance',
+      type: 'number',
+      width: 110,
+      cellClassName: 'mn',
+      renderCell: (p) => {
+        if (p.value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
+        const v = Number(p.value);
+        if (v === 0) return <span style={{ color: 'var(--gn)' }}>0</span>;
+        return <span style={{ color: 'var(--am)', fontWeight: 600 }}>{v > 0 ? '+' : ''}{fmtNum(v)}</span>;
+      },
+    },
   ], []);
 
   function exportCsv() {
     if (filtered.length === 0) return;
-    const head = ['Item', 'Item ID', 'Location Code', 'Location Name', 'Kind', 'On Hand'];
+    const head = ['Item', 'Item ID', 'Location Code', 'Location Name', 'Kind', 'On Hand',
+      'QB item total', 'Item variance'];
     const data = filtered.map((r) => [
       r.item_name, r.qbo_item_id, r.location_code, r.location_name, r.location_kind, r.on_hand,
+      r.qbo_qty ?? '', r.variance ?? '',
     ]);
     downloadCsv(`on_hand_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
   }
 
   return (
     <div>
+      <LedgerStatusStrip onReconciled={onRefresh} />
+      <SalesFeedPanel onChanged={onRefresh} />
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SearchInput value={search} onChange={setSearch} placeholder="Search item or location…" />

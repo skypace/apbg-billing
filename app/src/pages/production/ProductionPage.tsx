@@ -28,8 +28,9 @@ import { WorkOrdersTab } from './WorkOrdersTab';
 import { PurchaseOrdersTab } from './PurchaseOrdersTab';
 import { ComplianceTab } from './ComplianceTab';
 import { RawMaterialsTab } from './RawMaterialsTab';
+import { RunGuideTab } from './RunGuideTab';
 
-type TabId = 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance';
+type TabId = 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance' | 'guide';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
@@ -38,11 +39,13 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },
   { id: 'compliance',      label: 'Compliance & Safety'    },
+  { id: 'guide',           label: 'Run Guide'              },
 ];
 
 function coerceTab(value: unknown): TabId | null {
   return value === 'formulas' || value === 'raw_materials' || value === 'boms'
     || value === 'work_orders' || value === 'purchase_orders' || value === 'compliance'
+    || value === 'guide'
     ? value
     : null;
 }
@@ -112,10 +115,13 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     if (nextTab) setTab(nextTab);
   }, [routeParams.tab]);
 
+  // The BIB lane is purchasing only — but the Run Guide is documentation, not a
+  // pipeline stage. Hiding it on a lane switch is exactly the "my guide has
+  // disappeared" complaint chapter 10 exists to answer, so it shows on both.
   const visibleTabs = useMemo(
     () => lane === 'cans_24pk'
       ? TABS
-      : TABS.filter((t) => t.id === 'purchase_orders'),
+      : TABS.filter((t) => t.id === 'purchase_orders' || t.id === 'guide'),
     [lane],
   );
 
@@ -184,7 +190,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Compliance</div>
+          <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Compliance · Run Guide</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
             {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
@@ -240,6 +246,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
         <RawMaterialsTab vendors={vendors} onChanged={reloadAll} />
       )}
       {tab === 'compliance' && <ComplianceTab />}
+      {tab === 'guide' && <RunGuideTab />}
       {tab === 'purchase_orders' && (
         <PurchaseOrdersTab
           vendors={vendors}

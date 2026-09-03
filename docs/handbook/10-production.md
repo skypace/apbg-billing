@@ -12,7 +12,7 @@ The Production section of BRIX Refractor runs co-pack production end to end: the
 
 Open **https://alamedapointbg.com/margin/** → **Production**, and set the lane
 switch at the top to **Cans 24pks** (the other lane, **BIB Product**, shows only
-Purchase Orders). Six tabs:
+Purchase Orders). Seven tabs:
 
 | Tab | Purpose |
 |---|---|
@@ -22,6 +22,7 @@ Purchase Orders). Six tabs:
 | **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline |
 | **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders |
 | **Compliance & Safety** | Certificates, audits and the document vault |
+| **Run Guide** | The click-by-click walkthrough ([chapter 10a](#/10a-production-run-guide)) shown inside the page, plus the printable PDF for a tester |
 
 The **Co-Pack (Legacy)** tab was removed on 2026-07-26; its data is retained
 read-only in `ops.copack_orders`.

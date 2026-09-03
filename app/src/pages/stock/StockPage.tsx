@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import {
-  InventoryLocation,
+  InventoryLocation, InventoryLocationView,
   InventoryMovement,
   InventoryTransfer,
   InventoryTransferLineSummary,
@@ -43,7 +43,7 @@ export interface ItemLookup {
 export function StockPage() {
   const [tab, setTab] = useState<TabId>('on_hand');
   const [lane, setLane] = useInventoryLane();
-  const [locations,  setLocations]  = useState<InventoryLocation[]  | null>(null);
+  const [locations,  setLocations]  = useState<InventoryLocationView[] | null>(null);
   const [onHand,     setOnHand]     = useState<OnHandRow[]          | null>(null);
   const [transfers,  setTransfers]  = useState<InventoryTransfer[]  | null>(null);
   const [transferLines, setTransferLines] = useState<InventoryTransferLineSummary[] | null>(null);
@@ -110,16 +110,14 @@ export function StockPage() {
   );
 
   const locationById = useMemo(() => {
-    const m = new Map<string, InventoryLocation>();
+    const m = new Map<string, InventoryLocationView>();
     for (const l of locations ?? []) m.set(l.id, l);
     return m;
   }, [locations]);
 
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory';
 
-  const physicalLocCount = (locations ?? []).filter(
-    (l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment',
-  ).length;
+  const physicalLocCount = (locations ?? []).filter((l) => l.is_active && l.is_physical).length;
 
   return (
     <div>

@@ -441,6 +441,192 @@ Backed by the `qbo-raw-materials` edge function (`verify_jwt=false`, gated by th
 service-role key and the shared QBO OAuth lease, same posture as every other
 `qbo-*` function on this project).
 
+## The stock ledger, and what it is actually for
+
+**QuickBooks owns HOW MANY of a thing we hold. This ledger owns WHERE it is.**
+That one sentence decides everything else here, and it is the reason the ledger
+is not — and must not become — a second copy of QuickBooks' quantities.
+
+QuickBooks has no notion of place. It cannot tell you that 500 cases are on a
+truck between Frederick and Alameda, or that 12,000 cans are sitting at
+Quantum waiting to be filled. `ops.inventory_movements` can, and that is its
+whole job: a co-packer move, a BOL, a lot's traceability, a sub-distributor's
+consignment. Where the two overlap — the total on the warehouse floor — they
+must agree, and `ops.v_inventory_drift` is what says whether they do.
+
+### What went wrong, and what it cost
+
+The ledger was seeded once on **2026-05-14** — 49 movements, every one an
+`adjustment`, 5,631 units into BRIX-WAREHOUSE — and then nothing moved it for
+**111 days**. Nothing fed it: no sale decremented it, no ordinary purchase
+incremented it, and the production pipeline that would have was not yet run.
+QuickBooks meanwhile carried on, so by 2026-09-02 **31 of the 34
+location-tracked items had drifted, 3,345 units in absolute terms**. Oaktown
+Root Beer cases read **1,198 here against 249 in QuickBooks**.
+
+⚠ **The drift was not the defect. The silence was.** The On-Hand grid printed
+those numbers with no date beside them and no comparison to anything, so a
+number 111 days stale looked exactly like one counted that morning. A quantity
+with no date cannot be judged, and nobody could have known to distrust it.
+
+⚠ **The machinery to detect and fix this already existed and had never been
+used.** `ops.v_inventory_drift` and `ops.fn_reconcile_inventory_to_qbo` were
+live on the database with **no migration file and no caller anywhere in the
+repo**. Migration `20260902v` wrote them down as they stood, added
+`ops.v_inventory_ledger_status` and a bulk entry point, and put all of it on
+the screen.
+
+### Reconciling
+
+A reconcile **corrects, it never rewrites**: one new movement per drifting
+item, dated today, carrying its reason and both numbers. The May seed stays in
+history. A ledger you can edit is not a ledger, and the movement that explains
+a 949-case correction is worth more later than a tidy balance is now.
+
+| | |
+|---|---|
+| `ops.v_inventory_drift` | Per item: what QuickBooks says, what our warehouses say, the difference |
+| `ops.v_inventory_ledger_status` | The one-line answer: when it last moved, how many items disagree, by how much |
+| `ops.fn_reconcile_inventory_to_qbo(item)` | Fix one item |
+| `ops.fn_reconcile_inventory_bulk(reason, commit)` | Fix all of them; **preview by default**, `commit` writes |
+
+⚠ **The bulk reconcile REFUSES while any stock is at a co-packer or in
+transit, and this is the part a later edit will want to soften.** The drift
+view measures QuickBooks against **warehouse-kind locations only** — goods at
+Quantum or on a truck are counted separately, deliberately. So mid-run every
+one of those cases reads as warehouse drift, and reconciling would post
+adjustments inventing stock we have not received, which the receipt would then
+post a second time. It is a hard stop rather than a warning on purpose: an
+amber notice on a screen that is about to double-count a batch is one somebody
+clicks past.
+
+### Ownership is not a kind of building
+
+⚠ `inventory_locations.kind` was answering two unrelated questions at once:
+*what sort of place is this* (a building, a truck, a virtual counter) and
+*does the stock in it still count as ours*. That is why Desert Beverage and
+Origins — each a **warehouse we ship to** and a **distributor we have terms
+with** — ended up entered twice, once under each kind, and why neither entry
+was right on its own.
+
+They are one place. `ops.v_inventory_locations` separates the two questions:
+
+| | |
+|---|---|
+| `is_physical` | Somewhere stock can actually sit. False for TRANSIT and the adjustment counter. |
+| `counts_as_our_stock` | Ours: our own warehouses always; a partner's site **only while the agreement is consignment** |
+
+**Ownership comes from `ops.sub_distributors.model`, never from the kind.** On
+consignment the stock is still ours until the partner sells it — which is
+exactly why QuickBooks keeps counting it in `qty_on_hand`, so it belongs in the
+comparison. On sell-in they own it the moment it ships, QuickBooks drops it,
+and it stops counting **by itself**. A boolean copied onto the location would
+be a second home for one fact, and would disagree with it the first time
+somebody changed one.
+
+⚠ **It fails closed.** A distributor location with no partner record, or one on
+any model but consignment, does **not** count as ours. Get this backwards and
+the failure is silent: over-counting our side *cancels* real drift and shows
+green, while under-counting shows as drift and someone goes and looks.
+
+The duplicates (`DESERT-BEVERAGE`, `ORIGINS-CRAFT-SODA`) are deactivated, not
+deleted — a location id is the kind of thing an old document points at. There
+was nothing to merge: both had zero movements, zero transfers, were no
+partner's site, no item's default receiving location, and on no work order or
+PO. **`CRAFT-COFFEE-SVCS` is deliberately left alone** — unlike those two it
+has no partner record to fall back on, so whether it is a sub-distributor or a
+dead name is an operator's question.
+
+### Two screens say "inventory" and only one was ever stale
+
+*Inventory Planning* (reorder, velocity) reads `fn_items_master` → QuickBooks'
+own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always current.
+*Stock → On-Hand* reads this ledger. Do not conflate them.
+
+### What still has no feed
+
+The re-seed makes the ledger true as of 2026-09-02. It does not make it
+self-maintaining: a sale still does not decrement it and an ordinary purchase
+still does not increment it. **The production pipeline is its first real
+feed** — a run consumes materials, records a yield, ships a BOL and receives
+finished cases, all as movements — and the first live run is what proves it.
+
+### The sales feed — what finally maintains it
+
+⚠ **How fast it goes stale was measured, not guessed.** The 2026-09-02
+re-seed left the ledger at zero drift at 09:02 UTC. By 16:30 the QuickBooks
+mirror had pulled in the day's real invoices and the ledger was **176 units
+behind across 24 items** — seven hours, because stock shipped and nothing told
+the ledger. The strip caught it the same afternoon, which is the feature
+working; but it also means **reconciling by hand is a stopgap, not the
+answer.** The sales feed (`ops.qbo_invoice_lines` → shipment movements) is the
+next build, and until it exists the honest workflow is to read the strip before
+trusting a number and reconcile when it says to.
+
+**`ops.fn_apply_sales_to_ledger` closes it.** Every invoice line for a
+location-tracked item becomes a movement: Invoice and SalesReceipt take stock
+out, CreditMemo and RefundReceipt put it back.
+
+**An invoice cannot say WHICH building the case left, so the customer decides
+it.** `ops.fn_sales_ledger_location` reads `ops.sub_distributor_accounts` —
+attach a customer to a partner under **Sub-Distributors → Accounts** and their
+invoices deduct from that partner's warehouse; everyone else falls through to
+Brix Warehouse. That works because **a sub-distributor is always on
+consignment and our system bills their customers**: the stock is ours until
+the end customer is invoiced, so the invoice is the depletion signal for their
+warehouse exactly as it is for ours.
+
+⚠ **Not by state.** 315 of the 324 customers who buy stock are in California,
+and the state field itself holds `CA`, `California` and `San Francisco`. State
+sorts 97% of customers into one bucket. Per-customer is also cheaper than it
+sounds — only the exceptions are entered.
+
+**Three cases, and only the first is obvious.** A NEW line deducts. An EDITED
+line — QuickBooks upserts a line in place — posts the DIFFERENCE against
+`ops.sales_ledger_applied`, never a second full deduction. A VOIDED line, gone
+from the mirror, is reversed and its applied row stamped rather than deleted,
+because "why did 12 cases come back on the 4th" needs an answer.
+
+⚠ **Shadow by default, and that is the cutover plan rather than a
+placeholder.** The feed and the reconcile must never both be authoritative:
+reconcile sets the ledger EQUAL to QuickBooks, so if it runs while the mirror's
+quantities are a few hours behind the invoices the feed already deducted, it
+puts them straight back. In shadow the feed computes and writes nothing — even
+when called with `commit` — so its numbers can be checked against the drift the
+strip reports for a day or two first. Once it is live, **reconcile becomes the
+audit, not the mechanism**, and should only be run deliberately.
+
+⚠ **`fn_distributor_record_depletion` no longer moves stock** (`20260902x`). It
+posted its own shipment out of the partner's location, which with the feed live
+is the same case deducted twice. It stays as the DELIVERY and per-case fee
+record — the thing a delivery PO and the "their invoice matches ours" check
+will be built on — and simply stopped being a second stock writer.
+
+## The run guide, inside the app
+
+The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**
+(`docs/handbook/`), rendered by the viewer at `public/docs/handbook/index.html`.
+**Production → Run Guide** frames that viewer rather than holding a second copy
+of the text — one guide, one source, or the two disagree the first time somebody
+edits one.
+
+Three things are worth knowing before touching it:
+
+- **The viewer has an embed mode.** Framed (or given `?embed=1`) it hides its own
+  sidebar and its *Back to the Hub* link — chrome inside chrome, and a hub link
+  inside a frame strands a whole hub in somebody's tab. The chapter renders
+  unchanged; only the viewer's furniture goes.
+- **Two different path bases, and they are not interchangeable.** The handbook is
+  at `/margin/docs/handbook/` behind the gateway and `/docs/handbook/` on the bare
+  Netlify site. The PDF is at **`/billing/production-guide/`** behind the gateway
+  and `/production-guide/` bare — `/margin/*` proxies to the Vite bundle, not to
+  the site root, so `/margin/production-guide/` is a 404. `RunGuideTab.tsx` derives
+  both from `location.pathname`; do not "tidy" them into one helper.
+- **The PDF is a committed artifact** (`public/production-guide/Brix-Production-Run-Guide.pdf`),
+  beside the screenshots the chapter already uses. It is what you hand a QC tester;
+  the online copy is the one that stays current, and the tab says so. Re-export it
+  whenever the chapter changes materially — nothing regenerates it automatically.
+
 ## Known gaps, 2026-09-02
 
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
