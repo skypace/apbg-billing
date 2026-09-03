@@ -90,6 +90,7 @@
     "production_doc_events",
     "production_doc_sends",
     "production_items",
+    "production_run_bills",
     "production_runs",
     "production_settings",
     "purchase_order_line_demand",

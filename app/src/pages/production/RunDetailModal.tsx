@@ -22,6 +22,7 @@ import { fmtNum, fm } from '../../lib/formatters';
 import { ReasonDialog } from '../../components/ReasonDialog';
 import type { ProductionItemLookup } from './ProductionPage';
 import { RecordYieldDialog } from './WorkOrderDialogs';
+import { RunBillsSection } from './BillsPanel';
 import { Meta, LField, StageChip, cellTh, cellTd, sectionLabel, errMsg } from './productionUi';
 
 const RUN_COLOR: Record<string, string> = { draft: 'var(--mt)', ordered: 'var(--ac)', in_progress: 'var(--am)', closed: 'var(--gn)', void: '#64748b' };
@@ -272,6 +273,9 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
             </table>
           </div>
         )}
+
+        {/* Bills — deposit + final (P7) */}
+        <RunBillsSection run={run} vendors={vendors} onChanged={onChanged} />
 
         {run.notes && <div style={{ marginBottom: 12, fontSize: 11, color: 'var(--mt)' }}><div style={{ fontSize: 9, letterSpacing: 0.6, textTransform: 'uppercase' }}>Notes</div>{run.notes}</div>}
 

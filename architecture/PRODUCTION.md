@@ -690,6 +690,95 @@ transfer, two lines, both WOs `in_transit`, Quantum PO `closed/run_shipped`;
 void on the shipped run refused by name; WO-level ship refused; receive + close
 → run `closed`, bucket `closed`; 17 movements, all rolled back.
 
+## Bills — the PO bill, the deposit, and the final invoice that updates it
+
+**The rule in one sentence: every payable a run produces is a Brixpense expense
+request, posting it to QuickBooks is a human click in Brixpense, and a final
+invoice that replaces a deposit UPDATES the deposit's request — one QuickBooks
+bill, re-sent onto itself, with the deposit payment still applied.** Nothing in
+Refractor talks to QuickBooks for a bill; the 2026-08-14 gate holds, and the
+`ops.production_run_bills` register only says which request is which document
+of which run. Migrations `20260903h` + `20260903i`.
+
+Three documents, three functions, one insert shape (`fn_production_bill_request__i`:
+`request_type='expense'`, `status='approved'`, `as_bill`, `auto_approved`, tag
+**Production**, `cogs_account_id` = `production_settings.clearing_account_ref_id`
+— 294 Can Raw Materials, so the run's bills settle through the same account the
+POs and the production PO do — entity `brix`, `approved_by='system (production bill)'`,
+`submitted_by = auth.uid()`; **a call with no session is refused by name** rather
+than inventing an actor, because the row is somebody's record):
+
+| Document | Function | When | What it produces |
+|---|---|---|---|
+| **PO bill** | `fn_po_create_bill(po_id, invoice_no, invoice_date, total_override)` | The PO is **closed** — Calderoni's on full receipt, Quantum's when the run ships | One request, lines = the PO lines at ordered qty × price, **services included** (tolling is billed though never received). A different invoice total adds one *Invoice variance vs PO* line so the bill matches the paper and the variance is visible. One live bill per PO; archive it in Brixpense to redo |
+| **Deposit** | `fn_run_record_deposit(run_id, vendor, amount, invoice_no, date, memo)` | Quantum's deposit invoice arrives, usually with the PO | One request, one line. One un-archived deposit per (run, vendor). Posted from Brixpense, it is the QuickBooks bill a payment is applied against |
+| **Final invoice** | `fn_run_record_final_bill(run_id, vendor, gross, invoice_no, date, deposit_bill_id, lines)` | The final invoice arrives at close-out | **Against a deposit: the deposit's request is UPDATED in place** — total = the final gross, bill number = the final invoice, lines replaced, memo carries the deposit and the balance due, `qbo_balance`/`qbo_checked_at`/`paid_at` cleared. Without a deposit: a new request |
+
+**Why one bill and not two.** A second bill for the balance would leave the
+deposit's BillPayment applied to a $10,000 bill while the vendor's paper says
+one invoice for $25,878.60. Updating the same bill keeps the payment where
+QuickBooks already put it and makes the bill read exactly like the invoice.
+
+**How the update reaches QuickBooks.** `v_production_run_bills.bill_state`
+reads the request: `to_post` (approved, not posted), `posted`, **`needs_update`**
+(posted AND `qbo_posted_amount` ≠ `total_amount` — the total changed since QBO
+last saw it), `paid`, `archived`. `expense_requests.qbo_posted_amount` is what
+QuickBooks last received, stamped by every create and update in
+`expense-request-link-bill`. A `needs_update` row lights **Update in QuickBooks**
+in Brixpense → Expense History, which calls the function's new `mode:'update'`:
+`GET /bill/{id}` for the `SyncToken` and `Balance`, **refuse if the new total is
+below what is already paid**, then a **sparse** `POST /bill` with the new lines,
+`DocNumber`, `TxnDate` and `PrivateNote` — sparse is what keeps the
+`LinkedTxn` to the deposit payment — optionally attaching the final invoice PDF
+(`attachmentId`), then `qbo_posted_amount` and `posted_at` are stamped and
+`qbo_balance` cleared so `bill-paid-sync` re-reads it on the next run.
+`preview:true` returns the payload without writing.
+
+⚠ **Two things the live proof caught in the first cut (`20260903i`).** The view
+tested `paid_at` before the changed-total test, so a final recorded against a
+PAID deposit read **Paid** — the one row that most needs a human's click would
+have looked finished. And the final did not clear `paid_at`, so `bill-paid-sync`
+(pool: `qbo_bill_id not null AND paid_at null`) would never have re-read the
+balance: the bill would have sat in Brixpense's *Paid & closed* with $15,878.60
+owed. Both fixed; the memo still says the deposit was PAID, because that is
+what the payment record shows.
+
+⚠ **`mode:'update'` has NOT been exercised against a live QuickBooks bill from
+this environment** — the QBO token lives in the Netlify env and a test update is
+a real transaction on the shared realm. The SQL side is proven (below), the
+function parses and was reviewed against the create path it mirrors; **the first
+real Update in QuickBooks click is the end-to-end proof**, and the refusal
+(total below paid) plus the `preview` mode exist so that click can be dry-run
+first.
+
+**Verified live, rolled back** (one flavour, 500 cases): a bill on the open
+Calderoni PO refused by name → PO received in full → `closed` → PO bill created
+(1 line, $1,008.75, `to_post`, submitted_by the caller) → a second bill refused
+→ deposit $10,000 recorded, a second deposit from the same vendor refused →
+simulated post + pay → a final of $8,000 refused (below the paid deposit), a
+final from the other vendor refused → final $25,878.60 against the deposit:
+**the same request** now totals $25,878.60, bill number 1799, `paid_at` null,
+`qbo_balance` null, memo *replaces deposit invoice 1741 of 10000.00 already PAID
+on this same bill · balance due 15878.60*, register row `final` with
+`amount_net` 15,878.60 and **`bill_state = needs_update`**; a second final
+refused; a standalone Calderoni final creates a new request; re-linking an
+already-linked request refused; a bill on the still-open Quantum PO refused.
+
+**On screen.** The run detail gains a **Bills** section (kind · PO · vendor ·
+invoice # · date · invoice total · balance due · state · QuickBooks) with
+**Record deposit…** and **Record final invoice…**; the final dialog lists the
+vendor's deposits, prints the balance due and which QuickBooks bill will be
+updated, and disables itself when the total is below a paid deposit. A closed
+PO's detail gains **Vendor bill** with **Create bill…** (invoice #, date,
+optional total). Brixpense's Expense History shows **Update in QuickBooks** on a
+posted bill whose total has changed. Attaching the vendor's PDF is Brixpense's
+existing attach-after-post path.
+
+⚠ **Deliberately not built:** a bill created from the AP inbox is attached to a
+run with `fn_run_link_bill(run_id, kind, expense_request_id, po_id)` — there is
+no button for it yet; and nothing archives a bill from Refractor (archive in
+Brixpense, where the payable lives).
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling
@@ -1029,7 +1118,10 @@ expiry (an abandoned draft holds its reservation until it is voided or
 deleted); voiding one line of a PO; updating a QuickBooks PurchaseOrder after
 it was pushed (a voided run returns the pushed PO numbers for manual close);
 a run-level batching sheet (per-flavour sheets remain); delivery POs to
-sub-distributors.
+sub-distributors. **With the bills work (P7):** a Refractor button for
+`fn_run_link_bill` (attach an AP-inbox bill to a run), archiving a bill from
+Refractor, and — until the first real click — live proof of `mode:'update'`
+against a QuickBooks bill.
 
 
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both

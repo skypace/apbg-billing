@@ -16,7 +16,7 @@ Purchase Orders). Eight tabs:
 
 | Tab | Purpose |
 |---|---|
-| **Production Orders** | The order: one or several flavours on one fill, **one purchase order per vendor for the lot**, stock already at the co-packer used before more is ordered, MOQ applied once on the aggregate, one bill of lading for the truck, and the master Void that takes every work order and PO with it. Each flavour on it is a work order underneath |
+| **Production Orders** | The order: one or several flavours on one fill, **one purchase order per vendor for the lot**, stock already at the co-packer used before more is ordered, MOQ applied once on the aggregate, one bill of lading for the truck, and the master Void that takes every work order and PO with it. Each flavour on it is a work order underneath. Its **Bills** section records the co-packer's deposit and final invoice (the final updates the deposit's QuickBooks bill in place); a closed PO's detail creates the vendor's bill |
 | **Formulas & Spec Sheets** | The recipes — % by weight, QC specs, batching instructions, revisions, batch scaler, printable batching sheet |
 | **Materials & Pricing** | The purchased-item master — one vendor, one price and the ordering terms (MOQ, multiple, lead days) per component, the raw-ingredient list, and the raw-material stock sitting at the co-packer with its opening-balance form |
 | **Bills of Materials** | Parts list per finished good, the recipe from the formula, and the pre-flight that says who gets a purchase order |
@@ -91,6 +91,7 @@ Every stage change writes to **`ops.work_order_events`**, and the `v_work_orders
 8. When the truck leaves, **Ship the run** on the order — ONE bill of lading for every flavour, co-packer → warehouse; the co-packer's PO closes with it.
 9. When the goods hit the dock, **Receive** — inventory updates.
 10. **Close order** — every work order closes with it. Done; the audit trail and cost snapshots are permanent. **Reopen** puts every flavour back to Received if a receipt needs correcting.
+11. **Bills** — a closed PO gets **Create bill…** (its lines become a Brixpense bill); the co-packer's deposit and final invoice are recorded on the order, and the final UPDATES the deposit's QuickBooks bill in place. Posting, and **Update in QuickBooks**, are clicks in Brixpense → Expense History; Production never posts to QuickBooks itself.
 
 If anything went wrong before close, **Void** with a reason rather than deleting anything.
 

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { postToQuickBooks as postExpenseToQbo, DuplicateBillError } from '@/lib/postToQbo';
+import { postToQuickBooks as postExpenseToQbo, updateInQuickBooks, DuplicateBillError } from '@/lib/postToQbo';
 import { useSession } from '@/lib/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DueBadge, DuplicateBadge } from '@/components/BillFlags';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Clock, Receipt, Send, Banknote } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock, Receipt, Send, Banknote, RefreshCw } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useIsSuperadmin } from '@/lib/useIsSuperadmin';
 // `statusLabel` is aliased — this page already has its own for expense status.
@@ -72,6 +72,23 @@ export default function PendingList() {
       // Declining the duplicate prompt is a decision, not a failure — leave the
       // row exactly as it was rather than stamping it with an error.
       if (e instanceof DuplicateBillError) return;
+      const reason = e instanceof Error ? e.message : 'Could not reach the server.';
+      setPostError(reason);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
+    } finally {
+      setPostingId(null);
+    }
+  };
+
+  // A posted Bill whose total changed since it was sent (a production deposit
+  // that became the final invoice) is re-sent onto the SAME QuickBooks bill.
+  const updateQuickBooks = async (req: ExpenseRequest) => {
+    setPostingId(req.id);
+    setPostError(null);
+    try {
+      const data = await updateInQuickBooks(req.id);
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, qbo_posted_amount: Number(data.qbo_total ?? r.total_amount), autopost_error: null } : r)));
+    } catch (e) {
       const reason = e instanceof Error ? e.message : 'Could not reach the server.';
       setPostError(reason);
       setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, autopost_error: reason } : r)));
@@ -157,6 +174,11 @@ export default function PendingList() {
             // A QuickBooks BillPayment needs a Bill to attach to, so pay is
             // only offered once the bill is actually posted — and only while
             // no payment already covers it.
+            // Posted as a Bill, but the total has moved since it was sent — the
+            // final invoice replaced a deposit. One click re-sends the SAME bill.
+            const needsQboUpdate =
+              req.status === 'posted' && !!req.qbo_bill_id && req.as_bill === true && !req.is_credit
+              && req.qbo_posted_amount != null && Number(req.qbo_posted_amount) !== Number(req.total_amount);
             const pay = payments.get(req.id);
             const isPayable =
               isSuperadmin && req.status === 'posted' && !!req.qbo_bill_id && !pay && !req.paid_at;
@@ -231,6 +253,19 @@ export default function PendingList() {
                         ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                         : <Send className="h-4 w-4 mr-1" />}
                       Post to QuickBooks
+                    </Button>
+                  )}
+                  {needsQboUpdate && (
+                    <Button
+                      size="sm"
+                      disabled={postingId === req.id}
+                      onClick={(e) => { e.stopPropagation(); updateQuickBooks(req); }}
+                      title={`QuickBooks has ${formatCurrency(Number(req.qbo_posted_amount))}; this bill now reads ${formatCurrency(Number(req.total_amount))}. Re-send the same bill — any payment already applied stays applied.`}
+                    >
+                      {postingId === req.id
+                        ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        : <RefreshCw className="h-4 w-4 mr-1" />}
+                      Update in QuickBooks
                     </Button>
                   )}
                   {isPayable && (

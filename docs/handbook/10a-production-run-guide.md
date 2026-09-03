@@ -294,6 +294,32 @@ by as a sub-line — and **Email…** sends it and files the copy.
 the finished cases land in the warehouse and the stage moves to **Received to
 inventory**. Then **Close work order**.
 
+## Step 8 · The bills
+
+Nothing here touches QuickBooks by itself. A bill is **recorded** in Production
+and **posted** from Brixpense — the same "Post to QuickBooks" click every other
+bill gets.
+
+**The vendor's bill for a purchase order.** Once a PO is **closed** — Calderoni's
+closes when its last line is received, Quantum's when the run ships — open it on
+the Purchase Orders tab and press **Create bill…** under *Vendor bill*: type the
+invoice number and date, and the total only if the vendor's paper differs from
+the PO (the difference lands as one *Invoice variance vs PO* line). Then in
+Brixpense → Expense History press **Post to QuickBooks** and attach the invoice
+PDF there.
+
+**Quantum's deposit.** On the production order, **Record deposit…** with the
+deposit invoice's amount and number. Post it from Brixpense; that is the
+QuickBooks bill the deposit payment is applied against.
+
+**Quantum's final invoice.** On the same order, **Record final invoice…**, pick
+the deposit it settles, and type the invoice's **gross** total. The deposit's bill
+is updated in place — same QuickBooks bill, new total, balance due = total −
+deposit — and the row reads **Update QB**. In Brixpense → Expense History press
+**Update in QuickBooks**: the bill in QuickBooks becomes the final invoice and the
+deposit payment stays applied to it. A final below a deposit already paid is
+refused.
+
 ## Where a lot ends up
 
 Every inventory movement points at the transfer *line* that carried it, and the
@@ -335,6 +361,9 @@ what should happen; anything else is a finding.
 | 4c | **Create production order**, then **Generate POs per vendor →** | Exactly **two** POs on the order, each naming both work orders; the Work Orders tab shows both flavours with the order number in the **Order** column and no Ship / Void buttons of their own |
 | 4d | Receive the Calderoni PO in full | The PO closes by itself and **both** flavours jump to **Materials at co-packer** |
 | 4e | On the order, **Void order** | Refused if production has started; on a fresh order it voids both work orders and both POs and says so |
+| 4f | Open the closed Calderoni PO → **Create bill…**, invoice # + date | A bill appears under *Vendor bill* reading **To post** with a *Post from Brixpense* link; pressing Create bill… again is refused |
+| 4g | On the order → **Record deposit…**, $1,000, invoice D-1 | A *Deposit* row appears, **To post**; a second deposit from the same vendor is refused |
+| 4h | **Record final invoice…**, pick deposit D-1, gross $4,000 | The deposit row becomes *Final invoice · replaces the deposit*, balance due **$3,000**; try $500 first — the button is disabled and the dialog says it is below the deposit |
 | 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run |
 | 6 | **Create work order** | Lands at **Draft** |
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |

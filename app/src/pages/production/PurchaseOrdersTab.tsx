@@ -8,6 +8,7 @@ import {
 } from '../../lib/purchasing';
 import { ReceiveLinesDialog } from './ReceiveLinesDialog';
 import { AdjustReceiptDialog } from './AdjustReceiptDialog';
+import { PoBillsSection } from './BillsPanel';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -814,6 +815,8 @@ function PoDetailModal({
             </tbody>
           </table>
         )}
+
+        <PoBillsSection po={po} onChanged={onChanged} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--bd)' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
