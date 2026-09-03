@@ -237,7 +237,7 @@ to Can Raw Materials since 2025:
 | Printed cans | Quantum | $0.328 on bill 171778 (07/2026); 2025 deposits $0.31–0.37 | six can items @ $0.328 (was $0.26) |
 | 24-pk tray | **nobody, on any Quantum invoice** | — | **removed from every BOM (`20260902u`)** — taken to be inside the $0.62 tolling line, the same way pack-off was |
 | Syrup | Calderoni | lump-sum "can ingredients" per run ($5,073 May, $9,236 + $3,544 June) | the 1GNS gallon line, 0.375 gal/case |
-| Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | `CANNING RUN FEE (SYRUP COMPOUNDING)` (1391, new) — **1 per run** |
+| Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | ~~`CANNING RUN FEE (SYRUP COMPOUNDING)` (1391) — 1 per run~~ **Off the BOM since 2026-09-03** — it is a licensing royalty on the cases produced, accrued at yield (see "Licensing agreements" below) |
 | Freight | Calderoni | a separate line most runs ($98–$3,200) | not on the BOM — entered as landed freight at Record yield |
 
 A flat per-run charge cannot be a per-case quantity, so a BOM line now has a
@@ -257,7 +257,56 @@ the gallon is plausible, not proven.
 
 ⚠ Two QuickBooks items were created for this (1390 Velcorin, NonInventory;
 1391 canning fee, Service — both expensed to Can Raw Materials 294). Nothing
-Inventory; see "Item types" below.
+Inventory; see "Item types" below. 1391 was then **retired on 2026-09-03**:
+the charge it stood for is not a purchased material but a royalty on the cases
+produced, and it now lives on the Licensing tab (next section). The QuickBooks
+item stays, deactivated in the purchased-item master only — it carries history.
+
+## Licensing agreements — the royalty is not a PO line
+
+Calderoni's "canning fee" first landed on the BOM as a flat $1,173.33 per-run
+line (item 1391). Sky's correction, 2026-09-03: *"the syrup compound isn't a
+receivable item, it's a calculation that goes on its own tab called licensing
+agreements… like a rebate would be"*, and the basis is **"total final cases of
+soda made in each production run — this is why it's separate from the PO."** A
+purchase order lists what a vendor ships or performs; a royalty is owed on what
+came off the line, which is only known at yield. So it moved (migration
+`20260903a`):
+
+| Piece | Table / RPC | What it holds |
+|---|---|---|
+| Program | `ops.licensing_programs` | the licensor (QBO vendor), entity, settlement period (month / quarter), status |
+| Rule | `ops.licensing_rules` | basis (`cases_produced` — the one Sky named — or concentrate / finished gallons), the current **rate** + unit label, optional formula scope, active flag |
+| Rate history | `ops.licensing_rule_rates` | append-only, written by trigger on every rate change; the accrual reads the rate in force on the yield date |
+| Accrual | `ops.licensing_accruals` | one row per (rule, work order), written **at `record_yield`** by `fn_licensing_accrue_wo`; `settlement_id` NULL = unsettled |
+| Settlement | `ops.licensing_settlements` | one per program per finished period, reference `LIC-<CODE>-YYYYMM`, snapshot of the calc, link to the Brixpense request |
+
+**Rules that are load-bearing:**
+
+- **Accrue at yield, not at settlement.** `fn_wo_advance__i record_yield` calls
+  `fn_licensing_accrue_wo(wo_id, yield_qty, yield_date)` and adds the amount to
+  `work_order_costs` as a `kind:'royalty'` detail row — so the per-case cost
+  does not silently drop by $1,173.33 ÷ cases when the BOM line leaves, and a
+  rate change is **forward-only by construction** (a run yielded under the old
+  rate keeps it; **Re-price unsettled** on the tab is the deliberate override
+  and touches only accruals not yet settled).
+- **A period settles once it has ended.** `fn_licensing_settlement_create`
+  refuses the current month; the tab disables the button for the same reason.
+  Settlement sums the unsettled accruals in the window and inserts an
+  `ops.expense_requests` row (approved, as_bill, tag `Licensing`, bill number
+  `LIC-…`, one line per rule) — **posting to QuickBooks stays a human click in
+  Brixpense**, the 2026-08-14 gate. Void releases the accruals and archives the
+  request; refused once posted.
+- **Nothing is received and nothing ships.** There is no PO, no movement, no
+  QuickBooks item for it — which is exactly the point of taking it off the BOM.
+
+Seeded: program **CALDERONI** (vendor 1099, monthly), one rule at **$0.50 per
+case produced** — Sky: "I think right now it's $.50 per raw gallon" — ⚠ the rate
+and its basis are seeded from that remark and carry the note *confirm against
+the agreement*; the Licensing tab is where they get corrected, with history.
+Verified live in a rolled-back run: 100 cases of Hangar 25 Cola accrued
+`100 × 0.50 = $50.00`, landed in the cost snapshot as a royalty line, and all
+seven BOMs still pre-flight at 2 POs / 0 blockers with the 1391 line gone.
 
 ## The documents — PO, BOL, batching sheet, as PDFs
 
@@ -654,7 +703,8 @@ Three things are worth knowing before touching it:
 3. ~~The can price looks stale too.~~ **Closed 2026-09-02** — the whole Quantum
    side was reconciled to Quantum's invoices (see "What the vendors actually
    bill"): cans $0.328, tolling one $0.62 line, Velcorin and pallet dunnage
-   added, Calderoni's flat canning fee added as a per-run line. Per-case
+   added, Calderoni's flat canning fee added as a per-run line (and moved
+   again on 2026-09-03 to the Licensing tab — see "Licensing agreements"). Per-case
    variable cost is now **$25.84** against the **$21.36** the finished-case
    QuickBooks items carry — the QuickBooks number is the one that is wrong.
    (It was $25.85 before the tray came off; the tray was 1.6 cents.)

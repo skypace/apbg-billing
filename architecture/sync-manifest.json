@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-09-02",
+  "last_updated": "2026-09-03",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
   "writers": [
     {
@@ -859,6 +859,24 @@
       "external_inputs": [],
       "notes": "Rebate Maker (migration 20260821a): per-customer contract rebate programs (first: Starbird / Chicken Coup LLC master agreement, signed 2025-08-25). Programs + rules are edited directly via PostgREST under staff-only RLS (fn_is_staff both directions); rule types volume_growth / ordering_cadence / flat_per_unit / tiered_volume / fixed_per_store, item scope by exact ids + ILIKE name patterns (both empty = matches nothing). Volume is READ from the QBO mirror (qbo_invoices/_lines, parent + subs, Invoices net of CreditMemos) by SECURITY DEFINER ops.fn_rebate_calculate (staff-or-service guard INLINE - not generator-wrapped; keep the guard on any edit). ops.fn_rebate_settlement_create (staff) snapshots the calc into rebate_settlements (partial-unique per program-year) and inserts the Brixpense expense_request (approved + as_bill, tag 'Rebate', bill_number RB-<code>-<year>) - QBO posting stays behind Brixpense's human 'Post to QuickBooks' gate (2026-08-14 rule), hence multi_writer on expense_requests with brixpense + sub-distributors. fn_rebate_settlement_void releases the year + archives the unposted request; refuses once posted. Companion netlify/functions/rebate-report-email.mjs (staff bearer) emails the branded 'Your Alameda Soda rebate is ready' data report from rebates@alamedapointbg.com to operator-chosen recipients and stamps report_sent_at/report_sent_to on the settlement (service role).",
       "last_verified": "2026-08-21"
+    },
+    {
+      "name": "brix-licensing:app-and-rpcs",
+      "kind": "manual-ui",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (Refractor -> Production -> Licensing tab; staff only) + fn_wo_advance record_yield (accrual per work order)",
+      "writes": [
+        "ops.licensing_programs",
+        "ops.licensing_rules",
+        "ops.licensing_rule_rates",
+        "ops.licensing_accruals",
+        "ops.licensing_settlements",
+        "ops.expense_requests"
+      ],
+      "multi_writer": true,
+      "external_inputs": [],
+      "notes": "Licensing agreements (migration 20260903a): a licensor's royalty accrued per production run and settled per period into a Brixpense payable. Replaces the flat CANNING RUN FEE (SYRUP COMPOUNDING) BOM line (item 1391, retired in production_items, off every BOM) - Sky: the basis is 'total final cases of soda made in each production run', which is why it is not a PO line. Programs + rules are edited via PostgREST under staff-only RLS (fn_is_staff both directions); licensing_rule_rates is append-only history written by trigger tg_licensing_rule_rate_history whenever a rule's rate/unit changes. Accruals are written AT YIELD: ops.fn_wo_advance__i record_yield calls fn_licensing_accrue_wo(wo_id, yield_qty, yield_date), which upserts one licensing_accruals row per (rule, work order) using the rate in force on the yield date and adds the amount to work_order_costs as a kind:'royalty' detail row - a rate change is forward-only by construction. fn_licensing_calculate / fn_licensing_recompute (re-price UNSETTLED accruals only) / fn_licensing_backfill are staff-guarded SECURITY DEFINER; fn_licensing_settlement_create (staff) sums the unsettled accruals of a FINISHED period (refuses an open one) into licensing_settlements (partial-unique per program+period) and inserts the Brixpense expense_request (approved + as_bill, tag 'Licensing', bill_number LIC-<code>-YYYYMM, one line per rule) - QBO posting stays behind Brixpense's human 'Post to QuickBooks' gate (2026-08-14 rule), hence multi_writer on expense_requests with brixpense + rebates + sub-distributors. fn_licensing_settlement_void releases the accruals + archives the unposted request; refuses once posted. Seeded: program CALDERONI (vendor 1099 AC CALDERONI, monthly) with one rule, 0.50 per case produced - rate seeded 2026-09-03, confirm against the agreement.",
+      "last_verified": "2026-09-03"
     },
     {
       "name": "brix-nda:sign-and-admin",

@@ -75,8 +75,9 @@ Click the finished item to open the editor.
 Read it top to bottom:
 
 1. **Who gets a purchase order.** The pre-flight, in the grey panel. It should
-   say **2 POs per run** — AC Calderoni for the syrup and the compounding fee,
-   Quantum Canning for the cans, the tolling charge, Velcorin and dunnage. If it
+   say **2 POs per run** — AC Calderoni for the syrup, Quantum Canning for the
+   cans, the tolling charge, Velcorin and dunnage. (Calderoni's compounding
+   royalty is NOT on the PO — see the Licensing tab, below.) If it
    names a third vendor, a component is pointed at the wrong supplier.
 2. **Blockers, in red, stop a run.** The two that happen: a component that is
    **deactivated in QuickBooks** (QuickBooks will refuse the PO push, and you
@@ -95,7 +96,8 @@ Read it top to bottom:
    whether it sits in the normal band for a 5:1 syrup.
 6. **Sub-items** — the things that actually get bought. Note the **Per** column:
    *per unit* scales with the run, **per run** is a flat charge for the whole
-   work order however big it is. The syrup compounding fee is per run.
+   work order however big it is. (The syrup compounding fee used to be the
+   per-run example; it is a licensing royalty now and lives on its own tab.)
 
 **Rebuild from formula** re-writes only the recipe rows from the current formula.
 It never touches the sub-items you typed (cans, tolling, Velcorin, dunnage) —
@@ -151,7 +153,11 @@ Open each one.
 
 ![The Quantum purchase order — cans, tolling, Velcorin, dunnage](/billing/production-guide/11-po-detail.jpg)
 
-![The Calderoni purchase order — the syrup and the flat run fee](/billing/production-guide/11b-po-detail-calderoni.jpg)
+![The Calderoni purchase order — the syrup](/billing/production-guide/11b-po-detail-calderoni.jpg)
+
+> The screenshot predates 2026-09-03 and still shows a **CANNING RUN FEE** line.
+> That line is gone: the compounding charge is a royalty on the cases produced
+> and accrues on the **Licensing** tab when you record the yield.
 
 Per PO you can:
 
@@ -279,8 +285,8 @@ what should happen; anything else is a finding.
 | 1 | Production → **Materials & Pricing** | List every purchased item grouped by vendor, each with a price and a vendor. Nothing blank. |
 | 2 | Change a price, save, re-open | Keep the new price; the note about being seeded from QuickBooks is gone |
 | 3 | **Bills of Materials** → open one | Show **2 POs per run**, **0 blockers** |
-| 4 | Read the sub-items **Per** column | The syrup compounding fee is **per run**; everything else is per unit |
-| 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run, and the run fee line stays **1 run** at its full price |
+| 4 | Read the sub-items **Per** column | Every line reads **per unit**; no compounding-fee line is on the BOM (it lives on the Licensing tab) |
+| 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run |
 | 6 | **Create work order** | Lands at **Draft** |
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |
 | 8 | Purchase Orders → open each → **View PDF** | Both PDFs render; the Calderoni one lists the ingredient breakdown under the gallon line |
@@ -311,8 +317,10 @@ it is worth more than a description.
   underneath the flavour's 1-gallon line as detail. Calderoni bills us per gallon
   of compounded syrup, so the gallon is the line and the ingredients are the
   specification.
-- **A flat fee does not scale.** The syrup compounding fee is $1,173.33 whether
-  the run is 100 cases or 5,000.
+- **The compounding royalty is not on the PO.** Calderoni's syrup licensing
+  charge is owed on the **cases produced**, so it accrues when you record the
+  yield (Production → **Licensing**) and is settled per month into a Brixpense
+  bill — never ordered, never received.
 - **The dunnage line is fractional.** Pallets are charged per pallet and a run is
   rarely a whole number of them; the purchase order rounds up.
 - **Nothing posts to QuickBooks on its own.** A PO reaches QuickBooks when

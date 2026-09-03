@@ -21,6 +21,7 @@ Purchase Orders). Seven tabs:
 | **Bills of Materials** | Parts list per finished good, the recipe from the formula, and the pre-flight that says who gets a purchase order |
 | **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline |
 | **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders |
+| **Licensing** | Licensing agreements — a licensor's royalty (Calderoni's syrup compounding charge) accrued per run on the cases produced, rate history, and monthly settlement into a Brixpense bill |
 | **Compliance & Safety** | Certificates, audits and the document vault |
 | **Run Guide** | The click-by-click walkthrough ([chapter 10a](#/10a-production-run-guide)) shown inside the page, plus the printable PDF for a tester |
 
