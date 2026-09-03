@@ -7,6 +7,7 @@ import {
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
+import { REFRACTOR_MENUS } from '../lib/appMenus';
 import { AlamedaMark, BrixMark } from './BrixMark';
 import { useThemeMode } from '../lib/themeMode';
 
@@ -23,21 +24,31 @@ interface NavItem { id: View; label: string; icon: LucideIcon }
 //     and when."
 // Route hashes are unchanged so deep links keep working — only labels
 // were swapped.
-const NAV: NavItem[] = [
-  { id: 'overview',   label: 'Overview',          icon: LayoutDashboard   },
-  { id: 'margin',     label: 'Margin',            icon: TrendingUp        },
-  { id: 'customers',  label: 'Customers',         icon: Users             },
-  { id: 'reports',    label: 'Reports',           icon: FileText          },
-  { id: 'plans',      label: 'Plans',             icon: CalendarRange     },
-  { id: 'compare',    label: 'Compare',           icon: GitCompareArrows  },
-  { id: 'stock',      label: 'Inventory',         icon: Warehouse         },
-  { id: 'inventory',  label: 'Inventory Planning', icon: Package          },
-  { id: 'production', label: 'Production',        icon: Factory           },
-  { id: 'distributors', label: 'Sub-Distributors', icon: Handshake        },
-  { id: 'pricing',    label: 'Pricing',           icon: Tags              },
-  { id: 'proposal-builder', label: 'Proposal Builder', icon: Presentation },
-  { id: 'settings',   label: 'Settings',          icon: SettingsIcon      },
-];
+//
+// ⚠ The ids and labels moved to lib/appMenus.ts, because the gateway's
+// per-user visibility picker must offer exactly this list. One source of
+// truth, pinned by tests/refractor-menus.test.mjs. Only icons live here.
+const ICONS: Record<string, LucideIcon> = {
+  overview: LayoutDashboard,
+  margin: TrendingUp,
+  customers: Users,
+  reports: FileText,
+  plans: CalendarRange,
+  compare: GitCompareArrows,
+  stock: Warehouse,
+  inventory: Package,
+  production: Factory,
+  distributors: Handshake,
+  pricing: Tags,
+  'proposal-builder': Presentation,
+  settings: SettingsIcon,
+};
+
+const NAV: NavItem[] = REFRACTOR_MENUS.map((m) => ({
+  id: m.id as View,
+  label: m.label,
+  icon: ICONS[m.id] ?? LayoutDashboard,
+}));
 
 // Interactive user guide — markdown source at docs/margin-control/user-guide.md,
 // viewer at public/docs/margin-control/index.html, surfaced through the gateway
@@ -50,12 +61,21 @@ interface LayoutProps {
   onNav: (v: View) => void;
   userEmail?: string | null;
   onLogout: () => void;
+  /**
+   * Menu ids this user may NOT see, from the gateway's per-user grant
+   * (lib/appMenus.ts). Undefined while the grant is still loading and empty
+   * for a superadmin — both render the full sidebar, which is the right
+   * default: a brief flash of a link someone cannot open is a far smaller
+   * problem than hiding the whole app from everyone if the lookup is slow.
+   * App.tsx guards the ROUTE, so a link is never the only control.
+   */
+  hiddenMenus?: Set<string>;
   children: ReactNode;
 }
 
 const COLLAPSE_KEY = 'brix.sidebar.collapsed';
 
-export function Layout({ current, onNav, userEmail, onLogout, children }: LayoutProps) {
+export function Layout({ current, onNav, userEmail, onLogout, hiddenMenus, children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { mode, toggleMode } = useThemeMode();
 
@@ -99,7 +119,7 @@ export function Layout({ current, onNav, userEmail, onLogout, children }: Layout
           </div>
         </div>
         <nav className="nav">
-          {NAV.map((n) => {
+          {NAV.filter((n) => !hiddenMenus?.has(n.id)).map((n) => {
             const Icon = n.icon;
             const on = current === n.id;
             return (
