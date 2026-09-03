@@ -22,8 +22,11 @@ function readEnv(name) {
   return process.env[name];
 }
 
-// Where a scanned AP bill goes for approval — and, historically, where
-// health-watchdog and master-health alerts go too.
+// Where integration-health alerts go (health-watchdog, master-health-core).
+//
+// The name is historical: this also carried the AP tool's bill-approval email
+// until that page was retired on 2026-09-03. Health alerts are now its only
+// consumer — the name is left alone because it is a live Netlify env var.
 //
 // ⚠ The old fallback here was 'wgrandell@brixbev.com', an address that does not
 // exist. It hard-bounced and Resend SUPPRESSED it on 2026-05-15, so from that
