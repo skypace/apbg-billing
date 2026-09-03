@@ -9,6 +9,7 @@ import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { PurchasedItemsPanel } from './PurchasedItemsPanel';
+import { CopackerStockPanel } from './CopackerStockPanel';
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
 function num(v: string): number | null {
@@ -23,6 +24,7 @@ type Draft = {
   purchase_uom: string;
   pack_size: string;
   order_multiple: string;
+  min_order_qty: string;
   purchase_cost: string;
   qbo_vendor_id: string;
   vendor_part_no: string;
@@ -34,6 +36,7 @@ function draftOf(r: RawIngredient): Draft {
     purchase_uom:   r.purchase_uom ?? '',
     pack_size:      r.pack_size == null ? '' : String(r.pack_size),
     order_multiple: String(r.order_multiple ?? 1),
+    min_order_qty:  r.min_order_qty == null ? '' : String(r.min_order_qty),
     purchase_cost:  r.purchase_cost == null ? '' : String(r.purchase_cost),
     qbo_vendor_id:  r.qbo_vendor_id ?? '',
     vendor_part_no: r.vendor_part_no ?? '',
@@ -107,6 +110,7 @@ export function RawMaterialsTab({ vendors, onChanged }: {
         purchase_uom:   d.purchase_uom.trim() || null,
         pack_size:      num(d.pack_size),
         order_multiple: num(d.order_multiple) ?? 1,
+        min_order_qty:  num(d.min_order_qty),
         purchase_cost:  num(d.purchase_cost),
         qbo_vendor_id:  d.qbo_vendor_id || null,
         vendor_part_no: d.vendor_part_no.trim() || null,
@@ -146,6 +150,7 @@ export function RawMaterialsTab({ vendors, onChanged }: {
   return (
     <div>
       <PurchasedItemsPanel vendors={vendors} onChanged={onChanged} />
+      <CopackerStockPanel onChanged={onChanged} />
 
       <div className="toolbar" style={{ marginBottom: 12, marginTop: 18 }}>
         <div className="toolbar-row">
@@ -235,13 +240,14 @@ export function RawMaterialsTab({ vendors, onChanged }: {
               <th style={{ padding: '6px 6px' }}>Bought as</th>
               <th style={{ padding: '6px 6px' }}>Recipe units per pack</th>
               <th style={{ padding: '6px 6px' }}>Order multiple</th>
+              <th style={{ padding: '6px 6px' }} title="Minimum order, in packs. A run needing fewer orders this many; the rest sits at the co-packer for the next run.">MOQ (packs)</th>
               <th style={{ padding: '6px 6px' }}>Cost per pack</th>
               <th style={{ padding: '6px 6px' }}></th>
             </tr>
           </thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
+              <tr><td colSpan={11} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
             )}
             {rows?.map((r) => {
               const d = drafts[r.id] ?? draftOf(r);
@@ -314,6 +320,13 @@ export function RawMaterialsTab({ vendors, onChanged }: {
                       style={{ ...inp(), width: 70 }} disabled={!r.is_purchased}
                       value={d.order_multiple}
                       onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, order_multiple: e.target.value } })}
+                    />
+                  </td>
+                  <td style={{ padding: '5px 6px' }}>
+                    <input
+                      style={{ ...inp(), width: 70 }} placeholder="—" disabled={!r.is_purchased}
+                      value={d.min_order_qty}
+                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, min_order_qty: e.target.value } })}
                     />
                   </td>
                   <td style={{ padding: '5px 6px' }}>

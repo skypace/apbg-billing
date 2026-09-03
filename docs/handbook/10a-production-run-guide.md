@@ -62,6 +62,20 @@ QuickBooks cost is shown beside ours for comparison and is never written to.
 > keep the price they were costed at — a work order snapshots its materials, so
 > editing this page cannot rewrite a batch that is already in flight.
 
+The same row carries the vendor's **MOQ**, order **Multiple** and **Lead** days.
+A run that needs 12,000 cans against a 20,000 minimum orders 20,000; the work
+order shows both figures (**Needed** and **Ordered**, with a `+8,000 MOQ` chip),
+the batch is costed on the 12,000, and the other 8,000 sit at the co-packer for
+the next run. Leave Multiple blank for "any quantity"; type **1** for whole units
+(6 pallets, not 5.88).
+
+Below the item master is **Raw materials at the co-packer** — what the ledger
+says is sitting at Quantum, what the open work orders will use, and what is
+left after them. The first time through, press **Record opening stock…** and
+type the starting amounts off Quantum's inventory sheet. One entry per item,
+ever: a wrong figure is fixed on **Stock → Adjustments** with a reason, not by
+entering another opening.
+
 ## Step 2 · Check the bill of materials
 
 **Production → Bills of Materials.** One row per sellable finished item.

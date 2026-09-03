@@ -35,6 +35,8 @@ export interface RawIngredient {
   /** Recipe units in ONE purchase unit. 50 for a 50-lb bag. */
   pack_size: number | null;
   order_multiple: number;
+  /** The vendor's minimum order, in PURCHASE units. null = no minimum. */
+  min_order_qty: number | null;
   /** Per PURCHASE unit. null is a visible gap, never a guess. */
   purchase_cost: number | null;
   qbo_item_id: string | null;
@@ -178,7 +180,7 @@ export async function updateRawIngredient(
   id: string,
   patch: Partial<Pick<RawIngredient,
     'name' | 'recipe_uom' | 'is_purchased' | 'purchase_uom' | 'pack_size'
-    | 'order_multiple' | 'purchase_cost' | 'qbo_item_id' | 'qbo_vendor_id'
+    | 'order_multiple' | 'min_order_qty' | 'purchase_cost' | 'qbo_item_id' | 'qbo_vendor_id'
     | 'vendor_part_no' | 'notes' | 'active' | 'purchase_mode'>>,
 ): Promise<void> {
   const token = await _sbToken();
@@ -344,6 +346,14 @@ export interface ProductionItem {
   cost_note: string | null;
   active: boolean;
   updated_at: string;
+  /**
+   * The vendor's ordering terms. A run orders ceil(max(demand, MOQ) / multiple)
+   * × multiple; with neither set it orders exactly its demand. The surplus
+   * lands at the co-packer as stock for the next run (see componentOrderQty).
+   */
+  min_order_qty: number | null;
+  order_multiple: number | null;
+  lead_days: number | null;
   // joined
   item_name: string;
   qbo_type: string | null;
@@ -372,6 +382,8 @@ export async function fetchProductionItems(): Promise<ProductionItem[]> {
     return {
       ...i,
       unit_cost: i.unit_cost == null ? null : Number(i.unit_cost),
+      min_order_qty: i.min_order_qty == null ? null : Number(i.min_order_qty),
+      order_multiple: i.order_multiple == null ? null : Number(i.order_multiple),
       item_name: q?.name ?? i.qbo_item_id,
       qbo_type: q?.type ?? null,
       qbo_active: q?.active ?? null,
@@ -381,13 +393,66 @@ export async function fetchProductionItems(): Promise<ProductionItem[]> {
   }).sort((a, b) => a.item_name.localeCompare(b.item_name));
 }
 
+// ── Stock at the co-packer ─────────────────────────────────────────────────
+
+/** One row per (item, co-packer location) — ops.v_copacker_stock. */
+export interface CopackerStockRow {
+  qbo_item_id: string;
+  item_name: string | null;
+  item_type: string | null;
+  location_id: string;
+  location_code: string;
+  location_name: string;
+  on_hand: number;
+  reserved: number;
+  available: number;
+  /** demand_qty of materials on work orders not yet in production at this co-packer. */
+  open_demand: number;
+  last_unit_cost: number | null;
+  last_movement_at: string | null;
+  min_order_qty: number | null;
+  order_multiple: number | null;
+  lead_days: number | null;
+}
+
+export async function fetchCopackerStock(): Promise<CopackerStockRow[]> {
+  const rows = await sbq<CopackerStockRow>('v_copacker_stock', 'select=*&order=location_code.asc,item_name.asc');
+  return rows.map((r) => ({
+    ...r,
+    on_hand: Number(r.on_hand), reserved: Number(r.reserved), available: Number(r.available),
+    open_demand: Number(r.open_demand),
+    last_unit_cost: r.last_unit_cost == null ? null : Number(r.last_unit_cost),
+  }));
+}
+
+export interface OpeningBalanceLine { qbo_item_id: string; qty: number; unit_cost?: number | null }
+export interface OpeningBalanceResult {
+  location: string;
+  done: { qbo_item_id: string; item: string; qty: number; unit_cost: number | null }[];
+  skipped: { qbo_item_id: string | null; item?: string; reason: string }[];
+}
+
+/**
+ * The starting amounts of raw materials already sitting at a co-packer.
+ * One opening per item per location — a second one is refused; correct a
+ * wrong figure with an ordinary Stock → Adjustment, which carries its reason.
+ */
+export async function recordCopackerOpeningBalance(
+  locationId: string, lines: OpeningBalanceLine[], asOf?: string | null, note?: string | null,
+): Promise<OpeningBalanceResult> {
+  return sbrpc<OpeningBalanceResult>('fn_copacker_opening_balance', {
+    p_location_id: locationId, p_lines: lines, p_as_of: asOf || null, p_note: note || null,
+  });
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   return { apikey: SB_KEY, Authorization: 'Bearer ' + (await _sbToken()) };
 }
 
 export async function saveProductionItem(
   qboItemId: string,
-  patch: Pick<ProductionItem, 'qbo_vendor_id' | 'unit_cost' | 'cost_uom' | 'cost_note' | 'active'>,
+  patch: Pick<ProductionItem, 'qbo_vendor_id' | 'unit_cost' | 'cost_uom' | 'cost_note' | 'active'>
+    & Partial<Pick<ProductionItem, 'min_order_qty' | 'order_multiple' | 'lead_days'>>,
 ): Promise<void> {
   // upsert: the row may not exist yet for an item newly put on a BOM
   const res = await fetch(SB_URL + '/rest/v1/production_items?on_conflict=qbo_item_id', {

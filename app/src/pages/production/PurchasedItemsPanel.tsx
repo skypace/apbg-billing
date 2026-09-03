@@ -21,7 +21,7 @@ function num(v: string): number | null {
   const n = Number(t); return Number.isFinite(n) ? n : null;
 }
 
-interface Draft { qbo_vendor_id: string; unit_cost: string; cost_uom: string; cost_note: string; active: boolean }
+interface Draft { qbo_vendor_id: string; unit_cost: string; cost_uom: string; cost_note: string; active: boolean; min_order_qty: string; order_multiple: string; lead_days: string }
 function draftOf(r: ProductionItem): Draft {
   return {
     qbo_vendor_id: r.qbo_vendor_id ?? '',
@@ -29,6 +29,9 @@ function draftOf(r: ProductionItem): Draft {
     cost_uom: r.cost_uom ?? 'each',
     cost_note: r.cost_note ?? '',
     active: r.active,
+    min_order_qty: r.min_order_qty == null ? '' : String(r.min_order_qty),
+    order_multiple: r.order_multiple == null ? '' : String(r.order_multiple),
+    lead_days: r.lead_days == null ? '' : String(r.lead_days),
   };
 }
 function dirty(a: Draft, b: Draft): boolean {
@@ -95,6 +98,9 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
         cost_note: d.cost_note.startsWith('seeded from QuickBooks') && num(d.unit_cost) !== r.qbo_purchase_cost
           ? null : (d.cost_note.trim() || null),
         active: d.active,
+        min_order_qty: num(d.min_order_qty),
+        order_multiple: num(d.order_multiple),
+        lead_days: num(d.lead_days) == null ? null : Math.round(num(d.lead_days) as number),
       });
       toast.success(r.item_name + ' saved');
       load();
@@ -163,6 +169,9 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
                   <th style={{ textAlign: 'left', padding: '6px 10px', width: 230 }}>Buy from</th>
                   <th style={{ textAlign: 'right', padding: '6px 10px', width: 110 }}>Our price</th>
                   <th style={{ textAlign: 'left', padding: '6px 10px', width: 70 }}>per</th>
+                  <th style={{ textAlign: 'right', padding: '6px 10px', width: 90 }} title="Minimum order quantity, in the vendor's units. A run that needs less orders this much; the surplus lands at the co-packer as stock for the next run.">MOQ</th>
+                  <th style={{ textAlign: 'right', padding: '6px 10px', width: 80 }} title="Order in multiples of this — cans by the thousand, whole pallets. Blank = any quantity (5.88 pallets); 1 = whole units (6).">Multiple</th>
+                  <th style={{ textAlign: 'right', padding: '6px 10px', width: 70 }} title="Vendor lead time in days, for planning. Not enforced.">Lead</th>
                   <th style={{ textAlign: 'right', padding: '6px 10px', width: 100 }}>QBO cost</th>
                   <th style={{ textAlign: 'left', padding: '6px 10px' }}>Note</th>
                   <th style={{ textAlign: 'center', padding: '6px 10px', width: 60 }}>On</th>
@@ -198,6 +207,18 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
                       </td>
                       <td style={{ padding: '6px 10px' }}>
                         <input style={inp()} value={d.cost_uom} onChange={(e) => set({ cost_uom: e.target.value })} />
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="number" step="any" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.min_order_qty}
+                          placeholder="—" title="MOQ" onChange={(e) => set({ min_order_qty: e.target.value })} />
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="number" step="any" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.order_multiple}
+                          placeholder="any" title="Order multiple" onChange={(e) => set({ order_multiple: e.target.value })} />
+                      </td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <input type="number" step="1" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.lead_days}
+                          placeholder="—" title="Lead days" onChange={(e) => set({ lead_days: e.target.value })} />
                       </td>
                       <td style={{ padding: '6px 10px', textAlign: 'right', color: priceDiffers ? 'var(--am)' : 'var(--mt)' }} className="mn"
                         title={priceDiffers ? 'QuickBooks carries a different purchase cost. Ours is what the PO uses.' : ''}>

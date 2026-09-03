@@ -222,7 +222,11 @@ export interface WorkOrderMaterial {
   bom_line_id: string | null;
   component_qbo_item_id: string;
   item_name: string | null;
+  /** What is ORDERED — MOQ / multiple / whole packs applied. */
   required_qty: number;
+  /** What the batch NEEDS, in purchase units, unrounded. null on pre-20260903e rows. */
+  demand_qty: number | null;
+  qty_basis: 'per_yield' | 'per_run';
   uom: string;
   unit_cost_est: number | null;
   qbo_vendor_id: string | null;

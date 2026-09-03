@@ -534,6 +534,74 @@ last runs before the fix, not live stock; an `adjustment` to zero the two
 Service items is an operator's call (Stock → Adjustments), and the can/Velcorin
 balances are what P5's opening-stock form is for.
 
+## MOQ, demand and the surplus at the co-packer
+
+Ask (Sky): a place to record each item's MOQ; when the MOQ exceeds the run's
+need "we need to fill that void" — order the minimum, land the rest at Quantum
+and **see it as raw-material stock for the next run**; and "we will need
+starting amounts for the ingredients". Migration `20260903e`.
+
+**Two quantities on every work-order material, and they mean different
+things.** `demand_qty` is what the BATCH needs, in purchase units, unrounded —
+12,000 cans for 500 cases. `required_qty` is what is ORDERED once the vendor's
+terms are applied — 20,000 cans under a 20,000 MOQ. The purchase order carries
+`required_qty`; `start_production` lands `required_qty` at the co-packer and
+consumes `demand_qty`; `record_yield` costs the batch on `demand_qty` (the
+detail row now carries both, as `qty` and `ordered_qty`). **The 8,000 that
+were never used stay valued at Quantum, not buried in this batch's cases**,
+which is the rule that closes gap #4 below: the first run does not eat the MOQ,
+and the second run sees 8,000 cans already sitting there.
+
+**The terms live where the price lives.** `production_items` gains
+`min_order_qty`, `order_multiple`, `lead_days` — edited on Materials & Pricing
+→ Purchased items, beside the vendor and the price, because they are the same
+kind of fact (this is how Quantum sells cans). `raw_ingredients` gains
+`min_order_qty` next to the `pack_size` / `order_multiple` it already had.
+
+**ONE rounding rule, in two places that must agree.** `ops.fn_order_qty(demand,
+moq, multiple)`: nothing said → order the demand; otherwise
+`ceil(max(demand, MOQ) / multiple) × multiple`. `lib/componentSourcing.ts`
+`orderQty` / `componentOrderQty` is the client copy, so the New Work Order
+preview prints the same **Ordered** figure and the same `+8,000 MOQ` chip the
+work order will carry. ⚠ **Blank and 1 are different answers.** A blank
+multiple is "any quantity" (5.8825 pallets of dunnage, as today); a typed
+multiple of 1 is "whole units" (6 pallets). The first version treated 1 as
+blank, which would have made typing 1 to get whole pallets do nothing — the
+exact case an operator will try first. `raw_ingredients.order_multiple`
+defaults to 1 *by schema*, so there a 1 with no pack size is treated as blank
+(the schema said it, not a person). A `per_run` line is a flat charge and is
+never rounded.
+
+**Opening stock is a one-shot, and refuses to be a second shot.**
+`fn_copacker_opening_balance(location, lines, as_of, note)` posts one
+`adjustment` movement per item, ADJUSTMENT → co-packer, `source_doc_type =
+'opening_balance'`. It refuses a warehouse by name (that is Stock →
+Adjustments' job), refuses an unknown item and a zero, and **refuses an item
+that already has an opening at that location** — a wrong opening is corrected
+by an ordinary adjustment with its own reason on it, because two "openings" a
+month apart is how nobody can later say what the count was. On screen:
+Materials & Pricing → **Raw materials at the co-packer** — on hand, open
+demand (materials on work orders not yet in production), what is left after
+those runs, MOQ, last cost, last moved — and the **Record opening stock…** form
+under it. `ops.v_copacker_stock` is the view; its `reserved` column is 0 today
+and is redefined by the runs phase without changing shape.
+
+**Stock → Adjustments can now see raw materials at a co-packer.** They are
+`excluded` from every inventory lane, so the lane picker could never offer
+them; at a co-packer location the purchased-item master is offered as well.
+That is also how the four negative Quantum balances left by WO-2026-00009 get
+zeroed.
+
+Verified live in a rolled-back block: cans set to MOQ 20,000 × 1,000 and
+dunnage to a multiple of 2; a 500-case run stamps cans **need 12,000 / ordered
+20,000**, dunnage **5.8825 / 6**, gallon 187.5 / 187.5; the Quantum PO carries
+20,000; `start_production` lands 20,000, consumes 12,000, and
+`v_copacker_stock` reads **8,000 on hand**; the cost detail carries
+`qty 12,000 · ordered_qty 20,000 · $3,936`; the opening form refused
+BRIX-WAREHOUSE, recorded 4,618 Oaktown cans at $0.328 (which took that item's
+balance from −4,618 to exactly 0), skipped an unknown item and a zero by
+reason, and refused a second opening for the same item.
+
 ## Lots and born-on dates — QC on the way home
 
 Quantum's invoice already speaks in lots — 1462 lists each flavour's tolling
@@ -908,8 +976,9 @@ Three things are worth knowing before touching it:
    deliberately **not** deactivated in QuickBooks (it carries purchase history).
    **If trays turn out to be bought separately, put the line back with the
    vendor who actually bills for one — not Quantum, who never has.**
-4. **`fn_wo_advance`'s `record_yield` still values components from
-   `work_order_materials`.** With pack rounding in play that is the cost of what
-   was BOUGHT rather than what was CONSUMED. For a first run they are the same
-   number; once pack sizes exist they will differ by the remainder of the last
-   bag, which is a real cost and arguably belongs in the batch anyway.
+4. ~~`record_yield` values components from what was BOUGHT.~~ **Closed
+   2026-09-03** (`20260903e`): consume and cost read `demand_qty`; the MOQ /
+   pack surplus stays on hand at the co-packer for the next run — see "MOQ,
+   demand and the surplus at the co-packer". The arguable half ("the last bag's
+   remainder belongs in the batch") was decided the other way on Sky's
+   instruction: the leftover is stock, not scrap.

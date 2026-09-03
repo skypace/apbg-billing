@@ -15,7 +15,7 @@ import {
   BatchPlan, BomPreflight, ProductionItem, createProductionPo, fetchBatchPlan, fetchBomPreflight,
   fetchProductionItems,
 } from '../../lib/rawMaterials';
-import { componentRequiredQty, componentUnitCost, componentVendorId, masterIndex } from '../../lib/componentSourcing';
+import { componentOrderQty, componentUnitCost, componentVendorId, masterIndex } from '../../lib/componentSourcing';
 import { openDocPdf } from '../../lib/productionDocs';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
@@ -403,14 +403,15 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
       .filter((l) => l.line_type === 'component' && l.component_qbo_item_id)
       .map((l) => {
         const item = itemLookup.byId.get(l.component_qbo_item_id ?? '');
-        const required = componentRequiredQty(l, Number(qty));
+        const oq = componentOrderQty(l, Number(qty), masters);
+        const required = oq.ordered;
         const cost = componentUnitCost(l, masters, item?.purchase_cost ?? null);
         const vendorId = componentVendorId(l, masters);
         const vendor = vendors.find((v) => v.qbo_vendor_id === vendorId);
         return {
           id: l.id,
           label: item?.item_name ?? l.component_qbo_item_id ?? '?',
-          required, uom: l.qty_uom || 'each',
+          required, demand: oq.demand, surplus: oq.surplus, liftReason: oq.reason, uom: l.qty_uom || 'each',
           cost, ext: cost != null ? required * Number(cost) : null,
           vendor: vendor?.display_name ?? vendorId,
         };
@@ -656,15 +657,16 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
             )}
           </div>
           <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 6 }}>
-            Quantities are the recipe's own units. Where a material has a pack size on file the work order
-            converts these to whole vendor packs — you cannot buy 0.4 of a bag — so the ordered figure on the
-            purchase order rounds up from what is shown here.
+            <strong>Needed</strong> is what the batch uses. <strong>Ordered</strong> is what the purchase order will carry once the
+            vendor's MOQ and order multiple (Materials &amp; Pricing) are applied; a <span style={{ color: 'var(--am)' }}>+n</span> is
+            the surplus, which lands at the co-packer as stock for the next run and is not charged to this batch.
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                 <th style={cellTh}>Sub-item</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+                <th style={{ ...cellTh, textAlign: 'right' }}>Needed</th>
+                <th style={{ ...cellTh, textAlign: 'right' }}>Ordered</th>
                 <th style={cellTh}>Vendor</th>
                 <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
                 <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
@@ -674,8 +676,17 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
               {materialsPreview.map((m) => (
                 <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <td style={cellTd}><strong>{m.label}</strong></td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                    {fmtNum(m.demand)} {m.uom}
+                  </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtNum(m.required)} {m.uom}
+                    {fmtNum(m.required)}
+                    {m.surplus > 0 && (
+                      <span style={{ color: 'var(--am)', marginLeft: 6, fontSize: 10 }}
+                        title={m.liftReason === 'moq' ? 'Lifted to the vendor\'s minimum order' : 'Rounded up to the order multiple'}>
+                        +{fmtNum(m.surplus)} {m.liftReason === 'moq' ? 'MOQ' : 'pack'}
+                      </span>
+                    )}
                   </td>
                   <td style={cellTd}>{m.vendor ?? <span style={{ color: 'var(--am)' }}>unassigned</span>}</td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
@@ -689,7 +700,7 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, on
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4} style={{ ...cellTd, textAlign: 'right', fontWeight: 700 }}>Estimated materials</td>
+                <td colSpan={5} style={{ ...cellTd, textAlign: 'right', fontWeight: 700 }}>Estimated materials</td>
                 <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(previewTotal)}</td>
               </tr>
             </tfoot>
@@ -930,7 +941,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                 <th style={cellTh}>Sub-item</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+                <th style={{ ...cellTh, textAlign: 'right' }} title="What the batch uses — consumed at start of production and costed into the run">Needed</th>
+                <th style={{ ...cellTh, textAlign: 'right' }} title="What the purchase order carries — MOQ and order multiple applied; the surplus stays at the co-packer">Ordered</th>
                 <th style={cellTh}>Vendor</th>
                 <th style={cellTh}>PO</th>
                 <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
@@ -941,8 +953,16 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               {(materials ?? []).map((m) => (
                 <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <td style={cellTd}><strong>{m.item_name ?? m.component_qbo_item_id}</strong></td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                    {fmtNum(Number(m.demand_qty ?? m.required_qty))} {m.uom}
+                  </td>
                   <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtNum(Number(m.required_qty))} {m.uom}
+                    {fmtNum(Number(m.required_qty))}
+                    {m.demand_qty != null && Number(m.required_qty) - Number(m.demand_qty) > 0.000001 && (
+                      <span style={{ color: 'var(--am)', marginLeft: 6, fontSize: 10 }} title="Surplus — lands at the co-packer as stock for the next run">
+                        +{fmtNum(Number(m.required_qty) - Number(m.demand_qty))}
+                      </span>
+                    )}
                   </td>
                   <td style={cellTd}>
                     {m.po_id

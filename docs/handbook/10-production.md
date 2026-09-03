@@ -17,7 +17,7 @@ Purchase Orders). Seven tabs:
 | Tab | Purpose |
 |---|---|
 | **Formulas & Spec Sheets** | The recipes — % by weight, QC specs, batching instructions, revisions, batch scaler, printable batching sheet |
-| **Materials & Pricing** | The purchased-item master — one vendor and one price per component, plus the raw-ingredient list |
+| **Materials & Pricing** | The purchased-item master — one vendor, one price and the ordering terms (MOQ, multiple, lead days) per component, the raw-ingredient list, and the raw-material stock sitting at the co-packer with its opening-balance form |
 | **Bills of Materials** | Parts list per finished good, the recipe from the formula, and the pre-flight that says who gets a purchase order |
 | **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline. Open / Pending / Closed / Voided pills, tick rows for bulk Edit / Void / Delete drafts |
 | **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders. Same four pills and bulk actions |
