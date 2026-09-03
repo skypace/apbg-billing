@@ -596,6 +596,47 @@ when called with `commit` — so its numbers can be checked against the drift th
 strip reports for a day or two first. Once it is live, **reconcile becomes the
 audit, not the mechanism**, and should only be run deliberately.
 
+### The runner — nothing ran the feed until 2026-09-03
+
+⚠ **`20260902x` shipped the feed and the switch, and nothing ever CALLED it with
+commit.** Not a pg_cron job, not the deployed `sync-qbo` (v47 refreshes the
+sales view and stops), not another database function, not the panel — which
+only read the preview and set the mode. So "live" would have changed a label
+and deducted nothing, and the ledger would have gone on losing a day of stock a
+day with the switch showing green. Found by enumerating every caller class,
+not by reading the switch.
+
+**`ops.fn_sales_ledger_run()`** (`20260903a`) is the one entry point: it calls
+`fn_apply_sales_to_ledger(true)`, counts new / edited / voided lines, and writes
+`ops.sync_log` (`source='inventory'`, `sync_type='sales_feed'`) on EVERY run,
+shadow included — a run that leaves no row is indistinguishable from a cron
+that never fired. It never raises: a failure is recorded in the row and
+returned, so the cron cannot die silently. **pg_cron `sales-ledger-apply`**
+runs it at :05/:20/:35/:50, five minutes behind `qbo-cdc-sync`, so each run
+works the invoice lines the sync just landed. **`ops.fn_sales_feed_health()`**
+(`sales_feed` on the health board) is red on an errored run or a live feed whose
+runner has been quiet for an hour; in shadow it is green and says what it
+would deduct. The panel's **Run now** button is the same call, for testing a
+cutover without waiting for the clock.
+
+⚠ **The first live run failed, and the health check is what caught it.**
+`fn_apply_sales_to_ledger` RETURNS TABLE with a column named `invoice_line_id`,
+and its INSERT … ON CONFLICT (invoice_line_id) into `sales_ledger_applied`
+names the same column — plpgsql reads that as ambiguous. Shadow mode never
+executed the write, so the bug sat invisible for a day and surfaced on the
+first commit. Fixed in `20260903b` with `#variable_conflict use_column`; a
+function that returns a column named like a table column it writes needs that
+pragma, or its OUT parameter shadows the column the first time the write runs.
+
+**The cutover, as it was actually done (2026-09-03).** The mirror's quantities
+are a snapshot taken at 09:45 UTC. Zero of the day's invoice lines predated
+that snapshot, so: reconcile the ledger EQUAL to the mirror (28 items, dated
+today, reason on every movement), set `apply_from` to today, flip to live, run.
+The feed then deducts today's lines; tomorrow's 09:45 sync brings the mirror
+level with it, and drift reads zero. ⚠ **`apply_from` must be the mirror's
+snapshot day, not earlier** — an earlier date deducts sales the reconcile
+already absorbed, twice.
+
 ⚠ **`fn_distributor_record_depletion` no longer moves stock** (`20260902x`). It
 posted its own shipment out of the partner's location, which with the feed live
 is the same case deducted twice. It stays as the DELIVERY and per-case fee
