@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Repack sheet — cases of cans become 8-packs. Served at alamedapointbg.com/repack
+     via the gateway proxy (asset paths absolute /billing/…, same constraint as
+     compliance.html) and framed inside Refractor → Stock → Repacks (?embed=1).
+     STAFF ONLY: needs the hub login (localStorage apbg_session); every write goes
+     through /api/repack, which re-checks the role server-side and writes the
+     stock ledger and a QuickBooks InventoryAdjustment together. -->
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+  // Bare Netlify host → the branded URL, except when framed by the bare SPA
+  // (the frame's API path resolves either way; a redirect inside a frame just
+  // costs a round trip and can trip frame-ancestor rules).
+  if(location.hostname.endsWith('.netlify.app') && !/[?&]embed=1/.test(location.search)){
+    location.replace('https://alamedapointbg.com/repack'+location.search+location.hash);
+  }
+</script>
+<title>Repack sheet — Brix Beverage</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,-apple-system,sans-serif;background:#0B1B26;color:#E8F0F5;min-height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 28px;border-bottom:1px solid #16344E;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand img{width:44px;height:44px;object-fit:contain}
+.brand .t{font-weight:750;letter-spacing:-.02em;line-height:1.1}
+.brand .t span{display:block;font-size:.66rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase;opacity:.62;margin-top:3px}
+.clock{font-family:'JetBrains Mono',ui-monospace,monospace;color:#8FB3C4;font-size:.95rem;text-align:right}
+.clock b{display:block;color:#fff;font-size:1.05rem}
+main{flex:1;padding:22px 20px 40px;max-width:70rem;width:100%;margin:0 auto}
+body.embed header{display:none}
+body.embed main{padding:10px 8px 24px}
+.card{background:#122A38;border:1px solid #1E4257;border-radius:16px;padding:22px 24px;margin-bottom:18px;box-shadow:0 14px 40px rgba(0,0,0,.35)}
+h1{font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:6px}
+h2{font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:10px}
+p.lead{color:#A8C3D2;line-height:1.55;font-size:.95rem}
+.muted{color:#8FB3C4;font-size:.85rem;line-height:1.5}
+label{display:block;font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8FB3C4;margin:14px 0 6px}
+input[type=text],input[type=number],textarea{width:100%;font:inherit;font-size:1rem;padding:11px 12px;border:1px solid #24506B;border-radius:10px;background:#0E2230;color:#fff}
+input[type=number]{font-family:'JetBrains Mono',ui-monospace,monospace;text-align:right}
+textarea{min-height:70px;resize:vertical;line-height:1.5}
+input:focus,textarea:focus{outline:2px solid #4F9BC4;border-color:#4F9BC4}
+input::placeholder,textarea::placeholder{color:#5B7F94}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#8FB3C4;padding:8px 8px;border-bottom:1px solid #1E4257}
+td{padding:8px;border-bottom:1px solid #16344E;vertical-align:middle}
+td.num,th.num{text-align:right;font-family:'JetBrains Mono',ui-monospace,monospace}
+td input[type=number]{width:6.2rem;padding:9px 10px}
+td .sub{display:block;font-size:.72rem;color:#8FB3C4;margin-top:2px;font-family:'DM Sans',system-ui,sans-serif}
+tr.tot td{border-top:2px solid #24506B;border-bottom:0;font-weight:700;color:#fff}
+.flag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.03em}
+.flag.ok{background:#153D2B;color:#7CE2A8}.flag.warn{background:#3A2E10;color:#FFE6A8}.flag.bad{background:#3B1418;color:#FFC9CE}.flag.info{background:#16344E;color:#9FD0E8}
+.btn{border:0;font:inherit;font-size:1rem;font-weight:700;padding:13px 22px;border-radius:11px;cursor:pointer;background:#F4B400;color:#0B1B26;display:inline-flex;align-items:center;gap:8px;justify-content:center}
+.btn:hover{background:#FFC629}
+.btn:disabled{background:#3A5E74;color:#8FB3C4;cursor:not-allowed}
+.btn.ghost{background:transparent;color:#9FD0E8;border:1px solid #24506B}
+.btn.ghost:hover{background:#16344E;color:#fff}
+.btn.sm{font-size:.82rem;padding:7px 12px;border-radius:8px}
+.btn.danger{background:transparent;color:#FFC9CE;border:1px solid #7F2A31}
+.btn.danger:hover{background:#3B1418}
+.acts{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;align-items:center}
+.pad{border:2px dashed #4F9BC4;border-radius:12px;background:#fff;touch-action:none;display:block;width:100%;height:170px;cursor:crosshair}
+.err{background:#3B1418;border:1px solid #7F2A31;color:#FFC9CE;border-radius:11px;padding:13px 16px;font-size:.93rem;line-height:1.5;margin-top:16px}
+.warn{background:#3A2E10;border:1px solid #7A6015;color:#FFE6A8;border-radius:11px;padding:13px 16px;font-size:.92rem;line-height:1.5;margin-top:16px}
+.okbox{background:#0F3324;border:1px solid #1F6B45;color:#CFF5DE;border-radius:11px;padding:13px 16px;font-size:.95rem;line-height:1.5;margin-top:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+.row-x{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.row-x>div{flex:1 1 14rem}
+details.rp{border:1px solid #1E4257;border-radius:12px;margin-bottom:8px;background:#0E2230}
+details.rp summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+details.rp summary::-webkit-details-marker{display:none}
+details.rp .body{padding:0 14px 14px;border-top:1px solid #16344E}
+details.rp .num{font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:700;color:#fff}
+details.rp .who{color:#A8C3D2}
+details.rp .sp{flex:1}
+details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto;margin-top:10px;display:block}
+.void td,.void .num,.void .who{text-decoration:line-through;opacity:.6}
+#gate{padding:40px 20px;text-align:center;color:#A8C3D2}
+#gate a{color:#F4B400}
+</style>
+</head>
+<body>
+
+<header class="noprint">
+  <div class="brand">
+    <img src="https://alamedapointbg.com/app-icons/inventory-light.png" alt="" onerror="this.style.display='none'">
+    <div class="t">Repack sheet<span>Brix Warehouse · cases → 8-packs</span></div>
+  </div>
+  <div class="clock" id="clock"></div>
+</header>
+
+<main>
+  <div id="gate">Checking your sign-in…</div>
+
+  <div id="app" style="display:none">
+    <section class="card" id="sheet">
+      <h1>Repack sheet</h1>
+      <p class="lead">A case is 24 cans and an 8-pack is 8, so <b>a case is always exactly 3 eight-packs</b> — the sheet
+        never saves an uneven pack. <b>Variety 8-packs</b> are 2 Cola + 1 of each other flavor, built from whole cases you
+        first move into the <b>variety bin</b>; each variety pack pulls its recipe out of the bin. Saving posts the ledger
+        and QuickBooks together.</p>
+      <div class="muted" id="settingsLine" style="margin-top:8px"></div>
+
+      <h2 style="margin-top:22px">1 · Flavor 8-packs</h2>
+      <div class="muted" style="margin-bottom:8px">Cases you broke straight down into that flavor's own 8-packs. Three packs a case, no exceptions.</div>
+      <div style="overflow-x:auto">
+      <table id="tbl">
+        <thead><tr>
+          <th>Flavor</th>
+          <th class="num">Cases repacked</th>
+          <th class="num">= 8-packs made</th>
+          <th class="num">On hand (cases · packs)</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+        <tfoot>
+          <tr class="tot"><td>Total</td><td class="num" id="totCases">0 cases</td><td class="num" id="totPacks">0 packs</td><td></td></tr>
+        </tfoot>
+      </table>
+      </div>
+
+      <h2 style="margin-top:26px">2 · Variety bin</h2>
+      <div class="muted" style="margin-bottom:8px">Whole cases staged for variety packs. Moving cases here changes nothing in QuickBooks — they are still cases,
+        in a different spot. An opened case stays counted in the bin until its last can is drawn.</div>
+      <div class="row-x" style="margin-bottom:10px">
+        <div style="flex:0 1 16rem">
+          <label for="varietyMade">Variety 8-packs made today</label>
+          <input type="number" min="0" step="1" inputmode="numeric" id="varietyMade" placeholder="0" oninput="recalc()">
+        </div>
+        <div style="flex:1 1 18rem;align-self:flex-end;padding-bottom:6px" class="muted" id="varietyHint"></div>
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Flavor</th>
+          <th class="num">In the bin now</th>
+          <th class="num">Cases moved in today</th>
+          <th class="num">Cans needed today</th>
+          <th class="num">Left after today</th>
+        </tr></thead>
+        <tbody id="binRows"></tbody>
+      </table>
+      </div>
+      <div class="warn" id="binWarn" style="display:none"></div>
+
+      <h2 style="margin-top:26px">3 · Sign it</h2>
+      <label for="notes">Notes (optional)</label>
+      <input type="text" id="notes" placeholder="Anything worth remembering about this batch">
+
+      <div class="row-x">
+        <div>
+          <label for="who">Who did the repack</label>
+          <input type="text" id="who" placeholder="Full name" autocomplete="name">
+        </div>
+        <div>
+          <label>Date</label>
+          <input type="text" id="dateShow" disabled>
+        </div>
+      </div>
+
+      <label for="sigpad">Sign here</label>
+      <canvas class="pad" id="sigpad" width="700" height="170"></canvas>
+      <div class="acts" style="margin-top:10px">
+        <button class="btn ghost sm" type="button" onclick="padClear()">Clear signature</button>
+        <span class="muted">Sign with a finger or the mouse. The date and time are stamped automatically.</span>
+      </div>
+
+      <div id="formErr" class="err" style="display:none"></div>
+      <div id="formOk" class="okbox" style="display:none"></div>
+      <div id="formWarn" class="warn" style="display:none"></div>
+
+      <div class="acts">
+        <button class="btn" id="submitBtn" type="button" onclick="submitSheet()">Save repack &amp; post to QuickBooks</button>
+        <button class="btn ghost" type="button" onclick="resetForm()">Start over</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Recent repack sheets</h2>
+      <div class="muted" style="margin-bottom:12px">Each sheet is a ledger movement per line plus one QuickBooks inventory adjustment.
+        A sheet that did not reach QuickBooks shows <span class="flag bad">QBO failed</span> with a Retry button; the health board goes red after an hour.</div>
+      <div id="recent" class="muted">Loading…</div>
+    </section>
+  </div>
+</main>
+
+<script src="https://alamedapointbg.com/appswitcher.js" data-app="repack" defer></script>
+<script>
+// ═══ CONFIG ═══
+// The function declares config.path='/api/repack', so Netlify serves it THERE.
+// Through the gateway that is /billing/api/repack (visitors.html verified this
+// live); on the bare host it is /api/repack.
+var API = location.hostname.endsWith('.netlify.app') ? '/api/repack' : '/billing/api/repack';
+var EMBED = /[?&]embed=1/.test(location.search) || (window.self !== window.top);
+if(EMBED) document.body.classList.add('embed');
+
+// ═══ SESSION (the hub login, same as compliance.html) ═══
+function readSession(){
+  try{
+    var raw = localStorage.getItem('apbg_session'); if(!raw) return null;
+    var s = JSON.parse(raw); if(!s || !s.token) return null;
+    var payload = JSON.parse(atob(s.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    if(payload.exp && payload.exp*1000 < Date.now()+30000) return null;
+    var um = payload.user_metadata || (s.user && s.user.user_metadata) || {};
+    return { token:s.token, email:(payload.email||(s.user&&s.user.email)||''),
+             name:(um.full_name||um.name||(s.user&&s.user.name)||'').trim(),
+             role:(um.role||(payload.app_metadata&&payload.app_metadata.role)||(s.user&&s.user.role)||null) };
+  }catch(e){ return null; }
+}
+var SESSION = readSession();
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function n(v){ var x = Number(v); return isFinite(x) ? x : 0; }
+function fmtDT(iso){ try{ return new Date(iso).toLocaleString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch(e){ return iso; } }
+
+async function api(method, body){
+  var r = await fetch(API, { method: method, headers: { 'Content-Type':'application/json', Authorization:'Bearer '+SESSION.token },
+                           body: body ? JSON.stringify(body) : undefined });
+  var text = await r.text(); var data = null;
+  try{ data = text ? JSON.parse(text) : null; }catch(e){ data = { error: text.slice(0,300) || ('HTTP '+r.status) }; }
+  if(!r.ok) throw new Error((data && data.error) || ('HTTP '+r.status));
+  return data;
+}
+
+// ═══ CLOCK / DATE ═══
+function tick(){
+  var now = new Date();
+  var d = now.toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  var t = now.toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',minute:'2-digit'});
+  var c = document.getElementById('clock'); if(c) c.innerHTML = '<b>'+t+'</b>'+d;
+  var ds = document.getElementById('dateShow'); if(ds) ds.value = d + ' · ' + t + ' (auto)';
+}
+tick(); setInterval(tick, 20000);
+
+// ═══ STATE ═══
+var SETTINGS = null, PAIRS = [], RECENT = [], BIN = {}, RECIPE = {}, VARIETY_ID = null;
+function ppc(){ return SETTINGS ? Math.floor(SETTINGS.cans_per_case / SETTINGS.cans_per_pack) : 3; }
+function cpc(){ return SETTINGS ? SETTINGS.cans_per_case : 24; }
+
+function renderRows(){
+  var tb = document.getElementById('rows'); tb.innerHTML = '';
+  var bb = document.getElementById('binRows'); bb.innerHTML = '';
+  PAIRS.forEach(function(p){
+    if(!p.case){ VARIETY_ID = p.pack.qbo_item_id; return; }
+    var inactive = ((p.case.active===false) || p.pack.active===false) ? ' <span class="flag bad">inactive in QBO</span>' : '';
+    var oh = n(p.case.on_hand).toLocaleString()+' cases · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><b>'+esc(p.label)+'</b><span class="sub">'+esc(p.case.name)+'</span>'+inactive+'</td>'
+      + '<td class="num"><input type="number" min="0" step="1" inputmode="numeric" data-case="'+esc(p.case.qbo_item_id)+'" placeholder="0" oninput="recalc()"></td>'
+      + '<td class="num"><span data-packs-of="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace;font-size:1.05rem;font-weight:700;color:#fff">0</span><span class="sub">'+esc(p.pack.name)+'</span></td>'
+      + '<td class="num"><span class="sub" data-oh="'+esc(p.case.qbo_item_id)+'" style="font-size:.85rem">'+esc(oh)+'</span></td>';
+    tb.appendChild(tr);
+
+    var b = BIN[p.case.qbo_item_id] || {};
+    var per = RECIPE[p.case.qbo_item_id] || 0;
+    var br = document.createElement('tr');
+    br.innerHTML =
+      '<td><b>'+esc(p.label)+'</b><span class="sub">'+per+' can'+(per===1?'':'s')+' per variety pack</span></td>'
+      + '<td class="num"><span data-bin-now="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace">'+n(b.cans_on_hand).toLocaleString()+' cans</span>'
+        + '<span class="sub">'+n(b.cases_in_bin).toLocaleString()+' case'+(n(b.cases_in_bin)===1?'':'s')+(b.has_open_case?' (one open)':'')+'</span></td>'
+      + '<td class="num"><input type="number" min="0" step="1" inputmode="numeric" data-tobin="'+esc(p.case.qbo_item_id)+'" placeholder="0" oninput="recalc()"></td>'
+      + '<td class="num"><span data-need="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace">0</span></td>'
+      + '<td class="num"><span data-after="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace"></span></td>';
+    bb.appendChild(br);
+  });
+  recalc();
+}
+
+function collectLines(){
+  var lines = [];
+  document.querySelectorAll('input[data-case]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'repack', qbo_item_id:i.getAttribute('data-case'), qty:q}); });
+  document.querySelectorAll('input[data-tobin]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'to_bin', qbo_item_id:i.getAttribute('data-tobin'), qty:q}); });
+  var v = n(document.getElementById('varietyMade').value);
+  if(v > 0 && VARIETY_ID) lines.push({kind:'variety', qbo_item_id:VARIETY_ID, qty:v});
+  return lines;
+}
+
+// The bin arithmetic the server enforces, computed live so the sheet says
+// "move 1 more case of Root Beer" before anyone presses Save.
+function binState(){
+  var v = n(document.getElementById('varietyMade').value);
+  var short = [], possibleNow = Infinity, possibleAfter = Infinity;
+  PAIRS.forEach(function(p){
+    if(!p.case) return;
+    var id = p.case.qbo_item_id, b = BIN[id] || {}, per = RECIPE[id] || 0;
+    var now = n(b.cans_on_hand);
+    var added = n((document.querySelector('input[data-tobin="'+id+'"]')||{}).value) * cpc();
+    var need = per * v;
+    var after = now + added - need;
+    if(per > 0){
+      possibleNow = Math.min(possibleNow, Math.floor(now / per));
+      possibleAfter = Math.min(possibleAfter, Math.floor((now + added) / per));
+      if(after < 0) short.push({ label: p.label, cans: -after, cases: Math.ceil(-after / cpc()) });
+    }
+    var ne = document.querySelector('[data-need="'+id+'"]'); if(ne) ne.textContent = need > 0 ? need.toLocaleString()+' cans' : '—';
+    var ae = document.querySelector('[data-after="'+id+'"]');
+    if(ae) ae.innerHTML = (v>0 || added>0) ? (after < 0 ? '<span class="flag bad">short '+(-after)+'</span>' : after.toLocaleString()+' cans') : '';
+  });
+  if(possibleNow === Infinity) possibleNow = 0;
+  if(possibleAfter === Infinity) possibleAfter = 0;
+  return { packs: v, short: short, possibleNow: possibleNow, possibleAfter: possibleAfter };
+}
+
+function recalc(){
+  var cases = 0, packs = 0;
+  document.querySelectorAll('input[data-case]').forEach(function(i){
+    var c = n(i.value); cases += c; packs += c * ppc();
+    var el = document.querySelector('[data-packs-of="'+i.getAttribute('data-case')+'"]'); if(el) el.textContent = (c*ppc()).toLocaleString();
+  });
+  document.getElementById('totCases').textContent = cases.toLocaleString()+' case'+(cases===1?'':'s');
+  document.getElementById('totPacks').textContent = packs.toLocaleString()+' pack'+(packs===1?'':'s');
+  var b = binState();
+  var hint = document.getElementById('varietyHint');
+  hint.innerHTML = 'Each pack = 2 Cola + 1 of each other flavor. The bin can make <b>'+b.possibleNow.toLocaleString()+'</b> now'
+    + (b.possibleAfter !== b.possibleNow ? ', <b>'+b.possibleAfter.toLocaleString()+'</b> after today’s moves' : '') + '.';
+  var w = document.getElementById('binWarn');
+  if(b.short.length){
+    w.style.display = 'block';
+    w.innerHTML = '<b>The bin cannot make '+b.packs+' variety pack'+(b.packs===1?'':'s')+' yet.</b> '
+      + b.short.map(function(x){ return 'Move <b>'+x.cases+' more case'+(x.cases===1?'':'s')+' of '+esc(x.label)+'</b> into the bin ('+x.cans+' can'+(x.cans===1?'':'s')+' short)'; }).join(' · ') + '.';
+  } else { w.style.display = 'none'; w.innerHTML = ''; }
+}
+
+// ═══ SIGNATURE PAD ═══
+var pad = document.getElementById('sigpad'), ctx = pad.getContext('2d'), drawing = false, hasInk = false;
+ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0B1B26';
+function padPos(e){ var r = pad.getBoundingClientRect(); return { x:(e.clientX-r.left)*(pad.width/r.width), y:(e.clientY-r.top)*(pad.height/r.height) }; }
+pad.addEventListener('pointerdown', function(e){ drawing=true; hasInk=true; var p=padPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); pad.setPointerCapture(e.pointerId); });
+pad.addEventListener('pointermove', function(e){ if(!drawing) return; var p=padPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); });
+pad.addEventListener('pointerup', function(){ drawing=false; });
+pad.addEventListener('pointercancel', function(){ drawing=false; });
+function padClear(){ ctx.clearRect(0,0,pad.width,pad.height); hasInk=false; }
+
+// ═══ SUBMIT ═══
+function showErr(msg){ var e=document.getElementById('formErr'); e.style.display = msg?'block':'none'; e.textContent = msg||''; }
+function resetForm(){
+  document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
+  document.getElementById('varietyMade').value='';
+  document.getElementById('notes').value='';
+  padClear(); showErr(''); document.getElementById('formOk').style.display='none'; document.getElementById('formWarn').style.display='none';
+  recalc();
+}
+async function submitSheet(){
+  showErr(''); document.getElementById('formOk').style.display='none'; document.getElementById('formWarn').style.display='none';
+  var lines = collectLines();
+  if(!lines.length) return showErr('Nothing on the sheet yet — enter cases repacked, cases moved to the bin, or variety packs made.');
+  var who = document.getElementById('who').value.trim();
+  if(!who) return showErr('Put the name of the person who did the repack.');
+  var b = binState();
+  if(b.short.length) return showErr('The bin cannot make '+b.packs+' variety packs: '+b.short.map(function(x){ return 'move '+x.cases+' more case'+(x.cases===1?'':'s')+' of '+x.label; }).join(', ')+'.');
+  if(!hasInk) return showErr('Sign the sheet before saving it.');
+  var btn = document.getElementById('submitBtn'); btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    var out = await api('POST', { action:'create', lines:lines, signed_by_name:who, signature_data: pad.toDataURL('image/png'),
+                                  notes: document.getElementById('notes').value.trim() || null });
+    var rp = out.repack || {}, q = out.qbo || {};
+    var ok = document.getElementById('formOk');
+    ok.style.display='block';
+    var parts = [];
+    if(n(rp.cases_repacked)>0) parts.push(n(rp.cases_repacked)+' case'+(n(rp.cases_repacked)===1?'':'s')+' \u2192 '+n(rp.flavour_packs)+' flavor 8-packs');
+    if(n(rp.cases_to_bin)>0) parts.push(n(rp.cases_to_bin)+' case'+(n(rp.cases_to_bin)===1?'':'s')+' into the variety bin');
+    if(n(rp.variety_packs)>0) parts.push(n(rp.variety_packs)+' variety 8-pack'+(n(rp.variety_packs)===1?'':'s')+' from the bin');
+    ok.innerHTML = '<b>'+esc(rp.repack_number)+' saved.</b> '+parts.join(' · ')+'. '
+      + (q.pushed ? 'QuickBooks inventory adjustment <b>#'+esc(q.qbo_txn_id)+'</b> posted to '+esc(SETTINGS.qbo_adjust_account_name)+'.'
+         : q.not_needed ? 'Nothing changed in QuickBooks (cases are still cases, just staged).'
+         : '<span class="flag bad">QuickBooks did not take it</span> — the ledger is updated; use Retry below. '+esc(q.error||''));
+    if(rp.warnings && rp.warnings.length){
+      var w = document.getElementById('formWarn'); w.style.display='block';
+      w.innerHTML = '<b>Worth a look:</b> ' + rp.warnings.map(esc).join(' · ') + ' — the ledger count was already off before this sheet; a recount in Stock → On-Hand puts it right.';
+    }
+    document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
+    document.getElementById('varietyMade').value='';
+    document.getElementById('notes').value=''; padClear(); recalc();
+    await load(false);
+  }catch(e){ showErr(e.message || String(e)); }
+  finally{ btn.disabled=false; btn.textContent='Save repack & post to QuickBooks'; }
+}
+
+// ═══ RECENT ═══
+function qboFlag(r){
+  if(r.voided_at) return '<span class="flag info">voided</span>';
+  if(r.qbo_required === false) return '<span class="flag info">ledger only</span>';
+  if(r.qbo_txn_id) return '<span class="flag ok">QBO #'+esc(r.qbo_txn_id)+'</span>';
+  if(r.qbo_error) return '<span class="flag bad">QBO failed</span>';
+  return '<span class="flag warn">QBO pending</span>';
+}
+function renderRecent(){
+  var box = document.getElementById('recent');
+  if(!RECENT.length){ box.textContent = 'No repack sheets yet.'; return; }
+  box.innerHTML = RECENT.map(function(r){
+    var sum = function(k){ return (r.lines||[]).filter(function(l){return l.kind===k;}).reduce(function(a,l){return a+n(l.qty);},0); };
+    var cases = sum('consume'), packs = sum('produce'), toBin = sum('to_bin'), variety = sum('variety_produce');
+    var KIND = { consume:'<span class="flag warn">\u2212 cases</span>', produce:'<span class="flag ok">+ packs</span>', to_bin:'<span class="flag info">\u2192 bin</span>',
+                 variety_draw:'<span class="flag warn">\u2212 from bin</span>', variety_produce:'<span class="flag ok">+ variety</span>' };
+    var lineRows = (r.lines||[]).slice().sort(function(a,b){return a.line_no-b.line_no;}).map(function(l){
+      var q = n(l.qty).toLocaleString()+' '+(l.unit||'case')+(n(l.qty)===1?'':'s');
+      if(l.kind==='variety_draw') q += (n(l.cases_posted)>0 ? ' <span class="sub">'+n(l.cases_posted)+' case'+(n(l.cases_posted)===1?'':'s')+' emptied \u2192 QBO</span>' : ' <span class="sub">from an open case</span>');
+      return '<tr><td>'+(KIND[l.kind]||esc(l.kind))+'</td><td>'+esc(l.item_name||l.qbo_item_id)+'</td><td class="num">'+q+'</td><td class="num">'+n(l.cans).toLocaleString()+' cans</td></tr>';
+    }).join('');
+    var acts = '';
+    if(!r.voided_at && !r.qbo_txn_id && r.qbo_required !== false) acts += '<button class="btn sm" onclick="retry(\''+r.id+'\')">Retry QuickBooks</button> ';
+    if(!r.voided_at) acts += '<button class="btn sm danger" onclick="voidSheet(\''+r.id+'\',\''+esc(r.repack_number)+'\')">Void…</button>';
+    return '<details class="rp'+(r.voided_at?' void':'')+'"><summary>'
+      + '<span class="num">'+esc(r.repack_number)+'</span>'
+      + '<span class="who">'+esc(fmtDT(r.created_at))+' · '+esc(r.signed_by_name)+'</span>'
+      + '<span class="who">'+[cases>0 ? cases+' case'+(cases===1?'':'s')+' \u2192 '+packs+' pack'+(packs===1?'':'s') : null,
+                             toBin>0 ? toBin+' case'+(toBin===1?'':'s')+' \u2192 bin' : null,
+                             variety>0 ? variety+' variety' : null].filter(Boolean).join(' · ')+'</span>'
+      + '<span class="sp"></span>' + qboFlag(r) + '</summary>'
+      + '<div class="body"><table style="margin-top:10px"><tbody>'+lineRows+'</tbody></table>'
+      + (r.notes ? '<p class="muted" style="margin-top:6px"><b>Notes:</b> '+esc(r.notes)+'</p>' : '')
+      + (r.qbo_error && !r.qbo_txn_id ? '<div class="err">'+esc(r.qbo_error)+'</div>' : '')
+      + (r.voided_at ? '<p class="muted" style="margin-top:8px">Voided '+esc(fmtDT(r.voided_at))+': '+esc(r.void_reason||'')+'</p>' : '')
+      + (r.signature_data ? '<img class="sig" src="'+esc(r.signature_data)+'" alt="signature of '+esc(r.signed_by_name)+'">' : '<p class="muted" style="margin-top:8px">No signature image on file.</p>')
+      + (acts ? '<div class="acts" style="margin-top:12px">'+acts+'</div>' : '')
+      + '</div></details>';
+  }).join('');
+}
+async function retry(id){
+  try{ var out = await api('POST', {action:'retry', id:id}); await load(false);
+       if(!(out.qbo&&out.qbo.pushed)) alert('QuickBooks still refused it: '+(out.qbo&&out.qbo.error||'unknown')); }
+  catch(e){ alert(e.message); }
+}
+async function voidSheet(id, num){
+  var reason = prompt('Void '+num+'? This reverses every ledger movement on it and deletes the QuickBooks adjustment. Reason:');
+  if(reason===null) return; reason = reason.trim(); if(!reason){ alert('A reason is required.'); return; }
+  try{ await api('POST', {action:'void', id:id, reason:reason}); await load(false); }
+  catch(e){ alert(e.message); }
+}
+
+// ═══ LOAD ═══
+async function load(first){
+  var d = await api('GET');
+  SETTINGS = d.settings; PAIRS = d.pairs || []; RECENT = d.recent || [];
+  BIN = {}; (d.bin||[]).forEach(function(b){ BIN[b.case_qbo_item_id] = b; });
+  RECIPE = {}; (d.recipe||[]).forEach(function(r){ RECIPE[r.case_qbo_item_id] = n(r.cans); });
+  document.getElementById('settingsLine').innerHTML =
+    'Location: <b>Brix Warehouse</b> · '+SETTINGS.cans_per_case+' cans a case, '+SETTINGS.cans_per_pack+' a pack — a case is exactly '+ppc()+' packs · '
+    + 'QuickBooks adjustment account: <b>'+esc(SETTINGS.qbo_adjust_account_name)+'</b>';
+  if(first){
+    renderRows();
+    var who = document.getElementById('who');
+    if(!who.value) who.value = (d.me && d.me.name) || SESSION.name || '';
+  }else{
+    // keep what is typed; refresh the on-hand and bin figures only
+    PAIRS.forEach(function(p){
+      if(!p.case) return;
+      var id = p.case.qbo_item_id, b = BIN[id] || {};
+      var oh = document.querySelector('[data-oh="'+id+'"]');
+      if(oh) oh.textContent = n(p.case.on_hand).toLocaleString()+' cases · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
+      var bn = document.querySelector('[data-bin-now="'+id+'"]');
+      if(bn){ bn.textContent = n(b.cans_on_hand).toLocaleString()+' cans';
+              bn.nextElementSibling.textContent = n(b.cases_in_bin).toLocaleString()+' case'+(n(b.cases_in_bin)===1?'':'s')+(b.has_open_case?' (one open)':''); }
+    });
+    recalc();
+  }
+  renderRecent();
+}
+
+// ═══ BOOT ═══
+(function boot(){
+  var gate = document.getElementById('gate');
+  if(!SESSION){
+    gate.innerHTML = 'Sign in at <a href="https://alamedapointbg.com/?next='+encodeURIComponent('/repack')+'">alamedapointbg.com</a> first, then come back to this page.';
+    return;
+  }
+  load(true).then(function(){
+    gate.style.display='none'; document.getElementById('app').style.display='block';
+  }).catch(function(e){
+    gate.innerHTML = 'Could not load the repack sheet: '+esc(e.message)+'<br><span class="muted">This page is for staff (admin / superadmin) accounts.</span>';
+  });
+})();
+</script>
+</body>
+</html>

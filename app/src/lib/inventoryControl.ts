@@ -443,3 +443,26 @@ export async function fetchSalesFeed(): Promise<SalesFeedRow[]> {
 export async function setSalesFeedMode(mode: SalesFeedMode): Promise<string> {
   return sbrpc<string>('fn_sales_ledger_set_mode', { p_mode: mode });
 }
+
+export interface SalesFeedRunResult {
+  mode: SalesFeedMode;
+  /** true only when mode was live — the inner function wrote movements. */
+  written: boolean;
+  new?: number;
+  edited?: number;
+  voided?: number;
+  units?: number;
+  pending_after?: number;
+  note?: string;
+  /** Set when the run failed. The runner never throws — a failure is recorded
+   *  in ops.sync_log and returned here, so the health check can go red. */
+  error?: string;
+}
+
+/** Run the feed now. This is the SAME call pg_cron makes every 15 minutes
+ *  (sales-ledger-apply, five minutes behind the QuickBooks CDC sync); the
+ *  button exists so a cutover can be tested without waiting for the clock.
+ *  In shadow it is a dry run and writes nothing. */
+export async function runSalesFeed(): Promise<SalesFeedRunResult> {
+  return sbrpc<SalesFeedRunResult>('fn_sales_ledger_run');
+}

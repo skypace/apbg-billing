@@ -179,7 +179,7 @@ timeout can help.
 | Staff UI | `app/src/pages/distributors/AgreementBuilder.tsx` + `AgreementsTab.tsx` |
 | Tables | `ops.subdist_agreement_templates`, `ops.sub_distributor_agreements` |
 | Bucket | `distributor-docs` (private), `agreements/<partner>/<SDA>.pdf` |
-| Migration | `supabase/migrations/20260904a_subdist_agreement_builder.sql` |
+| Migration | `supabase/migrations/20260904d_subdist_agreement_builder.sql` |
 
 Env: `NDA_EMAIL_FROM` (shared with the NDA, defaults `legal@alamedapointbg.com`),
 `DISTRIBUTOR_ALERT_TO` (defaults `service@brixbev.com`),

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowRightLeft } from 'lucide-react';
 import { btnSecondary } from '../../lib/styles';
 import { fmtNum } from '../../lib/formatters';
-import { SalesFeedMode, SalesFeedRow, fetchSalesFeed, setSalesFeedMode } from '../../lib/inventoryControl';
+import {
+  SalesFeedMode, SalesFeedRow, SalesFeedRunResult,
+  fetchSalesFeed, setSalesFeedMode, runSalesFeed,
+} from '../../lib/inventoryControl';
 
 /**
  * Where today's sales would come off, and whether the feed is allowed to write.
@@ -19,6 +22,7 @@ export function SalesFeedPanel({ onChanged }: { onChanged: () => void }) {
   const [rows, setRows] = useState<SalesFeedRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState<string | null>(null);
+  const [last, setLast] = useState<SalesFeedRunResult | null>(null);
 
   const load = useCallback(() => {
     fetchSalesFeed().then(setRows).catch(() => setRows([]));
@@ -28,6 +32,19 @@ export function SalesFeedPanel({ onChanged }: { onChanged: () => void }) {
   async function flip(mode: SalesFeedMode) {
     setBusy(true); setErr(null);
     try { await setSalesFeedMode(mode); load(); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  // The same call pg_cron makes every 15 minutes. In shadow it is a dry run.
+  async function runNow() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await runSalesFeed();
+      setLast(r);
+      if (r.error) setErr(r.error);
+      load(); onChanged();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
@@ -56,11 +73,25 @@ export function SalesFeedPanel({ onChanged }: { onChanged: () => void }) {
             </span>
           )}
         </div>
+        <button style={btnSecondary()} disabled={busy || mode === 'off'} onClick={runNow}
+          title={live ? 'Apply pending sales to the ledger now' : 'Dry run — computes, writes nothing'}>
+          {busy ? 'Working…' : live ? 'Run now' : 'Dry run now'}
+        </button>
         <button style={btnSecondary()} disabled={busy}
           onClick={() => flip(live ? 'shadow' : 'live')}>
           {busy ? 'Working…' : live ? 'Back to watching only' : 'Switch the feed on'}
         </button>
       </div>
+
+      {last && !last.error && (
+        <div style={{ marginTop: 8, fontSize: 11, color: last.written ? 'var(--gn)' : 'var(--mt)' }}>
+          {last.written ? 'Applied' : 'Dry run'} · {fmtNum(last.new ?? 0)} new ·{' '}
+          {fmtNum(last.edited ?? 0)} edited · {fmtNum(last.voided ?? 0)} voided ·{' '}
+          {fmtNum(Number(last.units ?? 0))} unit{Math.abs(Number(last.units ?? 0)) === 1 ? '' : 's'}
+          {last.written && (last.pending_after ?? 0) > 0 && ` · ${fmtNum(last.pending_after ?? 0)} still pending`}
+          {last.note && ` · ${last.note}`}
+        </div>
+      )}
 
       {err && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--rd)' }}>{err}</div>}
 
@@ -85,6 +116,9 @@ export function SalesFeedPanel({ onChanged }: { onChanged: () => void }) {
       <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--mt)' }}>
         A customer deducts from a partner's warehouse once they are attached to one under{' '}
         <strong>Sub-Distributors → Accounts</strong>. Everything else comes off Brix Warehouse.
+        {' '}Runs automatically every 15 minutes, five minutes behind the QuickBooks sync
+        (pg_cron <span style={{ fontFamily: 'var(--ff-mono)' }}>sales-ledger-apply</span>);
+        the health board check is <span style={{ fontFamily: 'var(--ff-mono)' }}>sales_feed</span>.
       </div>
     </div>
   );

@@ -15,7 +15,14 @@
 //     deposit_date?: string,                   // YYYY-MM-DD (payout arrival)
 //     bank_account_id?: string,                // QBO bank acct; else env/auto
 //     fee_account_id?: string,                 // QBO expense acct; else find-or-create
-//     lines: [{ qbo_payment_id: string, gross: number, fee: number }]
+//     lines: [{ qbo_payment_id: string, gross: number, fee: number }],
+//     account_fees?: [{ amount: number, description?: string }]
+//                                              // v3: Stripe's OWN account fees that
+//                                              // rode this payout (monthly Financial
+//                                              // Connections, Radar, …). `amount` is
+//                                              // what Stripe TOOK (positive); each
+//                                              // becomes its own negative line on the
+//                                              // fee account carrying `description`.
 //   }
 //
 // brix-order does all the Stripe work (it holds the Stripe key) and hands us the
@@ -23,6 +30,20 @@
 // are internal bookkeeping (reversible in QBO); auto-posting is still gated on
 // the brix-order side (STRIPE_DEPOSIT_ENABLED) — this function itself just does
 // what it's told.
+//
+// v2: LinkedTxn on deposit lines carries TxnLineId "0" — QBO's Deposit entity
+// REQUIRES it when linking a Payment (400 "Required parameter
+// LinkedTxn.TxnLineId is missing" otherwise; hit live on payout po_1Tv4sK…).
+//
+// v3 (2026-09-04): `account_fees`. Stripe deducts its subscription-style fees
+// (e.g. "Connections Verification (2026-08-01 - 2026-08-31)", $4.50) from
+// whichever payout is next, as a balance transaction of type `stripe_fee` with
+// no source. Without a line for it the deposit cannot equal the bank credit, so
+// the reconciler used to park every such payout as "refunds/adjustments" (live
+// case: po_1UB2OM…, $1,034.88 payment − $5.00 − $4.50 = $1,025.38). They are
+// booked to the SAME fee account as processing fees, one line each, with
+// Stripe's own description as the line Description so a bookkeeper can tell a
+// monthly fee from a per-charge fee on the deposit itself.
 //
 // Does NOT write the ops.qbo_invoices mirror (a deposit doesn't change invoice
 // balances; nothing to reflect in the portal). verify_jwt=false; internal secret
@@ -79,7 +100,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, exp: numb
   const refreshExpiry = new Date(Date.now() + (rExp ?? REFRESH_TOKEN_TTL_SECONDS) * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist", {
     p_realm_id: getRealm(), p_access_token: a, p_access_expires: accessExpiry,
-    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-stripe-deposit@v1",
+    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-stripe-deposit@v3",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
@@ -190,6 +211,14 @@ async function resolveFeeAccount(token: string, given?: string): Promise<string>
 }
 
 interface DepLine { qbo_payment_id: string; gross: number; fee: number }
+interface AccountFee { amount: number; description?: string }
+
+// QBO caps Line.Description at 4000 chars; Stripe's descriptions are short, but
+// a payload is untrusted input to a bookkeeping write, so bound it anyway.
+function feeDescription(f: AccountFee): string {
+  const d = String(f.description ?? "").trim();
+  return ("Stripe account fee" + (d ? " — " + d : "")).slice(0, 4000);
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -206,6 +235,7 @@ Deno.serve(async (req: Request) => {
     const payoutId = String(body.payout_id ?? "").trim();
     const depositDate = String(body.deposit_date ?? "").trim();
     const lines: DepLine[] = Array.isArray(body.lines) ? body.lines : [];
+    const accountFees: AccountFee[] = Array.isArray(body.account_fees) ? body.account_fees : [];
 
     if (!payoutId) return jsonRes({ ok: false, error: "payout_id required" }, 400);
 
@@ -229,6 +259,13 @@ Deno.serve(async (req: Request) => {
         return jsonRes({ ok: false, error: "each line needs qbo_payment_id + positive gross" }, 400);
       }
     }
+    for (const f of accountFees) {
+      // `amount` is what Stripe took. A zero or non-numeric entry is a caller
+      // bug, not something to silently drop from a deposit that must foot.
+      if (!Number.isFinite(Number(f.amount)) || Number(f.amount) === 0) {
+        return jsonRes({ ok: false, error: "each account_fees entry needs a non-zero numeric amount" }, 400);
+      }
+    }
 
     const bankAccountId = await resolveBankAccount(token, body.bank_account_id);
     if (!bankAccountId) {
@@ -237,19 +274,36 @@ Deno.serve(async (req: Request) => {
     const feeAccountId = await resolveFeeAccount(token, body.fee_account_id);
 
     const grossTotal = round2(lines.reduce((s, l) => s + Number(l.gross), 0));
-    const feeTotal = round2(lines.reduce((s, l) => s + Number(l.fee || 0), 0));
+    const processingFees = round2(lines.reduce((s, l) => s + Number(l.fee || 0), 0));
+    const accountFeeTotal = round2(accountFees.reduce((s, f) => s + Number(f.amount), 0));
+    const feeTotal = round2(processingFees + accountFeeTotal);
     const net = round2(grossTotal - feeTotal);
 
     // Deposit lines: one LinkedTxn line per Payment (pulled from Undeposited
-    // Funds), plus one negative expense line for the total processing fee.
+    // Funds), plus one negative expense line for the total processing fee,
+    // plus one negative expense line PER account fee (each keeps Stripe's own
+    // description). TxnLineId "0" is REQUIRED by QBO when linking a Payment to
+    // a Deposit (400 "Required parameter LinkedTxn.TxnLineId is missing"
+    // without it).
     const depLines: any[] = lines.map((l) => ({
       Amount: round2(Number(l.gross)),
-      LinkedTxn: [{ TxnId: String(l.qbo_payment_id), TxnType: "Payment" }],
+      LinkedTxn: [{ TxnId: String(l.qbo_payment_id), TxnType: "Payment", TxnLineId: "0" }],
     }));
-    if (feeTotal > 0) {
+    if (processingFees > 0) {
       depLines.push({
-        Amount: -feeTotal,
+        Amount: -processingFees,
         DetailType: "DepositLineDetail",
+        Description: "Stripe processing fees",
+        DepositLineDetail: { AccountRef: { value: feeAccountId } },
+      });
+    }
+    for (const f of accountFees) {
+      // A fee CREDIT from Stripe (negative amount) books as a positive line on
+      // the same account, which is the correct offset.
+      depLines.push({
+        Amount: -round2(Number(f.amount)),
+        DetailType: "DepositLineDetail",
+        Description: feeDescription(f),
         DepositLineDetail: { AccountRef: { value: feeAccountId } },
       });
     }
@@ -266,8 +320,8 @@ Deno.serve(async (req: Request) => {
 
     return jsonRes({
       ok: true, qbo_deposit_id: depositId,
-      gross: grossTotal, fees: feeTotal, net,
-      charge_count: lines.length,
+      gross: grossTotal, fees: feeTotal, processing_fees: processingFees, account_fees: accountFeeTotal, net,
+      charge_count: lines.length, account_fee_count: accountFees.length,
       bank_account_id: bankAccountId, fee_account_id: feeAccountId,
     });
   } catch (err) {
