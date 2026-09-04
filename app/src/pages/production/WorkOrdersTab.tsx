@@ -70,10 +70,33 @@ interface Props {
   onChanged: () => void;
 }
 
+// Inventory Planning → Reorder (24-pack lane) → "Create work orders" stashes
+// the runs it wants here. One work order is one BOM, so a list of flavours is
+// a QUEUE of runs, not one form — each row opens the create form prefilled and
+// drops off the queue once its run exists.
+interface WoPrefillRun { qbo_item_id: string; item_name: string; qty: number }
+interface WoPrefillState { source: string; generated_at: string; runs: WoPrefillRun[] }
+
+function readWoPrefill(): WoPrefillRun[] {
+  if (typeof sessionStorage === 'undefined') return [];
+  const raw = sessionStorage.getItem('brix.wo.prefill');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as WoPrefillState;
+    return Array.isArray(parsed.runs) ? parsed.runs.filter((r) => r && r.qbo_item_id && Number(r.qty) > 0) : [];
+  } catch { return []; }
+}
+
 export function WorkOrdersTab({
   workOrders, boms, formulas, vendors, locations, itemLookup, onChanged,
 }: Props) {
   const [creating, setCreating] = useState(false);
+  const [queue, setQueue] = useState<WoPrefillRun[]>(() => readWoPrefill());
+  const [initial, setInitial] = useState<{ bomId: string; qty: number } | null>(null);
+  useEffect(() => {
+    // consumed on mount: a stale queue reappearing days later is worse than none
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('brix.wo.prefill');
+  }, []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | WorkOrderStatus>('open');
 
@@ -173,15 +196,54 @@ export function WorkOrdersTab({
         </div>
       )}
 
+      {queue.length > 0 && (
+        <div className="cd" style={{ padding: '10px 14px', marginBottom: 12, border: '1px solid var(--ac)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ac)', marginBottom: 6 }}>
+            RUNS SUGGESTED BY INVENTORY PLANNING · {queue.length}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>
+            One work order is one flavour. Start each run below — the form opens with the BOM and the suggested quantity filled in;
+            change the quantity to the run size you actually want before saving.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {queue.map((r) => {
+              const bom = activeBoms.find((b) => b.finished_qbo_item_id === r.qbo_item_id);
+              return (
+                <div key={r.qbo_item_id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
+                  <span style={{ flex: 1, fontWeight: 600 }}>{r.item_name}</span>
+                  <span className="mn" style={{ color: 'var(--ac)', fontWeight: 700 }}>{Number(r.qty).toLocaleString()} cases</span>
+                  {bom ? (
+                    <button style={btnPrimary()} onClick={() => { setInitial({ bomId: bom.id, qty: Math.ceil(Number(r.qty)) }); setCreating(true); }}>START RUN</button>
+                  ) : (
+                    <span style={{ fontSize: 10, color: 'var(--am)' }} title="No active bill of materials names this item as its finished good">no active BOM</span>
+                  )}
+                  <button style={btnSecondary()} onClick={() => setQueue((q) => q.filter((x) => x.qbo_item_id !== r.qbo_item_id))} title="Drop from the queue">✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {creating && (
         <CreatePipelineForm
+          key={initial ? `${initial.bomId}:${initial.qty}` : 'blank'}
           boms={activeBoms}
           formulas={formulas ?? []}
           vendors={vendors ?? []}
           locations={locations}
           itemLookup={itemLookup}
-          onCancel={() => setCreating(false)}
-          onCreated={() => { setCreating(false); onChanged(); }}
+          initial={initial}
+          onCancel={() => { setCreating(false); setInitial(null); }}
+          onCreated={() => {
+            setCreating(false);
+            if (initial) {
+              const done = activeBoms.find((b) => b.id === initial.bomId)?.finished_qbo_item_id;
+              if (done) setQueue((q) => q.filter((x) => x.qbo_item_id !== done));
+            }
+            setInitial(null);
+            onChanged();
+          }}
         />
       )}
 
@@ -213,18 +275,20 @@ export function WorkOrdersTab({
 
 // ── Create form ──────────────────────────────────────────────────────────
 
-function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, onCancel, onCreated }: {
+function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, initial = null, onCancel, onCreated }: {
   boms: ProductBom[];
   formulas: ProductFormula[];
   vendors: QboVendor[];
   locations: InventoryLocation[];
   itemLookup: ProductionItemLookup;
+  /** A run queued by Inventory Planning: the BOM and suggested quantity to start from. */
+  initial?: { bomId: string; qty: number } | null;
   onCancel: () => void;
   onCreated: () => void;
 }) {
   const toast = useToast();
-  const [bomId, setBomId] = useState('');
-  const [qty, setQty] = useState('');
+  const [bomId, setBomId] = useState(initial?.bomId ?? '');
+  const [qty, setQty] = useState(initial ? String(initial.qty) : '');
   const [copackerVendor, setCopackerVendor] = useState('');
   const [copackerLoc, setCopackerLoc] = useState('');
   const [destLoc, setDestLoc] = useState('');

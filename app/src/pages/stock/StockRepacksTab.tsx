@@ -11,16 +11,36 @@ import { btnPrimary } from '../../lib/styles';
 // Path differs by how Refractor was reached: behind the gateway the page is at
 // /repack (proxied); on the bare Netlify host it is /repack.html. Same derivation
 // RunGuideTab uses for the handbook.
-function repackUrl(embed: boolean): string {
+function repackUrl(embed: boolean, packs: string | null = null): string {
   const origin = typeof location === 'undefined' ? '' : location.origin;
   const path = typeof location === 'undefined' ? '' : location.pathname;
   const base = path.includes('/margin/') ? '/repack' : '/repack.html';
-  return `${origin}${base}${embed ? '?embed=1' : ''}`;
+  const q: string[] = [];
+  if (embed) q.push('embed=1');
+  if (packs) q.push(`packs=${encodeURIComponent(packs)}`);
+  return `${origin}${base}${q.length ? `?${q.join('&')}` : ''}`;
+}
+
+// Inventory Planning's suggested 8-packs, if the Reorder tab sent us here:
+// "<packItemId>:<packs>,…" — the sheet converts packs to whole cases itself
+// (3 packs a case), because that rule lives in ops.repack_settings, not here.
+function readRepackPrefill(): string | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  const raw = sessionStorage.getItem('brix.repack.prefill');
+  if (!raw) return null;
+  sessionStorage.removeItem('brix.repack.prefill');
+  try {
+    const parsed = JSON.parse(raw) as { packs?: { qbo_item_id: string; qty: number }[] };
+    const parts = (parsed.packs ?? []).filter((p) => p.qbo_item_id && Number(p.qty) > 0)
+      .map((p) => `${p.qbo_item_id}:${Math.ceil(Number(p.qty))}`);
+    return parts.length ? parts.join(',') : null;
+  } catch { return null; }
 }
 
 export function StockRepacksTab() {
+  const [prefill] = useState<string | null>(() => readRepackPrefill());
   const url = useMemo(() => repackUrl(false), []);
-  const framed = useMemo(() => repackUrl(true), []);
+  const framed = useMemo(() => repackUrl(true, prefill), [prefill]);
   const [frameFailed, setFrameFailed] = useState(false);
 
   return (
@@ -30,6 +50,11 @@ export function StockRepacksTab() {
           <PackageOpen size={18} style={{ color: 'var(--ac)', marginTop: 2, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 260 }}>
             <div style={{ fontSize: 13.5, fontWeight: 600 }}>Repack sheet — cases into 8-packs</div>
+            {prefill && (
+              <div style={{ fontSize: 11.5, color: 'var(--ac)', marginTop: 4, fontWeight: 600 }}>
+                Prefilled from Inventory Planning — the cases to repack are the suggested 8-packs ÷ 3, rounded up. Check them before you sign.
+              </div>
+            )}
             <div style={{ fontSize: 11.5, color: 'var(--mt)', marginTop: 3, lineHeight: 1.5 }}>
               Enter the 24-pack cases used and the 8-packs made, sign, save. The cases leave the Brix Warehouse
               count, the 8-packs arrive, and the same adjustment posts to QuickBooks as one InventoryAdjustment.

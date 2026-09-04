@@ -71,6 +71,8 @@
     "nda_signatories",
     "nda_templates",
     "pl_snapshots",
+    "planning_exceptions",
+    "planning_fill_items",
     "planning_holidays",
     "po_receipts",
     "price_book_items",

@@ -76,7 +76,9 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     coerceTab(routeParams.tab)
     ?? (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.po.prefill')
       ? 'purchase_orders'
-      : 'formulas');
+      : typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.wo.prefill')
+        ? 'work_orders'
+        : 'formulas');
   const [lane, setLane] = useInventoryLane(PRODUCTION_LANES);
   const [tab, setTab] = useState<TabId>(initialTab);
   const [formulas, setFormulas] = useState<ProductFormula[] | null>(null);
@@ -102,6 +104,8 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   useEffect(reloadAll, []);
 
   useEffect(() => {
+    // a queued work order is always a case run — the lane must be cans or the
+    // Work Orders tab is hidden and the queue with it
     setLane(readPrefillLane() ?? 'cans_24pk');
     // Production defaults to cans unless opened from a lane-specific PO prefill.
     // eslint-disable-next-line react-hooks/exhaustive-deps

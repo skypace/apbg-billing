@@ -946,6 +946,83 @@ against a normal 40–60 — a bulk buyer, most likely — and the forecast will
 carry that bump into October 2026. If it was a one-off, the customer belongs in
 `inventory_velocity_excludes` or the holiday table is the wrong tool.
 
+### Inventory Planning v3 — anomalies out, pars in, and a fill plan for the gas (2026-09-04)
+
+Sky, after seeing v2: drop customers who bought a lot last year and have gone
+quiet; flag large quantities as an abnormality and let a human keep or exclude
+them; the smallest order; a weekly fill plan for 20 lb CO₂ and 20 lb mixed
+gas; call the buffer what it is, a **par**, and say what the pars should be;
+and wire the prediction into an actual order. Migration `20260904h`.
+
+**Anomalies (`ops.planning_exceptions`).** The detector,
+`fn_planning_exceptions_refresh()`, runs daily at 10:05 UTC and from the new
+Anomalies tab. Two rules:
+
+| Kind | Rule | What is excluded |
+|---|---|---|
+| Lapsed customer | ≥10% (and ≥20 units) of a planner item in the window 364–728 days ago, and nothing bought in the last 120 days | the whole customer, every item, every date |
+| Volume spike | one customer's week ≥3× their own median week and ≥½ the item's normal week, or a buyer with ≤3 weeks of history at ≥2× the item's normal week; 24+ units | that customer, that item, that week |
+
+Found live: **J&J Vending** (424 root-beer cases last year, 31% of the item,
+silent since 2025-08), **Canteen Fremont Facebook** (728 cases each of cola
+and orange in two weeks of May–June 2025, 66% and 37% of those items, silent
+since) and Best Western El Rancho (apple, orange juice) are lapsed; the
+October 2025 root-beer bump is **Office Libations**, two weeks of 91 cases,
+flagged as a spike. Every row lands `excluded`; the tab shows the evidence
+(their normal week, the item's normal week, the quantity) with **Keep** and
+**Exclude** buttons, and a decision is never overridden by the detector. A
+spike that no longer qualifies is dropped; a lapsed customer who orders again
+is `resolved`. ⚠ The first cut flagged any week ≥2× the item's median
+regardless of the customer's own history — which caught every Origins order of
+a flavour Origins is most of the market for. A distributor who always orders 50
+is not a spike; that is the demand.
+
+`v_planning_daily_sales` applies the exclusions, so the items master, the
+weekly view and the growth calculation all read one cleaned baseline. Recent
+sales are never touched by a lapsed exclusion (a lapsed customer has none), and
+a spike inside the last 13 weeks leaves the recent rate too — one bulk order is
+not a rate, and it would otherwise inflate the buffer and the par.
+
+⚠ **Growth is clamped to ±50% now, not −50%…+100%.** Removing a lapsed bulk
+buyer from last year's base made every case item read +100% growth — a thin
+base, not a doubling market. Root beer: v2 forecast 9.4/day, then 11.6/day
+with J&J out and the old clamp, **8.7/day** with the new one; plan rate 7.9.
+
+**Pars.** `par_min` = the reorder point — order when sellable + inbound reaches
+it (buffer + lead × plan rate, or the hand-set reorder point). `par_max` = the
+level an order brings you back to ((target + lead) × plan rate + buffer).
+"Safety stock" is labelled **Buffer** on screen; the arithmetic is unchanged.
+Suggested qty = par_max − sellable − inbound, floored at the minimum order.
+
+**The smallest order.** `smallest_order_qty` = the smallest quantity we have
+actually bought of the item in 24 months (QuickBooks bill lines).
+`inventory_settings.min_order_qty` was seeded from it for every BIB still at 0
+(BIB lines run 5, 10, 20, 30, 40 — Calderoni's multiples); cans stay at 0
+because their bill lines are Quantum tolling invoices, not run sizes. ⚠ Seeding
+the MOQ surfaced a bug: `suggested_order_qty` floored at the MOQ even when the
+item needed nothing, so every "ok" BIB suddenly suggested 5 or 30. The floor
+applies only when an order is needed; an item with cover to spare suggests 0.
+
+**Fill plan (`ops.planning_fill_items`, `fn_planning_fill_plan`).** The gas
+cylinders are filled, not stocked, so there is no on-hand and no reorder point
+— the question is how many tanks to have filled before Monday. Per item per
+week: what we filled this year, last year's aligned week (same holiday
+alignment as the planner), the forecast (half the last 8 weeks' average, half
+last year's aligned week grown by the trend, clamped ±50%) and a **weekly par**
+= forecast + 1.65 × the weekly swing. Live for the week of 2026-09-07 (Labor
+Day week): 20 lb CO₂ forecast 82, par **111**; 20 lb mixed gas forecast 8, par
+**12**. Small nitrogen is in the table, inactive.
+
+**The prediction becomes an order through the door the lane actually uses.**
+One button on the Reorder tab, three destinations: BIB → a purchase order
+(Production → Purchase Orders, lines prefilled — the existing path); 24-pack →
+**Production → Work Orders**, where the suggested runs sit in a queue and each
+**Start run** opens the create form with the BOM and quantity filled in (one
+work order is one flavour); 8-pack → **Stock → Repacks**, the repack sheet with
+the cases to repack prefilled (suggested packs ÷ 3, rounded up — the sheet does
+the conversion, because that rule lives in `repack_settings`). Nothing is
+created until the operator saves the PO, the work order or the signed sheet.
+
 ## The run guide, inside the app
 
 The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**

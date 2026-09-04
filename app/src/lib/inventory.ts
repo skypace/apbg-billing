@@ -85,6 +85,11 @@ export interface InventoryHealthRow {
   stockout_date?: string | null;
   /** stockout_date − lead time − the days the safety stock covers. In the past = already late. */
   order_by_date?: string | null;
+  /** 20260904h — pars. par_min = order when stock + inbound reaches it; par_max = the level an order brings you back to. */
+  par_min?: number | null;
+  par_max?: number | null;
+  /** smallest quantity we have actually bought in 24 months (QuickBooks bill lines) */
+  smallest_order_qty?: number | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -205,6 +210,57 @@ export interface PlanningWeekRow {
   forecast_qty: number | null;
   holiday: string | null;
   growth_pct: number | null;
+}
+
+export interface PlanningException {
+  id: number;
+  kind: 'lapsed_customer' | 'volume_spike' | 'manual';
+  qbo_customer_id: string;
+  customer_name: string | null;
+  qbo_item_id: string | null;
+  item_name: string | null;
+  week_start: string | null;
+  status: 'excluded' | 'kept' | 'resolved';
+  evidence: Record<string, unknown>;
+  detected_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  note: string | null;
+}
+
+/** Every anomaly the detector found (or a human added), excluded rows first. */
+export function fetchPlanningExceptions() {
+  return sbrpc<PlanningException[]>('fn_planning_exceptions_list', {});
+}
+
+/** Re-run the detector now (it also runs daily at 10:05 UTC). */
+export function refreshPlanningExceptions() {
+  return sbrpc<{ lapsed: number; spikes: number; resolved: number; cleared: number }>('fn_planning_exceptions_refresh', {});
+}
+
+/** Keep a flagged row in the baseline again, or exclude it. */
+export function setPlanningException(id: number, status: 'excluded' | 'kept', note?: string | null) {
+  return sbrpc<void>('fn_planning_exception_set', { p_id: id, p_status: status, p_note: note ?? null });
+}
+
+export interface FillPlanRow {
+  qbo_item_id: string;
+  label: string;
+  week_start: string;
+  is_current: boolean;
+  is_future: boolean;
+  this_year_qty: number | null;
+  last_year_qty: number | null;
+  recent_avg: number | null;
+  growth_pct: number | null;
+  forecast_qty: number | null;
+  weekly_par: number | null;
+  holiday: string | null;
+}
+
+/** Cylinders we fill rather than stock: per item per week, actual / last year / forecast / weekly par. */
+export function fetchFillPlan(weeksBack = 8, weeksAhead = 3) {
+  return sbrpc<FillPlanRow[]>('fn_planning_fill_plan', { p_weeks_back: weeksBack, p_weeks_ahead: weeksAhead });
 }
 
 export function fetchPlanningWeekly(qbo_item_id: string, weeksBack = 13, weeksAhead = 8) {

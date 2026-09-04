@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
-import { Search, X, ShoppingCart } from 'lucide-react';
+import { Search, X, ShoppingCart, Factory, PackageOpen, RefreshCw } from 'lucide-react';
 import { KPICard } from '../components/KPICard';
 import { InventoryLaneSelector } from '../components/InventoryLaneSelector';
 import { fm, fmtNum } from '../lib/formatters';
@@ -10,11 +10,12 @@ import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
-  InventoryHealthRow, PlanningWeekRow, QboCustomerOption, VelocityExcludeRow,
-  addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth, fetchPlanningWeekly,
-  fetchVelocityExcludes, removeVelocityExclude,
+  FillPlanRow, InventoryHealthRow, PlanningException, PlanningWeekRow, QboCustomerOption, VelocityExcludeRow,
+  addVelocityExclude, fetchCustomerOptions, fetchFillPlan, fetchInventoryHealth, fetchPlanningExceptions,
+  fetchPlanningWeekly, fetchVelocityExcludes, refreshPlanningExceptions, removeVelocityExclude, setPlanningException,
 } from '../lib/inventory';
 import { INVENTORY_LANE_LABEL, filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
+import { useToast } from '../lib/toast';
 import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 // "Inventory Planning" — analytics + buying companion to the operational
@@ -23,13 +24,15 @@ import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 //   - Inventory Planning = what should we buy? how fast does it move? — analytics
 // Purchase Orders tab lives on the operational page now.
 
-type TabId = 'reorder' | 'forecast' | 'velocity' | 'excludes';
+type TabId = 'reorder' | 'forecast' | 'fill' | 'anomalies' | 'velocity' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'reorder',  label: 'Reorder' },
-  { id: 'forecast', label: 'Forecast' },
-  { id: 'velocity', label: 'Velocity' },
-  { id: 'excludes', label: 'Velocity Excludes' },
+  { id: 'reorder',   label: 'Reorder' },
+  { id: 'forecast',  label: 'Forecast' },
+  { id: 'fill',      label: 'Fill Plan' },
+  { id: 'anomalies', label: 'Anomalies' },
+  { id: 'velocity',  label: 'Velocity' },
+  { id: 'excludes',  label: 'Velocity Excludes' },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -148,7 +151,7 @@ export function InventoryPage() {
           <h1 className="hero-title">Inventory Planning</h1>
           <div className="hero-meta">
             {tabLabel}
-            {tab !== 'excludes' && ` · ${INVENTORY_LANE_LABEL[lane]} · ${lookback}-day lookback${plannerOnly ? ' · planner items' : ''}`}
+            {tab !== 'excludes' && tab !== 'fill' && tab !== 'anomalies' && ` · ${INVENTORY_LANE_LABEL[lane]} · ${lookback}-day lookback${plannerOnly ? ' · planner items' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
@@ -189,6 +192,8 @@ export function InventoryPage() {
 
       {tab === 'reorder' && <ReorderTable rows={laneRows} lane={lane} />}
       {tab === 'forecast' && <ForecastTab rows={laneRows} />}
+      {tab === 'fill' && <FillPlanTab />}
+      {tab === 'anomalies' && <AnomaliesTab />}
       {tab === 'velocity' && <VelocityTable rows={laneRows} />}
       {tab === 'excludes' && <ExcludesTab />}
     </div>
@@ -240,6 +245,7 @@ function TrendCell({ value }: { value: number | null | undefined }) {
 
 function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane: InventoryLane }) {
   const [search, setSearch] = useState('');
+  const toast = useToast();
 
   const reorder = useMemo(() => {
     if (!rows) return [];
@@ -308,21 +314,33 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
           : <span style={{ color: 'var(--mt)' }}>—</span>;
       },
     },
-    { field: 'safety_stock', headerName: 'Safety', type: 'number', width: 85, cellClassName: 'mn',
-      description: '95% service on the demand seen during one lead time, capped at one lead time of demand',
+    { field: 'safety_stock', headerName: 'Buffer', type: 'number', width: 80, cellClassName: 'mn',
+      description: 'The cushion under the par: 95% service on the demand seen during one lead time, capped at one lead time of demand',
       valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
-    { field: 'reorder_point_calc', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
-      description: 'Safety stock + lead time × plan rate (a reorder point typed in Settings → Items overrides it)',
-      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'par_min', headerName: 'Par (min)', type: 'number', width: 95, cellClassName: 'mn',
+      description: 'Order when sellable + inbound reaches this: buffer + lead time × plan rate (a reorder point typed in Settings → Items overrides it)',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : fmtNum(Math.round(Number(p.value)))}</span> },
+    { field: 'par_max', headerName: 'Par (max)', type: 'number', width: 95, cellClassName: 'mn',
+      description: 'The level an order brings you back to: (target + lead) days × plan rate + buffer',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : fmtNum(Math.round(Number(p.value)))}</span> },
     { field: 'order_by_date', headerName: 'Order by', width: 120,
       description: 'Stockout date − lead time − the days the safety stock covers',
       renderCell: (p) => <DateCell value={p.value as string | null} kind="order" /> },
     { field: 'stockout_date', headerName: 'Stockout', width: 120,
       description: 'When sellable + inbound runs out at the plan rate',
       renderCell: (p) => <DateCell value={p.value as string | null} kind="stockout" /> },
+    { field: 'min_order_qty', headerName: 'Min order', type: 'number', width: 90, cellClassName: 'mn',
+      description: 'Minimum order (Settings → Items). Seeded for BIB from the smallest quantity we have actually bought in 24 months',
+      renderCell: (p) => {
+        const r = p.row as InventoryHealthRow;
+        const moq = Number(r.min_order_qty ?? 0);
+        return <span style={{ color: moq > 0 ? undefined : 'var(--mt)' }} title={r.smallest_order_qty != null ? `Smallest order in 24 months: ${fmtNum(Number(r.smallest_order_qty))}` : 'No purchase history'}>
+          {moq > 0 ? fmtNum(moq) : '—'}
+        </span>;
+      } },
     {
       field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 120, cellClassName: 'mn',
-      description: '(lead + target days) × plan rate + safety − sellable − inbound, floored at the minimum order',
+      description: 'Par (max) − sellable − inbound when that is positive, floored at the minimum order; 0 when there is cover to spare',
       renderCell: (p) => (
         <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
       ),
@@ -331,7 +349,7 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
 
   function exportCsv() {
     if (reorder.length === 0) return;
-    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'Inbound', 'Recent/day', 'LY forecast/day', 'YoY %', 'Plan rate/day', 'Days of Cover', 'Safety Stock', 'Reorder Point', 'Order By', 'Stockout', 'Suggested Order Qty', 'Status'];
+    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'Inbound', 'Recent/day', 'LY forecast/day', 'YoY %', 'Plan rate/day', 'Days of Cover', 'Buffer', 'Par Min', 'Par Max', 'Min Order', 'Smallest Order 24m', 'Order By', 'Stockout', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
       r.item_name, r.category_resolved ?? '', r.inventory_lane ?? '', r.active ? 'yes' : 'no',
       r.planning_on_hand ?? r.on_hand ?? '', r.brix_on_hand ?? '', r.qbo_on_hand ?? '', r.on_hand_drift ?? '', r.qty_inbound ?? r.qty_on_order ?? '',
@@ -340,16 +358,52 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
       r.yoy_growth_pct ?? '',
       r.planning_velocity != null ? Number(r.planning_velocity).toFixed(2) : '',
       r.days_of_cover != null ? Number(r.days_of_cover).toFixed(0) : '',
-      r.safety_stock ?? '', r.reorder_point_calc ?? r.reorder_point ?? '', r.order_by_date ?? '', r.stockout_date ?? '',
+      r.safety_stock ?? '', r.par_min ?? r.reorder_point_calc ?? '', r.par_max ?? '', r.min_order_qty ?? '', r.smallest_order_qty ?? '', r.order_by_date ?? '', r.stockout_date ?? '',
       r.suggested_order_qty ?? '', r.status,
     ]);
     downloadCsv(`reorder_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
   }
 
-  function createPoFromReorder() {
-    const candidates = (filtered.length > 0 ? filtered : reorder).filter(
+  // The prediction becomes an order through the door that lane actually uses:
+  //   BIB      → a purchase order (Production → Purchase Orders, prefilled)
+  //   24-pack  → a work order per flavour (Production → Work Orders, a run queue)
+  //   8-pack   → the repack sheet, cases prefilled (Stock → Repacks)
+  // One button, three destinations — a BIB is bought, a case is made, an
+  // 8-pack is repacked, and sending all three to a PO form would create a PO
+  // for something Calderoni does not sell.
+  function orderCandidates() {
+    return (filtered.length > 0 ? filtered : reorder).filter(
       (r) => r.active && r.suggested_order_qty != null && Number(r.suggested_order_qty) > 0,
     );
+  }
+  function createOrderFromReorder() {
+    if (lane === 'cans_24pk') return createWorkOrdersFromReorder();
+    if (lane === 'cans_8pk') return createRepackFromReorder();
+    return createPoFromReorder();
+  }
+  function createWorkOrdersFromReorder() {
+    const candidates = orderCandidates();
+    if (candidates.length === 0) return;
+    sessionStorage.setItem('brix.wo.prefill', JSON.stringify({
+      source: 'inventory-reorder',
+      generated_at: new Date().toISOString(),
+      runs: candidates.map((r) => ({ qbo_item_id: r.qbo_item_id, item_name: r.item_name, qty: Number(r.suggested_order_qty) })),
+    }));
+    window.location.hash = '#production?tab=work_orders';
+  }
+  function createRepackFromReorder() {
+    const candidates = orderCandidates();
+    if (candidates.length === 0) return;
+    sessionStorage.setItem('brix.repack.prefill', JSON.stringify({
+      source: 'inventory-reorder',
+      generated_at: new Date().toISOString(),
+      packs: candidates.map((r) => ({ qbo_item_id: r.qbo_item_id, item_name: r.item_name, qty: Number(r.suggested_order_qty) })),
+    }));
+    toast.info(`${candidates.length} flavour${candidates.length === 1 ? '' : 's'} sent to the repack sheet as cases to repack`);
+    window.location.hash = '#stock';
+  }
+  function createPoFromReorder() {
+    const candidates = orderCandidates();
     if (candidates.length === 0) return;
     const prefill = candidates.map((r) => ({
       qbo_item_id: r.qbo_item_id,
@@ -410,13 +464,19 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button
-            onClick={createPoFromReorder}
+            onClick={createOrderFromReorder}
             disabled={reorder.length === 0}
             style={btnPrimary()}
-            title="Open Production → Purchase Orders pre-filled with these items"
+            title={lane === 'cans_24pk'
+              ? 'Open Production → Work Orders with a run queued per flavour at the suggested quantity'
+              : lane === 'cans_8pk'
+                ? 'Open the repack sheet with the cases to repack prefilled (3 packs a case)'
+                : 'Open Production → Purchase Orders pre-filled with these items'}
           >
-            <ShoppingCart size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
-            CREATE PO
+            {lane === 'cans_24pk' ? <Factory size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+              : lane === 'cans_8pk' ? <PackageOpen size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
+              : <ShoppingCart size={11} style={{ marginRight: 4, verticalAlign: -1 }} />}
+            {lane === 'cans_24pk' ? 'CREATE WORK ORDERS' : lane === 'cans_8pk' ? 'OPEN REPACK SHEET' : 'CREATE PO'}
           </button>
           <button onClick={printOrderSheet} disabled={reorder.length === 0} style={btnSecondary()}>PRINT ORDER SHEET</button>
           <button onClick={exportCsv} disabled={reorder.length === 0} style={btnSecondary()}>EXPORT CSV</button>
@@ -614,10 +674,12 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
       renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
     { field: 'lead_time_days', headerName: 'Lead', type: 'number', width: 70, cellClassName: 'mn',
       valueFormatter: (v) => `${v}d` },
-    { field: 'safety_stock', headerName: 'Safety', type: 'number', width: 80, cellClassName: 'mn',
+    { field: 'safety_stock', headerName: 'Buffer', type: 'number', width: 80, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
-    { field: 'reorder_point_calc', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
-      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'par_min', headerName: 'Par (min)', type: 'number', width: 95, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : fmtNum(Math.round(Number(p.value)))}</span> },
+    { field: 'par_max', headerName: 'Par (max)', type: 'number', width: 95, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : fmtNum(Math.round(Number(p.value)))}</span> },
     { field: 'order_by_date', headerName: 'Order by', width: 120,
       renderCell: (p) => <DateCell value={p.value as string | null} kind="order" /> },
     { field: 'stockout_date', headerName: 'Stockout', width: 120,
@@ -727,6 +789,170 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Fill plan: cylinders we fill, not stock ─────────────────────────────
+function FillPlanTab() {
+  const [rows, setRows] = useState<FillPlanRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    fetchFillPlan(8, 3).then(setRows).catch((e) => { setErr((e as Error).message); setRows([]); });
+  }, []);
+  if (!rows) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={8} cols={7} /></div>;
+  if (err) return <div className="cd" style={{ padding: 16, color: 'var(--rd)' }}>{err}</div>;
+  const items = Array.from(new Map(rows.map((r) => [r.qbo_item_id, r.label])).entries());
+  const nextWeek = rows.filter((r) => r.is_future).reduce<Record<string, FillPlanRow>>((acc, r) => {
+    if (!acc[r.qbo_item_id] || r.week_start < acc[r.qbo_item_id].week_start) acc[r.qbo_item_id] = r;
+    return acc;
+  }, {});
+  return (
+    <div>
+      <div className="gr g4" style={{ marginBottom: 14 }}>
+        {items.map(([id, label]) => {
+          const n = nextWeek[id];
+          return <KPICard key={id} title={label.toUpperCase()} value={n?.weekly_par != null ? fmtNum(Number(n.weekly_par)) : '—'} accent="var(--ac)"
+            sub={n ? `tanks to have filled for the week of ${fmtDate(n.week_start)} · forecast ${n.forecast_qty ?? '—'}${n.holiday ? ` · ${n.holiday}` : ''}` : 'no forecast'} />;
+        })}
+      </div>
+      <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, fontSize: 11, color: 'var(--mt)', lineHeight: 1.5 }}>
+        We do not stock these — we fill them. <strong>Weekly par</strong> is the number of tanks to have filled before the week starts:
+        the forecast (half the last 8 weeks' average, half last year's aligned week grown by the trend) plus a buffer of 1.65 × the weekly
+        swing. Items live in <code>ops.planning_fill_items</code>; sampling and lapsed customers are already out.
+      </div>
+      {items.map(([id, label]) => {
+        const mine = rows.filter((r) => r.qbo_item_id === id);
+        return (
+          <div key={id} className="cd" style={{ padding: 0, marginBottom: 14 }}>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)' }} className="ct">{label}</div>
+            <table style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Week of</th><th>Holiday</th>
+                <th style={{ textAlign: 'right' }}>Last year</th>
+                <th style={{ textAlign: 'right' }}>This year</th>
+                <th style={{ textAlign: 'right' }}>Forecast</th>
+                <th style={{ textAlign: 'right' }}>Weekly par</th>
+              </tr></thead>
+              <tbody>
+                {mine.map((w) => {
+                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                  return (
+                    <tr key={w.week_start} style={{ background: rowBg }}>
+                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                        {fmtDate(w.week_start)}
+                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                      </td>
+                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{w.last_year_qty == null ? '—' : fmtNum(Number(w.last_year_qty))}</td>
+                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{w.this_year_qty == null ? '—' : fmtNum(Number(w.this_year_qty))}{w.is_current && w.this_year_qty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{w.forecast_qty == null ? '' : fmtNum(Number(w.forecast_qty))}</td>
+                      <td className="mn" style={{ textAlign: 'right', fontWeight: 700 }}>{w.weekly_par == null ? '' : fmtNum(Number(w.weekly_par))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Anomalies: what the baseline leaves out, and why ────────────────────
+function describeEvidence(x: PlanningException): string {
+  const e = x.evidence as Record<string, unknown>;
+  if (x.kind === 'lapsed_customer') {
+    const items = Array.isArray(e.items) ? (e.items as { ly_qty?: number; ly_share_pct?: number }[]) : [];
+    const top = items[0];
+    return `last order ${e.last_order ?? '?'} (${e.days_silent ?? '?'} days ago)${top ? ` · ${fmtNum(Number(top.ly_qty ?? 0))} units last year, ${top.ly_share_pct ?? '?'}% of the item` : ''}`;
+  }
+  if (x.kind === 'volume_spike') {
+    return `${fmtNum(Number(e.qty ?? 0))} in one week · their normal week ${e.customer_median_week ?? '?'} · the item's normal week ${e.item_median_week ?? '?'}`;
+  }
+  return x.note ?? '';
+}
+
+function AnomaliesTab() {
+  const [rows, setRows] = useState<PlanningException[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const toast = useToast();
+
+  function load() {
+    fetchPlanningExceptions().then(setRows).catch((e) => { setErr((e as Error).message); setRows([]); });
+  }
+  useEffect(load, []);
+
+  async function refresh() {
+    setBusy(true);
+    try {
+      const r = await refreshPlanningExceptions();
+      toast.success(`Detector ran: ${r.lapsed} lapsed customer${r.lapsed === 1 ? '' : 's'}, ${r.spikes} volume spike${r.spikes === 1 ? '' : 's'}${r.cleared ? `, ${r.cleared} cleared` : ''}`);
+      load();
+    } catch (e) { toast.error((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function decide(x: PlanningException, status: 'excluded' | 'kept') {
+    try { await setPlanningException(x.id, status); load(); }
+    catch (e) { toast.error((e as Error).message); }
+  }
+
+  if (!rows) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={8} cols={6} /></div>;
+  const excluded = rows.filter((r) => r.status === 'excluded');
+  const lapsed = excluded.filter((r) => r.kind === 'lapsed_customer').length;
+  const spikes = excluded.filter((r) => r.kind === 'volume_spike').length;
+  const kept = rows.filter((r) => r.status === 'kept').length;
+
+  return (
+    <div>
+      <div className="gr g4" style={{ marginBottom: 14 }}>
+        <KPICard title="LAPSED CUSTOMERS" value={lapsed} accent="var(--rd)" sub="bought ≥10% of an item last year, nothing in 120 days — out of the baseline" />
+        <KPICard title="VOLUME SPIKES" value={spikes} accent="var(--am)" sub="one customer's week far above their normal — that week is out" />
+        <KPICard title="KEPT BY A HUMAN" value={kept} accent="var(--gn)" sub="flagged, reviewed, counted anyway" />
+        <KPICard title="RESOLVED" value={rows.filter((r) => r.status === 'resolved').length} accent="var(--mt)" sub="the customer came back" />
+      </div>
+      <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
+        <span style={{ color: 'var(--mt)', lineHeight: 1.5, flex: 1, minWidth: 320 }}>
+          Every row here is <strong>out of last year's baseline</strong> unless you keep it. Runs daily at 10:05 UTC and on the button.
+          A customer who ordered a lot last year and has gone quiet is excluded whole; a one-week spike is excluded for that customer,
+          item and week only. Recent sales are never touched — the anomaly is in the history the forecast reads, not the rate.
+        </span>
+        <button onClick={refresh} disabled={busy} style={btnPrimary()}>
+          <RefreshCw size={11} style={{ marginRight: 4, verticalAlign: -1 }} />{busy ? 'RUNNING…' : 'RUN THE DETECTOR'}
+        </button>
+      </div>
+      {err && <div className="cd" style={{ padding: 12, color: 'var(--rd)', marginBottom: 14 }}>{err}</div>}
+      <div className="cd" style={{ padding: 0 }}>
+        {rows.length === 0 ? <div className="ld">Nothing flagged. Run the detector to look again.</div> : (
+          <table style={{ width: '100%' }}>
+            <thead><tr>
+              <th>Kind</th><th>Customer</th><th>Item</th><th>Week</th><th>Evidence</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody>
+              {rows.map((x) => {
+                const c = x.status === 'excluded' ? (x.kind === 'lapsed_customer' ? 'var(--rd)' : 'var(--am)') : x.status === 'kept' ? 'var(--gn)' : 'var(--mt)';
+                return (
+                  <tr key={x.id} style={{ opacity: x.status === 'resolved' ? 0.6 : 1 }}>
+                    <td style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: c }}>{x.kind.replace('_', ' ').toUpperCase()}</td>
+                    <td style={{ fontWeight: 600 }}>{x.customer_name ?? x.qbo_customer_id}</td>
+                    <td style={{ color: x.item_name ? undefined : 'var(--mt)' }}>{x.item_name ?? 'every planner item'}</td>
+                    <td className="mn">{x.week_start ? fmtDate(x.week_start) : <span style={{ color: 'var(--mt)' }}>all</span>}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{describeEvidence(x)}{x.decided_by ? <span> · {x.status} by {x.decided_by}</span> : null}</td>
+                    <td style={{ fontSize: 10, fontWeight: 700, color: c }}>{x.status.toUpperCase()}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {x.status === 'excluded' && <button onClick={() => decide(x, 'kept')} style={btnSecondary()} title="Count this in the baseline after all">KEEP</button>}
+                      {x.status === 'kept' && <button onClick={() => decide(x, 'excluded')} style={btnDanger()} title="Take it out of the baseline again">EXCLUDE</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
