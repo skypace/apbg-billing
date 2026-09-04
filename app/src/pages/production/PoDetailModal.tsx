@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil, RefreshCw, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import {
   PoLineEdit, PoReceipt, PurchaseOrderLine, PurchaseOrderRow,
@@ -544,10 +545,7 @@ function EditLinesTable({
                     {l.qty_received > 0 && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>{fmtNum(l.qty_received)} already received</div>}
                   </div>
                 ) : (
-                  <select style={{ ...inp(), minWidth: 0, maxWidth: '100%' }} value={l.qbo_item_id} onChange={(e) => upd(i, { qbo_item_id: e.target.value })}>
-                    <option value="">— item —</option>
-                    {componentItems.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
+                  <SearchSelect value={l.qbo_item_id} onChange={(id) => upd(i, { qbo_item_id: id })} options={componentItems} placeholder="Type an item…" />
                 )}
               </td>
               <td style={td}><input style={{ ...inp(), width: '100%' }} value={l.description} onChange={(e) => upd(i, { description: e.target.value })} /></td>

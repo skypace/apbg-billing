@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
 import {
@@ -353,18 +354,12 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
           <LField label="Sellable finished item *">
-            <select style={inp()} value={finishedId} onChange={(e) => setFinishedId(e.target.value)} disabled={!isNew}>
-              <option value="">—</option>
-              {isNew
-                ? itemLookup.finishedOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)
-                : <option value={finishedId}>{itemLookup.byId.get(finishedId)?.item_name ?? finishedId}</option>}
-            </select>
+            <SearchSelect value={finishedId} onChange={setFinishedId} disabled={!isNew} placeholder="Type the finished item…"
+              options={isNew ? itemLookup.finishedOptions : [{ id: finishedId, label: itemLookup.byId.get(finishedId)?.item_name ?? finishedId }]} />
           </LField>
           <LField label="Formula / spec sheet (the driver)">
-            <select style={inp()} value={formulaId} onChange={(e) => setFormulaId(e.target.value)}>
-              <option value="">— none —</option>
-              {formulas.map((f) => <option key={f.id} value={f.id}>{f.name} · rev {f.doc_rev}</option>)}
-            </select>
+            <SearchSelect value={formulaId} onChange={setFormulaId} placeholder="Type a formula (or leave blank)…"
+              options={formulas.map((f) => ({ id: f.id, label: f.name, hint: `rev ${f.doc_rev}` }))} />
           </LField>
           <LField label="BOM name">
             <input style={inp()} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cola 24pk case" />
@@ -570,10 +565,8 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
               <option value="service">Service</option>
             </select>
             {l.line_type === 'component' ? (
-              <select style={inp()} value={l.component_qbo_item_id} onChange={(e) => setLine(i, { component_qbo_item_id: e.target.value })}>
-                <option value="">—</option>
-                {componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-              </select>
+              <SearchSelect value={l.component_qbo_item_id} onChange={(id) => setLine(i, { component_qbo_item_id: id })}
+                options={componentOptions} placeholder="Type a component…" />
             ) : (
               <input style={inp()} placeholder="Service label (e.g. Canning fee)" value={l.service_label}
                 onChange={(e) => setLine(i, { service_label: e.target.value })} />
@@ -591,13 +584,12 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             <input type="number" min={0} step="any" style={inp()} value={l.default_cost}
               onChange={(e) => setLine(i, { default_cost: e.target.value })} />
             {l.line_type === 'component' ? (
-              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}
-                title="Blank = the vendor set under Materials & Pricing for this item. Pick one here only to override it for this BOM.">
-                <option value="">{masters.get(l.component_qbo_item_id)?.qbo_vendor_id
+              <SearchSelect value={l.vendor_id} onChange={(id) => setLine(i, { vendor_id: id })}
+                title="Blank = the vendor set under Materials & Pricing for this item. Pick one here only to override it for this BOM."
+                placeholder={masters.get(l.component_qbo_item_id)?.qbo_vendor_id
                   ? `master · ${vendorName(masters.get(l.component_qbo_item_id)!.qbo_vendor_id) ?? 'set'}`
-                  : '— vendor —'}</option>
-                {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-              </select>
+                  : 'vendor (override)…'}
+                options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
             ) : <span style={{ fontSize: 10, color: 'var(--mt)', alignSelf: 'center' }}>cost-only</span>}
             <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}
               onClick={() => setLines((rows) => rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)}>

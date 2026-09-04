@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import Snackbar from '@mui/material/Snackbar';
 import Alert, { type AlertColor } from '@mui/material/Alert';
+import { playApplause } from './applause';
 
 interface ToastState {
   message: string;
@@ -26,7 +27,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const api: ToastApi = {
     show,
-    success: (m) => show(m, 'success'),
+    // Every successful save gets a round of applause (Sky, 2026-09-04) —
+    // mute with localStorage 'brix.applause' = 'off'.
+    success: (m) => { show(m, 'success'); playApplause(); },
     error:   (m) => show(m, 'error'),
     info:    (m) => show(m, 'info'),
     warn:    (m) => show(m, 'warning'),

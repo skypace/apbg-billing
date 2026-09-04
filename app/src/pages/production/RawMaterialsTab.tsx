@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { AlertTriangle, Check, Droplets, RefreshCw } from 'lucide-react';
 import {
   RawIngredient, RawMaterialItemsResult,
@@ -283,17 +284,14 @@ export function RawMaterialsTab({ vendors, onChanged }: {
                         : <span style={{ color: 'var(--mt)' }}>not needed</span>}
                   </td>
                   <td style={{ padding: '5px 6px' }}>
-                    <select
-                      style={{ ...inp(), width: 168 }}
+                    <SearchSelect
+                      style={{ width: 190 }}
                       disabled={!r.is_purchased}
                       value={d.qbo_vendor_id}
-                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, qbo_vendor_id: e.target.value } })}
-                    >
-                      <option value="">—</option>
-                      {vendorOptions.map((v) => (
-                        <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>
-                      ))}
-                    </select>
+                      placeholder="Type a vendor…"
+                      options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
+                      onChange={(id) => setDrafts({ ...drafts, [r.id]: { ...d, qbo_vendor_id: id } })}
+                    />
                   </td>
                   <td style={{ padding: '5px 6px' }}>
                     <input

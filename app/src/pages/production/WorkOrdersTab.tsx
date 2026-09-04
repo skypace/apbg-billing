@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
 import {
@@ -439,15 +440,11 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, in
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
         <LField label="BOM (sellable item)">
-          <select style={inp()} value={bomId} onChange={(e) => setBomId(e.target.value)}>
-            <option value="">—</option>
-            {boms.map((b) => {
+          <SearchSelect value={bomId} onChange={setBomId} placeholder="Type a product…"
+            options={boms.map((b) => {
               const it = itemLookup.byId.get(b.finished_qbo_item_id);
-              return <option key={b.id} value={b.id}>
-                {it?.item_name ?? b.finished_qbo_item_id}{b.name ? ` · ${b.name}` : ''} · v{b.version}
-              </option>;
-            })}
-          </select>
+              return { id: b.id, label: `${it?.item_name ?? b.finished_qbo_item_id}${b.name ? ` · ${b.name}` : ''}`, hint: `v${b.version}` };
+            })} />
         </LField>
         <LField label="Qty to make (finished units)">
           <input type="number" min={1} step="any" style={inp()} value={qty} onChange={(e) => setQty(e.target.value)} />
@@ -457,22 +454,16 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, in
             onChange={(e) => { setBatchGal(e.target.value); setBatchGalTouched(true); }} />
         </LField>
         <LField label="Co-packer (vendor)">
-          <select style={inp()} value={copackerVendor} onChange={(e) => setCopackerVendor(e.target.value)}>
-            <option value="">—</option>
-            {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-          </select>
+          <SearchSelect value={copackerVendor} onChange={setCopackerVendor} placeholder="Type a vendor…"
+            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
         </LField>
         <LField label="Co-packer location (materials ship here)">
-          <select style={inp()} value={copackerLoc} onChange={(e) => setCopackerLoc(e.target.value)}>
-            <option value="">—</option>
-            {copackerLocs.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-          </select>
+          <SearchSelect value={copackerLoc} onChange={setCopackerLoc} placeholder="Type a location…"
+            options={copackerLocs.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
         <LField label="Receive finished goods at">
-          <select style={inp()} value={destLoc} onChange={(e) => setDestLoc(e.target.value)}>
-            <option value="">—</option>
-            {warehouses.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-          </select>
+          <SearchSelect value={destLoc} onChange={setDestLoc} placeholder="Type a warehouse…"
+            options={warehouses.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
         <LField label="Scheduled date">
           <input type="date" style={inp()} value={scheduled} onChange={(e) => setScheduled(e.target.value)} />
@@ -931,11 +922,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
                     {m.po_id
                       ? (m.vendor_name ?? m.qbo_vendor_id)
                       : ['draft', 'ordered'].includes(wo.status)
-                        ? <select style={{ ...inp(), fontSize: 11, padding: '2px 6px' }} value={m.qbo_vendor_id ?? ''}
-                            onChange={(e) => run('Vendor updated', () => setWoMaterialVendor(m.id, e.target.value || null))}>
-                            <option value="">— vendor —</option>
-                            {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-                          </select>
+                        ? <SearchSelect value={m.qbo_vendor_id ?? ''} placeholder="Type a vendor…" style={{ minWidth: 180 }}
+                            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
+                            onChange={(id) => run('Vendor updated', () => setWoMaterialVendor(m.id, id || null))} />
                         : (m.vendor_name ?? <span style={{ color: 'var(--mt)' }}>—</span>)}
                   </td>
                   <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)', fontSize: 10.5 }}>
