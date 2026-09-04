@@ -547,8 +547,9 @@ own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always current.
 
 The re-seed makes the ledger true as of 2026-09-02. It does not make it
 self-maintaining: a sale still does not decrement it and an ordinary purchase
-still does not increment it. **The production pipeline is its first real
-feed** — a run consumes materials, records a yield, ships a BOL and receives
+still does not increment it. (Both have feeds now — the sales feed below since
+2026-09-02/03 and the purchase feed since 2026-09-04.) **The production pipeline
+was its first real feed** — a run consumes materials, records a yield, ships a BOL and receives
 finished cases, all as movements — and the first live run is what proves it.
 
 ### The sales feed — what finally maintains it
@@ -700,6 +701,343 @@ Void deletes the QBO adjustment first, then reverses every
 movement with new rows — history is never edited. Enabling `track_locations` on
 the eight 8PK items also means the sales feed deducts 8-pack sales from today on
 (zero 8PK invoice lines since `apply_from`, checked before applying).
+
+### Purchasing — QuickBooks and Refractor share one PO table (2026-09-04)
+
+**Ask (Sky):** keep doing main purchasing in QuickBooks, see those POs here,
+edit them here and push back ("a two way street"), and when the warehouse
+receives here "receive creates the bill. the bill can get matched to the
+invoice in brixpense. make sure there is sync if i dont want to wait for the
+15 min cron i just click it."
+
+**What was there.** Two tables that never met: `ops.purchase_orders` for POs
+created here (pushed to QuickBooks once, never read back — the SyncToken was
+never stored, `qbo_push_error` was written by nothing) and a hand-imported
+SHADOW of QuickBooks POs (`ops.qbo_purchase_orders`, one row, from a picker).
+Receiving wrote the ledger and stopped; the vendor bill was keyed separately;
+and the purchase side of the ledger had no feed at all, so every QuickBooks
+receipt since the 09-03 seed read as drift.
+
+**The model now (migration `20260904d`).** One table. A PO keyed into
+QuickBooks lands in `ops.purchase_orders` as `origin='qbo'` on the 15-minute
+pull; a PO created here is `origin='brix'` and is pushed there. Either can be
+edited here (`fn_po_update`) and pushed back. Both directions carry the
+QuickBooks **SyncToken**: the pull skips a row marked `qbo_dirty` (a local edit
+waiting to push), and a push whose token QuickBooks has moved past is a **409**
+the operator resolves — force (overwrite QuickBooks) or reload (drop the local
+edit). The last writer never wins silently, in either direction.
+
+**Receiving is one gesture, in this order because the order is the point:**
+
+1. `fn_po_receipt_record` (caller's JWT) — the ledger moves through the same
+   `fn_receive_purchase_order_line__i` it always has, and `ops.po_receipts`
+   gets its row. This is the record.
+2. The PO is pushed to QuickBooks first if it is not there yet.
+3. `POST /bill` with every line **LinkedTxn'd to the PO line** — QuickBooks
+   marks the PO received/closed itself, so a PO received here and one received
+   inside QuickBooks end in the same state.
+4. `fn_po_receipt_bill_landed` files the Brixpense row **Posted** (`as_bill`,
+   tag Purchasing or Production, `bill_number` = the vendor invoice if in hand).
+   It is in the books; the vendor's invoice is what is still to come, and
+   Brixpense's duplicate gate (same vendor, same amount within 10 days) is what
+   flags that invoice against this bill when it arrives. ⚠ That match is by
+   amount, not by document — a vendor invoice that differs from the PO price
+   posts as a second bill and is caught by the aging, not the gate.
+5. Best-effort: mirror the bill's lines, re-read the items' QtyOnHand, re-read
+   the PO.
+
+A QuickBooks refusal at step 3 stamps `qbo_error` on the receipt: the PO shows
+**Retry bill**, and `fn_purchase_feed_health` goes red after an hour unbilled.
+The stock already moved; the sheet is never lost.
+
+**The purchase feed** (`fn_apply_purchases_to_ledger`, the mirror of the sales
+feed): every Bill / VendorCredit item line on a location-tracked item since
+`apply_from` that no receipt of OURS created (`po_receipts.qbo_bill_id`) posts
+a `receipt` movement (`source_doc_type='qbo_purchase'`); an edited bill posts
+the difference, a deleted bill reverses. A bill received against a PO we hold
+bumps `qty_received` on that PO line, capped at what was ordered. LIVE from the
+start with `apply_from = 2026-09-03`: the ledger was set equal to QuickBooks on
+09-03 and no inventory bill had posted since (checked), so a first live run had
+nothing to double-count. Receiving location = the item's default receiving
+location, else Brix Warehouse — QuickBooks cannot say where a case landed.
+
+**The pull** (`netlify/functions/lib/qbo-purchasing-sync.mjs`, one
+implementation behind pg_cron `qbo-purchasing-sync` at :10/:25/:40/:55 and the
+**Sync now** button): CDC since the last successful run (first run = a full
+pull of open POs + bills since `apply_from`), PurchaseOrders →
+`fn_qbo_po_mirror_upsert`, Bills/VendorCredits → `qbo_expense_lines` in
+sync-qbo-expenses' exact row shape plus `linked_po_qbo_id`/`linked_po_line_id`
+off LinkedTxn, missing vendors/items pulled into the mirrors on the way, then
+**every Inventory item's QtyOnHand re-read into `ops.qbo_items`** — the drift
+strip's QuickBooks number is now 15 minutes old instead of a day — then the
+purchase feed. It lives on Netlify, not as an edge function, because the
+deployed `sync-qbo` / `push-qbo-item` edge functions have drifted from their
+repo copies more than once; pg_cron only knocks.
+
+⚠ **A comparison is only as fresh as its older side.** The day this shipped
+the drift strip showed 28 items / 145 units adrift and offered Reconcile —
+every unit of it the day's sales, already deducted here by the live sales feed
+and already in QuickBooks, but not yet in `ops.qbo_items` (last written by the
+09:45 UTC items sync 15 hours earlier). Applying that reconcile would have put
+145 sold cases BACK. The strip now says when its QuickBooks number was read
+and refuses to offer Reconcile while that number is older than the ledger's
+last movement; Sync now is the fix, not Reconcile.
+
+⚠ **Safeupdate.** The PostgREST role runs with `session_preload_libraries=
+safeupdate`, so any `UPDATE`/`DELETE` without a `WHERE` reached through an RPC
+fails with SQLSTATE 21000 — which is how `fn_sales_ledger_set_mode` (a one-row
+config table, updated bare) could never be flipped from the screen although it
+worked every time it was tested as postgres (`20260904e`). A single-row table
+is still updated WITH its key.
+
+**Unexercised until the first real use:** the QuickBooks writes themselves
+(PurchaseOrder create/update, Bill create) need a hub session and a live
+token; the payload shapes are Intuit's documented ones, the SQL half was
+driven end to end in a rolled-back dry run (create → refresh → edit marks
+dirty → pull skipped → push clears → receipt → bill landed → a foreign bill on
+the same PO line applied by the feed, our own excluded), and the pure mappers
+are pinned by `tests/qbo-purchasing-sync.test.mjs`.
+
+### Inventory Planning — what the velocity counts (2026-09-04)
+
+**Asked whether the planner really works, with root beer as the test case
+("I think we have about 19 days left"). It did not, and the fault was in the
+data under it rather than the arithmetic on top.**
+
+`fn_items_master` read demand from three places: invoice lines, ledger
+consumption, and `ops.qbo_inventory_adjustment_lines` counted as shrinkage.
+That third table held **125,694 rows for 1,138 real lines**. QuickBooks puts
+no `LineNum` on an InventoryAdjustment line, so the nightly
+`sync-qbo-inventory-adjustments` wrote `line_num = NULL`, its upsert key
+`(qbo_txn_id, line_num)` never matched (NULLs are distinct in a unique index),
+and every run since 2026-05-03 inserted every line again. Over 90 days the
+planner counted **24,770 units of shrinkage against a true 743**. Root beer
+cases (574) read 39.5 a day and five days of supply on the 90-day lookback,
+and 12.8 a day and 16.7 days on the 30-day lookback, which is the "19 days"
+on the screen. The true rate is about 7.4 a day and 214 sellable cases,
+so roughly **29 days**.
+
+What changed (migration `20260904f`, edge function v15, the repo now carries
+the function source):
+
+- **The duplicates are gone and cannot stack again.** v15 numbers each line
+  (`LineNum`, else `Id`, else position) and rewrites an adjustment's lines on
+  every run, so the table is exactly QuickBooks' lines.
+- **Demand is sales plus consumption, never a count correction.** Invoice
+  lines, production runs eating materials (`production_consume`), and repacks
+  turning cases into packs. A QuickBooks adjustment is a correction of the
+  count, not something to reorder for. It stays visible as `adjustment_qty`
+  and `shrinkage_qty` and no longer moves the velocity.
+- **Velocity is recency-weighted.** 60% of the trailing 28-day rate plus 40%
+  of the lookback rate when the lookback is longer than 28 days. A flavour that
+  is slowing or picking up is read within a month instead of a quarter.
+  `velocity_28d` and `velocity_trend_pct` are on the screen so the blend can
+  be checked.
+- **Sellable versus inbound.** `planning_on_hand` is what can ship today
+  (warehouses plus consignment partners). Stock at a co-packer, in transit, or
+  on an open PO line is `qty_inbound`. `days_of_supply` is on the sellable
+  figure and `days_of_cover` adds the inbound. Status and the suggested order
+  use cover, so a PO already raised stops the alarm.
+- **The shadow PO table is out of the maths.** QuickBooks POs are real rows in
+  `purchase_orders` since `20260904d`. The one shadow row left, AC04282026 from
+  April, was still counting 140 BIBs as on order.
+- **Overstock is a real status** (more than 3 × (target + lead) days).
+
+⚠ **Lead time still defaults to 7 days** (`inventory_settings.lead_time_days`).
+A co-packed case has a production cycle measured in weeks, so "reorder" fires
+late on those until the lead time is set per item. That is a settings entry,
+flagged rather than guessed.
+
+Verified after the rebuild: 574 at 7.42 a day, 28.8 days of cover, 61 cases
+suggested; 3G6151 BIB at 6.84 a day, 47.2 days; on order 0 for both.
+
+### Inventory Planning v2 — the planner forecasts, it no longer just extrapolates (2026-09-04)
+
+Sky, same day as the shrinkage fix: three weeks from ordering raw materials to
+canned product back in the warehouse; fountain product ordered about every two
+weeks; only BIB, 24-pack and 8-pack items need planning; use last year's
+totals and the growth per product across the weeks; account for holidays and
+weekends that move; leave Brix Beverage sampling out. Migration `20260904g`.
+
+**Scope — `is_planner` is a rule, not a checkbox.** A planner item is an
+active QuickBooks `Inventory` item on one of the three lanes (`bib_product`,
+`cans_24pk`, the new `cans_8pk`) whose name starts `3G`, `5G`, `24P` or
+`8PK`. That is 39 items today: 24 BIBs, 7 cases, 8 eight-packs. The other
+~1,070 items in `inventory_settings` keep their rows and stay off the planner
+screens (the page filters `is_planner` client-side; the RPC still returns
+everything for the Items master). ⚠ `cans_8pk` is a planner lane and NOT a
+production lane — `PRODUCTION_LANES` in `inventoryLane.ts` restricts the
+Production page to BIB + 24-pack, and the lane picker there only offers those
+two. An 8-pack is made by the repack sheet, never by a work order.
+
+**Lead time and target by lane** (only rows still carrying the seeded 7/30
+were touched — a hand-set value stays):
+
+| Lane | Lead time | Target cover | Why |
+|---|---|---|---|
+| `cans_24pk`, `cans_8pk` | 21 days | 30 days | ingredients → cans → fill → ship back is about three weeks |
+| `bib_product` | 7 days (unchanged) | 14 days | ordered roughly every two weeks |
+
+⚠ The BIB lead time was left at 7 because nobody has confirmed how long a
+Calderoni BIB order takes; it is a per-item settings entry.
+
+**Sampling is out.** QuickBooks customer 95 (`BRIX BEVERAGE - SAMPLING`) is in
+`inventory_velocity_excludes`, so demos and special events count in neither the
+recent rate nor last year's baseline.
+
+**What "demand" is.** `v_planning_daily_sales` (security_invoker, service_role
+only — `fn_items_master__i` reads it) is one row per planner item per day:
+Invoice + SalesReceipt add, CreditMemo + RefundReceipt subtract, excluded
+customers dropped, nothing dated after today. Same signs the sales feed uses,
+so a return that comes back is not demand twice.
+
+**Last year, aligned by weekday and holiday.** `fn_planning_daymap(from, to)`
+maps each coming day to its comparison day last year: `d − 364` keeps the
+weekday (a Saturday compares to a Saturday), and when the day falls in a week
+that holds a holiday, the whole week shifts so this year's holiday lands on
+last year's — Labor Day 2026-09-07 compares to Labor Day 2025-09-01, not to
+2025-09-08. Holidays live in `ops.planning_holidays` (72 rows, 2024–2027;
+fixed-date ones like July 4th and floating ones like Thanksgiving, Super Bowl
+Sunday, Easter; floating wins a tie). Staff can add or remove rows; nothing
+else writes the table.
+
+**Growth.** `fn_planning_yoy()` compares the trailing 13 complete Mon–Sun weeks
+with the same aligned weeks last year, per item, clamped to −50%…+100% and
+null when last year had fewer than 10 units (a 900% growth on a product that
+sold 3 cases is noise, not a trend). The 8-packs are new in 2026, so they have
+no baseline and run on the recent rate alone.
+
+**The plan rate.** `forecast_daily` = last year's units over the coming
+lead + target window, aligned, × (1 + growth), ÷ the window's days. The
+planning rate is `0.5 × recent velocity + 0.5 × forecast_daily` when a
+forecast exists, else the recent velocity (0.6 × 28-day + 0.4 × lookback, as
+before). Half and half on purpose: recent alone misses September picking up
+after August, last year alone misses a customer who left in March.
+
+**Safety stock.** `1.65 × (weekly σ ÷ √7) × √lead` — about 95% service on
+demand noise over one lead time — **capped at one lead time of demand**. The
+cap exists because a low-volume 8-pack (0.19 a day, σ 11.65) produced a safety
+stock of 33 and a reorder point of 37 on an item that sells six a month.
+
+**Reorder point and dates.** `reorder_point_calc` = `inventory_settings.
+reorder_point` if a human set one, else safety + lead × rate. Status:
+`critical` (out), `reorder` (sellable + inbound ≤ ROP — the order is already
+late), `reorder_soon` (within 7 days of the ROP), `overstock`, `ok`.
+`stockout_date` = today + floor(cover units ÷ rate); `order_by_date` =
+stockout − lead − floor(safety ÷ rate). **Suggested qty** =
+ceil((target + lead) × rate + safety − sellable − inbound), never below
+`min_order_qty`, never negative. ⚠ `min_order_qty` is 0 on every item, so the
+suggestion is not rounded to a canning run or a pallet — a per-item setting.
+
+**On screen.** Inventory Planning defaults to planner items; the Reorder tab
+sorts by **Order by** and shows Recent/day · 28d trend · LY forecast/day ·
+YoY · Plan rate/day · Cover · Inbound · Safety · Reorder Pt · Order by ·
+Stockout · Suggested; a new **Forecast** tab lists every planner item and, on
+click, the 13-weeks-back / 8-weeks-ahead weekly view from
+`fn_planning_weekly` (this year, last year aligned, forecast, the holiday in
+that week).
+
+Verified live after apply: root beer cases (574) plan at 8.27 a day (recent
+7.15, last-year window 9.40, YoY +0.3%), safety 28, ROP 202, 214 on hand →
+`reorder_soon`, order by 2026-09-05, stockout 2026-09-29, suggested 237. Olde
+Fountain Creme cases (560): 116 on hand, order by today, suggested 146.
+⚠ 574's last-year weekly series has two October weeks at 131 and 135 cases
+against a normal 40–60 — a bulk buyer, most likely — and the forecast will
+carry that bump into October 2026. If it was a one-off, the customer belongs in
+`inventory_velocity_excludes` or the holiday table is the wrong tool.
+
+### Inventory Planning v3 — anomalies out, pars in, and a fill plan for the gas (2026-09-04)
+
+Sky, after seeing v2: drop customers who bought a lot last year and have gone
+quiet; flag large quantities as an abnormality and let a human keep or exclude
+them; the smallest order; a weekly fill plan for 20 lb CO₂ and 20 lb mixed
+gas; call the buffer what it is, a **par**, and say what the pars should be;
+and wire the prediction into an actual order. Migration `20260904h`.
+
+**Anomalies (`ops.planning_exceptions`).** The detector,
+`fn_planning_exceptions_refresh()`, runs daily at 10:05 UTC and from the new
+Anomalies tab. Two rules:
+
+| Kind | Rule | What is excluded |
+|---|---|---|
+| Lapsed customer | ≥10% (and ≥20 units) of a planner item in the window 364–728 days ago, and nothing bought in the last 120 days | the whole customer, every item, every date |
+| Volume spike | one customer's week ≥3× their own median week and ≥½ the item's normal week, or a buyer with ≤3 weeks of history at ≥2× the item's normal week; 24+ units | that customer, that item, that week |
+
+Found live: **J&J Vending** (424 root-beer cases last year, 31% of the item,
+silent since 2025-08), **Canteen Fremont Facebook** (728 cases each of cola
+and orange in two weeks of May–June 2025, 66% and 37% of those items, silent
+since) and Best Western El Rancho (apple, orange juice) are lapsed; the
+October 2025 root-beer bump is **Office Libations**, two weeks of 91 cases,
+flagged as a spike. Every row lands `excluded`; the tab shows the evidence
+(their normal week, the item's normal week, the quantity) with **Keep** and
+**Exclude** buttons, and a decision is never overridden by the detector. A
+spike that no longer qualifies is dropped; a lapsed customer who orders again
+is `resolved`. ⚠ The first cut flagged any week ≥2× the item's median
+regardless of the customer's own history — which caught every Origins order of
+a flavour Origins is most of the market for. A distributor who always orders 50
+is not a spike; that is the demand.
+
+`v_planning_daily_sales` applies the exclusions, so the items master, the
+weekly view and the growth calculation all read one cleaned baseline. Recent
+sales are never touched by a lapsed exclusion (a lapsed customer has none), and
+a spike inside the last 13 weeks leaves the recent rate too — one bulk order is
+not a rate, and it would otherwise inflate the buffer and the par.
+
+⚠ **Growth is clamped to ±50% now, not −50%…+100%.** Removing a lapsed bulk
+buyer from last year's base made every case item read +100% growth — a thin
+base, not a doubling market. Root beer: v2 forecast 9.4/day, then 11.6/day
+with J&J out and the old clamp, **8.7/day** with the new one; plan rate 7.9.
+
+**Pars.** `par_min` = the reorder point — order when sellable + inbound reaches
+it (buffer + lead × plan rate, or the hand-set reorder point). `par_max` = the
+level an order brings you back to ((target + lead) × plan rate + buffer).
+"Safety stock" is labelled **Buffer** on screen; the arithmetic is unchanged.
+Suggested qty = par_max − sellable − inbound, floored at the minimum order.
+
+**The smallest order.** `smallest_order_qty` = the smallest quantity we have
+actually bought of the item in 24 months (QuickBooks bill lines).
+`inventory_settings.min_order_qty` was seeded from it for every BIB still at 0
+(BIB lines run 5, 10, 20, 30, 40 — Calderoni's multiples); cans stay at 0
+because their bill lines are Quantum tolling invoices, not run sizes. ⚠ Seeding
+the MOQ surfaced a bug: `suggested_order_qty` floored at the MOQ even when the
+item needed nothing, so every "ok" BIB suddenly suggested 5 or 30. The floor
+applies only when an order is needed; an item with cover to spare suggests 0.
+
+**Fill plan (`ops.planning_fill_items`, `fn_planning_fill_plan`).** The gas
+cylinders are filled, not stocked, so there is no on-hand and no reorder point
+— the question is how many tanks to have filled before Monday. Per item per
+week: what we filled this year, last year's aligned week (same holiday
+alignment as the planner), the forecast (half the last 8 weeks' average, half
+last year's aligned week grown by the trend, clamped ±50%) and a **weekly par**
+= forecast + 1.65 × the weekly swing. Live for the week of 2026-09-07 (Labor
+Day week): 20 lb CO₂ forecast 82, par **111**; 20 lb mixed gas forecast 8, par
+**12**. Small nitrogen is in the table, inactive.
+
+**The prediction becomes an order through the door the lane actually uses.**
+One button on the Reorder tab, three destinations: BIB → a purchase order
+(Production → Purchase Orders, lines prefilled — the existing path); 24-pack →
+**Production → Work Orders**, where the suggested runs sit in a queue and each
+**Start run** opens the create form with the BOM and quantity filled in (one
+work order is one flavour); 8-pack → **Stock → Repacks**, the repack sheet with
+the cases to repack prefilled (suggested packs ÷ 3, rounded up — the sheet does
+the conversion, because that rule lives in `repack_settings`). Nothing is
+created until the operator saves the PO, the work order or the signed sheet.
+
+### Inventory Planning v4 — the four predictive tools, built into the prediction (2026-09-04)
+
+Sky, after v3: *"Ok build the other stuff into the predictions."* The four tools proposed at the end of v3, each one now a column, a tab, or a number the forecast itself reads. Migration `20260904i` (applied live in three steps: the functions and the log table via `apply_migration`; then `fn_items_master__i` + its wrapper as an anchor-checked read-modify-write of the LIVE definition — ten anchors, each asserted to match exactly once; then a second anchor edit for the suggested-order floor).
+
+**1. Who is due to order this week — and it drives the reorder.** `ops.v_planning_daily_sales_cust` is the per-customer sibling of the planner baseline (same excludes, same exceptions). `fn_planning_customer_cadence()` reads each customer's ordering rhythm from it: the **median gap** between their order days over the last year, their next order expected one gap after the last, and what they **usually take** (the median of their last six orders, per item). Statuses: `due` (next order within 7 days), `overdue` (past the gap), `lapsing` (past 1.5× the gap — dropped from demand, and the Anomalies detector's territory once it passes 120 days), `not_due`, `irregular` (fewer than 3 orders). Live: 413 customers — 75 due, 44 overdue, 41 lapsing, 68 irregular. `fn_planning_due_demand(7)` adds those customers up per item, and the items master carries it as **`due_demand_7d` / `due_customers_7d`**. Two rules read it: **an item whose due demand exceeds sellable + inbound reads `reorder` whatever the daily rate says** (Hangar 25 Cola 8-packs: 2 on hand, one distributor due for its usual 39), and **the suggested order is at least due demand − cover** — the first cut let an item read REORDER with a suggestion of 0, which is a contradiction on a screen someone orders from. New **Customers Due** tab: due / overdue / lapsing buckets, the usual items per customer, the units due this week across everyone.
+
+**2. Growth on RETURNING customers, and the new customers as their own line.** `fn_planning_yoy()` used to compare this year's 13 weeks to last year's for the whole item. ⚠ That reads a customer who arrived this year as growth of last year's base — and last year's base does not contain them, so the forecast (LY × growth) never did either. Measured live before building: **55–66% of the last eight weeks' case sales are to customers who did not buy that item a year ago.** Now growth is `ty_returning_qty / ly_qty − 1` (customers who bought the item 364–728 days ago, clamped ±50%), and the customers new to the item ride separately as **`new_customer_daily`** (their 56-day run rate) — added on top of the LY-based forecast in `fn_items_master` and as `× 7` per week in `fn_planning_weekly`. Root beer cases 574: returning growth +20%, 33 new customers at 3.3/day, forecast 8.7 → 10.3/day, plan rate 7.9 → 8.7/day. The Reorder and Forecast tabs show **YoY (returning)** and **New cust/day**.
+
+**3. Lead time measured from history.** `fn_planning_lead_times()` collects every receipt it can find — a Refractor PO's `ordered_at` → its `po_receipts` row, a QuickBooks PO's `qbo_txn_date` → the bill linked to it (`qbo_expense_lines.linked_po_qbo_id`), a work order's `ordered_at` → `received_at` — and takes the median per item over 24 months. With **three or more samples** it overrides `inventory_settings.lead_time_days` everywhere the items master reads a lead (the planner window, the safety stock, the reorder point, the pars, the order-by date); `lead_time_source` says `measured` or `setting` and the Forecast tab's Lead column carries the badge. ⚠ **There is no history yet** — zero received POs, zero mirrored QBO POs with a linked bill, zero received work orders — so every item reads `setting` today. The first three receives of a BIB flavour will settle whether the unconfirmed 7-day BIB lead is right without anyone editing a setting.
+
+**4. Forecast accuracy — written down, then scored.** `ops.planning_forecast_log` (PK week_start × item, kind stock|fill) + `fn_planning_forecast_snapshot()` on pg_cron **Mondays 10:20 UTC**: the forecast for the current and next week per planner item and per fill item, **first write wins** — a prediction is never rewritten after the fact, because a forecast you can edit later cannot be wrong. First snapshot taken 2026-09-04 (78 stock + 4 fill rows). `fn_planning_forecast_accuracy(item, weeks)` scores each past week: the logged forecast where one exists, otherwise a **backtest** (half the prior 4 weeks' average, half last year × the growth of the prior 13 weeks — the v2/v3 shape, as it would have read at the time), labelled `logged` / `backtest`, with the miss and the percentage miss. The Forecast drill shows it under the weeks table with an average miss and a **bias** line. ⚠ Root beer's backtest over the last 13 weeks: average miss 20%, **bias −7.6 cases a week — the old forecast ran LOW in 10 of 13 weeks**, which is exactly the new-customer blind spot item 2 closes.
+
+**Performance trap, worth keeping.** The first cut of `fn_planning_due_demand` and `fn_planning_customer_cadence` ran past 55 seconds and took the items master with them; `v_planning_daily_sales_cust` alone runs in 0.4 s. The planner estimates that view at **one row**, inlines the CTEs, and re-runs the whole view once per row of the join between "who is due" and "what they usually take" (2,708 × 119). **Every CTE in those three functions is `AS MATERIALIZED`** — ~1 s. `fn_planning_yoy` got the same treatment pre-emptively.
+
+Manifest: new writer `planner:forecast-snapshot`; `planning_forecast_log` in the snapshot. `fetchCustomerCadence()` / `fetchForecastAccuracy()` in `lib/inventory.ts`.
 
 ## The run guide, inside the app
 

@@ -354,6 +354,10 @@ export interface LedgerStatus {
   qty_away_from_warehouse: number;
   /** Ours, but sitting at a partner on consignment. Counted in the comparison. */
   qty_on_consignment: number;
+  /** When QuickBooks' own quantities were last re-read into the mirror (the number drift is measured against). */
+  qbo_as_of: string | null;
+  /** When the QuickBooks purchasing pull (POs, bills, item quantities) last succeeded. */
+  purchasing_synced_at: string | null;
 }
 
 export interface DriftRow {

@@ -43,7 +43,10 @@ export interface ItemLookup {
 }
 
 export function StockPage() {
-  const [tab, setTab] = useState<TabId>('on_hand');
+  // Inventory Planning → Reorder (8-pack lane) → "Open repack sheet" stashes the
+  // cases to repack; the sheet is on the Repacks tab, so land there.
+  const [tab, setTab] = useState<TabId>(() =>
+    typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.repack.prefill') ? 'repacks' : 'on_hand');
   const [lane, setLane] = useInventoryLane();
   const [locations,  setLocations]  = useState<InventoryLocationView[] | null>(null);
   const [onHand,     setOnHand]     = useState<OnHandRow[]          | null>(null);

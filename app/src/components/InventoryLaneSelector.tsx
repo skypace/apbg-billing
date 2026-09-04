@@ -1,4 +1,4 @@
-import { Boxes, PackageCheck } from 'lucide-react';
+import { Boxes, Package, PackageCheck } from 'lucide-react';
 import {
   INVENTORY_LANES,
   type InventoryLane,
@@ -7,9 +7,14 @@ import {
 interface Props {
   value: InventoryLane;
   onChange: (lane: InventoryLane) => void;
+  /** Which lanes to offer (default: all). Production passes PRODUCTION_LANES — no 8-packs there. */
+  lanes?: InventoryLane[];
 }
 
-export function InventoryLaneSelector({ value, onChange }: Props) {
+const ICONS = { bib_product: Boxes, cans_24pk: PackageCheck, cans_8pk: Package } as const;
+
+export function InventoryLaneSelector({ value, onChange, lanes }: Props) {
+  const offered = lanes ? INVENTORY_LANES.filter((l) => lanes.includes(l.value)) : INVENTORY_LANES;
   return (
     <div className="toolbar-section" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <span className="toolbar-label">Lane</span>
@@ -21,9 +26,9 @@ export function InventoryLaneSelector({ value, onChange }: Props) {
         overflow: 'hidden',
         background: 'var(--ctl-bg)',
       }}>
-        {INVENTORY_LANES.map((lane) => {
+        {offered.map((lane, idx) => {
           const active = lane.value === value;
-          const Icon = lane.value === 'bib_product' ? Boxes : PackageCheck;
+          const Icon = ICONS[lane.value];
           return (
             <button
               key={lane.value}
@@ -39,7 +44,7 @@ export function InventoryLaneSelector({ value, onChange }: Props) {
                 height: 28,
                 padding: '0 10px',
                 border: 'none',
-                borderRight: lane.value === 'bib_product' ? '1px solid var(--ctl-bd)' : 'none',
+                borderRight: idx < offered.length - 1 ? '1px solid var(--ctl-bd)' : 'none',
                 background: active ? 'var(--ac)' : 'transparent',
                 color: active ? 'var(--bg)' : 'var(--tx)',
                 cursor: 'pointer',
