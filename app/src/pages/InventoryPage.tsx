@@ -10,8 +10,8 @@ import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
-  FillPlanRow, InventoryHealthRow, PlanningException, PlanningWeekRow, QboCustomerOption, VelocityExcludeRow,
-  addVelocityExclude, fetchCustomerOptions, fetchFillPlan, fetchInventoryHealth, fetchPlanningExceptions,
+  CadenceRow, FillPlanRow, ForecastAccuracyRow, InventoryHealthRow, PlanningException, PlanningWeekRow, QboCustomerOption, VelocityExcludeRow,
+  addVelocityExclude, fetchCustomerCadence, fetchCustomerOptions, fetchFillPlan, fetchForecastAccuracy, fetchInventoryHealth, fetchPlanningExceptions,
   fetchPlanningWeekly, fetchVelocityExcludes, refreshPlanningExceptions, removeVelocityExclude, setPlanningException,
 } from '../lib/inventory';
 import { INVENTORY_LANE_LABEL, filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
@@ -24,11 +24,12 @@ import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 //   - Inventory Planning = what should we buy? how fast does it move? — analytics
 // Purchase Orders tab lives on the operational page now.
 
-type TabId = 'reorder' | 'forecast' | 'fill' | 'anomalies' | 'velocity' | 'excludes';
+type TabId = 'reorder' | 'forecast' | 'customers' | 'fill' | 'anomalies' | 'velocity' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'reorder',   label: 'Reorder' },
   { id: 'forecast',  label: 'Forecast' },
+  { id: 'customers', label: 'Customers Due' },
   { id: 'fill',      label: 'Fill Plan' },
   { id: 'anomalies', label: 'Anomalies' },
   { id: 'velocity',  label: 'Velocity' },
@@ -192,6 +193,7 @@ export function InventoryPage() {
 
       {tab === 'reorder' && <ReorderTable rows={laneRows} lane={lane} />}
       {tab === 'forecast' && <ForecastTab rows={laneRows} />}
+      {tab === 'customers' && <CustomersDueTab />}
       {tab === 'fill' && <FillPlanTab />}
       {tab === 'anomalies' && <AnomaliesTab />}
       {tab === 'velocity' && <VelocityTable rows={laneRows} />}
@@ -236,6 +238,34 @@ function YoyCell({ value }: { value: number | null | undefined }) {
 }
 
 /** The trailing-28-day rate against the lookback average: +12% = selling faster lately. */
+function NewCustCell({ row }: { row: InventoryHealthRow }) {
+  const v = Number(row.new_customer_daily ?? 0);
+  if (!row.is_planner || v <= 0) return <span style={{ color: 'var(--mt)' }}>—</span>;
+  return <span title={`${row.new_customers ?? 0} customer${row.new_customers === 1 ? '' : 's'} new to this item in the last year — ${(v * 7).toFixed(1)} a week`} style={{ color: 'var(--ac)' }}>
+    +{v.toFixed(2)} <span style={{ fontSize: 9, color: 'var(--mt)' }}>({row.new_customers ?? 0})</span>
+  </span>;
+}
+
+function DueCell({ row }: { row: InventoryHealthRow }) {
+  const v = Number(row.due_demand_7d ?? 0);
+  if (!row.is_planner || v <= 0) return <span style={{ color: 'var(--mt)' }}>—</span>;
+  const cover = Number(row.planning_on_hand ?? 0) + Number(row.qty_inbound ?? 0);
+  const short = v > cover;
+  return <span title={`${row.due_customers_7d ?? 0} customer${row.due_customers_7d === 1 ? '' : 's'} due in the next 7 days${short ? ' — more than sellable + inbound' : ''}`}
+    style={{ color: short ? 'var(--rd)' : undefined, fontWeight: short ? 700 : 500 }}>
+    {fmtNum(v)} <span style={{ fontSize: 9, color: 'var(--mt)' }}>({row.due_customers_7d ?? 0})</span>
+  </span>;
+}
+
+function LeadCell({ row }: { row: InventoryHealthRow }) {
+  const measured = row.lead_time_source === 'measured';
+  return <span title={measured
+      ? `Measured from ${row.lead_samples} receipt${row.lead_samples === 1 ? '' : 's'} (median ${row.measured_lead_days} days)`
+      : `From Settings → Items${row.lead_samples ? ` — ${row.lead_samples} receipt${row.lead_samples === 1 ? '' : 's'} so far, measured once there are 3` : ' — no receipts on record yet'}`}>
+    {row.lead_time_days}d <span style={{ fontSize: 9, color: measured ? 'var(--gn)' : 'var(--mt)', fontWeight: 700 }}>{measured ? 'MEASURED' : 'SETTING'}</span>
+  </span>;
+}
+
 function TrendCell({ value }: { value: number | null | undefined }) {
   if (value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
   const v = Number(value);
@@ -294,10 +324,17 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
     { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 90, cellClassName: 'mn',
       renderCell: (p) => <TrendCell value={p.value as number | null | undefined} /> },
     { field: 'forecast_daily', headerName: 'LY forecast/day', type: 'number', width: 120, cellClassName: 'mn',
-      description: "Last year's units over the coming lead + target window (same weekday, holidays matched), grown by the YoY factor",
+      description: "Last year's units over the coming lead + target window (same weekday, holidays matched), grown by the returning-customer YoY, plus the new customers' run rate",
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
-    { field: 'yoy_growth_pct', headerName: 'YoY', type: 'number', width: 80, cellClassName: 'mn',
+    { field: 'yoy_growth_pct', headerName: 'YoY (returning)', type: 'number', width: 110, cellClassName: 'mn',
+      description: "Trailing 13 weeks vs the same weeks last year, counting only customers who bought this item last year — a customer who arrived this year cannot read as growth of last year's base",
       renderCell: (p) => <YoyCell value={p.value as number | null | undefined} /> },
+    { field: 'new_customer_daily', headerName: 'New cust/day', type: 'number', width: 105, cellClassName: 'mn',
+      description: 'Units per day (last 56 days) from customers who did not buy this item last year — added on top of the last-year forecast',
+      renderCell: (p) => <NewCustCell row={p.row as InventoryHealthRow} /> },
+    { field: 'due_demand_7d', headerName: 'Due next 7d', type: 'number', width: 105, cellClassName: 'mn',
+      description: 'What the customers whose ordering rhythm says they are due in the next 7 days usually take of this item. When it exceeds sellable + inbound the item reads REORDER whatever the rate says.',
+      renderCell: (p) => <DueCell row={p.row as InventoryHealthRow} /> },
     { field: 'planning_velocity', headerName: 'Plan rate/day', type: 'number', width: 110, cellClassName: 'mn',
       description: 'The rate the plan runs on: half recent, half last-year forecast',
       renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
@@ -340,7 +377,7 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
       } },
     {
       field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 120, cellClassName: 'mn',
-      description: 'Par (max) − sellable − inbound when that is positive, floored at the minimum order; 0 when there is cover to spare',
+      description: 'Par (max) − sellable − inbound when that is positive (at least what the customers due this week take), floored at the minimum order; 0 when there is cover to spare',
       renderCell: (p) => (
         <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
       ),
@@ -349,15 +386,17 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
 
   function exportCsv() {
     if (reorder.length === 0) return;
-    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'Inbound', 'Recent/day', 'LY forecast/day', 'YoY %', 'Plan rate/day', 'Days of Cover', 'Buffer', 'Par Min', 'Par Max', 'Min Order', 'Smallest Order 24m', 'Order By', 'Stockout', 'Suggested Order Qty', 'Status'];
+    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'Inbound', 'Recent/day', 'LY forecast/day', 'YoY % (returning)', 'New cust/day', 'New customers', 'Due next 7d', 'Due customers', 'Plan rate/day', 'Days of Cover', 'Lead days', 'Lead source', 'Buffer', 'Par Min', 'Par Max', 'Min Order', 'Smallest Order 24m', 'Order By', 'Stockout', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
       r.item_name, r.category_resolved ?? '', r.inventory_lane ?? '', r.active ? 'yes' : 'no',
       r.planning_on_hand ?? r.on_hand ?? '', r.brix_on_hand ?? '', r.qbo_on_hand ?? '', r.on_hand_drift ?? '', r.qty_inbound ?? r.qty_on_order ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
       r.forecast_daily != null ? Number(r.forecast_daily).toFixed(2) : '',
       r.yoy_growth_pct ?? '',
+      r.new_customer_daily ?? '', r.new_customers ?? '', r.due_demand_7d ?? '', r.due_customers_7d ?? '',
       r.planning_velocity != null ? Number(r.planning_velocity).toFixed(2) : '',
       r.days_of_cover != null ? Number(r.days_of_cover).toFixed(0) : '',
+      r.lead_time_days ?? '', r.lead_time_source ?? '',
       r.safety_stock ?? '', r.par_min ?? r.reorder_point_calc ?? '', r.par_max ?? '', r.min_order_qty ?? '', r.smallest_order_qty ?? '', r.order_by_date ?? '', r.stockout_date ?? '',
       r.suggested_order_qty ?? '', r.status,
     ]);
@@ -631,6 +670,7 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
   const [selected, setSelected] = useState<InventoryHealthRow | null>(null);
   const [weeks, setWeeks] = useState<PlanningWeekRow[] | null>(null);
   const [weeksErr, setWeeksErr] = useState<string | null>(null);
+  const [accuracy, setAccuracy] = useState<ForecastAccuracyRow[] | null>(null);
 
   const planner = useMemo(
     () => rows ? rows.filter((r) => r.is_planner && r.active).sort((a, b) => (a.order_by_date ?? '9999').localeCompare(b.order_by_date ?? '9999')) : null,
@@ -642,10 +682,13 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
   useEffect(() => {
     if (!selected) { setWeeks(null); return; }
     let live = true;
-    setWeeks(null); setWeeksErr(null);
+    setWeeks(null); setWeeksErr(null); setAccuracy(null);
     fetchPlanningWeekly(selected.qbo_item_id, 13, 8)
       .then((w) => { if (live) setWeeks(w); })
       .catch((e) => { if (live) setWeeksErr((e as Error).message); });
+    fetchForecastAccuracy(selected.qbo_item_id, 13)
+      .then((a) => { if (live) setAccuracy(a); })
+      .catch(() => { if (live) setAccuracy([]); });
     return () => { live = false; };
   }, [selected]);
 
@@ -665,15 +708,21 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
         if (r.ly_window_qty == null) return <span style={{ color: 'var(--mt)' }} title="No last-year data for this window">—</span>;
         return <span>{fmtNum(Number(r.ly_window_qty))} <span style={{ fontSize: 9, color: 'var(--mt)' }}>/ {r.forecast_window_days}d</span></span>;
       } },
-    { field: 'yoy_growth_pct', headerName: 'YoY', type: 'number', width: 80, cellClassName: 'mn',
-      description: 'Trailing 13 weeks this year vs the same weeks last year',
+    { field: 'yoy_growth_pct', headerName: 'YoY (returning)', type: 'number', width: 110, cellClassName: 'mn',
+      description: 'Trailing 13 weeks vs the same weeks last year, returning customers only',
       renderCell: (p) => <YoyCell value={p.value as number | null | undefined} /> },
+    { field: 'new_customer_daily', headerName: 'New cust/day', type: 'number', width: 105, cellClassName: 'mn',
+      description: 'Run rate of customers new to this item in the last 56 days',
+      renderCell: (p) => <NewCustCell row={p.row as InventoryHealthRow} /> },
     { field: 'forecast_daily', headerName: 'LY forecast/day', type: 'number', width: 120, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'due_demand_7d', headerName: 'Due next 7d', type: 'number', width: 105, cellClassName: 'mn',
+      renderCell: (p) => <DueCell row={p.row as InventoryHealthRow} /> },
     { field: 'planning_velocity', headerName: 'Plan rate/day', type: 'number', width: 110, cellClassName: 'mn',
       renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
-    { field: 'lead_time_days', headerName: 'Lead', type: 'number', width: 70, cellClassName: 'mn',
-      valueFormatter: (v) => `${v}d` },
+    { field: 'lead_time_days', headerName: 'Lead', type: 'number', width: 90, cellClassName: 'mn',
+      description: 'Lead time in days. MEASURED once three receipts exist (PO ordered → received, work order ordered → received, QuickBooks PO → bill); until then the setting',
+      renderCell: (p) => <LeadCell row={p.row as InventoryHealthRow} /> },
     { field: 'safety_stock', headerName: 'Buffer', type: 'number', width: 80, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
     { field: 'par_min', headerName: 'Par (min)', type: 'number', width: 95, cellClassName: 'mn',
@@ -737,9 +786,10 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <div className="ct" style={{ margin: 0 }}>{selected.item_name}</div>
             <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-              Last 13 weeks against the same weeks last year, then the next 8 weeks as last year × growth.
+              Last 13 weeks against the same weeks last year, then the next 8 weeks as last year × returning-customer growth + the new customers' weekly rate.
               A week with a holiday is matched to last year's holiday week, not the same calendar week.
               {selected.yoy_growth_pct != null && <> Growth applied: <strong>{Number(selected.yoy_growth_pct) > 0 ? '+' : ''}{Number(selected.yoy_growth_pct).toFixed(1)}%</strong>.</>}
+              {Number(selected.new_customer_daily ?? 0) > 0 && <> New customers: <strong>+{(Number(selected.new_customer_daily) * 7).toFixed(1)}/week</strong> ({selected.new_customers}).</>}
             </span>
             <button onClick={() => setSelected(null)} style={{ ...btnSecondary(), marginLeft: 'auto' }}>Close</button>
           </div>
@@ -787,8 +837,158 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
               </tbody>
             </table>
           )}
+          <AccuracyPanel rows={accuracy} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Forecast accuracy: what we said a week would be, against what it was ──
+function AccuracyPanel({ rows }: { rows: ForecastAccuracyRow[] | null }) {
+  if (!rows) return <div className="ld" style={{ borderTop: '1px solid var(--bd)' }}>Loading accuracy…</div>;
+  const scored = rows.filter((r) => r.abs_pct_error != null && r.actual_qty != null && Number(r.actual_qty) > 0);
+  if (scored.length === 0) return null;
+  const mape = scored.reduce((s, r) => s + Number(r.abs_pct_error), 0) / scored.length;
+  const bias = scored.reduce((s, r) => s + Number(r.error_qty ?? 0), 0) / scored.length;
+  const logged = rows.filter((r) => r.source === 'logged').length;
+  return (
+    <div style={{ borderTop: '1px solid var(--bd)' }}>
+      <div style={{ padding: '10px 16px', display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 11 }}>
+        <span className="ct" style={{ margin: 0 }}>How good has the forecast been?</span>
+        <span>Average miss <strong style={{ color: mape > 30 ? 'var(--rd)' : mape > 15 ? 'var(--am)' : 'var(--gn)' }}>{mape.toFixed(0)}%</strong> over {scored.length} weeks</span>
+        <span>Bias <strong style={{ color: Math.abs(bias) < 2 ? 'var(--mt)' : bias < 0 ? 'var(--am)' : 'var(--ac)' }}>{bias > 0 ? '+' : ''}{bias.toFixed(1)}/week</strong>
+          <span style={{ color: 'var(--mt)' }}> ({bias < 0 ? 'we have been forecasting LOW' : bias > 0 ? 'we have been forecasting HIGH' : 'no lean'})</span></span>
+        <span style={{ color: 'var(--mt)' }}>
+          {logged > 0 ? `${logged} week${logged === 1 ? '' : 's'} scored against the forecast written down the Monday before; the rest ` : 'Every week so far is '}
+          recomputed as the forecast would have read at the time (the Monday snapshot began 2026-09-04).
+        </span>
+      </div>
+      <table style={{ width: '100%' }}>
+        <thead><tr>
+          <th>Week of</th>
+          <th style={{ textAlign: 'right' }}>Forecast</th>
+          <th style={{ textAlign: 'right' }}>Actual</th>
+          <th style={{ textAlign: 'right' }}>Miss</th>
+          <th style={{ textAlign: 'right' }}>Miss %</th>
+          <th>Source</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r) => {
+            const err = r.error_qty == null ? null : Number(r.error_qty);
+            const pct = r.abs_pct_error == null ? null : Number(r.abs_pct_error);
+            return (
+              <tr key={r.week_start}>
+                <td>{fmtDate(r.week_start)}</td>
+                <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{r.forecast_qty == null ? '—' : fmtNum(Math.round(Number(r.forecast_qty)))}</td>
+                <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{r.actual_qty == null ? '—' : fmtNum(Number(r.actual_qty))}</td>
+                <td className="mn" style={{ textAlign: 'right', color: err == null ? 'var(--mt)' : err < 0 ? 'var(--am)' : 'var(--mt)' }}>{err == null ? '—' : `${err > 0 ? '+' : ''}${err.toFixed(0)}`}</td>
+                <td className="mn" style={{ textAlign: 'right', color: pct == null ? 'var(--mt)' : pct > 30 ? 'var(--rd)' : pct > 15 ? 'var(--am)' : 'var(--gn)' }}>{pct == null ? '—' : `${pct.toFixed(0)}%`}</td>
+                <td style={{ fontSize: 9, color: r.source === 'logged' ? 'var(--gn)' : 'var(--mt)', fontWeight: 700, letterSpacing: 0.5 }}>{r.source.toUpperCase()}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Customers due: who orders this week, and what they usually take ──────
+const CADENCE_LABEL: Record<CadenceRow['cadence_status'], { label: string; color: string; hint: string }> = {
+  overdue:   { label: 'OVERDUE',   color: 'var(--rd)', hint: 'past their usual gap — a call, or a lost account starting' },
+  due:       { label: 'DUE',       color: 'var(--am)', hint: 'their next order falls in the next 7 days' },
+  lapsing:   { label: 'LAPSING',   color: '#a78bfa',   hint: 'more than 1.5× their usual gap with no order — not counted in demand any more' },
+  not_due:   { label: 'NOT DUE',   color: 'var(--gn)', hint: 'ordered recently, next one is further out' },
+  irregular: { label: 'IRREGULAR', color: 'var(--mt)', hint: 'fewer than 3 orders in a year — no rhythm to read' },
+};
+
+function CustomersDueTab() {
+  const [rows, setRows] = useState<CadenceRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'actionable' | CadenceRow['cadence_status'] | 'all'>('actionable');
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    fetchCustomerCadence().then(setRows).catch((e) => { setErr((e as Error).message); setRows([]); });
+  }, []);
+  if (!rows) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={10} cols={7} /></div>;
+  if (err) return <div className="cd" style={{ padding: 16, color: 'var(--rd)' }}>{err}</div>;
+
+  const counts = rows.reduce<Record<string, number>>((acc, r) => { acc[r.cadence_status] = (acc[r.cadence_status] ?? 0) + 1; return acc; }, {});
+  const dueUnits = rows.filter((r) => r.cadence_status === 'due' || r.cadence_status === 'overdue')
+    .reduce((s, r) => s + r.usual_items.reduce((a, i) => a + Number(i.usual_qty), 0), 0);
+  const q = search.trim().toLowerCase();
+  const visible = rows.filter((r) =>
+    (filter === 'all' || (filter === 'actionable' ? (r.cadence_status === 'due' || r.cadence_status === 'overdue') : r.cadence_status === filter))
+    && (!q || (r.customer_name ?? '').toLowerCase().includes(q) || r.usual_items.some((i) => (i.item_name ?? '').toLowerCase().includes(q))));
+
+  const pill = (id: typeof filter, label: string, n?: number) => (
+    <button key={id} onClick={() => setFilter(id)} style={{ ...(filter === id ? btnPrimary() : btnSecondary()), padding: '3px 10px', fontSize: 10 }}>
+      {label}{n != null ? ` · ${n}` : ''}
+    </button>
+  );
+
+  return (
+    <div>
+      <div className="gr g4" style={{ marginBottom: 14 }}>
+        <KPICard title="DUE THIS WEEK" value={counts.due ?? 0} accent="var(--am)" sub="their usual gap lands in the next 7 days" />
+        <KPICard title="OVERDUE" value={counts.overdue ?? 0} accent="var(--rd)" sub="past their usual gap — worth a call before the week is out" />
+        <KPICard title="LAPSING" value={counts.lapsing ?? 0} accent="#a78bfa" sub="1.5× their gap with nothing — dropped from due demand" />
+        <KPICard title="UNITS DUE" value={fmtNum(Math.round(dueUnits))} accent="var(--ac)" sub="what the due + overdue customers usually take, all items" />
+      </div>
+      <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, fontSize: 11, color: 'var(--mt)', lineHeight: 1.5 }}>
+        Each customer's rhythm is the <strong>median gap</strong> between their order days over the last year; their next order is expected one gap after the last one.
+        What they <strong>usually take</strong> is the median of their last six orders, per item. The Reorder tab's <strong>Due next 7d</strong> column is these customers added up per item,
+        and an item whose due demand exceeds sellable + inbound reads REORDER whatever the daily rate says. Sampling, excluded and anomaly customers are already out.
+      </div>
+      <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        {pill('actionable', 'Due + overdue', (counts.due ?? 0) + (counts.overdue ?? 0))}
+        {pill('due', 'Due', counts.due ?? 0)}
+        {pill('overdue', 'Overdue', counts.overdue ?? 0)}
+        {pill('lapsing', 'Lapsing', counts.lapsing ?? 0)}
+        {pill('not_due', 'Not due', counts.not_due ?? 0)}
+        {pill('irregular', 'Irregular', counts.irregular ?? 0)}
+        {pill('all', 'Everyone', rows.length)}
+        <span style={{ marginLeft: 'auto' }}><SearchInput value={search} onChange={setSearch} placeholder="Customer or item…" /></span>
+      </div>
+      <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
+        {visible.length === 0 ? <div className="ld">Nobody in this bucket.</div> : (
+          <table style={{ width: '100%' }}>
+            <thead><tr>
+              <th>Customer</th><th>Status</th>
+              <th style={{ textAlign: 'right' }}>Orders / yr</th>
+              <th style={{ textAlign: 'right' }}>Every</th>
+              <th>Last order</th><th>Next expected</th>
+              <th>Usually takes</th>
+            </tr></thead>
+            <tbody>
+              {visible.map((r) => {
+                const meta = CADENCE_LABEL[r.cadence_status];
+                const isOpen = open === r.qbo_customer_id;
+                const shown = isOpen ? r.usual_items : r.usual_items.slice(0, 3);
+                return (
+                  <tr key={r.qbo_customer_id} style={{ cursor: r.usual_items.length > 3 ? 'pointer' : undefined }} onClick={() => setOpen(isOpen ? null : r.qbo_customer_id)}>
+                    <td style={{ fontWeight: 600 }}>{r.customer_name ?? r.qbo_customer_id}</td>
+                    <td><span title={meta.hint} style={{ color: meta.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</span>
+                      {r.days_until_due != null && (r.cadence_status === 'due' || r.cadence_status === 'overdue') &&
+                        <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>{r.days_until_due < 0 ? `${-r.days_until_due}d late` : r.days_until_due === 0 ? 'today' : `in ${r.days_until_due}d`}</span>}
+                    </td>
+                    <td className="mn" style={{ textAlign: 'right' }}>{r.orders_365}</td>
+                    <td className="mn" style={{ textAlign: 'right' }}>{r.median_gap_days == null ? '—' : `${Math.round(Number(r.median_gap_days))}d`}</td>
+                    <td>{r.last_order ? fmtDate(r.last_order) : '—'}</td>
+                    <td style={{ fontWeight: r.cadence_status === 'due' ? 700 : 500 }}>{r.next_expected ? fmtDate(r.next_expected) : '—'}</td>
+                    <td style={{ fontSize: 10 }}>
+                      {shown.map((i) => <span key={i.qbo_item_id} style={{ display: 'inline-block', marginRight: 8 }}><strong>{fmtNum(Number(i.usual_qty))}</strong> {i.item_name ?? i.qbo_item_id}</span>)}
+                      {!isOpen && r.usual_items.length > 3 && <span style={{ color: 'var(--ac)' }}>+{r.usual_items.length - 3} more</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

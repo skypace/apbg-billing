@@ -90,6 +90,17 @@ export interface InventoryHealthRow {
   par_max?: number | null;
   /** smallest quantity we have actually bought in 24 months (QuickBooks bill lines) */
   smallest_order_qty?: number | null;
+  /** 20260904i — the four predictive signals. */
+  /** run rate (units/day, last 56 days) of customers NEW to this item — not in last year's base, added onto the forecast */
+  new_customer_daily?: number | null;
+  new_customers?: number | null;
+  /** what the customers whose cadence says they order in the next 7 days usually take of this item */
+  due_demand_7d?: number | null;
+  due_customers_7d?: number | null;
+  /** 'measured' when ≥3 receipts exist (PO ordered→received, WO ordered→received, QBO PO→bill); else 'setting' */
+  lead_time_source?: 'measured' | 'setting' | null;
+  measured_lead_days?: number | null;
+  lead_samples?: number | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -261,6 +272,44 @@ export interface FillPlanRow {
 /** Cylinders we fill rather than stock: per item per week, actual / last year / forecast / weekly par. */
 export function fetchFillPlan(weeksBack = 8, weeksAhead = 3) {
   return sbrpc<FillPlanRow[]>('fn_planning_fill_plan', { p_weeks_back: weeksBack, p_weeks_ahead: weeksAhead });
+}
+
+export interface CadenceUsualItem {
+  qbo_item_id: string;
+  item_name: string | null;
+  usual_qty: number;
+  times_in_last_6: number;
+}
+
+export interface CadenceRow {
+  qbo_customer_id: string;
+  customer_name: string | null;
+  orders_365: number;
+  median_gap_days: number | null;
+  last_order: string | null;
+  next_expected: string | null;
+  days_until_due: number | null;
+  cadence_status: 'due' | 'overdue' | 'lapsing' | 'not_due' | 'irregular';
+  usual_items: CadenceUsualItem[];
+}
+
+/** Every customer who bought a planner or fill item in 365 days: their ordering rhythm and what they usually take. */
+export function fetchCustomerCadence() {
+  return sbrpc<CadenceRow[]>('fn_planning_customer_cadence', {});
+}
+
+export interface ForecastAccuracyRow {
+  week_start: string;
+  forecast_qty: number | null;
+  actual_qty: number | null;
+  error_qty: number | null;
+  abs_pct_error: number | null;
+  /** 'logged' = the forecast written down the Monday before (planning_forecast_log); 'backtest' = recomputed as it would have read */
+  source: 'logged' | 'backtest';
+}
+
+export function fetchForecastAccuracy(qbo_item_id: string, weeks = 13) {
+  return sbrpc<ForecastAccuracyRow[]>('fn_planning_forecast_accuracy', { p_qbo_item_id: qbo_item_id, p_weeks: weeks });
 }
 
 export function fetchPlanningWeekly(qbo_item_id: string, weeksBack = 13, weeksAhead = 8) {
