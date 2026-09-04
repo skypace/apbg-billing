@@ -194,6 +194,24 @@ header .links a:hover{color:#1F4E79}
     </div>
   </div>
 
+  <div class="keepalive-section" style="margin-top:24px">
+    <h2>📈 3rd-Party Service Margin <span style="font-weight:400;font-size:0.75rem;color:#9CA3AF">— what we billed the ResQ dispatch accounts, and what the work cost us</span></h2>
+    <div style="background:#fff;border:1px solid #E2E6ED;border-radius:10px;padding:16px 20px;color:#1F2937;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="font-size:0.85rem;color:#374151;max-width:560px">
+        Revenue and subcontractor cost for every <b>ResQ</b> account (The Melt, Starbird — found by name, so a new
+        chain is picked up automatically), matched <b>on the Service Fusion job</b> rather than the calendar, plus the
+        exceptions worth acting on: duplicate vendor bills, jobs billed below cost, vendor cost sitting on jobs with no
+        invoice, and bills still in draft. <b>Emails itself on the 3rd of each month</b> for the month just ended.
+        <span style="color:#9CA3AF">Cost is subcontractor bills only — our own techs' time is not in it.</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="marginMonth" type="month" style="padding:9px 10px;border:1px solid #D1D5DB;border-radius:8px;font-size:0.85rem">
+        <button id="marginPreviewBtn" onclick="runServiceMargin('preview')" style="flex:none;background:#fff;color:#1F4E79;border:1px solid #1F4E79;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Preview</button>
+        <button id="marginSendBtn" onclick="runServiceMargin('send')" style="flex:none;background:#1F4E79;color:#fff;border:0;font-weight:600;font-size:0.85rem;padding:10px 16px;border-radius:8px;cursor:pointer">Email it now →</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MCP moved out 2026-08-06 — every MCP control (server status, endpoint
        probes, connector re-auth guidance, provider reconnect) now lives in the
        MCP Servers app at /mcp. Master Control keeps only this pointer so there
@@ -553,6 +571,10 @@ function renderKeepalive() {
 
 // ═══ SHARED HELPERS + Maintenance + Linked Customers ═══
 const APBG_FN = 'https://apbg-billing.netlify.app/.netlify/functions';
+// A Netlify v2 function that declares `export const config = { path }` is served
+// ONLY at that path — the legacy /.netlify/functions/<name> route 404s for it.
+// Call those through APBG_API. (tests/function-routes.test.mjs enforces this.)
+const APBG_API = 'https://apbg-billing.netlify.app/api';
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const btnCss = (bg)=>`padding:8px 16px;border:0;border-radius:6px;font-weight:600;cursor:pointer;color:#fff;background:${bg}`;
 
@@ -1078,6 +1100,47 @@ async function runHandbookAutoupdate(){
     log('Handbook auto-update failed to start: '+e.message, 'error');
     alert('Failed to start: '+e.message);
     if(btn){ btn.disabled = false; btn.textContent = '🤖 Auto-update stale chapters → draft PR'; }
+  }
+}
+
+// --- 3rd-Party Service Margin report ---
+// Preview fetches the HTML with the session bearer and hands over a blob URL:
+// the endpoint is superadmin-gated, and a plain window.open carries no
+// Authorization header, so a direct link would only ever render a 401.
+function marginMonthValue(){
+  const el=document.getElementById('marginMonth');
+  if(el && el.value) return el.value;
+  const d=new Date();
+  const p=new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-1, 1));
+  return `${p.getUTCFullYear()}-${String(p.getUTCMonth()+1).padStart(2,'0')}`;
+}
+async function runServiceMargin(mode){
+  const month = marginMonthValue();
+  const isSend = mode==='send';
+  const btn = document.getElementById(isSend?'marginSendBtn':'marginPreviewBtn');
+  const label = btn.textContent;
+  if(isSend && !confirm(`Email the ${month} 3rd-party service margin report now?`)) return;
+  btn.disabled=true; btn.textContent = isSend?'Sending\u2026':'Building\u2026';
+  try{
+    const qs = `month=${encodeURIComponent(month)}` + (isSend?'':'&preview=1');
+    const res = await fetch(`${APBG_API}/service-margin-report?${qs}`,{headers:authHeaders()});
+    if(!res.ok){ throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0,160)}`); }
+    if(isSend){
+      const j = await res.json();
+      log(`Service margin ${j.label}: billed ${j.totals && j.totals.jobRevenue}, GP ${j.totals && j.totals.gp} \u2014 emailed to ${(j.to||[]).join(', ')}`, j.sent?'ok':'error');
+      btn.textContent = j.sent ? 'Sent \u2713' : 'Send failed';
+    } else {
+      const html = await res.text();
+      const url = URL.createObjectURL(new Blob([html],{type:'text/html'}));
+      window.open(url,'_blank');
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+      btn.textContent = 'Opened \u2713';
+    }
+  }catch(e){
+    alert('Service margin report failed: '+e.message);
+    log('Service margin report failed: '+e.message,'error');
+  }finally{
+    setTimeout(()=>{btn.disabled=false; btn.textContent=label;}, 4000);
   }
 }
 
