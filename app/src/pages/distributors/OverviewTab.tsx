@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import {
   InventoryLocation,
@@ -331,47 +332,49 @@ function VendorLinkPanel({ dist, onChanged }: {
             From the QBO mirror — what they've billed us.
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <Th>Date</Th>
-                  <Th>Type</Th>
-                  <Th>Account</Th>
-                  <Th>Description</Th>
-                  <Th style={{ textAlign: 'right' }}>Amount</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines === null && (
-                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
-                )}
-                {lines !== null && lines.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
-                    No bill / expense lines in the mirror for this vendor.
-                  </td></tr>
-                )}
-                {(lines ?? []).map((l) => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <Td>{l.txn_date ?? '—'}</Td>
-                    <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{l.qbo_txn_type ?? '—'}</span></Td>
-                    <Td><span style={{ color: 'var(--mt)' }}>{l.account_name ?? l.item_name ?? '—'}</span></Td>
-                    <Td>{l.description ?? '—'}</Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {l.amount == null ? '—' : fmtAmt(Number(l.amount))}
-                    </Td>
+            <PrintableTable>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                    <Th>Date</Th>
+                    <Th>Type</Th>
+                    <Th>Account</Th>
+                    <Th>Description</Th>
+                    <Th style={{ textAlign: 'right' }}>Amount</Th>
                   </tr>
-                ))}
-                {lines !== null && lines.length > 0 && (
-                  <tr style={{ borderTop: '1px solid var(--bd)' }}>
-                    <Td style={{ fontWeight: 700 }}>Total (last {lines.length})</Td>
-                    <Td> </Td><Td> </Td><Td> </Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>
-                      {fmtAmt(total)}
-                    </Td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {lines === null && (
+                    <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+                  )}
+                  {lines !== null && lines.length === 0 && (
+                    <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
+                      No bill / expense lines in the mirror for this vendor.
+                    </td></tr>
+                  )}
+                  {(lines ?? []).map((l) => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <Td>{l.txn_date ?? '—'}</Td>
+                      <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{l.qbo_txn_type ?? '—'}</span></Td>
+                      <Td><span style={{ color: 'var(--mt)' }}>{l.account_name ?? l.item_name ?? '—'}</span></Td>
+                      <Td>{l.description ?? '—'}</Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                        {l.amount == null ? '—' : fmtAmt(Number(l.amount))}
+                      </Td>
+                    </tr>
+                  ))}
+                  {lines !== null && lines.length > 0 && (
+                    <tr style={{ borderTop: '1px solid var(--bd)' }}>
+                      <Td style={{ fontWeight: 700 }}>Total (last {lines.length})</Td>
+                      <Td> </Td><Td> </Td><Td> </Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>
+                        {fmtAmt(total)}
+                      </Td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         </div>
       )}

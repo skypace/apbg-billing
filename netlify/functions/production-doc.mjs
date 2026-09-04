@@ -203,7 +203,7 @@ async function buildBol(id) {
   const meta = await company();
   return {
     payload: {
-      ...meta, bolNumber: t.bol_number, status: t.status, issued: t.created_at, shipDate: t.ship_date,
+      ...meta, bolNumber: t.bol_number, status: t.status, issued: t.transfer_date || t.created_at, shipDate: t.ship_date,
       shipper: locationBlock(from), consignee: locationBlock(to),
       carrier: t.carrier, pro: t.pro_number, tracking: t.tracking_number, freightTerms: t.freight_terms,
       weight: t.total_weight_lbs, pallets: t.total_pallets, declaredValue: t.declared_value_usd,

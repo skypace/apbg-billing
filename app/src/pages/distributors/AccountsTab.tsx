@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus } from 'lucide-react';
 import {
   QboCustomerLite,
@@ -91,39 +92,41 @@ export function DistributorAccountsTab({ dist }: { dist: SubDistributor }) {
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Account</Th>
-              <Th>Chain</Th>
-              <Th>QBO #</Th>
-              <Th>Status</Th>
-              <Th> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No serviced accounts yet.
-              </td></tr>
-            )}
-            {(rows ?? []).map((a) => (
-              <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: a.is_active ? 1 : 0.55 }}>
-                <Td><span style={{ fontWeight: 600 }}>{a.account_name ?? '—'}</span></Td>
-                <Td><span style={{ color: 'var(--mt)' }}>{a.chain ?? '—'}</span></Td>
-                <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--mt)', fontSize: 10.5 }}>
-                  {a.qbo_customer_id}
-                </code></Td>
-                <Td><Chip label={a.is_active ? 'active' : 'inactive'} color={a.is_active ? 'var(--gn)' : 'var(--mt)'} /></Td>
-                <Td>
-                  <button onClick={() => toggleActive(a)} disabled={busy} style={btnSecondary()}>
-                    {a.is_active ? 'Deactivate' : 'Reactivate'}
-                  </button>
-                </Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Account</Th>
+                <Th>Chain</Th>
+                <Th>QBO #</Th>
+                <Th>Status</Th>
+                <Th> </Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows !== null && rows.length === 0 && (
+                <tr><td colSpan={5} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No serviced accounts yet.
+                </td></tr>
+              )}
+              {(rows ?? []).map((a) => (
+                <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: a.is_active ? 1 : 0.55 }}>
+                  <Td><span style={{ fontWeight: 600 }}>{a.account_name ?? '—'}</span></Td>
+                  <Td><span style={{ color: 'var(--mt)' }}>{a.chain ?? '—'}</span></Td>
+                  <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--mt)', fontSize: 10.5 }}>
+                    {a.qbo_customer_id}
+                  </code></Td>
+                  <Td><Chip label={a.is_active ? 'active' : 'inactive'} color={a.is_active ? 'var(--gn)' : 'var(--mt)'} /></Td>
+                  <Td>
+                    <button onClick={() => toggleActive(a)} disabled={busy} style={btnSecondary()}>
+                      {a.is_active ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );

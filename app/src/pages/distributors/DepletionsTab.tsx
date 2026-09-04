@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus } from 'lucide-react';
 import {
   SettlementCreateResult,
@@ -118,50 +119,52 @@ export function DistributorDepletionsTab({ dist, itemNameById }: Props) {
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Delivered</Th>
-              <Th>Account</Th>
-              <Th>Item</Th>
-              <Th style={{ textAlign: 'right' }}>Cases</Th>
-              <Th style={{ textAlign: 'right' }}>Fee/case</Th>
-              <Th style={{ textAlign: 'right' }}>Fee</Th>
-              <Th>Reference</Th>
-              <Th>Recorded by</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No depletions {month ? 'in this month' : 'recorded yet'}.
-              </td></tr>
-            )}
-            {(rows ?? []).map((r) => (
-              <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <Td>
-                  {r.delivered_date}
-                  {r.settlement_id && (
-                    <span style={{ marginLeft: 6 }}><Chip label="settled" color="var(--gn)" /></span>
-                  )}
-                </Td>
-                <Td><span style={{ fontWeight: 600 }}>
-                  {r.account_id ? (accountNameById.get(r.account_id) ?? '…') : '—'}
-                </span></Td>
-                <Td>{itemNameById.get(r.qbo_item_id) ?? r.qbo_item_id}</Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(r.cases)}</Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                  {r.fee_per_case == null ? '—' : `$${Number(r.fee_per_case).toFixed(2)}`}
-                </Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                  {r.fee_amount == null ? '—' : `$${Number(r.fee_amount).toFixed(2)}`}
-                </Td>
-                <Td><span style={{ color: 'var(--mt)' }}>{r.reference ?? '—'}</span></Td>
-                <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{r.recorded_by_email ?? '—'}</span></Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Delivered</Th>
+                <Th>Account</Th>
+                <Th>Item</Th>
+                <Th style={{ textAlign: 'right' }}>Cases</Th>
+                <Th style={{ textAlign: 'right' }}>Fee/case</Th>
+                <Th style={{ textAlign: 'right' }}>Fee</Th>
+                <Th>Reference</Th>
+                <Th>Recorded by</Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows !== null && rows.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No depletions {month ? 'in this month' : 'recorded yet'}.
+                </td></tr>
+              )}
+              {(rows ?? []).map((r) => (
+                <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <Td>
+                    {r.delivered_date}
+                    {r.settlement_id && (
+                      <span style={{ marginLeft: 6 }}><Chip label="settled" color="var(--gn)" /></span>
+                    )}
+                  </Td>
+                  <Td><span style={{ fontWeight: 600 }}>
+                    {r.account_id ? (accountNameById.get(r.account_id) ?? '…') : '—'}
+                  </span></Td>
+                  <Td>{itemNameById.get(r.qbo_item_id) ?? r.qbo_item_id}</Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(r.cases)}</Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                    {r.fee_per_case == null ? '—' : `$${Number(r.fee_per_case).toFixed(2)}`}
+                  </Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                    {r.fee_amount == null ? '—' : `$${Number(r.fee_amount).toFixed(2)}`}
+                  </Td>
+                  <Td><span style={{ color: 'var(--mt)' }}>{r.reference ?? '—'}</span></Td>
+                  <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{r.recorded_by_email ?? '—'}</span></Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );
@@ -266,56 +269,58 @@ function SettlementsSection({ dist, settlements, onChanged }: {
       )}
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Reference</Th>
-              <Th>Period</Th>
-              <Th style={{ textAlign: 'right' }}>Depletions</Th>
-              <Th style={{ textAlign: 'right' }}>Cases</Th>
-              <Th style={{ textAlign: 'right' }}>Total fee</Th>
-              <Th>Status</Th>
-              <Th>Created</Th>
-              <Th> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {settlements === null && (
-              <tr><td colSpan={8} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
-            )}
-            {settlements !== null && settlements.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
-                No settlements yet.
-              </td></tr>
-            )}
-            {(settlements ?? []).map((s) => (
-              <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: s.status === 'void' ? 0.6 : 1 }}>
-                <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)', fontSize: 11.5 }}>{s.reference ?? '—'}</code></Td>
-                <Td>{s.period_start} → {s.period_end}</Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(s.depletion_count)}</Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(s.total_cases)}</Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtUsd(Number(s.total_fee))}</Td>
-                <Td>
-                  <Chip label={s.status} color={SETTLEMENT_STATUS_COLOR[s.status] ?? 'var(--mt)'} />
-                  {s.status === 'void' && s.void_reason && (
-                    <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 2 }}>{s.void_reason}</div>
-                  )}
-                </Td>
-                <Td><span style={{ color: 'var(--mt)', fontSize: 11 }}>
-                  {new Date(s.created_at).toLocaleDateString()}
-                </span></Td>
-                <Td>
-                  {s.status === 'open' && (
-                    <button onClick={() => setVoiding(s)} style={{
-                      background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
-                      padding: '3px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer',
-                    }}>Void</button>
-                  )}
-                </Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Reference</Th>
+                <Th>Period</Th>
+                <Th style={{ textAlign: 'right' }}>Depletions</Th>
+                <Th style={{ textAlign: 'right' }}>Cases</Th>
+                <Th style={{ textAlign: 'right' }}>Total fee</Th>
+                <Th>Status</Th>
+                <Th>Created</Th>
+                <Th> </Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {settlements === null && (
+                <tr><td colSpan={8} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+              )}
+              {settlements !== null && settlements.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
+                  No settlements yet.
+                </td></tr>
+              )}
+              {(settlements ?? []).map((s) => (
+                <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: s.status === 'void' ? 0.6 : 1 }}>
+                  <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)', fontSize: 11.5 }}>{s.reference ?? '—'}</code></Td>
+                  <Td>{s.period_start} → {s.period_end}</Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(s.depletion_count)}</Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(s.total_cases)}</Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtUsd(Number(s.total_fee))}</Td>
+                  <Td>
+                    <Chip label={s.status} color={SETTLEMENT_STATUS_COLOR[s.status] ?? 'var(--mt)'} />
+                    {s.status === 'void' && s.void_reason && (
+                      <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 2 }}>{s.void_reason}</div>
+                    )}
+                  </Td>
+                  <Td><span style={{ color: 'var(--mt)', fontSize: 11 }}>
+                    {new Date(s.created_at).toLocaleDateString()}
+                  </span></Td>
+                  <Td>
+                    {s.status === 'open' && (
+                      <button onClick={() => setVoiding(s)} style={{
+                        background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
+                        padding: '3px 8px', borderRadius: 4, fontSize: 10, cursor: 'pointer',
+                      }}>Void</button>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       {voiding && (

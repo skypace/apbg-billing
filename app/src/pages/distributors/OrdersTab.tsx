@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { ChevronDown, ChevronRight, Truck } from 'lucide-react';
 import {
@@ -81,46 +82,48 @@ export function DistributorOrdersTab({ dist, locations, itemNameById }: Props) {
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th style={{ width: 26 }}> </Th>
-              <Th>Order #</Th>
-              <Th>Status</Th>
-              <Th>Submitted by</Th>
-              <Th>Requested</Th>
-              <Th>Lines</Th>
-              <Th>BOL</Th>
-              <Th>Submitted</Th>
-              <Th> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders !== null && orders.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No orders yet.
-              </td></tr>
-            )}
-            {(orders ?? []).map((o) => {
-              const orderLines = linesByOrder.get(o.id) ?? [];
-              const transfer = o.transfer_id ? transferById.get(o.transfer_id) : undefined;
-              const open = openId === o.id;
-              return (
-                <OrderRows
-                  key={o.id}
-                  order={o}
-                  lines={orderLines}
-                  linesLoading={lines === null}
-                  transfer={transfer ?? null}
-                  open={open}
-                  itemNameById={itemNameById}
-                  onToggle={() => setOpenId(open ? null : o.id)}
-                  onFulfill={() => setFulfilling(o)}
-                />
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th style={{ width: 26 }}> </Th>
+                <Th>Order #</Th>
+                <Th>Status</Th>
+                <Th>Submitted by</Th>
+                <Th>Requested</Th>
+                <Th>Lines</Th>
+                <Th>BOL</Th>
+                <Th>Submitted</Th>
+                <Th> </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders !== null && orders.length === 0 && (
+                <tr><td colSpan={9} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No orders yet.
+                </td></tr>
+              )}
+              {(orders ?? []).map((o) => {
+                const orderLines = linesByOrder.get(o.id) ?? [];
+                const transfer = o.transfer_id ? transferById.get(o.transfer_id) : undefined;
+                const open = openId === o.id;
+                return (
+                  <OrderRows
+                    key={o.id}
+                    order={o}
+                    lines={orderLines}
+                    linesLoading={lines === null}
+                    transfer={transfer ?? null}
+                    open={open}
+                    itemNameById={itemNameById}
+                    onToggle={() => setOpenId(open ? null : o.id)}
+                    onFulfill={() => setFulfilling(o)}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       {fulfilling && (
@@ -201,33 +204,35 @@ function OrderRows({ order, lines, linesLoading, transfer, open, itemNameById, o
                 {order.decided_at ? ` · ${new Date(order.decided_at).toLocaleString()}` : ''}
               </div>
             )}
-            <table style={{ borderCollapse: 'collapse', fontSize: 11.5, minWidth: 420 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <Th>Item</Th>
-                  <Th style={{ textAlign: 'right' }}>Qty</Th>
-                  <Th style={{ textAlign: 'right' }}>Unit price</Th>
-                  <Th>Notes</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.length === 0 && (
-                  <tr><td colSpan={4} style={{ padding: 10, color: 'var(--mt)' }}>
-                    {linesLoading ? 'Loading…' : 'No lines'}
-                  </td></tr>
-                )}
-                {lines.map((l) => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <Td>{itemNameById.get(l.qbo_item_id) ?? l.qbo_item_id}</Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(l.qty)}</Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                      {l.unit_price == null ? '—' : `$${Number(l.unit_price).toFixed(2)}`}
-                    </Td>
-                    <Td><span style={{ color: 'var(--mt)' }}>{l.notes ?? '—'}</span></Td>
+            <PrintableTable>
+              <table style={{ borderCollapse: 'collapse', fontSize: 11.5, minWidth: 420 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                    <Th>Item</Th>
+                    <Th style={{ textAlign: 'right' }}>Qty</Th>
+                    <Th style={{ textAlign: 'right' }}>Unit price</Th>
+                    <Th>Notes</Th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {lines.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: 10, color: 'var(--mt)' }}>
+                      {linesLoading ? 'Loading…' : 'No lines'}
+                    </td></tr>
+                  )}
+                  {lines.map((l) => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <Td>{itemNameById.get(l.qbo_item_id) ?? l.qbo_item_id}</Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(l.qty)}</Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                        {l.unit_price == null ? '—' : `$${Number(l.unit_price).toFixed(2)}`}
+                      </Td>
+                      <Td><span style={{ color: 'var(--mt)' }}>{l.notes ?? '—'}</span></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           </td>
         </tr>
       )}

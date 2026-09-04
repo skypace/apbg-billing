@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import {
   AdminUser,
   UserRole,
@@ -122,46 +123,48 @@ export function UsersEditor() {
         <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
           <div className="ct" style={{ margin: 0 }}>USERS — {users.length}</div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Name</th>
-              <th>Role</th>
-              <th>Last sign-in</th>
-              <th>Confirmed?</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td style={{ fontWeight: 600 }}>{u.email}</td>
-                <td style={{ fontSize: 11, color: 'var(--mt)' }}>{u.name || '—'}</td>
-                <td>
-                  <select
-                    value={u.role || 'viewer'}
-                    onChange={(e) => setUserRole(u.id, e.target.value)}
-                    style={inp()}
-                  >
-                    {roles.map((r) => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>
-                  {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString() : '—'}
-                </td>
-                <td style={{ fontSize: 11, color: u.confirmed_at ? 'var(--gn)' : 'var(--am)' }}>
-                  {u.confirmed_at ? '✓' : 'pending'}
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <button onClick={() => deleteUser(u.id, u.email)} style={btnDanger()}>×</button>
-                </td>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Last sign-in</th>
+                <th>Confirmed?</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 600 }}>{u.email}</td>
+                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{u.name || '—'}</td>
+                  <td>
+                    <select
+                      value={u.role || 'viewer'}
+                      onChange={(e) => setUserRole(u.id, e.target.value)}
+                      style={inp()}
+                    >
+                      {roles.map((r) => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>
+                    {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString() : '—'}
+                  </td>
+                  <td style={{ fontSize: 11, color: u.confirmed_at ? 'var(--gn)' : 'var(--am)' }}>
+                    {u.confirmed_at ? '✓' : 'pending'}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={() => deleteUser(u.id, u.email)} style={btnDanger()}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { sbAuth, SB_KEY, SB_URL, _sbToken } from '../../lib/supabase';
 import {
@@ -185,45 +186,47 @@ export function DigestEditor() {
         {subs.length === 0 ? (
           <div className="ld">No subscriptions yet.</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Recipients</th>
-                <th>Frequency</th>
-                <th>Sections</th>
-                <th>Last sent</th>
-                <th>Active</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {subs.map((s) => (
-                <tr key={s.id}>
-                  <td style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{(s.recipients || []).join(', ')}</td>
-                  <td style={{ fontSize: 11 }}>
-                    {s.frequency}
-                    {s.frequency === 'weekly' && <> · {DAYS_OF_WEEK[s.day_of_week]}</>}
-                    {' · '}
-                    {String(s.hour_utc).padStart(2, '0')}:00 UTC
-                  </td>
-                  <td style={{ fontSize: 10, color: 'var(--mt)' }}>{(s.sections || []).join(', ')}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                    {s.last_sent_at ? new Date(s.last_sent_at).toLocaleString() : '—'}
-                  </td>
-                  <td>
-                    <input type="checkbox" checked={s.is_active} onChange={() => toggle(s)} />
-                  </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button onClick={() => send(s, true)} style={btnSecondary()}>PREVIEW</button>{' '}
-                    <button onClick={() => send(s, false)} style={btnPrimary()}>SEND</button>{' '}
-                    <button onClick={() => del(s.id)} style={btnDanger()}>×</button>
-                  </td>
+          <PrintableTable>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Recipients</th>
+                  <th>Frequency</th>
+                  <th>Sections</th>
+                  <th>Last sent</th>
+                  <th>Active</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {subs.map((s) => (
+                  <tr key={s.id}>
+                    <td style={{ fontWeight: 600 }}>{s.name}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{(s.recipients || []).join(', ')}</td>
+                    <td style={{ fontSize: 11 }}>
+                      {s.frequency}
+                      {s.frequency === 'weekly' && <> · {DAYS_OF_WEEK[s.day_of_week]}</>}
+                      {' · '}
+                      {String(s.hour_utc).padStart(2, '0')}:00 UTC
+                    </td>
+                    <td style={{ fontSize: 10, color: 'var(--mt)' }}>{(s.sections || []).join(', ')}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>
+                      {s.last_sent_at ? new Date(s.last_sent_at).toLocaleString() : '—'}
+                    </td>
+                    <td>
+                      <input type="checkbox" checked={s.is_active} onChange={() => toggle(s)} />
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button onClick={() => send(s, true)} style={btnSecondary()}>PREVIEW</button>{' '}
+                      <button onClick={() => send(s, false)} style={btnPrimary()}>SEND</button>{' '}
+                      <button onClick={() => del(s.id)} style={btnDanger()}>×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
 
@@ -250,49 +253,51 @@ export function DigestEditor() {
         {logs.length === 0 ? (
           <div className="ld">No sends logged yet.</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Subject</th>
-                <th>Recipients</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((l) => (
-                <tr key={l.id}>
-                  <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>
-                    {l.sent_at ? new Date(l.sent_at).toLocaleString() : '—'}
-                  </td>
-                  <td style={{ fontSize: 11 }}>{l.subject}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{(l.recipients || []).join(', ')}</td>
-                  <td style={{ fontSize: 11 }}>
-                    <span
-                      className="bg"
-                      style={{
-                        color:
-                          l.status === 'sent'
-                            ? 'var(--success)'
-                            : l.status === 'failed'
-                              ? 'var(--danger)'
-                              : 'var(--mt)',
-                        borderColor:
-                          l.status === 'sent'
-                            ? 'var(--success)'
-                            : l.status === 'failed'
-                              ? 'var(--danger)'
-                              : 'var(--bd)',
-                      }}
-                    >
-                      {l.status}
-                    </span>
-                    {l.error && <span style={{ marginLeft: 6, color: 'var(--rd)' }}>{l.error}</span>}
-                  </td>
+          <PrintableTable>
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Subject</th>
+                  <th>Recipients</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id}>
+                    <td className="mn" style={{ fontSize: 11, color: 'var(--mt)' }}>
+                      {l.sent_at ? new Date(l.sent_at).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ fontSize: 11 }}>{l.subject}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{(l.recipients || []).join(', ')}</td>
+                    <td style={{ fontSize: 11 }}>
+                      <span
+                        className="bg"
+                        style={{
+                          color:
+                            l.status === 'sent'
+                              ? 'var(--success)'
+                              : l.status === 'failed'
+                                ? 'var(--danger)'
+                                : 'var(--mt)',
+                          borderColor:
+                            l.status === 'sent'
+                              ? 'var(--success)'
+                              : l.status === 'failed'
+                                ? 'var(--danger)'
+                                : 'var(--bd)',
+                        }}
+                      >
+                        {l.status}
+                      </span>
+                      {l.error && <span style={{ marginLeft: 6, color: 'var(--rd)' }}>{l.error}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>

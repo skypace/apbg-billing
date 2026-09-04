@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import {
   InventoryLocation,
   InventoryTransfer,
@@ -77,72 +78,76 @@ export function DistributorInventoryTab({ dist, locationById, itemNameById }: Pr
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto', marginBottom: 20 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Item</Th>
-              <Th style={{ textAlign: 'right', width: 120 }}>On hand</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {onHand === null && (
-              <tr><td colSpan={2} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
-            )}
-            {onHand !== null && rows.length === 0 && (
-              <tr><td colSpan={2} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                Nothing on hand at this location.
-              </td></tr>
-            )}
-            {rows.map((r) => (
-              <tr key={r.qbo_item_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <Td><span style={{ fontWeight: 600 }}>{r.name}</span></Td>
-                <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(r.on_hand)}</Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Item</Th>
+                <Th style={{ textAlign: 'right', width: 120 }}>On hand</Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {onHand === null && (
+                <tr><td colSpan={2} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+              )}
+              {onHand !== null && rows.length === 0 && (
+                <tr><td colSpan={2} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  Nothing on hand at this location.
+                </td></tr>
+              )}
+              {rows.map((r) => (
+                <tr key={r.qbo_item_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <Td><span style={{ fontWeight: 600 }}>{r.name}</span></Td>
+                  <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(r.on_hand)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>
         Recent transfers to / from this location
       </div>
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>BOL #</Th>
-              <Th>Status</Th>
-              <Th>Direction</Th>
-              <Th>From</Th>
-              <Th>To</Th>
-              <Th>Shipped</Th>
-              <Th>Received</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {transfers === null && (
-              <tr><td colSpan={7} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
-            )}
-            {transfers !== null && relatedTransfers.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No transfers involving this location yet.
-              </td></tr>
-            )}
-            {relatedTransfers.map((t) => (
-              <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)', fontSize: 11.5 }}>{t.bol_number}</code></Td>
-                <Td><Chip label={t.status} color={TRANSFER_STATUS_COLOR[t.status] ?? 'var(--mt)'} /></Td>
-                <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>
-                  {t.to_location_id === locId ? 'Inbound' : 'Outbound'}
-                </span></Td>
-                <Td><span style={{ color: 'var(--mt)' }}>{locationById.get(t.from_location_id)?.code ?? '?'}</span></Td>
-                <Td><span style={{ color: 'var(--mt)' }}>{locationById.get(t.to_location_id)?.code ?? '?'}</span></Td>
-                <Td>{t.ship_date ?? '—'}</Td>
-                <Td>{t.received_date ?? '—'}</Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>BOL #</Th>
+                <Th>Status</Th>
+                <Th>Direction</Th>
+                <Th>From</Th>
+                <Th>To</Th>
+                <Th>Shipped</Th>
+                <Th>Received</Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {transfers === null && (
+                <tr><td colSpan={7} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+              )}
+              {transfers !== null && relatedTransfers.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No transfers involving this location yet.
+                </td></tr>
+              )}
+              {relatedTransfers.map((t) => (
+                <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)', fontSize: 11.5 }}>{t.bol_number}</code></Td>
+                  <Td><Chip label={t.status} color={TRANSFER_STATUS_COLOR[t.status] ?? 'var(--mt)'} /></Td>
+                  <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>
+                    {t.to_location_id === locId ? 'Inbound' : 'Outbound'}
+                  </span></Td>
+                  <Td><span style={{ color: 'var(--mt)' }}>{locationById.get(t.from_location_id)?.code ?? '?'}</span></Td>
+                  <Td><span style={{ color: 'var(--mt)' }}>{locationById.get(t.to_location_id)?.code ?? '?'}</span></Td>
+                  <Td>{t.ship_date ?? '—'}</Td>
+                  <Td>{t.received_date ?? '—'}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );

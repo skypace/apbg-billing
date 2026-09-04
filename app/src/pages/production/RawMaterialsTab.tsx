@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { AlertTriangle, Check, Droplets, RefreshCw } from 'lucide-react';
 import {
@@ -203,19 +204,21 @@ export function RawMaterialsTab({ vendors, onChanged }: {
             same name already exists it is linked, never duplicated.
           </div>
           <div style={{ maxHeight: 240, overflow: 'auto', marginBottom: 10 }}>
-            <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
-              <tbody>
-                {(preview.planned ?? []).map((p) => (
-                  <tr key={p.slug} style={{ borderTop: '1px solid var(--bd)' }}>
-                    <td style={{ padding: '4px 6px' }}>{p.name}</td>
-                    <td style={{ padding: '4px 6px', color: 'var(--mt)' }} className="mn">{p.sku}</td>
-                    <td style={{ padding: '4px 6px', color: p.has_cost ? 'var(--gn)' : 'var(--am)' }}>
-                      {p.has_cost ? 'has a cost' : 'no cost yet'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {(preview.planned ?? []).map((p) => (
+                    <tr key={p.slug} style={{ borderTop: '1px solid var(--bd)' }}>
+                      <td style={{ padding: '4px 6px' }}>{p.name}</td>
+                      <td style={{ padding: '4px 6px', color: 'var(--mt)' }} className="mn">{p.sku}</td>
+                      <td style={{ padding: '4px 6px', color: p.has_cost ? 'var(--gn)' : 'var(--am)' }}>
+                        {p.has_cost ? 'has a cost' : 'no cost yet'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
           <button style={btnPrimary()} disabled={busy} onClick={runCommit}>
             {busy ? 'Creating…' : 'Create them in QuickBooks'}
@@ -225,114 +228,116 @@ export function RawMaterialsTab({ vendors, onChanged }: {
       )}
 
       <div className="card" style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', minWidth: 1080 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 10, textTransform: 'uppercase' }}>
-              <th style={{ padding: '6px 6px' }}>Material</th>
-              <th style={{ padding: '6px 6px' }}>Formulas</th>
-              <th style={{ padding: '6px 6px' }}>Billed as</th>
-              <th style={{ padding: '6px 6px' }}>QuickBooks item</th>
-              <th style={{ padding: '6px 6px' }}>Vendor</th>
-              <th style={{ padding: '6px 6px' }}>Bought as</th>
-              <th style={{ padding: '6px 6px' }}>Recipe units per pack</th>
-              <th style={{ padding: '6px 6px' }}>Order multiple</th>
-              <th style={{ padding: '6px 6px' }}>Cost per pack</th>
-              <th style={{ padding: '6px 6px' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows === null && (
-              <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
-            )}
-            {rows?.map((r) => {
-              const d = drafts[r.id] ?? draftOf(r);
-              const isDirty = dirty(d, draftOf(r));
-              return (
-                <tr key={r.id} style={{ borderTop: '1px solid var(--bd)' }}>
-                  <td style={{ padding: '5px 6px' }}>
-                    <div style={{ fontWeight: 700 }}>{r.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--mt)' }}>
-                      recipe unit: {r.recipe_uom}
-                      {!r.is_purchased && <>
-                        {' · '}
-                        <Droplets size={10} style={{ verticalAlign: -1 }} /> sourced on site, never ordered
-                      </>}
-                    </div>
-                  </td>
-                  <td style={{ padding: '5px 6px' }} className="mn">{r.formula_count}</td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <select
-                      style={{ ...inp(), width: 168 }}
-                      disabled={!r.is_purchased}
-                      value={d.purchase_mode}
-                      onChange={(e) => setDrafts({
-                        ...drafts,
-                        [r.id]: { ...d, purchase_mode: e.target.value as 'rollup' | 'direct' },
-                      })}
-                    >
-                      <option value="rollup">Inside the gallon</option>
-                      <option value="direct">Bought directly</option>
-                    </select>
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    {r.qbo_item_id
-                      ? <span style={{ color: 'var(--gn)' }}>
-                          <Check size={11} style={{ verticalAlign: -1 }} /> {r.qbo_item_name ?? r.qbo_item_id}
-                        </span>
-                      : r.is_purchased && r.purchase_mode === 'direct'
-                        ? <span style={{ color: 'var(--am)' }}>needed — none yet</span>
-                        : <span style={{ color: 'var(--mt)' }}>not needed</span>}
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <SearchSelect
-                      style={{ width: 190 }}
-                      disabled={!r.is_purchased}
-                      value={d.qbo_vendor_id}
-                      placeholder="Type a vendor…"
-                      options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
-                      onChange={(id) => setDrafts({ ...drafts, [r.id]: { ...d, qbo_vendor_id: id } })}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <input
-                      style={{ ...inp(), width: 110 }} placeholder="50 lb bag" disabled={!r.is_purchased}
-                      value={d.purchase_uom}
-                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, purchase_uom: e.target.value } })}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <input
-                      style={{ ...inp(), width: 84 }} placeholder="50" disabled={!r.is_purchased}
-                      value={d.pack_size}
-                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, pack_size: e.target.value } })}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <input
-                      style={{ ...inp(), width: 70 }} disabled={!r.is_purchased}
-                      value={d.order_multiple}
-                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, order_multiple: e.target.value } })}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 6px' }}>
-                    <input
-                      style={{ ...inp(), width: 92 }} placeholder="—" disabled={!r.is_purchased}
-                      value={d.purchase_cost}
-                      onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, purchase_cost: e.target.value } })}
-                    />
-                  </td>
-                  <td style={{ padding: '5px 6px', whiteSpace: 'nowrap' }}>
-                    <button
-                      style={btnSecondary()}
-                      disabled={!isDirty || saving === r.id}
-                      onClick={() => save(r)}
-                    >{saving === r.id ? 'Saving…' : 'Save'}</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', minWidth: 1080 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 10, textTransform: 'uppercase' }}>
+                <th style={{ padding: '6px 6px' }}>Material</th>
+                <th style={{ padding: '6px 6px' }}>Formulas</th>
+                <th style={{ padding: '6px 6px' }}>Billed as</th>
+                <th style={{ padding: '6px 6px' }}>QuickBooks item</th>
+                <th style={{ padding: '6px 6px' }}>Vendor</th>
+                <th style={{ padding: '6px 6px' }}>Bought as</th>
+                <th style={{ padding: '6px 6px' }}>Recipe units per pack</th>
+                <th style={{ padding: '6px 6px' }}>Order multiple</th>
+                <th style={{ padding: '6px 6px' }}>Cost per pack</th>
+                <th style={{ padding: '6px 6px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows === null && (
+                <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)' }}>Loading…</td></tr>
+              )}
+              {rows?.map((r) => {
+                const d = drafts[r.id] ?? draftOf(r);
+                const isDirty = dirty(d, draftOf(r));
+                return (
+                  <tr key={r.id} style={{ borderTop: '1px solid var(--bd)' }}>
+                    <td style={{ padding: '5px 6px' }}>
+                      <div style={{ fontWeight: 700 }}>{r.name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--mt)' }}>
+                        recipe unit: {r.recipe_uom}
+                        {!r.is_purchased && <>
+                          {' · '}
+                          <Droplets size={10} style={{ verticalAlign: -1 }} /> sourced on site, never ordered
+                        </>}
+                      </div>
+                    </td>
+                    <td style={{ padding: '5px 6px' }} className="mn">{r.formula_count}</td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <select
+                        style={{ ...inp(), width: 168 }}
+                        disabled={!r.is_purchased}
+                        value={d.purchase_mode}
+                        onChange={(e) => setDrafts({
+                          ...drafts,
+                          [r.id]: { ...d, purchase_mode: e.target.value as 'rollup' | 'direct' },
+                        })}
+                      >
+                        <option value="rollup">Inside the gallon</option>
+                        <option value="direct">Bought directly</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      {r.qbo_item_id
+                        ? <span style={{ color: 'var(--gn)' }}>
+                            <Check size={11} style={{ verticalAlign: -1 }} /> {r.qbo_item_name ?? r.qbo_item_id}
+                          </span>
+                        : r.is_purchased && r.purchase_mode === 'direct'
+                          ? <span style={{ color: 'var(--am)' }}>needed — none yet</span>
+                          : <span style={{ color: 'var(--mt)' }}>not needed</span>}
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <SearchSelect
+                        style={{ width: 190 }}
+                        disabled={!r.is_purchased}
+                        value={d.qbo_vendor_id}
+                        placeholder="Type a vendor…"
+                        options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
+                        onChange={(id) => setDrafts({ ...drafts, [r.id]: { ...d, qbo_vendor_id: id } })}
+                      />
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <input
+                        style={{ ...inp(), width: 110 }} placeholder="50 lb bag" disabled={!r.is_purchased}
+                        value={d.purchase_uom}
+                        onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, purchase_uom: e.target.value } })}
+                      />
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <input
+                        style={{ ...inp(), width: 84 }} placeholder="50" disabled={!r.is_purchased}
+                        value={d.pack_size}
+                        onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, pack_size: e.target.value } })}
+                      />
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <input
+                        style={{ ...inp(), width: 70 }} disabled={!r.is_purchased}
+                        value={d.order_multiple}
+                        onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, order_multiple: e.target.value } })}
+                      />
+                    </td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <input
+                        style={{ ...inp(), width: 92 }} placeholder="—" disabled={!r.is_purchased}
+                        value={d.purchase_cost}
+                        onChange={(e) => setDrafts({ ...drafts, [r.id]: { ...d, purchase_cost: e.target.value } })}
+                      />
+                    </td>
+                    <td style={{ padding: '5px 6px', whiteSpace: 'nowrap' }}>
+                      <button
+                        style={btnSecondary()}
+                        disabled={!isDirty || saving === r.id}
+                        onClick={() => save(r)}
+                      >{saving === r.id ? 'Saving…' : 'Save'}</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       <div style={{ marginTop: 10, fontSize: 10.5, color: 'var(--mt)', lineHeight: 1.7 }}>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PrintableTable } from '../components/PrintableTable';
 import {
   fetchFleetMapRows,
   fetchFleetDrivers,
@@ -307,42 +308,44 @@ function SidePanel({ rows }: { rows: FleetMapRow[] }) {
       fontSize: 11,
       background: 'var(--pn)',
     }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead style={{ position: 'sticky', top: 0, background: 'var(--pn)' }}>
-          <tr style={{ color: 'var(--mt)', textAlign: 'left' }}>
-            <th style={th}>Vehicle</th>
-            <th style={th}>Plate</th>
-            <th style={th}>State</th>
-            <th style={thR}>Speed</th>
-            <th style={thR}>Last seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => {
-            const t = r.snap ? Date.parse(r.snap.snapshot_at) : NaN;
-            const isStale = !r.snap || isNaN(t) || (Date.now() - t > STALE_MS);
-            const speedMph = r.snap?.speed_kmh != null
-              ? (Number(r.snap.speed_kmh) * 0.621371).toFixed(0)
-              : '—';
-            return (
-              <tr key={r.fc_asset_id} style={{ borderTop: '1px solid var(--bd)' }}>
-                <td style={td}>{vehicleLabel(r)}</td>
-                <td style={td}>{r.license_plate ?? '—'}</td>
-                <td style={td}>
-                  <span style={{
-                    color: isStale ? '#888'
-                      : r.snap?.ignition_on ? '#22aa55' : '#3a78d9',
-                  }}>
-                    {isStale ? 'stale' : r.snap?.ignition_on ? 'driving' : 'parked'}
-                  </span>
-                </td>
-                <td style={tdR}>{r.snap?.ignition_on ? speedMph + ' mph' : '—'}</td>
-                <td style={tdR}>{relTime(r.snap?.snapshot_at)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <PrintableTable>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--pn)' }}>
+            <tr style={{ color: 'var(--mt)', textAlign: 'left' }}>
+              <th style={th}>Vehicle</th>
+              <th style={th}>Plate</th>
+              <th style={th}>State</th>
+              <th style={thR}>Speed</th>
+              <th style={thR}>Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const t = r.snap ? Date.parse(r.snap.snapshot_at) : NaN;
+              const isStale = !r.snap || isNaN(t) || (Date.now() - t > STALE_MS);
+              const speedMph = r.snap?.speed_kmh != null
+                ? (Number(r.snap.speed_kmh) * 0.621371).toFixed(0)
+                : '—';
+              return (
+                <tr key={r.fc_asset_id} style={{ borderTop: '1px solid var(--bd)' }}>
+                  <td style={td}>{vehicleLabel(r)}</td>
+                  <td style={td}>{r.license_plate ?? '—'}</td>
+                  <td style={td}>
+                    <span style={{
+                      color: isStale ? '#888'
+                        : r.snap?.ignition_on ? '#22aa55' : '#3a78d9',
+                    }}>
+                      {isStale ? 'stale' : r.snap?.ignition_on ? 'driving' : 'parked'}
+                    </span>
+                  </td>
+                  <td style={tdR}>{r.snap?.ignition_on ? speedMph + ' mph' : '—'}</td>
+                  <td style={tdR}>{relTime(r.snap?.snapshot_at)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </PrintableTable>
     </div>
   );
 }
@@ -422,46 +425,48 @@ function TripsTab() {
        err     ? <div style={{ color: '#c44' }}>{err}</div> :
        trips.length === 0 ? <div style={{ color: 'var(--mt)' }}>No trips in the last 7 days.</div> :
        (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-          <thead>
-            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-              <th style={th}>Date</th>
-              <th style={th}>Vehicle</th>
-              <th style={th}>Driver</th>
-              <th style={th}>Start</th>
-              <th style={th}>End</th>
-              <th style={thR}>Miles</th>
-              <th style={thR}>Drive</th>
-              <th style={thR}>Idle</th>
-              <th style={thR}>Max</th>
-              <th style={thR}>Brakes</th>
-              <th style={thR}>Accels</th>
-              <th style={thR}>Speed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trips.map((t) => {
-              const v = t.fc_asset_id ? vehicleById.get(t.fc_asset_id) : null;
-              const d = t.fc_driver_id ? driverById.get(t.fc_driver_id) : null;
-              return (
-                <tr key={t.fc_trip_id} style={{ borderTop: '1px solid var(--bd)' }}>
-                  <td style={td}>{t.trip_date}</td>
-                  <td style={td}>{v ? vehicleLabel(v) : (t.fc_asset_id ?? '—').slice(0, 8) + '…'}</td>
-                  <td style={td}>{d ? (d.first_name + ' ' + (d.last_name ?? '')) : (t.fc_driver_id ? '(unknown)' : '—')}</td>
-                  <td style={td}>{shortTime(t.start_time)}</td>
-                  <td style={td}>{shortTime(t.end_time)}</td>
-                  <td style={tdR}>{Number(t.distance_miles ?? 0).toFixed(1)}</td>
-                  <td style={tdR}>{Math.round(Number(t.drive_time_min ?? 0))}m</td>
-                  <td style={tdR}>{Math.round(Number(t.idle_time_min ?? 0))}m</td>
-                  <td style={tdR}>{Math.round(Number(t.max_speed_mph ?? 0))} mph</td>
-                  <td style={tdR}>{(t.hard_brakes ?? 0) || ''}</td>
-                  <td style={tdR}>{(t.hard_accels ?? 0) || ''}</td>
-                  <td style={tdR}>{(t.speed_violations ?? 0) || ''}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                <th style={th}>Date</th>
+                <th style={th}>Vehicle</th>
+                <th style={th}>Driver</th>
+                <th style={th}>Start</th>
+                <th style={th}>End</th>
+                <th style={thR}>Miles</th>
+                <th style={thR}>Drive</th>
+                <th style={thR}>Idle</th>
+                <th style={thR}>Max</th>
+                <th style={thR}>Brakes</th>
+                <th style={thR}>Accels</th>
+                <th style={thR}>Speed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trips.map((t) => {
+                const v = t.fc_asset_id ? vehicleById.get(t.fc_asset_id) : null;
+                const d = t.fc_driver_id ? driverById.get(t.fc_driver_id) : null;
+                return (
+                  <tr key={t.fc_trip_id} style={{ borderTop: '1px solid var(--bd)' }}>
+                    <td style={td}>{t.trip_date}</td>
+                    <td style={td}>{v ? vehicleLabel(v) : (t.fc_asset_id ?? '—').slice(0, 8) + '…'}</td>
+                    <td style={td}>{d ? (d.first_name + ' ' + (d.last_name ?? '')) : (t.fc_driver_id ? '(unknown)' : '—')}</td>
+                    <td style={td}>{shortTime(t.start_time)}</td>
+                    <td style={td}>{shortTime(t.end_time)}</td>
+                    <td style={tdR}>{Number(t.distance_miles ?? 0).toFixed(1)}</td>
+                    <td style={tdR}>{Math.round(Number(t.drive_time_min ?? 0))}m</td>
+                    <td style={tdR}>{Math.round(Number(t.idle_time_min ?? 0))}m</td>
+                    <td style={tdR}>{Math.round(Number(t.max_speed_mph ?? 0))} mph</td>
+                    <td style={tdR}>{(t.hard_brakes ?? 0) || ''}</td>
+                    <td style={tdR}>{(t.hard_accels ?? 0) || ''}</td>
+                    <td style={tdR}>{(t.speed_violations ?? 0) || ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );
@@ -491,26 +496,28 @@ function DriversTab() {
        err     ? <div style={{ color: '#c44' }}>{err}</div> :
        drivers.length === 0 ? <div style={{ color: 'var(--mt)' }}>No drivers synced yet.</div> :
        (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-          <thead>
-            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-              <th style={th}>Name</th>
-              <th style={th}>Email</th>
-              <th style={th}>Employee ID</th>
-              <th style={th}>Portal user</th>
-            </tr>
-          </thead>
-          <tbody>
-            {drivers.map((d) => (
-              <tr key={d.fc_person_id} style={{ borderTop: '1px solid var(--bd)' }}>
-                <td style={td}>{[d.first_name, d.last_name].filter(Boolean).join(' ') || '—'}</td>
-                <td style={td}>{d.email ?? '—'}</td>
-                <td style={td}>{d.employee_id ?? '—'}</td>
-                <td style={td}>{d.is_user ? 'yes' : 'no'}</td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                <th style={th}>Name</th>
+                <th style={th}>Email</th>
+                <th style={th}>Employee ID</th>
+                <th style={th}>Portal user</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {drivers.map((d) => (
+                <tr key={d.fc_person_id} style={{ borderTop: '1px solid var(--bd)' }}>
+                  <td style={td}>{[d.first_name, d.last_name].filter(Boolean).join(' ') || '—'}</td>
+                  <td style={td}>{d.email ?? '—'}</td>
+                  <td style={td}>{d.employee_id ?? '—'}</td>
+                  <td style={td}>{d.is_user ? 'yes' : 'no'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );
@@ -609,45 +616,47 @@ function SafetyTab() {
        err     ? <div style={{ color: '#c44' }}>{err}</div> :
        safetyRows.length === 0 ? <div style={{ color: 'var(--mt)' }}>No driver-behavior events in the last 7 days.</div> :
        (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-          <thead>
-            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-              <th style={th}>Driver</th>
-              <th style={th}>Vehicle (last)</th>
-              <th style={thR}>Events</th>
-              <th style={thR}>Brake</th>
-              <th style={thR}>Accel</th>
-              <th style={thR}>Corner</th>
-              <th style={thR}>Speed</th>
-              <th style={thR}>Tailgate</th>
-              <th style={thR}>Coll/Lane</th>
-              <th style={thR}>Other</th>
-            </tr>
-          </thead>
-          <tbody>
-            {safetyRows.map((r) => {
-              const c = r.counts;
-              const speed = (c['MAX_SPEED_EXCEEDED'] ?? 0) + (c['SPEED_SIGN_VIOLATION'] ?? 0);
-              const collLane = (c['FORWARD_COLLISION'] ?? 0) + (c['COLLISION'] ?? 0) + (c['LANE_DRIFT'] ?? 0) + (c['ROLL_OVER'] ?? 0);
-              const known = (c['HARSH_BRAKING'] ?? 0) + (c['HARSH_ACCELERATION'] ?? 0) + (c['HARSH_CORNERING'] ?? 0) + speed + (c['TAILGATING'] ?? 0) + collLane;
-              const other = r.total - known;
-              return (
-                <tr key={r.key} style={{ borderTop: '1px solid var(--bd)' }}>
-                  <td style={td}>{r.label}</td>
-                  <td style={td}>{r.vehicleLabel ?? '—'}</td>
-                  <td style={tdR}>{r.total}</td>
-                  <td style={tdR}>{c['HARSH_BRAKING'] || ''}</td>
-                  <td style={tdR}>{c['HARSH_ACCELERATION'] || ''}</td>
-                  <td style={tdR}>{c['HARSH_CORNERING'] || ''}</td>
-                  <td style={tdR}>{speed || ''}</td>
-                  <td style={tdR}>{c['TAILGATING'] || ''}</td>
-                  <td style={tdR}>{collLane || ''}</td>
-                  <td style={tdR}>{other || ''}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                <th style={th}>Driver</th>
+                <th style={th}>Vehicle (last)</th>
+                <th style={thR}>Events</th>
+                <th style={thR}>Brake</th>
+                <th style={thR}>Accel</th>
+                <th style={thR}>Corner</th>
+                <th style={thR}>Speed</th>
+                <th style={thR}>Tailgate</th>
+                <th style={thR}>Coll/Lane</th>
+                <th style={thR}>Other</th>
+              </tr>
+            </thead>
+            <tbody>
+              {safetyRows.map((r) => {
+                const c = r.counts;
+                const speed = (c['MAX_SPEED_EXCEEDED'] ?? 0) + (c['SPEED_SIGN_VIOLATION'] ?? 0);
+                const collLane = (c['FORWARD_COLLISION'] ?? 0) + (c['COLLISION'] ?? 0) + (c['LANE_DRIFT'] ?? 0) + (c['ROLL_OVER'] ?? 0);
+                const known = (c['HARSH_BRAKING'] ?? 0) + (c['HARSH_ACCELERATION'] ?? 0) + (c['HARSH_CORNERING'] ?? 0) + speed + (c['TAILGATING'] ?? 0) + collLane;
+                const other = r.total - known;
+                return (
+                  <tr key={r.key} style={{ borderTop: '1px solid var(--bd)' }}>
+                    <td style={td}>{r.label}</td>
+                    <td style={td}>{r.vehicleLabel ?? '—'}</td>
+                    <td style={tdR}>{r.total}</td>
+                    <td style={tdR}>{c['HARSH_BRAKING'] || ''}</td>
+                    <td style={tdR}>{c['HARSH_ACCELERATION'] || ''}</td>
+                    <td style={tdR}>{c['HARSH_CORNERING'] || ''}</td>
+                    <td style={tdR}>{speed || ''}</td>
+                    <td style={tdR}>{c['TAILGATING'] || ''}</td>
+                    <td style={tdR}>{collLane || ''}</td>
+                    <td style={tdR}>{other || ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );
@@ -758,43 +767,45 @@ function ReconcileTab() {
            Nothing in this bucket over the last 30 days.
          </div>
        ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-          <thead>
-            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-              <th style={th}>Date</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Flag</th>
-              <th style={thR}>Visits</th>
-              <th style={thR}>Dwell</th>
-              <th style={thR}>Invoices ±1d</th>
-              <th style={thR}>$ ±1d</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r, i) => {
-              const dwell = Number(r.total_dwell_min ?? 0);
-              const dwellLabel = dwell >= 60
-                ? Math.floor(dwell / 60) + 'h' + (dwell % 60 > 0 ? ' ' + Math.round(dwell % 60) + 'm' : '')
-                : Math.round(dwell) + 'm';
-              const flagColor = r.flag === 'matched' ? 'var(--mt)'
-                : r.flag === 'billed_no_visit' ? '#d97a3a'
-                : '#3a78d9';
-              return (
-                <tr key={r.qbo_customer_id + ':' + r.activity_date + ':' + i} style={{ borderTop: '1px solid var(--bd)' }}>
-                  <td style={td}>{r.activity_date}</td>
-                  <td style={td}>{r.customer_name ?? r.qbo_customer_id.slice(0, 8) + '…'}</td>
-                  <td style={{ ...td, color: flagColor, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 10 }}>
-                    {r.flag.replace(/_/g, ' ')}
-                  </td>
-                  <td style={tdR}>{r.visit_count ?? 0}</td>
-                  <td style={tdR}>{dwell > 0 ? dwellLabel : '—'}</td>
-                  <td style={tdR}>{r.invoice_count_pm1 ?? 0}</td>
-                  <td style={tdR}>${Number(r.invoice_amount_pm1 ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                <th style={th}>Date</th>
+                <th style={th}>Customer</th>
+                <th style={th}>Flag</th>
+                <th style={thR}>Visits</th>
+                <th style={thR}>Dwell</th>
+                <th style={thR}>Invoices ±1d</th>
+                <th style={thR}>$ ±1d</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => {
+                const dwell = Number(r.total_dwell_min ?? 0);
+                const dwellLabel = dwell >= 60
+                  ? Math.floor(dwell / 60) + 'h' + (dwell % 60 > 0 ? ' ' + Math.round(dwell % 60) + 'm' : '')
+                  : Math.round(dwell) + 'm';
+                const flagColor = r.flag === 'matched' ? 'var(--mt)'
+                  : r.flag === 'billed_no_visit' ? '#d97a3a'
+                  : '#3a78d9';
+                return (
+                  <tr key={r.qbo_customer_id + ':' + r.activity_date + ':' + i} style={{ borderTop: '1px solid var(--bd)' }}>
+                    <td style={td}>{r.activity_date}</td>
+                    <td style={td}>{r.customer_name ?? r.qbo_customer_id.slice(0, 8) + '…'}</td>
+                    <td style={{ ...td, color: flagColor, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 10 }}>
+                      {r.flag.replace(/_/g, ' ')}
+                    </td>
+                    <td style={tdR}>{r.visit_count ?? 0}</td>
+                    <td style={tdR}>{dwell > 0 ? dwellLabel : '—'}</td>
+                    <td style={tdR}>{r.invoice_count_pm1 ?? 0}</td>
+                    <td style={tdR}>${Number(r.invoice_amount_pm1 ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );
@@ -879,48 +890,50 @@ function StopsTab() {
            No stops in the last 7 days yet. The trip cron runs nightly at 02:00 PT — first batch lands tomorrow morning.
          </div>
        ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-          <thead>
-            <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-              <th style={th}>Date</th>
-              <th style={th}>Vehicle</th>
-              <th style={th}>Driver</th>
-              <th style={th}>Customer</th>
-              <th style={th}>Arrival</th>
-              <th style={th}>Departure</th>
-              <th style={thR}>Dwell</th>
-              <th style={thR}>Δ from customer</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stops.map((s) => {
-              const v = vehicleById.get(s.fc_asset_id);
-              const d = s.fc_driver_id ? driverById.get(s.fc_driver_id) : null;
-              const customerName = s.qbo_customer_id ? custNames.get(s.qbo_customer_id) ?? '(unnamed)' : '(unmatched)';
-              const dwellMin = s.dwell_minutes != null ? Math.round(Number(s.dwell_minutes)) : 0;
-              const dwellLabel = dwellMin >= 60
-                ? Math.floor(dwellMin / 60) + 'h' + (dwellMin % 60 > 0 ? ' ' + (dwellMin % 60) + 'm' : '')
-                : dwellMin + 'm';
-              const dist = s.distance_m != null ? Math.round(Number(s.distance_m)) : null;
-              return (
-                <tr key={s.id} style={{ borderTop: '1px solid var(--bd)' }}>
-                  <td style={td}>{s.arrival_time.slice(0, 10)}</td>
-                  <td style={td}>{v ? vehicleLabel(v) : s.fc_asset_id.slice(0, 8) + '…'}</td>
-                  <td style={td}>{d ? [d.first_name, d.last_name].filter(Boolean).join(' ') : '—'}</td>
-                  <td style={{
-                    ...td,
-                    color: s.qbo_customer_id ? 'var(--tx)' : 'var(--mt)',
-                    fontWeight: s.qbo_customer_id ? 500 : 400,
-                  }}>{customerName}</td>
-                  <td style={td}>{shortTime(s.arrival_time)}</td>
-                  <td style={td}>{s.departure_time ? shortTime(s.departure_time) : '—'}</td>
-                  <td style={tdR}>{dwellLabel}</td>
-                  <td style={tdR}>{dist != null ? dist + ' m' : '—'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                <th style={th}>Date</th>
+                <th style={th}>Vehicle</th>
+                <th style={th}>Driver</th>
+                <th style={th}>Customer</th>
+                <th style={th}>Arrival</th>
+                <th style={th}>Departure</th>
+                <th style={thR}>Dwell</th>
+                <th style={thR}>Δ from customer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stops.map((s) => {
+                const v = vehicleById.get(s.fc_asset_id);
+                const d = s.fc_driver_id ? driverById.get(s.fc_driver_id) : null;
+                const customerName = s.qbo_customer_id ? custNames.get(s.qbo_customer_id) ?? '(unnamed)' : '(unmatched)';
+                const dwellMin = s.dwell_minutes != null ? Math.round(Number(s.dwell_minutes)) : 0;
+                const dwellLabel = dwellMin >= 60
+                  ? Math.floor(dwellMin / 60) + 'h' + (dwellMin % 60 > 0 ? ' ' + (dwellMin % 60) + 'm' : '')
+                  : dwellMin + 'm';
+                const dist = s.distance_m != null ? Math.round(Number(s.distance_m)) : null;
+                return (
+                  <tr key={s.id} style={{ borderTop: '1px solid var(--bd)' }}>
+                    <td style={td}>{s.arrival_time.slice(0, 10)}</td>
+                    <td style={td}>{v ? vehicleLabel(v) : s.fc_asset_id.slice(0, 8) + '…'}</td>
+                    <td style={td}>{d ? [d.first_name, d.last_name].filter(Boolean).join(' ') : '—'}</td>
+                    <td style={{
+                      ...td,
+                      color: s.qbo_customer_id ? 'var(--tx)' : 'var(--mt)',
+                      fontWeight: s.qbo_customer_id ? 500 : 400,
+                    }}>{customerName}</td>
+                    <td style={td}>{shortTime(s.arrival_time)}</td>
+                    <td style={td}>{s.departure_time ? shortTime(s.departure_time) : '—'}</td>
+                    <td style={tdR}>{dwellLabel}</td>
+                    <td style={tdR}>{dist != null ? dist + ' m' : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );

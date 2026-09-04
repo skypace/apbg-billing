@@ -323,6 +323,11 @@ export default async function handler(req) {
         p_signed_by_name: String(body.signed_by_name || '').trim(),
         p_signature_data: sig,
         p_notes: body.notes ? String(body.notes).slice(0, 2000) : null,
+        // Sky (2026-09-04): the sheet carries the date the repack was DONE, not
+        // the day it was typed — and repack_date is what becomes the QuickBooks
+        // adjustment's TxnDate below. null falls back to today in the RPC; a
+        // future date is refused there, so a bad value cannot reach QuickBooks.
+        p_repack_date: /^\d{4}-\d{2}-\d{2}$/.test(String(body.repack_date || '')) ? String(body.repack_date) : null,
       }, auth.jwt);
     } catch (e) {
       return json({ error: e.message.replace(/^POST rpc\/fn_repack_create → \d+: /, '') }, 400);
