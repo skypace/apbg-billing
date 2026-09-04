@@ -54,6 +54,17 @@
 [functions."repack"]
   timeout = 26
 
+# QuickBooks purchasing: the 15-min PO/bill/item pull (pg_cron knocks at
+# /api/qbo-purchasing-sync; Sync now is the same function under a staff bearer),
+# receiving (ledger + QuickBooks Bill linked to the PO + Brixpense row) and the
+# two-way PO push. Each holds a QBO token refresh plus several round trips.
+[functions."qbo-purchasing-sync"]
+  timeout = 26
+[functions."po-receive"]
+  timeout = 26
+[functions."po-qbo-push"]
+  timeout = 26
+
 [functions."sf-receipt-pull"]
   timeout = 26
 
@@ -186,22 +197,17 @@
   to = "/vendor-onboard.html"
   status = 200
 
-# qbo-pos-* — at /.netlify/functions/ (no config.path on these)
 [[redirects]]
-  from = "/expense/api/qbo-pos-preview"
-  to = "/.netlify/functions/qbo-pos-preview"
+  from = "/api/qbo-purchasing-sync"
+  to = "/.netlify/functions/qbo-purchasing-sync"
   status = 200
 [[redirects]]
-  from = "/expense/api/qbo-pos-import"
-  to = "/.netlify/functions/qbo-pos-import"
+  from = "/api/po-receive"
+  to = "/.netlify/functions/po-receive"
   status = 200
 [[redirects]]
-  from = "/api/qbo-pos-preview"
-  to = "/.netlify/functions/qbo-pos-preview"
-  status = 200
-[[redirects]]
-  from = "/api/qbo-pos-import"
-  to = "/.netlify/functions/qbo-pos-import"
+  from = "/api/po-qbo-push"
+  to = "/.netlify/functions/po-qbo-push"
   status = 200
 
 # expense-cc-match — v1 function at /.netlify/functions/ (no config.path);

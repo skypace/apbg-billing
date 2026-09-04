@@ -267,6 +267,29 @@ function renderRows(){
   recalc();
 }
 
+// ?packs=<packItemId>:<packs>,… — Inventory Planning's suggested 8-packs. The
+// sheet counts CASES (a case is exactly ppc() packs), so packs round UP to whole
+// cases; the pack → case mapping is the allow-list in PAIRS, never a guess.
+function applyPrefill(){
+  var m = /[?&]packs=([^&]+)/.exec(location.search);
+  if(!m) return;
+  var filled = 0;
+  decodeURIComponent(m[1]).split(',').forEach(function(part){
+    var kv = part.split(':'); if(kv.length !== 2) return;
+    var packs = n(kv[1]); if(packs <= 0) return;
+    var pair = null;
+    PAIRS.forEach(function(p){ if(p.case && p.pack && String(p.pack.qbo_item_id) === kv[0]) pair = p; });
+    if(!pair) return;
+    var inp = document.querySelector('input[data-case="'+pair.case.qbo_item_id+'"]');
+    if(inp){ inp.value = Math.ceil(packs / ppc()); filled++; }
+  });
+  if(filled > 0){
+    recalc();
+    var line = document.getElementById('settingsLine');
+    if(line) line.innerHTML += ' · <b style="color:#5eead4">Prefilled '+filled+' flavour'+(filled===1?'':'s')+' from Inventory Planning — check before signing.</b>';
+  }
+}
+
 function collectLines(){
   var lines = [];
   document.querySelectorAll('input[data-case]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'repack', qbo_item_id:i.getAttribute('data-case'), qty:q}); });
@@ -440,6 +463,7 @@ async function load(first){
     + 'QuickBooks adjustment account: <b>'+esc(SETTINGS.qbo_adjust_account_name)+'</b>';
   if(first){
     renderRows();
+    applyPrefill();
     var who = document.getElementById('who');
     if(!who.value) who.value = (d.me && d.me.name) || SESSION.name || '';
   }else{
