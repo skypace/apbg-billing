@@ -29,7 +29,39 @@ export interface SubDistributor {
 export type NewSubDistributor = Pick<SubDistributor, 'code' | 'name'> &
   Partial<Omit<SubDistributor, 'id' | 'code' | 'name' | 'created_at' | 'updated_at'>>;
 
-export type AgreementStatus = 'draft' | 'sent' | 'signed' | 'expired' | 'void';
+// The lifecycle a BUILT agreement moves through. 'void' predates the builder
+// and is kept so historical uploaded rows still render; 'revoked' is what the
+// builder writes when a link is switched off before it is signed.
+export type AgreementStatus =
+  | 'draft' | 'sent' | 'signed' | 'declined' | 'revoked' | 'expired' | 'superseded' | 'void';
+
+export interface FeeLine { label: string; rate: number | string | null; unit: string }
+export interface ServiceLevel { level: number; name: string; hours: number; description: string }
+export interface InsuranceLine { line: string; limit: string }
+
+/**
+ * Everything the Fee and Territory Schedule prints. A key left OUT falls back
+ * to the shipped default; an explicitly EMPTY array means "none", which is a
+ * real answer — a partner who does no service work has no response times, and
+ * silently restoring the defaults there would commit them to hours nobody
+ * agreed to.
+ */
+export interface DealTerms {
+  model?: string;
+  territory?: string;
+  accounts?: string;
+  per_case_fee?: number | null;
+  per_case_unit?: string;
+  other_fees?: FeeLine[];
+  service_rate?: string;
+  settlement_day?: string;
+  payment_term?: string;
+  notice_company_email?: string;
+  notice_distributor_email?: string;
+  service_levels?: ServiceLevel[];
+  insurance?: InsuranceLine[];
+  extra?: string;
+}
 
 export interface SubDistributorAgreement {
   id: string;
@@ -55,7 +87,44 @@ export interface SubDistributorAgreement {
   signer_user_agent: string | null;
   created_at: string;
   updated_at: string;
+
+  // ── Built agreements (the contract builder) ──
+  // An uploaded PDF has file_path and no body_source; a built agreement has
+  // body_source — the SNAPSHOT of the template text at build time, which is
+  // what makes a later template edit unable to change what somebody signed.
+  agreement_number: string | null;
+  template_id: string | null;
+  template_code: string | null;
+  template_version: string | null;
+  subtitle: string | null;
+  body_source: string | null;
+  deal_terms: DealTerms | null;
+  counterparty_legal_name: string | null;
+  counterparty_entity_type: string | null;
+  counterparty_state: string | null;
+  counterparty_address: string | null;
+  signer_title: string | null;
+  typed_name: string | null;
+  consent_esign: boolean | null;
+  company_signer_name: string | null;
+  company_signer_title: string | null;
+  company_signed_at: string | null;
+  expires_at: string | null;
+  viewed_at: string | null;
+  resent_count: number | null;
+  sent_by: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
+  executed_pdf_path: string | null;
+  executed_pdf_at: string | null;
+  notes: string | null;
 }
+
+/** True when this row was built from a template rather than uploaded as a PDF. */
+export const isBuiltAgreement = (a: Pick<SubDistributorAgreement, 'body_source'>) =>
+  !!(a.body_source && a.body_source.length);
 
 export type NewAgreement = Pick<SubDistributorAgreement, 'sub_distributor_id' | 'version' | 'model'> &
   Partial<Omit<SubDistributorAgreement, 'id' | 'sub_distributor_id' | 'version' | 'model' | 'created_at' | 'updated_at'>>;
@@ -245,6 +314,38 @@ export async function sendAgreement(id: string, sentTo: string): Promise<SubDist
     sent_at: new Date().toISOString(),
     sent_to: sentTo,
   });
+}
+
+// ── QuickBooks vendor ─────────────────────────────────────────────────────
+
+export interface QboVendorPushResult {
+  ok: true;
+  /** created | linked_existing | already_linked — never a second vendor. */
+  outcome: 'created' | 'linked_existing' | 'already_linked';
+  qbo_vendor_id: string;
+  display_name: string;
+  /** Things a human needs to know: a name collision, a missing remit-to. */
+  notes: string[];
+}
+
+/**
+ * Create the partner's QuickBooks vendor (or link the one already there) and
+ * stamp the id on the row. Backed by netlify/functions/distributor-qbo-vendor.mjs
+ * because the QBO token lives in the Netlify env, never in the browser.
+ */
+export async function pushDistributorToQbo(
+  subDistributorId: string,
+  displayName?: string,
+): Promise<QboVendorPushResult> {
+  const token = await _sbToken();
+  const res = await fetch('/margin/.netlify/functions/distributor-qbo-vendor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ distributor_id: subDistributorId, display_name: displayName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  return data as QboVendorPushResult;
 }
 
 // ── Agreement files (private bucket distributor-docs, staff storage RLS) ──
