@@ -643,6 +643,45 @@ is the same case deducted twice. It stays as the DELIVERY and per-case fee
 record — the thing a delivery PO and the "their invoice matches ours" check
 will be built on — and simply stopped being a second stock writer.
 
+### Repacks — cases into 8-packs, one signed sheet (2026-09-04)
+
+The warehouse breaks 24-pack cases down into 8-packs. Before this there was no
+place to record it: two repacks had been keyed straight into QuickBooks as
+InventoryAdjustments — ref 500 on 8/24 to account 1150040010 *Ecommerce
+Repackaging* and ref 503 on 8/26 to 353 *Inventory Shrinkage* (memo "need 8pk
+conversion numbers from Kyle") — and the stock ledger knew about neither, so the
+24P items read high and the 8PK items were not tracked at all.
+
+**`alamedapointbg.com/repack`** (`public/repack.html`, a hub tile, and framed at
+**Refractor → Stock → Repacks**) is the sheet: cases used per flavour, 8-packs
+made (defaults to 3 a case, editable), the variety 8-pack as a produce-only row,
+who did it, a signature, and the date stamped automatically. Saving it runs
+**`ops.fn_repack_create`** (`20260904a`) — one `adjustment` movement per line
+through the Adjustment Counter, cases out of Brix Warehouse and packs in, the
+same shape the reconcile writes so every on-hand and drift view already
+understands it — and THEN `netlify/functions/repack.mjs` posts one QuickBooks
+**InventoryAdjustment** on the account in `ops.repack_settings` (353 per Sky;
+one edit to change) with `DocNumber` = the `RP-YYYY-NNNNN` number, so the two
+records name each other. After the push it re-reads the touched items'
+`QtyOnHand` into `ops.qbo_items`, so On-Hand agrees with QuickBooks at once
+rather than after the 09:45 UTC items sync.
+
+Three rules carry the weight. **Ledger first, QuickBooks best-effort:** a QBO
+refusal (closed period, dead token) lands as `qbo_error` with a Retry button —
+the sheet the warehouse signed is never lost to an accounting hiccup, and
+`ops.fn_repack_health()` goes red on the board after an hour unpushed.
+**`ops.repack_pairs` is an allow-list:** the tool can only move the seven
+case→pack pairs and the variety pack; a stray SKU cannot be adjusted through a
+repack sheet. **Cans in vs cans out is shown, never enforced:** the 8/24 sheet
+in QuickBooks did not balance (1,008 cans in, 656 out — loose singles, damage,
+tasting stock are real), so a hard equality would refuse actual work; instead an
+unbalanced sheet must carry a note saying where the cans went, and the gap is
+stored as `cans_unaccounted` for anyone auditing shrink. Void deletes the QBO
+adjustment first, then reverses every movement with new rows — history is never
+edited. Enabling `track_locations` on the eight 8PK items also means the sales
+feed deducts 8-pack sales from today on (zero 8PK invoice lines since
+`apply_from`, checked before applying).
+
 ## The run guide, inside the app
 
 The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**
