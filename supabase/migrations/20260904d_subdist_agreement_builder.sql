@@ -1,4 +1,4 @@
--- 20260904a — the sub-distribution agreement: a builder, an emailed signature,
+-- 20260904d — the sub-distribution agreement: a builder, an emailed signature,
 -- and an executed document that cannot change afterwards.
 --
 -- Ask (Sky): "let me see the sub distributor contract builder. if there isnt
