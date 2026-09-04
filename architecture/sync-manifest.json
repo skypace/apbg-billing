@@ -1,7 +1,7 @@
 {
   "$schema": "./sync-manifest.schema.json",
   "version": 1,
-  "last_updated": "2026-09-02",
+  "last_updated": "2026-09-04",
   "description": "Authoritative writer/owner registry for every table in ops.* schema. Lints against architecture/schema-snapshot.json. See architecture/README.md.",
   "writers": [
     {
@@ -893,6 +893,28 @@
       ],
       "multi_writer": true,
       "notes": "Turns a QuickBooks sale into a stock movement -- the one movement nothing was writing, and the reason the ledger lost a day of stock a day (2026-09-01: 174 units invoiced, 176 units adrift the next morning). An invoice cannot say WHICH building the case left, so the customer decides it: ops.fn_sales_ledger_location reads ops.sub_distributor_accounts and falls through to BRIX-WAREHOUSE. Sub-distributors are always consignment and our system bills their customers, so the invoice is the depletion signal for their warehouse too. Keyed on the invoice LINE via ops.sales_ledger_applied, so an edited invoice posts the DIFFERENCE and a voided one is reversed rather than double-counted. Invoice/SalesReceipt take stock out; CreditMemo/RefundReceipt put it back. Multi-writer on inventory_movements with brix-stock:app-and-rpcs and sub-distributors:app-and-rpcs. WARNING: fn_distributor_record_depletion no longer posts a movement (20260902x) -- it is the delivery and fee record only. Two writers would deduct every consigned case twice. WARNING: the feed and fn_reconcile_inventory_bulk must never both be authoritative -- reconcile sets the ledger EQUAL to QuickBooks and would put back whatever the feed just deducted. Hence shadow mode by default: it computes and writes nothing until a human flips it to live."
+    },
+    {
+      "name": "brix-repack:page-and-function",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "on-demand (warehouse saves a repack sheet at /repack or Refractor -> Stock -> Repacks)",
+      "writes": [
+        "ops.repack_orders",
+        "ops.repack_order_lines",
+        "ops.repack_settings",
+        "ops.repack_pairs",
+        "ops.inventory_movements",
+        "ops.qbo_items",
+        "ops.repack_bin",
+        "ops.repack_variety_recipe"
+      ],
+      "multi_writer": true,
+      "external_inputs": [
+        "QuickBooks Online API: InventoryAdjustment (create + delete on void), Item (QtyOnHand re-read after a push)"
+      ],
+      "notes": "Cases of cans -> 8-packs, one signed sheet (2026-09-04). public/repack.html -> netlify/functions/repack.mjs -> ops.fn_repack_create (SECURITY DEFINER, staff guard inline; run under the CALLER's JWT so created_by/email are the real person) writes repack_orders + lines and one 'adjustment' movement per line through the Adjustment Counter (the same shape fn_reconcile_inventory_to_qbo writes; source_doc_type='repack'), so it is a multi-writer on inventory_movements with brix-stock / sub-distributors / sales-ledger-feed. THEN the function posts a QBO InventoryAdjustment on the account in ops.repack_settings (353 Inventory Shrinkage per Sky) with DocNumber = the RP number, stamps qbo_txn_id, and re-reads the touched items' QtyOnHand into ops.qbo_items (multi-writer with sync-qbo-items) so Stock -> On-Hand agrees with QuickBooks immediately instead of after the 09:45 UTC items sync. Ledger first, QuickBooks best-effort: a QBO refusal lands as qbo_error + a Retry button, never a lost sheet; ops.fn_repack_health() (in fn_sync_health_extra) goes red after an hour unpushed. Void deletes the QBO adjustment FIRST, then fn_repack_void reverses the movements (new rows, history untouched). ops.repack_pairs is the allow-list of what the tool may adjust (24P case -> 8PK pack; Variety 891 produce-only); repack_settings is edited by staff under RLS (account, packs-per-case default). NEVER an uneven 8-pack (20260904b): a case is 24 cans = exactly 3 packs, derived not typed. THE VARIETY BIN (20260904c): variety 8-packs are a RECIPE (ops.repack_variety_recipe: 2 x Cola + 1 x each of six others = 8) built from whole cases staged in the VARIETY-BIN location (a ledger move, no QBO change); ops.repack_bin counts CANS per flavour while the ledger and QuickBooks only ever see WHOLE cases -- a case is posted out of the bin (and off QBO) the moment its 24th can is drawn, so an open case still counts as a case. A bin-only sheet is qbo_required=false and the health check leaves it alone. Migrations: 20260904a_repack_orders.sql, 20260904b_repack_exact_eights.sql, 20260904c_repack_variety_bin.sql.",
+      "last_verified": "2026-09-04"
     }
   ],
   "orphans": [

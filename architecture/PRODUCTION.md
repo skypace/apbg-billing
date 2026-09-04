@@ -596,11 +596,110 @@ when called with `commit` — so its numbers can be checked against the drift th
 strip reports for a day or two first. Once it is live, **reconcile becomes the
 audit, not the mechanism**, and should only be run deliberately.
 
+### The runner — nothing ran the feed until 2026-09-03
+
+⚠ **`20260902x` shipped the feed and the switch, and nothing ever CALLED it with
+commit.** Not a pg_cron job, not the deployed `sync-qbo` (v47 refreshes the
+sales view and stops), not another database function, not the panel — which
+only read the preview and set the mode. So "live" would have changed a label
+and deducted nothing, and the ledger would have gone on losing a day of stock a
+day with the switch showing green. Found by enumerating every caller class,
+not by reading the switch.
+
+**`ops.fn_sales_ledger_run()`** (`20260903a`) is the one entry point: it calls
+`fn_apply_sales_to_ledger(true)`, counts new / edited / voided lines, and writes
+`ops.sync_log` (`source='inventory'`, `sync_type='sales_feed'`) on EVERY run,
+shadow included — a run that leaves no row is indistinguishable from a cron
+that never fired. It never raises: a failure is recorded in the row and
+returned, so the cron cannot die silently. **pg_cron `sales-ledger-apply`**
+runs it at :05/:20/:35/:50, five minutes behind `qbo-cdc-sync`, so each run
+works the invoice lines the sync just landed. **`ops.fn_sales_feed_health()`**
+(`sales_feed` on the health board) is red on an errored run or a live feed whose
+runner has been quiet for an hour; in shadow it is green and says what it
+would deduct. The panel's **Run now** button is the same call, for testing a
+cutover without waiting for the clock.
+
+⚠ **The first live run failed, and the health check is what caught it.**
+`fn_apply_sales_to_ledger` RETURNS TABLE with a column named `invoice_line_id`,
+and its INSERT … ON CONFLICT (invoice_line_id) into `sales_ledger_applied`
+names the same column — plpgsql reads that as ambiguous. Shadow mode never
+executed the write, so the bug sat invisible for a day and surfaced on the
+first commit. Fixed in `20260903b` with `#variable_conflict use_column`; a
+function that returns a column named like a table column it writes needs that
+pragma, or its OUT parameter shadows the column the first time the write runs.
+
+**The cutover, as it was actually done (2026-09-03).** The mirror's quantities
+are a snapshot taken at 09:45 UTC. Zero of the day's invoice lines predated
+that snapshot, so: reconcile the ledger EQUAL to the mirror (28 items, dated
+today, reason on every movement), set `apply_from` to today, flip to live, run.
+The feed then deducts today's lines; tomorrow's 09:45 sync brings the mirror
+level with it, and drift reads zero. ⚠ **`apply_from` must be the mirror's
+snapshot day, not earlier** — an earlier date deducts sales the reconcile
+already absorbed, twice.
+
 ⚠ **`fn_distributor_record_depletion` no longer moves stock** (`20260902x`). It
 posted its own shipment out of the partner's location, which with the feed live
 is the same case deducted twice. It stays as the DELIVERY and per-case fee
 record — the thing a delivery PO and the "their invoice matches ours" check
 will be built on — and simply stopped being a second stock writer.
+
+### Repacks — cases into 8-packs, one signed sheet (2026-09-04)
+
+The warehouse breaks 24-pack cases down into 8-packs. Before this there was no
+place to record it: two repacks had been keyed straight into QuickBooks as
+InventoryAdjustments — ref 500 on 8/24 to account 1150040010 *Ecommerce
+Repackaging* and ref 503 on 8/26 to 353 *Inventory Shrinkage* (memo "need 8pk
+conversion numbers from Kyle") — and the stock ledger knew about neither, so the
+24P items read high and the 8PK items were not tracked at all.
+
+**`alamedapointbg.com/repack`** (`public/repack.html`, a hub tile, and framed at
+**Refractor → Stock → Repacks**) is the sheet: cases used per flavour, 8-packs
+made (defaults to 3 a case, editable), the variety 8-pack as a produce-only row,
+who did it, a signature, and the date stamped automatically. Saving it runs
+**`ops.fn_repack_create`** (`20260904a`) — one `adjustment` movement per line
+through the Adjustment Counter, cases out of Brix Warehouse and packs in, the
+same shape the reconcile writes so every on-hand and drift view already
+understands it — and THEN `netlify/functions/repack.mjs` posts one QuickBooks
+**InventoryAdjustment** on the account in `ops.repack_settings` (353 per Sky;
+one edit to change) with `DocNumber` = the `RP-YYYY-NNNNN` number, so the two
+records name each other. After the push it re-reads the touched items'
+`QtyOnHand` into `ops.qbo_items`, so On-Hand agrees with QuickBooks at once
+rather than after the 09:45 UTC items sync.
+
+Three rules carry the weight. **Ledger first, QuickBooks best-effort:** a QBO
+refusal (closed period, dead token) lands as `qbo_error` with a Retry button —
+the sheet the warehouse signed is never lost to an accounting hiccup, and
+`ops.fn_repack_health()` goes red on the board after an hour unpushed.
+**`ops.repack_pairs` is an allow-list:** the tool can only move the seven
+case→pack pairs and the variety pack; a stray SKU cannot be adjusted through a
+repack sheet. **Never an uneven 8-pack** (`20260904b`, Sky: "only exact 8 packs that match
+the 24 pack count"): a case is 24 cans = exactly 3 packs, and the sheet derives
+the pack count from the cases — nobody types it. **Variety is a recipe, built
+from a bin** (`20260904c`, Sky: "Variety packs consist of 2 colas, and one of
+every flavor… a variety pack warehouse… where we move cases to build variety
+packs out of"): `ops.repack_variety_recipe` says a variety 8-pack is 2 × Cola +
+1 × each of the six other flavours; whole cases are first moved into the
+**VARIETY-BIN** location (a ledger move — still 24P cases, still ours,
+QuickBooks unchanged), and each variety pack made pulls its recipe out of the
+bin. No 24-pack variety item is needed. ⚠ **The bin counts cans; the ledger and
+QuickBooks count whole cases.** `ops.repack_bin` holds each flavour's cans
+(24 × cases in − cans drawn); a case is posted OUT of the bin and off QuickBooks
+the moment its 24th can is drawn, so an opened case still reads as a case in the
+bin until it is empty — what a person counting the bin would say too. Between
+the first and last can of an open case QuickBooks overstates that flavour by the
+cans already inside variety packs (at most 23); whole numbers everywhere are
+worth that, because fractional cases would drift on every sum. The function
+refuses a variety count the bin cannot cover and says how many more cases of
+which flavour to move in; `v_repack_bin` shows cans, cases, open-case and "packs
+possible" per flavour. A sheet that only moved cases into the bin has nothing
+to tell QuickBooks and is marked `qbo_required=false`, which the health check
+respects. ⚠ The first cut allowed an unbalanced sheet with a note, because the
+8/24 hand-keyed sheet had not balanced (1,008 in, 656 out); that was the wrong
+lesson — it did not balance because nothing forced it to.
+Void deletes the QBO adjustment first, then reverses every
+movement with new rows — history is never edited. Enabling `track_locations` on
+the eight 8PK items also means the sales feed deducts 8-pack sales from today on
+(zero 8PK invoice lines since `apply_from`, checked before applying).
 
 ## The run guide, inside the app
 

@@ -22,9 +22,10 @@ import { StockOnHandTab } from './StockOnHandTab';
 import { StockTransfersTab } from './StockTransfersTab';
 import { StockMovementsTab } from './StockMovementsTab';
 import { StockAdjustmentsTab } from './StockAdjustmentsTab';
+import { StockRepacksTab } from './StockRepacksTab';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
 
-type TabId = 'on_hand' | 'locations' | 'purchase_orders' | 'transfers' | 'adjustments' | 'movements';
+type TabId = 'on_hand' | 'locations' | 'purchase_orders' | 'transfers' | 'adjustments' | 'repacks' | 'movements';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'on_hand',         label: 'On-Hand'         },
@@ -32,6 +33,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'purchase_orders', label: 'Purchase Orders' },
   { id: 'transfers',       label: 'Transfers'       },
   { id: 'adjustments',     label: 'Adjustments'     },
+  { id: 'repacks',         label: 'Repacks'         },
   { id: 'movements',       label: 'Movements'       },
 ];
 
@@ -140,7 +142,7 @@ export function StockPage() {
         {TABS.map((t) => <Tab key={t.id} value={t.id} label={t.label} />)}
       </Tabs>
 
-      {tab !== 'locations' && (
+      {tab !== 'locations' && tab !== 'repacks' && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
             <InventoryLaneSelector value={lane} onChange={setLane} />
@@ -185,6 +187,7 @@ export function StockPage() {
           onChanged={reloadAll}
         />
       )}
+      {tab === 'repacks' && <StockRepacksTab />}
       {tab === 'movements' && (
         <StockMovementsTab
           rows={laneMovements}

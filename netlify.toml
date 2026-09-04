@@ -40,6 +40,10 @@
 [functions."production-doc"]
   timeout = 26
 
+# repack: one QBO adjustment + one item re-read; the token refresh alone can eat 10s.
+[functions."repack"]
+  timeout = 26
+
 [functions."sf-receipt-pull"]
   timeout = 26
 
@@ -110,6 +114,15 @@
 [[redirects]]
   from = "/compliance"
   to = "/compliance.html"
+  status = 200
+
+# Repack sheet — cases of cans become 8-packs. STAFF page (hub login); saving a
+# sheet writes the stock ledger and a QuickBooks InventoryAdjustment together
+# through /api/repack. The gateway proxies /repack here; Refractor → Stock →
+# Repacks frames the same page with ?embed=1.
+[[redirects]]
+  from = "/repack"
+  to = "/repack.html"
   status = 200
 
 # Visitor sign-in kiosk — the tablet at the front door. DELIBERATELY PUBLIC: a
