@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import {
   InventoryLocation,
   updateLocation,
@@ -166,13 +167,8 @@ export function DistributorOverviewTab({ dist, location, locations, onChanged }:
           />
         </LField>
         <LField label="Inventory location">
-          <select style={{ ...inp(), width: '100%' }} value={inventoryLocationId}
-            onChange={(e) => setInventoryLocationId(e.target.value)}>
-            <option value="">— None —</option>
-            {distributorLocs.map((l) => (
-              <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
-            ))}
-          </select>
+          <SearchSelect style={{ width: '100%' }} value={inventoryLocationId} onChange={setInventoryLocationId} placeholder="None — type a location…"
+            options={distributorLocs.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
       </div>
 

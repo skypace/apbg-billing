@@ -23,8 +23,13 @@ export function matchesProfile(profile, expense) {
   if (!patterns.length && !profile.qbo_vendor_id) return false;
 
   // The QBO vendor id is the strong signal when we have it on both sides.
-  if (profile.qbo_vendor_id && expense.qbo_vendor_id
-      && String(profile.qbo_vendor_id) === String(expense.qbo_vendor_id)) return true;
+  // ⚠ The two sides SPELL IT DIFFERENTLY: the profile (like ops.vendors) calls
+  // it qbo_vendor_id, an expense row calls it vendor_id. Reading the profile's
+  // spelling off the expense yields undefined, which fails open to name
+  // matching and reads as "no strong signal" rather than as a bug.
+  const expenseVendorId = expense.vendor_id ?? expense.qbo_vendor_id;
+  if (profile.qbo_vendor_id && expenseVendorId
+      && String(profile.qbo_vendor_id) === String(expenseVendorId)) return true;
 
   const name = String(expense.vendor_name || '').trim().toLowerCase();
   if (!name) return false;

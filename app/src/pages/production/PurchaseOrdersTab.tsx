@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon } from 'lucide-react';
 import {
@@ -13,7 +14,7 @@ import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
-import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
+import { INVENTORY_LANE_LABEL, describeLanes, type InventoryLane } from '../../lib/inventoryLane';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -30,7 +31,8 @@ interface Props {
   locations: InventoryLocation[];
   locById: Map<string, InventoryLocation>;
   itemLookup: ProductionItemLookup;
-  lane: InventoryLane;
+  /** Selected lanes (empty = all) — a PO can now carry 24-packs and 3-gallon on one order. */
+  lanes: InventoryLane[];
   initialPoId?: string | null;
   onChanged: () => void;
 }
@@ -63,7 +65,7 @@ function readPrefill(): PoPrefillState | null {
 }
 
 export function PurchaseOrdersTab({
-  vendors, purchaseOrders, locations, locById, itemLookup, lane, initialPoId = null, onChanged,
+  vendors, purchaseOrders, locations, locById, itemLookup, lanes, initialPoId = null, onChanged,
 }: Props) {
   // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
   // open the Create form on mount and seed its lines.
@@ -183,7 +185,7 @@ export function PurchaseOrdersTab({
         }}>
           All Open Purchase Orders (Refractor + QuickBooks, one list)
         </div>
-        <OpenPOsTab lane={lane} itemLookup={itemLookup} onChanged={onChanged} />
+        <OpenPOsTab lanes={lanes} itemLookup={itemLookup} onChanged={onChanged} />
       </div>
 
       <div style={{
@@ -234,7 +236,7 @@ export function PurchaseOrdersTab({
           componentItems={componentItems}
           itemLookup={itemLookup}
           prefill={prefill}
-          lane={lane}
+          lanes={lanes}
           onCancel={() => setCreating(false)}
           onCreated={() => { setCreating(false); onChanged(); }}
         />
@@ -291,14 +293,14 @@ function prefillLocationId(prefill: PoPrefillState | null): string {
 }
 
 function CreatePoForm({
-  vendors, locations, componentItems, itemLookup, prefill, lane, onCancel, onCreated,
+  vendors, locations, componentItems, itemLookup, prefill, lanes, onCancel, onCreated,
 }: {
   vendors: QboVendor[];
   locations: InventoryLocation[];
   componentItems: { id: string; label: string }[];
   itemLookup: ProductionItemLookup;
   prefill: PoPrefillState | null;
-  lane: InventoryLane;
+  lanes: InventoryLane[];
   onCancel: () => void;
   onCreated: () => void;
 }) {
@@ -360,7 +362,7 @@ function CreatePoForm({
     <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          New Purchase Order · {INVENTORY_LANE_LABEL[prefill?.inventory_lane ?? lane]}
+          New Purchase Order · {prefill?.inventory_lane ? INVENTORY_LANE_LABEL[prefill.inventory_lane] : describeLanes(lanes)}
         </div>
         <button onClick={onCancel} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
           <XIcon size={14} />
@@ -369,16 +371,12 @@ function CreatePoForm({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
         <LField label="Vendor">
-          <select style={inp()} value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-            <option value="">—</option>
-            {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-          </select>
+          <SearchSelect value={vendorId} onChange={setVendorId} placeholder="Type a vendor…"
+            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
         </LField>
         <LField label="Destination location">
-          <select style={inp()} value={locId} onChange={(e) => setLocId(e.target.value)}>
-            <option value="">—</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-          </select>
+          <SearchSelect value={locId} onChange={setLocId} placeholder="Type a location…"
+            options={locations.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
         <LField label="Expected date">
           <input type="date" style={inp()} value={expected} onChange={(e) => setExpected(e.target.value)} />
@@ -406,18 +404,14 @@ function CreatePoForm({
             return (
               <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
                 <td style={td}>
-                  <select style={{ ...inp(), width: '100%' }} value={l.qbo_item_id}
-                    onChange={(e) => {
-                      const id = e.target.value;
+                  <SearchSelect style={{ width: '100%' }} value={l.qbo_item_id} options={componentItems} placeholder="Type an item…"
+                    onChange={(id) => {
                       const it = id ? itemLookup.byId.get(id) : null;
                       updateLine(i, {
                         qbo_item_id: id,
                         unit_cost: l.unit_cost || (it?.purchase_cost ? String(it.purchase_cost) : ''),
                       });
-                    }}>
-                    <option value="">—</option>
-                    {componentItems.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
+                    }} />
                 </td>
                 <td style={{ ...td, textAlign: 'right' }}>
                   <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}

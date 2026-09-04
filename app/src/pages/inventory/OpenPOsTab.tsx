@@ -23,7 +23,7 @@ import { KPICard } from '../../components/KPICard';
 import { TableSkeleton } from '../../components/Skeletons';
 import { useToast } from '../../lib/toast';
 import { GRID_SX, GRID_DEFAULTS } from '../../lib/gridStyles';
-import type { InventoryLane } from '../../lib/inventoryLane';
+import { laneSelected, type InventoryLane } from '../../lib/inventoryLane';
 import { OriginBadge } from '../production/PoDetailModal';
 
 interface BrixPoLineSummary {
@@ -60,7 +60,8 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 interface Props {
-  lane?: InventoryLane;
+  /** Selected lanes (empty = all). Omitted = no lane filter at all. */
+  lanes?: InventoryLane[];
   itemLookup?: LaneItemLookup;
   /** Parent can hook in so the Reorder/Velocity tabs also refetch
    *  fn_items_master after a sync lands (qty_on_order refresh). */
@@ -77,7 +78,7 @@ function ago(iso: string | null | undefined): string {
   return `${Math.floor(h / 24)} days ago`;
 }
 
-export function OpenPOsTab({ lane, itemLookup, onChanged }: Props = {}) {
+export function OpenPOsTab({ lanes, itemLookup, onChanged }: Props = {}) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [pos, setPos] = useState<PurchaseOrderRow[]>([]);
@@ -106,9 +107,9 @@ export function OpenPOsTab({ lane, itemLookup, onChanged }: Props = {}) {
   useEffect(() => { void load(); }, []);
 
   function lineIsInLane(qboItemId: string | null | undefined): boolean {
-    if (!lane || !itemLookup) return true;
+    if (!lanes || !itemLookup) return true;
     if (!qboItemId) return false;
-    return itemLookup.byId.get(qboItemId)?.inventory_lane === lane;
+    return laneSelected(lanes, itemLookup.byId.get(qboItemId)?.inventory_lane as InventoryLane | null | undefined);
   }
 
   const lineTotals = useMemo(() => {
@@ -122,7 +123,7 @@ export function OpenPOsTab({ lane, itemLookup, onChanged }: Props = {}) {
       totals.set(line.po_id, cur);
     }
     return totals;
-  }, [lines, lane, itemLookup]);
+  }, [lines, lanes, itemLookup]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   async function doSyncVendors() {
     setSyncingVendors(true);
@@ -175,12 +176,12 @@ export function OpenPOsTab({ lane, itemLookup, onChanged }: Props = {}) {
         qty_ordered: ordered,
         subtotal: Number(p.subtotal ?? 0),
       };
-    }).filter((row) => !lane || !itemLookup || row.line_count > 0);
+    }).filter((row) => !lanes || !itemLookup || row.line_count > 0);
     if (statusFilter === 'open_only') {
       return all.filter((r) => r.status === 'open' || r.status === 'partial' || r.status === 'draft');
     }
     return all;
-  }, [pos, statusFilter, lineTotals, lane, itemLookup]);
+  }, [pos, statusFilter, lineTotals, lanes, itemLookup]);
 
   async function toggleExpand(row: UnifiedPoRow) {
     if (expandedId === row.id) { setExpandedId(null); setExpandedLines(null); return; }

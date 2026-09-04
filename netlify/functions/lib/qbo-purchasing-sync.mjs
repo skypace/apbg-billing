@@ -428,6 +428,14 @@ export async function lastPurchasingSuccess() {
   return rows?.[0]?.completed_at ?? null;
 }
 
+/** Full-pull PO window: a year before the bill apply_from, ISO date. */
+export function poWindowStart(fromIso) {
+  const d = new Date(String(fromIso) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return '2025-09-01';
+  d.setUTCDate(d.getUTCDate() - 365);
+  return d.toISOString().slice(0, 10);
+}
+
 async function applyFrom() {
   const rows = await ops('GET', 'purchase_ledger_config?select=apply_from&limit=1');
   return rows?.[0]?.apply_from ?? '2026-09-03';
@@ -461,7 +469,15 @@ export async function runPurchasingSync({ trigger = 'manual', budgetMs = 20_000,
       let pos = [], bills = [], credits = [], changedItems = [];
       if (win.mode === 'full') {
         const from = await applyFrom();
-        pos = await qboQueryAll("select * from PurchaseOrder where POStatus = 'Open'", 'PurchaseOrder');
+        // POStatus is NOT a queryable field on PurchaseOrder — QuickBooks answers
+        // 400 QueryValidationError, and because a failed full pull never logs a
+        // success, every 15-minute run retried the full pull and failed again
+        // (found 2026-09-04: the purchasing light had been red since the first
+        // run). Pull by TxnDate instead — a year back, so an open PO raised
+        // months ago is still mirrored — and let fn_qbo_po_mirror_upsert read
+        // the status off each row; closed ones are mirrored too, which is what
+        // "QuickBooks and Refractor share one PO table" means.
+        pos = await qboQueryAll(`select * from PurchaseOrder where TxnDate >= '${poWindowStart(from)}'`, 'PurchaseOrder');
         bills = await qboQueryAll(`select * from Bill where TxnDate >= '${from}'`, 'Bill');
         credits = await qboQueryAll(`select * from VendorCredit where TxnDate >= '${from}'`, 'VendorCredit');
       } else {

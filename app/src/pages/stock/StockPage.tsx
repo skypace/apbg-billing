@@ -15,7 +15,7 @@ import {
 } from '../../lib/inventoryControl';
 import { fetchInventoryHealth, InventoryHealthRow } from '../../lib/inventory';
 import { InventoryLaneSelector } from '../../components/InventoryLaneSelector';
-import { filterItemsByLane, useInventoryLane } from '../../lib/inventoryLane';
+import { describeLanes, filterItemsByLanes, useInventoryLanes } from '../../lib/inventoryLane';
 import { TABS_SX } from './stockStyles';
 import { StockLocationsTab } from './StockLocationsTab';
 import { StockOnHandTab } from './StockOnHandTab';
@@ -47,7 +47,7 @@ export function StockPage() {
   // cases to repack; the sheet is on the Repacks tab, so land there.
   const [tab, setTab] = useState<TabId>(() =>
     typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.repack.prefill') ? 'repacks' : 'on_hand');
-  const [lane, setLane] = useInventoryLane();
+  const [lanes, , toggleLane] = useInventoryLanes();
   const [locations,  setLocations]  = useState<InventoryLocationView[] | null>(null);
   const [onHand,     setOnHand]     = useState<OnHandRow[]          | null>(null);
   const [transfers,  setTransfers]  = useState<InventoryTransfer[]  | null>(null);
@@ -67,8 +67,8 @@ export function StockPage() {
   useEffect(reloadAll, []);
 
   const laneItems = useMemo(
-    () => filterItemsByLane(items, lane),
-    [items, lane],
+    () => filterItemsByLanes(items, lanes),
+    [items, lanes],
   );
 
   const allowedItemIds = useMemo(
@@ -131,7 +131,7 @@ export function StockPage() {
           <div className="hero-eyebrow">On-Hand · Locations · Purchase Orders · Transfers · Movements</div>
           <h1 className="hero-title">Inventory</h1>
           <div className="hero-meta">
-            {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {physicalLocCount} active location{physicalLocCount === 1 ? '' : 's'}
+            {activeLabel} · {describeLanes(lanes)} · {physicalLocCount} active location{physicalLocCount === 1 ? '' : 's'}
             {transfers ? ` · ${transfers.filter((t) => t.status === 'in_transit').length} in transit` : ''}
           </div>
         </div>
@@ -148,10 +148,10 @@ export function StockPage() {
       {tab !== 'locations' && tab !== 'repacks' && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
-            <InventoryLaneSelector value={lane} onChange={setLane} />
+            <InventoryLaneSelector value={lanes} onToggle={toggleLane} />
             <div className="toolbar-spacer" />
             <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-              {laneItems.length} item{laneItems.length === 1 ? '' : 's'} in lane
+              {laneItems.length} item{laneItems.length === 1 ? '' : 's'} in {lanes.length === 1 ? 'lane' : 'lanes'}
             </span>
           </div>
         </div>
@@ -171,7 +171,7 @@ export function StockPage() {
           onChanged={reloadAll}
         />
       )}
-      {tab === 'purchase_orders' && <OpenPOsTab lane={lane} itemLookup={itemLookup} />}
+      {tab === 'purchase_orders' && <OpenPOsTab lanes={lanes} itemLookup={itemLookup} />}
       {tab === 'transfers' && (
         <StockTransfersTab
           transfers={laneTransfers}
