@@ -18,7 +18,7 @@ import {
 } from '../../lib/subDistributors';
 import {
   AgreementTemplate, DEFAULT_INSURANCE, DEFAULT_SERVICE_LEVELS,
-  buildAgreement, fetchAgreementTemplates, previewAgreement, resendAgreement,
+  agreementPdf, buildAgreement, fetchAgreementTemplates, previewAgreement, resendAgreement,
   revokeAgreement, sendAgreementForSignature,
 } from '../../lib/subdistAgreements';
 import { useToast } from '../../lib/toast';
@@ -338,6 +338,7 @@ export function AgreementPreviewModal({ agreement, onClose }: {
 }) {
   const toast = useToast();
   const [html, setHtml] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     previewAgreement(agreement.id)
@@ -346,11 +347,34 @@ export function AgreementPreviewModal({ agreement, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agreement.id]);
 
+  async function downloadPdf() {
+    setPdfBusy(true);
+    try {
+      const r = await agreementPdf(agreement.id);
+      // A blob, not a data: href — Safari refuses to download a large one.
+      const bin = Uint8Array.from(atob(r.pdf_base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bin], { type: 'application/pdf' }));
+      const el = document.createElement('a');
+      el.href = url; el.download = r.file_name; el.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setPdfBusy(false); }
+  }
+
   return (
     <Modal title={`${agreement.agreement_number ?? `v${agreement.version}`} — preview`} onClose={onClose} maxWidth={900}>
       <div style={{ ...hint, marginTop: 0, marginBottom: 12 }}>
         This is the document they will read. Nothing here is editable — change the Schedule on the
         draft, or publish a new template version, and build again.
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={downloadPdf} disabled={pdfBusy} style={btnSecondary()}>
+          {pdfBusy ? 'Rendering…' : 'Download the PDF'}
+        </button>
+        <span style={{ ...hint, marginLeft: 10 }}>
+          The same document they get, with the Fee and Territory Schedule on its own page.
+          A draft is stamped DRAFT on every page.
+        </span>
       </div>
       {html === null ? (
         <div style={{ color: 'var(--mt)', fontSize: 12, padding: 20 }}>Rendering…</div>

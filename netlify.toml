@@ -40,6 +40,16 @@
 [functions."production-doc"]
   timeout = 26
 
+# Renders an agreement PDF (pdf-lib, 8 pages) and, on sign, files it and emails
+# it to both sides. The platform default is 10s, and a kill returns an HTML
+# error page — so a client doing res.json() reports "Unexpected token '<'"
+# rather than "timed out".
+[functions."subdist-sign"]
+  timeout = 26
+
+[functions."subdist-agreement"]
+  timeout = 26
+
 [functions."sf-receipt-pull"]
   timeout = 26
 
@@ -139,6 +149,19 @@
 [[redirects]]
   from = "/nda-send"
   to = "/nda-send.html"
+  status = 200
+
+# Sub-distribution agreement signing page. Same kiosk recipe as /nda and for
+# the same reason: a distribution partner's owner has no login here and may
+# never want one, so the token in ?t= is the entire gate and every write goes
+# through the service-role function (subdist-sign). Staff build, preview and
+# send from Refractor → Sub-Distributors → Agreements. The gateway proxies
+# /distributor-agreement here.
+# ⚠ NOT under /distributor/* — that prefix is the partner PORTAL's SPA build
+# output, which is regenerated on every deploy and sits behind a login.
+[[redirects]]
+  from = "/distributor-agreement"
+  to = "/distributor-agreement.html"
   status = 200
 
 # Vendor onboarding intake — the one-time link vendors get by email (Vendor

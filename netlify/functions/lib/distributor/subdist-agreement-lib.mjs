@@ -84,6 +84,61 @@ export function validSignature(dataUrl, maxBytes = 400_000) {
   return null;
 }
 
+export const BUCKET = 'distributor-docs';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gfsdpwiqzshhexkofiif.supabase.co';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+/** Validate a raw signing token → { agreement } or { error, status }.
+ *
+ *  ⚠ An unknown token and a malformed one answer identically. The difference
+ *  would tell a prober which tokens exist, and there is no upside to it. */
+export async function validateToken(raw) {
+  if (!raw || typeof raw !== 'string' || raw.length < 20 || raw.length > 100) {
+    return { error: 'This signing link is not valid.', status: 400 };
+  }
+  const rows = await ops('GET',
+    `sub_distributor_agreements?select=*&token_hash=eq.${hashToken(raw)}&limit=1`);
+  const a = rows && rows[0];
+  if (!a) return { error: 'This signing link is not valid.', status: 404 };
+  // A signed agreement stays readable: coming back to re-read what you signed
+  // is legitimate, not a failure, so the caller decides what to do with it.
+  if (a.status === 'signed') return { agreement: a };
+  const why = linkUnusable(a);
+  if (why) return { error: why, status: 410 };
+  return { agreement: a };
+}
+
+export async function uploadPdf(path, bytes) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/pdf',
+      'x-upsert': 'true',
+    },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`PDF upload ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return path;
+}
+
+/** Today in Pacific, so the effective date on screen, in the PDF and in the
+ *  email are the same calendar day. */
+export function todayPacific() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+/** Best-effort client IP from the platform headers. */
+export function clientIp(req) {
+  const h = req.headers;
+  const get = (k) => (typeof h?.get === 'function' ? h.get(k) : (h || {})[k]) || '';
+  return String(get('x-nf-client-connection-ip') || get('x-forwarded-for') || get('client-ip'))
+    .split(',')[0].trim().slice(0, 60);
+}
+
 /** The company signatory whose signature prints in the Company block. Read
  *  FRESH at send time, so re-drawing a signature takes effect on the next
  *  agreement rather than stranding a stale image on every future one. */

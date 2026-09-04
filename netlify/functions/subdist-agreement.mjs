@@ -28,6 +28,7 @@ import {
   clampTtl, clean, companySignatory, linkUnusable,
 } from './lib/distributor/subdist-agreement-lib.mjs';
 import { renderSubdistHtml, dealTerms } from './lib/distributor/subdist-doc.mjs';
+import { renderSubdistPdf } from './lib/distributor/subdist-pdf.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -257,6 +258,27 @@ async function handle(req) {
         companySignature: sig?.signature_data || null,
       });
       return json(200, { ok: true, html, title: a.title, subtitle: a.subtitle });
+    }
+
+    // ── pdf ───────────────────────────────────────────────────────────────
+    // The same renderer the signer's copy comes from, so what you check on
+    // paper is what they get. A DRAFT renders too, stamped DRAFT on every
+    // page — checking the Schedule before it goes out is the whole point.
+    if (action === 'pdf') {
+      const id = clean(body.id, 40);
+      if (!UUID.test(id || '')) return json(400, { error: 'id must be a uuid' });
+      const a = await loadAgreement(id);
+      if (!a) return json(404, { error: 'Not found.' });
+      const dist = await loadDistributor(a.sub_distributor_id);
+      const sig = a.company_signature_data ? null : await companySignatory(a.company_signatory_id);
+      const bytes = await renderSubdistPdf(a, {
+        distributor: dist || {}, companySignature: sig?.signature_data || null,
+      });
+      return json(200, {
+        ok: true,
+        file_name: `${a.agreement_number || 'agreement'}.pdf`,
+        pdf_base64: Buffer.from(bytes).toString('base64'),
+      });
     }
 
     // ── send / resend ─────────────────────────────────────────────────────

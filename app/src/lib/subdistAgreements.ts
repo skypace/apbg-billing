@@ -118,5 +118,11 @@ export const resendAgreement = (
   { action: 'resend', id, ...opts },
 );
 
+/** The agreement as a PDF — the same renderer the signer's copy comes from, so
+ *  what you check on paper is what they get. A draft renders too, stamped
+ *  DRAFT on every page. */
+export const agreementPdf = (id: string) =>
+  call<{ file_name: string; pdf_base64: string }>({ action: 'pdf', id });
+
 export const revokeAgreement = (id: string) =>
   call<{ agreement: SubDistributorAgreement }>({ action: 'revoke', id }).then((r) => r.agreement);
