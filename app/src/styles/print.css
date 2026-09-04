@@ -57,6 +57,16 @@
 
   /* Tables: tighter spacing on paper */
   th, td { padding: 5px 8px !important; font-size: 9.5px !important }
+  thead { display: table-header-group }          /* repeat headers on every page */
+  tr { break-inside: avoid; page-break-inside: avoid }
+  table { break-inside: auto }
+
+  /* DataGrid: let the rendered rows run down the page instead of clipping at
+     64vh. (Only the rows the grid has rendered exist — for every row use the
+     grid toolbar → Export → Print, see lib/print.ts.) */
+  .MuiDataGrid-root { height: auto !important; max-height: none !important }
+  .MuiDataGrid-main, .MuiDataGrid-virtualScroller { overflow: visible !important; height: auto !important }
+  .MuiTabs-root, .print-page, .help-link, .theme-toggle, .sidebar-toggle { display: none !important }
 
   /* Hero block: keep the title but compact spacing */
   .hero {

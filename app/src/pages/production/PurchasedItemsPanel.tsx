@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { AlertTriangle, Package, RefreshCw } from 'lucide-react';
 import { ProductionItem, fetchProductionItems, saveProductionItem } from '../../lib/rawMaterials';
 import { QboVendor } from '../../lib/purchasing';
@@ -186,11 +187,9 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
                         </div>
                       </td>
                       <td style={{ padding: '6px 10px' }}>
-                        <select style={{ ...inp(), borderColor: d.qbo_vendor_id ? undefined : 'var(--am)' }} value={d.qbo_vendor_id}
-                          onChange={(e) => set({ qbo_vendor_id: e.target.value })}>
-                          <option value="">— choose a vendor —</option>
-                          {vendorOptions.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-                        </select>
+                        <SearchSelect value={d.qbo_vendor_id} onChange={(id) => set({ qbo_vendor_id: id })} placeholder="choose a vendor…"
+                          style={{ minWidth: 180, outline: d.qbo_vendor_id ? undefined : '1px solid var(--am)', borderRadius: 4 }}
+                          options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
                       </td>
                       <td style={{ padding: '6px 10px' }}>
                         <input type="number" step="any" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.unit_cost}

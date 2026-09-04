@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, FileText, X as XIcon, Trash2, Mail } from 'lucide-react';
 import { openDocPdf } from '../../lib/productionDocs';
@@ -266,18 +267,12 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
       {/* Route */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
         <LField label="From">
-          <select style={inp()} value={from} onChange={(e) => setFrom(e.target.value)}>
-            <option value="">—</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-          </select>
+          <SearchSelect value={from} onChange={setFrom} placeholder="Type a location…"
+            options={locations.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}`, hint: l.kind.replace('_', ' ') }))} />
         </LField>
         <LField label="To">
-          <select style={inp()} value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="">—</option>
-            {locations.filter((l) => l.id !== from).map((l) =>
-              <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
-            )}
-          </select>
+          <SearchSelect value={to} onChange={setTo} placeholder="Type a location…"
+            options={locations.filter((l) => l.id !== from).map((l) => ({ id: l.id, label: `${l.code} — ${l.name}`, hint: l.kind.replace('_', ' ') }))} />
         </LField>
       </div>
 
@@ -711,12 +706,8 @@ function ItemPicker({ value, options, onChange }: {
   options: { id: string; label: string }[];
   onChange: (id: string) => void;
 }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inp(), width: '100%' }}>
-      <option value="">— Select item —</option>
-      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
-  );
+  // Type to narrow ("root" finds the root beer case), or open the arrow for the whole list.
+  return <SearchSelect value={value} onChange={onChange} options={options} placeholder="Type an item…" style={{ width: '100%' }} />;
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

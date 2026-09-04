@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import { ChevronDown, ChevronRight, Truck } from 'lucide-react';
 import {
   InventoryLocation,
@@ -290,10 +291,8 @@ function FulfillDialog({ dist, order, locations, onClose, onDone }: {
             the order fulfilled.
           </div>
           <LField label="Ship from (warehouse)">
-            <select style={{ ...inp(), width: '100%' }} value={from} onChange={(e) => setFrom(e.target.value)}>
-              <option value="">— Select warehouse —</option>
-              {warehouses.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-            </select>
+            <SearchSelect style={{ width: '100%' }} value={from} onChange={setFrom} placeholder="Type a warehouse…"
+              options={warehouses.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
           </LField>
           <div style={{ marginTop: 10 }}>
             <LField label="Notes (optional)">

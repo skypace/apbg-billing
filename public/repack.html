@@ -18,6 +18,15 @@
 </script>
 <title>Repack sheet — Brix Beverage</title>
 <style>
+@media print{
+  header,.btn,.pad,#formErr,#repointBox,.noprint{display:none !important}
+  body{background:#fff;color:#111}
+  .card{border:1px solid #ccc;box-shadow:none;break-inside:avoid;background:#fff;color:#111}
+  .card *{color:#111 !important}
+  table{font-size:11px} th,td{border-bottom:1px solid #ddd;padding:4px 6px}
+  input{border:none;background:transparent;color:#111;font-weight:700}
+  details{break-inside:avoid} details>*{display:block}
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,-apple-system,sans-serif;background:#0B1B26;color:#E8F0F5;min-height:100vh;display:flex;flex-direction:column}
 header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 28px;border-bottom:1px solid #16344E;flex-wrap:wrap}
@@ -120,8 +129,9 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
       </div>
 
       <h2 style="margin-top:26px">2 · Variety bin</h2>
-      <div class="muted" style="margin-bottom:8px">Whole cases staged for variety packs. Moving cases here changes nothing in QuickBooks — they are still cases,
-        in a different spot. An opened case stays counted in the bin until its last can is drawn.</div>
+      <div class="muted" style="margin-bottom:8px">Whole cases staged for variety packs. <b>Moving a case into the bin takes it off the books</b> —
+        the ledger and QuickBooks both drop it the moment it goes in (posted to the repack account below). The bin keeps its own count in cans;
+        an opened case stays counted in the bin until its last can is drawn.</div>
       <div class="row-x" style="margin-bottom:10px">
         <div style="flex:0 1 16rem">
           <label for="varietyMade">Variety 8-packs made today</label>
@@ -172,6 +182,7 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
       <div class="acts">
         <button class="btn" id="submitBtn" type="button" onclick="submitSheet()">Save repack &amp; post to QuickBooks</button>
         <button class="btn ghost" type="button" onclick="resetForm()">Start over</button>
+        <button class="btn ghost" type="button" onclick="window.print()" title="Print this sheet and the recent sheets below">Print</button>
       </div>
     </section>
 
@@ -179,6 +190,7 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
       <h2>Recent repack sheets</h2>
       <div class="muted" style="margin-bottom:12px">Each sheet is a ledger movement per line plus one QuickBooks inventory adjustment.
         A sheet that did not reach QuickBooks shows <span class="flag bad">QBO failed</span> with a Retry button; the health board goes red after an hour.</div>
+      <div id="repointBox" class="note" style="display:none;margin-bottom:12px"></div>
       <div id="recent" class="muted">Loading…</div>
     </section>
   </div>
@@ -231,6 +243,30 @@ function tick(){
   var ds = document.getElementById('dateShow'); if(ds) ds.value = d + ' · ' + t + ' (auto)';
 }
 tick(); setInterval(tick, 20000);
+
+// ═══ APPLAUSE (Sky, 2026-09-04: "when you hit submit, i'd like an applause sound") ═══
+// Synthesised on the Web Audio API — no file to load; ~1.4 s of overlapping
+// short noise bursts. Mute: localStorage.setItem('brix.applause','off').
+var AUDIO = null;
+function applause(){
+  try{
+    if(localStorage.getItem('brix.applause') === 'off') return;
+    var AC = window.AudioContext || window.webkitAudioContext; if(!AC) return;
+    AUDIO = AUDIO || new AC(); if(AUDIO.state === 'suspended') AUDIO.resume();
+    var t0 = AUDIO.currentTime, master = AUDIO.createGain();
+    master.gain.setValueAtTime(0.0001, t0); master.gain.exponentialRampToValueAtTime(0.9, t0+0.08);
+    master.gain.setValueAtTime(0.9, t0+0.9); master.gain.exponentialRampToValueAtTime(0.0001, t0+1.5);
+    master.connect(AUDIO.destination);
+    var len = Math.floor(AUDIO.sampleRate*0.06), buf = AUDIO.createBuffer(1, len, AUDIO.sampleRate), d = buf.getChannelData(0);
+    for(var i=0;i<len;i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 2.2);
+    for(var k=0;k<70;k++){
+      var at = t0 + Math.random()*1.3, src = AUDIO.createBufferSource(); src.buffer = buf; src.playbackRate.value = 0.8+Math.random()*0.6;
+      var bp = AUDIO.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 900+Math.random()*1800; bp.Q.value = 0.9;
+      var g = AUDIO.createGain(); g.gain.value = 0.12+Math.random()*0.2;
+      src.connect(bp); bp.connect(g); g.connect(master); src.start(at); src.stop(at+0.08);
+    }
+  }catch(e){ /* sound is decoration */ }
+}
 
 // ═══ STATE ═══
 var SETTINGS = null, PAIRS = [], RECENT = [], BIN = {}, RECIPE = {}, VARIETY_ID = null;
@@ -378,6 +414,7 @@ async function submitSheet(){
     var out = await api('POST', { action:'create', lines:lines, signed_by_name:who, signature_data: pad.toDataURL('image/png'),
                                   notes: document.getElementById('notes').value.trim() || null });
     var rp = out.repack || {}, q = out.qbo || {};
+    applause();
     var ok = document.getElementById('formOk');
     ok.style.display='block';
     var parts = [];
@@ -386,7 +423,7 @@ async function submitSheet(){
     if(n(rp.variety_packs)>0) parts.push(n(rp.variety_packs)+' variety 8-pack'+(n(rp.variety_packs)===1?'':'s')+' from the bin');
     ok.innerHTML = '<b>'+esc(rp.repack_number)+' saved.</b> '+parts.join(' · ')+'. '
       + (q.pushed ? 'QuickBooks inventory adjustment <b>#'+esc(q.qbo_txn_id)+'</b> posted to '+esc(SETTINGS.qbo_adjust_account_name)+'.'
-         : q.not_needed ? 'Nothing changed in QuickBooks (cases are still cases, just staged).'
+         : q.not_needed ? 'Nothing on this sheet moved a quantity, so QuickBooks was not touched.'
          : '<span class="flag bad">QuickBooks did not take it</span> — the ledger is updated; use Retry below. '+esc(q.error||''));
     if(rp.warnings && rp.warnings.length){
       var w = document.getElementById('formWarn'); w.style.display='block';
@@ -408,7 +445,34 @@ function qboFlag(r){
   if(r.qbo_error) return '<span class="flag bad">QBO failed</span>';
   return '<span class="flag warn">QBO pending</span>';
 }
+function renderRepoint(){
+  // Sheets already in QuickBooks on a DIFFERENT account than the setting —
+  // the first two went to Inventory Shrinkage before the account changed
+  // (2026-09-04). One click moves them; QuickBooks keeps the same adjustment
+  // number, only its account changes.
+  var box = document.getElementById('repointBox');
+  var off = RECENT.filter(function(r){ return !r.voided_at && r.qbo_txn_id && String(r.qbo_account_id||'') !== String(SETTINGS.qbo_adjust_account_id); });
+  if(!off.length){ box.style.display='none'; return; }
+  box.style.display='block';
+  box.innerHTML = '<b>'+off.length+' posted sheet'+(off.length===1?'':'s')+' sit'+(off.length===1?'s':'')+' on a different QuickBooks account</b> ('
+    + off.map(function(r){ return esc(r.repack_number); }).join(', ') + '). '
+    + 'The repack account is now <b>'+esc(SETTINGS.qbo_adjust_account_name)+'</b>. '
+    + '<button class="btn sm" id="repointBtn" onclick="repoint()">Move '+(off.length===1?'it':'them')+' to '+esc(SETTINGS.qbo_adjust_account_name)+'</button>';
+}
+async function repoint(){
+  var btn = document.getElementById('repointBtn'); btn.disabled = true; btn.textContent = 'Moving…';
+  try{
+    var out = await api('POST', { action:'repoint' });
+    RECENT = out.recent || RECENT;
+    var bad = (out.results||[]).filter(function(x){ return x.error; });
+    var moved = (out.results||[]).filter(function(x){ return x.moved; });
+    alert((moved.length ? moved.length+' sheet'+(moved.length===1?'':'s')+' moved to '+(out.account&&out.account.name)+'. ' : '')
+      + (bad.length ? 'QuickBooks refused: '+bad.map(function(x){ return x.repack_number+': '+x.error; }).join(' · ') : ''));
+    renderRepoint(); renderRecent();
+  }catch(e){ alert('Could not move them: '+(e.message||e)); btn.disabled=false; btn.textContent='Retry'; }
+}
 function renderRecent(){
+  renderRepoint();
   var box = document.getElementById('recent');
   if(!RECENT.length){ box.textContent = 'No repack sheets yet.'; return; }
   box.innerHTML = RECENT.map(function(r){
@@ -418,7 +482,7 @@ function renderRecent(){
                  variety_draw:'<span class="flag warn">\u2212 from bin</span>', variety_produce:'<span class="flag ok">+ variety</span>' };
     var lineRows = (r.lines||[]).slice().sort(function(a,b){return a.line_no-b.line_no;}).map(function(l){
       var q = n(l.qty).toLocaleString()+' '+(l.unit||'case')+(n(l.qty)===1?'':'s');
-      if(l.kind==='variety_draw') q += (n(l.cases_posted)>0 ? ' <span class="sub">'+n(l.cases_posted)+' case'+(n(l.cases_posted)===1?'':'s')+' emptied \u2192 QBO</span>' : ' <span class="sub">from an open case</span>');
+      if(l.kind==='variety_draw') q += (n(l.cases_posted)>0 ? ' <span class="sub">'+n(l.cases_posted)+' case'+(n(l.cases_posted)===1?'':'s')+' emptied (already off the books)</span>' : ' <span class="sub">from an open case</span>');
       return '<tr><td>'+(KIND[l.kind]||esc(l.kind))+'</td><td>'+esc(l.item_name||l.qbo_item_id)+'</td><td class="num">'+q+'</td><td class="num">'+n(l.cans).toLocaleString()+' cans</td></tr>';
     }).join('');
     var acts = '';

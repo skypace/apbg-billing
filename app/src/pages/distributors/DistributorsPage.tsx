@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SearchSelect } from '../../components/SearchSelect';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { Plus } from 'lucide-react';
@@ -379,14 +380,11 @@ function NewDistributorDialog({ locations, existing, onClose, onCreated }: {
           </label>
         </div>
         {locMode === 'existing' ? (
-          <select style={{ ...inp(), width: '100%' }} value={locId} onChange={(e) => setLocId(e.target.value)}>
-            <option value="">— Select location —</option>
-            {distributorLocs.map((l) => (
-              <option key={l.id} value={l.id} disabled={usedLocationIds.has(l.id)}>
-                {l.code} — {l.name}{usedLocationIds.has(l.id) ? ' (already linked)' : ''}
-              </option>
-            ))}
-          </select>
+          <SearchSelect style={{ width: '100%' }} value={locId} onChange={setLocId} placeholder="Type a location…"
+            options={distributorLocs.map((l) => ({
+              id: l.id, label: `${l.code} — ${l.name}`, disabled: usedLocationIds.has(l.id),
+              hint: usedLocationIds.has(l.id) ? 'already linked' : undefined,
+            }))} />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
             <LField label="Code">

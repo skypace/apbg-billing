@@ -24,16 +24,27 @@
 //
 // EXACT EIGHTS + THE VARIETY BIN (Sky, 2026-09-04): a case is 24 cans = exactly 3
 // packs, never an uneven pack. Variety 8-packs are 2 x Cola + 1 x each other
-// flavour, built from cases staged in the VARIETY-BIN location; the bin counts
-// cans, the ledger and QuickBooks count whole cases — a case leaves the books the
-// moment its 24th can is drawn (20260904c). A bin-only sheet changes nothing in
-// QuickBooks and is marked qbo_required=false.
+// flavour, built from cases staged in the variety bin; the bin counts cans
+// (ops.repack_bin), the ledger and QuickBooks count whole cases.
+//
+// THE BIN DEDUCTS (Sky, 2026-09-04, 20260904j): "when we move cases to variety
+// bin i still want that to be deducted from inventory". A case moved into the
+// bin leaves the ledger (→ Adjustment Counter) and QuickBooks (QtyDiff −N)
+// the moment it goes in; the variety draw then moves nothing on either book,
+// and the variety packs made post +M. Before 20260904j the move was
+// ledger-only and a case left the books when its 24th can was drawn.
 //
 // The QBO entity is InventoryAdjustment: one AdjustAccountRef (from
-// ops.repack_settings — 353 Inventory Shrinkage per Sky, 2026-09-04; one edit
-// to change), one ItemAdjustmentLineDetail per line, QtyDiff negative for the
-// cases consumed and positive for the packs produced. DocNumber = the RP
-// number so the two records name each other.
+// ops.repack_settings — 1150040010 "Ecommerce Repackaging" per Sky,
+// 2026-09-04, the account the hand-keyed 8/24 repack used; was 353 Inventory
+// Shrinkage for the first two sheets; one edit to change), one
+// ItemAdjustmentLineDetail per line, QtyDiff negative for the cases consumed
+// or binned and positive for the packs produced. DocNumber = the RP number so
+// the two records name each other. The account each sheet was posted with is
+// stamped on the row (qbo_account_id); when it differs from the setting the
+// page offers "Move to <account>" → action `repoint`, which rewrites the
+// adjustment's AdjustAccountRef in QuickBooks (a full-entity update with the
+// current SyncToken — QuickBooks has no sparse update for this entity).
 
 import { requireAuth } from './lib/auth.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
@@ -76,7 +87,7 @@ async function ops(method, path, body, bearer) {
 
 const RECENT_SELECT =
   'id,repack_number,repack_date,created_at,cans_in,cans_out,notes,qbo_required,variety_packs,cases_to_bin,' +
-  'signed_by_name,signed_by_email,qbo_txn_id,qbo_doc_number,qbo_pushed_at,qbo_error,qbo_attempts,' +
+  'signed_by_name,signed_by_email,qbo_txn_id,qbo_doc_number,qbo_pushed_at,qbo_error,qbo_attempts,qbo_account_id,' +
   'voided_at,void_reason,signature_data,' +
   'lines:repack_order_lines(line_no,kind,qbo_item_id,item_name,qty,cans,unit,cases_posted)';
 
@@ -149,7 +160,15 @@ function qboFault(e) {
   return s.slice(0, 600);
 }
 
-function buildAdjustment(order, settings) {
+/** QtyDiff one repack line contributes to the QuickBooks adjustment (exported for tests). */
+export function lineQtyDiff(l) {
+  const qty = Number(l.qty || 0);
+  if (l.kind === 'consume' || l.kind === 'to_bin') return -qty;
+  if (l.kind === 'produce' || l.kind === 'variety_produce') return qty;
+  return 0;   // variety_draw: already off the books
+}
+
+export function buildAdjustment(order, settings) {
   const lines = [...(order.lines || [])].sort((a, b) => a.line_no - b.line_no);
   return {
     AdjustAccountRef: { value: String(settings.qbo_adjust_account_id) },
@@ -157,17 +176,13 @@ function buildAdjustment(order, settings) {
     DocNumber: String(order.repack_number).slice(0, 21),
     PrivateNote: (`Repack ${order.repack_number} — ${order.signed_by_name}; ${order.cans_in / 24} case(s) → ${order.cans_out / 8} flavour 8-pack(s)`
       + (Number(order.variety_packs) > 0 ? `; ${order.variety_packs} variety 8-pack(s) from the bin` : '')
-      + (Number(order.cases_to_bin) > 0 ? `; ${order.cases_to_bin} case(s) staged in the variety bin (no QBO change)` : '')
+      + (Number(order.cases_to_bin) > 0 ? `; ${order.cases_to_bin} case(s) moved into the variety bin` : '')
       + (order.notes ? ' · ' + order.notes : '')).slice(0, 4000),
-    // consume: -cases · produce / variety_produce: +packs · variety_draw: -whole
-    // cases emptied by this draw (cases_posted; 0 while a case is still open) ·
-    // to_bin: nothing — the cases are still cases, just staged.
+    // consume: -cases · to_bin: -cases (they leave the books on the way INTO
+    // the bin, 20260904j) · produce / variety_produce: +packs · variety_draw:
+    // nothing — those cases were deducted when they were binned.
     Line: lines
-      .map((l) => ({ item: String(l.qbo_item_id), diff:
-        l.kind === 'consume' ? -Number(l.qty)
-        : l.kind === 'produce' || l.kind === 'variety_produce' ? Number(l.qty)
-        : l.kind === 'variety_draw' ? -Number(l.cases_posted || 0)
-        : 0 }))
+      .map((l) => ({ item: String(l.qbo_item_id), diff: lineQtyDiff(l) }))
       .filter((x) => x.diff !== 0)
       .map((x) => ({
         DetailType: 'ItemAdjustmentLineDetail',
@@ -196,8 +211,9 @@ async function pushToQbo(order, settings) {
   if (order.qbo_required === false) return { pushed: false, not_needed: true };
   const payload = buildAdjustment(order, settings);
   if (!payload.Line.length) {
-    // Every draw stayed inside open cases and no flavour packs were made:
-    // nothing to tell QuickBooks yet. Say so on the row so health reads it.
+    // Nothing on the sheet moves a quantity (cannot happen with the 20260904j
+    // rules — every kind but variety_draw carries a QtyDiff — but a sheet must
+    // never sit red for an empty adjustment). Say so on the row so health reads it.
     await ops('PATCH', `repack_orders?id=eq.${order.id}`, { qbo_required: false }).catch(() => {});
     return { pushed: false, not_needed: true };
   }
@@ -207,6 +223,7 @@ async function pushToQbo(order, settings) {
     if (!adj?.Id) throw new Error('QuickBooks returned no InventoryAdjustment id');
     await ops('PATCH', `repack_orders?id=eq.${order.id}`, {
       qbo_txn_id: String(adj.Id), qbo_doc_number: adj.DocNumber || order.repack_number,
+      qbo_account_id: String(settings.qbo_adjust_account_id),
       qbo_pushed_at: new Date().toISOString(), qbo_error: null, qbo_attempts: (order.qbo_attempts || 0) + 1,
     });
     let mirror = null;
@@ -220,6 +237,29 @@ async function pushToQbo(order, settings) {
     }).catch(() => {});
     return { pushed: false, error: msg };
   }
+}
+
+// Move an already-posted adjustment onto the account in settings. QuickBooks
+// has no sparse update for InventoryAdjustment, so this is the current entity
+// read back, AdjustAccountRef swapped, and the whole thing POSTed with its
+// SyncToken. Lines are untouched — the quantities were right; only the P&L
+// line they landed on changes.
+async function repointQboAdjustment(order, settings) {
+  const cur = await qboRequest('GET', `/inventoryadjustment/${encodeURIComponent(order.qbo_txn_id)}?minorversion=70`);
+  const adj = cur?.InventoryAdjustment;
+  if (!adj?.Id) throw new Error(`QuickBooks adjustment ${order.qbo_txn_id} not found`);
+  const target = String(settings.qbo_adjust_account_id);
+  if (String(adj.AdjustAccountRef?.value) === target) {
+    await ops('PATCH', `repack_orders?id=eq.${order.id}`, { qbo_account_id: target }).catch(() => {});
+    return { moved: false, already: true, qbo_txn_id: String(adj.Id) };
+  }
+  const payload = { ...adj, AdjustAccountRef: { value: target } };
+  delete payload.MetaData; delete payload.domain; delete payload.sparse;
+  const res = await qboRequest('POST', '/inventoryadjustment?minorversion=70', payload);
+  const out = res?.InventoryAdjustment;
+  if (!out?.Id) throw new Error('QuickBooks returned no InventoryAdjustment after the update');
+  await ops('PATCH', `repack_orders?id=eq.${order.id}`, { qbo_account_id: target, qbo_error: null });
+  return { moved: true, qbo_txn_id: String(out.Id), from: String(adj.AdjustAccountRef?.value ?? ''), to: target };
 }
 
 // Deleting an InventoryAdjustment needs its current SyncToken.
@@ -310,6 +350,22 @@ export default async function handler(req) {
     const settings = await loadSettings();
     const qbo = await pushToQbo(order, settings);
     return json({ ok: true, qbo, order: await loadOne(id) });
+  }
+
+  if (action === 'repoint') {
+    // Every live, posted sheet whose adjustment sits on a different account
+    // than settings — moved one at a time, each result reported; a refusal on
+    // one does not stop the next.
+    const settings = await loadSettings();
+    const rows = await ops('GET', `repack_orders?select=${RECENT_SELECT}&voided_at=is.null&qbo_txn_id=not.is.null&order=created_at`);
+    const target = String(settings.qbo_adjust_account_id);
+    const todo = (rows || []).filter((r) => String(r.qbo_account_id ?? '') !== target);
+    const results = [];
+    for (const order of todo) {
+      try { results.push({ repack_number: order.repack_number, ...(await repointQboAdjustment(order, settings)) }); }
+      catch (e) { results.push({ repack_number: order.repack_number, error: qboFault(e) }); }
+    }
+    return json({ ok: true, account: { id: target, name: settings.qbo_adjust_account_name }, results, recent: await loadRecent() });
   }
 
   if (action === 'void') {

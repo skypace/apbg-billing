@@ -6,10 +6,11 @@ import {
   BookOpen, Tags, Sun, Moon, Presentation, Handshake,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
-} from 'lucide-react';
+ Printer } from 'lucide-react';
 import { REFRACTOR_MENUS } from '../lib/appMenus';
 import { AlamedaMark, BrixMark } from './BrixMark';
 import { useThemeMode } from '../lib/themeMode';
+import { printPage } from '../lib/print';
 
 interface NavItem { id: View; label: string; icon: LucideIcon }
 
@@ -157,6 +158,15 @@ export function Layout({ current, onNav, userEmail, onLogout, hiddenMenus, child
               ? <Sun size={13} strokeWidth={2} aria-hidden="true" />
               : <Moon size={13} strokeWidth={2} aria-hidden="true" />}
             <span>{mode === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={printPage}
+            className="sign-out print-page"
+            title="Print this page — tables and cards, no sidebar or toolbars. For every row of a big grid use its toolbar → Export → Print."
+          >
+            <Printer size={13} strokeWidth={2} aria-hidden="true" />
+            <span>Print page</span>
           </button>
           <a
             href={USER_GUIDE_URL}

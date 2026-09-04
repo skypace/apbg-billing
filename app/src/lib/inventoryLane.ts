@@ -34,6 +34,7 @@ export const INVENTORY_LANE_SIZE_LABEL: Record<InventoryLaneSize, string> = {
 };
 
 const STORAGE_KEY = 'brix.inventory.lane';
+const STORAGE_KEY_MULTI = 'brix.inventory.lanes';
 
 /** Coerce an unknown value onto one of the allowed lanes (default: all three); anything else falls to the first allowed lane. */
 export function coerceInventoryLane(value: unknown, allowed: InventoryLane[] = ALL_INVENTORY_LANES): InventoryLane {
@@ -60,6 +61,69 @@ export function useInventoryLane(allowed: InventoryLane[] = ALL_INVENTORY_LANES)
   return useMemo(() => [lane, setLaneState] as const, [lane]);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-select lanes (Sky, 2026-09-04): "the lanes need to be multiple select.
+// theres no way for me to put 24pks and 3 gallon on the same order because of
+// the lane. those need to be selectable click on it turns a color. or i can just
+// have when they arent selected it shows all."
+//
+// So the selection is a SET. Click a lane to toggle it; NONE selected means
+// every lane (the default), so a fresh screen shows everything and a filter is
+// something you opt into. Stored as a JSON array under its own key so the old
+// single-lane key (still read by nothing after this change, kept for a session
+// or two of stale tabs) cannot be mis-parsed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readStoredLanes(allowed: InventoryLane[]): InventoryLane[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MULTI);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    const set = arr.filter((v): v is InventoryLane => (allowed as unknown[]).includes(v));
+    // every allowed lane ticked is the same as none ticked — normalise so the
+    // chips read "all" rather than "each"
+    return set.length >= allowed.length ? [] : set;
+  } catch { return []; }
+}
+
+/** [selected lanes (empty = all), setter, toggle-one]. */
+export function useInventoryLanes(allowed: InventoryLane[] = ALL_INVENTORY_LANES): [
+  InventoryLane[], (lanes: InventoryLane[]) => void, (lane: InventoryLane) => void,
+] {
+  const [lanes, setLanesState] = useState<InventoryLane[]>(() => readStoredLanes(allowed));
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY_MULTI, JSON.stringify(lanes));
+  }, [lanes]);
+
+  const setLanes = (next: InventoryLane[]) => {
+    const clean = next.filter((l) => allowed.includes(l));
+    setLanesState(clean.length >= allowed.length ? [] : clean);
+  };
+  const toggle = (lane: InventoryLane) => {
+    setLanesState((cur) => {
+      const next = cur.includes(lane) ? cur.filter((l) => l !== lane) : [...cur, lane];
+      return next.length >= allowed.length ? [] : next;
+    });
+  };
+
+  return useMemo(() => [lanes, setLanes, toggle] as const, [lanes]);   // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Is this lane in the selection? An empty selection means every lane. */
+export function laneSelected(lanes: InventoryLane[], lane: InventoryLaneDb | null | undefined): boolean {
+  if (!lane || lane === 'excluded') return false;
+  return lanes.length === 0 || lanes.includes(lane);
+}
+
+/** "All lanes" / "BIB Product + Cans 24pks" — for a hero line. */
+export function describeLanes(lanes: InventoryLane[], allowed: InventoryLane[] = ALL_INVENTORY_LANES): string {
+  if (lanes.length === 0 || lanes.length >= allowed.length) return allowed.length === ALL_INVENTORY_LANES.length ? 'All lanes' : allowed.map((l) => INVENTORY_LANE_LABEL[l]).join(' + ');
+  return lanes.map((l) => INVENTORY_LANE_LABEL[l]).join(' + ');
+}
+
 export function itemIsInLane(
   item: { inventory_lane?: string | null; active?: boolean | null } | null | undefined,
   lane: InventoryLane,
@@ -72,4 +136,14 @@ export function filterItemsByLane<T extends { inventory_lane?: string | null; ac
   lane: InventoryLane,
 ): T[] {
   return (rows ?? []).filter((row) => itemIsInLane(row, lane));
+}
+
+/** Rows in ANY selected lane (empty selection = every lane in `allowed`), active only, never `excluded`. */
+export function filterItemsByLanes<T extends { inventory_lane?: string | null; active?: boolean | null }>(
+  rows: T[] | null | undefined,
+  lanes: InventoryLane[],
+  allowed: InventoryLane[] = ALL_INVENTORY_LANES,
+): T[] {
+  const set = lanes.length === 0 ? allowed : lanes.filter((l) => allowed.includes(l));
+  return (rows ?? []).filter((row) => row.active !== false && (set as unknown[]).includes(row.inventory_lane));
 }

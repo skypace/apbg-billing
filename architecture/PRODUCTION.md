@@ -702,6 +702,35 @@ movement with new rows — history is never edited. Enabling `track_locations` o
 the eight 8PK items also means the sales feed deducts 8-pack sales from today on
 (zero 8PK invoice lines since `apply_from`, checked before applying).
 
+**The account, and the bin deducts (`20260904j`, later the same day).** Sky,
+after the first two sheets posted: *"when an 8 pack variety is being made and we
+move cases to variety bin i still want that to be deducted from inventory on the
+Inventory Shrinkage line — under Ecommerce Repack. also move the rest of the
+repacks to that line as well rather than just shrink."* Two changes. **(1)**
+`ops.repack_settings` now names **1150040010 Ecommerce Repackaging** — the
+account the hand-keyed 8/24 repack used — instead of 353; `repack.mjs` reads it
+at push time, and the account each sheet was actually posted with is stamped on
+the row (`repack_orders.qbo_account_id`). When that differs from the setting
+the sheet page shows *"N posted sheets sit on a different QuickBooks account"*
+with a **Move them to Ecommerce Repackaging** button → action `repoint`, a
+full-entity update of the adjustment with its current SyncToken (QuickBooks has
+no sparse update for InventoryAdjustment); the adjustment number stays, only
+its P&L line moves. RP-2026-00001/00002 (adjustments 174302/174303) are the two
+it exists for. ⚠ QuickBooks carries two accounts named "Inventory Shrinkage"
+(353 and 44) and a 328 "Repack - leaking 24pks"; the hand repack's account was
+the tie-breaker — one UPDATE on `repack_settings` changes it. **(2) A case
+moved into the variety bin leaves BOTH books the moment it goes in:** the
+ledger movement goes to the Adjustment Counter (still `source_doc_type
+'repack_bin'`) and the QuickBooks adjustment carries `QtyDiff −N` for it, on
+the same account. The variety draw then moves nothing on either book — the
+bin's own count (`ops.repack_bin`, cans) is the only record of what is inside,
+and `v_repack_bin` still says how many variety packs it can make; the variety
+packs made post `+M` as before. The **VARIETY-BIN** ledger location is retired
+(inactive; it held zero stock — the one bin sheet had been voided). Consequences:
+a bin-only sheet now needs a QuickBooks adjustment (`qbo_required=true`),
+Inventory Planning's *Used in runs/repacks* counts a case the day it is binned,
+and the drift strip stays flat because the two books move together.
+
 ### Purchasing — QuickBooks and Refractor share one PO table (2026-09-04)
 
 **Ask (Sky):** keep doing main purchasing in QuickBooks, see those POs here,
