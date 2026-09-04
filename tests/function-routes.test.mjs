@@ -7,8 +7,14 @@
 // surfaced it, because fetch() does not throw on a 404 and only the throw was
 // handled — a dead kick reads exactly like a working one.
 //
-// So: no function may fetch a sibling at /.netlify/functions/<name> when that
-// sibling declares a path of its own.
+// So: nothing may fetch /.netlify/functions/<name> when that function declares a
+// path of its own — not a sibling function, and not a static page either.
+//
+// The static-page half was added after a Master Control panel shipped calling
+// ${APBG_FN}/service-margin-report at the legacy route while the function served
+// only /api/service-margin-report. control.html holds most of the operator
+// buttons in this repo and was not being scanned at all, so the exact bug this
+// file exists to stop had an unguarded door.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -85,4 +91,38 @@ test('the guard catches a kick at a path-declaring function', () => {
 
   // a function that declares no path of its own is reachable there, so it is fine
   assert.equal(paths.has(kicksIn("fetch('/.netlify/functions/vendor-email-intake')")[0]), false);
+});
+
+// --- static pages -------------------------------------------------------
+// control.html and its neighbours call functions through a base const, so the
+// literal in the source reads `${APBG_FN}/name` — kicksIn() matches on the
+// route literal, which is present either way.
+
+const PAGES = readdirSync('public')
+  .filter((f) => f.endsWith('.html'))
+  .map((f) => join('public', f));
+
+test('no static page kicks a function at a route that function does not serve', () => {
+  const paths = declaredPaths();
+  const broken = [];
+  for (const page of PAGES) {
+    const src = readFileSync(page, 'utf8');
+    // `${APBG_FN}/name` is the shape in these pages; the literal base appears
+    // in the const declaration, so resolve the template through it.
+    const viaConst = [...stripComments(src).matchAll(/\$\{APBG_FN\}\/([a-z0-9-]+)/gi)].map((m) => m[1]);
+    for (const target of [...kicksIn(src), ...viaConst]) {
+      if (paths.has(target)) {
+        broken.push(`${page} calls ${target} at the legacy route, but it is served only at ${paths.get(target)}`);
+      }
+    }
+  }
+  assert.deepEqual(broken, [], `dead route(s) from a static page:\n  ${broken.join('\n  ')}`);
+});
+
+test('the static-page guard resolves the APBG_FN template, not just bare literals', () => {
+  const viaConst = (src) => [...stripComments(src).matchAll(/\$\{APBG_FN\}\/([a-z0-9-]+)/gi)].map((m) => m[1]);
+  assert.deepEqual(viaConst('fetch(`${APBG_FN}/service-margin-report?x=1`)'), ['service-margin-report']);
+  // APBG_API is the correct base and must NOT be flagged
+  assert.deepEqual(viaConst('fetch(`${APBG_API}/service-margin-report`)'), []);
+  assert.deepEqual(viaConst('// ${APBG_FN}/service-margin-report is the old route'), []);
 });
