@@ -69,6 +69,8 @@ git push main
        Publishes public/ as static + netlify/functions/ as Lambdas
 ```
 
+> ⚠ **The build is three `npm install`s and three Vite builds, and it has an 18-minute wall (2026-09-04).** The production deploy of #458 timed out inside the installs while the identical deploy preview had built in 14 minutes — the same code, a slow registry. Lockfiles are now tracked for all three apps so each install is a download rather than a resolution; regenerate with `npm install --prefix <app>` when you change a `package.json`. If a production deploy times out again, **Retry** it from Netlify → Deploys before changing anything: a timeout with `✓ built` in the log is the environment, not the code.
+
 ## Brixpense approval model (live)
 
 Final design after two passes:
