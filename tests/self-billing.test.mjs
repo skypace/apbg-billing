@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   matchesProfile, ilike, formatInvoiceNumber, invoiceLines,
   buildInvoiceModel, recipientsFor, canRaise,
@@ -59,8 +60,24 @@ test('an inactive profile claims nothing', () => {
   assert.equal(matchesProfile({ ...ORIGINS, active: false }, { vendor_name: 'Origins' }), false);
 });
 
+// ⚠ This test used to pass `qbo_vendor_id` on the EXPENSE and went green while
+// the feature was completely dead — the test and the code shared one wrong
+// assumption about the column name. An expense row spells it `vendor_id`
+// (ops.expense_requests has no qbo_vendor_id at all); only the profile and the
+// vendors registry use qbo_vendor_id.
 test('the QBO vendor id matches even when the name does not', () => {
-  assert.equal(matchesProfile(ORIGINS, { vendor_name: 'Totally Different Ltd', qbo_vendor_id: '1428' }), true);
+  assert.equal(matchesProfile(ORIGINS, { vendor_name: 'Totally Different Ltd', vendor_id: '1428' }), true);
+});
+
+test('the vendor id is read off the expense column that actually exists', async () => {
+  const src = await readFile(new URL('../netlify/functions/self-bill-invoice.mjs', import.meta.url), 'utf8');
+  const cols = src.match(/const EXPENSE_COLS = ([\s\S]*?);/)?.[1] || '';
+  assert.ok(cols.includes('vendor_id'), 'EXPENSE_COLS must select vendor_id');
+  assert.ok(
+    !/[^_]qbo_vendor_id/.test(cols),
+    'EXPENSE_COLS must not select qbo_vendor_id — ops.expense_requests has no such column, '
+    + 'and PostgREST 400s the whole read, which threw and 500d every call',
+  );
 });
 
 test('ilike is anchored — a pattern must match the whole name', () => {
