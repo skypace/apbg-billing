@@ -276,7 +276,7 @@
     {
       "name": "sync-qbo-inventory-adjustments",
       "kind": "supabase-edge-function",
-      "source_repo": "unknown",
+      "source_repo": "skypace/apbg-billing",
       "schedule": "nightly 09:50 UTC",
       "writes": [
         "ops.qbo_inventory_adjustments",
@@ -287,8 +287,8 @@
       "external_inputs": [
         "QuickBooks Online API: InventoryAdjustment"
       ],
-      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql.",
-      "last_verified": "2026-05-05"
+      "notes": "Cron defined in 20260503r_nightly_sync_crons.sql. Source committed 2026-09-04 as supabase/functions/sync-qbo-inventory-adjustments (deployed v15). v1-v14 upserted lines on (qbo_txn_id, line_num) with line_num NULL for every QBO line (InventoryAdjustment lines carry no LineNum), so every nightly run INSERTED a fresh copy of every line: 125,694 rows for 1,138 real lines by 2026-09-04, which inflated the planner's shrinkage figures ~30x. v15 numbers lines (LineNum -> Id -> position) and deletes-then-writes each adjustment's lines, so the table is exactly QuickBooks' lines. Migration 20260904f deduped the history.",
+      "last_verified": "2026-09-04"
     },
     {
       "name": "sync-qbo-employees",

@@ -798,6 +798,59 @@ dirty → pull skipped → push clears → receipt → bill landed → a foreign
 the same PO line applied by the feed, our own excluded), and the pure mappers
 are pinned by `tests/qbo-purchasing-sync.test.mjs`.
 
+### Inventory Planning — what the velocity counts (2026-09-04)
+
+**Asked whether the planner really works, with root beer as the test case
+("I think we have about 19 days left"). It did not, and the fault was in the
+data under it rather than the arithmetic on top.**
+
+`fn_items_master` read demand from three places: invoice lines, ledger
+consumption, and `ops.qbo_inventory_adjustment_lines` counted as shrinkage.
+That third table held **125,694 rows for 1,138 real lines**. QuickBooks puts
+no `LineNum` on an InventoryAdjustment line, so the nightly
+`sync-qbo-inventory-adjustments` wrote `line_num = NULL`, its upsert key
+`(qbo_txn_id, line_num)` never matched (NULLs are distinct in a unique index),
+and every run since 2026-05-03 inserted every line again. Over 90 days the
+planner counted **24,770 units of shrinkage against a true 743**. Root beer
+cases (574) read 39.5 a day and five days of supply on the 90-day lookback,
+and 12.8 a day and 16.7 days on the 30-day lookback, which is the "19 days"
+on the screen. The true rate is about 7.4 a day and 214 sellable cases,
+so roughly **29 days**.
+
+What changed (migration `20260904f`, edge function v15, the repo now carries
+the function source):
+
+- **The duplicates are gone and cannot stack again.** v15 numbers each line
+  (`LineNum`, else `Id`, else position) and rewrites an adjustment's lines on
+  every run, so the table is exactly QuickBooks' lines.
+- **Demand is sales plus consumption, never a count correction.** Invoice
+  lines, production runs eating materials (`production_consume`), and repacks
+  turning cases into packs. A QuickBooks adjustment is a correction of the
+  count, not something to reorder for. It stays visible as `adjustment_qty`
+  and `shrinkage_qty` and no longer moves the velocity.
+- **Velocity is recency-weighted.** 60% of the trailing 28-day rate plus 40%
+  of the lookback rate when the lookback is longer than 28 days. A flavour that
+  is slowing or picking up is read within a month instead of a quarter.
+  `velocity_28d` and `velocity_trend_pct` are on the screen so the blend can
+  be checked.
+- **Sellable versus inbound.** `planning_on_hand` is what can ship today
+  (warehouses plus consignment partners). Stock at a co-packer, in transit, or
+  on an open PO line is `qty_inbound`. `days_of_supply` is on the sellable
+  figure and `days_of_cover` adds the inbound. Status and the suggested order
+  use cover, so a PO already raised stops the alarm.
+- **The shadow PO table is out of the maths.** QuickBooks POs are real rows in
+  `purchase_orders` since `20260904d`. The one shadow row left, AC04282026 from
+  April, was still counting 140 BIBs as on order.
+- **Overstock is a real status** (more than 3 × (target + lead) days).
+
+⚠ **Lead time still defaults to 7 days** (`inventory_settings.lead_time_days`).
+A co-packed case has a production cycle measured in weeks, so "reorder" fires
+late on those until the lead time is set per item. That is a settings entry,
+flagged rather than guessed.
+
+Verified after the rebuild: 574 at 7.42 a day, 28.8 days of cover, 61 cases
+suggested; 3G6151 BIB at 6.84 a day, 47.2 days; on order 0 for both.
+
 ## The run guide, inside the app
 
 The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**

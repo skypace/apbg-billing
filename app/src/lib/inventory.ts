@@ -58,6 +58,16 @@ export interface InventoryHealthRow {
   brix_on_hand: number | null;
   planning_on_hand: number | null;
   on_hand_drift: number | null;
+  /** 20260904f — the trailing-28-day rate, the full-lookback rate, and how far the recent one is off the average (%). */
+  velocity_28d?: number | null;
+  velocity_lookback?: number | null;
+  velocity_trend_pct?: number | null;
+  /** Ledger consumption that is not a sale (production runs, repacks) inside the lookback. */
+  consumed_qty?: number | null;
+  /** Open PO lines + stock at a co-packer or in transit — bought or made, not sellable yet. */
+  qty_inbound?: number | null;
+  /** (sellable + inbound) / velocity — what status and the suggested order are judged on. */
+  days_of_cover?: number | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;

@@ -190,6 +190,14 @@ export function InventoryPage() {
   );
 }
 
+/** The trailing-28-day rate against the lookback average: +12% = selling faster lately. */
+function TrendCell({ value }: { value: number | null | undefined }) {
+  if (value == null) return <span style={{ color: 'var(--mt)' }}>—</span>;
+  const v = Number(value);
+  const color = Math.abs(v) < 10 ? 'var(--mt)' : v > 0 ? 'var(--gn)' : 'var(--am)';
+  return <span style={{ color, fontWeight: Math.abs(v) >= 25 ? 700 : 500 }}>{v > 0 ? '+' : ''}{v.toFixed(0)}%</span>;
+}
+
 function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane: InventoryLane }) {
   const [search, setSearch] = useState('');
 
@@ -235,7 +243,11 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
       } },
     { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => <TrendCell value={p.value as number | null | undefined} /> },
     { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
+    { field: 'days_of_cover', headerName: 'Cover w/ inbound', type: 'number', width: 130, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
     {
       field: 'qty_on_order', headerName: 'On Order', type: 'number', width: 100, cellClassName: 'mn',
@@ -317,8 +329,8 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 14 }}>
-        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="days of supply ≤ lead time" />
-        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="within 2× lead time" />
+        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="cover incl. inbound ≤ lead time" />
+        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="cover within 2× lead time" />
         <KPICard title="ON ORDER" value={fmtNum(onOrderTotal)} accent="var(--gn)" sub="open PO units pending" />
         <KPICard title="OVERSTOCK" value={overstock.length} accent="#a78bfa" sub={`${healthy.length} healthy · ${inactiveCount} inactive`} />
       </div>
@@ -426,9 +438,15 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
         <span style={{ color: 'var(--rd)' }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
       ),
     },
+    { field: 'consumed_qty', headerName: 'Used in runs/repacks', type: 'number', width: 150, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null || Number(v) === 0 ? '—' : fmtNum(Number(v))) },
     { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 120, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => <TrendCell value={p.value as number | null | undefined} /> },
     { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
+    { field: 'days_of_cover', headerName: 'Cover w/ inbound', type: 'number', width: 130, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
   ], []);
 
