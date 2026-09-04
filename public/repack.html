@@ -95,37 +95,55 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
 
   <div id="app" style="display:none">
     <section class="card" id="sheet">
-      <h1>Cases repacked today</h1>
-      <p class="lead">Enter how many <b>24-pack cases</b> of each flavor you broke down and how many <b>8-packs</b> came out.
-        Saving this takes the cases out of the Brix Warehouse count, puts the 8-packs in, and posts the same
-        adjustment to QuickBooks — one signed sheet, both books.</p>
+      <h1>Repack sheet</h1>
+      <p class="lead">A case is 24 cans and an 8-pack is 8, so <b>a case is always exactly 3 eight-packs</b> — the sheet
+        never saves an uneven pack. <b>Variety 8-packs</b> are 2 Cola + 1 of each other flavor, built from whole cases you
+        first move into the <b>variety bin</b>; each variety pack pulls its recipe out of the bin. Saving posts the ledger
+        and QuickBooks together.</p>
       <div class="muted" id="settingsLine" style="margin-top:8px"></div>
 
-      <div style="overflow-x:auto;margin-top:16px">
+      <h2 style="margin-top:22px">1 · Flavor 8-packs</h2>
+      <div class="muted" style="margin-bottom:8px">Cases you broke straight down into that flavor's own 8-packs. Three packs a case, no exceptions.</div>
+      <div style="overflow-x:auto">
       <table id="tbl">
         <thead><tr>
           <th>Flavor</th>
-          <th class="num">Cases used</th>
-          <th class="num">8-packs made</th>
+          <th class="num">Cases repacked</th>
+          <th class="num">= 8-packs made</th>
           <th class="num">On hand (cases · packs)</th>
         </tr></thead>
         <tbody id="rows"></tbody>
         <tfoot>
-          <tr class="tot">
-            <td>Cans</td>
-            <td class="num" id="cansIn">0 in</td>
-            <td class="num" id="cansOut">0 out</td>
-            <td class="num" id="cansDiff"></td>
-          </tr>
+          <tr class="tot"><td>Total</td><td class="num" id="totCases">0 cases</td><td class="num" id="totPacks">0 packs</td><td></td></tr>
         </tfoot>
       </table>
       </div>
 
-      <div id="varianceWrap" style="display:none">
-        <label for="variance">Where did the other cans go? <span style="color:#F4B400">(required when in ≠ out)</span></label>
-        <textarea id="variance" placeholder="e.g. 8 loose singles to the tasting fridge · 3 damaged and dumped · 16 into variety packs not counted above"></textarea>
+      <h2 style="margin-top:26px">2 · Variety bin</h2>
+      <div class="muted" style="margin-bottom:8px">Whole cases staged for variety packs. Moving cases here changes nothing in QuickBooks — they are still cases,
+        in a different spot. An opened case stays counted in the bin until its last can is drawn.</div>
+      <div class="row-x" style="margin-bottom:10px">
+        <div style="flex:0 1 16rem">
+          <label for="varietyMade">Variety 8-packs made today</label>
+          <input type="number" min="0" step="1" inputmode="numeric" id="varietyMade" placeholder="0" oninput="recalc()">
+        </div>
+        <div style="flex:1 1 18rem;align-self:flex-end;padding-bottom:6px" class="muted" id="varietyHint"></div>
       </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Flavor</th>
+          <th class="num">In the bin now</th>
+          <th class="num">Cases moved in today</th>
+          <th class="num">Cans needed today</th>
+          <th class="num">Left after today</th>
+        </tr></thead>
+        <tbody id="binRows"></tbody>
+      </table>
+      </div>
+      <div class="warn" id="binWarn" style="display:none"></div>
 
+      <h2 style="margin-top:26px">3 · Sign it</h2>
       <label for="notes">Notes (optional)</label>
       <input type="text" id="notes" placeholder="Anything worth remembering about this batch">
 
@@ -215,56 +233,93 @@ function tick(){
 tick(); setInterval(tick, 20000);
 
 // ═══ STATE ═══
-var SETTINGS = null, PAIRS = [], RECENT = [];
-var packsTouched = {};   // pack id -> true once a human edits the packs box (stop auto-filling it)
+var SETTINGS = null, PAIRS = [], RECENT = [], BIN = {}, RECIPE = {}, VARIETY_ID = null;
+function ppc(){ return SETTINGS ? Math.floor(SETTINGS.cans_per_case / SETTINGS.cans_per_pack) : 3; }
+function cpc(){ return SETTINGS ? SETTINGS.cans_per_case : 24; }
 
 function renderRows(){
   var tb = document.getElementById('rows'); tb.innerHTML = '';
+  var bb = document.getElementById('binRows'); bb.innerHTML = '';
   PAIRS.forEach(function(p){
+    if(!p.case){ VARIETY_ID = p.pack.qbo_item_id; return; }
+    var inactive = ((p.case.active===false) || p.pack.active===false) ? ' <span class="flag bad">inactive in QBO</span>' : '';
+    var oh = n(p.case.on_hand).toLocaleString()+' cases · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
     var tr = document.createElement('tr');
-    var caseCell = p.case
-      ? '<input type="number" min="0" step="1" inputmode="numeric" data-case="'+esc(p.case.qbo_item_id)+'" data-pack="'+esc(p.pack.qbo_item_id)+'" placeholder="0" oninput="onCases(this)">'
-      : '<span class="muted">—</span>';
-    var oh = (p.case ? n(p.case.on_hand).toLocaleString()+' cases' : 'no case item') + ' · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
     tr.innerHTML =
-      '<td><b>'+esc(p.label)+'</b><span class="sub">'+esc(p.case ? p.case.name : 'variety — packs only')+'</span>'
-        + ((p.case && p.case.active===false) || p.pack.active===false ? ' <span class="flag bad">inactive in QBO</span>' : '') + '</td>'
-      + '<td class="num">'+caseCell+'</td>'
-      + '<td class="num"><input type="number" min="0" step="1" inputmode="numeric" data-packs="'+esc(p.pack.qbo_item_id)+'" placeholder="0" oninput="onPacks(this)"></td>'
-      + '<td class="num"><span class="sub" style="font-size:.85rem">'+esc(oh)+'</span></td>';
+      '<td><b>'+esc(p.label)+'</b><span class="sub">'+esc(p.case.name)+'</span>'+inactive+'</td>'
+      + '<td class="num"><input type="number" min="0" step="1" inputmode="numeric" data-case="'+esc(p.case.qbo_item_id)+'" placeholder="0" oninput="recalc()"></td>'
+      + '<td class="num"><span data-packs-of="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace;font-size:1.05rem;font-weight:700;color:#fff">0</span><span class="sub">'+esc(p.pack.name)+'</span></td>'
+      + '<td class="num"><span class="sub" data-oh="'+esc(p.case.qbo_item_id)+'" style="font-size:.85rem">'+esc(oh)+'</span></td>';
     tb.appendChild(tr);
+
+    var b = BIN[p.case.qbo_item_id] || {};
+    var per = RECIPE[p.case.qbo_item_id] || 0;
+    var br = document.createElement('tr');
+    br.innerHTML =
+      '<td><b>'+esc(p.label)+'</b><span class="sub">'+per+' can'+(per===1?'':'s')+' per variety pack</span></td>'
+      + '<td class="num"><span data-bin-now="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace">'+n(b.cans_on_hand).toLocaleString()+' cans</span>'
+        + '<span class="sub">'+n(b.cases_in_bin).toLocaleString()+' case'+(n(b.cases_in_bin)===1?'':'s')+(b.has_open_case?' (one open)':'')+'</span></td>'
+      + '<td class="num"><input type="number" min="0" step="1" inputmode="numeric" data-tobin="'+esc(p.case.qbo_item_id)+'" placeholder="0" oninput="recalc()"></td>'
+      + '<td class="num"><span data-need="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace">0</span></td>'
+      + '<td class="num"><span data-after="'+esc(p.case.qbo_item_id)+'" style="font-family:JetBrains Mono,ui-monospace,monospace"></span></td>';
+    bb.appendChild(br);
   });
   recalc();
 }
-function onCases(inp){
-  var packId = inp.getAttribute('data-pack');
-  var target = document.querySelector('input[data-packs="'+packId+'"]');
-  if(target && !packsTouched[packId]){
-    var c = n(inp.value);
-    target.value = c > 0 ? String(c * (SETTINGS ? SETTINGS.default_packs_per_case : 3)) : '';
-  }
-  recalc();
-}
-function onPacks(inp){ packsTouched[inp.getAttribute('data-packs')] = true; recalc(); }
 
 function collectLines(){
   var lines = [];
-  document.querySelectorAll('input[data-case]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'consume', qbo_item_id:i.getAttribute('data-case'), qty:q}); });
-  document.querySelectorAll('input[data-packs]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'produce', qbo_item_id:i.getAttribute('data-packs'), qty:q}); });
+  document.querySelectorAll('input[data-case]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'repack', qbo_item_id:i.getAttribute('data-case'), qty:q}); });
+  document.querySelectorAll('input[data-tobin]').forEach(function(i){ var q=n(i.value); if(q>0) lines.push({kind:'to_bin', qbo_item_id:i.getAttribute('data-tobin'), qty:q}); });
+  var v = n(document.getElementById('varietyMade').value);
+  if(v > 0 && VARIETY_ID) lines.push({kind:'variety', qbo_item_id:VARIETY_ID, qty:v});
   return lines;
 }
+
+// The bin arithmetic the server enforces, computed live so the sheet says
+// "move 1 more case of Root Beer" before anyone presses Save.
+function binState(){
+  var v = n(document.getElementById('varietyMade').value);
+  var short = [], possibleNow = Infinity, possibleAfter = Infinity;
+  PAIRS.forEach(function(p){
+    if(!p.case) return;
+    var id = p.case.qbo_item_id, b = BIN[id] || {}, per = RECIPE[id] || 0;
+    var now = n(b.cans_on_hand);
+    var added = n((document.querySelector('input[data-tobin="'+id+'"]')||{}).value) * cpc();
+    var need = per * v;
+    var after = now + added - need;
+    if(per > 0){
+      possibleNow = Math.min(possibleNow, Math.floor(now / per));
+      possibleAfter = Math.min(possibleAfter, Math.floor((now + added) / per));
+      if(after < 0) short.push({ label: p.label, cans: -after, cases: Math.ceil(-after / cpc()) });
+    }
+    var ne = document.querySelector('[data-need="'+id+'"]'); if(ne) ne.textContent = need > 0 ? need.toLocaleString()+' cans' : '—';
+    var ae = document.querySelector('[data-after="'+id+'"]');
+    if(ae) ae.innerHTML = (v>0 || added>0) ? (after < 0 ? '<span class="flag bad">short '+(-after)+'</span>' : after.toLocaleString()+' cans') : '';
+  });
+  if(possibleNow === Infinity) possibleNow = 0;
+  if(possibleAfter === Infinity) possibleAfter = 0;
+  return { packs: v, short: short, possibleNow: possibleNow, possibleAfter: possibleAfter };
+}
+
 function recalc(){
-  var cpc = SETTINGS ? SETTINGS.cans_per_case : 24, cpp = SETTINGS ? SETTINGS.cans_per_pack : 8;
-  var lines = collectLines(), cin = 0, cout = 0;
-  lines.forEach(function(l){ if(l.kind==='consume') cin += l.qty*cpc; else cout += l.qty*cpp; });
-  document.getElementById('cansIn').textContent  = cin.toLocaleString()+' in';
-  document.getElementById('cansOut').textContent = cout.toLocaleString()+' out';
-  var diff = cin - cout, dEl = document.getElementById('cansDiff');
-  if(cin===0 && cout===0){ dEl.innerHTML=''; }
-  else if(diff===0){ dEl.innerHTML = '<span class="flag ok">balanced</span>'; }
-  else if(diff>0){ dEl.innerHTML = '<span class="flag warn">'+diff.toLocaleString()+' can'+(diff===1?'':'s')+' unaccounted</span>'; }
-  else { dEl.innerHTML = '<span class="flag bad">'+Math.abs(diff).toLocaleString()+' more cans out than in</span>'; }
-  document.getElementById('varianceWrap').style.display = (diff!==0 && (cin>0||cout>0)) ? 'block' : 'none';
+  var cases = 0, packs = 0;
+  document.querySelectorAll('input[data-case]').forEach(function(i){
+    var c = n(i.value); cases += c; packs += c * ppc();
+    var el = document.querySelector('[data-packs-of="'+i.getAttribute('data-case')+'"]'); if(el) el.textContent = (c*ppc()).toLocaleString();
+  });
+  document.getElementById('totCases').textContent = cases.toLocaleString()+' case'+(cases===1?'':'s');
+  document.getElementById('totPacks').textContent = packs.toLocaleString()+' pack'+(packs===1?'':'s');
+  var b = binState();
+  var hint = document.getElementById('varietyHint');
+  hint.innerHTML = 'Each pack = 2 Cola + 1 of each other flavor. The bin can make <b>'+b.possibleNow.toLocaleString()+'</b> now'
+    + (b.possibleAfter !== b.possibleNow ? ', <b>'+b.possibleAfter.toLocaleString()+'</b> after today’s moves' : '') + '.';
+  var w = document.getElementById('binWarn');
+  if(b.short.length){
+    w.style.display = 'block';
+    w.innerHTML = '<b>The bin cannot make '+b.packs+' variety pack'+(b.packs===1?'':'s')+' yet.</b> '
+      + b.short.map(function(x){ return 'Move <b>'+x.cases+' more case'+(x.cases===1?'':'s')+' of '+esc(x.label)+'</b> into the bin ('+x.cans+' can'+(x.cans===1?'':'s')+' short)'; }).join(' · ') + '.';
+  } else { w.style.display = 'none'; w.innerHTML = ''; }
 }
 
 // ═══ SIGNATURE PAD ═══
@@ -280,42 +335,43 @@ function padClear(){ ctx.clearRect(0,0,pad.width,pad.height); hasInk=false; }
 // ═══ SUBMIT ═══
 function showErr(msg){ var e=document.getElementById('formErr'); e.style.display = msg?'block':'none'; e.textContent = msg||''; }
 function resetForm(){
-  document.querySelectorAll('#rows input').forEach(function(i){ i.value=''; });
-  packsTouched = {};
-  document.getElementById('variance').value=''; document.getElementById('notes').value='';
+  document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
+  document.getElementById('varietyMade').value='';
+  document.getElementById('notes').value='';
   padClear(); showErr(''); document.getElementById('formOk').style.display='none'; document.getElementById('formWarn').style.display='none';
   recalc();
 }
 async function submitSheet(){
   showErr(''); document.getElementById('formOk').style.display='none'; document.getElementById('formWarn').style.display='none';
   var lines = collectLines();
-  var hasIn = lines.some(function(l){return l.kind==='consume';}), hasOut = lines.some(function(l){return l.kind==='produce';});
-  if(!hasIn) return showErr('Enter how many cases were used.');
-  if(!hasOut) return showErr('Enter how many 8-packs were made.');
+  if(!lines.length) return showErr('Nothing on the sheet yet — enter cases repacked, cases moved to the bin, or variety packs made.');
   var who = document.getElementById('who').value.trim();
   if(!who) return showErr('Put the name of the person who did the repack.');
+  var b = binState();
+  if(b.short.length) return showErr('The bin cannot make '+b.packs+' variety packs: '+b.short.map(function(x){ return 'move '+x.cases+' more case'+(x.cases===1?'':'s')+' of '+x.label; }).join(', ')+'.');
   if(!hasInk) return showErr('Sign the sheet before saving it.');
-  var cpc = SETTINGS.cans_per_case, cpp = SETTINGS.cans_per_pack, cin=0, cout=0;
-  lines.forEach(function(l){ if(l.kind==='consume') cin+=l.qty*cpc; else cout+=l.qty*cpp; });
-  var variance = document.getElementById('variance').value.trim();
-  if(cin!==cout && !variance) return showErr('Cans in and cans out differ by '+Math.abs(cin-cout)+' — say where the other cans went.');
-
   var btn = document.getElementById('submitBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try{
     var out = await api('POST', { action:'create', lines:lines, signed_by_name:who, signature_data: pad.toDataURL('image/png'),
-                                  notes: document.getElementById('notes').value.trim() || null, variance_note: variance || null });
+                                  notes: document.getElementById('notes').value.trim() || null });
     var rp = out.repack || {}, q = out.qbo || {};
     var ok = document.getElementById('formOk');
     ok.style.display='block';
-    ok.innerHTML = '<b>'+esc(rp.repack_number)+' saved.</b> '+n(rp.cans_in).toLocaleString()+' cans in, '+n(rp.cans_out).toLocaleString()+' cans out. '
+    var parts = [];
+    if(n(rp.cases_repacked)>0) parts.push(n(rp.cases_repacked)+' case'+(n(rp.cases_repacked)===1?'':'s')+' \u2192 '+n(rp.flavour_packs)+' flavor 8-packs');
+    if(n(rp.cases_to_bin)>0) parts.push(n(rp.cases_to_bin)+' case'+(n(rp.cases_to_bin)===1?'':'s')+' into the variety bin');
+    if(n(rp.variety_packs)>0) parts.push(n(rp.variety_packs)+' variety 8-pack'+(n(rp.variety_packs)===1?'':'s')+' from the bin');
+    ok.innerHTML = '<b>'+esc(rp.repack_number)+' saved.</b> '+parts.join(' · ')+'. '
       + (q.pushed ? 'QuickBooks inventory adjustment <b>#'+esc(q.qbo_txn_id)+'</b> posted to '+esc(SETTINGS.qbo_adjust_account_name)+'.'
-                  : '<span class="flag bad">QuickBooks did not take it</span> — the ledger is updated; use Retry below. '+esc(q.error||''));
+         : q.not_needed ? 'Nothing changed in QuickBooks (cases are still cases, just staged).'
+         : '<span class="flag bad">QuickBooks did not take it</span> — the ledger is updated; use Retry below. '+esc(q.error||''));
     if(rp.warnings && rp.warnings.length){
       var w = document.getElementById('formWarn'); w.style.display='block';
       w.innerHTML = '<b>Worth a look:</b> ' + rp.warnings.map(esc).join(' · ') + ' — the ledger count was already off before this sheet; a recount in Stock → On-Hand puts it right.';
     }
-    document.querySelectorAll('#rows input').forEach(function(i){ i.value=''; }); packsTouched = {};
-    document.getElementById('variance').value=''; document.getElementById('notes').value=''; padClear(); recalc();
+    document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
+    document.getElementById('varietyMade').value='';
+    document.getElementById('notes').value=''; padClear(); recalc();
     await load(false);
   }catch(e){ showErr(e.message || String(e)); }
   finally{ btn.disabled=false; btn.textContent='Save repack & post to QuickBooks'; }
@@ -324,6 +380,7 @@ async function submitSheet(){
 // ═══ RECENT ═══
 function qboFlag(r){
   if(r.voided_at) return '<span class="flag info">voided</span>';
+  if(r.qbo_required === false) return '<span class="flag info">ledger only</span>';
   if(r.qbo_txn_id) return '<span class="flag ok">QBO #'+esc(r.qbo_txn_id)+'</span>';
   if(r.qbo_error) return '<span class="flag bad">QBO failed</span>';
   return '<span class="flag warn">QBO pending</span>';
@@ -332,22 +389,26 @@ function renderRecent(){
   var box = document.getElementById('recent');
   if(!RECENT.length){ box.textContent = 'No repack sheets yet.'; return; }
   box.innerHTML = RECENT.map(function(r){
-    var cons = (r.lines||[]).filter(function(l){return l.kind==='consume';}), prod = (r.lines||[]).filter(function(l){return l.kind==='produce';});
-    var cases = cons.reduce(function(a,l){return a+n(l.qty);},0), packs = prod.reduce(function(a,l){return a+n(l.qty);},0);
+    var sum = function(k){ return (r.lines||[]).filter(function(l){return l.kind===k;}).reduce(function(a,l){return a+n(l.qty);},0); };
+    var cases = sum('consume'), packs = sum('produce'), toBin = sum('to_bin'), variety = sum('variety_produce');
+    var KIND = { consume:'<span class="flag warn">\u2212 cases</span>', produce:'<span class="flag ok">+ packs</span>', to_bin:'<span class="flag info">\u2192 bin</span>',
+                 variety_draw:'<span class="flag warn">\u2212 from bin</span>', variety_produce:'<span class="flag ok">+ variety</span>' };
     var lineRows = (r.lines||[]).slice().sort(function(a,b){return a.line_no-b.line_no;}).map(function(l){
-      return '<tr><td>'+(l.kind==='consume'?'<span class="flag warn">− cases</span>':'<span class="flag ok">+ packs</span>')+'</td><td>'+esc(l.item_name||l.qbo_item_id)+'</td><td class="num">'+n(l.qty).toLocaleString()+'</td><td class="num">'+n(l.cans).toLocaleString()+' cans</td></tr>';
+      var q = n(l.qty).toLocaleString()+' '+(l.unit||'case')+(n(l.qty)===1?'':'s');
+      if(l.kind==='variety_draw') q += (n(l.cases_posted)>0 ? ' <span class="sub">'+n(l.cases_posted)+' case'+(n(l.cases_posted)===1?'':'s')+' emptied \u2192 QBO</span>' : ' <span class="sub">from an open case</span>');
+      return '<tr><td>'+(KIND[l.kind]||esc(l.kind))+'</td><td>'+esc(l.item_name||l.qbo_item_id)+'</td><td class="num">'+q+'</td><td class="num">'+n(l.cans).toLocaleString()+' cans</td></tr>';
     }).join('');
     var acts = '';
-    if(!r.voided_at && !r.qbo_txn_id) acts += '<button class="btn sm" onclick="retry(\''+r.id+'\')">Retry QuickBooks</button> ';
+    if(!r.voided_at && !r.qbo_txn_id && r.qbo_required !== false) acts += '<button class="btn sm" onclick="retry(\''+r.id+'\')">Retry QuickBooks</button> ';
     if(!r.voided_at) acts += '<button class="btn sm danger" onclick="voidSheet(\''+r.id+'\',\''+esc(r.repack_number)+'\')">Void…</button>';
     return '<details class="rp'+(r.voided_at?' void':'')+'"><summary>'
       + '<span class="num">'+esc(r.repack_number)+'</span>'
       + '<span class="who">'+esc(fmtDT(r.created_at))+' · '+esc(r.signed_by_name)+'</span>'
-      + '<span class="who">'+cases.toLocaleString()+' case'+(cases===1?'':'s')+' → '+packs.toLocaleString()+' pack'+(packs===1?'':'s')+'</span>'
-      + (n(r.cans_unaccounted)!==0 ? '<span class="flag warn">'+n(r.cans_unaccounted).toLocaleString()+' cans unaccounted</span>' : '')
+      + '<span class="who">'+[cases>0 ? cases+' case'+(cases===1?'':'s')+' \u2192 '+packs+' pack'+(packs===1?'':'s') : null,
+                             toBin>0 ? toBin+' case'+(toBin===1?'':'s')+' \u2192 bin' : null,
+                             variety>0 ? variety+' variety' : null].filter(Boolean).join(' · ')+'</span>'
       + '<span class="sp"></span>' + qboFlag(r) + '</summary>'
       + '<div class="body"><table style="margin-top:10px"><tbody>'+lineRows+'</tbody></table>'
-      + (r.variance_note ? '<p class="muted" style="margin-top:10px"><b>Variance:</b> '+esc(r.variance_note)+'</p>' : '')
       + (r.notes ? '<p class="muted" style="margin-top:6px"><b>Notes:</b> '+esc(r.notes)+'</p>' : '')
       + (r.qbo_error && !r.qbo_txn_id ? '<div class="err">'+esc(r.qbo_error)+'</div>' : '')
       + (r.voided_at ? '<p class="muted" style="margin-top:8px">Voided '+esc(fmtDT(r.voided_at))+': '+esc(r.void_reason||'')+'</p>' : '')
@@ -372,21 +433,27 @@ async function voidSheet(id, num){
 async function load(first){
   var d = await api('GET');
   SETTINGS = d.settings; PAIRS = d.pairs || []; RECENT = d.recent || [];
+  BIN = {}; (d.bin||[]).forEach(function(b){ BIN[b.case_qbo_item_id] = b; });
+  RECIPE = {}; (d.recipe||[]).forEach(function(r){ RECIPE[r.case_qbo_item_id] = n(r.cans); });
   document.getElementById('settingsLine').innerHTML =
-    'Location: <b>Brix Warehouse</b> · '+SETTINGS.cans_per_case+' cans a case, '+SETTINGS.cans_per_pack+' a pack ('+SETTINGS.default_packs_per_case+' packs per case suggested; edit the packs box if you got more or fewer) · '
+    'Location: <b>Brix Warehouse</b> · '+SETTINGS.cans_per_case+' cans a case, '+SETTINGS.cans_per_pack+' a pack — a case is exactly '+ppc()+' packs · '
     + 'QuickBooks adjustment account: <b>'+esc(SETTINGS.qbo_adjust_account_name)+'</b>';
   if(first){
     renderRows();
     var who = document.getElementById('who');
     if(!who.value) who.value = (d.me && d.me.name) || SESSION.name || '';
   }else{
-    // keep what is typed; refresh on-hand figures only
-    var byPack = {}; PAIRS.forEach(function(p){ byPack[p.pack.qbo_item_id]=p; });
-    document.querySelectorAll('input[data-packs]').forEach(function(i){
-      var p = byPack[i.getAttribute('data-packs')]; if(!p) return;
-      var cell = i.closest('tr').lastElementChild.querySelector('.sub');
-      if(cell) cell.textContent = (p.case ? n(p.case.on_hand).toLocaleString()+' cases' : 'no case item') + ' · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
+    // keep what is typed; refresh the on-hand and bin figures only
+    PAIRS.forEach(function(p){
+      if(!p.case) return;
+      var id = p.case.qbo_item_id, b = BIN[id] || {};
+      var oh = document.querySelector('[data-oh="'+id+'"]');
+      if(oh) oh.textContent = n(p.case.on_hand).toLocaleString()+' cases · ' + n(p.pack.on_hand).toLocaleString() + ' packs';
+      var bn = document.querySelector('[data-bin-now="'+id+'"]');
+      if(bn){ bn.textContent = n(b.cans_on_hand).toLocaleString()+' cans';
+              bn.nextElementSibling.textContent = n(b.cases_in_bin).toLocaleString()+' case'+(n(b.cases_in_bin)===1?'':'s')+(b.has_open_case?' (one open)':''); }
     });
+    recalc();
   }
   renderRecent();
 }

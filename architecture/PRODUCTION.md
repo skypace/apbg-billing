@@ -672,15 +672,34 @@ the sheet the warehouse signed is never lost to an accounting hiccup, and
 `ops.fn_repack_health()` goes red on the board after an hour unpushed.
 **`ops.repack_pairs` is an allow-list:** the tool can only move the seven
 case→pack pairs and the variety pack; a stray SKU cannot be adjusted through a
-repack sheet. **Cans in vs cans out is shown, never enforced:** the 8/24 sheet
-in QuickBooks did not balance (1,008 cans in, 656 out — loose singles, damage,
-tasting stock are real), so a hard equality would refuse actual work; instead an
-unbalanced sheet must carry a note saying where the cans went, and the gap is
-stored as `cans_unaccounted` for anyone auditing shrink. Void deletes the QBO
-adjustment first, then reverses every movement with new rows — history is never
-edited. Enabling `track_locations` on the eight 8PK items also means the sales
-feed deducts 8-pack sales from today on (zero 8PK invoice lines since
-`apply_from`, checked before applying).
+repack sheet. **Never an uneven 8-pack** (`20260904b`, Sky: "only exact 8 packs that match
+the 24 pack count"): a case is 24 cans = exactly 3 packs, and the sheet derives
+the pack count from the cases — nobody types it. **Variety is a recipe, built
+from a bin** (`20260904c`, Sky: "Variety packs consist of 2 colas, and one of
+every flavor… a variety pack warehouse… where we move cases to build variety
+packs out of"): `ops.repack_variety_recipe` says a variety 8-pack is 2 × Cola +
+1 × each of the six other flavours; whole cases are first moved into the
+**VARIETY-BIN** location (a ledger move — still 24P cases, still ours,
+QuickBooks unchanged), and each variety pack made pulls its recipe out of the
+bin. No 24-pack variety item is needed. ⚠ **The bin counts cans; the ledger and
+QuickBooks count whole cases.** `ops.repack_bin` holds each flavour's cans
+(24 × cases in − cans drawn); a case is posted OUT of the bin and off QuickBooks
+the moment its 24th can is drawn, so an opened case still reads as a case in the
+bin until it is empty — what a person counting the bin would say too. Between
+the first and last can of an open case QuickBooks overstates that flavour by the
+cans already inside variety packs (at most 23); whole numbers everywhere are
+worth that, because fractional cases would drift on every sum. The function
+refuses a variety count the bin cannot cover and says how many more cases of
+which flavour to move in; `v_repack_bin` shows cans, cases, open-case and "packs
+possible" per flavour. A sheet that only moved cases into the bin has nothing
+to tell QuickBooks and is marked `qbo_required=false`, which the health check
+respects. ⚠ The first cut allowed an unbalanced sheet with a note, because the
+8/24 hand-keyed sheet had not balanced (1,008 in, 656 out); that was the wrong
+lesson — it did not balance because nothing forced it to.
+Void deletes the QBO adjustment first, then reverses every
+movement with new rows — history is never edited. Enabling `track_locations` on
+the eight 8PK items also means the sales feed deducts 8-pack sales from today on
+(zero 8PK invoice lines since `apply_from`, checked before applying).
 
 ## The run guide, inside the app
 

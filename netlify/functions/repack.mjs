@@ -6,8 +6,11 @@
 // audience as the Stock page, because this writes an InventoryAdjustment into
 // the live QuickBooks company.
 //
-//   GET                       → { settings, pairs[], recent[] }
-//   POST { action:'create', lines[], signed_by_name, signature_data?, notes?, variance_note? }
+//   GET                       → { settings, pairs[], bin[], recipe[], recent[] }
+//   POST { action:'create', lines[], signed_by_name, signature_data?, notes? }
+//        lines: {kind:'repack', qbo_item_id:<24P case>, qty:cases}   → cases become exactly 3 packs each
+//               {kind:'to_bin', qbo_item_id:<24P case>, qty:cases}   → whole cases staged in the variety bin
+//               {kind:'variety', qbo_item_id:'891', qty:packs}       → each pack pulls its recipe from the bin
 //   POST { action:'retry',  id }        — re-push a sheet whose QBO write failed
 //   POST { action:'void',   id, reason } — delete the QBO adjustment, reverse the ledger
 //
@@ -18,6 +21,13 @@
 // and the page offers Retry — the sheet the warehouse signed is never lost to
 // an accounting hiccup. ops.fn_repack_health() goes red if a sheet sits an
 // hour without reaching QuickBooks, so a failed push cannot go quiet.
+//
+// EXACT EIGHTS + THE VARIETY BIN (Sky, 2026-09-04): a case is 24 cans = exactly 3
+// packs, never an uneven pack. Variety 8-packs are 2 x Cola + 1 x each other
+// flavour, built from cases staged in the VARIETY-BIN location; the bin counts
+// cans, the ledger and QuickBooks count whole cases — a case leaves the books the
+// moment its 24th can is drawn (20260904c). A bin-only sheet changes nothing in
+// QuickBooks and is marked qbo_required=false.
 //
 // The QBO entity is InventoryAdjustment: one AdjustAccountRef (from
 // ops.repack_settings — 353 Inventory Shrinkage per Sky, 2026-09-04; one edit
@@ -65,10 +75,10 @@ async function ops(method, path, body, bearer) {
 }
 
 const RECENT_SELECT =
-  'id,repack_number,repack_date,created_at,cans_in,cans_out,cans_unaccounted,variance_note,notes,' +
+  'id,repack_number,repack_date,created_at,cans_in,cans_out,notes,qbo_required,variety_packs,cases_to_bin,' +
   'signed_by_name,signed_by_email,qbo_txn_id,qbo_doc_number,qbo_pushed_at,qbo_error,qbo_attempts,' +
   'voided_at,void_reason,signature_data,' +
-  'lines:repack_order_lines(line_no,kind,qbo_item_id,item_name,qty,cans)';
+  'lines:repack_order_lines(line_no,kind,qbo_item_id,item_name,qty,cans,unit,cases_posted)';
 
 async function loadSettings() {
   const rows = await ops('GET', 'repack_settings?select=*&id=eq.1');
@@ -106,6 +116,14 @@ async function loadPairs(settings) {
   }));
 }
 
+async function loadBin() {
+  const [bin, recipe] = await Promise.all([
+    ops('GET', 'v_repack_bin?select=*'),
+    ops('GET', 'repack_variety_recipe?select=pack_qbo_item_id,case_qbo_item_id,cans'),
+  ]);
+  return { bin: bin || [], recipe: recipe || [] };
+}
+
 async function loadRecent(limit = 40) {
   return ops('GET', `repack_orders?select=${RECENT_SELECT}&order=created_at.desc&limit=${limit}`);
 }
@@ -133,21 +151,28 @@ function qboFault(e) {
 
 function buildAdjustment(order, settings) {
   const lines = [...(order.lines || [])].sort((a, b) => a.line_no - b.line_no);
-  const variance = Number(order.cans_unaccounted) !== 0
-    ? ` · ${order.cans_unaccounted} can(s) unaccounted: ${order.variance_note || ''}`
-    : '';
   return {
     AdjustAccountRef: { value: String(settings.qbo_adjust_account_id) },
     TxnDate: order.repack_date,
     DocNumber: String(order.repack_number).slice(0, 21),
-    PrivateNote: `Repack ${order.repack_number} — ${order.signed_by_name}; ${order.cans_in} cans in / ${order.cans_out} cans out${variance}${order.notes ? ' · ' + order.notes : ''}`.slice(0, 4000),
-    Line: lines.map((l) => ({
-      DetailType: 'ItemAdjustmentLineDetail',
-      ItemAdjustmentLineDetail: {
-        ItemRef: { value: String(l.qbo_item_id) },
-        QtyDiff: l.kind === 'consume' ? -Number(l.qty) : Number(l.qty),
-      },
-    })),
+    PrivateNote: (`Repack ${order.repack_number} — ${order.signed_by_name}; ${order.cans_in / 24} case(s) → ${order.cans_out / 8} flavour 8-pack(s)`
+      + (Number(order.variety_packs) > 0 ? `; ${order.variety_packs} variety 8-pack(s) from the bin` : '')
+      + (Number(order.cases_to_bin) > 0 ? `; ${order.cases_to_bin} case(s) staged in the variety bin (no QBO change)` : '')
+      + (order.notes ? ' · ' + order.notes : '')).slice(0, 4000),
+    // consume: -cases · produce / variety_produce: +packs · variety_draw: -whole
+    // cases emptied by this draw (cases_posted; 0 while a case is still open) ·
+    // to_bin: nothing — the cases are still cases, just staged.
+    Line: lines
+      .map((l) => ({ item: String(l.qbo_item_id), diff:
+        l.kind === 'consume' ? -Number(l.qty)
+        : l.kind === 'produce' || l.kind === 'variety_produce' ? Number(l.qty)
+        : l.kind === 'variety_draw' ? -Number(l.cases_posted || 0)
+        : 0 }))
+      .filter((x) => x.diff !== 0)
+      .map((x) => ({
+        DetailType: 'ItemAdjustmentLineDetail',
+        ItemAdjustmentLineDetail: { ItemRef: { value: x.item }, QtyDiff: x.diff },
+      })),
   };
 }
 
@@ -168,8 +193,16 @@ async function refreshMirrorQty(itemIds) {
 }
 
 async function pushToQbo(order, settings) {
+  if (order.qbo_required === false) return { pushed: false, not_needed: true };
+  const payload = buildAdjustment(order, settings);
+  if (!payload.Line.length) {
+    // Every draw stayed inside open cases and no flavour packs were made:
+    // nothing to tell QuickBooks yet. Say so on the row so health reads it.
+    await ops('PATCH', `repack_orders?id=eq.${order.id}`, { qbo_required: false }).catch(() => {});
+    return { pushed: false, not_needed: true };
+  }
   try {
-    const res = await qboRequest('POST', '/inventoryadjustment?minorversion=70', buildAdjustment(order, settings));
+    const res = await qboRequest('POST', '/inventoryadjustment?minorversion=70', payload);
     const adj = res?.InventoryAdjustment;
     if (!adj?.Id) throw new Error('QuickBooks returned no InventoryAdjustment id');
     await ops('PATCH', `repack_orders?id=eq.${order.id}`, {
@@ -177,7 +210,7 @@ async function pushToQbo(order, settings) {
       qbo_pushed_at: new Date().toISOString(), qbo_error: null, qbo_attempts: (order.qbo_attempts || 0) + 1,
     });
     let mirror = null;
-    try { mirror = await refreshMirrorQty([...new Set((order.lines || []).map((l) => l.qbo_item_id))]); }
+    try { mirror = await refreshMirrorQty([...new Set(payload.Line.map((l) => l.ItemAdjustmentLineDetail.ItemRef.value))]); }
     catch (e) { mirror = { error: String(e.message || e).slice(0, 200) }; }
     return { pushed: true, qbo_txn_id: String(adj.Id), doc_number: adj.DocNumber || order.repack_number, mirror };
   } catch (e) {
@@ -209,8 +242,9 @@ export default async function handler(req) {
   if (req.method === 'GET') {
     try {
       const settings = await loadSettings();
-      const [pairs, recent] = await Promise.all([loadPairs(settings), loadRecent()]);
+      const [pairs, recent, binInfo] = await Promise.all([loadPairs(settings), loadRecent(), loadBin()]);
       return json({
+        bin: binInfo.bin, recipe: binInfo.recipe,
         settings: {
           qbo_adjust_account_id: settings.qbo_adjust_account_id,
           qbo_adjust_account_name: settings.qbo_adjust_account_name,
@@ -218,6 +252,7 @@ export default async function handler(req) {
           cans_per_pack: settings.cans_per_pack,
           default_packs_per_case: settings.default_packs_per_case,
           location_id: settings.location_id,
+          bin_location_id: settings.bin_location_id,
         },
         pairs, recent,
         me: { email: auth.user?.email || null, name: auth.user?.user_metadata?.full_name || auth.user?.user_metadata?.name || null },
@@ -236,7 +271,7 @@ export default async function handler(req) {
     const lines = Array.isArray(body.lines) ? body.lines
       .map((l) => ({ kind: String(l.kind || ''), qbo_item_id: String(l.qbo_item_id || ''), qty: Number(l.qty) }))
       .filter((l) => l.qbo_item_id && Number.isFinite(l.qty) && l.qty > 0) : [];
-    if (!lines.length) return json({ error: 'Enter at least one case used and one 8-pack made.' }, 400);
+    if (!lines.length) return json({ error: 'Enter at least one case repacked, one case moved to the bin, or one variety pack made.' }, 400);
     const sig = body.signature_data ? String(body.signature_data) : null;
     if (sig && !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(sig)) return json({ error: 'The signature did not come through as an image.' }, 400);
     if (sig && sig.length > 400000) return json({ error: 'The signature image is too large.' }, 400);
@@ -248,7 +283,6 @@ export default async function handler(req) {
         p_signed_by_name: String(body.signed_by_name || '').trim(),
         p_signature_data: sig,
         p_notes: body.notes ? String(body.notes).slice(0, 2000) : null,
-        p_variance_note: body.variance_note ? String(body.variance_note).slice(0, 2000) : null,
       }, auth.jwt);
     } catch (e) {
       return json({ error: e.message.replace(/^POST rpc\/fn_repack_create → \d+: /, '') }, 400);
@@ -272,6 +306,7 @@ export default async function handler(req) {
     if (!order) return json({ error: 'Repack not found' }, 404);
     if (order.voided_at) return json({ error: `${order.repack_number} is voided.` }, 409);
     if (order.qbo_txn_id) return json({ ok: true, qbo: { pushed: true, qbo_txn_id: order.qbo_txn_id, already: true }, order });
+    if (order.qbo_required === false) return json({ ok: true, qbo: { pushed: false, not_needed: true }, order });
     const settings = await loadSettings();
     const qbo = await pushToQbo(order, settings);
     return json({ ok: true, qbo, order: await loadOne(id) });
@@ -297,7 +332,7 @@ export default async function handler(req) {
       const r = await ops('POST', 'rpc/fn_repack_void', { p_id: id, p_reason: reason, p_qbo_cleared: true }, auth.jwt);
       let mirror = null;
       if (qboDeleted) {
-        try { mirror = await refreshMirrorQty([...new Set((order.lines || []).map((l) => l.qbo_item_id))]); } catch { /* best effort */ }
+        try { mirror = await refreshMirrorQty([...new Set(payload.Line.map((l) => l.ItemAdjustmentLineDetail.ItemRef.value))]); } catch { /* best effort */ }
       }
       return json({ ok: true, voided: r, qbo_deleted: qboDeleted, mirror, order: await loadOne(id) });
     } catch (e) {
