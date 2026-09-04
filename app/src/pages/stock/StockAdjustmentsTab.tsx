@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Minus } from 'lucide-react';
 import {
   AdjustmentDirection,
@@ -10,6 +10,7 @@ import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { fmtNum } from '../../lib/formatters';
 import type { ItemLookup } from './StockPage';
+import { fetchProductionItems } from '../../lib/rawMaterials';
 
 interface Props {
   locations: InventoryLocation[];
@@ -38,6 +39,25 @@ export function StockAdjustmentsTab({
   const [unitCost, setUnitCost] = useState<string>('');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Raw materials (cans, gallons, Velcorin, dunnage) are `excluded` from every
+  // inventory lane, so the lane picker cannot see them — but they are exactly
+  // what sits at a co-packer. At a co-packer location the purchased-item master
+  // is offered as well.
+  const selectedLoc = locationId ? locationById.get(locationId) : null;
+  const atCopacker = selectedLoc?.kind === 'co_packer';
+  const [rawItems, setRawItems] = useState<{ id: string; label: string }[] | null>(null);
+  useEffect(() => {
+    if (!atCopacker || rawItems !== null) return;
+    fetchProductionItems()
+      .then((r) => setRawItems(r.filter((x) => x.active && x.qbo_type !== 'Service').map((x) => ({ id: x.qbo_item_id, label: x.item_name + ' · raw material' }))))
+      .catch(() => setRawItems([]));
+  }, [atCopacker, rawItems]);
+  const itemOptions = useMemo(() => {
+    if (!atCopacker || !rawItems) return itemLookup.options;
+    const seen = new Set(itemLookup.options.map((o) => o.id));
+    return [...itemLookup.options, ...rawItems.filter((o) => !seen.has(o.id))].sort((a, b) => a.label.localeCompare(b.label));
+  }, [atCopacker, rawItems, itemLookup.options]);
 
   const canSubmit =
     !!locationId && !!qboItemId && Number(qty) > 0 && reason.trim().length > 0;
@@ -110,7 +130,7 @@ export function StockAdjustmentsTab({
           <LField label="Item">
             <select style={inp()} value={qboItemId} onChange={(e) => setQboItemId(e.target.value)}>
               <option value="">— Select item —</option>
-              {itemLookup.options.map((o) => (
+              {itemOptions.map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
               ))}
             </select>

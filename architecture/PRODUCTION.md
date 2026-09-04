@@ -237,7 +237,7 @@ to Can Raw Materials since 2025:
 | Printed cans | Quantum | $0.328 on bill 171778 (07/2026); 2025 deposits $0.31–0.37 | six can items @ $0.328 (was $0.26) |
 | 24-pk tray | **nobody, on any Quantum invoice** | — | **removed from every BOM (`20260902u`)** — taken to be inside the $0.62 tolling line, the same way pack-off was |
 | Syrup | Calderoni | lump-sum "can ingredients" per run ($5,073 May, $9,236 + $3,544 June) | the 1GNS gallon line, 0.375 gal/case |
-| Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | `CANNING RUN FEE (SYRUP COMPOUNDING)` (1391, new) — **1 per run** |
+| Canning fee | Calderoni | **flat $1,173.33 per run**, every run since 2026-03 | ~~`CANNING RUN FEE (SYRUP COMPOUNDING)` (1391) — 1 per run~~ **Off the BOM since 2026-09-03** — it is a licensing royalty on the cases produced, accrued at yield (see "Licensing agreements" below) |
 | Freight | Calderoni | a separate line most runs ($98–$3,200) | not on the BOM — entered as landed freight at Record yield |
 
 A flat per-run charge cannot be a per-case quantity, so a BOM line now has a
@@ -257,7 +257,56 @@ the gallon is plausible, not proven.
 
 ⚠ Two QuickBooks items were created for this (1390 Velcorin, NonInventory;
 1391 canning fee, Service — both expensed to Can Raw Materials 294). Nothing
-Inventory; see "Item types" below.
+Inventory; see "Item types" below. 1391 was then **retired on 2026-09-03**:
+the charge it stood for is not a purchased material but a royalty on the cases
+produced, and it now lives on the Licensing tab (next section). The QuickBooks
+item stays, deactivated in the purchased-item master only — it carries history.
+
+## Licensing agreements — the royalty is not a PO line
+
+Calderoni's "canning fee" first landed on the BOM as a flat $1,173.33 per-run
+line (item 1391). Sky's correction, 2026-09-03: *"the syrup compound isn't a
+receivable item, it's a calculation that goes on its own tab called licensing
+agreements… like a rebate would be"*, and the basis is **"total final cases of
+soda made in each production run — this is why it's separate from the PO."** A
+purchase order lists what a vendor ships or performs; a royalty is owed on what
+came off the line, which is only known at yield. So it moved (migration
+`20260903a`):
+
+| Piece | Table / RPC | What it holds |
+|---|---|---|
+| Program | `ops.licensing_programs` | the licensor (QBO vendor), entity, settlement period (month / quarter), status |
+| Rule | `ops.licensing_rules` | basis (`cases_produced` — the one Sky named — or concentrate / finished gallons), the current **rate** + unit label, optional formula scope, active flag |
+| Rate history | `ops.licensing_rule_rates` | append-only, written by trigger on every rate change; the accrual reads the rate in force on the yield date |
+| Accrual | `ops.licensing_accruals` | one row per (rule, work order), written **at `record_yield`** by `fn_licensing_accrue_wo`; `settlement_id` NULL = unsettled |
+| Settlement | `ops.licensing_settlements` | one per program per finished period, reference `LIC-<CODE>-YYYYMM`, snapshot of the calc, link to the Brixpense request |
+
+**Rules that are load-bearing:**
+
+- **Accrue at yield, not at settlement.** `fn_wo_advance__i record_yield` calls
+  `fn_licensing_accrue_wo(wo_id, yield_qty, yield_date)` and adds the amount to
+  `work_order_costs` as a `kind:'royalty'` detail row — so the per-case cost
+  does not silently drop by $1,173.33 ÷ cases when the BOM line leaves, and a
+  rate change is **forward-only by construction** (a run yielded under the old
+  rate keeps it; **Re-price unsettled** on the tab is the deliberate override
+  and touches only accruals not yet settled).
+- **A period settles once it has ended.** `fn_licensing_settlement_create`
+  refuses the current month; the tab disables the button for the same reason.
+  Settlement sums the unsettled accruals in the window and inserts an
+  `ops.expense_requests` row (approved, as_bill, tag `Licensing`, bill number
+  `LIC-…`, one line per rule) — **posting to QuickBooks stays a human click in
+  Brixpense**, the 2026-08-14 gate. Void releases the accruals and archives the
+  request; refused once posted.
+- **Nothing is received and nothing ships.** There is no PO, no movement, no
+  QuickBooks item for it — which is exactly the point of taking it off the BOM.
+
+Seeded: program **CALDERONI** (vendor 1099, monthly), one rule at **$0.50 per
+case produced** — Sky: "I think right now it's $.50 per raw gallon" — ⚠ the rate
+and its basis are seeded from that remark and carry the note *confirm against
+the agreement*; the Licensing tab is where they get corrected, with history.
+Verified live in a rolled-back run: 100 cases of Hangar 25 Cola accrued
+`100 × 0.50 = $50.00`, landed in the cost snapshot as a royalty line, and all
+seven BOMs still pre-flight at 2 POs / 0 blockers with the 1391 line gone.
 
 ## The documents — PO, BOL, batching sheet, as PDFs
 
@@ -297,6 +346,438 @@ documents for its admin GETs.
 standard fonts throw on a character outside WinAnsi, and the wrap step measures
 before it draws — so a raw em dash in a vendor name would crash the render one
 line earlier than the drawing call anyone would look at (the 2026-08-31 lesson).
+
+## Buckets and bulk actions — one vocabulary on every list
+
+Sky, 2026-09-03: "open, pending, closed and voided on different tabs" and
+"delete, edit, and receive multiple items in any table… a void on each that I
+can select all." Every production list — Work Orders, Purchase Orders, Stock →
+Transfers — now opens on the same four pills, with counts:
+
+| Bucket | Means | Work order | Purchase order | Transfer |
+|---|---|---|---|---|
+| **Open** | a step is still to be taken | ordered → received | open, partial, **received** | in transit |
+| **Pending** | a draft; edit or delete freely | draft | draft | draft |
+| **Closed** | nothing more happens | closed, consumed | closed | **received** |
+| **Voided** | cancelled, reason on the row | void | void | void |
+
+**The rule lives once, in SQL** — `ops.fn_status_bucket(kind, status)`,
+exposed as `bucket` on `v_work_orders` and `v_purchase_orders`; the client's
+`lib/lifecycleBuckets.ts` mirrors it for lists that read a bare table
+(transfers) and says so at the top of the file. Two placements are deliberate
+and worth stating: a **received purchase order or work order is still Open**,
+because a click (Close) remains and a document you still have to act on must
+not hide under Closed; a **received transfer is Closed**, because nothing
+remains — the stock has landed.
+
+**Bulk actions** (migration `20260903b`): tick rows → the bar offers **Edit…**,
+**Void…** and, on the Pending bucket, **Delete drafts…**. Rules:
+
+- **Nothing half-applies silently.** Each id runs in its own sub-transaction
+  and the RPC returns `{done[], skipped[{id, number, reason}]}`; the dialog
+  shows *before* you press the button which rows will be voided and which will
+  be left alone and why (a work order past `at_copacker`, a PO with receipts, a
+  shipped transfer), and the toast afterwards names anything the server still
+  refused. `window.prompt()` is gone from every void — the `ReasonDialog` is
+  the one place a reason is typed, for one row or fifty.
+- **The eligibility rules did not move.** The bulk functions call the existing
+  single-row inner functions (`fn_wo_advance__i 'void'`, `fn_void_purchase_order__i`,
+  `fn_void_transfer__i`), so what may be voided is decided in one place.
+- **Delete is draft-only and the only hard delete in the module.** A draft
+  with no QuickBooks id, no receipts and no dependent document (a PO raised
+  from a work order, a transfer that is a work order's return shipment or
+  fulfils a sub-distributor order) can be deleted; anything else is voided,
+  and the void reason is the record.
+- **Edits are whitelisted per document** — PO `expected_date`/`notes`, work
+  order `scheduled_date`/`notes`, transfer `carrier`/`tracking_number`/
+  `special_instructions`/`notes` — and a field left blank in the dialog is not
+  sent, so an empty box cannot blank ten rows; tick *clear* to blank one on
+  purpose.
+- **Every action is audited.** Work orders already had `work_order_events`;
+  purchase orders and transfers gain `ops.production_doc_events`
+  (void / delete / edit, with the reason or the patch), written only inside
+  the SECURITY DEFINER functions.
+- ⚠ **Voiding a PO also releases its work-order materials** (`po_id` /
+  `po_line_id` cleared) so **Generate POs** can raise a replacement — a gap
+  the single-row void had: a voided PO left the materials marked "on PO" and
+  the work order could never re-order them.
+
+Verified live in a rolled-back block: a draft PO voided while an unknown id
+was skipped with `PO not found`; the void PO then refused deletion (*is void;
+only a draft can be deleted*) and edit (*is void; reopen it first*); a patch
+carrying `subtotal` was refused by name; a draft transfer took `carrier=XPO`
+and dropped an empty `notes` without blanking it, then voided; four audit
+rows were written.
+
+## Receive, reopen, correct — a closed document is not a locked one
+
+Sky, 2026-09-03: "When I receive something I should be able to edit it if I
+closed it and reopen. That should be on all items." Migration `20260903c`:
+
+| Action | Where | What actually happens |
+|---|---|---|
+| **Receive…** several POs at once | Purchase Orders → tick rows (Open) → Receive… | every outstanding line of the selected POs, grouped by PO with its destination, quantity defaulting to what is still short; one call, `fn_receive_po_lines`, each line in its own sub-transaction |
+| **Close…** | tick rows (Open) → Close… | the existing single-row close, in bulk; refused for a PO with nothing received |
+| **Reopen** | PO / work order / transfer detail, or tick rows (Closed) → Reopen… | closed → open again, with a reason stamped `reopened_at/by/reason` |
+| **Correct a receipt** | PO detail → pencil beside Received | the line's received quantity set to a new figure, up or down, dated, with a reason |
+
+**The ledger is append-only, so a correction is a movement, not an edit.** A
+receipt corrected UP posts another `receipt`; corrected DOWN posts a
+**`receipt_reversal`** (a new movement type — the table's `qty > 0` CHECK
+holds and the direction carries the sign). The original receipt stays: "why
+did 3 cases leave the warehouse on the 4th" must remain answerable from the
+movements, and an edited row cannot answer it.
+
+**A correction is refused once the goods have moved on.** Reversing 3 units
+needs 3 on hand at the PO's destination; if they have already shipped to a
+store, the stock is somewhere else and the fix belongs where it is, not on a
+document that was right when it was written. The same rule reopens a
+received transfer: every line is reversed from the destination back to
+TRANSIT, refused if the destination no longer holds them — and refused
+outright when the transfer is a work order's return shipment that the run has
+already received, because the run's receipt is the record.
+
+**A reopened PO's status is recomputed from its lines, never guessed**
+(`fn_po_recompute_status`: all lines full → received; some received →
+partial; none → open). Correcting a receipt on a closed PO so that a line is
+short again reopens it by itself, with the reason on the row. **The
+QuickBooks purchase order is never touched by any of this**; the dialogs say
+so.
+
+Verified live in a rolled-back block: two lines received in one call with a
+third refused by name (*receiving 9 would exceed qty_ordered (4)*); the PO
+closed, then a line corrected 10 → 7 posted one `receipt_reversal`, reopened
+the PO to *partial* with *Receipt corrected: counted 7 not 10* on it; a
+partial PO refused Reopen (*only a closed PO can be reopened*); a shipped and
+received transfer reopened to in transit with the destination back at 0 and
+TRANSIT at 2; eight audit rows written in order.
+
+## What is received, and when a purchase order closes
+
+Sky, walking the run: *"tolling items and services should just be a part of
+the order process. nothing needs to ship to Quantum… no need to receive the
+services PO"*; the Quantum PO closes *"as a part of the production run when
+you build the yield and what's getting shipped back"*; the Calderoni PO closes
+when Quantum receives the raw materials. Migration `20260903d`.
+
+**Two facts, two columns, one place each.** `purchase_orders.close_rule` says
+how a PO ends: `on_receipt` (the default — it closes by itself the moment
+every receivable line is fully in) or `on_run_yield` (the co-packer's own PO,
+which closes when the run ships and against which nothing is ever received).
+`purchase_order_lines.receivable` says whether a line is a thing that arrives:
+false on every line of an `on_run_yield` PO and on every **Service** item
+anywhere. `fn_wo_generate_pos` stamps both — vendor equals the work order's
+co-packer → `on_run_yield`, anyone else → `on_receipt` — and the PO's own note
+says *closes when the run ships (nothing is received against it)* so the rule
+is on the document, not only in a column.
+
+**Receiving refuses a non-receivable line by name** — *this line is not
+received — the co-packer's PO closes when the run ships* or *… it is a
+service, not stock* — and completion counts receivable lines only, so a
+tolling line can never hold a Calderoni PO open. When a run's `on_receipt` PO
+completes it CLOSES (`closed_reason = 'received'`), and when the run's last
+`on_receipt` PO closes the work order moves **ordered → at_copacker** by
+itself: the Calderoni PO closing *is* "the materials are at Quantum", and
+pressing a second button to say so was the step people forgot.
+
+**What Quantum supplies to itself lands at Quantum, once, at start of
+production.** The cans and the Velcorin on the Quantum PO are real stock the
+co-packer owns until the batch consumes them — so `start_production` posts a
+`receipt` for every non-Service line of an `on_run_yield` PO into the PO's
+destination (idempotent on the line id), then consumes. ⚠ **Service items are
+never consumed as stock.** Before this, `start_production` posted a
+`production_consume` for FILL LABOR and DUNNAGE and the co-packer's on-hand
+for a tolling charge went to −4,618 — a number that means nothing and drifts
+forever. The consume now skips `qbo_items.type = 'Service'`. ⚠ The
+record-yield **cost** roll-up deliberately does NOT skip them: tolling is a
+cost of the batch even though it is never a thing on a shelf. Those are two
+different questions and the migration anchors them separately — the same
+`FROM … work_order_materials` appears twice in `fn_wo_advance__i`, and only the
+consume copy was changed (anchored on its `WO consume ·` note line).
+
+**Ship closes the co-packer's PO.** When the work order ships, every
+`on_run_yield` PO on it has its lines marked received-in-full (no movement — a
+service does not arrive), a `production_doc_events` close row, and
+`status = 'closed'`, `closed_reason = 'run_shipped'`. Nobody receives the
+Quantum PO; the run does.
+
+**Void releases.** `fn_void_purchase_order` now clears
+`work_order_materials.po_id/po_line_id` and the recipe lines' `po_line_id`, so
+Generate POs can raise a replacement — 20260903b had closed that gap on the
+bulk path only.
+
+On screen: the PO header carries a chip — **Closes when the run ships** /
+**Closes on receipt** (hover for the sentence) — and a closed PO prints its
+`closed_reason`. A PO with no receivable line has no Receive column at all;
+on a mixed PO a service line reads *service — not received* where the truck
+would be, and the pencil (receipt correction) only appears on receivable
+lines. The bulk **Receive…** dialog skips `on_run_yield` POs and names them
+(*PO-2026-00025 (closes when the run ships)*) rather than offering lines that
+would be refused.
+
+Verified live in a rolled-back block on a 500-case Hangar 25 Cola run:
+two POs — Calderoni `on_receipt` (gallon, receivable) and Quantum
+`on_run_yield` (fill labour, cans, Velcorin, dunnage, all non-receivable);
+receiving a Quantum line refused with the sentence above; receiving the gallon
+closed the Calderoni PO `received` and moved the WO to `at_copacker` with a
+`materials_at_copacker` event; `start_production` landed 12,000 cans + 12,000
+Velcorin at Quantum once and consumed three items with **zero** Service
+consumption; `record_yield` + `ship` left the WO `in_transit`, the Quantum PO
+`closed/run_shipped` with all four lines received, two doc events in order,
+and the $250 royalty on the cost row.
+
+⚠ **Pre-existing negatives at QUANTUM-CANNING are NOT corrected by this** —
+the ledger is append-only. WO-2026-00009 (closed) consumed 4,618 of FILL
+LABOR, DUNNAGE 0.353 and 4,618 Velcorin and 4,618 Oaktown cans with nothing
+landed first, so those four items read negative at Quantum today. They are the
+last runs before the fix, not live stock; an `adjustment` to zero the two
+Service items is an operator's call (Stock → Adjustments), and the can/Velcorin
+balances are what P5's opening-stock form is for.
+
+## MOQ, demand and the surplus at the co-packer
+
+Ask (Sky): a place to record each item's MOQ; when the MOQ exceeds the run's
+need "we need to fill that void" — order the minimum, land the rest at Quantum
+and **see it as raw-material stock for the next run**; and "we will need
+starting amounts for the ingredients". Migration `20260903e`.
+
+**Two quantities on every work-order material, and they mean different
+things.** `demand_qty` is what the BATCH needs, in purchase units, unrounded —
+12,000 cans for 500 cases. `required_qty` is what is ORDERED once the vendor's
+terms are applied — 20,000 cans under a 20,000 MOQ. The purchase order carries
+`required_qty`; `start_production` lands `required_qty` at the co-packer and
+consumes `demand_qty`; `record_yield` costs the batch on `demand_qty` (the
+detail row now carries both, as `qty` and `ordered_qty`). **The 8,000 that
+were never used stay valued at Quantum, not buried in this batch's cases**,
+which is the rule that closes gap #4 below: the first run does not eat the MOQ,
+and the second run sees 8,000 cans already sitting there.
+
+**The terms live where the price lives.** `production_items` gains
+`min_order_qty`, `order_multiple`, `lead_days` — edited on Materials & Pricing
+→ Purchased items, beside the vendor and the price, because they are the same
+kind of fact (this is how Quantum sells cans). `raw_ingredients` gains
+`min_order_qty` next to the `pack_size` / `order_multiple` it already had.
+
+**ONE rounding rule, in two places that must agree.** `ops.fn_order_qty(demand,
+moq, multiple)`: nothing said → order the demand; otherwise
+`ceil(max(demand, MOQ) / multiple) × multiple`. `lib/componentSourcing.ts`
+`orderQty` / `componentOrderQty` is the client copy, so the New Work Order
+preview prints the same **Ordered** figure and the same `+8,000 MOQ` chip the
+work order will carry. ⚠ **Blank and 1 are different answers.** A blank
+multiple is "any quantity" (5.8825 pallets of dunnage, as today); a typed
+multiple of 1 is "whole units" (6 pallets). The first version treated 1 as
+blank, which would have made typing 1 to get whole pallets do nothing — the
+exact case an operator will try first. `raw_ingredients.order_multiple`
+defaults to 1 *by schema*, so there a 1 with no pack size is treated as blank
+(the schema said it, not a person). A `per_run` line is a flat charge and is
+never rounded.
+
+**Opening stock is a one-shot, and refuses to be a second shot.**
+`fn_copacker_opening_balance(location, lines, as_of, note)` posts one
+`adjustment` movement per item, ADJUSTMENT → co-packer, `source_doc_type =
+'opening_balance'`. It refuses a warehouse by name (that is Stock →
+Adjustments' job), refuses an unknown item and a zero, and **refuses an item
+that already has an opening at that location** — a wrong opening is corrected
+by an ordinary adjustment with its own reason on it, because two "openings" a
+month apart is how nobody can later say what the count was. On screen:
+Materials & Pricing → **Raw materials at the co-packer** — on hand, open
+demand (materials on work orders not yet in production), what is left after
+those runs, MOQ, last cost, last moved — and the **Record opening stock…** form
+under it. `ops.v_copacker_stock` is the view; its `reserved` column is 0 today
+and is redefined by the runs phase without changing shape.
+
+**Stock → Adjustments can now see raw materials at a co-packer.** They are
+`excluded` from every inventory lane, so the lane picker could never offer
+them; at a co-packer location the purchased-item master is offered as well.
+That is also how the four negative Quantum balances left by WO-2026-00009 get
+zeroed.
+
+Verified live in a rolled-back block: cans set to MOQ 20,000 × 1,000 and
+dunnage to a multiple of 2; a 500-case run stamps cans **need 12,000 / ordered
+20,000**, dunnage **5.8825 / 6**, gallon 187.5 / 187.5; the Quantum PO carries
+20,000; `start_production` lands 20,000, consumes 12,000, and
+`v_copacker_stock` reads **8,000 on hand**; the cost detail carries
+`qty 12,000 · ordered_qty 20,000 · $3,936`; the opening form refused
+BRIX-WAREHOUSE, recorded 4,618 Oaktown cans at $0.328 (which took that item's
+balance from −4,618 to exactly 0), skipped an unknown item and a zero by
+reason, and refused a second opening for the same item.
+
+## The production order — several flavours, one PO per vendor, one truck home
+
+Ask (Sky, 2026-09-03): "create a work order that has MULTIPLE bills of materials
+on it as one huge order to quantum and calderoni." Until now a run was one work
+order, one BOM, and two purchase orders; a fill with three flavours meant six
+purchase orders to the same two vendors and three trucks on paper.
+
+**The model (migration `20260903f`): a `production_runs` row is the ORDER, and
+each flavour on it is an ordinary `work_orders` row carrying `run_id`.** That is
+deliberate. Widening a work order to N BOMs would have rewritten `record_yield`
+(one finished item, one cost row), lots (which must sum to one yield), `ship`,
+the BOL PDF and the run guide. Instead every one of those stays exactly what it
+was, per flavour, and the things that are genuinely about the ORDER move up a
+level: purchase orders, stock netting, the truck, close, reopen and void.
+
+| Level | Owns |
+|---|---|
+| Run (`Production Orders` tab) | PO generation (one per vendor for the lot), reservations of stock at the co-packer, the single BOL home, `start_production` / `receive` / `close` for every flavour together, reopen, **the master void** |
+| Work order (one per flavour) | Its yield, its lots and born-on dates, its cost snapshot, its licensing accrual, its batching sheet |
+
+**One PO per vendor, for the lot.** `fn_run_generate_pos` groups every
+`work_order_materials` row on the run by vendor and by item: a tolling line for
+19,200 cans is one line whose `demand_total` is the sum of both flavours, and
+`purchase_order_line_demand` maps it back to the two material rows it covers —
+that table is the join, so a later "which flavour was this for" is answerable
+and the recipe detail under a shared gallon line is filed per work order
+(`purchase_order_line_details.wo_id`). Then the MOQ rule (`fn_order_qty`) lifts
+each line once, on the aggregate — which is the whole point: two 6,000-can
+flavours at a 20,000 minimum lift to 20,000 once, not twice. The co-packer's
+own PO carries `close_rule = 'on_run_yield'` exactly as before; the Calderoni
+PO closes on receipt, and **when the run's last on_receipt PO closes, every
+flavour on it moves to `at_copacker` and the run is recomputed** (that half was
+missed on the first apply — `20260903g` — the live proof left both work orders
+at `ordered` after a full receipt, because the 20260903d block keyed on
+`work_order_id`, which a run PO does not carry).
+
+**Stock at the co-packer is used before more is ordered.** `net_against_stock`
+(default on) makes generation look at `v_copacker_stock` — on hand at the
+co-packer's location minus what other runs have already reserved — and take
+what is free first: an `inventory_reservations` row (`active`) per item, and
+only the shortfall goes on the PO, then lifted to the MOQ. At
+`start_production` the reservation is `consumed` alongside the consume
+movement; a void `release`s it. Verified live: after run 1 landed 20,000 cans
+and consumed 12,000, run 2 for the same flavour previewed *need 12,000 · from
+stock 8,000 · ordered 20,000* (the 4,000 shortfall lifted to the 20,000 MOQ),
+generated one reservation, and `v_copacker_stock` read on hand 8,000 /
+reserved 8,000.
+
+**One bill of lading for the truck.** `fn_run_ship` refuses until every
+non-void flavour has its yield recorded — the truck does not leave with one
+flavour still in the tank — then writes one `inventory_transfers` row with one
+line per lot per flavour (a flavour with no lots ships as one line), stamps the
+same `transfer_id` on every work order, and closes the co-packer's PO
+(`run_shipped`). `v_lot_trace` joins the transfer line to the work order on
+`finished_qbo_item_id` now, since one transfer carries several flavours.
+
+**The master void** (`fn_run_void`): refused once production has started on
+any flavour ("close it out instead"); otherwise every work order is voided
+(the run-scope bypass lets `fn_wo_advance__i` void a run WO — a work order on a
+run cannot be voided, shipped or have POs generated on its own, and the Work
+Orders tab says so), a PO with no receipts is voided and its materials
+released, a PO with receipts is **short-closed** (`short_close_run_void` — goods
+physically at the co-packer stay on hand), reservations are released, and any
+PO already pushed to QuickBooks is returned by number for a human to close
+there. Nothing is deleted; `fn_run_delete_drafts` is the only hard delete and
+takes a draft with no POs and its draft work orders with it.
+
+**Preview is the server's answer.** The New production order form calls
+`fn_run_preview` with the same lines the create call will send; it returns the
+per-vendor POs with need / from stock / ordered / MOQ lift per line, the
+blockers and warnings from every BOM's pre-flight, and the total — so the form
+cannot disagree with the order it is about to create. A one-flavour order is
+the old single work order, and the Work Orders tab still exists for the
+per-flavour view (yield, lots, batching sheet) and for standalone work orders
+created before today.
+
+**Verified live, rolled back:** Hangar 25 Cola 500 + Oaktown Root Beer 300 →
+exactly two POs (Calderoni `on_receipt` $1,796.25 with two gallon lines each
+carrying its recipe detail; Quantum `on_run_yield` $25,878.60 with tolling /
+Velcorin / dunnage merged — `demand_total` 19,200 tolling across 2 demand
+rows — and each flavour's cans lifted to 20,000); one Calderoni line received →
+`partial`, both WOs still `ordered`; the second → PO `closed/received`, both
+WOs `at_copacker`, two events; `start_production` → 2 done, 0 skipped, cans on
+hand at Quantum 8,000; yields → 2 royalty accruals; `fn_run_ship` → one
+transfer, two lines, both WOs `in_transit`, Quantum PO `closed/run_shipped`;
+void on the shipped run refused by name; WO-level ship refused; receive + close
+→ run `closed`, bucket `closed`; 17 movements, all rolled back.
+
+## Bills — the PO bill, the deposit, and the final invoice that updates it
+
+**The rule in one sentence: every payable a run produces is a Brixpense expense
+request, posting it to QuickBooks is a human click in Brixpense, and a final
+invoice that replaces a deposit UPDATES the deposit's request — one QuickBooks
+bill, re-sent onto itself, with the deposit payment still applied.** Nothing in
+Refractor talks to QuickBooks for a bill; the 2026-08-14 gate holds, and the
+`ops.production_run_bills` register only says which request is which document
+of which run. Migrations `20260903h` + `20260903i`.
+
+Three documents, three functions, one insert shape (`fn_production_bill_request__i`:
+`request_type='expense'`, `status='approved'`, `as_bill`, `auto_approved`, tag
+**Production**, `cogs_account_id` = `production_settings.clearing_account_ref_id`
+— 294 Can Raw Materials, so the run's bills settle through the same account the
+POs and the production PO do — entity `brix`, `approved_by='system (production bill)'`,
+`submitted_by = auth.uid()`; **a call with no session is refused by name** rather
+than inventing an actor, because the row is somebody's record):
+
+| Document | Function | When | What it produces |
+|---|---|---|---|
+| **PO bill** | `fn_po_create_bill(po_id, invoice_no, invoice_date, total_override)` | The PO is **closed** — Calderoni's on full receipt, Quantum's when the run ships | One request, lines = the PO lines at ordered qty × price, **services included** (tolling is billed though never received). A different invoice total adds one *Invoice variance vs PO* line so the bill matches the paper and the variance is visible. One live bill per PO; archive it in Brixpense to redo |
+| **Deposit** | `fn_run_record_deposit(run_id, vendor, amount, invoice_no, date, memo)` | Quantum's deposit invoice arrives, usually with the PO | One request, one line. One un-archived deposit per (run, vendor). Posted from Brixpense, it is the QuickBooks bill a payment is applied against |
+| **Final invoice** | `fn_run_record_final_bill(run_id, vendor, gross, invoice_no, date, deposit_bill_id, lines)` | The final invoice arrives at close-out | **Against a deposit: the deposit's request is UPDATED in place** — total = the final gross, bill number = the final invoice, lines replaced, memo carries the deposit and the balance due, `qbo_balance`/`qbo_checked_at`/`paid_at` cleared. Without a deposit: a new request |
+
+**Why one bill and not two.** A second bill for the balance would leave the
+deposit's BillPayment applied to a $10,000 bill while the vendor's paper says
+one invoice for $25,878.60. Updating the same bill keeps the payment where
+QuickBooks already put it and makes the bill read exactly like the invoice.
+
+**How the update reaches QuickBooks.** `v_production_run_bills.bill_state`
+reads the request: `to_post` (approved, not posted), `posted`, **`needs_update`**
+(posted AND `qbo_posted_amount` ≠ `total_amount` — the total changed since QBO
+last saw it), `paid`, `archived`. `expense_requests.qbo_posted_amount` is what
+QuickBooks last received, stamped by every create and update in
+`expense-request-link-bill`. A `needs_update` row lights **Update in QuickBooks**
+in Brixpense → Expense History, which calls the function's new `mode:'update'`:
+`GET /bill/{id}` for the `SyncToken` and `Balance`, **refuse if the new total is
+below what is already paid**, then a **sparse** `POST /bill` with the new lines,
+`DocNumber`, `TxnDate` and `PrivateNote` — sparse is what keeps the
+`LinkedTxn` to the deposit payment — optionally attaching the final invoice PDF
+(`attachmentId`), then `qbo_posted_amount` and `posted_at` are stamped and
+`qbo_balance` cleared so `bill-paid-sync` re-reads it on the next run.
+`preview:true` returns the payload without writing.
+
+⚠ **Two things the live proof caught in the first cut (`20260903i`).** The view
+tested `paid_at` before the changed-total test, so a final recorded against a
+PAID deposit read **Paid** — the one row that most needs a human's click would
+have looked finished. And the final did not clear `paid_at`, so `bill-paid-sync`
+(pool: `qbo_bill_id not null AND paid_at null`) would never have re-read the
+balance: the bill would have sat in Brixpense's *Paid & closed* with $15,878.60
+owed. Both fixed; the memo still says the deposit was PAID, because that is
+what the payment record shows.
+
+⚠ **`mode:'update'` has NOT been exercised against a live QuickBooks bill from
+this environment** — the QBO token lives in the Netlify env and a test update is
+a real transaction on the shared realm. The SQL side is proven (below), the
+function parses and was reviewed against the create path it mirrors; **the first
+real Update in QuickBooks click is the end-to-end proof**, and the refusal
+(total below paid) plus the `preview` mode exist so that click can be dry-run
+first.
+
+**Verified live, rolled back** (one flavour, 500 cases): a bill on the open
+Calderoni PO refused by name → PO received in full → `closed` → PO bill created
+(1 line, $1,008.75, `to_post`, submitted_by the caller) → a second bill refused
+→ deposit $10,000 recorded, a second deposit from the same vendor refused →
+simulated post + pay → a final of $8,000 refused (below the paid deposit), a
+final from the other vendor refused → final $25,878.60 against the deposit:
+**the same request** now totals $25,878.60, bill number 1799, `paid_at` null,
+`qbo_balance` null, memo *replaces deposit invoice 1741 of 10000.00 already PAID
+on this same bill · balance due 15878.60*, register row `final` with
+`amount_net` 15,878.60 and **`bill_state = needs_update`**; a second final
+refused; a standalone Calderoni final creates a new request; re-linking an
+already-linked request refused; a bill on the still-open Quantum PO refused.
+
+**On screen.** The run detail gains a **Bills** section (kind · PO · vendor ·
+invoice # · date · invoice total · balance due · state · QuickBooks) with
+**Record deposit…** and **Record final invoice…**; the final dialog lists the
+vendor's deposits, prints the balance due and which QuickBooks bill will be
+updated, and disables itself when the total is below a paid deposit. A closed
+PO's detail gains **Vendor bill** with **Create bill…** (invoice #, date,
+optional total). Brixpense's Expense History shows **Update in QuickBooks** on a
+posted bill whose total has changed. Attaching the vendor's PDF is Brixpense's
+existing attach-after-post path.
+
+⚠ **Deliberately not built:** a bill created from the AP inbox is attached to a
+run with `fn_run_link_bill(run_id, kind, expense_request_id, po_id)` — there is
+no button for it yet; and nothing archives a bill from Refractor (archive in
+Brixpense, where the payable lives).
 
 ## Lots and born-on dates — QC on the way home
 
@@ -629,6 +1110,20 @@ Three things are worth knowing before touching it:
 
 ## Known gaps, 2026-09-02
 
+**Deferred on purpose with the production-order work (2026-09-03), each a
+decision rather than an oversight:** FIFO / lot costing of raw-material
+surplus at the co-packer (the surplus is valued at the last landed cost);
+netting against any location other than the run's own co-packer; reservation
+expiry (an abandoned draft holds its reservation until it is voided or
+deleted); voiding one line of a PO; updating a QuickBooks PurchaseOrder after
+it was pushed (a voided run returns the pushed PO numbers for manual close);
+a run-level batching sheet (per-flavour sheets remain); delivery POs to
+sub-distributors. **With the bills work (P7):** a Refractor button for
+`fn_run_link_bill` (attach an AP-inbox bill to a run), archiving a bill from
+Refractor, and — until the first real click — live proof of `mode:'update'`
+against a QuickBooks bill.
+
+
 1. **No per-ingredient costs and no pack sizes.** All 17 materials have both
    blank. This no longer blocks costing a run — the gallon price does that — but
    until some are filled in, `quoted_cost` is empty and the allocated split
@@ -654,7 +1149,8 @@ Three things are worth knowing before touching it:
 3. ~~The can price looks stale too.~~ **Closed 2026-09-02** — the whole Quantum
    side was reconciled to Quantum's invoices (see "What the vendors actually
    bill"): cans $0.328, tolling one $0.62 line, Velcorin and pallet dunnage
-   added, Calderoni's flat canning fee added as a per-run line. Per-case
+   added, Calderoni's flat canning fee added as a per-run line (and moved
+   again on 2026-09-03 to the Licensing tab — see "Licensing agreements"). Per-case
    variable cost is now **$25.84** against the **$21.36** the finished-case
    QuickBooks items carry — the QuickBooks number is the one that is wrong.
    (It was $25.85 before the tray came off; the tray was 1.6 cents.)
@@ -671,8 +1167,9 @@ Three things are worth knowing before touching it:
    deliberately **not** deactivated in QuickBooks (it carries purchase history).
    **If trays turn out to be bought separately, put the line back with the
    vendor who actually bills for one — not Quantum, who never has.**
-4. **`fn_wo_advance`'s `record_yield` still values components from
-   `work_order_materials`.** With pack rounding in play that is the cost of what
-   was BOUGHT rather than what was CONSUMED. For a first run they are the same
-   number; once pack sizes exist they will differ by the remainder of the last
-   bag, which is a real cost and arguably belongs in the batch anyway.
+4. ~~`record_yield` values components from what was BOUGHT.~~ **Closed
+   2026-09-03** (`20260903e`): consume and cost read `demand_qty`; the MOQ /
+   pack surplus stays on hand at the co-packer for the next run — see "MOQ,
+   demand and the surplus at the co-packer". The arguable half ("the last bag's
+   remainder belongs in the batch") was decided the other way on Sky's
+   instruction: the leftover is stock, not scrap.

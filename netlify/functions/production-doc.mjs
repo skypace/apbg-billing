@@ -152,13 +152,26 @@ async function buildPo(id) {
   const [vendor] = po.qbo_vendor_id ? await sbGet(`qbo_vendors?select=*&qbo_vendor_id=eq.${encodeURIComponent(po.qbo_vendor_id)}&limit=1`) : [];
   const [dest] = po.destination_location_id ? await sbGet(`inventory_locations?select=*&id=eq.${po.destination_location_id}&limit=1`) : [];
   const items = await itemsById(lines.map((l) => l.qbo_item_id));
-  let workOrder = null;
+  let workOrder = null, run = null;
   if (po.work_order_id) {
     const [wo] = await sbGet(`work_orders?select=batch_code,qty_to_produce,bom_id&id=eq.${po.work_order_id}&limit=1`);
     if (wo) {
       const [bom] = wo.bom_id ? await sbGet(`product_bom?select=name&id=eq.${wo.bom_id}&limit=1`) : [];
       workOrder = { batch: wo.batch_code, cases: Number(wo.qty_to_produce), flavour: bom?.name || '' };
     }
+  } else if (po.production_run_id) {
+    // A run PO covers several work orders (20260903f): name the run, and list
+    // every flavour the lines were raised for, so the vendor's copy reads the
+    // same as ours. The demand table is the join — a line can serve two WOs.
+    const [r] = await sbGet(`production_runs?select=run_number,scheduled_date&id=eq.${po.production_run_id}&limit=1`);
+    const wos = await sbGet(`work_orders?select=batch_code,qty_to_produce,bom_id,status&run_id=eq.${po.production_run_id}&status=neq.void&order=created_at`);
+    const bomIds = [...new Set(wos.map((w) => w.bom_id).filter(Boolean))];
+    const boms = bomIds.length ? await sbGet(`product_bom?select=id,name&id=${inList(bomIds)}`) : [];
+    const bomName = new Map(boms.map((b) => [b.id, b.name]));
+    run = r ? {
+      number: r.run_number, scheduled: r.scheduled_date,
+      workOrders: wos.map((w) => ({ batch: w.batch_code, cases: Number(w.qty_to_produce), flavour: bomName.get(w.bom_id) || '' })),
+    } : null;
   }
   const byLine = new Map();
   for (const d of details) { if (!byLine.has(d.po_line_id)) byLine.set(d.po_line_id, []); byLine.get(d.po_line_id).push(d); }
@@ -172,10 +185,17 @@ async function buildPo(id) {
       // unit changes what the number means, so it is named.
       qty, uom: /^1GNS/.test(it?.name || '') ? 'gal' : '',
       unitCost: cost, lineTotal: qty * cost,
-      detail: (byLine.get(l.id) || []).map((d) => ({
-        name: d.item_name, qty: Number(d.qty), uom: d.uom,
-        note: d.allocated_cost != null ? `allocated ${fmtMoney(d.allocated_cost)}` : null,
-      })),
+      detail: [
+        ...(byLine.get(l.id) || []).map((d) => ({
+          name: d.item_name, qty: Number(d.qty), uom: d.uom,
+          note: d.allocated_cost != null ? `allocated ${fmtMoney(d.allocated_cost)}` : null,
+        })),
+        // The MOQ / pack lift, stated on the document: the vendor sees why the
+        // quantity is not the round number the recipe implies.
+        ...(l.moq_applied != null && l.demand_total != null && Number(l.qty_ordered) - Number(l.demand_total) > 1e-6
+          ? [{ name: `+${fmtQty(Number(l.qty_ordered) - Number(l.demand_total))} added to meet your minimum order / pack size`, qty: null, uom: '', note: `the run needs ${fmtQty(l.demand_total)}` }]
+          : []),
+      ],
     };
   });
   const subtotal = outLines.reduce((t, l) => t + l.lineTotal, 0);
@@ -183,7 +203,7 @@ async function buildPo(id) {
   return {
     payload: {
       ...meta, poNumber: po.po_number, issued: po.ordered_at || po.created_at, expected: po.expected_date,
-      status: po.status, vendor: vendorBlock(vendor), shipTo: locationBlock(dest), workOrder,
+      status: po.status, vendor: vendorBlock(vendor), shipTo: locationBlock(dest), workOrder, run,
       lines: outLines, subtotal, total: subtotal, notes: po.notes,
     },
     label: po.po_number, filename: `${po.po_number}.pdf`,
@@ -199,7 +219,14 @@ async function buildBol(id) {
   const locs = await sbGet(`inventory_locations?select=*&id=${inList([t.from_location_id, t.to_location_id])}`);
   const from = locs.find((l) => l.id === t.from_location_id), to = locs.find((l) => l.id === t.to_location_id);
   const items = await itemsById(lines.map((l) => l.qbo_item_id));
-  const [wo] = await sbGet(`work_orders?select=batch_code&transfer_id=eq.${id}&limit=1`);
+  // A run's return shipment carries several work orders on one BOL (20260903f).
+  const wos = await sbGet(`work_orders?select=batch_code,run_id&transfer_id=eq.${id}&order=created_at`);
+  const wo = wos[0];
+  let runNumber = null;
+  if (wo?.run_id) {
+    const [r] = await sbGet(`production_runs?select=run_number&id=eq.${wo.run_id}&limit=1`);
+    runNumber = r?.run_number || null;
+  }
   const meta = await company();
   return {
     payload: {
@@ -208,7 +235,7 @@ async function buildBol(id) {
       carrier: t.carrier, pro: t.pro_number, tracking: t.tracking_number, freightTerms: t.freight_terms,
       weight: t.total_weight_lbs, pallets: t.total_pallets, declaredValue: t.declared_value_usd,
       specialInstructions: t.special_instructions, notes: t.notes,
-      workOrder: wo ? { batch: wo.batch_code } : null,
+      workOrder: wo ? { batch: wos.map((w) => w.batch_code).join(', '), run: runNumber } : null,
       signatures: { shipperName: t.shipper_signature_name, shipperAt: t.shipper_signature_at,
                     receiverName: t.receiver_signature_name, receiverAt: t.receiver_signature_at },
       lines: lines.map((l) => {

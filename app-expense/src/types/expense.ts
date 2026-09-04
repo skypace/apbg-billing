@@ -102,6 +102,12 @@ export interface ExpenseRequest {
    *  between 0 and the total means partly paid. */
   qbo_balance?: number | null;
   qbo_checked_at?: string | null;
+  /** The total LAST sent to QuickBooks (create or update). A posted bill whose
+   *  total_amount differs from it needs "Update in QuickBooks" — the production
+   *  deposit → final-invoice case (2026-09-03). */
+  qbo_posted_amount?: number | null;
+  /** Vendor credit memo (posts as a QBO VendorCredit); amount stays positive. */
+  is_credit?: boolean | null;
 
   /** When this bill is due, and how we know. A printed due date beats one
    *  computed from terms; `due_date_source` records which we had. */

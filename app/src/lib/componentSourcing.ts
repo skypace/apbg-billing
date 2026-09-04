@@ -56,3 +56,38 @@ export function componentRequiredQty(line: ComponentLineLike, yieldQty: number):
   if (line.qty_basis === 'per_run') return per;
   return yieldQty * per * (1 + Number(line.scrap_pct || 0));
 }
+
+/**
+ * ONE rounding rule, mirroring ops.fn_order_qty: nothing said (no MOQ, blank
+ * multiple) → order the demand; otherwise ceil(max(demand, MOQ) / multiple) ×
+ * multiple — so a typed multiple of 1 means WHOLE units. A per_run line is a
+ * flat charge and is never rounded.
+ */
+export function orderQty(demand: number, moq: number | null | undefined, multiple: number | null | undefined): number {
+  if (!(demand > 0)) return 0;
+  if (moq == null && multiple == null) return demand;
+  const m = multiple && multiple > 0 ? multiple : 1;
+  return Math.ceil(Math.max(demand, moq ?? 0) / m) * m;
+}
+
+export interface OrderPreview {
+  /** what the batch needs, in purchase units */
+  demand: number;
+  /** what the PO will order */
+  ordered: number;
+  /** ordered − demand: lands at the co-packer as stock for the next run */
+  surplus: number;
+  /** why it was lifted, for the screen */
+  reason: 'moq' | 'multiple' | null;
+}
+
+/** What a run of `yieldQty` will ORDER for this component, and why it differs from the need. */
+export function componentOrderQty(line: ComponentLineLike, yieldQty: number, master: MasterIndex): OrderPreview {
+  const demand = componentRequiredQty(line, yieldQty);
+  if (line.qty_basis === 'per_run') return { demand, ordered: demand, surplus: 0, reason: null };
+  const m = master.get(line.component_qbo_item_id ?? '');
+  const ordered = orderQty(demand, m?.min_order_qty, m?.order_multiple);
+  const surplus = Math.max(ordered - demand, 0);
+  const reason = surplus <= 0 ? null : (m?.min_order_qty != null && demand < m.min_order_qty ? 'moq' : 'multiple');
+  return { demand, ordered, surplus, reason };
+}

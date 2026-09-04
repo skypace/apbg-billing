@@ -75,3 +75,22 @@ export async function postToQuickBooks(
   }
   return data;
 }
+
+/**
+ * Re-post a CHANGED total onto the SAME QuickBooks Bill (mode=update). Used when
+ * a production deposit's bill becomes the final invoice: QuickBooks keeps the
+ * deposit payment applied and the new total becomes the balance due. The
+ * backend refuses a total below what is already paid. Optional attachmentId
+ * files the final invoice document onto the bill in the same call.
+ */
+export async function updateInQuickBooks(requestId: string, attachmentId?: string | null): Promise<PostResult> {
+  const token = await getAccessToken();
+  const res = await fetch('/expense/api/expense-request-link-bill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ requestId, mode: 'update', ...(attachmentId ? { attachmentId } : {}) }),
+  });
+  const data: PostResult = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) throw new Error(data.message || data.error || 'Could not update the bill in QuickBooks.');
+  return data;
+}

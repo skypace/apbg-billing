@@ -209,6 +209,13 @@ export interface WorkOrderView extends WorkOrder {
   services_cost: number | null;
   po_count: number | null;
   po_open_count: number | null;
+  /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
+  bucket?: string | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
+  /** The production run this work order is a line of (20260903f); null for a standalone WO. */
+  run_id?: string | null;
+  run_number?: string | null;
 }
 
 /** A WO material requirement row — the quantity calc lives here, per vendor. */
@@ -218,7 +225,11 @@ export interface WorkOrderMaterial {
   bom_line_id: string | null;
   component_qbo_item_id: string;
   item_name: string | null;
+  /** What is ORDERED — MOQ / multiple / whole packs applied. */
   required_qty: number;
+  /** What the batch NEEDS, in purchase units, unrounded. null on pre-20260903e rows. */
+  demand_qty: number | null;
+  qty_basis: 'per_yield' | 'per_run';
   uom: string;
   unit_cost_est: number | null;
   qbo_vendor_id: string | null;
@@ -420,6 +431,11 @@ export async function closeWorkOrder(woId: string, qtyProducedActual: number, cl
     p_qty_produced_actual: qtyProducedActual,
     p_close_date: closeDate ?? null,
   });
+}
+
+/** Closed → received, so the receipt can be corrected. */
+export async function reopenWorkOrder(woId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_work_order', { p_wo_id: woId, p_reason: reason });
 }
 
 export async function voidWorkOrder(woId: string, reason: string): Promise<void> {

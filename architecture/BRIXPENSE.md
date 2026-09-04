@@ -530,13 +530,15 @@ caller's IP + user agent for audit.
 
 `POST /api/expense-request-link-bill` (Bearer auth required).
 
-Three modes:
+Five modes:
 
 | Mode | Behavior |
 |---|---|
 | `create` (default) | Matches vendor in QBO (`findQBOVendor`), looks up optional `DepartmentRef`, builds `AccountBasedExpenseLineDetail` lines (one per `line_items` entry; falls back to a single line at `total_amount` if empty), POSTs `/bill` to QBO via `qbo-helpers.qboRequest`. On success: stamps `qbo_bill_id`, `status='posted'`, `posted_at`. Falls back to Service COGS (101) when `cogs_account_id` is null. |
 | `preview` | Returns the payload that *would* be sent to QBO. No write. Used by the UI for dry-run review. |
 | `link` | Legacy passive mode: caller already created the bill elsewhere, just records `qbo_bill_id`. |
+| `attach` | Posted rows only (2026-08-26): pushes exactly ONE attachment row onto the existing QBO Bill/Purchase (`attachmentId`), for a document that arrived after posting. |
+| `update` | Posted bills only (2026-09-03, production runs): `GET /bill/{id}` for `SyncToken` + `Balance`, refuses a new total below what is already paid, then a **sparse** `POST /bill` with the current lines / `DocNumber` / `TxnDate` / `PrivateNote` — sparse keeps the BillPayment `LinkedTxn` applied — optionally attaching a document; stamps `qbo_posted_amount` + `posted_at`, clears `qbo_balance` so `bill-paid-sync` re-reads. `preview:true` returns the payload without writing. The **Update in QuickBooks** button on Expense History shows when a posted bill's `total_amount` ≠ `qbo_posted_amount` (a production run's final invoice replacing its deposit). ⚠ Not yet exercised against a live QBO bill from a dev session — the first real click is the proof. |
 
 Allowed starting statuses: `approved`, `awaiting_invoice`,
 `fulfilled`. Returns 207 (multi-status) if QBO succeeded but the

@@ -399,6 +399,7 @@ export async function renderPurchaseOrderPdf(p) {
       `Issued ${fmtDate(p.issued)}`,
       p.expected ? `Expected ${fmtDate(p.expected)}` : null,
       p.workOrder ? `Work order ${p.workOrder.batch}` : null,
+      p.run ? `Production order ${p.run.number}` : null,
     ].filter(Boolean),
   });
 
@@ -408,7 +409,8 @@ export async function renderPurchaseOrderPdf(p) {
     { label: 'Ship to', lines: [{ text: p.shipTo?.name || p.company.name, bold: true }, ...addressLines(p.shipTo)] },
     { label: 'Bill to', lines: [{ text: p.company.name, bold: true },
         ...addressLines({ addr1: p.company.addr1, addr2: p.company.addr2, city_state_zip: p.company.city_state_zip, email: p.company.email }),
-        p.workOrder ? { text: `For ${fmtQty(p.workOrder.cases, 0)} cases · ${p.workOrder.flavour}`, muted: true } : null].filter(Boolean) },
+        p.workOrder ? { text: `For ${fmtQty(p.workOrder.cases, 0)} cases · ${p.workOrder.flavour}`, muted: true } : null,
+        ...(p.run ? p.run.workOrders.map((w) => ({ text: `${w.batch} · ${fmtQty(w.cases, 0)} cases · ${w.flavour}`, muted: true })) : [])].filter(Boolean) },
   ]);
 
   doc.table({
@@ -419,7 +421,7 @@ export async function renderPurchaseOrderPdf(p) {
       { key: 'unitCost', label: 'Unit cost', width: 80, align: 'right', format: (v) => fmtMoney(v) },
       { key: 'lineTotal', label: 'Line total', width: 90, align: 'right', bold: true, format: (v) => fmtMoney(v) },
     ],
-    rows: p.lines.map((l) => ({ ...l, _detail: l.detail?.map((d) => `${d.name}  ·  ${fmtQty(d.qty)} ${d.uom || ''}${d.note ? '  ·  ' + d.note : ''}`) })),
+    rows: p.lines.map((l) => ({ ...l, _detail: l.detail?.map((d) => `${d.name}${d.qty != null ? `  ·  ${fmtQty(d.qty)} ${d.uom || ''}` : ''}${d.note ? '  ·  ' + d.note : ''}`) })),
   });
 
   doc.totals([
@@ -454,7 +456,8 @@ export async function renderBillOfLadingPdf(p) {
     dateLines: [
       `Issued ${fmtDate(p.issued)}`,
       p.shipDate ? `Ship date ${fmtDate(p.shipDate)}` : null,
-      p.workOrder ? `Work order ${p.workOrder.batch}` : null,
+      p.workOrder?.run ? `Production order ${p.workOrder.run}` : null,
+      p.workOrder ? `Work order${p.workOrder.batch.includes(',') ? 's' : ''} ${p.workOrder.batch}` : null,
     ].filter(Boolean),
   });
 

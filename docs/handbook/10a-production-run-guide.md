@@ -36,7 +36,8 @@ Seven tabs run left to right roughly in the order you use them:
 | **Formulas & Spec Sheets** | The recipe — % by weight, QC specs, batching instructions |
 | **Materials & Pricing** | What each purchased thing costs and who we buy it from |
 | **Bills of Materials** | The parts list for one case, and who gets a purchase order |
-| **Work Orders** | The run itself, start to finish |
+| **Production Orders** | The order — one or several flavours, one purchase order per vendor, one truck home. Start here. |
+| **Work Orders** | One flavour of a run: its yield, lots and cost |
 | **Purchase Orders** | The vendor POs a run raises, and receiving against them |
 | **Compliance & Safety** | Certificates and audit paperwork (not part of a run) |
 | **Run Guide** | This chapter, and the PDF — inside the app, so it is never far from the screen it describes |
@@ -62,6 +63,20 @@ QuickBooks cost is shown beside ours for comparison and is never written to.
 > keep the price they were costed at — a work order snapshots its materials, so
 > editing this page cannot rewrite a batch that is already in flight.
 
+The same row carries the vendor's **MOQ**, order **Multiple** and **Lead** days.
+A run that needs 12,000 cans against a 20,000 minimum orders 20,000; the work
+order shows both figures (**Needed** and **Ordered**, with a `+8,000 MOQ` chip),
+the batch is costed on the 12,000, and the other 8,000 sit at the co-packer for
+the next run. Leave Multiple blank for "any quantity"; type **1** for whole units
+(6 pallets, not 5.88).
+
+Below the item master is **Raw materials at the co-packer** — what the ledger
+says is sitting at Quantum, what the open work orders will use, and what is
+left after them. The first time through, press **Record opening stock…** and
+type the starting amounts off Quantum's inventory sheet. One entry per item,
+ever: a wrong figure is fixed on **Stock → Adjustments** with a reason, not by
+entering another opening.
+
 ## Step 2 · Check the bill of materials
 
 **Production → Bills of Materials.** One row per sellable finished item.
@@ -75,8 +90,9 @@ Click the finished item to open the editor.
 Read it top to bottom:
 
 1. **Who gets a purchase order.** The pre-flight, in the grey panel. It should
-   say **2 POs per run** — AC Calderoni for the syrup and the compounding fee,
-   Quantum Canning for the cans, the tolling charge, Velcorin and dunnage. If it
+   say **2 POs per run** — AC Calderoni for the syrup, Quantum Canning for the
+   cans, the tolling charge, Velcorin and dunnage. (Calderoni's compounding
+   royalty is NOT on the PO — see the Licensing tab, below.) If it
    names a third vendor, a component is pointed at the wrong supplier.
 2. **Blockers, in red, stop a run.** The two that happen: a component that is
    **deactivated in QuickBooks** (QuickBooks will refuse the PO push, and you
@@ -95,13 +111,39 @@ Read it top to bottom:
    whether it sits in the normal band for a 5:1 syrup.
 6. **Sub-items** — the things that actually get bought. Note the **Per** column:
    *per unit* scales with the run, **per run** is a flat charge for the whole
-   work order however big it is. The syrup compounding fee is per run.
+   work order however big it is. (The syrup compounding fee used to be the
+   per-run example; it is a licensing royalty now and lives on its own tab.)
 
 **Rebuild from formula** re-writes only the recipe rows from the current formula.
 It never touches the sub-items you typed (cans, tolling, Velcorin, dunnage) —
 those are yours.
 
-## Step 3 · Raise the work order
+## Step 3 · Raise the production order
+
+> **Since 2026-09-03 a run starts on Production → Production Orders.** One order
+> can carry several flavours — Hangar 25 Cola 500 and Oaktown Root Beer 300 on
+> the same fill — and it raises **one purchase order per vendor for the lot**,
+> not one pair per flavour. Each flavour still becomes its own work order
+> underneath (its own yield, lots and cost), so the Work Orders steps below
+> still apply per flavour; the per-flavour **+ New Work Order** remains for a
+> single standalone run.
+>
+> **Production Orders → + New production order.** Pick the co-packer and where
+> the finished goods return to, then add a line per flavour (BOM + cases; the
+> batch gallons fill from the formula). The panel underneath is the server's
+> own answer, not an estimate: for each vendor, every item's **Needed**
+> (across all flavours), **From stock** (raw material already at the co-packer
+> and not spoken for), **Ordered** (lifted to the MOQ / pack, with the surplus
+> flagged) and the total. Press **Create production order**, then on the order:
+> **Generate POs per vendor →** (exactly one PO per vendor), receive the
+> Calderoni PO as it lands (every flavour jumps to *Materials at co-packer* by
+> itself when the last line is in), **Start production →**, **Record yield**
+> per flavour, **Ship the run →** (ONE bill of lading for the truck — refused
+> until every flavour has a yield), **Receive into inventory →**, **Close
+> order**. **Void order** takes every work order and purchase order with it,
+> and is refused once production has started.
+
+### Step 3 (single flavour) · Raise the work order
 
 **Production → Work Orders → + New Work Order.**
 
@@ -151,7 +193,11 @@ Open each one.
 
 ![The Quantum purchase order — cans, tolling, Velcorin, dunnage](/billing/production-guide/11-po-detail.jpg)
 
-![The Calderoni purchase order — the syrup and the flat run fee](/billing/production-guide/11b-po-detail-calderoni.jpg)
+![The Calderoni purchase order — the syrup](/billing/production-guide/11b-po-detail-calderoni.jpg)
+
+> The screenshot predates 2026-09-03 and still shows a **CANNING RUN FEE** line.
+> That line is gone: the compounding charge is a royalty on the cases produced
+> and accrues on the **Licensing** tab when you record the yield.
 
 Per PO you can:
 
@@ -164,11 +210,16 @@ Per PO you can:
   must not.
 - **Push to QBO →** — creates the purchase order in QuickBooks.
 - **Receive** — type the quantity that arrived in the box on the line and press
-  the truck. Receiving is per line, so a part shipment is fine.
+  the truck. Receiving is per line, so a part shipment is fine. **Only the
+  Calderoni PO is received.** The Quantum PO carries the chip **Closes when
+  the run ships** and has no Receive column: cans, tolling, Velcorin and
+  dunnage are things Quantum supplies to itself, nothing ships there from us,
+  and the PO closes on its own when you ship the finished cases home (Step 6).
 - **Close** force-closes any unreceived lines; **Void** cancels the PO.
 
-Back on the work order, press **Materials at co-packer** when the goods have
-landed, then **Start production →** when the co-packer begins. Starting
+When the last gallon on the Calderoni PO is received, that PO closes by
+itself and the work order moves to **Materials at co-packer** — you do not
+press it. Then press **Start production →** when the co-packer begins. Starting
 production consumes the material quantities from the co-packer's location, so
 only press it when it is true.
 
@@ -243,6 +294,32 @@ by as a sub-line — and **Email…** sends it and files the copy.
 the finished cases land in the warehouse and the stage moves to **Received to
 inventory**. Then **Close work order**.
 
+## Step 8 · The bills
+
+Nothing here touches QuickBooks by itself. A bill is **recorded** in Production
+and **posted** from Brixpense — the same "Post to QuickBooks" click every other
+bill gets.
+
+**The vendor's bill for a purchase order.** Once a PO is **closed** — Calderoni's
+closes when its last line is received, Quantum's when the run ships — open it on
+the Purchase Orders tab and press **Create bill…** under *Vendor bill*: type the
+invoice number and date, and the total only if the vendor's paper differs from
+the PO (the difference lands as one *Invoice variance vs PO* line). Then in
+Brixpense → Expense History press **Post to QuickBooks** and attach the invoice
+PDF there.
+
+**Quantum's deposit.** On the production order, **Record deposit…** with the
+deposit invoice's amount and number. Post it from Brixpense; that is the
+QuickBooks bill the deposit payment is applied against.
+
+**Quantum's final invoice.** On the same order, **Record final invoice…**, pick
+the deposit it settles, and type the invoice's **gross** total. The deposit's bill
+is updated in place — same QuickBooks bill, new total, balance due = total −
+deposit — and the row reads **Update QB**. In Brixpense → Expense History press
+**Update in QuickBooks**: the bill in QuickBooks becomes the final invoice and the
+deposit payment stays applied to it. A final below a deposit already paid is
+refused.
+
 ## Where a lot ends up
 
 Every inventory movement points at the transfer *line* that carried it, and the
@@ -279,12 +356,21 @@ what should happen; anything else is a finding.
 | 1 | Production → **Materials & Pricing** | List every purchased item grouped by vendor, each with a price and a vendor. Nothing blank. |
 | 2 | Change a price, save, re-open | Keep the new price; the note about being seeded from QuickBooks is gone |
 | 3 | **Bills of Materials** → open one | Show **2 POs per run**, **0 blockers** |
-| 4 | Read the sub-items **Per** column | The syrup compounding fee is **per run**; everything else is per unit |
-| 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run, and the run fee line stays **1 run** at its full price |
+| 4 | Read the sub-items **Per** column | Every line reads **per unit**; no compounding-fee line is on the BOM (it lives on the Licensing tab) |
+| 4b | **Production Orders → + New production order**, two flavours (100 cases each), co-packer Quantum | The preview shows **2** purchase orders; the tolling line's **Needed** is the two flavours added together; a can line with an MOQ shows the **+MOQ** lift once |
+| 4c | **Create production order**, then **Generate POs per vendor →** | Exactly **two** POs on the order, each naming both work orders; the Work Orders tab shows both flavours with the order number in the **Order** column and no Ship / Void buttons of their own |
+| 4d | Receive the Calderoni PO in full | The PO closes by itself and **both** flavours jump to **Materials at co-packer** |
+| 4e | On the order, **Void order** | Refused if production has started; on a fresh order it voids both work orders and both POs and says so |
+| 4f | Open the closed Calderoni PO → **Create bill…**, invoice # + date | A bill appears under *Vendor bill* reading **To post** with a *Post from Brixpense* link; pressing Create bill… again is refused |
+| 4g | On the order → **Record deposit…**, $1,000, invoice D-1 | A *Deposit* row appears, **To post**; a second deposit from the same vendor is refused |
+| 4h | **Record final invoice…**, pick deposit D-1, gross $4,000 | The deposit row becomes *Final invoice · replaces the deposit*, balance due **$3,000**; try $500 first — the button is disabled and the dialog says it is below the deposit |
+| 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run |
 | 6 | **Create work order** | Lands at **Draft** |
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |
 | 8 | Purchase Orders → open each → **View PDF** | Both PDFs render; the Calderoni one lists the ingredient breakdown under the gallon line |
 | 9 | Receive one PO line short (say 10 of 100) | The line shows the partial; the PO goes to **partial**, not closed |
+| 9b | Open the Quantum PO and look for a Receive column | There is none — the header chip reads **Closes when the run ships** |
+| 9c | Receive the Calderoni gallon line in full | The PO closes by itself (**Closed · received**) and the work order stage jumps to **Materials at co-packer** without a click |
 | 10 | Work order → **Materials at co-packer** → **Start production →** | Stage advances; the timeline records both |
 | 11 | **Record yield →**, enter a yield of 100, add lots totalling **90** | **Refused**, naming both numbers |
 | 12 | Fix the lots to total 100 → **Record yield + lock costs** | Accepted; cost rollup appears with a unit cost; the timeline records the lots |
@@ -311,8 +397,10 @@ it is worth more than a description.
   underneath the flavour's 1-gallon line as detail. Calderoni bills us per gallon
   of compounded syrup, so the gallon is the line and the ingredients are the
   specification.
-- **A flat fee does not scale.** The syrup compounding fee is $1,173.33 whether
-  the run is 100 cases or 5,000.
+- **The compounding royalty is not on the PO.** Calderoni's syrup licensing
+  charge is owed on the **cases produced**, so it accrues when you record the
+  yield (Production → **Licensing**) and is settled per month into a Brixpense
+  bill — never ordered, never received.
 - **The dunnage line is fractional.** Pallets are charged per pallet and a run is
   rarely a whole number of them; the purchase order rounds up.
 - **Nothing posts to QuickBooks on its own.** A PO reaches QuickBooks when
