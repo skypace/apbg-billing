@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail } from 'lucide-react';
+import { Plus, X as XIcon } from 'lucide-react';
 import {
-  PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
-  closePurchaseOrder, createPurchaseOrder, fetchPoLines,
-  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder,
+  PoStatus, PurchaseOrderRow, QboVendor,
+  createPurchaseOrder,
 } from '../../lib/purchasing';
+import { PoDetailModal, OriginBadge } from './PoDetailModal';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -14,8 +14,6 @@ import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
 import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
-import { openDocPdf } from '../../lib/productionDocs';
-import { EmailDocModal } from './EmailDocModal';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -149,10 +147,23 @@ export function PurchaseOrdersTab({
     { field: 'expected_date', headerName: 'Expected', width: 110,
       valueFormatter: (v) => v ? String(v) : '—' },
     {
-      field: 'qbo_purchase_order_id', headerName: 'QBO', width: 80,
-      renderCell: (p) => p.value
-        ? <span style={{ color: 'var(--gn)', fontWeight: 700, fontSize: 10 }}>#{String(p.value)}</span>
-        : <span style={{ color: 'var(--mt)' }}>—</span>,
+      field: 'origin', headerName: 'Created in', width: 120,
+      renderCell: (p) => <OriginBadge origin={p.row.origin} />,
+    },
+    {
+      field: 'qbo_purchase_order_id', headerName: 'QuickBooks', width: 150,
+      renderCell: (p) => {
+        const row = p.row as PurchaseOrderRow;
+        if (!row.qbo_purchase_order_id) return <span style={{ color: 'var(--am)', fontSize: 10 }}>not pushed</span>;
+        return (
+          <span style={{ fontSize: 10 }}>
+            <span style={{ color: 'var(--gn)', fontWeight: 700 }}>#{row.qbo_purchase_order_id}</span>
+            {row.qbo_status && <span style={{ color: 'var(--mt)' }}> · {row.qbo_status}</span>}
+            {row.qbo_dirty && <span style={{ color: 'var(--am)', fontWeight: 700 }}> · edits to push</span>}
+            {row.bills_pending > 0 && <span style={{ color: 'var(--rd)', fontWeight: 700 }}> · bill failed</span>}
+          </span>
+        );
+      },
     },
     { field: 'created_at', headerName: 'Created', width: 160,
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
@@ -170,7 +181,7 @@ export function PurchaseOrdersTab({
           fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
           textTransform: 'uppercase', marginBottom: 8, fontWeight: 700,
         }}>
-          All Open Purchase Orders (BRIX-native + QBO imports)
+          All Open Purchase Orders (Refractor + QuickBooks, one list)
         </div>
         <OpenPOsTab lane={lane} itemLookup={itemLookup} onChanged={onChanged} />
       </div>
@@ -179,7 +190,7 @@ export function PurchaseOrdersTab({
         fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
         textTransform: 'uppercase', marginTop: 24, marginBottom: 8, fontWeight: 700,
       }}>
-        Manage BRIX-native POs (create · receive · push to QBO · void)
+        Manage purchase orders (create · edit · receive → QuickBooks bill · push · void)
       </div>
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
@@ -467,250 +478,6 @@ function CreatePoForm({
 }
 
 // ── Detail modal ───────────────────────────────────────────────────────
-
-function PoDetailModal({
-  poId, po, itemLookup, locById, onClose, onChanged,
-}: {
-  poId: string;
-  po: PurchaseOrderRow | null;
-  itemLookup: ProductionItemLookup;
-  locById: Map<string, InventoryLocation>;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const [lines, setLines] = useState<PurchaseOrderLine[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [receiving, setReceiving] = useState<Record<string, string>>({});
-  const [emailOpen, setEmailOpen] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    // Every line on the PO, never a lane-filtered subset. A materials PO is mostly
-    // `excluded` items by design (a can body and a tolling charge are not finished
-    // goods), so filtering by lane here hid 6 of the 7 lines on a real Quantum PO
-    // and left nothing to receive. Lane scoping belongs on the LIST, not inside a
-    // document whose totals have to match the PDF and QuickBooks.
-    fetchPoLines(poId)
-      .then((ls) => alive && setLines(ls))
-      .catch(() => alive && setLines([]));
-    return () => { alive = false; };
-  }, [poId]);
-
-  if (!po) return null;
-  const destLabel = locById.get(po.destination_location_id)?.name ?? po.location_label ?? '—';
-
-  async function doReceive(line: PurchaseOrderLine) {
-    const qtyStr = receiving[line.id] ?? '';
-    const qty = Number(qtyStr);
-    if (!qty || qty <= 0) {
-      toast.error('Enter a positive qty to receive');
-      return;
-    }
-    setBusy(true);
-    try {
-      await receivePurchaseOrderLine({ po_line_id: line.id, qty_received: qty });
-      toast.success('Received ' + fmtNum(qty) + ' · ' + line.qbo_item_id);
-      setReceiving((cur) => { const n = { ...cur }; delete n[line.id]; return n; });
-      const refreshed = await fetchPoLines(poId);
-      setLines(refreshed);
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doClose() {
-    if (!confirm('Mark PO ' + po!.po_number + ' as closed? Any unreceived lines will be force-closed.')) return;
-    setBusy(true);
-    try {
-      await closePurchaseOrder(poId);
-      toast.success('PO closed');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doVoid() {
-    const reason = prompt('Void reason:');
-    if (!reason || !reason.trim()) return;
-    setBusy(true);
-    try {
-      await voidPurchaseOrder(poId, reason.trim());
-      toast.success('PO voided');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doPushToQbo() {
-    if (!confirm('Push PO ' + po!.po_number + ' to QuickBooks as a PurchaseOrder?')) return;
-    setBusy(true);
-    try {
-      const r = await pushPoToQbo(poId);
-      if (r.no_change) toast.info(r.message ?? 'Already pushed');
-      else toast.success('Pushed to QBO as PO #' + r.qbo_purchase_order_id);
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  const canReceive = po.status === 'open' || po.status === 'partial';
-  const canClose   = po.status === 'received' || po.status === 'partial';
-  const canVoid    = po.status === 'draft' || po.status === 'open';
-  const canPush    = !po.qbo_purchase_order_id && po.status !== 'void';
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
-        maxWidth: 920, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 18,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-              Purchase Order · {po.status}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--ff-mono)', color: 'var(--tx)' }}>
-              {po.po_number}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--mt)' }}>
-              {po.vendor_name ?? po.qbo_vendor_id} · destination {destLabel}
-              {po.expected_date && ' · expected ' + po.expected_date}
-            </div>
-            {po.qbo_purchase_order_id && (
-              <div style={{ fontSize: 10, color: 'var(--gn)', marginTop: 4, fontWeight: 600 }}>
-                ✓ Synced to QBO as PurchaseOrder #{po.qbo_purchase_order_id}
-                {po.qbo_pushed_at && ' · ' + new Date(po.qbo_pushed_at).toLocaleString()}
-              </div>
-            )}
-            {po.qbo_push_error && (
-              <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>QBO push error: {po.qbo_push_error}</div>
-            )}
-            {po.void_reason && (
-              <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>Voided: {po.void_reason}</div>
-            )}
-          </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
-            <XIcon size={16} />
-          </button>
-        </div>
-
-        {po.notes && (
-          <div style={{
-            padding: 8, marginBottom: 12,
-            background: 'rgba(91,181,240,0.04)', border: '1px solid var(--bd)', borderRadius: 4,
-            fontSize: 11, color: 'var(--tx2)',
-          }}>
-            {po.notes}
-          </div>
-        )}
-
-        <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
-          Lines
-        </div>
-        {lines === null ? (
-          <div className="ld">Loading…</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={th}>Item</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Ordered</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Received</th>
-                <th style={{ ...th, textAlign: 'right', width: 90 }}>Unit cost</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
-                {canReceive && <th style={{ ...th, width: 200 }}>Receive</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((ln) => {
-                const itemName = itemLookup.byId.get(ln.qbo_item_id)?.item_name ?? ln.qbo_item_id;
-                const remaining = Number(ln.qty_ordered) - Number(ln.qty_received);
-                const fullyReceived = remaining <= 0;
-                return (
-                  <tr key={ln.id} style={{ borderBottom: '1px solid var(--bd)' }}>
-                    <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{itemName}</div>
-                      {ln.description && <div style={{ fontSize: 10, color: 'var(--mt)' }}>{ln.description}</div>}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(ln.qty_ordered))}</td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)',
-                      color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
-                      {fmtNum(Number(ln.qty_received))}
-                      {fullyReceived && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
-                    </td>
-                    {/* 4 dp, not fm() — a can body is $0.328 and a tolling charge $0.62;
-                        whole dollars renders both as "$0" and the line stops being checkable. */}
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {'$' + Number(ln.unit_cost).toFixed(4)}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
-                      {fm(Number(ln.qty_ordered) * Number(ln.unit_cost))}
-                    </td>
-                    {canReceive && (
-                      <td style={td}>
-                        {fullyReceived ? (
-                          <span style={{ fontSize: 10, color: 'var(--mt)' }}>complete</span>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <input
-                              type="number" min={0.0001} max={remaining} step="any"
-                              style={{ ...inp(), width: 80, textAlign: 'right' }}
-                              placeholder={fmtNum(remaining)}
-                              value={receiving[ln.id] ?? ''}
-                              onChange={(e) => setReceiving((cur) => ({ ...cur, [ln.id]: e.target.value }))}
-                            />
-                            <button onClick={() => doReceive(ln)} disabled={busy} style={{
-                              ...btnSecondary(), padding: '4px 9px',
-                            }} title="Receive this qty">
-                              <Truck size={12} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--bd)' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => openDocPdf({ kind: 'po', id: poId }).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
-              style={btnSecondary()} title="The branded purchase order as a PDF">
-              <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> View PDF
-            </button>
-            <button onClick={() => setEmailOpen(true)} style={btnSecondary()} title="Email the PDF to the vendor">
-              <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
-            </button>
-            {canVoid && (
-              <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={btnSecondary()}>Close</button>
-            {canPush && (
-              <button onClick={doPushToQbo} disabled={busy} style={btnSecondary()} title="Send this PO to QuickBooks">
-                Push to QBO →
-              </button>
-            )}
-            {canClose && (
-              <button onClick={doClose} disabled={busy} style={btnPrimary()}>Close PO</button>
-            )}
-          </div>
-        </div>
-        {emailOpen && (
-          <EmailDocModal ref={{ kind: 'po', id: poId }} title={'purchase order ' + po.po_number} onClose={() => setEmailOpen(false)} />
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── helpers ────────────────────────────────────────────────────────────
 

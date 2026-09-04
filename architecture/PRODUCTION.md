@@ -547,8 +547,9 @@ own `qty_on_hand`, refreshed daily by `sync-qbo`; it was always current.
 
 The re-seed makes the ledger true as of 2026-09-02. It does not make it
 self-maintaining: a sale still does not decrement it and an ordinary purchase
-still does not increment it. **The production pipeline is its first real
-feed** — a run consumes materials, records a yield, ships a BOL and receives
+still does not increment it. (Both have feeds now — the sales feed below since
+2026-09-02/03 and the purchase feed since 2026-09-04.) **The production pipeline
+was its first real feed** — a run consumes materials, records a yield, ships a BOL and receives
 finished cases, all as movements — and the first live run is what proves it.
 
 ### The sales feed — what finally maintains it
@@ -700,6 +701,102 @@ Void deletes the QBO adjustment first, then reverses every
 movement with new rows — history is never edited. Enabling `track_locations` on
 the eight 8PK items also means the sales feed deducts 8-pack sales from today on
 (zero 8PK invoice lines since `apply_from`, checked before applying).
+
+### Purchasing — QuickBooks and Refractor share one PO table (2026-09-04)
+
+**Ask (Sky):** keep doing main purchasing in QuickBooks, see those POs here,
+edit them here and push back ("a two way street"), and when the warehouse
+receives here "receive creates the bill. the bill can get matched to the
+invoice in brixpense. make sure there is sync if i dont want to wait for the
+15 min cron i just click it."
+
+**What was there.** Two tables that never met: `ops.purchase_orders` for POs
+created here (pushed to QuickBooks once, never read back — the SyncToken was
+never stored, `qbo_push_error` was written by nothing) and a hand-imported
+SHADOW of QuickBooks POs (`ops.qbo_purchase_orders`, one row, from a picker).
+Receiving wrote the ledger and stopped; the vendor bill was keyed separately;
+and the purchase side of the ledger had no feed at all, so every QuickBooks
+receipt since the 09-03 seed read as drift.
+
+**The model now (migration `20260904d`).** One table. A PO keyed into
+QuickBooks lands in `ops.purchase_orders` as `origin='qbo'` on the 15-minute
+pull; a PO created here is `origin='brix'` and is pushed there. Either can be
+edited here (`fn_po_update`) and pushed back. Both directions carry the
+QuickBooks **SyncToken**: the pull skips a row marked `qbo_dirty` (a local edit
+waiting to push), and a push whose token QuickBooks has moved past is a **409**
+the operator resolves — force (overwrite QuickBooks) or reload (drop the local
+edit). The last writer never wins silently, in either direction.
+
+**Receiving is one gesture, in this order because the order is the point:**
+
+1. `fn_po_receipt_record` (caller's JWT) — the ledger moves through the same
+   `fn_receive_purchase_order_line__i` it always has, and `ops.po_receipts`
+   gets its row. This is the record.
+2. The PO is pushed to QuickBooks first if it is not there yet.
+3. `POST /bill` with every line **LinkedTxn'd to the PO line** — QuickBooks
+   marks the PO received/closed itself, so a PO received here and one received
+   inside QuickBooks end in the same state.
+4. `fn_po_receipt_bill_landed` files the Brixpense row **Posted** (`as_bill`,
+   tag Purchasing or Production, `bill_number` = the vendor invoice if in hand).
+   It is in the books; the vendor's invoice is what is still to come, and
+   Brixpense's duplicate gate (same vendor, same amount within 10 days) is what
+   flags that invoice against this bill when it arrives. ⚠ That match is by
+   amount, not by document — a vendor invoice that differs from the PO price
+   posts as a second bill and is caught by the aging, not the gate.
+5. Best-effort: mirror the bill's lines, re-read the items' QtyOnHand, re-read
+   the PO.
+
+A QuickBooks refusal at step 3 stamps `qbo_error` on the receipt: the PO shows
+**Retry bill**, and `fn_purchase_feed_health` goes red after an hour unbilled.
+The stock already moved; the sheet is never lost.
+
+**The purchase feed** (`fn_apply_purchases_to_ledger`, the mirror of the sales
+feed): every Bill / VendorCredit item line on a location-tracked item since
+`apply_from` that no receipt of OURS created (`po_receipts.qbo_bill_id`) posts
+a `receipt` movement (`source_doc_type='qbo_purchase'`); an edited bill posts
+the difference, a deleted bill reverses. A bill received against a PO we hold
+bumps `qty_received` on that PO line, capped at what was ordered. LIVE from the
+start with `apply_from = 2026-09-03`: the ledger was set equal to QuickBooks on
+09-03 and no inventory bill had posted since (checked), so a first live run had
+nothing to double-count. Receiving location = the item's default receiving
+location, else Brix Warehouse — QuickBooks cannot say where a case landed.
+
+**The pull** (`netlify/functions/lib/qbo-purchasing-sync.mjs`, one
+implementation behind pg_cron `qbo-purchasing-sync` at :10/:25/:40/:55 and the
+**Sync now** button): CDC since the last successful run (first run = a full
+pull of open POs + bills since `apply_from`), PurchaseOrders →
+`fn_qbo_po_mirror_upsert`, Bills/VendorCredits → `qbo_expense_lines` in
+sync-qbo-expenses' exact row shape plus `linked_po_qbo_id`/`linked_po_line_id`
+off LinkedTxn, missing vendors/items pulled into the mirrors on the way, then
+**every Inventory item's QtyOnHand re-read into `ops.qbo_items`** — the drift
+strip's QuickBooks number is now 15 minutes old instead of a day — then the
+purchase feed. It lives on Netlify, not as an edge function, because the
+deployed `sync-qbo` / `push-qbo-item` edge functions have drifted from their
+repo copies more than once; pg_cron only knocks.
+
+⚠ **A comparison is only as fresh as its older side.** The day this shipped
+the drift strip showed 28 items / 145 units adrift and offered Reconcile —
+every unit of it the day's sales, already deducted here by the live sales feed
+and already in QuickBooks, but not yet in `ops.qbo_items` (last written by the
+09:45 UTC items sync 15 hours earlier). Applying that reconcile would have put
+145 sold cases BACK. The strip now says when its QuickBooks number was read
+and refuses to offer Reconcile while that number is older than the ledger's
+last movement; Sync now is the fix, not Reconcile.
+
+⚠ **Safeupdate.** The PostgREST role runs with `session_preload_libraries=
+safeupdate`, so any `UPDATE`/`DELETE` without a `WHERE` reached through an RPC
+fails with SQLSTATE 21000 — which is how `fn_sales_ledger_set_mode` (a one-row
+config table, updated bare) could never be flipped from the screen although it
+worked every time it was tested as postgres (`20260904e`). A single-row table
+is still updated WITH its key.
+
+**Unexercised until the first real use:** the QuickBooks writes themselves
+(PurchaseOrder create/update, Bill create) need a hub session and a live
+token; the payload shapes are Intuit's documented ones, the SQL half was
+driven end to end in a rolled-back dry run (create → refresh → edit marks
+dirty → pull skipped → push clears → receipt → bill landed → a foreign bill on
+the same PO line applied by the feed, our own excluded), and the pure mappers
+are pinned by `tests/qbo-purchasing-sync.test.mjs`.
 
 ## The run guide, inside the app
 

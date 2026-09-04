@@ -6,6 +6,8 @@ import {
   LedgerStatus, ReconcilePreviewRow,
   fetchLedgerStatus, reconcileInventoryBulk,
 } from '../../lib/inventoryControl';
+import { syncPurchasingNow } from '../../lib/purchasing';
+import { useToast } from '../../lib/toast';
 
 /**
  * Does this ledger still agree with QuickBooks, and when did it last move?
@@ -18,6 +20,16 @@ import {
  *
  * The division of labour it reports on: QuickBooks owns HOW MANY we hold, this
  * ledger owns WHERE it is. Drift means the warehouse total has come adrift.
+ *
+ * A COMPARISON IS ONLY AS FRESH AS ITS OLDER SIDE. On 2026-09-04 the strip
+ * showed 28 items / 145 units adrift and offered Reconcile — and every unit of
+ * it was the day's sales, already deducted here by the live feed and already
+ * in QuickBooks, but not yet in ops.qbo_items, which the nightly 09:45 UTC
+ * items sync had last written 15 hours earlier. Applying that reconcile would
+ * have put 145 sold cases BACK. So the strip now says when its QuickBooks
+ * number was read, offers Sync now (the 15-minute purchasing pull re-reads
+ * every Inventory item's QtyOnHand), and will not offer Reconcile while the
+ * QuickBooks number is older than the ledger's last movement.
  */
 
 function ago(iso: string | null): string {
@@ -30,9 +42,11 @@ function ago(iso: string | null): string {
 }
 
 export function LedgerStatusStrip({ onReconciled }: { onReconciled: () => void }) {
+  const toast = useToast();
   const [status,  setStatus]  = useState<LedgerStatus | null>(null);
   const [preview, setPreview] = useState<ReconcilePreviewRow[] | null>(null);
   const [busy,    setBusy]    = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -56,10 +70,26 @@ export function LedgerStatusStrip({ onReconciled }: { onReconciled: () => void }
     } finally { setBusy(false); }
   }
 
+  async function syncNow() {
+    setSyncing(true); setError(null);
+    try {
+      const r = await syncPurchasingNow();
+      if (r.errors?.length) toast.error('Pulled QuickBooks with problems: ' + r.errors.slice(0, 2).join(' · '));
+      else toast.success(`QuickBooks re-read · ${r.items} item quantities · ${r.pos} PO(s) · ${r.bills} bill(s)`);
+      setPreview(null); load(); onReconciled();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setSyncing(false); }
+  }
+
   if (!status) return null;
 
   const stale   = status.items_drifting > 0;
   const blocked = Number(status.qty_away_from_warehouse) !== 0;
+  // QuickBooks' number predates the ledger's last movement: the two are not
+  // comparable yet, and a reconcile would undo whatever moved since.
+  const qboBehind = !!status.last_movement_at && (!status.qbo_as_of
+    || new Date(status.qbo_as_of).getTime() < new Date(status.last_movement_at).getTime());
   const accent  = stale ? 'var(--am)' : 'var(--gn)';
 
   return (
@@ -81,6 +111,17 @@ export function LedgerStatusStrip({ onReconciled }: { onReconciled: () => void }
           )}
           {' '}Last movement <strong>{ago(status.last_movement_at)}</strong>
           {' · '}{fmtNum(status.movement_count)} in the ledger.
+          {' '}QuickBooks quantities as of <strong style={{ color: qboBehind ? 'var(--am)' : undefined }}>{ago(status.qbo_as_of)}</strong>
+          {' '}(re-read every 15 min).
+          {stale && qboBehind && (
+            <>
+              {' '}<span style={{ color: 'var(--am)' }}>
+                That QuickBooks number is older than the ledger's last movement, so this difference is probably
+                stock that moved here (today's sales, a receipt) and has not been re-read from QuickBooks yet — press
+                Sync now first. Reconcile is unavailable until the QuickBooks side is at least as fresh as the ledger.
+              </span>
+            </>
+          )}
           {Number(status.qty_on_consignment) !== 0 && (
             <>
               {' '}<span style={{ color: 'var(--mt)' }}>
@@ -101,13 +142,17 @@ export function LedgerStatusStrip({ onReconciled }: { onReconciled: () => void }
           )}
         </div>
 
-        {stale && !blocked && (
+        <button style={btnSecondary()} disabled={syncing || busy} onClick={syncNow}
+          title="Re-read QuickBooks now: item quantities, purchase orders and bills">
+          <RefreshCw size={12} style={{ marginRight: 5, verticalAlign: -1 }} />
+          {syncing ? 'Pulling QuickBooks…' : 'Sync now'}
+        </button>
+        {stale && !blocked && !qboBehind && (
           <button
             style={btnSecondary()}
-            disabled={busy}
+            disabled={busy || syncing}
             onClick={() => (preview ? run(true) : run(false))}
           >
-            <RefreshCw size={12} style={{ marginRight: 5, verticalAlign: -1 }} />
             {busy ? 'Working…' : preview ? `Apply to ${preview.length} item${preview.length === 1 ? '' : 's'}` : 'Reconcile to QuickBooks…'}
           </button>
         )}
