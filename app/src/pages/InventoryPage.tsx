@@ -10,11 +10,11 @@ import { btnDanger, btnPrimary, btnSecondary, inp } from '../lib/styles';
 import { downloadCsv, toCsv } from '../lib/csv';
 import { KpiRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import {
-  InventoryHealthRow, QboCustomerOption, VelocityExcludeRow,
-  addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth,
+  InventoryHealthRow, PlanningWeekRow, QboCustomerOption, VelocityExcludeRow,
+  addVelocityExclude, fetchCustomerOptions, fetchInventoryHealth, fetchPlanningWeekly,
   fetchVelocityExcludes, removeVelocityExclude,
 } from '../lib/inventory';
-import { filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
+import { INVENTORY_LANE_LABEL, filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
 import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
 // "Inventory Planning" — analytics + buying companion to the operational
@@ -23,10 +23,11 @@ import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 //   - Inventory Planning = what should we buy? how fast does it move? — analytics
 // Purchase Orders tab lives on the operational page now.
 
-type TabId = 'reorder' | 'velocity' | 'excludes';
+type TabId = 'reorder' | 'forecast' | 'velocity' | 'excludes';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'reorder',  label: 'Reorder' },
+  { id: 'forecast', label: 'Forecast' },
   { id: 'velocity', label: 'Velocity' },
   { id: 'excludes', label: 'Velocity Excludes' },
 ];
@@ -119,19 +120,22 @@ export function InventoryPage() {
   const [tab, setTab] = useState<TabId>('reorder');
   const [lane, setLane] = useInventoryLane();
   const [lookback, setLookback] = useState(90);
-  const [managedOnly, setManagedOnly] = useState(true);
+  // Sky, 2026-09-04: only the BIB, 24-pack and 8-pack items need planning.
+  // is_planner is exactly that set (migration 20260904g); the toggle is the
+  // escape hatch for looking at anything else in the lane.
+  const [plannerOnly, setPlannerOnly] = useState(true);
   const [rows, setRows] = useState<InventoryHealthRow[] | null>(null);
 
   function load() {
     setRows(null);
-    fetchInventoryHealth({ lookback: Number(lookback) || 90, managed_only: managedOnly })
+    fetchInventoryHealth({ lookback: Number(lookback) || 90, managed_only: false })
       .then(setRows).catch(() => setRows([]));
   }
-  useEffect(load, [lookback, managedOnly]);
+  useEffect(load, [lookback]);
 
   const laneRows = useMemo(
-    () => rows ? filterItemsByLane(rows, lane) : null,
-    [rows, lane],
+    () => rows ? filterItemsByLane(rows, lane).filter((r) => !plannerOnly || r.is_planner) : null,
+    [rows, lane, plannerOnly],
   );
 
   const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory Planning';
@@ -144,7 +148,7 @@ export function InventoryPage() {
           <h1 className="hero-title">Inventory Planning</h1>
           <div className="hero-meta">
             {tabLabel}
-            {tab !== 'excludes' && ` · ${lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · ${lookback}-day lookback${managedOnly ? ' · managed only' : ''}`}
+            {tab !== 'excludes' && ` · ${INVENTORY_LANE_LABEL[lane]} · ${lookback}-day lookback${plannerOnly ? ' · planner items' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
@@ -157,7 +161,7 @@ export function InventoryPage() {
         {TABS.map((t) => <Tab key={t.id} value={t.id} label={t.label} />)}
       </Tabs>
 
-      {(tab === 'reorder' || tab === 'velocity') && (
+      {(tab === 'reorder' || tab === 'velocity' || tab === 'forecast') && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
             <InventoryLaneSelector value={lane} onChange={setLane} />
@@ -168,11 +172,11 @@ export function InventoryPage() {
                 className="date-input" style={{ width: 70 }} />
               <span style={{ color: 'var(--mt)', fontSize: 11 }}>days</span>
             </div>
-            <label className="toolbar-section" style={{ cursor: 'pointer' }}>
-              <input type="checkbox" checked={managedOnly}
-                onChange={(e) => setManagedOnly(e.target.checked)}
+            <label className="toolbar-section" style={{ cursor: 'pointer' }} title="The BIB, 24-pack and 8-pack finished goods — the items that get a lead time, a forecast and a reorder date">
+              <input type="checkbox" checked={plannerOnly}
+                onChange={(e) => setPlannerOnly(e.target.checked)}
                 style={{ accentColor: 'var(--ac)' }} />
-              <span className="toolbar-label">Managed only</span>
+              <span className="toolbar-label">Planner items only</span>
             </label>
             <div className="toolbar-spacer" />
             <span style={{ fontSize: 10, color: 'var(--mt)', marginRight: 8 }}>
@@ -184,10 +188,46 @@ export function InventoryPage() {
       )}
 
       {tab === 'reorder' && <ReorderTable rows={laneRows} lane={lane} />}
+      {tab === 'forecast' && <ForecastTab rows={laneRows} />}
       {tab === 'velocity' && <VelocityTable rows={laneRows} />}
       {tab === 'excludes' && <ExcludesTab />}
     </div>
   );
+}
+
+const DAY_MS = 86_400_000;
+function daysFromToday(iso: string): number {
+  const d = new Date(iso + 'T00:00:00');
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - t.getTime()) / DAY_MS);
+}
+function fmtDate(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** A planning date: red once it is behind us, amber inside a week, plain otherwise. */
+function DateCell({ value, kind }: { value: string | null | undefined; kind: 'order' | 'stockout' }) {
+  if (!value) return <span style={{ color: 'var(--mt)' }}>—</span>;
+  const days = daysFromToday(value);
+  const late = days < 0;
+  const soon = !late && days <= 7;
+  const color = late ? 'var(--rd)' : soon ? 'var(--am)' : 'var(--tx)';
+  const hint = late
+    ? (kind === 'order' ? `${-days}d overdue` : 'out')
+    : days === 0 ? 'today' : `${days}d`;
+  return (
+    <span style={{ color, fontWeight: late || soon ? 700 : 500 }} title={value}>
+      {fmtDate(value)} <span style={{ fontSize: 9, color: late ? 'var(--rd)' : 'var(--mt)' }}>{hint}</span>
+    </span>
+  );
+}
+
+/** Year-over-year growth of the trailing 13 weeks against the aligned 13 weeks last year. */
+function YoyCell({ value }: { value: number | null | undefined }) {
+  if (value == null) return <span style={{ color: 'var(--mt)' }} title="No usable last-year window (fewer than 10 units)">—</span>;
+  const v = Number(value);
+  const color = Math.abs(v) < 5 ? 'var(--mt)' : v > 0 ? 'var(--gn)' : 'var(--am)';
+  return <span style={{ color, fontWeight: Math.abs(v) >= 20 ? 700 : 500 }}>{v > 0 ? '+' : ''}{v.toFixed(0)}%</span>;
 }
 
 /** The trailing-28-day rate against the lookback average: +12% = selling faster lately. */
@@ -205,7 +245,8 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
     if (!rows) return [];
     return rows
       .filter((r) => REORDER_STATUSES.has(r.status) || !r.active)
-      .sort((a, b) => Number(a.days_of_supply ?? 999) - Number(b.days_of_supply ?? 999));
+      .sort((a, b) => (a.order_by_date ?? '9999').localeCompare(b.order_by_date ?? '9999')
+        || Number(a.days_of_cover ?? 999) - Number(b.days_of_cover ?? 999));
   }, [rows]);
   const filtered = useMemo(() => filterBySearch(reorder, search), [reorder, search]);
 
@@ -241,27 +282,47 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
           {v === 0 ? '—' : fmtNum(v)}
         </span>;
       } },
-    { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 110, cellClassName: 'mn',
+    { field: 'daily_velocity', headerName: 'Recent/day', type: 'number', width: 100, cellClassName: 'mn',
+      description: 'What we are actually selling: 60% trailing 28 days, 40% the lookback',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
-    { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 100, cellClassName: 'mn',
+    { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 90, cellClassName: 'mn',
       renderCell: (p) => <TrendCell value={p.value as number | null | undefined} /> },
-    { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
-      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
-    { field: 'days_of_cover', headerName: 'Cover w/ inbound', type: 'number', width: 130, cellClassName: 'mn',
+    { field: 'forecast_daily', headerName: 'LY forecast/day', type: 'number', width: 120, cellClassName: 'mn',
+      description: "Last year's units over the coming lead + target window (same weekday, holidays matched), grown by the YoY factor",
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'yoy_growth_pct', headerName: 'YoY', type: 'number', width: 80, cellClassName: 'mn',
+      renderCell: (p) => <YoyCell value={p.value as number | null | undefined} /> },
+    { field: 'planning_velocity', headerName: 'Plan rate/day', type: 'number', width: 110, cellClassName: 'mn',
+      description: 'The rate the plan runs on: half recent, half last-year forecast',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
+    { field: 'days_of_cover', headerName: 'Cover (days)', type: 'number', width: 105, cellClassName: 'mn',
+      description: '(sellable + inbound) ÷ plan rate',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
     {
-      field: 'qty_on_order', headerName: 'On Order', type: 'number', width: 100, cellClassName: 'mn',
+      field: 'qty_on_order', headerName: 'Inbound', type: 'number', width: 90, cellClassName: 'mn',
+      description: 'Open PO lines + stock at the co-packer or in transit',
       renderCell: (p) => {
-        const v = Number(p.value ?? 0);
+        const v = Number((p.row as InventoryHealthRow).qty_inbound ?? p.value ?? 0);
         return v > 0
           ? <span style={{ color: 'var(--gn)', fontWeight: 600 }}>{fmtNum(v)}</span>
           : <span style={{ color: 'var(--mt)' }}>—</span>;
       },
     },
-    { field: 'reorder_point', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
-      valueFormatter: (v) => (v == null ? '—' : String(v)) },
+    { field: 'safety_stock', headerName: 'Safety', type: 'number', width: 85, cellClassName: 'mn',
+      description: '95% service on the demand seen during one lead time, capped at one lead time of demand',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'reorder_point_calc', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
+      description: 'Safety stock + lead time × plan rate (a reorder point typed in Settings → Items overrides it)',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'order_by_date', headerName: 'Order by', width: 120,
+      description: 'Stockout date − lead time − the days the safety stock covers',
+      renderCell: (p) => <DateCell value={p.value as string | null} kind="order" /> },
+    { field: 'stockout_date', headerName: 'Stockout', width: 120,
+      description: 'When sellable + inbound runs out at the plan rate',
+      renderCell: (p) => <DateCell value={p.value as string | null} kind="stockout" /> },
     {
-      field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 130, cellClassName: 'mn',
+      field: 'suggested_order_qty', headerName: 'Suggested Qty', type: 'number', width: 120, cellClassName: 'mn',
+      description: '(lead + target days) × plan rate + safety − sellable − inbound, floored at the minimum order',
       renderCell: (p) => (
         <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null ? fmtNum(Number(p.value)) : '—'}</span>
       ),
@@ -270,13 +331,17 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
 
   function exportCsv() {
     if (reorder.length === 0) return;
-    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'On Order', 'Daily Velocity', 'Days of Supply', 'Reorder Point', 'Suggested Order Qty', 'Status'];
+    const head = ['Item', 'Category', 'Lane', 'Active', 'Planning On Hand', 'BRIX On Hand', 'QBO On Hand', 'Drift', 'Inbound', 'Recent/day', 'LY forecast/day', 'YoY %', 'Plan rate/day', 'Days of Cover', 'Safety Stock', 'Reorder Point', 'Order By', 'Stockout', 'Suggested Order Qty', 'Status'];
     const data = reorder.map((r) => [
       r.item_name, r.category_resolved ?? '', r.inventory_lane ?? '', r.active ? 'yes' : 'no',
-      r.planning_on_hand ?? r.on_hand ?? '', r.brix_on_hand ?? '', r.qbo_on_hand ?? '', r.on_hand_drift ?? '', r.qty_on_order ?? '',
+      r.planning_on_hand ?? r.on_hand ?? '', r.brix_on_hand ?? '', r.qbo_on_hand ?? '', r.on_hand_drift ?? '', r.qty_inbound ?? r.qty_on_order ?? '',
       r.daily_velocity != null ? Number(r.daily_velocity).toFixed(2) : '',
-      r.days_of_supply != null ? Number(r.days_of_supply).toFixed(0) : '',
-      r.reorder_point ?? '', r.suggested_order_qty ?? '', r.status,
+      r.forecast_daily != null ? Number(r.forecast_daily).toFixed(2) : '',
+      r.yoy_growth_pct ?? '',
+      r.planning_velocity != null ? Number(r.planning_velocity).toFixed(2) : '',
+      r.days_of_cover != null ? Number(r.days_of_cover).toFixed(0) : '',
+      r.safety_stock ?? '', r.reorder_point_calc ?? r.reorder_point ?? '', r.order_by_date ?? '', r.stockout_date ?? '',
+      r.suggested_order_qty ?? '', r.status,
     ]);
     downloadCsv(`reorder_${new Date().toISOString().slice(0,10)}.csv`, toCsv([head, ...data]));
   }
@@ -329,8 +394,8 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
   return (
     <div>
       <div className="gr g4" style={{ marginBottom: 14 }}>
-        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="cover incl. inbound ≤ lead time" />
-        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="cover within 2× lead time" />
+        <KPICard title="REORDER NOW" value={reorderNow.length} accent="var(--rd)" sub="at or past the reorder point — the order is already late" />
+        <KPICard title="REORDER SOON" value={reorderSoon.length} accent="var(--am)" sub="crosses the reorder point within 7 days" />
         <KPICard title="ON ORDER" value={fmtNum(onOrderTotal)} accent="var(--gn)" sub="open PO units pending" />
         <KPICard title="OVERSTOCK" value={overstock.length} accent="#a78bfa" sub={`${healthy.length} healthy · ${inactiveCount} inactive`} />
       </div>
@@ -371,7 +436,7 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
             defaultGroupingExpansionDepth={1}
             initialState={{
               pagination: { paginationModel: { pageSize: 60, page: 0 } },
-              sorting: { sortModel: [{ field: 'days_of_supply', sort: 'asc' }] },
+              sorting: { sortModel: [{ field: 'order_by_date', sort: 'asc' }] },
             }}
             isGroupExpandedByDefault={(node: GridGroupNode) => node.groupingKey !== INACTIVE_GROUP}
             {...GRID_DEFAULTS}
@@ -440,10 +505,16 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
     },
     { field: 'consumed_qty', headerName: 'Used in runs/repacks', type: 'number', width: 150, cellClassName: 'mn',
       valueFormatter: (v) => (v == null || Number(v) === 0 ? '—' : fmtNum(Number(v))) },
-    { field: 'daily_velocity', headerName: 'Velocity/day', type: 'number', width: 120, cellClassName: 'mn',
+    { field: 'daily_velocity', headerName: 'Recent/day', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
     { field: 'velocity_trend_pct', headerName: '28d trend', type: 'number', width: 100, cellClassName: 'mn',
       renderCell: (p) => <TrendCell value={p.value as number | null | undefined} /> },
+    { field: 'forecast_daily', headerName: 'LY forecast/day', type: 'number', width: 120, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'yoy_growth_pct', headerName: 'YoY', type: 'number', width: 80, cellClassName: 'mn',
+      renderCell: (p) => <YoyCell value={p.value as number | null | undefined} /> },
+    { field: 'planning_velocity', headerName: 'Plan rate/day', type: 'number', width: 110, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
     { field: 'days_of_supply', headerName: 'Days Supply', type: 'number', width: 110, cellClassName: 'mn',
       valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(0)) },
     { field: 'days_of_cover', headerName: 'Cover w/ inbound', type: 'number', width: 130, cellClassName: 'mn',
@@ -484,6 +555,178 @@ function VelocityTable({ rows }: { rows: InventoryHealthRow[] | null }) {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Forecast — the planner's reasoning, per item: what last year did over the
+ * coming window, how this year is trending against it, the rate the plan runs
+ * on, and the two dates that come out of it. Pick a row for the week-by-week
+ * comparison (same weekday last year; a week holding a holiday is matched to
+ * last year's holiday week, so Labor Day compares to Labor Day).
+ */
+function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<InventoryHealthRow | null>(null);
+  const [weeks, setWeeks] = useState<PlanningWeekRow[] | null>(null);
+  const [weeksErr, setWeeksErr] = useState<string | null>(null);
+
+  const planner = useMemo(
+    () => rows ? rows.filter((r) => r.is_planner && r.active).sort((a, b) => (a.order_by_date ?? '9999').localeCompare(b.order_by_date ?? '9999')) : null,
+    [rows],
+  );
+  const filtered = useMemo(() => planner ? filterBySearch(planner, search) : [], [planner, search]);
+  const gridRows = useMemo(() => filtered.map((r) => ({ ...r, id: r.qbo_item_id })), [filtered]);
+
+  useEffect(() => {
+    if (!selected) { setWeeks(null); return; }
+    let live = true;
+    setWeeks(null); setWeeksErr(null);
+    fetchPlanningWeekly(selected.qbo_item_id, 13, 8)
+      .then((w) => { if (live) setWeeks(w); })
+      .catch((e) => { if (live) setWeeksErr((e as Error).message); });
+    return () => { live = false; };
+  }, [selected]);
+
+  const columns: GridColDef[] = useMemo(() => [
+    { field: 'item_name', headerName: 'Item', flex: 1, minWidth: 240,
+      renderCell: (p) => <span style={{ fontWeight: 600 }}>{p.value as string}</span> },
+    { field: 'planning_on_hand', headerName: 'Sellable', type: 'number', width: 90, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Number(v))) },
+    { field: 'qty_inbound', headerName: 'Inbound', type: 'number', width: 85, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null || Number(v) === 0 ? '—' : fmtNum(Number(v))) },
+    { field: 'daily_velocity', headerName: 'Recent/day', type: 'number', width: 100, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'ly_window_qty', headerName: 'LY same window', type: 'number', width: 130, cellClassName: 'mn',
+      description: "Last year's units over the coming lead + target window, aligned by weekday and holiday",
+      renderCell: (p) => {
+        const r = p.row as InventoryHealthRow;
+        if (r.ly_window_qty == null) return <span style={{ color: 'var(--mt)' }} title="No last-year data for this window">—</span>;
+        return <span>{fmtNum(Number(r.ly_window_qty))} <span style={{ fontSize: 9, color: 'var(--mt)' }}>/ {r.forecast_window_days}d</span></span>;
+      } },
+    { field: 'yoy_growth_pct', headerName: 'YoY', type: 'number', width: 80, cellClassName: 'mn',
+      description: 'Trailing 13 weeks this year vs the same weeks last year',
+      renderCell: (p) => <YoyCell value={p.value as number | null | undefined} /> },
+    { field: 'forecast_daily', headerName: 'LY forecast/day', type: 'number', width: 120, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : Number(v).toFixed(2)) },
+    { field: 'planning_velocity', headerName: 'Plan rate/day', type: 'number', width: 110, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ fontWeight: 700 }}>{p.value == null ? '—' : Number(p.value).toFixed(2)}</span> },
+    { field: 'lead_time_days', headerName: 'Lead', type: 'number', width: 70, cellClassName: 'mn',
+      valueFormatter: (v) => `${v}d` },
+    { field: 'safety_stock', headerName: 'Safety', type: 'number', width: 80, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'reorder_point_calc', headerName: 'Reorder Pt', type: 'number', width: 100, cellClassName: 'mn',
+      valueFormatter: (v) => (v == null ? '—' : fmtNum(Math.round(Number(v)))) },
+    { field: 'order_by_date', headerName: 'Order by', width: 120,
+      renderCell: (p) => <DateCell value={p.value as string | null} kind="order" /> },
+    { field: 'stockout_date', headerName: 'Stockout', width: 120,
+      renderCell: (p) => <DateCell value={p.value as string | null} kind="stockout" /> },
+    { field: 'suggested_order_qty', headerName: 'Suggested', type: 'number', width: 100, cellClassName: 'mn',
+      renderCell: (p) => <span style={{ color: 'var(--ac)', fontWeight: 600 }}>{p.value != null && Number(p.value) > 0 ? fmtNum(Number(p.value)) : '—'}</span> },
+    { field: 'status', headerName: 'Status', width: 120,
+      renderCell: (p) => {
+        const c = STATUS_COLOR[p.value as string] ?? 'var(--mt)';
+        return <span style={{ color: c, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{String(p.value).toUpperCase().replace('_', ' ')}</span>;
+      } },
+  ], []);
+
+  if (!planner) return <div className="cd" style={{ padding: 0 }}><TableSkeleton rows={10} cols={9} /></div>;
+
+  const lateCount = planner.filter((r) => r.order_by_date && daysFromToday(r.order_by_date) < 0).length;
+  const weekCount = planner.filter((r) => r.order_by_date && daysFromToday(r.order_by_date) >= 0 && daysFromToday(r.order_by_date) <= 7).length;
+  const noLy = planner.filter((r) => r.forecast_daily == null).length;
+
+  return (
+    <div>
+      <div className="gr g4" style={{ marginBottom: 14 }}>
+        <KPICard title="ORDER TODAY" value={lateCount} accent="var(--rd)" sub="order-by date is behind us" />
+        <KPICard title="ORDER THIS WEEK" value={weekCount} accent="var(--am)" sub="order-by date within 7 days" />
+        <KPICard title="WITH LAST-YEAR FORECAST" value={planner.length - noLy} accent="var(--gn)" sub={`${noLy} on recent rate only (no last-year window)`} />
+        <KPICard title="PLANNER ITEMS" value={planner.length} accent="var(--ac)" sub="BIB · 24-pack · 8-pack in this lane" />
+      </div>
+
+      <div className="cd" style={{ padding: '10px 12px', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
+        <SearchInput value={search} onChange={setSearch} />
+        <span style={{ color: 'var(--mt)', marginLeft: 6 }}>{filtered.length} of {planner.length} items · pick a row for the week-by-week view</span>
+      </div>
+
+      <div className="cd" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
+        {filtered.length === 0 ? (
+          <div className="ld">No planner items in this lane. Set "In planner" on the item in Settings → Items.</div>
+        ) : (
+          <DataGridPro
+            rows={gridRows} columns={columns}
+            density="compact" pagination disableRowSelectionOnClick={false}
+            onRowClick={(p) => setSelected(p.row as InventoryHealthRow)}
+            pageSizeOptions={[10, 20, 40, 60, 100, { value: -1, label: 'All' }]}
+            initialState={{
+              pagination: { paginationModel: { pageSize: 60, page: 0 } },
+              sorting: { sortModel: [{ field: 'order_by_date', sort: 'asc' }] },
+            }}
+            {...GRID_DEFAULTS}
+            sx={{ ...GRID_SX, '& .MuiDataGrid-row': { cursor: 'pointer' } }}
+          />
+        )}
+      </div>
+
+      {selected && (
+        <div className="cd" style={{ padding: 0 }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <div className="ct" style={{ margin: 0 }}>{selected.item_name}</div>
+            <span style={{ fontSize: 10, color: 'var(--mt)' }}>
+              Last 13 weeks against the same weeks last year, then the next 8 weeks as last year × growth.
+              A week with a holiday is matched to last year's holiday week, not the same calendar week.
+              {selected.yoy_growth_pct != null && <> Growth applied: <strong>{Number(selected.yoy_growth_pct) > 0 ? '+' : ''}{Number(selected.yoy_growth_pct).toFixed(1)}%</strong>.</>}
+            </span>
+            <button onClick={() => setSelected(null)} style={{ ...btnSecondary(), marginLeft: 'auto' }}>Close</button>
+          </div>
+          {weeksErr ? (
+            <div className="ld" style={{ color: 'var(--rd)' }}>{weeksErr}</div>
+          ) : !weeks ? (
+            <div className="ld">Loading weeks…</div>
+          ) : (
+            <table style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th>Week of</th><th>Holiday</th>
+                  <th style={{ textAlign: 'right' }}>Last year</th>
+                  <th style={{ textAlign: 'right' }}>This year</th>
+                  <th style={{ textAlign: 'right' }}>vs LY</th>
+                  <th style={{ textAlign: 'right' }}>Forecast</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map((w) => {
+                  const ty = w.this_year_qty == null ? null : Number(w.this_year_qty);
+                  const ly = Number(w.last_year_qty);
+                  const diff = ty == null || ly === 0 ? null : (ty - ly) / ly * 100;
+                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                  return (
+                    <tr key={w.week_start} style={{ background: rowBg }}>
+                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                        {fmtDate(w.week_start)}
+                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                      </td>
+                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fmtNum(ly)}</td>
+                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{ty == null ? '—' : fmtNum(ty)}{w.is_current && ty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>
+                        {diff == null ? <span style={{ color: 'var(--mt)' }}>—</span>
+                          : <span style={{ color: Math.abs(diff) < 10 ? 'var(--mt)' : diff > 0 ? 'var(--gn)' : 'var(--am)' }}>{diff > 0 ? '+' : ''}{diff.toFixed(0)}%</span>}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: w.is_future ? 700 : 500 }}>
+                        {w.forecast_qty == null ? '' : fmtNum(Math.round(Number(w.forecast_qty)))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

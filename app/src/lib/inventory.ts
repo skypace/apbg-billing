@@ -66,8 +66,25 @@ export interface InventoryHealthRow {
   consumed_qty?: number | null;
   /** Open PO lines + stock at a co-packer or in transit — bought or made, not sellable yet. */
   qty_inbound?: number | null;
-  /** (sellable + inbound) / velocity — what status and the suggested order are judged on. */
+  /** (sellable + inbound) / planning_velocity — what status and the suggested order are judged on. */
   days_of_cover?: number | null;
+  /** 20260904g — planner items only (null elsewhere). */
+  /** The rate the plan runs on: half the recent velocity, half last year's aligned window grown by the YoY factor. */
+  planning_velocity?: number | null;
+  /** Last year's units over the coming lead + target window (weekday/holiday aligned) × (1 + growth), per day. */
+  forecast_daily?: number | null;
+  forecast_window_days?: number | null;
+  forecast_window_qty?: number | null;
+  ly_window_qty?: number | null;
+  /** Trailing 13 weeks this year vs the aligned 13 weeks last year, %; clamped to [-50, 100]. */
+  yoy_growth_pct?: number | null;
+  weekly_sigma?: number | null;
+  safety_stock?: number | null;
+  reorder_point_calc?: number | null;
+  /** When sellable + inbound runs out at the planning rate. */
+  stockout_date?: string | null;
+  /** stockout_date − lead time − the days the safety stock covers. In the past = already late. */
+  order_by_date?: string | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -176,6 +193,26 @@ export interface RollupMatchPreview {
   sample_customer_names: string[] | null;
   sample_category_names: string[] | null;
   sample_item_names: string[] | null;
+}
+
+/** One week of the planner's history/forecast series for an item (fn_planning_weekly). */
+export interface PlanningWeekRow {
+  week_start: string;
+  is_current: boolean;
+  is_future: boolean;
+  this_year_qty: number | null;
+  last_year_qty: number;
+  forecast_qty: number | null;
+  holiday: string | null;
+  growth_pct: number | null;
+}
+
+export function fetchPlanningWeekly(qbo_item_id: string, weeksBack = 13, weeksAhead = 8) {
+  return sbrpc<PlanningWeekRow[]>('fn_planning_weekly', {
+    p_qbo_item_id: qbo_item_id,
+    p_weeks_back: weeksBack,
+    p_weeks_ahead: weeksAhead,
+  });
 }
 
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {

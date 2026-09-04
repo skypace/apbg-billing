@@ -851,6 +851,101 @@ flagged rather than guessed.
 Verified after the rebuild: 574 at 7.42 a day, 28.8 days of cover, 61 cases
 suggested; 3G6151 BIB at 6.84 a day, 47.2 days; on order 0 for both.
 
+### Inventory Planning v2 — the planner forecasts, it no longer just extrapolates (2026-09-04)
+
+Sky, same day as the shrinkage fix: three weeks from ordering raw materials to
+canned product back in the warehouse; fountain product ordered about every two
+weeks; only BIB, 24-pack and 8-pack items need planning; use last year's
+totals and the growth per product across the weeks; account for holidays and
+weekends that move; leave Brix Beverage sampling out. Migration `20260904g`.
+
+**Scope — `is_planner` is a rule, not a checkbox.** A planner item is an
+active QuickBooks `Inventory` item on one of the three lanes (`bib_product`,
+`cans_24pk`, the new `cans_8pk`) whose name starts `3G`, `5G`, `24P` or
+`8PK`. That is 39 items today: 24 BIBs, 7 cases, 8 eight-packs. The other
+~1,070 items in `inventory_settings` keep their rows and stay off the planner
+screens (the page filters `is_planner` client-side; the RPC still returns
+everything for the Items master). ⚠ `cans_8pk` is a planner lane and NOT a
+production lane — `PRODUCTION_LANES` in `inventoryLane.ts` restricts the
+Production page to BIB + 24-pack, and the lane picker there only offers those
+two. An 8-pack is made by the repack sheet, never by a work order.
+
+**Lead time and target by lane** (only rows still carrying the seeded 7/30
+were touched — a hand-set value stays):
+
+| Lane | Lead time | Target cover | Why |
+|---|---|---|---|
+| `cans_24pk`, `cans_8pk` | 21 days | 30 days | ingredients → cans → fill → ship back is about three weeks |
+| `bib_product` | 7 days (unchanged) | 14 days | ordered roughly every two weeks |
+
+⚠ The BIB lead time was left at 7 because nobody has confirmed how long a
+Calderoni BIB order takes; it is a per-item settings entry.
+
+**Sampling is out.** QuickBooks customer 95 (`BRIX BEVERAGE - SAMPLING`) is in
+`inventory_velocity_excludes`, so demos and special events count in neither the
+recent rate nor last year's baseline.
+
+**What "demand" is.** `v_planning_daily_sales` (security_invoker, service_role
+only — `fn_items_master__i` reads it) is one row per planner item per day:
+Invoice + SalesReceipt add, CreditMemo + RefundReceipt subtract, excluded
+customers dropped, nothing dated after today. Same signs the sales feed uses,
+so a return that comes back is not demand twice.
+
+**Last year, aligned by weekday and holiday.** `fn_planning_daymap(from, to)`
+maps each coming day to its comparison day last year: `d − 364` keeps the
+weekday (a Saturday compares to a Saturday), and when the day falls in a week
+that holds a holiday, the whole week shifts so this year's holiday lands on
+last year's — Labor Day 2026-09-07 compares to Labor Day 2025-09-01, not to
+2025-09-08. Holidays live in `ops.planning_holidays` (72 rows, 2024–2027;
+fixed-date ones like July 4th and floating ones like Thanksgiving, Super Bowl
+Sunday, Easter; floating wins a tie). Staff can add or remove rows; nothing
+else writes the table.
+
+**Growth.** `fn_planning_yoy()` compares the trailing 13 complete Mon–Sun weeks
+with the same aligned weeks last year, per item, clamped to −50%…+100% and
+null when last year had fewer than 10 units (a 900% growth on a product that
+sold 3 cases is noise, not a trend). The 8-packs are new in 2026, so they have
+no baseline and run on the recent rate alone.
+
+**The plan rate.** `forecast_daily` = last year's units over the coming
+lead + target window, aligned, × (1 + growth), ÷ the window's days. The
+planning rate is `0.5 × recent velocity + 0.5 × forecast_daily` when a
+forecast exists, else the recent velocity (0.6 × 28-day + 0.4 × lookback, as
+before). Half and half on purpose: recent alone misses September picking up
+after August, last year alone misses a customer who left in March.
+
+**Safety stock.** `1.65 × (weekly σ ÷ √7) × √lead` — about 95% service on
+demand noise over one lead time — **capped at one lead time of demand**. The
+cap exists because a low-volume 8-pack (0.19 a day, σ 11.65) produced a safety
+stock of 33 and a reorder point of 37 on an item that sells six a month.
+
+**Reorder point and dates.** `reorder_point_calc` = `inventory_settings.
+reorder_point` if a human set one, else safety + lead × rate. Status:
+`critical` (out), `reorder` (sellable + inbound ≤ ROP — the order is already
+late), `reorder_soon` (within 7 days of the ROP), `overstock`, `ok`.
+`stockout_date` = today + floor(cover units ÷ rate); `order_by_date` =
+stockout − lead − floor(safety ÷ rate). **Suggested qty** =
+ceil((target + lead) × rate + safety − sellable − inbound), never below
+`min_order_qty`, never negative. ⚠ `min_order_qty` is 0 on every item, so the
+suggestion is not rounded to a canning run or a pallet — a per-item setting.
+
+**On screen.** Inventory Planning defaults to planner items; the Reorder tab
+sorts by **Order by** and shows Recent/day · 28d trend · LY forecast/day ·
+YoY · Plan rate/day · Cover · Inbound · Safety · Reorder Pt · Order by ·
+Stockout · Suggested; a new **Forecast** tab lists every planner item and, on
+click, the 13-weeks-back / 8-weeks-ahead weekly view from
+`fn_planning_weekly` (this year, last year aligned, forecast, the holiday in
+that week).
+
+Verified live after apply: root beer cases (574) plan at 8.27 a day (recent
+7.15, last-year window 9.40, YoY +0.3%), safety 28, ROP 202, 214 on hand →
+`reorder_soon`, order by 2026-09-05, stockout 2026-09-29, suggested 237. Olde
+Fountain Creme cases (560): 116 on hand, order by today, suggested 146.
+⚠ 574's last-year weekly series has two October weeks at 131 and 135 cases
+against a normal 40–60 — a bulk buyer, most likely — and the forecast will
+carry that bump into October 2026. If it was a one-off, the customer belongs in
+`inventory_velocity_excludes` or the holiday table is the wrong tool.
+
 ## The run guide, inside the app
 
 The click-by-click walkthrough is handbook chapter **`10a-production-run-guide`**

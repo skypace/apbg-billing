@@ -7,6 +7,7 @@ import {
   coerceInventoryLane,
   filterItemsByLane,
   useInventoryLane,
+  PRODUCTION_LANES,
   type InventoryLane,
 } from '../../lib/inventoryLane';
 import {
@@ -57,7 +58,7 @@ function readPrefillLane(): InventoryLane | null {
   try {
     const parsed = JSON.parse(raw) as { inventory_lane?: unknown };
     return parsed.inventory_lane === 'bib_product' || parsed.inventory_lane === 'cans_24pk'
-      ? coerceInventoryLane(parsed.inventory_lane)
+      ? coerceInventoryLane(parsed.inventory_lane, PRODUCTION_LANES)
       : null;
   } catch { return null; }
 }
@@ -76,7 +77,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     ?? (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.po.prefill')
       ? 'purchase_orders'
       : 'formulas');
-  const [lane, setLane] = useInventoryLane();
+  const [lane, setLane] = useInventoryLane(PRODUCTION_LANES);
   const [tab, setTab] = useState<TabId>(initialTab);
   const [formulas, setFormulas] = useState<ProductFormula[] | null>(null);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
@@ -208,7 +209,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row">
-          <InventoryLaneSelector value={lane} onChange={setLane} />
+          <InventoryLaneSelector value={lane} onChange={setLane} lanes={PRODUCTION_LANES} />
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
             {lane === 'bib_product' ? 'Purchasing only' : 'Formula → raw materials → BOM → work order → POs → co-packer → yield → production PO → receive'}

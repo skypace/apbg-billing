@@ -467,6 +467,7 @@
         "ops.item_set_items",
         "ops.inventory_settings",
         "ops.inventory_velocity_excludes",
+        "ops.planning_holidays",
         "ops.saved_views",
         "ops.digest_subscriptions",
         "ops.revenue_categories",
@@ -474,7 +475,7 @@
         "ops.dashboard_settings",
         "ops.alert_settings"
       ],
-      "notes": "Margin Minder dashboard settings UI writes via fn_set_* RPCs and direct table inserts. Authenticated only."
+      "notes": "Margin Minder dashboard settings UI writes via fn_set_* RPCs and direct table inserts. Authenticated only. ops.planning_holidays (2026-09-04, planner v2) is the holiday calendar the last-year-aligned forecast reads (fn_planning_daymap); seeded 2024–2027 by migration 20260904g, staff-editable, no cron writes it."
     },
     {
       "name": "manual-ui:apbg-ops-roster",
