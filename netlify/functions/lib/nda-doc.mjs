@@ -38,7 +38,17 @@ export function parseRuns(line) {
   return runs.length ? runs : [{ text: '', bold: false }];
 }
 
-export const MARKERS = new Set(['[PARTIES]', '[SIGNATURES]', '[EXHIBIT_A]']);
+// Markers a template may drop in for a block this parser cannot express in
+// text — the parties preamble, the signature blocks, and the tables a
+// particular agreement type fills in from its own structured terms. The
+// parser only has to RECOGNISE a marker; each renderer decides what to draw
+// for it, and an unknown one would otherwise print as a literal "[X]" in a
+// signed document, which is why the set is shared rather than per-renderer.
+//   NDA:              [PARTIES] [SIGNATURES] [EXHIBIT_A]
+//   Sub-distribution: [PARTIES] [SIGNATURES] [FEE_SCHEDULE] [SERVICE_LEVELS]
+export const MARKERS = new Set([
+  '[PARTIES]', '[SIGNATURES]', '[EXHIBIT_A]', '[FEE_SCHEDULE]', '[SERVICE_LEVELS]',
+]);
 
 /** Parse the template markup into an ordered block list. */
 export function parseNdaSource(source) {
@@ -66,10 +76,10 @@ export function parseNdaSource(source) {
   return blocks;
 }
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const runsHtml = (runs) => (runs || []).map((r) => (r.bold ? `<b>${esc(r.text)}</b>` : esc(r.text))).join('');
+export const runsHtml = (runs) => (runs || []).map((r) => (r.bold ? `<b>${esc(r.text)}</b>` : esc(r.text))).join('');
 
 /** Long-form date, always rendered in Pacific so the executed date on screen,
  *  in the PDF, and in the email are the same calendar day. */
@@ -90,7 +100,7 @@ export const COMPANY = {
 
 /** A blank in the document: filled shows the value underlined, unfilled shows
  *  a rule. A live signing page and a printed blank are the same document. */
-const blank = (v, width = '16rem') => (v
+export const blank = (v, width = '16rem') => (v
   ? `<span class="fill">${esc(v)}</span>`
   : `<span class="fill empty" style="min-width:${width}"></span>`);
 
