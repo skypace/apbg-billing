@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus } from 'lucide-react';
 import {
   AgreementStatus,
@@ -90,107 +91,109 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Ver</Th>
-              <Th>Title</Th>
-              <Th>Model</Th>
-              <Th>Fee/case</Th>
-              <Th>Effective</Th>
-              <Th>Expires</Th>
-              <Th>Status</Th>
-              <Th>Signed by</Th>
-              <Th>File</Th>
-              <Th> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No agreements yet.
-              </td></tr>
-            )}
-            {(rows ?? []).map((a) => (
-              <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <Td>
-                  <code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>
-                    {a.agreement_number ?? `v${a.version}`}
-                  </code>
-                  {a.agreement_number && (
-                    <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 2 }}>v{a.version}</div>
-                  )}
-                </Td>
-                <Td>
-                  <span style={{ fontWeight: 600 }}>{a.title ?? '—'}</span>
-                  {a.scope && (
-                    <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2, maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      title={a.scope}>
-                      Scope: {a.scope}
-                    </div>
-                  )}
-                </Td>
-                <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>
-                  {a.model === 'sell_in' ? 'Sell-In' : 'Consignment'}
-                </span></Td>
-                <Td>{a.per_case_delivery_fee == null ? '—' : `$${Number(a.per_case_delivery_fee).toFixed(2)}`}</Td>
-                <Td>{a.effective_date ?? '—'}</Td>
-                <Td>{a.expiry_date ?? '—'}</Td>
-                <Td><Chip label={a.status} color={AGREEMENT_STATUS_COLOR[a.status] ?? 'var(--mt)'} /></Td>
-                <Td>
-                  {a.status === 'signed' && a.signer_name ? (
-                    <div>
-                      <div style={{ fontSize: 11 }}>{a.signer_name}</div>
-                      <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>
-                        {a.signed_at ? new Date(a.signed_at).toLocaleString() : ''}
-                      </div>
-                    </div>
-                  ) : '—'}
-                </Td>
-                <Td>
-                  {a.file_path ? (
-                    <button onClick={() => download(a)} style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: 'var(--ac)', fontSize: 11, padding: 0, textDecoration: 'underline',
-                    }}>{a.file_name ?? 'Download'}</button>
-                  ) : <span style={{ color: 'var(--mt)' }}>—</span>}
-                </Td>
-                <Td>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {isBuiltAgreement(a) ? (
-                      <>
-                        <button onClick={() => setPreviewing(a)} style={btnSecondary()}>Preview</button>
-                        {a.status === 'draft' && (
-                          <button onClick={() => setSending({ a, resend: false })} style={btnPrimary()}>
-                            Send for signature
-                          </button>
-                        )}
-                        {a.status === 'sent' && (
-                          <>
-                            <button onClick={() => setSending({ a, resend: true })} style={btnSecondary()}>
-                              Send again
-                            </button>
-                            <button onClick={() => revoke(a)} style={{
-                              background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
-                              padding: '5px 11px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
-                            }}>Switch off</button>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button onClick={() => setEditing(a)} style={btnSecondary()}>Edit</button>
-                        {a.status === 'draft' && (
-                          <button onClick={() => markSent(a)} disabled={busy} style={btnPrimary()}>Mark sent</button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Ver</Th>
+                <Th>Title</Th>
+                <Th>Model</Th>
+                <Th>Fee/case</Th>
+                <Th>Effective</Th>
+                <Th>Expires</Th>
+                <Th>Status</Th>
+                <Th>Signed by</Th>
+                <Th>File</Th>
+                <Th> </Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows !== null && rows.length === 0 && (
+                <tr><td colSpan={10} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No agreements yet.
+                </td></tr>
+              )}
+              {(rows ?? []).map((a) => (
+                <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <Td>
+                    <code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>
+                      {a.agreement_number ?? `v${a.version}`}
+                    </code>
+                    {a.agreement_number && (
+                      <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 2 }}>v{a.version}</div>
+                    )}
+                  </Td>
+                  <Td>
+                    <span style={{ fontWeight: 600 }}>{a.title ?? '—'}</span>
+                    {a.scope && (
+                      <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2, maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        title={a.scope}>
+                        Scope: {a.scope}
+                      </div>
+                    )}
+                  </Td>
+                  <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>
+                    {a.model === 'sell_in' ? 'Sell-In' : 'Consignment'}
+                  </span></Td>
+                  <Td>{a.per_case_delivery_fee == null ? '—' : `$${Number(a.per_case_delivery_fee).toFixed(2)}`}</Td>
+                  <Td>{a.effective_date ?? '—'}</Td>
+                  <Td>{a.expiry_date ?? '—'}</Td>
+                  <Td><Chip label={a.status} color={AGREEMENT_STATUS_COLOR[a.status] ?? 'var(--mt)'} /></Td>
+                  <Td>
+                    {a.status === 'signed' && a.signer_name ? (
+                      <div>
+                        <div style={{ fontSize: 11 }}>{a.signer_name}</div>
+                        <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>
+                          {a.signed_at ? new Date(a.signed_at).toLocaleString() : ''}
+                        </div>
+                      </div>
+                    ) : '—'}
+                  </Td>
+                  <Td>
+                    {a.file_path ? (
+                      <button onClick={() => download(a)} style={{
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        color: 'var(--ac)', fontSize: 11, padding: 0, textDecoration: 'underline',
+                      }}>{a.file_name ?? 'Download'}</button>
+                    ) : <span style={{ color: 'var(--mt)' }}>—</span>}
+                  </Td>
+                  <Td>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {isBuiltAgreement(a) ? (
+                        <>
+                          <button onClick={() => setPreviewing(a)} style={btnSecondary()}>Preview</button>
+                          {a.status === 'draft' && (
+                            <button onClick={() => setSending({ a, resend: false })} style={btnPrimary()}>
+                              Send for signature
+                            </button>
+                          )}
+                          {a.status === 'sent' && (
+                            <>
+                              <button onClick={() => setSending({ a, resend: true })} style={btnSecondary()}>
+                                Send again
+                              </button>
+                              <button onClick={() => revoke(a)} style={{
+                                background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
+                                padding: '5px 11px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                              }}>Switch off</button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => setEditing(a)} style={btnSecondary()}>Edit</button>
+                          {a.status === 'draft' && (
+                            <button onClick={() => markSent(a)} disabled={busy} style={btnPrimary()}>Mark sent</button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       {building && (

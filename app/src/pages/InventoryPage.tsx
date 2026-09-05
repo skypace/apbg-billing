@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../components/PrintableTable';
 import { SearchSelect } from '../components/SearchSelect';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -815,44 +816,46 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
           ) : !weeks ? (
             <div className="ld">Loading weeks…</div>
           ) : (
-            <table style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th>Week of</th><th>Holiday</th>
-                  <th style={{ textAlign: 'right' }}>Last year</th>
-                  <th style={{ textAlign: 'right' }}>This year</th>
-                  <th style={{ textAlign: 'right' }}>vs LY</th>
-                  <th style={{ textAlign: 'right' }}>Forecast</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeks.map((w) => {
-                  const ty = w.this_year_qty == null ? null : Number(w.this_year_qty);
-                  const ly = Number(w.last_year_qty);
-                  const diff = ty == null || ly === 0 ? null : (ty - ly) / ly * 100;
-                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
-                  return (
-                    <tr key={w.week_start} style={{ background: rowBg }}>
-                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
-                        {fmtDate(w.week_start)}
-                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
-                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
-                      </td>
-                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fmtNum(ly)}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{ty == null ? '—' : fmtNum(ty)}{w.is_current && ty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
-                      <td className="mn" style={{ textAlign: 'right' }}>
-                        {diff == null ? <span style={{ color: 'var(--mt)' }}>—</span>
-                          : <span style={{ color: Math.abs(diff) < 10 ? 'var(--mt)' : diff > 0 ? 'var(--gn)' : 'var(--am)' }}>{diff > 0 ? '+' : ''}{diff.toFixed(0)}%</span>}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: w.is_future ? 700 : 500 }}>
-                        {w.forecast_qty == null ? '' : fmtNum(Math.round(Number(w.forecast_qty)))}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Week of</th><th>Holiday</th>
+                    <th style={{ textAlign: 'right' }}>Last year</th>
+                    <th style={{ textAlign: 'right' }}>This year</th>
+                    <th style={{ textAlign: 'right' }}>vs LY</th>
+                    <th style={{ textAlign: 'right' }}>Forecast</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeks.map((w) => {
+                    const ty = w.this_year_qty == null ? null : Number(w.this_year_qty);
+                    const ly = Number(w.last_year_qty);
+                    const diff = ty == null || ly === 0 ? null : (ty - ly) / ly * 100;
+                    const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                    return (
+                      <tr key={w.week_start} style={{ background: rowBg }}>
+                        <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                          {fmtDate(w.week_start)}
+                          {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                          {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                        </td>
+                        <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fmtNum(ly)}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{ty == null ? '—' : fmtNum(ty)}{w.is_current && ty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                        <td className="mn" style={{ textAlign: 'right' }}>
+                          {diff == null ? <span style={{ color: 'var(--mt)' }}>—</span>
+                            : <span style={{ color: Math.abs(diff) < 10 ? 'var(--mt)' : diff > 0 ? 'var(--gn)' : 'var(--am)' }}>{diff > 0 ? '+' : ''}{diff.toFixed(0)}%</span>}
+                        </td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: w.is_future ? 700 : 500 }}>
+                          {w.forecast_qty == null ? '' : fmtNum(Math.round(Number(w.forecast_qty)))}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           )}
           <AccuracyPanel rows={accuracy} />
         </div>
@@ -881,32 +884,34 @@ function AccuracyPanel({ rows }: { rows: ForecastAccuracyRow[] | null }) {
           recomputed as the forecast would have read at the time (the Monday snapshot began 2026-09-04).
         </span>
       </div>
-      <table style={{ width: '100%' }}>
-        <thead><tr>
-          <th>Week of</th>
-          <th style={{ textAlign: 'right' }}>Forecast</th>
-          <th style={{ textAlign: 'right' }}>Actual</th>
-          <th style={{ textAlign: 'right' }}>Miss</th>
-          <th style={{ textAlign: 'right' }}>Miss %</th>
-          <th>Source</th>
-        </tr></thead>
-        <tbody>
-          {rows.map((r) => {
-            const err = r.error_qty == null ? null : Number(r.error_qty);
-            const pct = r.abs_pct_error == null ? null : Number(r.abs_pct_error);
-            return (
-              <tr key={r.week_start}>
-                <td>{fmtDate(r.week_start)}</td>
-                <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{r.forecast_qty == null ? '—' : fmtNum(Math.round(Number(r.forecast_qty)))}</td>
-                <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{r.actual_qty == null ? '—' : fmtNum(Number(r.actual_qty))}</td>
-                <td className="mn" style={{ textAlign: 'right', color: err == null ? 'var(--mt)' : err < 0 ? 'var(--am)' : 'var(--mt)' }}>{err == null ? '—' : `${err > 0 ? '+' : ''}${err.toFixed(0)}`}</td>
-                <td className="mn" style={{ textAlign: 'right', color: pct == null ? 'var(--mt)' : pct > 30 ? 'var(--rd)' : pct > 15 ? 'var(--am)' : 'var(--gn)' }}>{pct == null ? '—' : `${pct.toFixed(0)}%`}</td>
-                <td style={{ fontSize: 9, color: r.source === 'logged' ? 'var(--gn)' : 'var(--mt)', fontWeight: 700, letterSpacing: 0.5 }}>{r.source.toUpperCase()}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <PrintableTable>
+        <table style={{ width: '100%' }}>
+          <thead><tr>
+            <th>Week of</th>
+            <th style={{ textAlign: 'right' }}>Forecast</th>
+            <th style={{ textAlign: 'right' }}>Actual</th>
+            <th style={{ textAlign: 'right' }}>Miss</th>
+            <th style={{ textAlign: 'right' }}>Miss %</th>
+            <th>Source</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const err = r.error_qty == null ? null : Number(r.error_qty);
+              const pct = r.abs_pct_error == null ? null : Number(r.abs_pct_error);
+              return (
+                <tr key={r.week_start}>
+                  <td>{fmtDate(r.week_start)}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{r.forecast_qty == null ? '—' : fmtNum(Math.round(Number(r.forecast_qty)))}</td>
+                  <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{r.actual_qty == null ? '—' : fmtNum(Number(r.actual_qty))}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: err == null ? 'var(--mt)' : err < 0 ? 'var(--am)' : 'var(--mt)' }}>{err == null ? '—' : `${err > 0 ? '+' : ''}${err.toFixed(0)}`}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: pct == null ? 'var(--mt)' : pct > 30 ? 'var(--rd)' : pct > 15 ? 'var(--am)' : 'var(--gn)' }}>{pct == null ? '—' : `${pct.toFixed(0)}%`}</td>
+                  <td style={{ fontSize: 9, color: r.source === 'logged' ? 'var(--gn)' : 'var(--mt)', fontWeight: 700, letterSpacing: 0.5 }}>{r.source.toUpperCase()}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </PrintableTable>
     </div>
   );
 }
@@ -971,39 +976,41 @@ function CustomersDueTab() {
       </div>
       <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {visible.length === 0 ? <div className="ld">Nobody in this bucket.</div> : (
-          <table style={{ width: '100%' }}>
-            <thead><tr>
-              <th>Customer</th><th>Status</th>
-              <th style={{ textAlign: 'right' }}>Orders / yr</th>
-              <th style={{ textAlign: 'right' }}>Every</th>
-              <th>Last order</th><th>Next expected</th>
-              <th>Usually takes</th>
-            </tr></thead>
-            <tbody>
-              {visible.map((r) => {
-                const meta = CADENCE_LABEL[r.cadence_status];
-                const isOpen = open === r.qbo_customer_id;
-                const shown = isOpen ? r.usual_items : r.usual_items.slice(0, 3);
-                return (
-                  <tr key={r.qbo_customer_id} style={{ cursor: r.usual_items.length > 3 ? 'pointer' : undefined }} onClick={() => setOpen(isOpen ? null : r.qbo_customer_id)}>
-                    <td style={{ fontWeight: 600 }}>{r.customer_name ?? r.qbo_customer_id}</td>
-                    <td><span title={meta.hint} style={{ color: meta.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</span>
-                      {r.days_until_due != null && (r.cadence_status === 'due' || r.cadence_status === 'overdue') &&
-                        <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>{r.days_until_due < 0 ? `${-r.days_until_due}d late` : r.days_until_due === 0 ? 'today' : `in ${r.days_until_due}d`}</span>}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.orders_365}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.median_gap_days == null ? '—' : `${Math.round(Number(r.median_gap_days))}d`}</td>
-                    <td>{r.last_order ? fmtDate(r.last_order) : '—'}</td>
-                    <td style={{ fontWeight: r.cadence_status === 'due' ? 700 : 500 }}>{r.next_expected ? fmtDate(r.next_expected) : '—'}</td>
-                    <td style={{ fontSize: 10 }}>
-                      {shown.map((i) => <span key={i.qbo_item_id} style={{ display: 'inline-block', marginRight: 8 }}><strong>{fmtNum(Number(i.usual_qty))}</strong> {i.item_name ?? i.qbo_item_id}</span>)}
-                      {!isOpen && r.usual_items.length > 3 && <span style={{ color: 'var(--ac)' }}>+{r.usual_items.length - 3} more</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Customer</th><th>Status</th>
+                <th style={{ textAlign: 'right' }}>Orders / yr</th>
+                <th style={{ textAlign: 'right' }}>Every</th>
+                <th>Last order</th><th>Next expected</th>
+                <th>Usually takes</th>
+              </tr></thead>
+              <tbody>
+                {visible.map((r) => {
+                  const meta = CADENCE_LABEL[r.cadence_status];
+                  const isOpen = open === r.qbo_customer_id;
+                  const shown = isOpen ? r.usual_items : r.usual_items.slice(0, 3);
+                  return (
+                    <tr key={r.qbo_customer_id} style={{ cursor: r.usual_items.length > 3 ? 'pointer' : undefined }} onClick={() => setOpen(isOpen ? null : r.qbo_customer_id)}>
+                      <td style={{ fontWeight: 600 }}>{r.customer_name ?? r.qbo_customer_id}</td>
+                      <td><span title={meta.hint} style={{ color: meta.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</span>
+                        {r.days_until_due != null && (r.cadence_status === 'due' || r.cadence_status === 'overdue') &&
+                          <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>{r.days_until_due < 0 ? `${-r.days_until_due}d late` : r.days_until_due === 0 ? 'today' : `in ${r.days_until_due}d`}</span>}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.orders_365}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.median_gap_days == null ? '—' : `${Math.round(Number(r.median_gap_days))}d`}</td>
+                      <td>{r.last_order ? fmtDate(r.last_order) : '—'}</td>
+                      <td style={{ fontWeight: r.cadence_status === 'due' ? 700 : 500 }}>{r.next_expected ? fmtDate(r.next_expected) : '—'}</td>
+                      <td style={{ fontSize: 10 }}>
+                        {shown.map((i) => <span key={i.qbo_item_id} style={{ display: 'inline-block', marginRight: 8 }}><strong>{fmtNum(Number(i.usual_qty))}</strong> {i.item_name ?? i.qbo_item_id}</span>)}
+                        {!isOpen && r.usual_items.length > 3 && <span style={{ color: 'var(--ac)' }}>+{r.usual_items.length - 3} more</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>
@@ -1043,34 +1050,36 @@ function FillPlanTab() {
         return (
           <div key={id} className="cd" style={{ padding: 0, marginBottom: 14 }}>
             <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)' }} className="ct">{label}</div>
-            <table style={{ width: '100%' }}>
-              <thead><tr>
-                <th>Week of</th><th>Holiday</th>
-                <th style={{ textAlign: 'right' }}>Last year</th>
-                <th style={{ textAlign: 'right' }}>This year</th>
-                <th style={{ textAlign: 'right' }}>Forecast</th>
-                <th style={{ textAlign: 'right' }}>Weekly par</th>
-              </tr></thead>
-              <tbody>
-                {mine.map((w) => {
-                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
-                  return (
-                    <tr key={w.week_start} style={{ background: rowBg }}>
-                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
-                        {fmtDate(w.week_start)}
-                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
-                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
-                      </td>
-                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{w.last_year_qty == null ? '—' : fmtNum(Number(w.last_year_qty))}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{w.this_year_qty == null ? '—' : fmtNum(Number(w.this_year_qty))}{w.is_current && w.this_year_qty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{w.forecast_qty == null ? '' : fmtNum(Number(w.forecast_qty))}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 700 }}>{w.weekly_par == null ? '' : fmtNum(Number(w.weekly_par))}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%' }}>
+                <thead><tr>
+                  <th>Week of</th><th>Holiday</th>
+                  <th style={{ textAlign: 'right' }}>Last year</th>
+                  <th style={{ textAlign: 'right' }}>This year</th>
+                  <th style={{ textAlign: 'right' }}>Forecast</th>
+                  <th style={{ textAlign: 'right' }}>Weekly par</th>
+                </tr></thead>
+                <tbody>
+                  {mine.map((w) => {
+                    const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                    return (
+                      <tr key={w.week_start} style={{ background: rowBg }}>
+                        <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                          {fmtDate(w.week_start)}
+                          {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                          {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                        </td>
+                        <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{w.last_year_qty == null ? '—' : fmtNum(Number(w.last_year_qty))}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{w.this_year_qty == null ? '—' : fmtNum(Number(w.this_year_qty))}{w.is_current && w.this_year_qty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{w.forecast_qty == null ? '' : fmtNum(Number(w.forecast_qty))}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 700 }}>{w.weekly_par == null ? '' : fmtNum(Number(w.weekly_par))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         );
       })}
@@ -1144,30 +1153,32 @@ function AnomaliesTab() {
       {err && <div className="cd" style={{ padding: 12, color: 'var(--rd)', marginBottom: 14 }}>{err}</div>}
       <div className="cd" style={{ padding: 0 }}>
         {rows.length === 0 ? <div className="ld">Nothing flagged. Run the detector to look again.</div> : (
-          <table style={{ width: '100%' }}>
-            <thead><tr>
-              <th>Kind</th><th>Customer</th><th>Item</th><th>Week</th><th>Evidence</th><th>Status</th><th></th>
-            </tr></thead>
-            <tbody>
-              {rows.map((x) => {
-                const c = x.status === 'excluded' ? (x.kind === 'lapsed_customer' ? 'var(--rd)' : 'var(--am)') : x.status === 'kept' ? 'var(--gn)' : 'var(--mt)';
-                return (
-                  <tr key={x.id} style={{ opacity: x.status === 'resolved' ? 0.6 : 1 }}>
-                    <td style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: c }}>{x.kind.replace('_', ' ').toUpperCase()}</td>
-                    <td style={{ fontWeight: 600 }}>{x.customer_name ?? x.qbo_customer_id}</td>
-                    <td style={{ color: x.item_name ? undefined : 'var(--mt)' }}>{x.item_name ?? 'every planner item'}</td>
-                    <td className="mn">{x.week_start ? fmtDate(x.week_start) : <span style={{ color: 'var(--mt)' }}>all</span>}</td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{describeEvidence(x)}{x.decided_by ? <span> · {x.status} by {x.decided_by}</span> : null}</td>
-                    <td style={{ fontSize: 10, fontWeight: 700, color: c }}>{x.status.toUpperCase()}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {x.status === 'excluded' && <button onClick={() => decide(x, 'kept')} style={btnSecondary()} title="Count this in the baseline after all">KEEP</button>}
-                      {x.status === 'kept' && <button onClick={() => decide(x, 'excluded')} style={btnDanger()} title="Take it out of the baseline again">EXCLUDE</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Kind</th><th>Customer</th><th>Item</th><th>Week</th><th>Evidence</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody>
+                {rows.map((x) => {
+                  const c = x.status === 'excluded' ? (x.kind === 'lapsed_customer' ? 'var(--rd)' : 'var(--am)') : x.status === 'kept' ? 'var(--gn)' : 'var(--mt)';
+                  return (
+                    <tr key={x.id} style={{ opacity: x.status === 'resolved' ? 0.6 : 1 }}>
+                      <td style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: c }}>{x.kind.replace('_', ' ').toUpperCase()}</td>
+                      <td style={{ fontWeight: 600 }}>{x.customer_name ?? x.qbo_customer_id}</td>
+                      <td style={{ color: x.item_name ? undefined : 'var(--mt)' }}>{x.item_name ?? 'every planner item'}</td>
+                      <td className="mn">{x.week_start ? fmtDate(x.week_start) : <span style={{ color: 'var(--mt)' }}>all</span>}</td>
+                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{describeEvidence(x)}{x.decided_by ? <span> · {x.status} by {x.decided_by}</span> : null}</td>
+                      <td style={{ fontSize: 10, fontWeight: 700, color: c }}>{x.status.toUpperCase()}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {x.status === 'excluded' && <button onClick={() => decide(x, 'kept')} style={btnSecondary()} title="Count this in the baseline after all">KEEP</button>}
+                        {x.status === 'kept' && <button onClick={() => decide(x, 'excluded')} style={btnDanger()} title="Take it out of the baseline again">EXCLUDE</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>
@@ -1227,29 +1238,31 @@ function ExcludesTab() {
       {excludes.length === 0 ? (
         <div className="ld">No customers excluded.</div>
       ) : (
-        <table>
-          <thead>
-            <tr><th>Customer</th><th>Reason</th><th>Added</th><th></th></tr>
-          </thead>
-          <tbody>
-            {excludes.map((ex) => {
-              const cust = customers.find((c) => c.qbo_customer_id === ex.qbo_customer_id);
-              return (
-                <tr key={ex.qbo_customer_id}>
-                  <td style={{ fontWeight: 600 }}>{cust?.display_name ?? ex.qbo_customer_id}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{ex.reason ?? '—'}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                    {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
-                      style={btnDanger()} title="Remove this exclude">Remove</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr><th>Customer</th><th>Reason</th><th>Added</th><th></th></tr>
+            </thead>
+            <tbody>
+              {excludes.map((ex) => {
+                const cust = customers.find((c) => c.qbo_customer_id === ex.qbo_customer_id);
+                return (
+                  <tr key={ex.qbo_customer_id}>
+                    <td style={{ fontWeight: 600 }}>{cust?.display_name ?? ex.qbo_customer_id}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{ex.reason ?? '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>
+                      {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
+                        style={btnDanger()} title="Remove this exclude">Remove</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
@@ -464,45 +465,47 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             )}
 
             {formulaId && reqs && reqs.length > 0 && (
-              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase' }}>
-                    <th style={{ padding: '3px 5px' }}>Material</th>
-                    <th style={{ padding: '3px 5px' }}>% by weight</th>
-                    <th style={{ padding: '3px 5px' }}>Per case</th>
-                    <th style={{ padding: '3px 5px' }}>Vendor</th>
-                    <th style={{ padding: '3px 5px' }}>On the BOM?</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reqs.map((r, i) => {
-                    // A recipe line is identified by its material, not by a
-                    // QuickBooks item — rolled-up ingredients have no item at all.
-                    const onBom = recipeLines.some((l) => l.ingredient_id === r.ingredient_id);
-                    return (
-                      <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
-                        <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
-                        <td style={{ padding: '3px 5px' }} className="mn">
-                          {(Number(r.pct_by_weight) * 100).toFixed(4)}%
-                        </td>
-                        <td style={{ padding: '3px 5px' }} className="mn">
-                          {Number(r.qty_per_case).toFixed(5)} {r.recipe_uom}
-                        </td>
-                        <td style={{ padding: '3px 5px', color: r.vendor_name ? undefined : 'var(--am)' }}>
-                          {r.vendor_name ?? (r.is_purchased ? 'no vendor' : '—')}
-                        </td>
-                        <td style={{ padding: '3px 5px' }}>
-                          {!r.is_purchased
-                            ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
-                            : onBom
-                              ? <span style={{ color: 'var(--gn)' }}>yes</span>
-                              : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <PrintableTable>
+                <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase' }}>
+                      <th style={{ padding: '3px 5px' }}>Material</th>
+                      <th style={{ padding: '3px 5px' }}>% by weight</th>
+                      <th style={{ padding: '3px 5px' }}>Per case</th>
+                      <th style={{ padding: '3px 5px' }}>Vendor</th>
+                      <th style={{ padding: '3px 5px' }}>On the BOM?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reqs.map((r, i) => {
+                      // A recipe line is identified by its material, not by a
+                      // QuickBooks item — rolled-up ingredients have no item at all.
+                      const onBom = recipeLines.some((l) => l.ingredient_id === r.ingredient_id);
+                      return (
+                        <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
+                          <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
+                          <td style={{ padding: '3px 5px' }} className="mn">
+                            {(Number(r.pct_by_weight) * 100).toFixed(4)}%
+                          </td>
+                          <td style={{ padding: '3px 5px' }} className="mn">
+                            {Number(r.qty_per_case).toFixed(5)} {r.recipe_uom}
+                          </td>
+                          <td style={{ padding: '3px 5px', color: r.vendor_name ? undefined : 'var(--am)' }}>
+                            {r.vendor_name ?? (r.is_purchased ? 'no vendor' : '—')}
+                          </td>
+                          <td style={{ padding: '3px 5px' }}>
+                            {!r.is_purchased
+                              ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
+                              : onBom
+                                ? <span style={{ color: 'var(--gn)' }}>yes</span>
+                                : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </PrintableTable>
             )}
 
             {basis && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil, RefreshCw, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import {
@@ -333,59 +334,61 @@ export function PoDetailModal({
             expected={editExpected} setExpected={setEditExpected} notes={editNotes} setNotes={setEditNotes} total={editTotal}
           />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={th}>Item</th>
-                <th style={{ ...th, textAlign: 'right', width: 90 }}>Ordered</th>
-                <th style={{ ...th, textAlign: 'right', width: 90 }}>Received</th>
-                <th style={{ ...th, textAlign: 'right', width: 90 }}>Unit cost</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
-                {mode === 'receive' && <th style={{ ...th, textAlign: 'right', width: 130 }}>Receiving now</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((ln) => {
-                const remaining = Number(ln.qty_ordered) - Number(ln.qty_received);
-                const fullyReceived = remaining <= 0;
-                const isReceivable = ln.receivable !== false;
-                return (
-                  <tr key={ln.id} style={{ borderBottom: '1px solid var(--bd)' }}>
-                    <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{itemName(ln.qbo_item_id)}</div>
-                      {ln.description && <div style={{ fontSize: 10, color: 'var(--mt)' }}>{ln.description}</div>}
-                      {!isReceivable && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>service · nothing arrives</div>}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(ln.qty_ordered))}</td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)',
-                      color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
-                      {fmtNum(Number(ln.qty_received))}
-                      {fullyReceived && isReceivable && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
-                    </td>
-                    {/* 4 dp — a can body is $0.328; whole dollars would print $0 */}
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{'$' + Number(ln.unit_cost).toFixed(4)}</td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
-                      {fm(Number(ln.qty_ordered) * Number(ln.unit_cost))}
-                    </td>
-                    {mode === 'receive' && (
-                      <td style={{ ...td, textAlign: 'right' }}>
-                        {!isReceivable || fullyReceived ? (
-                          <span style={{ fontSize: 10, color: 'var(--mt)' }}>{fullyReceived ? 'complete' : '—'}</span>
-                        ) : (
-                          <input
-                            type="number" min={0} max={remaining} step="any"
-                            style={{ ...inp(), width: 100, textAlign: 'right' }}
-                            value={recvQty[ln.id] ?? ''}
-                            onChange={(e) => setRecvQty((cur) => ({ ...cur, [ln.id]: e.target.value }))}
-                          />
-                        )}
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={th}>Item</th>
+                  <th style={{ ...th, textAlign: 'right', width: 90 }}>Ordered</th>
+                  <th style={{ ...th, textAlign: 'right', width: 90 }}>Received</th>
+                  <th style={{ ...th, textAlign: 'right', width: 90 }}>Unit cost</th>
+                  <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
+                  {mode === 'receive' && <th style={{ ...th, textAlign: 'right', width: 130 }}>Receiving now</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((ln) => {
+                  const remaining = Number(ln.qty_ordered) - Number(ln.qty_received);
+                  const fullyReceived = remaining <= 0;
+                  const isReceivable = ln.receivable !== false;
+                  return (
+                    <tr key={ln.id} style={{ borderBottom: '1px solid var(--bd)' }}>
+                      <td style={td}>
+                        <div style={{ fontWeight: 600 }}>{itemName(ln.qbo_item_id)}</div>
+                        {ln.description && <div style={{ fontSize: 10, color: 'var(--mt)' }}>{ln.description}</div>}
+                        {!isReceivable && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>service · nothing arrives</div>}
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(ln.qty_ordered))}</td>
+                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)',
+                        color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
+                        {fmtNum(Number(ln.qty_received))}
+                        {fullyReceived && isReceivable && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
+                      </td>
+                      {/* 4 dp — a can body is $0.328; whole dollars would print $0 */}
+                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{'$' + Number(ln.unit_cost).toFixed(4)}</td>
+                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
+                        {fm(Number(ln.qty_ordered) * Number(ln.unit_cost))}
+                      </td>
+                      {mode === 'receive' && (
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          {!isReceivable || fullyReceived ? (
+                            <span style={{ fontSize: 10, color: 'var(--mt)' }}>{fullyReceived ? 'complete' : '—'}</span>
+                          ) : (
+                            <input
+                              type="number" min={0} max={remaining} step="any"
+                              style={{ ...inp(), width: 100, textAlign: 'right' }}
+                              value={recvQty[ln.id] ?? ''}
+                              onChange={(e) => setRecvQty((cur) => ({ ...cur, [ln.id]: e.target.value }))}
+                            />
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
 
         {/* ── receive form ───────────────────────────────────────────────── */}
@@ -525,53 +528,55 @@ function EditLinesTable({
   const upd = (i: number, patch: Partial<EditLine>) => setLines((cur) => cur.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   return (
     <div style={{ marginBottom: 12 }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-            <th style={th}>Item</th>
-            <th style={th}>Description</th>
-            <th style={{ ...th, textAlign: 'right', width: 100 }}>Qty</th>
-            <th style={{ ...th, textAlign: 'right', width: 110 }}>Unit cost</th>
-            <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
-            <th style={{ ...th, width: 40 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={l.id ?? 'new-' + i} style={{ borderBottom: '1px solid var(--bd)' }}>
-              <td style={td}>
-                {l.id ? (
-                  <div style={{ fontWeight: 600 }}>{itemName(l.qbo_item_id)}
-                    {l.qty_received > 0 && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>{fmtNum(l.qty_received)} already received</div>}
-                  </div>
-                ) : (
-                  <SearchSelect value={l.qbo_item_id} onChange={(id) => upd(i, { qbo_item_id: id })} options={componentItems} placeholder="Type an item…" />
-                )}
-              </td>
-              <td style={td}><input style={{ ...inp(), width: '100%' }} value={l.description} onChange={(e) => upd(i, { description: e.target.value })} /></td>
-              <td style={td}><input type="number" min={l.qty_received || 0.0001} step="any" style={{ ...inp(), width: 90, textAlign: 'right' }} value={l.qty_ordered} onChange={(e) => upd(i, { qty_ordered: e.target.value })} /></td>
-              <td style={td}><input type="number" min={0} step="any" style={{ ...inp(), width: 100, textAlign: 'right' }} value={l.unit_cost} onChange={(e) => upd(i, { unit_cost: e.target.value })} /></td>
-              <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm((Number(l.qty_ordered) || 0) * (Number(l.unit_cost) || 0))}</td>
-              <td style={td}>
-                {l.qty_received > 0 ? (
-                  <span title="stock already arrived on this line — it cannot be removed" style={{ color: 'var(--mt)' }}>·</span>
-                ) : (
-                  <button onClick={() => setLines((cur) => cur.filter((_, j) => j !== i))} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--rd)' }} title="Remove line">
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </td>
+      <PrintableTable>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Item</th>
+              <th style={th}>Description</th>
+              <th style={{ ...th, textAlign: 'right', width: 100 }}>Qty</th>
+              <th style={{ ...th, textAlign: 'right', width: 110 }}>Unit cost</th>
+              <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
+              <th style={{ ...th, width: 40 }} />
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={4} style={{ ...td, textAlign: 'right', color: 'var(--mt)' }}>Subtotal</td>
-            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(total)}</td>
-            <td />
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={l.id ?? 'new-' + i} style={{ borderBottom: '1px solid var(--bd)' }}>
+                <td style={td}>
+                  {l.id ? (
+                    <div style={{ fontWeight: 600 }}>{itemName(l.qbo_item_id)}
+                      {l.qty_received > 0 && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>{fmtNum(l.qty_received)} already received</div>}
+                    </div>
+                  ) : (
+                    <SearchSelect value={l.qbo_item_id} onChange={(id) => upd(i, { qbo_item_id: id })} options={componentItems} placeholder="Type an item…" />
+                  )}
+                </td>
+                <td style={td}><input style={{ ...inp(), width: '100%' }} value={l.description} onChange={(e) => upd(i, { description: e.target.value })} /></td>
+                <td style={td}><input type="number" min={l.qty_received || 0.0001} step="any" style={{ ...inp(), width: 90, textAlign: 'right' }} value={l.qty_ordered} onChange={(e) => upd(i, { qty_ordered: e.target.value })} /></td>
+                <td style={td}><input type="number" min={0} step="any" style={{ ...inp(), width: 100, textAlign: 'right' }} value={l.unit_cost} onChange={(e) => upd(i, { unit_cost: e.target.value })} /></td>
+                <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm((Number(l.qty_ordered) || 0) * (Number(l.unit_cost) || 0))}</td>
+                <td style={td}>
+                  {l.qty_received > 0 ? (
+                    <span title="stock already arrived on this line — it cannot be removed" style={{ color: 'var(--mt)' }}>·</span>
+                  ) : (
+                    <button onClick={() => setLines((cur) => cur.filter((_, j) => j !== i))} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--rd)' }} title="Remove line">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ ...td, textAlign: 'right', color: 'var(--mt)' }}>Subtotal</td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(total)}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </PrintableTable>
       <button onClick={() => setLines((cur) => [...cur, { id: null, qbo_item_id: '', description: '', qty_ordered: '1', unit_cost: '0', qty_received: 0 }])}
         style={{ ...btnSecondary(), marginBottom: 10 }}>
         <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Add line

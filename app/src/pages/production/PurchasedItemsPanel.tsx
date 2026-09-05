@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { AlertTriangle, Package, RefreshCw } from 'lucide-react';
 import { ProductionItem, fetchProductionItems, saveProductionItem } from '../../lib/rawMaterials';
@@ -157,69 +158,71 @@ export function PurchasedItemsPanel({ vendors, onChanged }: {
             </span>
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', minWidth: 980 }}>
-              <thead>
-                <tr style={{ fontSize: 9.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 10px' }}>Item</th>
-                  <th style={{ textAlign: 'left', padding: '6px 10px', width: 230 }}>Buy from</th>
-                  <th style={{ textAlign: 'right', padding: '6px 10px', width: 110 }}>Our price</th>
-                  <th style={{ textAlign: 'left', padding: '6px 10px', width: 70 }}>per</th>
-                  <th style={{ textAlign: 'right', padding: '6px 10px', width: 100 }}>QBO cost</th>
-                  <th style={{ textAlign: 'left', padding: '6px 10px' }}>Note</th>
-                  <th style={{ textAlign: 'center', padding: '6px 10px', width: 60 }}>On</th>
-                  <th style={{ padding: '6px 10px', width: 90 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((r) => {
-                  const d = drafts[r.qbo_item_id] ?? draftOf(r);
-                  const changed = dirty(d, draftOf(r));
-                  const set = (patch: Partial<Draft>) => setDrafts((all) => ({ ...all, [r.qbo_item_id]: { ...d, ...patch } }));
-                  const priceDiffers = r.unit_cost != null && r.qbo_purchase_cost != null && Math.abs(r.unit_cost - r.qbo_purchase_cost) > 0.00001;
-                  return (
-                    <tr key={r.qbo_item_id} style={{ borderTop: '1px solid var(--bd)', opacity: d.active ? 1 : 0.55 }}>
-                      <td style={{ padding: '6px 10px' }}>
-                        <div style={{ fontWeight: 600 }}>{r.item_name}</div>
-                        <div style={{ fontSize: 10, color: 'var(--mt)' }}>
-                          #{r.qbo_item_id} · {r.qbo_type ?? '?'} · on {r.bom_count} BOM{r.bom_count === 1 ? '' : 's'}
-                          {r.qbo_active === false && <span style={{ color: 'var(--am)', marginLeft: 6 }}>inactive in QuickBooks</span>}
-                          {r.qbo_type === 'Inventory' && <span style={{ color: 'var(--am)', marginLeft: 6 }}>inventory item — components should not be</span>}
-                        </div>
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
-                        <SearchSelect value={d.qbo_vendor_id} onChange={(id) => set({ qbo_vendor_id: id })} placeholder="choose a vendor…"
-                          style={{ minWidth: 180, outline: d.qbo_vendor_id ? undefined : '1px solid var(--am)', borderRadius: 4 }}
-                          options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
-                        <input type="number" step="any" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.unit_cost}
-                          placeholder="—" onChange={(e) => set({ unit_cost: e.target.value })} />
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
-                        <input style={inp()} value={d.cost_uom} onChange={(e) => set({ cost_uom: e.target.value })} />
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', color: priceDiffers ? 'var(--am)' : 'var(--mt)' }} className="mn"
-                        title={priceDiffers ? 'QuickBooks carries a different purchase cost. Ours is what the PO uses.' : ''}>
-                        {money(r.qbo_purchase_cost)}
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
-                        <input style={inp()} value={d.cost_note} placeholder="e.g. Quantum sheet Aug 2026"
-                          onChange={(e) => set({ cost_note: e.target.value })} />
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                        <input type="checkbox" checked={d.active} onChange={(e) => set({ active: e.target.checked })} />
-                      </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right' }}>
-                        <button style={{ ...btnPrimary(), opacity: changed ? 1 : 0.4 }} disabled={!changed || saving === r.qbo_item_id}
-                          onClick={() => save(r)}>
-                          {saving === r.qbo_item_id ? 'Saving…' : 'Save'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse', minWidth: 980 }}>
+                <thead>
+                  <tr style={{ fontSize: 9.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 10px' }}>Item</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', width: 230 }}>Buy from</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', width: 110 }}>Our price</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', width: 70 }}>per</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', width: 100 }}>QBO cost</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px' }}>Note</th>
+                    <th style={{ textAlign: 'center', padding: '6px 10px', width: 60 }}>On</th>
+                    <th style={{ padding: '6px 10px', width: 90 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((r) => {
+                    const d = drafts[r.qbo_item_id] ?? draftOf(r);
+                    const changed = dirty(d, draftOf(r));
+                    const set = (patch: Partial<Draft>) => setDrafts((all) => ({ ...all, [r.qbo_item_id]: { ...d, ...patch } }));
+                    const priceDiffers = r.unit_cost != null && r.qbo_purchase_cost != null && Math.abs(r.unit_cost - r.qbo_purchase_cost) > 0.00001;
+                    return (
+                      <tr key={r.qbo_item_id} style={{ borderTop: '1px solid var(--bd)', opacity: d.active ? 1 : 0.55 }}>
+                        <td style={{ padding: '6px 10px' }}>
+                          <div style={{ fontWeight: 600 }}>{r.item_name}</div>
+                          <div style={{ fontSize: 10, color: 'var(--mt)' }}>
+                            #{r.qbo_item_id} · {r.qbo_type ?? '?'} · on {r.bom_count} BOM{r.bom_count === 1 ? '' : 's'}
+                            {r.qbo_active === false && <span style={{ color: 'var(--am)', marginLeft: 6 }}>inactive in QuickBooks</span>}
+                            {r.qbo_type === 'Inventory' && <span style={{ color: 'var(--am)', marginLeft: 6 }}>inventory item — components should not be</span>}
+                          </div>
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <SearchSelect value={d.qbo_vendor_id} onChange={(id) => set({ qbo_vendor_id: id })} placeholder="choose a vendor…"
+                            style={{ minWidth: 180, outline: d.qbo_vendor_id ? undefined : '1px solid var(--am)', borderRadius: 4 }}
+                            options={vendorOptions.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <input type="number" step="any" min={0} style={{ ...inp(), textAlign: 'right' }} value={d.unit_cost}
+                            placeholder="—" onChange={(e) => set({ unit_cost: e.target.value })} />
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <input style={inp()} value={d.cost_uom} onChange={(e) => set({ cost_uom: e.target.value })} />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', color: priceDiffers ? 'var(--am)' : 'var(--mt)' }} className="mn"
+                          title={priceDiffers ? 'QuickBooks carries a different purchase cost. Ours is what the PO uses.' : ''}>
+                          {money(r.qbo_purchase_cost)}
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <input style={inp()} value={d.cost_note} placeholder="e.g. Quantum sheet Aug 2026"
+                            onChange={(e) => set({ cost_note: e.target.value })} />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input type="checkbox" checked={d.active} onChange={(e) => set({ active: e.target.checked })} />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <button style={{ ...btnPrimary(), opacity: changed ? 1 : 0.4 }} disabled={!changed || saving === r.qbo_item_id}
+                            onClick={() => save(r)}>
+                            {saving === r.qbo_item_id ? 'Saving…' : 'Save'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         </div>
       ))}

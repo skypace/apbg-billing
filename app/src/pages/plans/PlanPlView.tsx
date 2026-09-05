@@ -1,4 +1,5 @@
 // Renders a sales plan as a Profit & Loss statement:
+import { PrintableTable } from '../../components/PrintableTable';
 // Revenue rows → Revenue subtotal → COGS rows → COGS subtotal → Gross Margin →
 // OpEx rows → OpEx subtotal → Net Income.
 
@@ -85,71 +86,73 @@ export function PlanPlView({ planId }: { planId: string }) {
   return (
     <div className="cd" style={{ padding: 0 }}>
       <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-        <table style={{ width: '100%' }}>
-          <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-            <tr>
-              <th style={{ minWidth: 220 }}>Line</th>
-              <th style={{ fontSize: 9, color: 'var(--mt)' }}>Account</th>
-              <th style={{ fontSize: 9, color: 'var(--mt)' }}>Item Category</th>
-              {MONTHS_SHORT.map((m) => (
-                <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
-              ))}
-              <th style={{ textAlign: 'right' }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {blocks.map((b) => {
-              if (b.section) {
-                const sec = sections[b.section];
-                if (!sec || sec.rows.length === 0) {
+        <PrintableTable>
+          <table style={{ width: '100%' }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+              <tr>
+                <th style={{ minWidth: 220 }}>Line</th>
+                <th style={{ fontSize: 9, color: 'var(--mt)' }}>Account</th>
+                <th style={{ fontSize: 9, color: 'var(--mt)' }}>Item Category</th>
+                {MONTHS_SHORT.map((m) => (
+                  <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
+                ))}
+                <th style={{ textAlign: 'right' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {blocks.map((b) => {
+                if (b.section) {
+                  const sec = sections[b.section];
+                  if (!sec || sec.rows.length === 0) {
+                    return (
+                      <tr key={b.key}>
+                        <td colSpan={16} style={sectionHeaderStyle()}>{SECTION_LABEL[b.section]}</td>
+                      </tr>
+                    );
+                  }
                   return (
-                    <tr key={b.key}>
-                      <td colSpan={16} style={sectionHeaderStyle()}>{SECTION_LABEL[b.section]}</td>
-                    </tr>
+                    <>
+                      <tr key={b.key + '_h'}>
+                        <td colSpan={16} style={sectionHeaderStyle()}>{SECTION_LABEL[b.section]}</td>
+                      </tr>
+                      {sec.rows.map((r, i) => (
+                        <tr key={b.section + '_r_' + i}>
+                          <td style={{ fontWeight: 600 }}>{r.pl_line}</td>
+                          <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.account_name}</td>
+                          <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.item_category}</td>
+                          {MONTH_KEYS.map((k) => (
+                            <td key={k} className="mn" style={{ textAlign: 'right', fontSize: 10 }}>
+                              {fm(Number(r[k] ?? 0))}
+                            </td>
+                          ))}
+                          <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(Number(r.total ?? 0))}</td>
+                        </tr>
+                      ))}
+                    </>
                   );
                 }
+                // Subtotal row
+                const sub = b.subtotal!;
+                const bgFor = b.highlight === 'gm'  ? 'rgba(91,181,240,0.10)'
+                            : b.highlight === 'net' ? 'rgba(58,167,113,0.12)'
+                            : 'transparent';
+                const colorFor = b.highlight === 'gm' ? 'var(--ac)' : b.highlight === 'net' ? 'var(--gn)' : 'var(--tx)';
                 return (
-                  <>
-                    <tr key={b.key + '_h'}>
-                      <td colSpan={16} style={sectionHeaderStyle()}>{SECTION_LABEL[b.section]}</td>
-                    </tr>
-                    {sec.rows.map((r, i) => (
-                      <tr key={b.section + '_r_' + i}>
-                        <td style={{ fontWeight: 600 }}>{r.pl_line}</td>
-                        <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.account_name}</td>
-                        <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.item_category}</td>
-                        {MONTH_KEYS.map((k) => (
-                          <td key={k} className="mn" style={{ textAlign: 'right', fontSize: 10 }}>
-                            {fm(Number(r[k] ?? 0))}
-                          </td>
-                        ))}
-                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fm(Number(r.total ?? 0))}</td>
-                      </tr>
+                  <tr key={b.key} style={{ background: bgFor }}>
+                    <td colSpan={3} style={{ ...subtotalLabelStyle(), color: colorFor }}>
+                      {b.subtotalLabel}
+                      {b.pct != null ? ` · ${b.pct.toFixed(1)}%` : ''}
+                    </td>
+                    {sub.m.map((v, i) => (
+                      <td key={'m' + i} className="mn" style={subtotalCellStyle(colorFor)}>{fm(v)}</td>
                     ))}
-                  </>
+                    <td className="mn" style={{ ...subtotalCellStyle(colorFor), borderTopWidth: 2 }}>{fm(sub.total)}</td>
+                  </tr>
                 );
-              }
-              // Subtotal row
-              const sub = b.subtotal!;
-              const bgFor = b.highlight === 'gm'  ? 'rgba(91,181,240,0.10)'
-                          : b.highlight === 'net' ? 'rgba(58,167,113,0.12)'
-                          : 'transparent';
-              const colorFor = b.highlight === 'gm' ? 'var(--ac)' : b.highlight === 'net' ? 'var(--gn)' : 'var(--tx)';
-              return (
-                <tr key={b.key} style={{ background: bgFor }}>
-                  <td colSpan={3} style={{ ...subtotalLabelStyle(), color: colorFor }}>
-                    {b.subtotalLabel}
-                    {b.pct != null ? ` · ${b.pct.toFixed(1)}%` : ''}
-                  </td>
-                  {sub.m.map((v, i) => (
-                    <td key={'m' + i} className="mn" style={subtotalCellStyle(colorFor)}>{fm(v)}</td>
-                  ))}
-                  <td className="mn" style={{ ...subtotalCellStyle(colorFor), borderTopWidth: 2 }}>{fm(sub.total)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );

@@ -163,8 +163,9 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
           <input type="text" id="who" placeholder="Full name" autocomplete="name">
         </div>
         <div>
-          <label>Date</label>
-          <input type="text" id="dateShow" disabled>
+          <label for="repackDate">Date of the repack</label>
+          <input type="date" id="repackDate">
+          <span class="muted" id="dateHint"></span>
         </div>
       </div>
 
@@ -172,7 +173,7 @@ details.rp img.sig{background:#fff;border-radius:8px;max-width:260px;height:auto
       <canvas class="pad" id="sigpad" width="700" height="170"></canvas>
       <div class="acts" style="margin-top:10px">
         <button class="btn ghost sm" type="button" onclick="padClear()">Clear signature</button>
-        <span class="muted">Sign with a finger or the mouse. The date and time are stamped automatically.</span>
+        <span class="muted">Sign with a finger or the mouse. Set the date above if this sheet is for an earlier day.</span>
       </div>
 
       <div id="formErr" class="err" style="display:none"></div>
@@ -223,6 +224,14 @@ var SESSION = readSession();
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function n(v){ var x = Number(v); return isFinite(x) ? x : 0; }
+// A plain YYYY-MM-DD is a CALENDAR date. new Date('2026-09-04') parses as UTC
+// midnight, which renders as the 3rd anywhere west of Greenwich — so it is
+// anchored and formatted in UTC rather than round-tripped through local time.
+function fmtDate(d){
+  if(!d) return '';
+  try{ return new Date(String(d)+'T00:00:00Z').toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'}); }
+  catch(e){ return String(d); }
+}
 function fmtDT(iso){ try{ return new Date(iso).toLocaleString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch(e){ return iso; } }
 
 async function api(method, body){
@@ -235,12 +244,30 @@ async function api(method, body){
 }
 
 // ═══ CLOCK / DATE ═══
+// Today in Los Angeles as YYYY-MM-DD. en-CA gives that order directly, which
+// is why it is used rather than assembling it out of a local Date (a browser
+// in another zone would name the wrong day).
+function laToday(){
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
 function tick(){
   var now = new Date();
   var d = now.toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',weekday:'short',month:'short',day:'numeric',year:'numeric'});
   var t = now.toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',minute:'2-digit'});
   var c = document.getElementById('clock'); if(c) c.innerHTML = '<b>'+t+'</b>'+d;
-  var ds = document.getElementById('dateShow'); if(ds) ds.value = d + ' · ' + t + ' (auto)';
+  // The DATE is the operator's (Sky, 2026-09-04: "need to enter dates … not
+  // just whos logged in") — the clock only seeds it the first time and then
+  // leaves it alone, or a sheet being written up for Tuesday would snap back
+  // to today on the next tick. It also drives the QuickBooks adjustment's
+  // TxnDate, so a future date is refused by the form and by fn_repack_create.
+  var dt = document.getElementById('repackDate');
+  if(dt){
+    var todayLA = laToday();
+    dt.max = todayLA;
+    if(!dt.value) dt.value = todayLA;
+    var hint = document.getElementById('dateHint');
+    if(hint) hint.textContent = dt.value === todayLA ? 'Today · ' + t : 'Backdated — QuickBooks gets this date';
+  }
 }
 tick(); setInterval(tick, 20000);
 
@@ -397,6 +424,7 @@ function resetForm(){
   document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
   document.getElementById('varietyMade').value='';
   document.getElementById('notes').value='';
+  document.getElementById('repackDate').value = laToday(); tick();
   padClear(); showErr(''); document.getElementById('formOk').style.display='none'; document.getElementById('formWarn').style.display='none';
   recalc();
 }
@@ -409,10 +437,14 @@ async function submitSheet(){
   var b = binState();
   if(b.short.length) return showErr('The bin cannot make '+b.packs+' variety packs: '+b.short.map(function(x){ return 'move '+x.cases+' more case'+(x.cases===1?'':'s')+' of '+x.label; }).join(', ')+'.');
   if(!hasInk) return showErr('Sign the sheet before saving it.');
+  var when = (document.getElementById('repackDate').value || '').trim();
+  if(!when) return showErr('Put the date the repack was done.');
+  if(when > laToday()) return showErr('The repack date cannot be in the future — this sheet records work that has been done.');
   var btn = document.getElementById('submitBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try{
     var out = await api('POST', { action:'create', lines:lines, signed_by_name:who, signature_data: pad.toDataURL('image/png'),
-                                  notes: document.getElementById('notes').value.trim() || null });
+                                  notes: document.getElementById('notes').value.trim() || null,
+                                  repack_date: when });
     var rp = out.repack || {}, q = out.qbo || {};
     applause();
     var ok = document.getElementById('formOk');
@@ -431,7 +463,7 @@ async function submitSheet(){
     }
     document.querySelectorAll('#rows input, #binRows input').forEach(function(i){ i.value=''; });
     document.getElementById('varietyMade').value='';
-    document.getElementById('notes').value=''; padClear(); recalc();
+    document.getElementById('notes').value=''; document.getElementById('repackDate').value = laToday(); padClear(); tick(); recalc();
     await load(false);
   }catch(e){ showErr(e.message || String(e)); }
   finally{ btn.disabled=false; btn.textContent='Save repack & post to QuickBooks'; }
@@ -490,7 +522,7 @@ function renderRecent(){
     if(!r.voided_at) acts += '<button class="btn sm danger" onclick="voidSheet(\''+r.id+'\',\''+esc(r.repack_number)+'\')">Void…</button>';
     return '<details class="rp'+(r.voided_at?' void':'')+'"><summary>'
       + '<span class="num">'+esc(r.repack_number)+'</span>'
-      + '<span class="who">'+esc(fmtDT(r.created_at))+' · '+esc(r.signed_by_name)+'</span>'
+      + '<span class="who">'+esc(fmtDate(r.repack_date))+' · '+esc(r.signed_by_name)+'</span>'
       + '<span class="who">'+[cases>0 ? cases+' case'+(cases===1?'':'s')+' \u2192 '+packs+' pack'+(packs===1?'':'s') : null,
                              toBin>0 ? toBin+' case'+(toBin===1?'':'s')+' \u2192 bin' : null,
                              variety>0 ? variety+' variety' : null].filter(Boolean).join(' · ')+'</span>'

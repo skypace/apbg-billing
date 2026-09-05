@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
@@ -562,58 +563,60 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, in
               </div>
             )}
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={cellTh}>Tank</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>A full tank makes</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Add to fill it</th>
-                <th style={cellTh}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {plan.tanks.map((tk) => (
-                <tr key={tk.tank_gal} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={cellTd}>
-                    <strong>{fmtNum(tk.tank_gal)} gal</strong>
-                    {plan.recommended_tank === tk.tank_gal && (
-                      <span style={{
-                        marginLeft: 8, fontSize: 9, fontWeight: 700, color: 'var(--gn)',
-                        border: '1px solid var(--gn)', borderRadius: 12, padding: '1px 7px',
-                      }}>SMALLEST THAT HOLDS THIS RUN</span>
-                    )}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtNum(tk.cases_from_tank)} cases
-                    {plan.dilution_ratio > 0 && (
-                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>
-                        {fmtNum(tk.concentrate_gal)} gal conc.
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {tk.fits && tk.extra_cases > 0
-                      ? (
-                        <button
-                          onClick={() => setQty(String(tk.cases_from_tank))}
-                          style={{
-                            background: 'transparent', border: 'none', cursor: 'pointer',
-                            color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', padding: 0,
-                          }}
-                          title={'Set the order to ' + tk.cases_from_tank + ' cases'}
-                        >+{fmtNum(tk.extra_cases)}</button>
-                      )
-                      : <span style={{ color: 'var(--mt)' }}>—</span>}
-                  </td>
-                  <td style={{ ...cellTd, color: 'var(--mt)', fontSize: 11 }}>
-                    {tk.fits
-                      ? fmtNum(tk.unused_gal) + ' gal of capacity unused as ordered'
-                      : 'too small — over by ' + fmtNum(tk.over_by_gal) + ' gal'}
-                  </td>
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={cellTh}>Tank</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>A full tank makes</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Add to fill it</th>
+                  <th style={cellTh}></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {plan.tanks.map((tk) => (
+                  <tr key={tk.tank_gal} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={cellTd}>
+                      <strong>{fmtNum(tk.tank_gal)} gal</strong>
+                      {plan.recommended_tank === tk.tank_gal && (
+                        <span style={{
+                          marginLeft: 8, fontSize: 9, fontWeight: 700, color: 'var(--gn)',
+                          border: '1px solid var(--gn)', borderRadius: 12, padding: '1px 7px',
+                        }}>SMALLEST THAT HOLDS THIS RUN</span>
+                      )}
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {fmtNum(tk.cases_from_tank)} cases
+                      {plan.dilution_ratio > 0 && (
+                        <div style={{ color: 'var(--mt)', fontSize: 10 }}>
+                          {fmtNum(tk.concentrate_gal)} gal conc.
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {tk.fits && tk.extra_cases > 0
+                        ? (
+                          <button
+                            onClick={() => setQty(String(tk.cases_from_tank))}
+                            style={{
+                              background: 'transparent', border: 'none', cursor: 'pointer',
+                              color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', padding: 0,
+                            }}
+                            title={'Set the order to ' + tk.cases_from_tank + ' cases'}
+                          >+{fmtNum(tk.extra_cases)}</button>
+                        )
+                        : <span style={{ color: 'var(--mt)' }}>—</span>}
+                    </td>
+                    <td style={{ ...cellTd, color: 'var(--mt)', fontSize: 11 }}>
+                      {tk.fits
+                        ? fmtNum(tk.unused_gal) + ' gal of capacity unused as ordered'
+                        : 'too small — over by ' + fmtNum(tk.over_by_gal) + ' gal'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
           <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
             Tank sizes come from the formula, so a flavour that cannot run in a given tank simply does not
             list it. Clicking a <span style={{ color: 'var(--ac)' }}>+n</span> sets the order to a full tank.
@@ -636,40 +639,42 @@ function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, in
             converts these to whole vendor packs — you cannot buy 0.4 of a bag — so the ordered figure on the
             purchase order rounds up from what is shown here.
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={cellTh}>Sub-item</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
-                <th style={cellTh}>Vendor</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
-              </tr>
-            </thead>
-            <tbody>
-              {materialsPreview.map((m) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={cellTd}><strong>{m.label}</strong></td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtNum(m.required)} {m.uom}
-                  </td>
-                  <td style={cellTd}>{m.vendor ?? <span style={{ color: 'var(--am)' }}>unassigned</span>}</td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                    {m.cost == null ? '—' : '$' + Number(m.cost).toFixed(4)}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {m.ext == null ? '—' : fm(m.ext)}
-                  </td>
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={cellTh}>Sub-item</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+                  <th style={cellTh}>Vendor</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={4} style={{ ...cellTd, textAlign: 'right', fontWeight: 700 }}>Estimated materials</td>
-                <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(previewTotal)}</td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {materialsPreview.map((m) => (
+                  <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={cellTd}><strong>{m.label}</strong></td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {fmtNum(m.required)} {m.uom}
+                    </td>
+                    <td style={cellTd}>{m.vendor ?? <span style={{ color: 'var(--am)' }}>unassigned</span>}</td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                      {m.cost == null ? '—' : '$' + Number(m.cost).toFixed(4)}
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {m.ext == null ? '—' : fm(m.ext)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={4} style={{ ...cellTd, textAlign: 'right', fontWeight: 700 }}>Estimated materials</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(previewTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </PrintableTable>
         </div>
       )}
 
@@ -864,28 +869,30 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               )}
             </div>
             {lots && lots.length > 0 ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--bd)', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Lot</th>
-                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Born on</th>
-                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Best by</th>
-                    <th style={{ textAlign: 'right', padding: '4px 6px' }}>Cases</th>
-                    <th style={{ textAlign: 'left', padding: '4px 6px' }}>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lots.map((l) => (
-                    <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={{ padding: '4px 6px', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{l.lot_code}</td>
-                      <td style={{ padding: '4px 6px' }}>{l.born_on_date ?? '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{l.best_by_date ?? '—'}</td>
-                      <td style={{ padding: '4px 6px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(l.qty))}</td>
-                      <td style={{ padding: '4px 6px', color: 'var(--mt)' }}>{l.notes ?? ''}</td>
+              <PrintableTable>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--bd)', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <th style={{ textAlign: 'left', padding: '4px 6px' }}>Lot</th>
+                      <th style={{ textAlign: 'left', padding: '4px 6px' }}>Born on</th>
+                      <th style={{ textAlign: 'left', padding: '4px 6px' }}>Best by</th>
+                      <th style={{ textAlign: 'right', padding: '4px 6px' }}>Cases</th>
+                      <th style={{ textAlign: 'left', padding: '4px 6px' }}>Notes</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {lots.map((l) => (
+                      <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '4px 6px', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{l.lot_code}</td>
+                        <td style={{ padding: '4px 6px' }}>{l.born_on_date ?? '—'}</td>
+                        <td style={{ padding: '4px 6px' }}>{l.best_by_date ?? '—'}</td>
+                        <td style={{ padding: '4px 6px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(l.qty))}</td>
+                        <td style={{ padding: '4px 6px', color: 'var(--mt)' }}>{l.notes ?? ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </PrintableTable>
             ) : (
               <div style={{ fontSize: 11, color: 'var(--mt)' }}>
                 No lots recorded yet. Enter them with the yield, or before shipping — the finished-goods BOL prints one line per lot so the dock and a recall can both read which cases came from which batch.
@@ -900,48 +907,50 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             <ShoppingCart size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
             Materials on this work order (totals for {fmtNum(Number(wo.qty_to_produce))} units, by vendor)
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={cellTh}>Sub-item</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
-                <th style={cellTh}>Vendor</th>
-                <th style={cellTh}>PO</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(materials ?? []).map((m) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={cellTd}><strong>{m.item_name ?? m.component_qbo_item_id}</strong></td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {fmtNum(Number(m.required_qty))} {m.uom}
-                  </td>
-                  <td style={cellTd}>
-                    {m.po_id
-                      ? (m.vendor_name ?? m.qbo_vendor_id)
-                      : ['draft', 'ordered'].includes(wo.status)
-                        ? <SearchSelect value={m.qbo_vendor_id ?? ''} placeholder="Type a vendor…" style={{ minWidth: 180 }}
-                            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
-                            onChange={(id) => run('Vendor updated', () => setWoMaterialVendor(m.id, id || null))} />
-                        : (m.vendor_name ?? <span style={{ color: 'var(--mt)' }}>—</span>)}
-                  </td>
-                  <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)', fontSize: 10.5 }}>
-                    {m.po_id
-                      ? <span style={{ color: 'var(--gn)' }}>✓ on PO</span>
-                      : <span style={{ color: 'var(--mt)' }}>—</span>}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                    {m.unit_cost_est == null ? '—' : '$' + Number(m.unit_cost_est).toFixed(4)}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {m.unit_cost_est == null ? '—' : fm(Number(m.required_qty) * Number(m.unit_cost_est))}
-                  </td>
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={cellTh}>Sub-item</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+                  <th style={cellTh}>Vendor</th>
+                  <th style={cellTh}>PO</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(materials ?? []).map((m) => (
+                  <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={cellTd}><strong>{m.item_name ?? m.component_qbo_item_id}</strong></td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {fmtNum(Number(m.required_qty))} {m.uom}
+                    </td>
+                    <td style={cellTd}>
+                      {m.po_id
+                        ? (m.vendor_name ?? m.qbo_vendor_id)
+                        : ['draft', 'ordered'].includes(wo.status)
+                          ? <SearchSelect value={m.qbo_vendor_id ?? ''} placeholder="Type a vendor…" style={{ minWidth: 180 }}
+                              options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))}
+                              onChange={(id) => run('Vendor updated', () => setWoMaterialVendor(m.id, id || null))} />
+                          : (m.vendor_name ?? <span style={{ color: 'var(--mt)' }}>—</span>)}
+                    </td>
+                    <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)', fontSize: 10.5 }}>
+                      {m.po_id
+                        ? <span style={{ color: 'var(--gn)' }}>✓ on PO</span>
+                        : <span style={{ color: 'var(--mt)' }}>—</span>}
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                      {m.unit_cost_est == null ? '—' : '$' + Number(m.unit_cost_est).toFixed(4)}
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {m.unit_cost_est == null ? '—' : fm(Number(m.required_qty) * Number(m.unit_cost_est))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
           {wo.po_count != null && wo.po_count > 0 && (
             <div style={{ marginTop: 6, fontSize: 11, color: 'var(--mt)' }}>
               {wo.po_count} purchase order{wo.po_count === 1 ? '' : 's'} linked
@@ -957,21 +966,23 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               <Scale size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
               Batching sheet · {formula.name} rev {formula.doc_rev} @ {fmtNum(batchGal)} gal
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <tbody>
-                {batchLines.map((b, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={cellTd}>{b.ingredient_name}</td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                      {(b.pct_by_weight * 100).toFixed(4)}%
-                    </td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {b.target_weight_lbs.toLocaleString(undefined, { maximumFractionDigits: 2 })} {b.uom}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <tbody>
+                  {batchLines.map((b, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={cellTd}>{b.ingredient_name}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                        {(b.pct_by_weight * 100).toFixed(4)}%
+                      </td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                        {b.target_weight_lbs.toLocaleString(undefined, { maximumFractionDigits: 2 })} {b.uom}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
             {Object.keys(formula.qc_specs ?? {}).length > 0 && (
               <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--mt)' }}>
                 QC: {Object.entries(formula.qc_specs).map(([k, v]) => `${k} ${v}`).join(' · ')}
