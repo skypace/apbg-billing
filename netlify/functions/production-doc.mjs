@@ -203,7 +203,7 @@ async function buildBol(id) {
   const meta = await company();
   return {
     payload: {
-      ...meta, bolNumber: t.bol_number, status: t.status, issued: t.created_at, shipDate: t.ship_date,
+      ...meta, bolNumber: t.bol_number, status: t.status, issued: t.transfer_date || t.created_at, shipDate: t.ship_date,
       shipper: locationBlock(from), consignee: locationBlock(to),
       carrier: t.carrier, pro: t.pro_number, tracking: t.tracking_number, freightTerms: t.freight_terms,
       weight: t.total_weight_lbs, pallets: t.total_pallets, declaredValue: t.declared_value_usd,
@@ -382,8 +382,35 @@ export async function handler(event) {
       if (to.length + cc.length > 10) return json({ error: 'at most 10 recipients' }, 400);
       const message = body.message ? String(body.message).slice(0, 2000) : null;
 
-      const built = await build(kind, { id: body.id, wo_id: body.wo_id, gal: body.gal });
-      const bytes = await built.render(built.payload);
+      // ⚠ A failure BUILDING or RENDERING the document used to fall through to
+      // the outer catch, which writes no row — so a send that never happened
+      // left nothing behind at all, and the operator's report was "the email
+      // doesn't work" with nothing in production_doc_sends to look at. Record
+      // the attempt with its reason instead: every press of Email… now leaves
+      // either a sent row or a failed one saying why.
+      let built, bytes;
+      try {
+        built = await build(kind, { id: body.id, wo_id: body.wo_id, gal: body.gal });
+        bytes = await built.render(built.payload);
+      } catch (e) {
+        const why = String(e.message || e).slice(0, 500);
+        // ref_id and subject are NOT NULL on the table, so a row is only
+        // written when there is a document to hang it on. Without one the
+        // error still goes back to the operator, which is the part that
+        // matters — an insert that throws in here would be a second silence.
+        const ref = body.id || body.wo_id || null;
+        if (ref) {
+          await sbInsert('production_doc_sends', {
+            doc_kind: kind, ref_id: ref, ref_label: null,
+            recipients: to, cc,
+            subject: body.subject ? String(body.subject).slice(0, 200) : `${kind} — could not be built`,
+            message, storage_path: null,
+            sent_by: auth.user?.id || null, sent_by_email: auth.user?.email || null,
+            status: 'failed', resend_id: null, error: `could not build the document: ${why}`,
+          }).catch((le) => console.warn('[production-doc] log failed:', le.message));
+        }
+        return json({ error: `Could not build the document: ${why}` }, 502);
+      }
       const title = kind === 'po' ? 'Purchase Order' : kind === 'bol' ? 'Bill of Lading' : 'Batching Sheet';
       const subject = body.subject ? String(body.subject).slice(0, 200) : `${title} ${built.label} — ${built.payload.company.name.split(' Dba ')[0]}`;
 

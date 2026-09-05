@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { UploadCloud } from 'lucide-react';
 import { Plus, Trash2, UserPlus } from 'lucide-react';
 import {
@@ -227,87 +228,89 @@ export function SalesRepsEditor() {
         {reps.length === 0 ? (
           <div className="ld">No reps yet. Click + New rep to add one.</div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th style={{ textAlign: 'right' }}>Sort</th>
-                <th>Active</th>
-                <th style={{ textAlign: 'right' }}>Customers</th>
-                <th style={{ textAlign: 'right' }} />
-              </tr>
-            </thead>
-            <tbody>
-              {reps.map((r) => {
-                const count = assignments.filter((a) => a.rep_code === r.rep_code).length;
-                return (
-                  <tr key={r.rep_code}>
-                    <td className="mn" style={{ fontWeight: 700, color: 'var(--ac)' }}>
-                      {r.rep_code}
-                    </td>
-                    <td style={{ fontWeight: 600 }}>
-                      <input
-                        type="text"
-                        defaultValue={r.name}
-                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
-                          if (e.target.value.trim() !== r.name) {
-                            patchRep(r.rep_code, { name: e.target.value.trim() });
-                          }
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--tx)',
-                          fontWeight: 600,
-                          fontSize: 12,
-                          width: '100%',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>
-                      <input
-                        type="number"
-                        defaultValue={r.sort_order}
-                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
-                          const v = Number(e.target.value) || 100;
-                          if (v !== r.sort_order) patchRep(r.rep_code, { sort_order: v });
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--mt)',
-                          fontSize: 11,
-                          width: 50,
-                          textAlign: 'right',
-                          fontFamily: 'var(--ff-mono)',
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={r.is_active}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => patchRep(r.rep_code, { is_active: e.target.checked })}
-                        style={{ accentColor: 'var(--ac)' }}
-                      />
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{count}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        onClick={() => removeRep(r)}
-                        className="tb-btn"
-                        style={{ color: 'var(--rd)', borderColor: 'var(--rd)' }}
-                      >
-                        <Trash2 size={12} strokeWidth={2.2} aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th style={{ textAlign: 'right' }}>Sort</th>
+                  <th>Active</th>
+                  <th style={{ textAlign: 'right' }}>Customers</th>
+                  <th style={{ textAlign: 'right' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {reps.map((r) => {
+                  const count = assignments.filter((a) => a.rep_code === r.rep_code).length;
+                  return (
+                    <tr key={r.rep_code}>
+                      <td className="mn" style={{ fontWeight: 700, color: 'var(--ac)' }}>
+                        {r.rep_code}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>
+                        <input
+                          type="text"
+                          defaultValue={r.name}
+                          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                            if (e.target.value.trim() !== r.name) {
+                              patchRep(r.rep_code, { name: e.target.value.trim() });
+                            }
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--tx)',
+                            fontWeight: 600,
+                            fontSize: 12,
+                            width: '100%',
+                            fontFamily: 'inherit',
+                          }}
+                        />
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>
+                        <input
+                          type="number"
+                          defaultValue={r.sort_order}
+                          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                            const v = Number(e.target.value) || 100;
+                            if (v !== r.sort_order) patchRep(r.rep_code, { sort_order: v });
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--mt)',
+                            fontSize: 11,
+                            width: 50,
+                            textAlign: 'right',
+                            fontFamily: 'var(--ff-mono)',
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={r.is_active}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => patchRep(r.rep_code, { is_active: e.target.checked })}
+                          style={{ accentColor: 'var(--ac)' }}
+                        />
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{count}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() => removeRep(r)}
+                          className="tb-btn"
+                          style={{ color: 'var(--rd)', borderColor: 'var(--rd)' }}
+                        >
+                          <Trash2 size={12} strokeWidth={2.2} aria-hidden="true" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
 
@@ -345,48 +348,50 @@ export function SalesRepsEditor() {
           <div className="ld">{search ? 'No customers match.' : 'Loading customers…'}</div>
         ) : (
           <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Customer</th>
-                  <th style={{ width: 220 }}>Rep</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCustomers.map((c) => {
-                  const code = assignByCustomer.get(c.qbo_customer_id) ?? '';
-                  const rep = code ? repByCode.get(code) : null;
-                  return (
-                    <tr key={c.qbo_customer_id}>
-                      <td style={{ fontWeight: 600, maxWidth: 460 }}>
-                        {c.display_name}
-                      </td>
-                      <td>
-                        <select
-                          value={code}
-                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => assign(c.qbo_customer_id, e.target.value)}
-                          className="tb-select"
-                          style={{
-                            width: '100%',
-                            color: rep ? 'var(--ac)' : 'var(--mt)',
-                            fontWeight: rep ? 600 : 400,
-                          }}
-                        >
-                          <option value="">— unassigned —</option>
-                          {(reps ?? [])
-                            .filter((r) => r.is_active || r.rep_code === code)
-                            .map((r) => (
-                              <option key={r.rep_code} value={r.rep_code}>
-                                {r.rep_code} · {r.name}
-                              </option>
-                            ))}
-                        </select>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                  <tr>
+                    <th>Customer</th>
+                    <th style={{ width: 220 }}>Rep</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCustomers.map((c) => {
+                    const code = assignByCustomer.get(c.qbo_customer_id) ?? '';
+                    const rep = code ? repByCode.get(code) : null;
+                    return (
+                      <tr key={c.qbo_customer_id}>
+                        <td style={{ fontWeight: 600, maxWidth: 460 }}>
+                          {c.display_name}
+                        </td>
+                        <td>
+                          <select
+                            value={code}
+                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => assign(c.qbo_customer_id, e.target.value)}
+                            className="tb-select"
+                            style={{
+                              width: '100%',
+                              color: rep ? 'var(--ac)' : 'var(--mt)',
+                              fontWeight: rep ? 600 : 400,
+                            }}
+                          >
+                            <option value="">— unassigned —</option>
+                            {(reps ?? [])
+                              .filter((r) => r.is_active || r.rep_code === code)
+                              .map((r) => (
+                                <option key={r.rep_code} value={r.rep_code}>
+                                  {r.rep_code} · {r.name}
+                                </option>
+                              ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         )}
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon } from 'lucide-react';
@@ -386,75 +387,77 @@ function CreatePoForm({
       <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
         Lines
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-            <th style={th}>Item</th>
-            <th style={{ ...th, width: 100, textAlign: 'right' }}>Qty</th>
-            <th style={{ ...th, width: 110, textAlign: 'right' }}>Unit cost</th>
-            <th style={{ ...th, width: 110, textAlign: 'right' }}>Extended</th>
-            <th style={{ ...th, width: 200 }}>Description</th>
-            <th style={{ ...th, width: 28 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => {
-            const qty = Number(l.qty_ordered || 0);
-            const cost = Number(l.unit_cost || 0);
-            return (
-              <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
-                <td style={td}>
-                  <SearchSelect style={{ width: '100%' }} value={l.qbo_item_id} options={componentItems} placeholder="Type an item…"
-                    onChange={(id) => {
-                      const it = id ? itemLookup.byId.get(id) : null;
-                      updateLine(i, {
-                        qbo_item_id: id,
-                        unit_cost: l.unit_cost || (it?.purchase_cost ? String(it.purchase_cost) : ''),
-                      });
-                    }} />
-                </td>
-                <td style={{ ...td, textAlign: 'right' }}>
-                  <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                    value={l.qty_ordered} onChange={(e) => updateLine(i, { qty_ordered: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'right' }}>
-                  <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                    value={l.unit_cost} onChange={(e) => updateLine(i, { unit_cost: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(qty * cost)}</td>
-                <td style={td}>
-                  <input type="text" style={{ ...inp(), width: '100%' }} placeholder="—"
-                    value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'center' }}>
-                  {lines.length > 1 && (
-                    <button onClick={() => removeLine(i)} title="Remove" style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: 2,
-                    }}>
-                      <XIcon size={13} />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td style={{ ...td, fontSize: 10, color: 'var(--mt)' }}>
-              <button onClick={addLine} style={{
-                background: 'transparent', border: '1px dashed var(--bd)', cursor: 'pointer',
-                color: 'var(--mt)', padding: '4px 10px', borderRadius: 4, fontSize: 10,
-              }}>
-                <Plus size={11} style={{ marginRight: 4, verticalAlign: -1 }} /> add line
-              </button>
-            </td>
-            <td colSpan={2} style={{ ...td, textAlign: 'right', color: 'var(--mt)', fontSize: 10 }}>Subtotal</td>
-            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700, color: 'var(--tx)' }}>{fm(subtotal)}</td>
-            <td colSpan={2} />
-          </tr>
-        </tfoot>
-      </table>
+      <PrintableTable>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Item</th>
+              <th style={{ ...th, width: 100, textAlign: 'right' }}>Qty</th>
+              <th style={{ ...th, width: 110, textAlign: 'right' }}>Unit cost</th>
+              <th style={{ ...th, width: 110, textAlign: 'right' }}>Extended</th>
+              <th style={{ ...th, width: 200 }}>Description</th>
+              <th style={{ ...th, width: 28 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => {
+              const qty = Number(l.qty_ordered || 0);
+              const cost = Number(l.unit_cost || 0);
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <td style={td}>
+                    <SearchSelect style={{ width: '100%' }} value={l.qbo_item_id} options={componentItems} placeholder="Type an item…"
+                      onChange={(id) => {
+                        const it = id ? itemLookup.byId.get(id) : null;
+                        updateLine(i, {
+                          qbo_item_id: id,
+                          unit_cost: l.unit_cost || (it?.purchase_cost ? String(it.purchase_cost) : ''),
+                        });
+                      }} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
+                      value={l.qty_ordered} onChange={(e) => updateLine(i, { qty_ordered: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
+                      value={l.unit_cost} onChange={(e) => updateLine(i, { unit_cost: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(qty * cost)}</td>
+                  <td style={td}>
+                    <input type="text" style={{ ...inp(), width: '100%' }} placeholder="—"
+                      value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {lines.length > 1 && (
+                      <button onClick={() => removeLine(i)} title="Remove" style={{
+                        background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: 2,
+                      }}>
+                        <XIcon size={13} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={{ ...td, fontSize: 10, color: 'var(--mt)' }}>
+                <button onClick={addLine} style={{
+                  background: 'transparent', border: '1px dashed var(--bd)', cursor: 'pointer',
+                  color: 'var(--mt)', padding: '4px 10px', borderRadius: 4, fontSize: 10,
+                }}>
+                  <Plus size={11} style={{ marginRight: 4, verticalAlign: -1 }} /> add line
+                </button>
+              </td>
+              <td colSpan={2} style={{ ...td, textAlign: 'right', color: 'var(--mt)', fontSize: 10 }}>Subtotal</td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700, color: 'var(--tx)' }}>{fm(subtotal)}</td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </PrintableTable>
 
       <LField label="Notes">
         <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}

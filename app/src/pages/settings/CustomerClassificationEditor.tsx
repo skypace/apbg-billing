@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import {
   Channel,
   CustomerClassificationRow,
@@ -164,28 +165,30 @@ export function CustomerClassificationEditor() {
       ) : (
         <div className="cd" style={{ padding: 0 }}>
           <div style={{ maxHeight: '64vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Customer</th>
-                  <th style={{ textAlign: 'right' }}>YTD Rev</th>
-                  <th style={{ textAlign: 'right' }}>Inv</th>
-                  <th>Channels</th>
-                  <th>Primary</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <CustomerRow
-                    key={r.qbo_customer_id}
-                    row={r}
-                    channelOpts={channelOpts}
-                    isSaving={!!saving[r.qbo_customer_id]}
-                    onSave={saveChannels}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                  <tr>
+                    <th>Customer</th>
+                    <th style={{ textAlign: 'right' }}>YTD Rev</th>
+                    <th style={{ textAlign: 'right' }}>Inv</th>
+                    <th>Channels</th>
+                    <th>Primary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <CustomerRow
+                      key={r.qbo_customer_id}
+                      row={r}
+                      channelOpts={channelOpts}
+                      isSaving={!!saving[r.qbo_customer_id]}
+                      onSave={saveChannels}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         </div>
       )}

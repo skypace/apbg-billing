@@ -1142,3 +1142,93 @@ Three things are worth knowing before touching it:
    was BOUGHT rather than what was CONSUMED. For a first run they are the same
    number; once pack sizes exist they will differ by the remainder of the last
    bag, which is a real cost and arguably belongs in the batch anyway.
+
+---
+
+## Dates a person sets, and print as a report (2026-09-04)
+
+Two asks from the same message, both about paperwork rather than stock.
+
+### The transfer and the repack sheet carry their own date
+
+> *"the tranfers also dont have a date, they use the system date. I need a date
+> that can be changed. I also need that on the repack screens. need to enter
+> dates or change names on repack screen not just whos logged in."* — Sky
+
+A transfer had three dates and **none of them was the operator's to set**. The
+document date was `created_at`, i.e. when the row happened to be typed, and the
+ship/received dates were stamped `CURRENT_DATE` by the RPCs because the UI
+called them with no date at all. Paperwork written up on Monday for a Friday
+load therefore read Monday — on the BOL, in the list, and in the ledger's own
+history. The repack sheet was the same shape: `repack_orders.repack_date`
+already existed and already drove the QuickBooks adjustment's `TxnDate`, and
+`fn_repack_create` simply never set it, so it fell to the column default.
+
+- **`ops.inventory_transfers.transfer_date`** — the DOCUMENT date, defaulting to
+  today, backfilled from `created_at` for every existing row, printed as
+  *Issued* on the BOL and now the list's Issued column and default sort.
+- **`ops.fn_set_transfer_dates(id, transfer, ship, received)`** — set any of the
+  three, before or after the fact, from the transfer's detail panel.
+- **`fn_repack_create` gains `p_repack_date`** — the sheet's date box, which is
+  what QuickBooks receives. The signer's NAME was always editable (prefilled
+  from the login, never locked to it); the date was the gap.
+- Ship and Receive now **ask** for the date instead of assuming today, because a
+  load that went out on Friday is routinely marked shipped on Monday.
+
+⚠ **Changing a date corrects PAPERWORK, never the ledger.** A movement is
+stamped when it is POSTED and history is not edited — that is the same rule the
+reconcile follows. `fn_set_transfer_dates` says so, and it **refuses a ship or
+received date on a transfer that has not reached that state**, so a date can
+never assert an event that did not happen. `fn_repack_create` refuses a date in
+the FUTURE for the mirror-image reason: a sheet records work that has been done,
+and a future date would post a QuickBooks adjustment into a period that has not
+happened.
+
+⚠ **`fn_create_transfer` did NOT gain a date argument, deliberately.** It has
+two live overloads (6-arg and 12-arg), so adding a defaulted parameter to either
+makes a call naming the shorter set match both, and Postgres refuses it as
+ambiguous (42725) — which is exactly what happened to this session's own first
+attempt at raising a transfer. The create posts, then `fn_set_transfer_dates`
+sets the date; one function writes a date, and it is the same one the
+edit-after-the-fact button uses.
+
+⚠ **`fn_repack_create` is migrated by an anchor-checked read-modify-write of the
+LIVE definition**, not a pasted body — the `fn_items_master` /
+`fn_sync_health_extra` pattern. It is 150 lines of ledger and variety-bin
+arithmetic that four migrations have each edited; re-typing it to add one
+parameter is how one of those edits silently reverts. Six anchors, each
+asserted to match exactly once, or the migration raises and changes nothing.
+The 4-argument signature is DROPPED in the same migration for the ambiguity
+reason above; PostgREST calls it by named arguments, so `repack.mjs` keeps
+resolving.
+
+Migration `20260904k`. Verified by applying the whole thing inside a transaction
+and rolling it back: a backdated sheet stored `2026-09-01`, a sheet with no date
+given stored today, a future date was refused by name, and
+`fn_set_transfer_dates` returned the new date — after which the live function
+was still the 4-argument one and no row had changed.
+
+### Print is a chooser, not a dump
+
+> *"well make the report selectable what you arre going to print so it doesn
+> print everything, maybe we should make a report builder later."* — Sky
+
+Every table already had a Print button. It printed the whole table, which is the
+wrong default for making a report out of a screen with thirty columns.
+
+- **Plain tables** (`PrintableTable`) — Print opens a small chooser: a tick per
+  column, an optional word to narrow the rows to, and a title for the report.
+  The column choice is REMEMBERED per table, because a report somebody prints
+  weekly is the same report every week and re-ticking eight boxes is how a
+  feature stops being used. A remembered pick is only honoured while it still
+  fits the table's shape, so a view toggle that changes the columns falls back
+  to all of them rather than cutting the wrong ones.
+- **Data grids** (`GridToolbarWithPrint`) — the grid already HAS the two
+  controls, so the button uses them rather than adding a third: it prints the
+  ticked rows if any are ticked and otherwise everything the current filter
+  leaves (never the raw table behind a filter), with the columns switched on in
+  the Columns menu. The button reads `PRINT 12` when twelve rows are selected,
+  so it says what it is about to do before you press it.
+
+A report BUILDER — saved reports, chosen columns across several tables — is the
+next step and is deliberately not this.

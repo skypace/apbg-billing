@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus, Trash2 } from 'lucide-react';
 import { sbInsert } from '../../lib/rpc';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
@@ -781,39 +782,41 @@ export function PlanBuildDialog({ planId, planFiscalYear, onClose, onApplied }: 
 
 function PreviewTable({ rows, totalRows }: { rows: ItemRow[]; totalRows: number }) {
   return (
-    <table style={{ width: '100%' }}>
-      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-        <tr>
-          <th style={{ minWidth: 260 }}>Item</th>
-          <th style={cellHeadR()}>Source Revenue</th>
-          <th style={cellHeadR()}>Plan Revenue</th>
-          <th style={cellHeadR()}>Change</th>
-          <th style={cellHeadR()}>Customers</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => {
-          const projected = projectionFor(r);
-          const deltaPct = r.ly_annual_revenue > 0 ? (projected.revenue - r.ly_annual_revenue) / r.ly_annual_revenue : null;
-          return (
-            <tr key={r.qbo_item_id}>
-              <td style={itemCellStyle()} title={r.item_name}>{r.item_name}</td>
-              <td style={cellRight()}>{fm(r.ly_annual_revenue)}</td>
-              <td style={{ ...cellRight(), color: 'var(--ac)', fontWeight: 700 }}>{fm(projected.revenue)}</td>
-              <td style={{ ...cellRight(), color: deltaPct == null ? 'var(--mt)' : deltaPct >= 0 ? 'var(--gn)' : 'var(--rd)' }}>{fp(deltaPct)}</td>
-              <td style={cellRight()}>{r.ly_customer_count}</td>
-            </tr>
-          );
-        })}
-        {totalRows > rows.length && (
+    <PrintableTable>
+      <table style={{ width: '100%' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
           <tr>
-            <td colSpan={5} style={{ padding: '8px 10px', color: 'var(--mt)', fontSize: 10 }}>
-              +{totalRows - rows.length} more included
-            </td>
+            <th style={{ minWidth: 260 }}>Item</th>
+            <th style={cellHeadR()}>Source Revenue</th>
+            <th style={cellHeadR()}>Plan Revenue</th>
+            <th style={cellHeadR()}>Change</th>
+            <th style={cellHeadR()}>Customers</th>
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const projected = projectionFor(r);
+            const deltaPct = r.ly_annual_revenue > 0 ? (projected.revenue - r.ly_annual_revenue) / r.ly_annual_revenue : null;
+            return (
+              <tr key={r.qbo_item_id}>
+                <td style={itemCellStyle()} title={r.item_name}>{r.item_name}</td>
+                <td style={cellRight()}>{fm(r.ly_annual_revenue)}</td>
+                <td style={{ ...cellRight(), color: 'var(--ac)', fontWeight: 700 }}>{fm(projected.revenue)}</td>
+                <td style={{ ...cellRight(), color: deltaPct == null ? 'var(--mt)' : deltaPct >= 0 ? 'var(--gn)' : 'var(--rd)' }}>{fp(deltaPct)}</td>
+                <td style={cellRight()}>{r.ly_customer_count}</td>
+              </tr>
+            );
+          })}
+          {totalRows > rows.length && (
+            <tr>
+              <td colSpan={5} style={{ padding: '8px 10px', color: 'var(--mt)', fontSize: 10 }}>
+                +{totalRows - rows.length} more included
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </PrintableTable>
   );
 }
 
@@ -825,68 +828,70 @@ function DetailTable({
   onUpdate: (id: string, patch: Partial<ItemRow>) => void;
 }) {
   return (
-    <table style={{ width: '100%' }}>
-      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-        <tr>
-          <th style={{ width: 44 }} />
-          <th style={{ minWidth: 240 }}>Item</th>
-          <th style={cellHeadR()}>Source Qty</th>
-          <th style={cellHeadR()}>Source Price</th>
-          <th style={cellHeadR()}>Source Revenue</th>
-          <th style={cellHeadR()}>Qty %</th>
-          <th style={cellHeadR()}>Price %</th>
-          <th style={cellHeadR()}>Plan Qty</th>
-          <th style={cellHeadR()}>Plan Price</th>
-          <th style={cellHeadR()}>Plan Revenue</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => {
-          const projected = projectionFor(r);
-          return (
-            <tr key={r.qbo_item_id} style={!r.include ? { opacity: 0.48 } : undefined}>
-              <td style={{ textAlign: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={r.include}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { include: e.target.checked })}
-                />
-              </td>
-              <td style={itemCellStyle()} title={r.item_name}>
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.item_name}</div>
-                <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {r.category_path}
-                </div>
-              </td>
-              <td style={cellRight()}>{fmNum(r.ly_annual_qty)}</td>
-              <td style={cellRight()}>{r.ly_avg_unit_price != null ? fm(r.ly_avg_unit_price) : '-'}</td>
-              <td style={cellRight()}>{fm(r.ly_annual_revenue)}</td>
-              <td style={cellRight()}>
-                <input
-                  type="number"
-                  step={0.5}
-                  value={r.qty_pct}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { qty_pct: Number(e.target.value) })}
-                  style={{ ...inp(), width: 58, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
-                />
-              </td>
-              <td style={cellRight()}>
-                <input
-                  type="number"
-                  step={0.5}
-                  value={r.price_pct}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { price_pct: Number(e.target.value) })}
-                  style={{ ...inp(), width: 58, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
-                />
-              </td>
-              <td style={cellRight()}>{fmNum(projected.qty)}</td>
-              <td style={cellRight()}>{fm(projected.price)}</td>
-              <td style={{ ...cellRight(), fontWeight: 700, color: 'var(--ac)' }}>{fm(projected.revenue)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <PrintableTable>
+      <table style={{ width: '100%' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+          <tr>
+            <th style={{ width: 44 }} />
+            <th style={{ minWidth: 240 }}>Item</th>
+            <th style={cellHeadR()}>Source Qty</th>
+            <th style={cellHeadR()}>Source Price</th>
+            <th style={cellHeadR()}>Source Revenue</th>
+            <th style={cellHeadR()}>Qty %</th>
+            <th style={cellHeadR()}>Price %</th>
+            <th style={cellHeadR()}>Plan Qty</th>
+            <th style={cellHeadR()}>Plan Price</th>
+            <th style={cellHeadR()}>Plan Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const projected = projectionFor(r);
+            return (
+              <tr key={r.qbo_item_id} style={!r.include ? { opacity: 0.48 } : undefined}>
+                <td style={{ textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={r.include}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { include: e.target.checked })}
+                  />
+                </td>
+                <td style={itemCellStyle()} title={r.item_name}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.item_name}</div>
+                  <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {r.category_path}
+                  </div>
+                </td>
+                <td style={cellRight()}>{fmNum(r.ly_annual_qty)}</td>
+                <td style={cellRight()}>{r.ly_avg_unit_price != null ? fm(r.ly_avg_unit_price) : '-'}</td>
+                <td style={cellRight()}>{fm(r.ly_annual_revenue)}</td>
+                <td style={cellRight()}>
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={r.qty_pct}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { qty_pct: Number(e.target.value) })}
+                    style={{ ...inp(), width: 58, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
+                  />
+                </td>
+                <td style={cellRight()}>
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={r.price_pct}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { price_pct: Number(e.target.value) })}
+                    style={{ ...inp(), width: 58, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
+                  />
+                </td>
+                <td style={cellRight()}>{fmNum(projected.qty)}</td>
+                <td style={cellRight()}>{fm(projected.price)}</td>
+                <td style={{ ...cellRight(), fontWeight: 700, color: 'var(--ac)' }}>{fm(projected.revenue)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </PrintableTable>
   );
 }
 
@@ -907,79 +912,81 @@ function StoreRolloutTable({
 }) {
   const rangeLabel = rolloutRangeLabel(startMonth, duration);
   return (
-    <table style={{ width: '100%' }}>
-      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-        <tr>
-          <th style={{ minWidth: 260 }}>Product</th>
-          <th style={cellHeadR()}>Qty / Store / Mo</th>
-          <th style={cellHeadR()}>Unit Price</th>
-          <th style={cellHeadR()}>Unit Cost</th>
-          <th style={cellHeadR()}>Months</th>
-          <th style={cellHeadR()}>Annual Qty</th>
-          <th style={cellHeadR()}>Revenue</th>
-          <th style={{ width: 42 }} />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => {
-          const arrays = storeArraysFor(r, storeCount, startMonth, duration);
-          const qty = sumArray(arrays.qty);
-          const revenue = sumArray(arrays.amounts);
-          return (
-            <tr key={r.qbo_item_id}>
-              <td style={itemCellStyle()} title={r.item_name}>
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.item_name}</div>
-                <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {r.category_path}
-                </div>
-              </td>
-              <td style={cellRight()}>
-                <input
-                  type="number"
-                  step={0.25}
-                  min={0}
-                  value={r.qty_per_store}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { qty_per_store: numberFromInput(e.target.value, 0) })}
-                  style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
-                />
-              </td>
-              <td style={cellRight()}>
-                <input
-                  type="number"
-                  step={0.01}
-                  min={0}
-                  value={r.unit_price}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { unit_price: numberFromInput(e.target.value, 0) })}
-                  style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
-                />
-              </td>
-              <td style={cellRight()}>
-                <input
-                  type="number"
-                  step={0.01}
-                  min={0}
-                  value={r.unit_cost}
-                  onChange={(e) => onUpdate(r.qbo_item_id, { unit_cost: numberFromInput(e.target.value, 0) })}
-                  style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
-                />
-              </td>
-              <td style={cellRight()}>{rangeLabel}</td>
-              <td style={cellRight()}>{fmNum(qty)}</td>
-              <td style={{ ...cellRight(), color: 'var(--ac)', fontWeight: 700 }}>{fm(revenue)}</td>
-              <td style={{ textAlign: 'center' }}>
-                <button
-                  title="Remove product"
-                  onClick={() => onRemove(r.qbo_item_id)}
-                  style={iconButtonStyle()}
-                >
-                  <Trash2 size={12} strokeWidth={2.2} aria-hidden="true" />
-                </button>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <PrintableTable>
+      <table style={{ width: '100%' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+          <tr>
+            <th style={{ minWidth: 260 }}>Product</th>
+            <th style={cellHeadR()}>Qty / Store / Mo</th>
+            <th style={cellHeadR()}>Unit Price</th>
+            <th style={cellHeadR()}>Unit Cost</th>
+            <th style={cellHeadR()}>Months</th>
+            <th style={cellHeadR()}>Annual Qty</th>
+            <th style={cellHeadR()}>Revenue</th>
+            <th style={{ width: 42 }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const arrays = storeArraysFor(r, storeCount, startMonth, duration);
+            const qty = sumArray(arrays.qty);
+            const revenue = sumArray(arrays.amounts);
+            return (
+              <tr key={r.qbo_item_id}>
+                <td style={itemCellStyle()} title={r.item_name}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.item_name}</div>
+                  <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {r.category_path}
+                  </div>
+                </td>
+                <td style={cellRight()}>
+                  <input
+                    type="number"
+                    step={0.25}
+                    min={0}
+                    value={r.qty_per_store}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { qty_per_store: numberFromInput(e.target.value, 0) })}
+                    style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
+                  />
+                </td>
+                <td style={cellRight()}>
+                  <input
+                    type="number"
+                    step={0.01}
+                    min={0}
+                    value={r.unit_price}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { unit_price: numberFromInput(e.target.value, 0) })}
+                    style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
+                  />
+                </td>
+                <td style={cellRight()}>
+                  <input
+                    type="number"
+                    step={0.01}
+                    min={0}
+                    value={r.unit_cost}
+                    onChange={(e) => onUpdate(r.qbo_item_id, { unit_cost: numberFromInput(e.target.value, 0) })}
+                    style={{ ...inp(), width: 82, fontSize: 10, padding: '2px 4px', textAlign: 'right' }}
+                  />
+                </td>
+                <td style={cellRight()}>{rangeLabel}</td>
+                <td style={cellRight()}>{fmNum(qty)}</td>
+                <td style={{ ...cellRight(), color: 'var(--ac)', fontWeight: 700 }}>{fm(revenue)}</td>
+                <td style={{ textAlign: 'center' }}>
+                  <button
+                    title="Remove product"
+                    onClick={() => onRemove(r.qbo_item_id)}
+                    style={iconButtonStyle()}
+                  >
+                    <Trash2 size={12} strokeWidth={2.2} aria-hidden="true" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </PrintableTable>
   );
 }
 

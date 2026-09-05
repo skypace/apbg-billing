@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { ClipboardCopy, PackageCheck, TriangleAlert } from 'lucide-react';
 import {
   BomMaterialRequirement, fetchBomMaterialRequirements,
@@ -146,62 +147,64 @@ export function MaterialRequirementsPanel({
       )}
       {rows && rows.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: hasLocation ? 760 : 660 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={th}>Component</th>
-                <th style={{ ...th, textAlign: 'right' }}>Required</th>
-                <th style={{ ...th, textAlign: 'right' }}>{hasLocation ? 'Source stock' : 'Stock'}</th>
-                {hasLocation && <th style={{ ...th, textAlign: 'right' }}>All stock</th>}
-                <th style={{ ...th, textAlign: 'right' }}>On order</th>
-                <th style={{ ...th, textAlign: 'right' }}>Short</th>
-                <th style={{ ...th, textAlign: 'right' }}>Short $</th>
-                <th style={{ ...th, textAlign: 'center' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const uom = r.required_uom || 'each';
-                const sourceStock = hasLocation ? Number(r.location_on_hand_qty ?? 0) : Number(r.on_hand_qty ?? 0);
-                const meta = STATUS_META[r.status] ?? STATUS_META.short;
-                return (
-                  <tr key={`${r.component_qbo_item_id}-${uom}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={td}>
-                      <strong>{r.item_name ?? r.component_qbo_item_id}</strong>
-                      {r.source_line_count > 1 && (
-                        <span style={{ marginLeft: 6, color: 'var(--mt)', fontSize: 9 }}>
-                          {r.source_line_count} lines
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: hasLocation ? 760 : 660 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={th}>Component</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Required</th>
+                  <th style={{ ...th, textAlign: 'right' }}>{hasLocation ? 'Source stock' : 'Stock'}</th>
+                  {hasLocation && <th style={{ ...th, textAlign: 'right' }}>All stock</th>}
+                  <th style={{ ...th, textAlign: 'right' }}>On order</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Short</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Short $</th>
+                  <th style={{ ...th, textAlign: 'center' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const uom = r.required_uom || 'each';
+                  const sourceStock = hasLocation ? Number(r.location_on_hand_qty ?? 0) : Number(r.on_hand_qty ?? 0);
+                  const meta = STATUS_META[r.status] ?? STATUS_META.short;
+                  return (
+                    <tr key={`${r.component_qbo_item_id}-${uom}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={td}>
+                        <strong>{r.item_name ?? r.component_qbo_item_id}</strong>
+                        {r.source_line_count > 1 && (
+                          <span style={{ marginLeft: 6, color: 'var(--mt)', fontSize: 9 }}>
+                            {r.source_line_count} lines
+                          </span>
+                        )}
+                      </td>
+                      <td style={numTd}>{fmtQty(Number(r.required_qty), uom)}</td>
+                      <td style={numTd}>{fmtQty(sourceStock, uom)}</td>
+                      {hasLocation && <td style={numTd}>{fmtQty(Number(r.on_hand_qty ?? 0), uom)}</td>}
+                      <td style={numTd}>{fmtQty(Number(r.on_order_qty ?? 0), uom)}</td>
+                      <td style={{ ...numTd, color: Number(r.shortage_qty) > 0 ? 'var(--am)' : 'var(--gn)' }}>
+                        {fmtQty(Number(r.shortage_qty), uom)}
+                      </td>
+                      <td style={{ ...numTd, color: Number(r.shortage_cost) > 0 ? 'var(--am)' : 'var(--mt)' }}>
+                        {fm(Number(r.shortage_cost ?? 0))}
+                      </td>
+                      <td style={{ ...td, textAlign: 'center' }}>
+                        <span style={{
+                          color: meta.color,
+                          border: `1px solid ${meta.color}`,
+                          borderRadius: 12,
+                          padding: '1px 7px',
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: 0.4,
+                        }}>
+                          {meta.label}
                         </span>
-                      )}
-                    </td>
-                    <td style={numTd}>{fmtQty(Number(r.required_qty), uom)}</td>
-                    <td style={numTd}>{fmtQty(sourceStock, uom)}</td>
-                    {hasLocation && <td style={numTd}>{fmtQty(Number(r.on_hand_qty ?? 0), uom)}</td>}
-                    <td style={numTd}>{fmtQty(Number(r.on_order_qty ?? 0), uom)}</td>
-                    <td style={{ ...numTd, color: Number(r.shortage_qty) > 0 ? 'var(--am)' : 'var(--gn)' }}>
-                      {fmtQty(Number(r.shortage_qty), uom)}
-                    </td>
-                    <td style={{ ...numTd, color: Number(r.shortage_cost) > 0 ? 'var(--am)' : 'var(--mt)' }}>
-                      {fm(Number(r.shortage_cost ?? 0))}
-                    </td>
-                    <td style={{ ...td, textAlign: 'center' }}>
-                      <span style={{
-                        color: meta.color,
-                        border: `1px solid ${meta.color}`,
-                        borderRadius: 12,
-                        padding: '1px 7px',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: 0.4,
-                      }}>
-                        {meta.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         </div>
       )}
     </section>

@@ -12,6 +12,7 @@ import {
   InventoryTransferLineInput,
   TransferStatus,
   createTransfer,
+  setTransferDates,
   fetchTransferLines,
   receiveTransfer,
   shipTransfer,
@@ -92,6 +93,8 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
     { field: 'to_label',   headerName: 'To',       width: 140 },
     { field: 'carrier',    headerName: 'Carrier',  flex: 1, minWidth: 140,
       valueFormatter: (v) => (v ? String(v) : '—') },
+    { field: 'transfer_date', headerName: 'Issued', width: 110,
+      valueFormatter: (v) => (v ? String(v) : '—') },
     { field: 'ship_date',  headerName: 'Shipped',  width: 110,
       valueFormatter: (v) => (v ? String(v) : '—') },
     { field: 'received_date', headerName: 'Received', width: 110,
@@ -139,7 +142,7 @@ export function StockTransfersTab({ transfers, locations, locationById, itemLook
           sx={GRID_SX}
           density="compact"
           loading={transfers === null}
-          initialState={{ sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] } }}
+          initialState={{ sorting: { sortModel: [{ field: 'transfer_date', sort: 'desc' }] } }}
           disableRowSelectionOnClick
         />
       </div>
@@ -181,6 +184,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
   const [lines, setLines] = useState<InventoryTransferLineInput[]>([
     { qbo_item_id: '', qty: 1, unit_cost: null, notes: null, line_weight_lbs: null, line_pallets: null, lot_code: null, born_on_date: null },
   ]);
+  const [transferDate, setTransferDate] = useState<string>(laToday());
   const [saving, setSaving] = useState(false);
 
   // Auto-suggested totals (each line's computed weight / pallets / value).
@@ -241,6 +245,7 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
         total_pallets:      totalPalletsOverride  !== '' ? Number(totalPalletsOverride)  : (suggested.anyData ? round2(suggested.pallets)  : null),
         declared_value_usd: declaredValueOverride !== '' ? Number(declaredValueOverride) : (suggested.anyData ? round2(suggested.value)    : null),
         special_instructions: specialInstructions || null,
+        transfer_date: transferDate || null,
       });
       toast.success('Transfer created');
       onCreated();
@@ -273,6 +278,13 @@ function CreateTransferForm({ locations, itemLookup, onCancel, onCreated }: {
         <LField label="To">
           <SearchSelect value={to} onChange={setTo} placeholder="Type a location…"
             options={locations.filter((l) => l.id !== from).map((l) => ({ id: l.id, label: `${l.code} — ${l.name}`, hint: l.kind.replace('_', ' ') }))} />
+        </LField>
+        {/* Sky (2026-09-04): a transfer used the system date. Paperwork written
+            up on Monday for a Friday load read Monday, on the BOL and in the
+            list. This is the DOCUMENT date and it is editable afterwards too. */}
+        <LField label="Transfer date">
+          <input type="date" style={inp()} value={transferDate}
+            onChange={(e) => setTransferDate(e.target.value)} />
         </LField>
       </div>
 
@@ -477,6 +489,9 @@ function TransferDetailModal({
   if (!transfer) {
     return null;
   }
+  // TypeScript does not carry a narrowing on a destructured PARAMETER into a
+  // closure, so the handlers below read this already-narrowed local instead.
+  const doc = transfer;
 
   const fromLoc = locationById.get(transfer.from_location_id);
   const toLoc   = locationById.get(transfer.to_location_id);
@@ -503,21 +518,39 @@ function TransferDetailModal({
   const displayValue   = transfer.declared_value_usd ?? (lineTotals.anyData ? round2(lineTotals.val) : null);
 
   async function doShip() {
-    if (!confirm(`Mark shipped and decrement ${fromLoc?.code ?? 'source'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
+    // The date is ASKED for, not assumed: a load that went out on Friday is
+    // routinely marked shipped on Monday, and the RPC stamps CURRENT_DATE when
+    // it is given nothing. Cancel on the prompt cancels the whole action.
+    const when = prompt(`Ship date for ${doc.bol_number}?`, doc.ship_date ?? laToday());
+    if (when === null) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(when.trim())) { toast.error('Use a date like 2026-09-04'); return; }
+    if (!confirm(`Mark ${doc.bol_number} shipped on ${when.trim()} and decrement ${fromLoc?.code ?? 'source'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
     setBusy(true);
     try {
-      await shipTransfer(transferId);
+      await shipTransfer(transferId, when.trim());
       toast.success('Marked shipped');
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
   async function doReceive() {
-    if (!confirm(`Mark received and increment ${toLoc?.code ?? 'destination'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
+    const when = prompt(`Received date for ${doc.bol_number}?`, doc.received_date ?? laToday());
+    if (when === null) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(when.trim())) { toast.error('Use a date like 2026-09-04'); return; }
+    if (!confirm(`Mark ${doc.bol_number} received on ${when.trim()} and increment ${toLoc?.code ?? 'destination'}?\n\nThe printed BOL has blank signature lines for wet-ink signing.`)) return;
     setBusy(true);
     try {
-      await receiveTransfer(transferId);
+      await receiveTransfer(transferId, when.trim());
       toast.success('Marked received');
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  async function saveDates(dates: { transfer_date?: string; ship_date?: string; received_date?: string }) {
+    setBusy(true);
+    try {
+      await setTransferDates(transferId, dates);
+      toast.success('Date updated');
       onChanged();
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
@@ -571,8 +604,17 @@ function TransferDetailModal({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, fontSize: 12, marginBottom: 14 }}>
           <Meta label="From" value={fromLoc ? `${fromLoc.code} — ${fromLoc.name}` : '?'} />
           <Meta label="To"   value={toLoc   ? `${toLoc.code} — ${toLoc.name}`     : '?'} />
-          <Meta label="Shipped"  value={transfer.ship_date ?? '—'} />
-          <Meta label="Received" value={transfer.received_date ?? '—'} />
+          {/* ⚠ Changing a date here corrects the PAPERWORK. The inventory
+              movements keep the timestamps they were posted with — ledger
+              history is never edited (the reconcile rule). */}
+          <DateField label="Transfer date" value={transfer.transfer_date} editable={status !== 'void' && !busy}
+            onSave={(v) => saveDates({ transfer_date: v })} />
+          <DateField label="Shipped" value={transfer.ship_date}
+            editable={status !== 'void' && !busy && (status === 'in_transit' || status === 'received')}
+            onSave={(v) => saveDates({ ship_date: v })} />
+          <DateField label="Received" value={transfer.received_date}
+            editable={status !== 'void' && !busy && status === 'received'}
+            onSave={(v) => saveDates({ received_date: v })} />
         </div>
 
         {/* Freight section */}
@@ -708,6 +750,40 @@ function ItemPicker({ value, options, onChange }: {
 }) {
   // Type to narrow ("root" finds the root beer case), or open the arrow for the whole list.
   return <SearchSelect value={value} onChange={onChange} options={options} placeholder="Type an item…" style={{ width: '100%' }} />;
+}
+
+/** Today in Los Angeles as YYYY-MM-DD. en-CA yields that order directly; a
+ *  plain local Date would name the wrong day for a browser in another zone. */
+function laToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+
+/** A date the operator sets. Read-only until the transfer has reached the
+ *  state the date describes — fn_set_transfer_dates refuses the rest, and a
+ *  box you can type into that the server will reject is worse than no box. */
+function DateField({ label, value, editable, onSave }: {
+  label: string;
+  value: string | null;
+  editable: boolean;
+  onSave: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
+      {editable
+        ? <input
+            type="date"
+            defaultValue={value ?? ''}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (!v || v === (value ?? '')) return;
+              onSave(v);
+            }}
+            style={{ ...inp(), width: '100%' }}
+          />
+        : <div style={{ marginTop: 3, color: value ? 'var(--tx)' : 'var(--mt)' }}>{value ?? '—'}</div>}
+    </div>
+  );
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
