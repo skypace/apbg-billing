@@ -23,17 +23,18 @@
 // policy the caller happens to satisfy today.
 
 import { requireAuth } from './lib/auth.mjs';
+import { buildTransferDoc } from './lib/transfer-docs.mjs';
 import { corsHeaders } from './qbo-helpers.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
 import {
-  renderPurchaseOrderPdf, renderBillOfLadingPdf, renderBatchSheetPdf,
+  renderPurchaseOrderPdf, renderBillOfLadingPdf, renderPullTicketPdf, renderBatchSheetPdf,
   fmtMoney, fmtQty, fmtDate,
 } from './lib/production-docs.mjs';
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET = 'production-docs';
-const KINDS = new Set(['po', 'bol', 'batch_sheet']);
+const KINDS = new Set(['po', 'bol', 'batch_sheet', 'pull_ticket']);
 
 function json(body, status = 200) {
   return {
@@ -192,37 +193,11 @@ async function buildPo(id) {
   };
 }
 
-async function buildBol(id) {
-  const [t] = await sbGet(`inventory_transfers?select=*&id=eq.${id}&limit=1`);
-  if (!t) throw Object.assign(new Error('transfer not found'), { status: 404 });
-  const lines = await sbGet(`inventory_transfer_lines?select=*&transfer_id=eq.${id}&order=created_at`);
-  const locs = await sbGet(`inventory_locations?select=*&id=${inList([t.from_location_id, t.to_location_id])}`);
-  const from = locs.find((l) => l.id === t.from_location_id), to = locs.find((l) => l.id === t.to_location_id);
-  const items = await itemsById(lines.map((l) => l.qbo_item_id));
-  const [wo] = await sbGet(`work_orders?select=batch_code&transfer_id=eq.${id}&limit=1`);
-  const meta = await company();
-  return {
-    payload: {
-      ...meta, bolNumber: t.bol_number, status: t.status, issued: t.transfer_date || t.created_at, shipDate: t.ship_date,
-      shipper: locationBlock(from), consignee: locationBlock(to),
-      carrier: t.carrier, pro: t.pro_number, tracking: t.tracking_number, freightTerms: t.freight_terms,
-      weight: t.total_weight_lbs, pallets: t.total_pallets, declaredValue: t.declared_value_usd,
-      specialInstructions: t.special_instructions, notes: t.notes,
-      workOrder: wo ? { batch: wo.batch_code } : null,
-      signatures: { shipperName: t.shipper_signature_name, shipperAt: t.shipper_signature_at,
-                    receiverName: t.receiver_signature_name, receiverAt: t.receiver_signature_at },
-      lines: lines.map((l) => {
-        const it = items.get(String(l.qbo_item_id));
-        return { itemNo: itemNo(it, l.qbo_item_id), description: it?.name || l.qbo_item_id,
-                 qty: Number(l.qty), uom: '', weight: l.line_weight_lbs, pallets: l.line_pallets,
-                 lot: l.lot_code, bornOn: l.born_on_date, bestBy: l.best_by_date };
-      }),
-    },
-    label: t.bol_number, filename: `${t.bol_number}.pdf`,
-    recipientHint: [],
-    summary: { from: from?.name || '', to: to?.name || '', lineCount: lines.length },
-  };
-}
+// The transfer payload lives in lib/transfer-docs.mjs so the BOL, the pull
+// ticket and the workflow's Service Fusion ticket and emails all read ONE
+// description of the load. Three pieces of paper about the same pallet that
+// could disagree is worse than two of them not existing.
+const buildBol = buildTransferDoc;
 
 async function buildBatchSheet({ formulaId, woId, gal }) {
   let wo = null, bom = null, formula = null;
@@ -292,6 +267,13 @@ async function buildBatchSheet({ formulaId, woId, gal }) {
 async function build(kind, q) {
   if (kind === 'po') return { ...(await buildPo(q.id)), refId: q.id, render: renderPurchaseOrderPdf };
   if (kind === 'bol') return { ...(await buildBol(q.id)), refId: q.id, render: renderBillOfLadingPdf };
+  if (kind === 'pull_ticket') {
+    // Same transfer, same data, a different sheet — the picker's copy. Reusing
+    // buildBol is the point: a pull ticket that could disagree with the BOL it
+    // travels with would be worse than not having one.
+    const b = await buildBol(q.id);
+    return { ...b, refId: q.id, render: renderPullTicketPdf, filename: `PULL-${b.label}.pdf` };
+  }
   const b = await buildBatchSheet({ formulaId: q.id, woId: q.wo_id, gal: q.gal });
   return { ...b, render: renderBatchSheetPdf };
 }
@@ -300,7 +282,7 @@ async function build(kind, q) {
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function emailHtml({ kind, label, payload, message, company: c, accent }) {
-  const title = kind === 'po' ? 'Purchase Order' : kind === 'bol' ? 'Bill of Lading' : 'Batching Sheet';
+  const title = kind === 'po' ? 'Purchase Order' : kind === 'bol' ? 'Bill of Lading' : kind === 'pull_ticket' ? 'Pull Ticket' : 'Batching Sheet';
   const intro = kind === 'po'
     ? `Please find Purchase Order <strong>${esc(label)}</strong> attached. Confirm receipt and an estimated ship date when you can, and reference the PO number on your invoice.`
     : kind === 'bol'
@@ -354,7 +336,7 @@ export async function handler(event) {
     if (event.httpMethod === 'GET') {
       const q = event.queryStringParameters || {};
       const kind = String(q.kind || '');
-      if (!KINDS.has(kind)) return json({ error: 'kind must be po, bol or batch_sheet' }, 400);
+      if (!KINDS.has(kind)) return json({ error: 'kind must be po, bol, batch_sheet or pull_ticket' }, 400);
       if (q.id && !isUuid(q.id)) return json({ error: 'id must be a uuid' }, 400);
       if (q.wo_id && !isUuid(q.wo_id)) return json({ error: 'wo_id must be a uuid' }, 400);
 
@@ -372,7 +354,7 @@ export async function handler(event) {
     if (event.httpMethod === 'POST') {
       const body = JSON.parse(event.body || '{}');
       const kind = String(body.kind || '');
-      if (!KINDS.has(kind)) return json({ error: 'kind must be po, bol or batch_sheet' }, 400);
+      if (!KINDS.has(kind)) return json({ error: 'kind must be po, bol, batch_sheet or pull_ticket' }, 400);
       if (body.id && !isUuid(body.id)) return json({ error: 'id must be a uuid' }, 400);
       if (body.wo_id && !isUuid(body.wo_id)) return json({ error: 'wo_id must be a uuid' }, 400);
       const to = splitEmails(body.to), cc = splitEmails(body.cc);
@@ -411,7 +393,7 @@ export async function handler(event) {
         }
         return json({ error: `Could not build the document: ${why}` }, 502);
       }
-      const title = kind === 'po' ? 'Purchase Order' : kind === 'bol' ? 'Bill of Lading' : 'Batching Sheet';
+      const title = kind === 'po' ? 'Purchase Order' : kind === 'bol' ? 'Bill of Lading' : kind === 'pull_ticket' ? 'Pull Ticket' : 'Batching Sheet';
       const subject = body.subject ? String(body.subject).slice(0, 200) : `${title} ${built.label} — ${built.payload.company.name.split(' Dba ')[0]}`;
 
       // File first. A failed send still leaves the exact bytes we tried to send.

@@ -40,6 +40,18 @@
 [functions."production-doc"]
   timeout = 26
 
+# The transfer process. `request` creates a Service Fusion ticket, renders the
+# pull ticket and sends two emails; `schedule` renders the BOL, ships the load
+# and sends the one-time receive link. Each is several round trips, so it needs
+# the same wall the other document work has.
+[functions."transfer-workflow"]
+  timeout = 26
+
+# The public one-time receive link. It renders nothing, but it does a receive
+# and a notification email, so it gets a little headroom over the 10s default.
+[functions."transfer-receive"]
+  timeout = 26
+
 # repack: one QBO adjustment + one item re-read; the token refresh alone can eat 10s.
 [functions."repack"]
   timeout = 26
