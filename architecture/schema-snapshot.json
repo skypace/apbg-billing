@@ -152,6 +152,7 @@
     "sync_log",
     "team_members",
     "third_party_crews",
+    "transfer_workflow_settings",
     "vendor_email_routes",
     "vendor_email_tickets",
     "vendor_funding_events",

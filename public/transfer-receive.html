@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Receive a transfer · Brix Beverage</title>
+<!--
+  The page a receiving branch lands on from the one-time link in the shipped
+  email. It is deliberately PUBLIC: the person on the dock has no hub login and
+  never will. The token in ?t= is the entire gate, and the endpoint behind it
+  can do exactly one thing — mark THIS load received.
+
+  Written for a phone in a warehouse: big type, big button, one screen.
+-->
+<style>
+  :root {
+    --bg:#0F172A; --card:#111c31; --bd:#1e293b; --tx:#e2e8f0; --mt:#94a3b8;
+    --ac:#3B82F6; --ok:#22c55e; --bad:#ef4444;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx);
+         font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+         font-size:16px; line-height:1.55; }
+  .wrap { max-width:640px; margin:0 auto; padding:20px 16px 60px; }
+  header { display:flex; align-items:center; gap:10px; padding:8px 0 18px; border-bottom:1px solid var(--bd); margin-bottom:20px; }
+  header .mark { font-weight:800; font-size:19px; letter-spacing:.2px; }
+  header .sub { color:var(--mt); font-size:12px; }
+  h1 { font-size:23px; margin:0 0 4px; }
+  .bol { font-family:ui-monospace,Menlo,monospace; font-size:26px; font-weight:800; letter-spacing:.5px; }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .facts { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:14px; }
+  .facts dt { color:var(--mt); white-space:nowrap; }
+  .facts dd { margin:0; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:var(--mt);
+       border-bottom:1px solid var(--bd); padding:6px 4px; }
+  td { padding:9px 4px; border-bottom:1px solid var(--bd); vertical-align:top; }
+  td.q { text-align:right; font-weight:800; font-size:18px; white-space:nowrap; }
+  label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:var(--mt); margin:14px 0 5px; }
+  input, textarea { width:100%; background:#0b1220; border:1px solid var(--bd); color:var(--tx);
+                    border-radius:8px; padding:12px; font-size:16px; font-family:inherit; }
+  textarea { min-height:78px; resize:vertical; }
+  button { width:100%; margin-top:20px; background:var(--ac); color:#fff; border:0; border-radius:10px;
+           padding:16px; font-size:17px; font-weight:800; font-family:inherit; cursor:pointer; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .msg { padding:14px; border-radius:8px; margin-bottom:16px; font-size:15px; display:none; }
+  .msg.bad { background:rgba(239,68,68,.12); border:1px solid var(--bad); }
+  .msg.ok  { background:rgba(34,197,94,.12); border:1px solid var(--ok); }
+  .muted { color:var(--mt); font-size:13px; }
+  .big-ok { text-align:center; padding:34px 10px; }
+  .big-ok .tick { font-size:52px; line-height:1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="mark">Brix Beverage</div>
+      <div class="sub">Inventory transfer · receiving</div>
+    </div>
+  </header>
+
+  <div class="msg bad" id="err"></div>
+  <div class="msg ok" id="ok"></div>
+
+  <div id="loading" class="muted">Loading the transfer…</div>
+
+  <div id="main" style="display:none">
+    <h1>Receive this transfer</h1>
+    <div class="bol" id="bol"></div>
+
+    <div class="card">
+      <dl class="facts" id="facts"></dl>
+    </div>
+
+    <div class="card">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--mt);margin-bottom:8px">
+        What should be on the load
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th style="text-align:right">Qty</th></tr></thead>
+        <tbody id="lines"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <label for="who">Your name</label>
+      <input id="who" autocomplete="name" placeholder="Who is receiving this">
+
+      <label for="when">Date received</label>
+      <input id="when" type="date">
+
+      <label for="note">Anything wrong with it? (optional)</label>
+      <textarea id="note" placeholder="Short or damaged? Say what, and how many."></textarea>
+
+      <button id="go">Receive it</button>
+      <p class="muted" style="margin-top:12px">
+        This confirms the load arrived and moves the stock onto your location.
+        The link works once.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var API = location.pathname.indexOf('/billing/') === 0
+    ? '/billing/.netlify/functions/transfer-receive'
+    : '/.netlify/functions/transfer-receive';
+  var token = new URLSearchParams(location.search).get('t') || '';
+
+  function el(id) { return document.getElementById(id); }
+  function show(kind, text) {
+    var n = el(kind); n.textContent = text; n.style.display = 'block';
+    if (kind === 'err') el('ok').style.display = 'none';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  // A plain YYYY-MM-DD is a CALENDAR date: new Date('2026-09-05') is UTC
+  // midnight and renders as the 4th west of Greenwich, so it is formatted in
+  // UTC rather than round-tripped through the phone's local zone.
+  function fmtDate(d) {
+    if (!d) return '';
+    try {
+      return new Date(String(d) + 'T00:00:00Z')
+        .toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+    } catch (e) { return String(d); }
+  }
+  function laToday() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  }
+
+  function facts(t) {
+    var rows = [
+      ['From', t.from], ['To', t.to],
+      ['Shipped', t.ship_date ? fmtDate(t.ship_date) : null],
+      ['Carrier', t.carrier], ['PRO #', t.pro], ['Tracking', t.tracking],
+      ['Pallets', t.pallets != null ? String(t.pallets) : null],
+      ['Weight', t.weight != null ? t.weight + ' lbs' : null]
+    ].filter(function (r) { return r[1]; });
+    el('facts').innerHTML = rows.map(function (r) {
+      return '<dt>' + esc(r[0]) + '</dt><dd>' + esc(r[1]) + '</dd>';
+    }).join('');
+  }
+
+  function lines(ls) {
+    el('lines').innerHTML = ls.map(function (l) {
+      return '<tr><td><strong>' + esc(l.description) + '</strong>'
+        + (l.item ? '<div class="muted">' + esc(l.item) + '</div>' : '')
+        + (l.lot ? '<div class="muted">Lot ' + esc(l.lot) + '</div>' : '')
+        + '</td><td class="q">' + esc(l.qty) + '</td></tr>';
+    }).join('');
+  }
+
+  if (!token) { el('loading').style.display = 'none'; show('err', 'That link is missing its code. Ask the office for a new one.'); return; }
+
+  fetch(API + '?t=' + encodeURIComponent(token))
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      el('loading').style.display = 'none';
+      if (!res.ok) { show('err', res.j.error || 'That link is not usable.'); return; }
+      var t = res.j.transfer;
+      el('bol').textContent = t.bol_number;
+      facts(t); lines(t.lines || []);
+      if (t.special_instructions) {
+        show('err', 'Special instructions: ' + t.special_instructions);
+        el('err').className = 'msg ok'; el('err').style.display = 'block';
+      }
+      el('when').value = laToday();
+      el('main').style.display = 'block';
+      document.title = 'Receive ' + t.bol_number + ' · Brix Beverage';
+    })
+    .catch(function () {
+      el('loading').style.display = 'none';
+      show('err', 'Could not load the transfer. Check your signal and try again.');
+    });
+
+  el('go').addEventListener('click', function () {
+    var who = el('who').value.trim();
+    if (!who) { show('err', 'Put your name in first.'); return; }
+    var btn = el('go'); btn.disabled = true; btn.textContent = 'Receiving…';
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token, receiver_name: who,
+        received_date: el('when').value || null,
+        note: el('note').value.trim() || null
+      })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          show('err', res.j.error || 'That did not work.');
+          btn.disabled = false; btn.textContent = 'Receive it';
+          return;
+        }
+        el('main').innerHTML =
+          '<div class="big-ok"><div class="tick">&#10003;</div>'
+          + '<h1 style="margin-top:12px">Received</h1>'
+          + '<p class="muted">' + esc(res.j.bol_number) + ' is on your books. '
+          + 'The office has been told. You can close this page.</p></div>';
+        el('err').style.display = 'none';
+      })
+      .catch(function () {
+        show('err', 'Could not reach us. Check your signal and try again.');
+        btn.disabled = false; btn.textContent = 'Receive it';
+      });
+  });
+})();
+</script>
+</body>
+</html>

@@ -696,3 +696,64 @@ export async function renderSelfBilledInvoicePdf(p) {
   doc.finishPage();
   return pdf.save();
 }
+
+// ── Pull ticket ──────────────────────────────────────────────────────────────
+// The sheet the warehouse works FROM — Sky: "i can print pull tickets for the
+// load being tranferred". It is not a BOL and deliberately does not look like
+// one: no carrier, no freight terms, no declared value, no carrier liability
+// small print. A picker needs three things and they are the three biggest
+// things on the page — what to pull, how many, and a box to tick when it is on
+// the pallet.
+//
+// ⚠ The tick box is drawn as "[    ]" rather than ☐. Every string here goes
+//   through winAnsi() and the standard PDF fonts THROW on a character outside
+//   it — a ballot box would take the whole document down at measure time.
+export async function renderPullTicketPdf(p) {
+  const { pdf, doc } = await open(p.accent);
+  pdf.setTitle(`Pull Ticket ${p.bolNumber}`);
+  pdf.setProducer('Refractor · production');
+  doc.footerText = `${p.company.name}  ·  Pull ticket ${p.bolNumber}  ·  Generated ${new Date().toLocaleString('en-US')}`;
+
+  await doc.brandBar();
+  doc.header({
+    company: p.company, title: 'Pull Ticket', number: p.bolNumber,
+    dateLines: [
+      `Issued ${fmtDate(p.issued)}`,
+      p.sfJobNumber ? `Service Fusion ticket ${p.sfJobNumber}` : null,
+    ].filter(Boolean),
+  });
+
+  doc.metaBlocks([
+    { label: 'Pull from', lines: [{ text: p.shipper?.name || '-', bold: true }, ...addressLines(p.shipper)] },
+    { label: 'Going to', lines: [{ text: p.consignee?.name || '-', bold: true }, ...addressLines(p.consignee)] },
+  ]);
+
+  const totalQty = p.lines.reduce((t, l) => t + (Number(l.qty) || 0), 0);
+  doc.metaBlocks([
+    { label: 'Lines to pull', lines: [{ text: String(p.lines.length), bold: true }] },
+    { label: 'Total units', lines: [{ text: fmtQty(totalQty, 0), bold: true }] },
+    { label: 'Pallets', lines: [{ text: p.pallets != null ? fmtQty(p.pallets, 2) : '____', bold: true }] },
+  ]);
+
+  // Quantity is the widest, boldest column on the page: it is the number the
+  // picker is acting on, and "Picked" is left blank for a pen.
+  doc.table({
+    columns: [
+      { key: 'pick', label: 'Done', width: 44, format: () => '[    ]' },
+      { key: 'itemNo', label: 'Item', width: 86, bold: true, accent: true },
+      { key: 'description', label: 'What to pull' },
+      { key: 'qty', label: 'Qty', width: 70, align: 'right', bold: true, format: (v, r) => `${fmtQty(v, 0)}${r.uom ? ' ' + r.uom : ''}` },
+      { key: 'picked', label: 'Picked', width: 62, align: 'right', format: () => '______' },
+    ],
+    rows: p.lines.map((l) => ({ ...l, pick: '', picked: '' })),
+  });
+
+  doc.notes('Special instructions', p.specialInstructions);
+  doc.notes('Notes', p.notes);
+  doc.notes('Short or damaged?',
+    'Write the count you actually pulled in the Picked column and say so on the Service Fusion ticket before you complete it. Do not change the quantity on this sheet.');
+
+  doc.signatures(['Picked by', 'Checked by'], { sub: ['Name / date', 'Name / date'] });
+  doc.finishPage();
+  return pdf.save();
+}

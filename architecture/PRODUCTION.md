@@ -1232,3 +1232,135 @@ wrong default for making a report out of a screen with thirty columns.
 
 A report BUILDER — saved reports, chosen columns across several tables — is the
 next step and is deliberately not this.
+
+---
+
+## The transfer process — a pull ticket, a ticket somebody works, and a link that receives (2026-09-05)
+
+Ask (Sky, 2026-09-04): *"can you make a system when we do transfers where i can
+print pull tickets for the load being tranferred and create a real inventory
+transfer process where the order gets put in, an email gets sent to
+service@brixbev.com to make the order for the transfer, with all the details and
+the pick ticket, and it makes a ticket in service fusion thats just a
+UNSCHEDULED - Brix Beverage Sampling customer ticket that says Product Transfer
+Ticket type. The ticket numbre (Service fusion) gets entered on the email. The
+receiving branch gets a notification via email as well letting them know all
+this. Then the tech works the ticket and completes the ticket. The ticket tells
+them how many cases of what to build on the notes or tasks section 20 cases of
+XXXXX Then once the ticket is completed, an email comes back to schedule the
+transfer for delivery. Then it asks for the shippng and BOL information. once
+thats entrerd it kicks off another email with all details, pallets, etc with a
+link to receive the product when it gets to the transfer location, that link
+will be one time link."*
+
+**Before this, a transfer was a row that changed state.** Somebody typed it,
+somebody else pressed Mark Shipped, and the only thing connecting those two
+moments was a person remembering. Nothing told the warehouse to build it,
+nothing told the receiving branch it was coming, and the pick list existed only
+in whoever's head had opened the screen.
+
+### The four steps
+
+| Step | What happens | Who is told |
+|---|---|---|
+| **Request** | The Service Fusion ticket is created, then the row is stamped | The office gets the **pull ticket PDF attached** and the SF ticket number; the receiving branch gets a heads-up |
+| **Built** | The tech completes the SF ticket (or a human presses the button) | The office: schedule the delivery |
+| **Schedule & ship** | Shipping + BOL details are collected, then the load **ships** | The receiving branch gets the BOL PDF **and a one-time link** |
+| **Receive** | The branch opens the link on a phone and presses one button | The office is told it landed |
+
+`inventory_transfers.workflow_status` runs `none → requested → built →
+scheduled`, beside — never instead of — `status`, which still says where the
+stock is.
+
+### ⚠ The order of operations, and why it is that way
+
+The Service Fusion ticket is created **first**, because its number belongs on
+the email. An email saying "SF ticket: not created" is honest; one sent before
+the ticket exists could never carry the number at all. The database is stamped
+**second**, so the transfer always knows which ticket is its own even when an
+email later fails. Emails are **last** and are best-effort — a Resend hiccup
+must not leave a transfer that Service Fusion has a ticket for and our database
+does not. A send that fails is recorded and reported ("2 of 3 emails sent"),
+never thrown.
+
+### ⚠ Only ONE step moves stock
+
+`schedule` ships, and it ships by calling the ordinary `ops.fn_ship_transfer`
+under the caller's own JWT, so `shipped_by` is the real person. Receiving calls
+`ops.fn_receive_transfer` the same way. **Neither function writes an inventory
+movement of its own** — that is what keeps the append-only ledger single-pathed
+alongside `brix-stock` and `sub-distributors`. Everything else in the process is
+paperwork.
+
+The consequence on screen: the plain **Mark Shipped** button disappears once a
+transfer is being run as a process. Two buttons that both move stock is the one
+thing an operator must never be offered.
+
+### The receive link is a credential, and it is treated as one
+
+- 32 random bytes; **only the sha256 is stored**. A database read — or a leaked
+  backup — yields nothing that opens the page, and re-sending the original is
+  impossible by construction. "Send a new link" mints one and kills the old in
+  the same write, which is the honest behaviour anyway: a link that needs
+  re-sending has usually gone astray.
+- Single use is enforced by a **conditional patch** (`receive_token_used_at is
+  null AND status = in_transit`) that runs BEFORE the RPC, so a double-tap on a
+  phone cannot receive the load twice.
+- It expires (`transfer_workflow_settings.receive_link_days`, default 21).
+- Unknown, used and expired all answer **identically**. A probe must not learn
+  which tokens exist.
+- `netlify/functions/transfer-receive.mjs` is **structurally separate** — it
+  contains no code to list, create, edit or void anything. That is not a role
+  check that could be got wrong; there is nothing there to reach.
+
+### Service Fusion has no webhooks, so the ticket is polled
+
+`transfer-sf-poll.mjs` runs every 30 minutes, reads `GET /jobs/{id}` for each
+transfer waiting on a ticket (capped at 15 a run — SF rate-limits hard, and the
+2026-06/07 429 outage is the reason every SF-hitting cron in this repo is
+throttled), and advances a completed one to `built`, emailing the office. The
+button is still there for the day SF is slow or the tech forgot.
+
+⚠ **The job CATEGORY `Product Transfer Ticket` must exist in SF Settings → Job
+Categories.** Service Fusion only ATTACHES an existing category and rejects an
+unknown one with a 422 that kills the whole job — so `createTransferSfJob`
+retries once without the field SF's own error names, keeps the ticket, and
+reports a warning. The ticket matters more than the label; nobody hears about a
+missing setting if the failure is silent.
+
+### The pull ticket
+
+`renderPullTicketPdf` in `lib/production-docs.mjs`, same Melt design as the PO
+and the BOL: where to pull from, where it is going, the SF ticket number, and one
+line per item with a **tick box** and a bold quantity — because that is what a
+person carries into the warehouse. It is attached to the office's email
+automatically and there is a **Pull ticket** button on the transfer for a
+reprint.
+
+The Service Fusion ticket's description repeats the same list **in words**
+(`20 cases of 3G6141 CABLE CAR LEMON LIME`) rather than leaving it in an
+attachment: the tech works from the SF app, where our PDF is not.
+
+### Where the pieces live
+
+| | |
+|---|---|
+| Migration | `supabase/migrations/20260905a_transfer_workflow.sql` |
+| Settings | `ops.transfer_workflow_settings` — one row: enabled, SF customer/category/status, ops email, cc list, link days |
+| Staff endpoint | `netlify/functions/transfer-workflow.mjs` (superadmin \| admin) |
+| Public receive | `netlify/functions/transfer-receive.mjs` + `public/transfer-receive.html` |
+| Poll | `netlify/functions/transfer-sf-poll.mjs` (`*/30`) |
+| Shared | `lib/transfer-workflow.mjs` (tokens, SF ticket, emails), `lib/transfer-docs.mjs` (the document payload) |
+| Screen | Refractor → Stock → Transfers → open a transfer |
+| Watcher | `ops.fn_transfer_workflow_health()` inside `fn_sync_health_extra` |
+
+Every notification lands in `ops.production_doc_sends`, so "what did we send and
+did it arrive" has one answer per transfer.
+
+### Still unexercised
+
+The Service Fusion ticket create, the emails and the receive page each need a
+live hub session, which is not reachable from a build session — the token rules,
+the 422 ladder and the ticket's wording are covered by
+`tests/transfer-workflow.test.mjs`, and every other step is proven separately.
+The first real Request is the end-to-end proof.

@@ -7,7 +7,7 @@ import { _sbToken } from './supabase';
  */
 const FN = '/margin/.netlify/functions/production-doc';
 
-export type DocKind = 'po' | 'bol' | 'batch_sheet';
+export type DocKind = 'po' | 'bol' | 'batch_sheet' | 'pull_ticket';
 
 export interface DocRef {
   kind: DocKind;

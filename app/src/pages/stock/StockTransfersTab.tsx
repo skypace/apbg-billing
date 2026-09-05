@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, FileText, X as XIcon, Trash2, Mail } from 'lucide-react';
@@ -19,6 +19,17 @@ import {
   updateTransferFreight,
   voidTransfer,
 } from '../../lib/inventoryControl';
+import {
+  SendResult,
+  TransferWorkflow,
+  WorkflowStatus,
+  describeSends,
+  fetchWorkflow,
+  markBuilt,
+  requestTransfer,
+  resendReceiveLink,
+  scheduleTransfer,
+} from '../../lib/transferWorkflow';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum } from '../../lib/formatters';
@@ -475,6 +486,12 @@ function TransferDetailModal({
   const [lines, setLines] = useState<InventoryTransferLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  // ⚠ Two buttons that both move stock is the one thing an operator must
+  //   never be offered. Once a transfer is being run as a PROCESS, shipping
+  //   belongs to Schedule & ship (which collects the BOL details and sends
+  //   the receive link); the plain Mark Shipped stays for a transfer nobody
+  //   raised through the process.
+  const [wfStep, setWfStep] = useState<WorkflowStatus>('none');
   const laneItemIds = useMemo(() => new Set(itemLookup.options.map((option) => option.id)), [itemLookup]);
 
   useEffect(() => {
@@ -617,6 +634,10 @@ function TransferDetailModal({
             onSave={(v) => saveDates({ received_date: v })} />
         </div>
 
+        <TransferWorkflowPanel
+          transferId={transferId} transfer={doc} busy={busy} setBusy={setBusy}
+          onChanged={onChanged} onStep={setWfStep} />
+
         {/* Freight section */}
         <div style={{
           marginBottom: 14, padding: 10,
@@ -726,7 +747,9 @@ function TransferDetailModal({
           {status === 'draft' && (
             <>
               <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
-              <button onClick={doShip} disabled={busy} style={btnPrimary()}>Mark Shipped</button>
+              {wfStep === 'none' && (
+                <button onClick={doShip} disabled={busy} style={btnPrimary()}>Mark Shipped</button>
+              )}
             </>
           )}
           {status === 'in_transit' && (
@@ -737,6 +760,232 @@ function TransferDetailModal({
           <EmailDocModal ref={{ kind: 'bol', id: transferId }} title={'BOL ' + transfer.bol_number} onClose={() => setEmailOpen(false)} />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The transfer PROCESS — the panel a person works down.
+ *
+ * Sky (2026-09-04): the order goes in, the office is emailed to build it with
+ * the pick ticket attached, Service Fusion gets a ticket whose number rides on
+ * that email, the receiving branch is warned, the tech completes the ticket,
+ * the office is told to schedule it, shipping and BOL details are entered, and
+ * the branch gets everything plus a ONE-TIME link to receive.
+ *
+ * ⚠ Every step here is PAPERWORK except Schedule, which ships the load through
+ *   the ordinary ship RPC. So this panel replaces the Mark Shipped button on a
+ *   transfer that is being run as a process, and leaves it alone on one that is
+ *   not — an operator must never have two buttons that both move stock.
+ */
+function TransferWorkflowPanel({ transferId, transfer, busy, setBusy, onChanged, onStep }: {
+  transferId: string;
+  transfer: InventoryTransfer;
+  busy: boolean;
+  setBusy: (b: boolean) => void;
+  onChanged: () => void;
+  onStep: (s: WorkflowStatus) => void;
+}) {
+  const toast = useToast();
+  const [wf, setWf] = useState<TransferWorkflow | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+
+  const [shipDate, setShipDate] = useState(laToday());
+  const [carrier, setCarrier] = useState(transfer.carrier ?? '');
+  const [proNumber, setProNumber] = useState(transfer.pro_number ?? '');
+  const [tracking, setTracking] = useState(transfer.tracking_number ?? '');
+  const [terms, setTerms] = useState<string>(transfer.freight_terms ?? '');
+  const [pallets, setPallets] = useState(transfer.total_pallets == null ? '' : String(transfer.total_pallets));
+  const [weight, setWeight] = useState(transfer.total_weight_lbs == null ? '' : String(transfer.total_weight_lbs));
+  const [instructions, setInstructions] = useState(transfer.special_instructions ?? '');
+  const [signer, setSigner] = useState('');
+
+  const reload = useCallback(() => {
+    fetchWorkflow(transferId)
+      .then((w) => { setWf(w); setLoaded(true); onStep(w?.workflow_status ?? 'none'); })
+      .catch(() => setLoaded(true));
+  }, [transferId, onStep]);
+
+  useEffect(() => { setLoaded(false); setWf(null); reload(); }, [reload]);
+
+  // The workflow is switched off, or this environment has no settings row —
+  // say nothing rather than offering a button that can only fail.
+  if (!loaded || !wf) return null;
+
+  const step = wf.workflow_status;
+  const report = (r: { emails?: SendResult[] }) => toast.success(describeSends(r.emails));
+
+  async function run(fn: () => Promise<{ emails?: SendResult[] }>, ok: string) {
+    setBusy(true);
+    try {
+      const r = await fn();
+      toast.success(ok);
+      report(r);
+      reload();
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function doRequest() {
+    setBusy(true);
+    try {
+      const r = await requestTransfer(transferId);
+      // The Service Fusion half is reported plainly either way: a ticket that
+      // was not created is a thing to do by hand, not a silent gap.
+      if (r.sf_job_number) toast.success(`Requested — Service Fusion ticket ${r.sf_job_number}`);
+      else toast.error(`Requested, but Service Fusion did not take the ticket: ${r.sf_error ?? 'unknown'} — make it by hand`);
+      if (r.sf_warning) toast.error(r.sf_warning);
+      toast.success(describeSends(r.emails));
+      reload();
+      onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function doSchedule() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(shipDate.trim())) { toast.error('Use a ship date like 2026-09-05'); return; }
+    if (!confirm(`Ship ${transfer.bol_number} on ${shipDate.trim()}?\n\nThis moves the stock out of the sending location and emails the receiving branch a one-time link to receive it.`)) return;
+    await run(() => scheduleTransfer(transferId, {
+      ship_date: shipDate.trim(),
+      carrier: carrier || null,
+      pro_number: proNumber || null,
+      tracking_number: tracking || null,
+      freight_terms: terms || null,
+      total_pallets: pallets || null,
+      total_weight_lbs: weight || null,
+      special_instructions: instructions || null,
+      shipper_signature_name: signer || null,
+    }), 'Shipped — the receiving branch has the link');
+    setShowSchedule(false);
+  }
+
+  const linkState = (() => {
+    if (!wf.receive_link_sent_at) return null;
+    if (wf.receive_token_used_at) return `Receive link used ${new Date(wf.receive_token_used_at).toLocaleString()}`;
+    const exp = wf.receive_token_expires_at ? new Date(wf.receive_token_expires_at) : null;
+    if (exp && exp.getTime() < Date.now()) return 'Receive link EXPIRED — send a new one';
+    return `Receive link live${exp ? ` until ${exp.toLocaleDateString()}` : ''}`;
+  })();
+
+  return (
+    <div style={{
+      marginBottom: 14, padding: 10,
+      background: 'rgba(46,184,114,0.05)', border: '1px solid var(--bd)', borderRadius: 4,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          Transfer process
+        </div>
+        <Steps step={step} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, fontSize: 12, marginBottom: 10 }}>
+        <Meta label="Service Fusion ticket" value={wf.sf_job_number ? `#${wf.sf_job_number}${wf.sf_job_status ? ` · ${wf.sf_job_status}` : ''}` : (wf.sf_error ? 'not created' : '—')} />
+        <Meta label="Requested" value={wf.requested_at ? new Date(wf.requested_at).toLocaleString() : '—'} />
+        <Meta label="Built" value={wf.built_at ? new Date(wf.built_at).toLocaleString() : '—'} />
+        <Meta label="Receive link" value={linkState ?? '—'} />
+      </div>
+
+      {wf.sf_error && (
+        <div style={{ fontSize: 11, color: 'var(--rd)', marginBottom: 8 }}>
+          Service Fusion refused the ticket: {wf.sf_error}. Make it by hand — customer, category and the lines are on the pull ticket.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          onClick={() => openDocPdf({ kind: 'pull_ticket', id: transferId }).catch((e) => toast.error(errMsg(e)))}
+          style={btnSecondary()}
+          title="What the warehouse picks — one line per item with a tick box">
+          <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Pull ticket
+        </button>
+
+        {step === 'none' && transfer.status === 'draft' && (
+          <button onClick={doRequest} disabled={busy} style={btnPrimary()}
+            title="Creates the Service Fusion ticket, emails the office the pull ticket, and warns the receiving branch">
+            Request the transfer
+          </button>
+        )}
+        {step === 'requested' && (
+          <button onClick={() => run(() => markBuilt(transferId), 'Marked built')} disabled={busy} style={btnPrimary()}
+            title="The tech has completed the ticket — this asks the office to schedule the delivery">
+            Ticket complete — ready to schedule
+          </button>
+        )}
+        {step === 'built' && transfer.status === 'draft' && (
+          <button onClick={() => setShowSchedule((v) => !v)} disabled={busy} style={btnPrimary()}>
+            {showSchedule ? 'Cancel' : 'Schedule & ship…'}
+          </button>
+        )}
+        {transfer.status === 'in_transit' && wf.receive_link_sent_at && (
+          <button
+            onClick={() => {
+              const to = prompt('Send a NEW receive link to (blank = the receiving branch):', '');
+              if (to === null) return;
+              run(() => resendReceiveLink(transferId, to.trim() || undefined), 'A new link is on its way');
+            }}
+            disabled={busy} style={btnSecondary()}
+            title="Only the hash of a link is stored, so the original cannot be re-sent — this mints a new one and kills the old">
+            Send a new receive link
+          </button>
+        )}
+      </div>
+
+      {showSchedule && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bd)' }}>
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>
+            Shipping and BOL details. Saving ships the load and emails the receiving branch the BOL plus a one-time link to receive it.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <LField label="Ship date"><input value={shipDate} onChange={(e) => setShipDate(e.target.value)} type="date" style={inp()} /></LField>
+            <LField label="Carrier"><input value={carrier} onChange={(e) => setCarrier(e.target.value)} style={inp()} /></LField>
+            <LField label="PRO #"><input value={proNumber} onChange={(e) => setProNumber(e.target.value)} style={inp()} /></LField>
+            <LField label="Tracking #"><input value={tracking} onChange={(e) => setTracking(e.target.value)} style={inp()} /></LField>
+            <LField label="Freight terms">
+              <select value={terms} onChange={(e) => setTerms(e.target.value)} style={inp()}>
+                <option value="">—</option>
+                <option value="prepaid">Prepaid</option>
+                <option value="collect">Collect</option>
+                <option value="third_party">Third Party</option>
+              </select>
+            </LField>
+            <LField label="Pallets"><input value={pallets} onChange={(e) => setPallets(e.target.value)} style={inp()} /></LField>
+            <LField label="Weight (lb)"><input value={weight} onChange={(e) => setWeight(e.target.value)} style={inp()} /></LField>
+            <LField label="Shipper signature name"><input value={signer} onChange={(e) => setSigner(e.target.value)} style={inp()} /></LField>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <LField label="Special instructions">
+              <input value={instructions} onChange={(e) => setInstructions(e.target.value)} style={inp()} />
+            </LField>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button onClick={doSchedule} disabled={busy} style={btnPrimary()}>Ship it & send the link</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Four words that say where the load is in the process. */
+function Steps({ step }: { step: WorkflowStatus }) {
+  const order: WorkflowStatus[] = ['none', 'requested', 'built', 'scheduled'];
+  const labels: Record<WorkflowStatus, string> = {
+    none: 'Not requested', requested: 'Building', built: 'Ready to ship', scheduled: 'Shipped',
+  };
+  const at = order.indexOf(step);
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {order.map((s, i) => (
+        <span key={s} style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: 0.5, padding: '2px 7px', borderRadius: 12,
+          border: '1px solid ' + (i <= at ? 'var(--gn)' : 'var(--bd)'),
+          color: i <= at ? 'var(--gn)' : 'var(--mt)',
+          background: i === at ? 'rgba(46,184,114,0.12)' : 'transparent',
+        }}>{labels[s].toUpperCase()}</span>
+      ))}
     </div>
   );
 }
