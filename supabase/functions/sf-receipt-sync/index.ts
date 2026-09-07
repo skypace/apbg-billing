@@ -112,8 +112,15 @@ async function sfToken(s: any): Promise<string> {
   if (accessToken && tokenExpires > Date.now()) return accessToken;
   const cached = await readTokenCache(s);
   if (cacheHasFreshAccessToken(cached)) return useCachedAccess(cached);
+  // The DB row is the ONLY live copy of the refresh token. SF rotates it on
+  // every successful refresh, so a second copy anywhere is a SPENT credential.
+  // SF_REFRESH_TOKEN is a BOOTSTRAP for a database that has never held one --
+  // never a fallback for one that failed.
   const rt = cached?.refresh_token || Deno.env.get("SF_REFRESH_TOKEN") || "";
   if (!rt) throw new Error("No SF refresh token");
+  if (!cached?.refresh_token) {
+    console.warn("[sf-token] no refresh token in ops.sf_token_cache; bootstrapping from SF_REFRESH_TOKEN env");
+  }
 
   const owner = `sf-receipt-sync:${crypto.randomUUID()}`;
   const claimed = await claimRefreshLock(s, owner);
@@ -129,39 +136,45 @@ async function sfToken(s: any): Promise<string> {
   try {
     const latest = await readTokenCache(s);
     if (cacheHasFreshAccessToken(latest)) return useCachedAccess(latest);
+    // EXACTLY ONE ATTEMPT, with the freshest token we hold.
+    //
+    // There used to be a retry loop here that, on a rejected refresh, tried
+    // again with the SF_REFRESH_TOKEN env var. It could never succeed: SF
+    // rotates the refresh token on every use, the DB copy is the freshest one
+    // by construction, and an older copy is a token SF has already retired.
+    // What it DID do was replay a spent credential on every failure -- the
+    // signature of a stolen token -- and this account has had two multi-day
+    // outages that look exactly like a revoked token family (2026-07-09, 14
+    // days at ~200 failures/day; 2026-09-05, 46 hours). One attempt, one
+    // credential, and a refusal is reported rather than argued with.
     const refreshToken = latest?.refresh_token || rt;
-    const envRefreshToken = Deno.env.get("SF_REFRESH_TOKEN") || "";
-    const candidates = [refreshToken, envRefreshToken].filter((v, i, arr) => v && arr.indexOf(v) === i);
-    let lastError = "";
-    for (const candidate of candidates) {
-      const body = new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: Deno.env.get("SF_CLIENT_ID") || "",
-        client_secret: Deno.env.get("SF_CLIENT_SECRET") || "",
-        refresh_token: candidate,
-      });
-      const res = await fetch(SF_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
-      if (!res.ok) {
-        lastError = tokenErrorMessage(res.status, await res.text());
-        await noteRefreshError(s, lastError);
-        continue;
-      }
-      const d = await res.json(); if (!d.access_token) throw new Error("No token");
-      accessToken = d.access_token; tokenExpires = Date.now() + 50 * 60 * 1000;
-      const u: any = {
-        id: 1,
-        access_token: d.access_token,
-        access_expires_at: new Date(tokenExpires).toISOString(),
-        updated_at: new Date().toISOString(),
-        refresh_locked_until: null,
-        refresh_lock_owner: null,
-        last_refresh_error: null,
-        last_refresh_error_at: null,
-      };
-      if (d.refresh_token) u.refresh_token = d.refresh_token;
-      await writeTokenCache(s, u); return accessToken;
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: Deno.env.get("SF_CLIENT_ID") || "",
+      client_secret: Deno.env.get("SF_CLIENT_SECRET") || "",
+      refresh_token: refreshToken,
+    });
+    const res = await fetch(SF_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+    if (!res.ok) {
+      const err = tokenErrorMessage(res.status, await res.text());
+      await noteRefreshError(s, err);
+      throw new Error(err);
     }
-    throw new Error(lastError || "SF token refresh failed");
+    const d = await res.json(); if (!d.access_token) throw new Error("No token");
+    accessToken = d.access_token; tokenExpires = Date.now() + 50 * 60 * 1000;
+    const u: any = {
+      id: 1,
+      access_token: d.access_token,
+      access_expires_at: new Date(tokenExpires).toISOString(),
+      updated_at: new Date().toISOString(),
+      refresh_locked_until: null,
+      refresh_lock_owner: null,
+      last_refresh_error: null,
+      last_refresh_error_at: null,
+    };
+    if (d.refresh_token) u.refresh_token = d.refresh_token;
+    await writeTokenCache(s, u);
+    return accessToken;
   } finally {
     await releaseRefreshLock(s, owner);
   }
