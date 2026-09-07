@@ -68,6 +68,12 @@
 // other two. One attempt, DB token only; SF_REFRESH_TOKEN is a bootstrap for an
 // empty row, never a fallback for a rejected one (see apbg-billing 2026-09-07).
 //
+// ── What this mirror may and may not say about TIME (2026-09-07, second pass) ─
+// See the long note in upsertJob. Short version: SF holds NO measured labour
+// time for this account, `duration` is a 3600-second scheduling default, and
+// reading either as hours is what costed every service job at 60 billable
+// hours in APBG-OPS. `billable_hours` stays NULL on purpose.
+//
 // Rule for anyone adding a filter below: IF YOU `continue`, INCREMENT A
 // COUNTER. Every counter here is read by ops.fn_sf_job_sync_coverage(), which
 // goes red when jobs are scanned and none land — the shape that hid this for
@@ -248,6 +254,49 @@ async function upsertJob(sb: any, j: any, c: Counters, log: string[]): Promise<v
   const done = s.includes("complet") || s.includes("archiv") || s.includes("invoiced");
   const stamp = new Date().toISOString();
 
+  // ── What Service Fusion actually holds about TIME and COST ─────────────────
+  // Measured live against 100 real jobs on 2026-09-07, because the field NAMES
+  // here are misleading and reading them at face value is what produced the bug
+  // this block fixes.
+  //
+  // `duration` is the SCHEDULED SLOT, IN SECONDS — and it is a default nobody
+  // has ever changed: across 100 jobs it takes exactly TWO values, 3600 and 0
+  // (93 × 3600). It was being written STRAIGHT into `duration_min`, so every
+  // service job carried 3600 in a column called minutes, and APBG-OPS's
+  // `duration_min / 60` fallback costed every job at SIXTY BILLABLE HOURS.
+  // Divide by 60 so the column means what it says: a 60-minute booked slot.
+  const durSec = parseFloat(j.duration);
+  const scheduledMin = Number.isFinite(durSec) && durSec > 0 ? Math.round(durSec / 60) : null;
+
+  // ⚠ THERE IS NO MEASURED LABOUR TIME IN THIS SF ACCOUNT — do not go looking
+  // for it again, and do not map `labor_charges.labor_time` as hours. Expanded
+  // over the same 100 jobs: only 28 carry a labour charge at all, and all 30
+  // rows are `is_status_generated: true` with `labor_time_start: "00:00"`.
+  // SF auto-creates them when a status flips: it stamps labor_time_end with the
+  // time of day and subtracts midnight. So a job closed at 09:46 records
+  // labor_time 585 — "9 h 45 m" — and the average across the sample is 728.9
+  // minutes, i.e. 12.1 hours a job. Every one has labor_time_cost 0 and
+  // is_labor_time_billed false; SF does not bill them either. Nobody clocks
+  // time on jobs here, so `billable_hours` stays NULL: unknown, not invented.
+  // (`visits` is empty too, and `drive_time` is 0 on every row.)
+  //
+  // ⚠ AND DO NOT ADD labor_charges TO SF_EXPAND. Probing it on the list
+  // endpoint, page 3 of 50 blew a 25s timeout — the same query-plan hang that
+  // fault 4 above is about. It is only affordable one job at a time.
+
+  // `closed_at` IS real, and was being thrown away for service jobs (the reman
+  // branch already used it). It is the completion timestamp APBG-OPS's
+  // completion_time column has been null for since the table was created.
+  const closedAt = j.closed_at || null;
+
+  // `cost_total` is real too: >0 on 55 of the 100, averaging $367.55. Every
+  // parts_cost/labor_cost in ops today is 0 — the COLUMN DEFAULT, never once
+  // written — so the Job Ledger's margin was revenue minus a fabricated labour
+  // cost minus a zero. This is SF's own job cost; with SF reporting no labour
+  // cost at all it is materials, which is what parts_cost means here.
+  const costRaw = parseFloat(j.cost_total);
+  const jobCost = Number.isFinite(costRaw) && costRaw > 0 ? costRaw : null;
+
   if (cls === "delivery") {
     const { error } = await sb.from("delivery_stops").upsert({
       sf_job_id: String(j.id), sf_job_number: j.number || null, stop_date: d,
@@ -255,7 +304,7 @@ async function upsertJob(sb: any, j: any, c: Counters, log: string[]): Promise<v
       driver_id: techId, driver_name: techName,
       address: [j.street_1, j.city, j.state_prov, j.postal_code].filter(Boolean).join(", ") || null,
       status: done ? "completed" : "open", sf_status: rawStatus, sf_encoded_id: encodedId,
-      notes: (j.description || "").slice(0, 500) || null,
+      notes: (j.description || "").slice(0, 500) || null, duration_min: scheduledMin,
       sf_total: sfTotal, payment_status: j.payment_status || null, synced_at: stamp,
     }, { onConflict: "sf_job_id" });
     if (error) { c.errors++; log.push("DEL err " + j.id + ": " + error.message.slice(0, 120)); } else c.delivery++;
@@ -266,7 +315,7 @@ async function upsertJob(sb: any, j: any, c: Counters, log: string[]): Promise<v
       tech_id: techId, tech_name: techName,
       customer_ref_id: j.customer_id ? String(j.customer_id) : null, equipment_type: j.category || null,
       status: done ? "complete" : "in_progress", sf_status: rawStatus, sf_encoded_id: encodedId,
-      notes: (j.description || "").slice(0, 500) || null,
+      notes: (j.description || "").slice(0, 500) || null, parts_cost: jobCost,
       sf_total: sfTotal, payment_status: j.payment_status || null, synced_at: stamp,
     }, { onConflict: "sf_job_id" });
     if (error) { c.errors++; log.push("REM err " + j.id + ": " + error.message.slice(0, 120)); } else c.reman++;
@@ -276,7 +325,8 @@ async function upsertJob(sb: any, j: any, c: Counters, log: string[]): Promise<v
       customer_name: j.customer_name || null, customer_ref_id: j.customer_id ? String(j.customer_id) : null,
       tech_id: techId, tech_name: techName,
       job_type: getJobType(j), status: done ? "completed" : "open", sf_status: rawStatus, sf_encoded_id: encodedId,
-      notes: (j.description || "").slice(0, 500) || null, duration_min: j.duration || null,
+      notes: (j.description || "").slice(0, 500) || null, duration_min: scheduledMin,
+      completion_time: closedAt, parts_cost: jobCost,
       sf_total: sfTotal, payment_status: j.payment_status || null, synced_at: stamp,
     }, { onConflict: "sf_job_id" });
     if (error) { c.errors++; log.push("SVC err " + j.id + ": " + error.message.slice(0, 120)); } else c.service++;
@@ -302,7 +352,7 @@ Deno.serve(async (req: Request) => {
         r.sf_api = "OK"; r.meta = d?._meta || {}; r.page1_count = items.length;
         if (items[0]) {
           const j = items[0];
-          r.newest = { id: j.id, number: j.number, status: j.status, customer: j.customer_name, start_date: j.start_date, updated_at: j.updated_at, classification: classifyJob(j) };
+          r.newest = { id: j.id, number: j.number, status: j.status, customer: j.customer_name, start_date: j.start_date, updated_at: j.updated_at, classification: classifyJob(j), duration_raw: j.duration, closed_at: j.closed_at || null, cost_total: j.cost_total };
         }
       } catch (e: any) { r.sf_api = "FAIL: " + e.message; }
     }
