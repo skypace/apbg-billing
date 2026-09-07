@@ -58,6 +58,49 @@ export interface InventoryHealthRow {
   brix_on_hand: number | null;
   planning_on_hand: number | null;
   on_hand_drift: number | null;
+  /** 20260904f — the trailing-28-day rate, the full-lookback rate, and how far the recent one is off the average (%). */
+  velocity_28d?: number | null;
+  velocity_lookback?: number | null;
+  velocity_trend_pct?: number | null;
+  /** Ledger consumption that is not a sale (production runs, repacks) inside the lookback. */
+  consumed_qty?: number | null;
+  /** Open PO lines + stock at a co-packer or in transit — bought or made, not sellable yet. */
+  qty_inbound?: number | null;
+  /** (sellable + inbound) / planning_velocity — what status and the suggested order are judged on. */
+  days_of_cover?: number | null;
+  /** 20260904g — planner items only (null elsewhere). */
+  /** The rate the plan runs on: half the recent velocity, half last year's aligned window grown by the YoY factor. */
+  planning_velocity?: number | null;
+  /** Last year's units over the coming lead + target window (weekday/holiday aligned) × (1 + growth), per day. */
+  forecast_daily?: number | null;
+  forecast_window_days?: number | null;
+  forecast_window_qty?: number | null;
+  ly_window_qty?: number | null;
+  /** Trailing 13 weeks this year vs the aligned 13 weeks last year, %; clamped to [-50, 100]. */
+  yoy_growth_pct?: number | null;
+  weekly_sigma?: number | null;
+  safety_stock?: number | null;
+  reorder_point_calc?: number | null;
+  /** When sellable + inbound runs out at the planning rate. */
+  stockout_date?: string | null;
+  /** stockout_date − lead time − the days the safety stock covers. In the past = already late. */
+  order_by_date?: string | null;
+  /** 20260904h — pars. par_min = order when stock + inbound reaches it; par_max = the level an order brings you back to. */
+  par_min?: number | null;
+  par_max?: number | null;
+  /** smallest quantity we have actually bought in 24 months (QuickBooks bill lines) */
+  smallest_order_qty?: number | null;
+  /** 20260904i — the four predictive signals. */
+  /** run rate (units/day, last 56 days) of customers NEW to this item — not in last year's base, added onto the forecast */
+  new_customer_daily?: number | null;
+  new_customers?: number | null;
+  /** what the customers whose cadence says they order in the next 7 days usually take of this item */
+  due_demand_7d?: number | null;
+  due_customers_7d?: number | null;
+  /** 'measured' when ≥3 receipts exist (PO ordered→received, WO ordered→received, QBO PO→bill); else 'setting' */
+  lead_time_source?: 'measured' | 'setting' | null;
+  measured_lead_days?: number | null;
+  lead_samples?: number | null;
   weight_per_unit_lbs: number | null;
   units_per_pallet: number | null;
   freight_class: string | null;
@@ -166,6 +209,115 @@ export interface RollupMatchPreview {
   sample_customer_names: string[] | null;
   sample_category_names: string[] | null;
   sample_item_names: string[] | null;
+}
+
+/** One week of the planner's history/forecast series for an item (fn_planning_weekly). */
+export interface PlanningWeekRow {
+  week_start: string;
+  is_current: boolean;
+  is_future: boolean;
+  this_year_qty: number | null;
+  last_year_qty: number;
+  forecast_qty: number | null;
+  holiday: string | null;
+  growth_pct: number | null;
+}
+
+export interface PlanningException {
+  id: number;
+  kind: 'lapsed_customer' | 'volume_spike' | 'manual';
+  qbo_customer_id: string;
+  customer_name: string | null;
+  qbo_item_id: string | null;
+  item_name: string | null;
+  week_start: string | null;
+  status: 'excluded' | 'kept' | 'resolved';
+  evidence: Record<string, unknown>;
+  detected_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  note: string | null;
+}
+
+/** Every anomaly the detector found (or a human added), excluded rows first. */
+export function fetchPlanningExceptions() {
+  return sbrpc<PlanningException[]>('fn_planning_exceptions_list', {});
+}
+
+/** Re-run the detector now (it also runs daily at 10:05 UTC). */
+export function refreshPlanningExceptions() {
+  return sbrpc<{ lapsed: number; spikes: number; resolved: number; cleared: number }>('fn_planning_exceptions_refresh', {});
+}
+
+/** Keep a flagged row in the baseline again, or exclude it. */
+export function setPlanningException(id: number, status: 'excluded' | 'kept', note?: string | null) {
+  return sbrpc<void>('fn_planning_exception_set', { p_id: id, p_status: status, p_note: note ?? null });
+}
+
+export interface FillPlanRow {
+  qbo_item_id: string;
+  label: string;
+  week_start: string;
+  is_current: boolean;
+  is_future: boolean;
+  this_year_qty: number | null;
+  last_year_qty: number | null;
+  recent_avg: number | null;
+  growth_pct: number | null;
+  forecast_qty: number | null;
+  weekly_par: number | null;
+  holiday: string | null;
+}
+
+/** Cylinders we fill rather than stock: per item per week, actual / last year / forecast / weekly par. */
+export function fetchFillPlan(weeksBack = 8, weeksAhead = 3) {
+  return sbrpc<FillPlanRow[]>('fn_planning_fill_plan', { p_weeks_back: weeksBack, p_weeks_ahead: weeksAhead });
+}
+
+export interface CadenceUsualItem {
+  qbo_item_id: string;
+  item_name: string | null;
+  usual_qty: number;
+  times_in_last_6: number;
+}
+
+export interface CadenceRow {
+  qbo_customer_id: string;
+  customer_name: string | null;
+  orders_365: number;
+  median_gap_days: number | null;
+  last_order: string | null;
+  next_expected: string | null;
+  days_until_due: number | null;
+  cadence_status: 'due' | 'overdue' | 'lapsing' | 'not_due' | 'irregular';
+  usual_items: CadenceUsualItem[];
+}
+
+/** Every customer who bought a planner or fill item in 365 days: their ordering rhythm and what they usually take. */
+export function fetchCustomerCadence() {
+  return sbrpc<CadenceRow[]>('fn_planning_customer_cadence', {});
+}
+
+export interface ForecastAccuracyRow {
+  week_start: string;
+  forecast_qty: number | null;
+  actual_qty: number | null;
+  error_qty: number | null;
+  abs_pct_error: number | null;
+  /** 'logged' = the forecast written down the Monday before (planning_forecast_log); 'backtest' = recomputed as it would have read */
+  source: 'logged' | 'backtest';
+}
+
+export function fetchForecastAccuracy(qbo_item_id: string, weeks = 13) {
+  return sbrpc<ForecastAccuracyRow[]>('fn_planning_forecast_accuracy', { p_qbo_item_id: qbo_item_id, p_weeks: weeks });
+}
+
+export function fetchPlanningWeekly(qbo_item_id: string, weeksBack = 13, weeksAhead = 8) {
+  return sbrpc<PlanningWeekRow[]>('fn_planning_weekly', {
+    p_qbo_item_id: qbo_item_id,
+    p_weeks_back: weeksBack,
+    p_weeks_ahead: weeksAhead,
+  });
 }
 
 export function fetchInventoryHealth(opts: { lookback?: number; managed_only?: boolean; search?: string }) {

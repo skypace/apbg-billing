@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FileText, Paperclip, Pencil, Mail } from 'lucide-react';
 import { openDocPdf } from '../../lib/productionDocs';
@@ -212,28 +213,30 @@ function FormulaDetailModal({ formula, onClose, onEdit, onChanged }: {
               {targetUnits != null && <> · ≈ {Math.round(targetUnits).toLocaleString()} cans ({formula.can_size_oz} oz)</>}
             </span>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={cellTh}>Ingredient</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>% by weight</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Target weight @ {gal.toLocaleString()} gal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(ingredients ?? []).map((ing, i) => (
-                <tr key={ing.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={cellTd}><strong>{ing.ingredient_name}</strong></td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {(Number(ing.pct_by_weight) * 100).toFixed(4)}%
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {batch[i] ? `${batch[i].target_weight_lbs.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${ing.uom}` : '—'}
-                  </td>
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <th style={cellTh}>Ingredient</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>% by weight</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }}>Target weight @ {gal.toLocaleString()} gal</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(ingredients ?? []).map((ing, i) => (
+                  <tr key={ing.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={cellTd}><strong>{ing.ingredient_name}</strong></td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {(Number(ing.pct_by_weight) * 100).toFixed(4)}%
+                    </td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                      {batch[i] ? `${batch[i].target_weight_lbs.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${ing.uom}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
         </div>
 
         {Object.keys(formula.qc_specs ?? {}).length > 0 && (
@@ -265,22 +268,24 @@ function FormulaDetailModal({ formula, onClose, onEdit, onChanged }: {
         {(revisions ?? []).length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <div style={sectionLbl}>Revision history</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <th style={cellTh}>Rev</th><th style={cellTh}>Change</th><th style={cellTh}>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(revisions ?? []).map((r) => (
-                  <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)', width: 60 }}>{r.rev}</td>
-                    <td style={cellTd}>{r.note ?? '—'}</td>
-                    <td style={{ ...cellTd, color: 'var(--mt)', width: 110 }}>{r.rev_date ?? '—'}</td>
+            <PrintableTable>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                    <th style={cellTh}>Rev</th><th style={cellTh}>Change</th><th style={cellTh}>Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(revisions ?? []).map((r) => (
+                    <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ ...cellTd, fontFamily: 'var(--ff-mono)', width: 60 }}>{r.rev}</td>
+                      <td style={cellTd}>{r.note ?? '—'}</td>
+                      <td style={{ ...cellTd, color: 'var(--mt)', width: 110 }}>{r.rev_date ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         )}
 

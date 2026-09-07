@@ -139,7 +139,6 @@ const CACHE_TABLES = [
   { table: 'qbo_vendors',               col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_vendors cache' },
   { table: 'qbo_expense_lines',         col: 'synced_at',      maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_expense_lines cache' },
   { table: 'qbo_inventory_adjustments', col: 'synced_at',      maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_inventory_adjustments cache' },
-  { table: 'qbo_purchase_orders',       col: 'last_synced_at', maxAgeMs: 30 * 60 * 60 * 1000, label: 'qbo_purchase_orders cache' },
   { table: 'qbo_employees_cache',       col: 'qbo_synced_at',  maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_employees_cache' },
   { table: 'qbo_pto_cache',             col: 'last_synced_at', maxAgeMs: 7 * 24 * 60 * 60 * 1000, label: 'qbo_pto_cache' },
 ];

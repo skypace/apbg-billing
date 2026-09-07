@@ -114,8 +114,13 @@ async function emailHeld(r, headline, reason) {
  * served THERE and the legacy /.netlify/functions/<name> route 404s — the trap
  * that left every emailed bill stuck at "Scanning".
  */
-async function tryRaiseSelfBilledInvoice(expense) {
+async function tryRaiseSelfBilledInvoice(expense, problems) {
   const base = process.env.URL || 'https://apbg-billing.netlify.app';
+  // ⚠ A failure here MUST reach ops.sync_log, not just console. This shipped
+  // logging real failures to console.error only, so a 500 on every call looked
+  // identical to "no supplier is set up for this" — the run reported
+  // self_billed: 0 and nobody could tell the difference for a full day.
+  const note = (why) => { if (problems && !problems.includes(why)) problems.push(why); };
   try {
     const res = await fetch(`${base}/api/self-bill-invoice`, {
       method: 'POST',
@@ -126,17 +131,21 @@ async function tryRaiseSelfBilledInvoice(expense) {
       body: JSON.stringify({ action: 'create', expense_request_id: expense.id }),
     });
     if (!res.ok) {
-      // 409 is the normal case: no profile claims this vendor, because most
-      // suppliers do send their own invoices. Not worth logging as noise.
+      const body = (await res.text()).slice(0, 200);
+      // 409 is the ordinary case: no profile claims this vendor, because most
+      // suppliers do send their own invoices. Everything else is a fault.
       if (res.status !== 409) {
-        console.error('[sf-expense-ocr] self-bill raise failed:', res.status, (await res.text()).slice(0, 200));
+        console.error('[sf-expense-ocr] self-bill raise failed:', res.status, body);
+        note(`${res.status}: ${body}`);
       }
       return false;
     }
     const out = await res.json();
+    if (!out?.invoice_number) note('raised but no invoice number came back');
     return !!out?.invoice_number;
   } catch (e) {
     console.error('[sf-expense-ocr] self-bill raise threw:', e?.message || e);
+    note(String(e?.message || e).slice(0, 200));
     return false;
   }
 }
@@ -156,7 +165,7 @@ async function tryRaiseSelfBilledInvoice(expense) {
  * hold they were already told about. The cost is a few cheap 409s a day,
  * bounded by the limit.
  */
-async function rescueHeldSelfBillables(sel) {
+async function rescueHeldSelfBillables(sel, problems) {
   let rescued = 0;
   let rows = [];
   try {
@@ -167,7 +176,7 @@ async function rescueHeldSelfBillables(sel) {
     );
   } catch { return 0; }
   for (const r of rows) {
-    if (await tryRaiseSelfBilledInvoice(r)) rescued++;
+    if (await tryRaiseSelfBilledInvoice(r, problems)) rescued++;
   }
   return rescued;
 }
@@ -193,6 +202,7 @@ export default async (req) => {
     );
 
     let processed = 0, noAttachment = 0, failed = 0, noBillNumber = 0, selfBilled = 0;
+    const selfBillProblems = [];
     const accountLabels = rows.length ? await loadAccountLabels() : [];
 
     for (const r of rows) {
@@ -214,7 +224,7 @@ export default async (req) => {
         //
         // Best-effort by design: a failure must leave the row exactly where it
         // would have been anyway (held, then chased), never lose it.
-        if (await tryRaiseSelfBilledInvoice(r)) { selfBilled++; continue; }
+        if (await tryRaiseSelfBilledInvoice(r, selfBillProblems)) { selfBilled++; continue; }
         noAttachment++;
         await opsPatch('expense_requests', r.id, { ocr_status: 'no_attachment', ocr_processed_at: new Date().toISOString() });
         if (url.searchParams.get('mode') !== 'quiet') {
@@ -259,8 +269,10 @@ export default async (req) => {
     }
 
     // Also pick up anything already held that a self-billing profile now covers.
-    const rescued = await rescueHeldSelfBillables(sel);
-    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber, self_billed: selfBilled + rescued, self_billed_rescued: rescued };
+    const rescued = await rescueHeldSelfBillables(sel, selfBillProblems);
+    const summary = { scanned: rows.length, processed, no_attachment: noAttachment, failed, no_bill_number: noBillNumber,
+      self_billed: selfBilled + rescued, self_billed_rescued: rescued,
+      ...(selfBillProblems.length ? { self_billed_errors: selfBillProblems.slice(0, 5) } : {}) };
     await logRun(started, 'success', processed, summary);
     return new Response(JSON.stringify({ ok: true, ...summary }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (e) {

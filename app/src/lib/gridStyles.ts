@@ -1,5 +1,5 @@
 import type { SxProps } from '@mui/material/styles';
-import { GridToolbar } from '@mui/x-data-grid-pro';
+import { GridToolbarWithPrint } from '../components/GridToolbarWithPrint';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared DataGridPro skin + default props for EVERY table in Refractor.
@@ -94,6 +94,10 @@ export const GRID_SX: SxProps = {
 // in DataGridPro, so no extra props are needed for those. Per-grid props placed
 // AFTER this spread still win.
 export const GRID_DEFAULTS = {
-  slots: { toolbar: GridToolbar },
+  // The toolbar carries an explicit PRINT button as well as the column
+  // selector, filters, density and export — printing a grid has to go through
+  // the grid (it virtualises rows), so this is the only way to get every row
+  // onto paper.
+  slots: { toolbar: GridToolbarWithPrint },
   slotProps: { toolbar: { showQuickFilter: false } },
 };

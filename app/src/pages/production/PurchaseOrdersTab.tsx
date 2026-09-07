@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, Truck, CheckCircle2, FileText, Mail } from 'lucide-react';
+import { Plus, X as XIcon } from 'lucide-react';
 import {
-  PoStatus, PurchaseOrderLine, PurchaseOrderRow, QboVendor,
-  closePurchaseOrder, createPurchaseOrder, fetchPoLines,
-  pushPoToQbo, receivePurchaseOrderLine, voidPurchaseOrder,
+  PoStatus, PurchaseOrderRow, QboVendor,
+  createPurchaseOrder,
 } from '../../lib/purchasing';
+import { PoDetailModal, OriginBadge } from './PoDetailModal';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -13,9 +15,7 @@ import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
 import type { ProductionItemLookup } from './ProductionPage';
 import { OpenPOsTab } from '../inventory/OpenPOsTab';
-import { INVENTORY_LANE_LABEL, type InventoryLane } from '../../lib/inventoryLane';
-import { openDocPdf } from '../../lib/productionDocs';
-import { EmailDocModal } from './EmailDocModal';
+import { INVENTORY_LANE_LABEL, describeLanes, type InventoryLane } from '../../lib/inventoryLane';
 
 const STATUS_COLOR: Record<PoStatus, string> = {
   draft:    'var(--mt)',
@@ -32,7 +32,8 @@ interface Props {
   locations: InventoryLocation[];
   locById: Map<string, InventoryLocation>;
   itemLookup: ProductionItemLookup;
-  lane: InventoryLane;
+  /** Selected lanes (empty = all) — a PO can now carry 24-packs and 3-gallon on one order. */
+  lanes: InventoryLane[];
   initialPoId?: string | null;
   onChanged: () => void;
 }
@@ -65,7 +66,7 @@ function readPrefill(): PoPrefillState | null {
 }
 
 export function PurchaseOrdersTab({
-  vendors, purchaseOrders, locations, locById, itemLookup, lane, initialPoId = null, onChanged,
+  vendors, purchaseOrders, locations, locById, itemLookup, lanes, initialPoId = null, onChanged,
 }: Props) {
   // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
   // open the Create form on mount and seed its lines.
@@ -149,10 +150,23 @@ export function PurchaseOrdersTab({
     { field: 'expected_date', headerName: 'Expected', width: 110,
       valueFormatter: (v) => v ? String(v) : '—' },
     {
-      field: 'qbo_purchase_order_id', headerName: 'QBO', width: 80,
-      renderCell: (p) => p.value
-        ? <span style={{ color: 'var(--gn)', fontWeight: 700, fontSize: 10 }}>#{String(p.value)}</span>
-        : <span style={{ color: 'var(--mt)' }}>—</span>,
+      field: 'origin', headerName: 'Created in', width: 120,
+      renderCell: (p) => <OriginBadge origin={p.row.origin} />,
+    },
+    {
+      field: 'qbo_purchase_order_id', headerName: 'QuickBooks', width: 150,
+      renderCell: (p) => {
+        const row = p.row as PurchaseOrderRow;
+        if (!row.qbo_purchase_order_id) return <span style={{ color: 'var(--am)', fontSize: 10 }}>not pushed</span>;
+        return (
+          <span style={{ fontSize: 10 }}>
+            <span style={{ color: 'var(--gn)', fontWeight: 700 }}>#{row.qbo_purchase_order_id}</span>
+            {row.qbo_status && <span style={{ color: 'var(--mt)' }}> · {row.qbo_status}</span>}
+            {row.qbo_dirty && <span style={{ color: 'var(--am)', fontWeight: 700 }}> · edits to push</span>}
+            {row.bills_pending > 0 && <span style={{ color: 'var(--rd)', fontWeight: 700 }}> · bill failed</span>}
+          </span>
+        );
+      },
     },
     { field: 'created_at', headerName: 'Created', width: 160,
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
@@ -170,16 +184,16 @@ export function PurchaseOrdersTab({
           fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
           textTransform: 'uppercase', marginBottom: 8, fontWeight: 700,
         }}>
-          All Open Purchase Orders (BRIX-native + QBO imports)
+          All Open Purchase Orders (Refractor + QuickBooks, one list)
         </div>
-        <OpenPOsTab lane={lane} itemLookup={itemLookup} onChanged={onChanged} />
+        <OpenPOsTab lanes={lanes} itemLookup={itemLookup} onChanged={onChanged} />
       </div>
 
       <div style={{
         fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6,
         textTransform: 'uppercase', marginTop: 24, marginBottom: 8, fontWeight: 700,
       }}>
-        Manage BRIX-native POs (create · receive · push to QBO · void)
+        Manage purchase orders (create · edit · receive → QuickBooks bill · push · void)
       </div>
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
@@ -223,7 +237,7 @@ export function PurchaseOrdersTab({
           componentItems={componentItems}
           itemLookup={itemLookup}
           prefill={prefill}
-          lane={lane}
+          lanes={lanes}
           onCancel={() => setCreating(false)}
           onCreated={() => { setCreating(false); onChanged(); }}
         />
@@ -280,14 +294,14 @@ function prefillLocationId(prefill: PoPrefillState | null): string {
 }
 
 function CreatePoForm({
-  vendors, locations, componentItems, itemLookup, prefill, lane, onCancel, onCreated,
+  vendors, locations, componentItems, itemLookup, prefill, lanes, onCancel, onCreated,
 }: {
   vendors: QboVendor[];
   locations: InventoryLocation[];
   componentItems: { id: string; label: string }[];
   itemLookup: ProductionItemLookup;
   prefill: PoPrefillState | null;
-  lane: InventoryLane;
+  lanes: InventoryLane[];
   onCancel: () => void;
   onCreated: () => void;
 }) {
@@ -349,7 +363,7 @@ function CreatePoForm({
     <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          New Purchase Order · {INVENTORY_LANE_LABEL[prefill?.inventory_lane ?? lane]}
+          New Purchase Order · {prefill?.inventory_lane ? INVENTORY_LANE_LABEL[prefill.inventory_lane] : describeLanes(lanes)}
         </div>
         <button onClick={onCancel} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
           <XIcon size={14} />
@@ -358,16 +372,12 @@ function CreatePoForm({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
         <LField label="Vendor">
-          <select style={inp()} value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-            <option value="">—</option>
-            {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-          </select>
+          <SearchSelect value={vendorId} onChange={setVendorId} placeholder="Type a vendor…"
+            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
         </LField>
         <LField label="Destination location">
-          <select style={inp()} value={locId} onChange={(e) => setLocId(e.target.value)}>
-            <option value="">—</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
-          </select>
+          <SearchSelect value={locId} onChange={setLocId} placeholder="Type a location…"
+            options={locations.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
         <LField label="Expected date">
           <input type="date" style={inp()} value={expected} onChange={(e) => setExpected(e.target.value)} />
@@ -377,79 +387,77 @@ function CreatePoForm({
       <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
         Lines
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-            <th style={th}>Item</th>
-            <th style={{ ...th, width: 100, textAlign: 'right' }}>Qty</th>
-            <th style={{ ...th, width: 110, textAlign: 'right' }}>Unit cost</th>
-            <th style={{ ...th, width: 110, textAlign: 'right' }}>Extended</th>
-            <th style={{ ...th, width: 200 }}>Description</th>
-            <th style={{ ...th, width: 28 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => {
-            const qty = Number(l.qty_ordered || 0);
-            const cost = Number(l.unit_cost || 0);
-            return (
-              <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
-                <td style={td}>
-                  <select style={{ ...inp(), width: '100%' }} value={l.qbo_item_id}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const it = id ? itemLookup.byId.get(id) : null;
-                      updateLine(i, {
-                        qbo_item_id: id,
-                        unit_cost: l.unit_cost || (it?.purchase_cost ? String(it.purchase_cost) : ''),
-                      });
-                    }}>
-                    <option value="">—</option>
-                    {componentItems.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </td>
-                <td style={{ ...td, textAlign: 'right' }}>
-                  <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                    value={l.qty_ordered} onChange={(e) => updateLine(i, { qty_ordered: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'right' }}>
-                  <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
-                    value={l.unit_cost} onChange={(e) => updateLine(i, { unit_cost: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(qty * cost)}</td>
-                <td style={td}>
-                  <input type="text" style={{ ...inp(), width: '100%' }} placeholder="—"
-                    value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
-                </td>
-                <td style={{ ...td, textAlign: 'center' }}>
-                  {lines.length > 1 && (
-                    <button onClick={() => removeLine(i)} title="Remove" style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: 2,
-                    }}>
-                      <XIcon size={13} />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td style={{ ...td, fontSize: 10, color: 'var(--mt)' }}>
-              <button onClick={addLine} style={{
-                background: 'transparent', border: '1px dashed var(--bd)', cursor: 'pointer',
-                color: 'var(--mt)', padding: '4px 10px', borderRadius: 4, fontSize: 10,
-              }}>
-                <Plus size={11} style={{ marginRight: 4, verticalAlign: -1 }} /> add line
-              </button>
-            </td>
-            <td colSpan={2} style={{ ...td, textAlign: 'right', color: 'var(--mt)', fontSize: 10 }}>Subtotal</td>
-            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700, color: 'var(--tx)' }}>{fm(subtotal)}</td>
-            <td colSpan={2} />
-          </tr>
-        </tfoot>
-      </table>
+      <PrintableTable>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+              <th style={th}>Item</th>
+              <th style={{ ...th, width: 100, textAlign: 'right' }}>Qty</th>
+              <th style={{ ...th, width: 110, textAlign: 'right' }}>Unit cost</th>
+              <th style={{ ...th, width: 110, textAlign: 'right' }}>Extended</th>
+              <th style={{ ...th, width: 200 }}>Description</th>
+              <th style={{ ...th, width: 28 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => {
+              const qty = Number(l.qty_ordered || 0);
+              const cost = Number(l.unit_cost || 0);
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <td style={td}>
+                    <SearchSelect style={{ width: '100%' }} value={l.qbo_item_id} options={componentItems} placeholder="Type an item…"
+                      onChange={(id) => {
+                        const it = id ? itemLookup.byId.get(id) : null;
+                        updateLine(i, {
+                          qbo_item_id: id,
+                          unit_cost: l.unit_cost || (it?.purchase_cost ? String(it.purchase_cost) : ''),
+                        });
+                      }} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <input type="number" min={0.0001} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
+                      value={l.qty_ordered} onChange={(e) => updateLine(i, { qty_ordered: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <input type="number" min={0} step="any" style={{ ...inp(), width: '100%', textAlign: 'right' }}
+                      value={l.unit_cost} onChange={(e) => updateLine(i, { unit_cost: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(qty * cost)}</td>
+                  <td style={td}>
+                    <input type="text" style={{ ...inp(), width: '100%' }} placeholder="—"
+                      value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} />
+                  </td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {lines.length > 1 && (
+                      <button onClick={() => removeLine(i)} title="Remove" style={{
+                        background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: 2,
+                      }}>
+                        <XIcon size={13} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={{ ...td, fontSize: 10, color: 'var(--mt)' }}>
+                <button onClick={addLine} style={{
+                  background: 'transparent', border: '1px dashed var(--bd)', cursor: 'pointer',
+                  color: 'var(--mt)', padding: '4px 10px', borderRadius: 4, fontSize: 10,
+                }}>
+                  <Plus size={11} style={{ marginRight: 4, verticalAlign: -1 }} /> add line
+                </button>
+              </td>
+              <td colSpan={2} style={{ ...td, textAlign: 'right', color: 'var(--mt)', fontSize: 10 }}>Subtotal</td>
+              <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700, color: 'var(--tx)' }}>{fm(subtotal)}</td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </PrintableTable>
 
       <LField label="Notes">
         <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
@@ -467,250 +475,6 @@ function CreatePoForm({
 }
 
 // ── Detail modal ───────────────────────────────────────────────────────
-
-function PoDetailModal({
-  poId, po, itemLookup, locById, onClose, onChanged,
-}: {
-  poId: string;
-  po: PurchaseOrderRow | null;
-  itemLookup: ProductionItemLookup;
-  locById: Map<string, InventoryLocation>;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const [lines, setLines] = useState<PurchaseOrderLine[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [receiving, setReceiving] = useState<Record<string, string>>({});
-  const [emailOpen, setEmailOpen] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    // Every line on the PO, never a lane-filtered subset. A materials PO is mostly
-    // `excluded` items by design (a can body and a tolling charge are not finished
-    // goods), so filtering by lane here hid 6 of the 7 lines on a real Quantum PO
-    // and left nothing to receive. Lane scoping belongs on the LIST, not inside a
-    // document whose totals have to match the PDF and QuickBooks.
-    fetchPoLines(poId)
-      .then((ls) => alive && setLines(ls))
-      .catch(() => alive && setLines([]));
-    return () => { alive = false; };
-  }, [poId]);
-
-  if (!po) return null;
-  const destLabel = locById.get(po.destination_location_id)?.name ?? po.location_label ?? '—';
-
-  async function doReceive(line: PurchaseOrderLine) {
-    const qtyStr = receiving[line.id] ?? '';
-    const qty = Number(qtyStr);
-    if (!qty || qty <= 0) {
-      toast.error('Enter a positive qty to receive');
-      return;
-    }
-    setBusy(true);
-    try {
-      await receivePurchaseOrderLine({ po_line_id: line.id, qty_received: qty });
-      toast.success('Received ' + fmtNum(qty) + ' · ' + line.qbo_item_id);
-      setReceiving((cur) => { const n = { ...cur }; delete n[line.id]; return n; });
-      const refreshed = await fetchPoLines(poId);
-      setLines(refreshed);
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doClose() {
-    if (!confirm('Mark PO ' + po!.po_number + ' as closed? Any unreceived lines will be force-closed.')) return;
-    setBusy(true);
-    try {
-      await closePurchaseOrder(poId);
-      toast.success('PO closed');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doVoid() {
-    const reason = prompt('Void reason:');
-    if (!reason || !reason.trim()) return;
-    setBusy(true);
-    try {
-      await voidPurchaseOrder(poId, reason.trim());
-      toast.success('PO voided');
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  async function doPushToQbo() {
-    if (!confirm('Push PO ' + po!.po_number + ' to QuickBooks as a PurchaseOrder?')) return;
-    setBusy(true);
-    try {
-      const r = await pushPoToQbo(poId);
-      if (r.no_change) toast.info(r.message ?? 'Already pushed');
-      else toast.success('Pushed to QBO as PO #' + r.qbo_purchase_order_id);
-      onChanged();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setBusy(false); }
-  }
-
-  const canReceive = po.status === 'open' || po.status === 'partial';
-  const canClose   = po.status === 'received' || po.status === 'partial';
-  const canVoid    = po.status === 'draft' || po.status === 'open';
-  const canPush    = !po.qbo_purchase_order_id && po.status !== 'void';
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 6,
-        maxWidth: 920, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 18,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-              Purchase Order · {po.status}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--ff-mono)', color: 'var(--tx)' }}>
-              {po.po_number}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--mt)' }}>
-              {po.vendor_name ?? po.qbo_vendor_id} · destination {destLabel}
-              {po.expected_date && ' · expected ' + po.expected_date}
-            </div>
-            {po.qbo_purchase_order_id && (
-              <div style={{ fontSize: 10, color: 'var(--gn)', marginTop: 4, fontWeight: 600 }}>
-                ✓ Synced to QBO as PurchaseOrder #{po.qbo_purchase_order_id}
-                {po.qbo_pushed_at && ' · ' + new Date(po.qbo_pushed_at).toLocaleString()}
-              </div>
-            )}
-            {po.qbo_push_error && (
-              <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>QBO push error: {po.qbo_push_error}</div>
-            )}
-            {po.void_reason && (
-              <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>Voided: {po.void_reason}</div>
-            )}
-          </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
-            <XIcon size={16} />
-          </button>
-        </div>
-
-        {po.notes && (
-          <div style={{
-            padding: 8, marginBottom: 12,
-            background: 'rgba(91,181,240,0.04)', border: '1px solid var(--bd)', borderRadius: 4,
-            fontSize: 11, color: 'var(--tx2)',
-          }}>
-            {po.notes}
-          </div>
-        )}
-
-        <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
-          Lines
-        </div>
-        {lines === null ? (
-          <div className="ld">Loading…</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={th}>Item</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Ordered</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Received</th>
-                <th style={{ ...th, textAlign: 'right', width: 90 }}>Unit cost</th>
-                <th style={{ ...th, textAlign: 'right', width: 100 }}>Extended</th>
-                {canReceive && <th style={{ ...th, width: 200 }}>Receive</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((ln) => {
-                const itemName = itemLookup.byId.get(ln.qbo_item_id)?.item_name ?? ln.qbo_item_id;
-                const remaining = Number(ln.qty_ordered) - Number(ln.qty_received);
-                const fullyReceived = remaining <= 0;
-                return (
-                  <tr key={ln.id} style={{ borderBottom: '1px solid var(--bd)' }}>
-                    <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{itemName}</div>
-                      {ln.description && <div style={{ fontSize: 10, color: 'var(--mt)' }}>{ln.description}</div>}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(ln.qty_ordered))}</td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)',
-                      color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
-                      {fmtNum(Number(ln.qty_received))}
-                      {fullyReceived && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
-                    </td>
-                    {/* 4 dp, not fm() — a can body is $0.328 and a tolling charge $0.62;
-                        whole dollars renders both as "$0" and the line stops being checkable. */}
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {'$' + Number(ln.unit_cost).toFixed(4)}
-                    </td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>
-                      {fm(Number(ln.qty_ordered) * Number(ln.unit_cost))}
-                    </td>
-                    {canReceive && (
-                      <td style={td}>
-                        {fullyReceived ? (
-                          <span style={{ fontSize: 10, color: 'var(--mt)' }}>complete</span>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <input
-                              type="number" min={0.0001} max={remaining} step="any"
-                              style={{ ...inp(), width: 80, textAlign: 'right' }}
-                              placeholder={fmtNum(remaining)}
-                              value={receiving[ln.id] ?? ''}
-                              onChange={(e) => setReceiving((cur) => ({ ...cur, [ln.id]: e.target.value }))}
-                            />
-                            <button onClick={() => doReceive(ln)} disabled={busy} style={{
-                              ...btnSecondary(), padding: '4px 9px',
-                            }} title="Receive this qty">
-                              <Truck size={12} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--bd)' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => openDocPdf({ kind: 'po', id: poId }).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
-              style={btnSecondary()} title="The branded purchase order as a PDF">
-              <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> View PDF
-            </button>
-            <button onClick={() => setEmailOpen(true)} style={btnSecondary()} title="Email the PDF to the vendor">
-              <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email…
-            </button>
-            {canVoid && (
-              <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={btnSecondary()}>Close</button>
-            {canPush && (
-              <button onClick={doPushToQbo} disabled={busy} style={btnSecondary()} title="Send this PO to QuickBooks">
-                Push to QBO →
-              </button>
-            )}
-            {canClose && (
-              <button onClick={doClose} disabled={busy} style={btnPrimary()}>Close PO</button>
-            )}
-          </div>
-        </div>
-        {emailOpen && (
-          <EmailDocModal ref={{ kind: 'po', id: poId }} title={'purchase order ' + po.po_number} onClose={() => setEmailOpen(false)} />
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── helpers ────────────────────────────────────────────────────────────
 

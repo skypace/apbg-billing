@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { btnSecondary, inp } from '../../lib/styles';
 import { fetchAccountSettings, setAccountActive, type AccountSettingRow } from '../../lib/settings';
 import { useToast } from '../../lib/toast';
@@ -97,41 +98,43 @@ export function AccountsEditor() {
 
       <div className="cd" style={{ padding: 0 }}>
         <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-              <tr>
-                <th style={{ textAlign: 'left' }}>Account name</th>
-                <th style={{ textAlign: 'right' }}>Items</th>
-                <th style={{ textAlign: 'right' }}>Active items</th>
-                <th style={{ textAlign: 'center', width: 110 }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={4} style={{ padding: 14, color: 'var(--mt)' }}>No accounts match.</td></tr>
-              ) : (
-                filtered.map((r) => (
-                  <tr key={r.account_name} style={{ opacity: r.is_active ? 1 : 0.55 }}>
-                    <td style={{ fontSize: 12 }}>{r.account_name}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.item_count}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.active_item_count}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <label style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        cursor: 'pointer', fontSize: 11,
-                        color: r.is_active ? 'var(--gn)' : 'var(--am)',
-                        fontWeight: 600,
-                      }}>
-                        <input type="checkbox" checked={r.is_active}
-                          onChange={(e) => toggle(r.account_name, e.target.checked)} />
-                        {r.is_active ? 'Active' : 'Hidden'}
-                      </label>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Account name</th>
+                  <th style={{ textAlign: 'right' }}>Items</th>
+                  <th style={{ textAlign: 'right' }}>Active items</th>
+                  <th style={{ textAlign: 'center', width: 110 }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={4} style={{ padding: 14, color: 'var(--mt)' }}>No accounts match.</td></tr>
+                ) : (
+                  filtered.map((r) => (
+                    <tr key={r.account_name} style={{ opacity: r.is_active ? 1 : 0.55 }}>
+                      <td style={{ fontSize: 12 }}>{r.account_name}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.item_count}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.active_item_count}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <label style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          cursor: 'pointer', fontSize: 11,
+                          color: r.is_active ? 'var(--gn)' : 'var(--am)',
+                          fontWeight: 600,
+                        }}>
+                          <input type="checkbox" checked={r.is_active}
+                            onChange={(e) => toggle(r.account_name, e.target.checked)} />
+                          {r.is_active ? 'Active' : 'Hidden'}
+                        </label>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </PrintableTable>
         </div>
       </div>
     </div>

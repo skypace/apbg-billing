@@ -395,6 +395,7 @@ export function ItemsSettingsEditor() {
       : current.inventory_lane_size;
     if (nextLane === 'excluded') nextSize = null;
     if (nextLane === 'cans_24pk') nextSize = '24pk';
+    if (nextLane === 'cans_8pk') nextSize = '8pk';
     if (nextLane === 'bib_product' && nextSize !== '3g' && nextSize !== '5g') nextSize = '3g';
 
     const nextReceivingLocation = patchData.default_receiving_location_id !== undefined
@@ -420,7 +421,7 @@ export function ItemsSettingsEditor() {
             default_receiving_location_id: nextReceivingLocation,
             is_managed: nextLane !== 'excluded' ? true : r.is_managed,
             track_locations: nextLane !== 'excluded' ? true : r.track_locations,
-            has_bom: nextLane === 'cans_24pk' ? true : (nextLane === 'bib_product' ? false : r.has_bom),
+            has_bom: nextLane === 'cans_24pk' ? true : ((nextLane === 'bib_product' || nextLane === 'cans_8pk') ? false : r.has_bom),
           }
         : r) ?? null);
     } catch (e) {
@@ -720,10 +721,11 @@ export function ItemsSettingsEditor() {
               value={value}
               onChange={(e) => patchLane(p.row.qbo_item_id, { inventory_lane: e.target.value as InventoryLaneDb })}
               style={{ ...inp(), width: 120 }}
-              title="Daily inventory lane. Only BIB Product and Cans 24pks appear in operator inventory screens."
+              title="Daily inventory lane. Only BIB Product, Cans 24pks and Cans 8pks appear in operator inventory screens."
             >
               <option value="bib_product">{INVENTORY_LANE_LABEL.bib_product}</option>
               <option value="cans_24pk">{INVENTORY_LANE_LABEL.cans_24pk}</option>
+              <option value="cans_8pk">{INVENTORY_LANE_LABEL.cans_8pk}</option>
               <option value="excluded">{INVENTORY_LANE_LABEL.excluded}</option>
             </select>
           );
@@ -749,6 +751,7 @@ export function ItemsSettingsEditor() {
                 </>
               )}
               {lane === 'cans_24pk' && <option value="24pk">{INVENTORY_LANE_SIZE_LABEL['24pk']}</option>}
+              {lane === 'cans_8pk' && <option value="8pk">{INVENTORY_LANE_SIZE_LABEL['8pk']}</option>}
             </select>
           );
         },

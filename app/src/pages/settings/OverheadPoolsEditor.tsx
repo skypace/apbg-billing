@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { sbq, sbInsert, sbUpdate, sbDelete } from '../../lib/rpc';
 import { fm } from '../../lib/formatters';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
@@ -209,100 +210,102 @@ export function OverheadPoolsEditor() {
           <div className="ld">No pools yet — add one above.</div>
         ) : (
           <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-                <tr>
-                  <th>Name</th>
-                  <th style={{ textAlign: 'right' }}>Monthly $</th>
-                  <th>Basis</th>
-                  <th>Entity</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Active</th>
-                  <th>Notes</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pools.map((p) => (
-                  <tr key={p.id} style={!p.active ? { opacity: 0.55 } : undefined}>
-                    <td>
-                      <input
-                        type="text" value={p.name}
-                        onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, name: e.target.value } : x) ?? null)}
-                        onBlur={(e) => patchPool(p.id, { name: e.target.value })}
-                        style={{ ...inp(), width: '100%', fontWeight: 600 }}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <input
-                        type="number" step="100" value={p.monthly_amount}
-                        onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, monthly_amount: Number(e.target.value) } : x) ?? null)}
-                        onBlur={(e) => patchPool(p.id, { monthly_amount: Number(e.target.value) })}
-                        style={{ ...inp(), width: 110, textAlign: 'right' }}
-                      />
-                    </td>
-                    <td>
-                      <select
-                        value={p.basis}
-                        onChange={(e) => patchPool(p.id, { basis: e.target.value as AllocationBasis })}
-                        style={{ ...inp(), width: 150 }}
-                        title={BASIS_OPTIONS.find((b) => b.id === p.basis)?.help}
-                      >
-                        {BASIS_OPTIONS.map((b) => <option key={b.id} value={b.id}>{BASIS_LABEL[b.id]}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        value={p.entity ?? ''}
-                        onChange={(e) => patchPool(p.id, { entity: e.target.value || null })}
-                        style={{ ...inp(), width: 110 }}
-                      >
-                        {ENTITY_OPTIONS.map((e) => <option key={e} value={e}>{e || '(all)'}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="date" value={p.effective_from}
-                        onChange={(e) => patchPool(p.id, { effective_from: e.target.value })}
-                        style={{ ...inp(), width: 130 }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="date" value={p.effective_to ?? ''}
-                        onChange={(e) => patchPool(p.id, { effective_to: e.target.value || null })}
-                        style={{ ...inp(), width: 130 }}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <input
-                        type="checkbox" checked={p.active}
-                        onChange={(e) => patchPool(p.id, { active: e.target.checked })}
-                        style={{ accentColor: 'var(--ac)' }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text" value={p.notes ?? ''}
-                        onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, notes: e.target.value } : x) ?? null)}
-                        onBlur={(e) => patchPool(p.id, { notes: e.target.value || null })}
-                        style={{ ...inp(), width: '100%', fontSize: 10 }}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => removePool(p.id, p.name)}
-                        style={{ ...btnSecondary(), color: 'var(--rd)', borderColor: 'var(--rd)' }}
-                        title="Delete pool"
-                      >
-                        Del
-                      </button>
-                    </td>
+            <PrintableTable>
+              <table>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                  <tr>
+                    <th>Name</th>
+                    <th style={{ textAlign: 'right' }}>Monthly $</th>
+                    <th>Basis</th>
+                    <th>Entity</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Active</th>
+                    <th>Notes</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pools.map((p) => (
+                    <tr key={p.id} style={!p.active ? { opacity: 0.55 } : undefined}>
+                      <td>
+                        <input
+                          type="text" value={p.name}
+                          onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, name: e.target.value } : x) ?? null)}
+                          onBlur={(e) => patchPool(p.id, { name: e.target.value })}
+                          style={{ ...inp(), width: '100%', fontWeight: 600 }}
+                        />
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <input
+                          type="number" step="100" value={p.monthly_amount}
+                          onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, monthly_amount: Number(e.target.value) } : x) ?? null)}
+                          onBlur={(e) => patchPool(p.id, { monthly_amount: Number(e.target.value) })}
+                          style={{ ...inp(), width: 110, textAlign: 'right' }}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          value={p.basis}
+                          onChange={(e) => patchPool(p.id, { basis: e.target.value as AllocationBasis })}
+                          style={{ ...inp(), width: 150 }}
+                          title={BASIS_OPTIONS.find((b) => b.id === p.basis)?.help}
+                        >
+                          {BASIS_OPTIONS.map((b) => <option key={b.id} value={b.id}>{BASIS_LABEL[b.id]}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          value={p.entity ?? ''}
+                          onChange={(e) => patchPool(p.id, { entity: e.target.value || null })}
+                          style={{ ...inp(), width: 110 }}
+                        >
+                          {ENTITY_OPTIONS.map((e) => <option key={e} value={e}>{e || '(all)'}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="date" value={p.effective_from}
+                          onChange={(e) => patchPool(p.id, { effective_from: e.target.value })}
+                          style={{ ...inp(), width: 130 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date" value={p.effective_to ?? ''}
+                          onChange={(e) => patchPool(p.id, { effective_to: e.target.value || null })}
+                          style={{ ...inp(), width: 130 }}
+                        />
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox" checked={p.active}
+                          onChange={(e) => patchPool(p.id, { active: e.target.checked })}
+                          style={{ accentColor: 'var(--ac)' }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text" value={p.notes ?? ''}
+                          onChange={(e) => setPools((cur) => cur?.map((x) => x.id === p.id ? { ...x, notes: e.target.value } : x) ?? null)}
+                          onBlur={(e) => patchPool(p.id, { notes: e.target.value || null })}
+                          style={{ ...inp(), width: '100%', fontSize: 10 }}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => removePool(p.id, p.name)}
+                          style={{ ...btnSecondary(), color: 'var(--rd)', borderColor: 'var(--rd)' }}
+                          title="Delete pool"
+                        >
+                          Del
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         )}
       </div>
