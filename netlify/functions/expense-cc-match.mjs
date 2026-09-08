@@ -43,6 +43,7 @@
 // architecture/sync-manifest.json).
 
 import { requireAuth } from './lib/auth.mjs';
+import { hasBrixpenseAccess } from './lib/ap-inbox.mjs';
 import { qboQuery, qboRequest, corsHeaders } from './qbo-helpers.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 
@@ -390,20 +391,14 @@ export async function handler(event) {
         //
         // The shared Supabase project also holds brix-order CUSTOMER logins,
         // melt users, drivers, etc. — company cards only belong to internal
-        // staff who can use Brixpense, so filter to users whose gateway role/
-        // modules grant Brixpense's access bucket ('billing'). Mirrors the
-        // gateway's grantsAccess() in apbg-gateway/netlify/functions/apps.mjs:
-        // superadmin → always; explicit user_metadata.modules → must include
-        // 'billing'; otherwise the legacy role→access map (admin + finance
-        // are the only other roles carrying 'billing').
-        const BILLING_ROLES = new Set(['superadmin', 'admin', 'finance']);
-        const hasBrixpenseAccess = (u) => {
-          const md = u.user_metadata || {};
-          if (md.role === 'superadmin') return true;
-          const mods = Array.isArray(md.modules) ? md.modules : null;
-          if (mods) return mods.includes('billing');
-          return BILLING_ROLES.has(md.role);
-        };
+        // staff who can use Brixpense, so filter on the same predicate the
+        // Brixpense API and its RLS use.
+        //
+        // ⚠ This was a VERBATIM COPY of lib/ap-inbox.mjs's hasBrixpenseAccess()
+        // until 2026-09-08, and the copy is what would have gone stale: the
+        // gateway's per-app grants added 'app:brixpense' as a second way in, so
+        // a consultant granted Brixpense alone would have been refused a card
+        // here while the app itself let them in. Imported now — one predicate.
         // Paginate — with every customer login on the shared project the list
         // is well past one page, and a truncated page could drop staff.
         const all = [];

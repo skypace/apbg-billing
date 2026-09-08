@@ -246,11 +246,26 @@ export function verifyInbound(headers, rawBody, queryStringSecret) {
 // expense-cc-match's cardholder list.
 const BILLING_ROLES = new Set(['superadmin', 'admin', 'finance']);
 
+// ⚠ 'app:brixpense' is a PER-APP grant (apbg-gateway 2026-09-08). `billing` is
+// one bucket carrying 15 apps, so an outside consultant who should have only
+// Brixpense used to have to be handed Refractor, Brix Order, the internal
+// Trello board and the compliance vault along with it. The gateway can now
+// grant a single app — but the gateway grant only decides the TILE, and this
+// function is what actually lets someone into Brixpense. Accept both forms or
+// `app:brixpense` is a tile that leads straight to a 403, which is exactly the
+// "tile then wall" failure the account audit was built to catch.
+//
+// The bucket name and the app_key differ ('billing' vs 'brixpense') and both
+// are frozen — see apbg-gateway's grantsAccess() for the grant vocabulary. Keep
+// this in step with ops.fn_has_brixpense(), which applies the same predicate in
+// SQL for RLS.
+const BRIXPENSE_GRANTS = ['billing', 'app:brixpense'];
+
 export function hasBrixpenseAccess(user) {
   const md = user?.user_metadata || {};
   if (md.role === 'superadmin') return true;
   const mods = Array.isArray(md.modules) ? md.modules : null;
-  if (mods) return mods.includes('billing');
+  if (mods) return BRIXPENSE_GRANTS.some((g) => mods.includes(g));
   return BILLING_ROLES.has(md.role);
 }
 
