@@ -107,6 +107,7 @@
     "qbo_pto_cache",
     "qbo_purchase_order_lines",
     "qbo_purchase_orders",
+    "qbo_time_activities",
     "qbo_token_cache",
     "qbo_vendors",
     "raw_ingredients",

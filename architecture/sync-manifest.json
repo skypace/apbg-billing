@@ -54,6 +54,21 @@
       "last_verified": "2026-08-23"
     },
     {
+      "name": "qbo-time-sync",
+      "kind": "netlify-function",
+      "source_repo": "skypace/apbg-billing",
+      "schedule": "daily 07:40 UTC (pg_cron 'qbo-time-sync') + on demand",
+      "writes": [
+        "ops.qbo_time_activities",
+        "ops.sync_log"
+      ],
+      "multi_writer": false,
+      "external_inputs": [
+        "QuickBooks Online accounting API (TimeActivity query, paged 1000 at a time)"
+      ],
+      "notes": "The labour clock. Mirrors QuickBooks TimeActivity — the hours drivers and techs clock through QuickBooks Time — at PERSON x DAY x HOURS x COST RATE. That cost rate is truer than the annual_wage/2080 the Job Ledger derives (Kyle McGee $23.68 vs $20.67). WARNING: CustomerRef on these rows is a stuck default in QuickBooks Time (five distinct values across 649 entries, one constant per person) and ItemRef is the literal string 'Sales' on every row — mirror them, never attribute cost through them until somebody has fixed those profiles. Entries are created at payroll close, ~14 days after the work (measured 9-20), so the sync re-reads a 6-month window every run rather than resuming from the newest work day it has seen, and ops.fn_qbo_time_sync_health() watches CREATION time, not the work date. EmployeeRef is not a queryable property on TimeActivity (QBO 400) — filter on TxnDate only. ops.v_labour_day is the read surface and reports which rate it used."
+    },
+    {
       "name": "vendor-email-intake",
       "kind": "netlify-function",
       "source_repo": "skypace/apbg-billing",

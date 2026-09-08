@@ -58,6 +58,9 @@
 # /api/qbo-purchasing-sync; Sync now is the same function under a staff bearer),
 # receiving (ledger + QuickBooks Bill linked to the PO + Brixpense row) and the
 # two-way PO push. Each holds a QBO token refresh plus several round trips.
+[functions."qbo-time-sync"]
+  timeout = 26
+
 [functions."qbo-purchasing-sync"]
   timeout = 26
 [functions."po-receive"]
@@ -200,6 +203,11 @@
 [[redirects]]
   from = "/api/qbo-purchasing-sync"
   to = "/.netlify/functions/qbo-purchasing-sync"
+  status = 200
+
+[[redirects]]
+  from = "/api/qbo-time-sync"
+  to = "/.netlify/functions/qbo-time-sync"
   status = 200
 [[redirects]]
   from = "/api/po-receive"
