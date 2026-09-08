@@ -224,14 +224,56 @@ function extractEncodedId(j: any): string | null {
   return m ? m[1] : null;
 }
 
-const teamCache: Record<string, number | null> = {};
+// ── Matching an SF tech to a roster row ────────────────────────────────────
+//
+// This used to be `.or("name.ilike.%<first>%,name.ilike.%<last>%").limit(1)` —
+// EITHER name part, first row wins, no ORDER BY. Measured against live data on
+// 2026-09-07 it had 4 of 13 tech names pointing at the WRONG PERSON:
+//
+//   Anthony VanRenselaar (42 jobs) -> Anthony Sloan        (first-name collision)
+//   Eric VanRenselaar     (3 jobs) -> Anthony VanRenselaar (surname collision)
+//   Origins Craft Soda Co(18 jobs) -> Marco                (a distributor, not staff)
+//   Marco Di Luca         (1 job)  -> Marco                (fragment, not the person)
+//
+// Nothing reads `service_jobs.tech_id` today — every KPI groups on `tech_name` —
+// so it was a landmine rather than a live wound. It is exactly the landmine an
+// id-based join steps on, which is how it was found.
+//
+// The rule now is the one 20260907h used for qbo_employee_id and resolveEdiMember
+// uses for stores: EXACT and UNAMBIGUOUS, or nothing. Ambiguity is a question,
+// not a coin flip, and a NULL is a visible gap where a wrong id is a silent lie.
+// On the live data that is 9 correct, 0 wrong, 4 honest blanks.
+//
+// `tech_name` is stored VERBATIM whatever happens here — it is what every live
+// consumer reads, so this must never change what appears on a screen.
+//
+// The roster is 13 rows; it is loaded ONCE per run rather than queried per tech,
+// which also removes a round trip from a function that is already budget-bound.
+let rosterByName: Record<string, number | null> | null = null;
+
+function normName(s: string): string {
+  return (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+async function loadRoster(sb: any): Promise<Record<string, number | null>> {
+  if (rosterByName) return rosterByName;
+  const map: Record<string, number | null> = {};
+  const { data } = await sb.from("team_members").select("id,name");
+  for (const m of data || []) {
+    const k = normName(m.name);
+    if (!k) continue;
+    // Two roster rows sharing a name is ambiguous — neither may claim it.
+    map[k] = (k in map) ? null : m.id;
+  }
+  rosterByName = map;
+  return map;
+}
+
 async function matchTech(sb: any, firstName: string, lastName: string): Promise<{ id: number | null; name: string }> {
   const fullName = (firstName + " " + lastName).trim();
   if (!fullName || fullName === "Service Department General") return { id: null, name: fullName };
-  if (fullName in teamCache) return { id: teamCache[fullName], name: fullName };
-  const { data } = await sb.from("team_members").select("id,name").or("name.ilike.%" + firstName + "%,name.ilike.%" + lastName + "%").limit(1);
-  const id = data?.[0]?.id || null;
-  teamCache[fullName] = id;
+  const roster = await loadRoster(sb);
+  const id = roster[normName(fullName)] ?? null;
   return { id, name: fullName };
 }
 
