@@ -147,6 +147,7 @@
     "sub_distributor_settlements",
     "sub_distributor_users",
     "sub_distributors",
+    "subdist_agreement_templates",
     "sync_customers",
     "sync_events",
     "sync_log",

@@ -13,6 +13,7 @@ import {
   SubDistributorStatus,
   fetchQboVendor,
   fetchVendorExpenseLines,
+  pushDistributorToQbo,
   updateSubDistributor,
 } from '../../lib/subDistributors';
 import { useToast } from '../../lib/toast';
@@ -277,6 +278,26 @@ function VendorLinkPanel({ dist, onChanged }: {
     }
   }
 
+  // Create the vendor in QuickBooks (or link the one already there). The QBO
+  // token is in the Netlify env, so this is a function call, not a browser one.
+  async function createInQbo() {
+    setBusy(true);
+    try {
+      const r = await pushDistributorToQbo(dist.id);
+      const verb = r.outcome === 'created' ? 'Created' : 'Linked';
+      toast.success(`${verb} QuickBooks vendor ${r.display_name} (#${r.qbo_vendor_id})`);
+      // Anything a human still has to do — a name collision, a missing
+      // remit-to address — is said out loud rather than left to be discovered
+      // when a cheque goes to nowhere.
+      for (const n of r.notes) toast.info(n);
+      onChanged();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const fmtAmt = (n: number) =>
     n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
@@ -314,11 +335,22 @@ function VendorLinkPanel({ dist, onChanged }: {
             onPick={(v) => setVendorId(v.qbo_vendor_id, v.display_name)}
             placeholder="Search QBO vendors by name…"
           />
-          {changing && (
+          {changing ? (
             <button onClick={() => setChanging(false)} style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: 'var(--mt)', fontSize: 10.5, marginTop: 6, padding: 0,
             }}>Cancel — keep the current link</button>
+          ) : (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd)' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--mt)', marginBottom: 6 }}>
+                Not in QuickBooks yet? Create the vendor from this record. It links to an
+                existing vendor of the same name rather than making a second one — no
+                remit-to address is sent, so add one in QuickBooks before paying them.
+              </div>
+              <button onClick={createInQbo} disabled={busy || !dist.name} style={btnPrimary()}>
+                {busy ? 'Working…' : 'Create in QuickBooks'}
+              </button>
+            </div>
           )}
         </div>
       )}

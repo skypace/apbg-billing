@@ -15,16 +15,23 @@ import {
   updateAgreement,
   uploadAgreementFile,
 } from '../../lib/subDistributors';
+import { isBuiltAgreement } from '../../lib/subDistributors';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import { Chip, errMsg, LField, Modal, Td, Th } from './common';
+import {
+  AgreementPreviewModal, BuildAgreementDialog, SendAgreementDialog, useRevokeAgreement,
+} from './AgreementBuilder';
 
 const AGREEMENT_STATUS_COLOR: Record<AgreementStatus, string> = {
-  draft:   'var(--mt)',
-  sent:    'var(--am)',
-  signed:  'var(--gn)',
-  expired: 'var(--rd)',
-  void:    '#64748b',
+  draft:      'var(--mt)',
+  sent:       'var(--am)',
+  signed:     'var(--gn)',
+  declined:   'var(--rd)',
+  revoked:    '#64748b',
+  expired:    'var(--rd)',
+  superseded: '#64748b',
+  void:       '#64748b',
 };
 
 export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
@@ -32,6 +39,10 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
   const [rows, setRows] = useState<SubDistributorAgreement[] | null>(null);
   const [editing, setEditing] = useState<SubDistributorAgreement | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
+  // The builder flow: build a draft → preview it → send the signing link.
+  const [building, setBuilding] = useState(false);
+  const [previewing, setPreviewing] = useState<SubDistributorAgreement | null>(null);
+  const [sending, setSending] = useState<{ a: SubDistributorAgreement; resend: boolean } | null>(null);
 
   function reload() {
     setRows(null);
@@ -39,6 +50,7 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(reload, [dist.id]);
+  const revoke = useRevokeAgreement(reload);
 
   async function markSent(a: SubDistributorAgreement) {
     const sentTo = prompt('Sent to (email)?', dist.contact_email ?? '');
@@ -69,8 +81,11 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
             {rows === null ? 'Loading…' : `${rows.length} agreement${rows.length === 1 ? '' : 's'}`}
           </span>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
-          <button onClick={() => setEditing('new')} style={btnPrimary()}>
-            <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New Agreement
+          <button onClick={() => setEditing('new')} style={btnSecondary()}>
+            Upload a signed PDF
+          </button>
+          <button onClick={() => setBuilding(true)} style={btnPrimary()}>
+            <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Build an agreement
           </button>
         </div>
       </div>
@@ -100,7 +115,14 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
               )}
               {(rows ?? []).map((a) => (
                 <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <Td><code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>v{a.version}</code></Td>
+                  <Td>
+                    <code style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>
+                      {a.agreement_number ?? `v${a.version}`}
+                    </code>
+                    {a.agreement_number && (
+                      <div style={{ fontSize: 9.5, color: 'var(--mt)', marginTop: 2 }}>v{a.version}</div>
+                    )}
+                  </Td>
                   <Td>
                     <span style={{ fontWeight: 600 }}>{a.title ?? '—'}</span>
                     {a.scope && (
@@ -136,10 +158,34 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
                     ) : <span style={{ color: 'var(--mt)' }}>—</span>}
                   </Td>
                   <Td>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => setEditing(a)} style={btnSecondary()}>Edit</button>
-                      {a.status === 'draft' && (
-                        <button onClick={() => markSent(a)} disabled={busy} style={btnPrimary()}>Mark sent</button>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {isBuiltAgreement(a) ? (
+                        <>
+                          <button onClick={() => setPreviewing(a)} style={btnSecondary()}>Preview</button>
+                          {a.status === 'draft' && (
+                            <button onClick={() => setSending({ a, resend: false })} style={btnPrimary()}>
+                              Send for signature
+                            </button>
+                          )}
+                          {a.status === 'sent' && (
+                            <>
+                              <button onClick={() => setSending({ a, resend: true })} style={btnSecondary()}>
+                                Send again
+                              </button>
+                              <button onClick={() => revoke(a)} style={{
+                                background: 'transparent', color: 'var(--rd)', border: '1px solid var(--rd)',
+                                padding: '5px 11px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                              }}>Switch off</button>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => setEditing(a)} style={btnSecondary()}>Edit</button>
+                          {a.status === 'draft' && (
+                            <button onClick={() => markSent(a)} disabled={busy} style={btnPrimary()}>Mark sent</button>
+                          )}
+                        </>
                       )}
                     </div>
                   </Td>
@@ -149,6 +195,25 @@ export function DistributorAgreementsTab({ dist }: { dist: SubDistributor }) {
           </table>
         </PrintableTable>
       </div>
+
+      {building && (
+        <BuildAgreementDialog
+          dist={dist}
+          onClose={() => setBuilding(false)}
+          onBuilt={(a) => { setBuilding(false); reload(); setPreviewing(a); }}
+        />
+      )}
+      {previewing && (
+        <AgreementPreviewModal agreement={previewing} onClose={() => setPreviewing(null)} />
+      )}
+      {sending && (
+        <SendAgreementDialog
+          agreement={sending.a}
+          resend={sending.resend}
+          onClose={() => setSending(null)}
+          onSent={reload}
+        />
+      )}
 
       {/* Signed signature preview + audit trail */}
       {(rows ?? []).filter((a) => a.status === 'signed').map((a) => (

@@ -11,137 +11,19 @@
 // pdf-lib has no text layout, so the wrapping, bold runs, page breaks and the
 // Exhibit A table are done here by hand.
 
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { parseNdaSource, longDate, COMPANY, recipientDescriptor, isMutual, partyLabels } from './nda-doc.mjs';
-import { BRIX_LOGO_PNG, ALAMEDA_LOGO_PNG, logoBytes } from './nda/nda-logos.mjs';
-import { safeImageBytes } from './nda-image.mjs';
+// The page engine — geometry, wrapping, the WinAnsi fallback, the letterhead,
+// the signature embed — is shared with the sub-distribution agreement so the
+// two documents cannot drift apart on how a page is drawn. Only the BLOCKS
+// below are the NDA's own.
+import {
+  PDFDocument, rgb,
+  PAGE_W, PAGE_H, M_L, M_R, M_T, M_B, BODY, LEAD, GAP, INK, RULE, NAVY,
+  wrapRuns, sanitize, Doc, embedSignature, fillLine,
+  embedFonts, drawLetterhead, drawFooters,
+} from './legal-pdf.mjs';
 
-const PAGE_W = 612, PAGE_H = 792;
-const M_L = 72, M_R = 72, M_T = 72, M_B = 64;
-const BODY = 10, LEAD = 13.6, GAP = 7;
-const INK = rgb(0.05, 0.09, 0.16);
-const RULE = rgb(0.72, 0.77, 0.83);
-const NAVY = rgb(0.12, 0.31, 0.47);
-
-/** Wrap a run list into lines that fit `width`, keeping bold segmentation. */
-export function wrapRuns(runs, width, size, fonts) {
-  const lines = [];
-  let line = [], used = 0;
-  for (const run of runs || []) {
-    const font = run.bold ? fonts.bold : fonts.reg;
-    // Split on spaces but keep them attached so widths stay honest.
-    const words = String(run.text).split(/(\s+)/).filter((w) => w !== '');
-    for (const w of words) {
-      const ww = font.widthOfTextAtSize(w, size);
-      if (used + ww > width && line.length && w.trim()) { lines.push(line); line = []; used = 0; }
-      if (!line.length && !w.trim()) continue;         // no leading spaces on a new line
-      line.push({ text: w, bold: !!run.bold, w: ww });
-      used += ww;
-    }
-  }
-  if (line.length) lines.push(line);
-  return lines.length ? lines : [[]];
-}
-
-// The standard-14 fonts encode WinAnsi, which DOES cover the punctuation this
-// document actually uses — em dashes, curly quotes, ellipses. Stripping those
-// wholesale (the first version of this file did) silently gutted clause 2's
-// parenthetical dashes. So: try the whole string first, and only when pdf-lib
-// refuses fall back to a per-character pass. All four fonts used here are
-// WinAnsi, so one memo table serves them.
-const ENCODABLE = new Map();
-const FALLBACK = { '→': '->', '←': '<-', '↔': '<->', '≤': '<=', '≥': '>=', '•': '-', '\u00a0': ' ' };
-
-function canEncode(font, ch) {
-  if (ENCODABLE.has(ch)) return ENCODABLE.get(ch);
-  let ok = true;
-  try { font.widthOfTextAtSize(ch, 10); } catch { ok = false; }
-  ENCODABLE.set(ch, ok);
-  return ok;
-}
-
-function sanitize(s, font) {
-  const str = String(s ?? '');
-  if (!font) return str;
-  try { font.widthOfTextAtSize(str, 10); return str; } catch { /* fall through */ }
-  return Array.from(str).map((c) => (canEncode(font, c) ? c : (FALLBACK[c] ?? ''))).join('');
-}
-
-class Doc {
-  constructor(pdf, fonts, meta) {
-    this.pdf = pdf; this.fonts = fonts; this.meta = meta;
-    this.pages = [];
-    this.newPage();
-  }
-  newPage() {
-    this.page = this.pdf.addPage([PAGE_W, PAGE_H]);
-    this.pages.push(this.page);
-    this.y = PAGE_H - M_T;
-    return this.page;
-  }
-  need(h) { if (this.y - h < M_B) this.newPage(); }
-  get width() { return PAGE_W - M_L - M_R; }
-
-  text(str, { size = BODY, bold = false, x = M_L, color = INK, align = 'left', width } = {}) {
-    const font = bold ? this.fonts.bold : this.fonts.reg;
-    const s = sanitize(str, font);
-    let px = x;
-    if (align === 'center') px = M_L + (width ?? this.width) / 2 - font.widthOfTextAtSize(s, size) / 2;
-    this.page.drawText(s, { x: px, y: this.y, size, font, color });
-  }
-  /** Draw wrapped runs starting at the current y; indent applies to every line,
-   *  hangIndent only to lines after the first. */
-  runs(runList, { indent = 0, hang = 0, size = BODY, lead = LEAD } = {}) {
-    const width = this.width - indent - hang;
-    const lines = wrapRuns(runList, width, size, this.fonts);
-    for (let i = 0; i < lines.length; i++) {
-      this.need(lead);
-      let x = M_L + indent + (i === 0 ? 0 : hang);
-      for (const seg of lines[i]) {
-        const font = seg.bold ? this.fonts.bold : this.fonts.reg;
-        this.page.drawText(sanitize(seg.text, font), { x, y: this.y, size, font, color: INK });
-        x += seg.w;
-      }
-      this.y -= lead;
-    }
-  }
-  para(str, opts = {}) { this.runs([{ text: str, bold: !!opts.bold }], opts); }
-  space(h = GAP) { this.y -= h; }
-  rule(width) {
-    this.need(6);
-    this.page.drawLine({ start: { x: M_L, y: this.y }, end: { x: M_L + (width ?? this.width), y: this.y },
-      thickness: 0.7, color: RULE });
-    this.y -= 8;
-  }
-}
-
-async function embedSignature(pdf, dataUrl) {
-  // The structural check is NOT belt-and-braces around the try/catch — it is
-  // the only thing that works. pdf-lib's PNG decoder spins forever on some
-  // malformed files, synchronously, so neither a catch nor a timeout can save
-  // us. See lib/nda-image.mjs.
-  const img = safeImageBytes(dataUrl);
-  if (!img) return null;
-  try {
-    return img.png ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes);
-  } catch { return null; }   // a corrupt signature image must not lose the document
-}
-
-function fillLine(doc, label, value, colX, colW) {
-  const size = 9.5;
-  const lab = `${label} `;
-  doc.page.drawText(sanitize(lab, doc.fonts.reg), { x: colX, y: doc.y, size, font: doc.fonts.reg, color: INK });
-  const lw = doc.fonts.reg.widthOfTextAtSize(lab, size);
-  const vx = colX + lw;
-  const vw = colW - lw;
-  if (value) {
-    doc.page.drawText(sanitize(String(value), doc.fonts.reg).slice(0, 42),
-      { x: vx + 2, y: doc.y + 1.5, size, font: doc.fonts.reg, color: INK });
-  }
-  doc.page.drawLine({ start: { x: vx, y: doc.y - 2 }, end: { x: colX + colW, y: doc.y - 2 },
-    thickness: 0.6, color: RULE });
-  doc.y -= 17;
-}
+export { wrapRuns };
 
 /**
  * Build the executed PDF. `a` is the agreement row, `log` the Exhibit A rows,
@@ -149,36 +31,10 @@ function fillLine(doc, label, value, colX, colW) {
  */
 export async function renderNdaPdf(a, { log = [], companySignature = null } = {}) {
   const pdf = await PDFDocument.create();
-  const fonts = {
-    reg: await pdf.embedFont(StandardFonts.TimesRoman),
-    bold: await pdf.embedFont(StandardFonts.TimesRomanBold),
-    sans: await pdf.embedFont(StandardFonts.Helvetica),
-    sansBold: await pdf.embedFont(StandardFonts.HelveticaBold),
-  };
+  const fonts = await embedFonts(pdf);
   const doc = new Doc(pdf, fonts, a);
 
-  // ── Letterhead ───────────────────────────────────────────────────────────
-  // Both marks, because the company that signs this trades as both brands.
-  // Best-effort: an agreement without its letterhead is still the agreement,
-  // and losing one over an image would be absurd.
-  try {
-    const marks = [];
-    for (const b64 of [BRIX_LOGO_PNG, ALAMEDA_LOGO_PNG]) {
-      const bytes = logoBytes(b64);
-      if (bytes) marks.push(await pdf.embedPng(bytes));
-    }
-    if (marks.length) {
-      const H = 34, GAPX = 16;
-      const widths = marks.map((m) => (m.width / m.height) * H);
-      const total = widths.reduce((t, w) => t + w, 0) + GAPX * (marks.length - 1);
-      let x = M_L + (doc.width - total) / 2;
-      marks.forEach((m, i) => {
-        doc.page.drawImage(m, { x, y: doc.y - H, width: widths[i], height: H });
-        x += widths[i] + GAPX;
-      });
-      doc.y -= H + 14;
-    }
-  } catch { /* letterhead is decoration; the document is the point */ }
+  await drawLetterhead(pdf, doc);
 
   // ── Title ────────────────────────────────────────────────────────────────
   doc.text(a.title || 'CONFIDENTIALITY AND NON-DISCLOSURE AGREEMENT', { size: 13.5, bold: true, align: 'center' });
@@ -360,19 +216,9 @@ export async function renderNdaPdf(a, { log = [], companySignature = null } = {}
     }
   }
 
-  // ── Footers ──────────────────────────────────────────────────────────────
-  const total = doc.pages.length;
-  doc.pages.forEach((pg, i) => {
-    const left = `${a.agreement_number}  ·  ${recipientName || a.recipient_company}`;
-    const right = `Page ${i + 1} of ${total}`;
-    pg.drawLine({ start: { x: M_L, y: M_B - 14 }, end: { x: PAGE_W - M_R, y: M_B - 14 },
-      thickness: 0.6, color: RULE });
-    pg.drawText(sanitize(left, fonts.sans).slice(0, 78), { x: M_L, y: M_B - 26, size: 7.5, font: fonts.sans, color: rgb(0.42, 0.47, 0.53) });
-    const rw = fonts.sans.widthOfTextAtSize(right, 7.5);
-    pg.drawText(right, { x: PAGE_W - M_R - rw, y: M_B - 26, size: 7.5, font: fonts.sans, color: rgb(0.42, 0.47, 0.53) });
-    const stamp = a.signed_at ? 'Executed electronically' : 'DRAFT — not yet executed';
-    const sw = fonts.sans.widthOfTextAtSize(stamp, 7.5);
-    pg.drawText(stamp, { x: PAGE_W / 2 - sw / 2, y: M_B - 26, size: 7.5, font: fonts.sans, color: rgb(0.42, 0.47, 0.53) });
+  drawFooters(doc, {
+    left: `${a.agreement_number}  ·  ${recipientName || a.recipient_company}`,
+    executed: !!a.signed_at,
   });
 
   return pdf.save();
