@@ -3,10 +3,10 @@ import { AlertTriangle, ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } fro
 import { useToast } from '../lib/toast';
 import {
   DOC_TYPES, EMAIL_SLOTS, PAY_METHOD_LABEL, PAY_SECTIONS,
-  fetchBillingLocation, fetchCustomerBilling, fetchPaymentProfile,
+  fetchBillingLocation, fetchBillingMaster, fetchCustomerBilling, fetchPaymentProfile,
   managedByMaster, offerableMethods, savePaymentProfile, saveBillingComms,
   setCreditHold, setCustomerName, slotAddress,
-  type BillingLocation, type CustomerBillingRow, type DocKey,
+  type BillingLocation, type BillingMaster, type CustomerBillingRow, type DocKey,
   type PayMethod, type PaymentProfilePayload, type SlotKey,
 } from '../lib/customerBilling';
 
@@ -82,13 +82,16 @@ interface Props { qboCustomerId: string; customerName?: string | null }
 
 export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
+  // Open by default since 2026-09-09: it leads the customer page now, and a
+  // folded line at the top of the page is what read as "not connected".
+  const [open, setOpen] = useState(true);
   // undefined = not loaded yet · null = no portal record · row = loaded.
   // Three states, three renders: an empty form on a customer with no record
   // invites somebody to type terms that cannot save.
   const [row, setRow] = useState<CustomerBillingRow | null | undefined>(undefined);
   const [live, setLive] = useState<PaymentProfilePayload | null>(null);
   const [billTo, setBillTo] = useState<BillingLocation | null>(null);
+  const [master, setMaster] = useState<BillingMaster | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
   const [notes, setNotes] = useState<string[]>([]);
@@ -127,7 +130,7 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
   }
 
   async function load() {
-    setErr(''); setRow(undefined); setLive(null); setBillTo(null);
+    setErr(''); setRow(undefined); setLive(null); setBillTo(null); setMaster(null);
     try {
       const r = await fetchCustomerBilling(qboCustomerId);
       if (!r) { setRow(null); return; }
@@ -136,6 +139,7 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
       // QuickBooks read that times out must not stop the page rendering.
       void fetchPaymentProfile(r.id).then(setLive);
       void fetchBillingLocation(r.id).then(setBillTo).catch(() => setBillTo(null));
+      void fetchBillingMaster(qboCustomerId).then(setMaster);
     } catch (e) {
       setErr((e as Error).message);
       setRow(null);
@@ -144,7 +148,7 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
   useEffect(() => { if (open && row === undefined) void load(); },
     [open, qboCustomerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const locked = row ? managedByMaster(row) : false;
+  const locked = !!row && managedByMaster(master);
   const walletKinds = useMemo(
     () => (live?.stripe.methods ?? []).map((m) => m.kind), [live]);
 
@@ -243,7 +247,7 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
           {locked && (
             <Note tone="amber">
               <Lock size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
-              This store&apos;s billing is <strong>managed by its chain master</strong>. Terms,
+              This store&apos;s billing is <strong>managed by its chain master{master?.name ? ` (${master.name})` : ''}</strong>. Terms,
               payment methods and document routing are set on the master and synced down —
               editing them here would be undone by the next sync.
             </Note>

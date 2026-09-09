@@ -1,4 +1,4 @@
-import { sbqOrders } from './rpc';
+import { sbq, sbqOrders } from './rpc';
 import { _sbToken } from './supabase';
 
 /**
@@ -111,7 +111,6 @@ export interface CustomerBillingRow {
   paper_statements_enabled: boolean | null;
   group_kind: string | null;
   group_billing_mode: string | null;
-  parent_customer_id: string | null;
   on_new_system: boolean | null;
 }
 
@@ -123,7 +122,7 @@ const SELECT = [
   'statement_recipients', 'reminder_recipients', 'order_update_recipients',
   'invoice_emails_enabled', 'statements_enabled', 'reminders_enabled',
   'paper_invoices_enabled', 'paper_statements_enabled', 'group_kind',
-  'group_billing_mode', 'parent_customer_id', 'on_new_system',
+  'group_billing_mode', 'on_new_system',
 ].join(',');
 
 /**
@@ -372,9 +371,53 @@ export function offerableMethods(
 }
 
 /** Is a store's billing controlled by its chain master? */
-export function managedByMaster(row: Pick<CustomerBillingRow,
-  'group_kind' | 'group_billing_mode' | 'parent_customer_id'>): boolean {
-  return !!row.parent_customer_id && row.group_billing_mode === 'master';
+/**
+ * The chain master whose Master billing governs this store, or null.
+ *
+ * ⚠ THIS USED TO READ `customers.parent_customer_id` AND THAT COLUMN DOES NOT
+ * EXIST — it is melt-dashboard's franchise column, on a different schema. The
+ * SELECT failed with 42703 on every customer, so the whole card rendered as
+ * "not set up in the portal" for a week and read as "not connected". brix-order
+ * never stored a parent on the store row: chain membership is DERIVED from the
+ * QuickBooks parent link (`ops.qbo_customers.parent_ref_id`) and then the
+ * master's own `group_kind` / `group_billing_mode` — its
+ * `findEnabledGroupMasterOf` + `masterBillingMasterFor`. This is the same rule,
+ * read-only, so a store locks here exactly when brix-order would lock it.
+ * Best-effort: a failed lookup reads as "not managed", never as an error,
+ * because the store's own record is the thing this card exists to show.
+ */
+export interface BillingMaster {
+  id: string;
+  name: string | null;
+  qbo_customer_id: number;
+  group_kind: string | null;
+  group_billing_mode: string | null;
+}
+
+export async function fetchBillingMaster(qboCustomerId: string): Promise<BillingMaster | null> {
+  const id = String(qboCustomerId).replace(/[^0-9]/g, '');
+  if (!id) return null;
+  try {
+    const subs = await sbq<{ parent_ref_id: string | number | null }>(
+      'qbo_customers',
+      `qbo_customer_id=eq.${id}&select=parent_ref_id&limit=1`,
+    );
+    const parent = String(subs[0]?.parent_ref_id ?? '').replace(/[^0-9]/g, '');
+    if (!parent) return null;
+    const masters = await sbqOrders<BillingMaster>(
+      'customers',
+      `qbo_customer_id=eq.${parent}&group_kind=not.is.null&active=is.true`
+        + '&select=id,name,qbo_customer_id,group_kind,group_billing_mode&limit=1',
+    );
+    return masters[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Locked when the store sits under a chain master set to Master billing. */
+export function managedByMaster(master: BillingMaster | null | undefined): boolean {
+  return !!master && master.group_billing_mode === 'master';
 }
 
 /**

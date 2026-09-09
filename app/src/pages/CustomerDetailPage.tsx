@@ -362,6 +362,20 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
         </button>
       </div>
 
+      {/* Billing & the customer master (Sky's ownership map, 2026-09-09).
+          FIRST on the page, open by default (Sky, 2026-09-09: "billing and
+          customer master should be at the top… then equipment, then customer
+          metrics"). The analytics below are what this page used to lead with;
+          the record a person edits now comes before the numbers they read. */}
+      <CustomerBillingCard qboCustomerId={customerId} customerName={detail.display_name} />
+
+      {/* Equipment under the customer (Sky, 2026-09-09): the asset line —
+          make/model, serial, contract number — with the machine one click
+          away, "mirrored and SD and in refractor under the customer".
+          ⚠ ERLS owns the asset record; this reads `ops.equipment_assets`, the
+          echo, and says how old it is. */}
+      <CustomerEquipmentCard qboCustomerId={customerId} customerName={detail.display_name} />
+
       <div
         className="cd"
         style={{
@@ -434,19 +448,6 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           </div>
         </div>
       )}
-
-      {/* Billing & the customer master (Sky's ownership map, 2026-09-09).
-          Collapsed by default: this page leads with analytics, and the card's
-          own header line still says the terms and whether there is a hold, so
-          folding it hides nothing. */}
-      <CustomerBillingCard qboCustomerId={customerId} customerName={detail.display_name} />
-
-      {/* Equipment under the customer (Sky, 2026-09-09): the asset line —
-          make/model, serial, contract number — with the machine one click
-          away, "mirrored and SD and in refractor under the customer".
-          ⚠ ERLS owns the asset record; this reads `ops.equipment_assets`, the
-          echo, and says how old it is. */}
-      <CustomerEquipmentCard qboCustomerId={customerId} customerName={detail.display_name} />
 
       <div className="gr" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 14, gap: 14 }}>
         <KPICard
