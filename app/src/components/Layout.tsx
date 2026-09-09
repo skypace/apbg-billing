@@ -7,12 +7,12 @@ import {
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
  Printer } from 'lucide-react';
-import { REFRACTOR_MENUS } from '../lib/appMenus';
+import { REFRACTOR_MENUS, REFRACTOR_MENU_GROUPS, type RefractorMenuGroup } from '../lib/appMenus';
 import { AlamedaMark, BrixMark } from './BrixMark';
 import { useThemeMode } from '../lib/themeMode';
 import { printPage } from '../lib/print';
 
-interface NavItem { id: View; label: string; icon: LucideIcon }
+interface NavItem { id: View; label: string; icon: LucideIcon; group: RefractorMenuGroup }
 
 // Fleet moved to apbg-ops.netlify.app — removed from BRIX nav.
 //
@@ -49,6 +49,7 @@ const NAV: NavItem[] = REFRACTOR_MENUS.map((m) => ({
   id: m.id as View,
   label: m.label,
   icon: ICONS[m.id] ?? LayoutDashboard,
+  group: m.group,
 }));
 
 // Interactive user guide — markdown source at docs/margin-control/user-guide.md,
@@ -120,21 +121,37 @@ export function Layout({ current, onNav, userEmail, onLogout, hiddenMenus, child
           </div>
         </div>
         <nav className="nav">
-          {NAV.filter((n) => !hiddenMenus?.has(n.id)).map((n) => {
-            const Icon = n.icon;
-            const on = current === n.id;
+          {/* Sectioned sidebar (Sky, 2026-09-09): MARGIN · CUSTOMER · FINANCIAL ·
+              INVENTORY · the rest. A section whose every entry is hidden for
+              this user is dropped whole — a header over nothing reads as a
+              screen they have lost. Collapsed, the header text goes and a
+              hairline keeps the sections apart. */}
+          {REFRACTOR_MENU_GROUPS.map((g) => {
+            const items = NAV.filter((n) => n.group === g && !hiddenMenus?.has(n.id));
+            if (items.length === 0) return null;
             return (
-              <a
-                key={n.id}
-                href={n.id === 'proposal-builder' ? '#/proposal-builder' : '#' + n.id}
-                onClick={(e) => { e.preventDefault(); onNav(n.id); }}
-                className={'nav-item' + (on ? ' nav-item--active' : '')}
-                aria-current={on ? 'page' : undefined}
-                title={collapsed ? n.label : undefined}
-              >
-                <Icon size={16} strokeWidth={2} aria-hidden="true" />
-                <span>{n.label}</span>
-              </a>
+              <div key={g} className="nav-group" role="group" aria-label={g}>
+                <div className="nav-group-label" aria-hidden={collapsed || undefined}>
+                  <span>{g}</span>
+                </div>
+                {items.map((n) => {
+                  const Icon = n.icon;
+                  const on = current === n.id;
+                  return (
+                    <a
+                      key={n.id}
+                      href={n.id === 'proposal-builder' ? '#/proposal-builder' : '#' + n.id}
+                      onClick={(e) => { e.preventDefault(); onNav(n.id); }}
+                      className={'nav-item' + (on ? ' nav-item--active' : '')}
+                      aria-current={on ? 'page' : undefined}
+                      title={collapsed ? `${g} · ${n.label}` : undefined}
+                    >
+                      <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                      <span>{n.label}</span>
+                    </a>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
