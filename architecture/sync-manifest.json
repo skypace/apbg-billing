@@ -1000,6 +1000,18 @@
       ],
       "notes": "Front-door visitor sign-in. netlify/functions/visitor-signin.mjs and visitor-signout.mjs run on SUPABASE_SERVICE_ROLE_KEY because a visitor cannot authenticate — the page public/visitors.html is deliberately unauthenticated and the tables are closed to anon. Sign-in validates, stores the badge photo in the private visitor-photos bucket, allocates a per-day badge number (V-YYYYMMDD-NNN, unique-constrained with retry), inserts the visit and emails the chosen host plus visitor_settings.notify_emails (VISITOR_ALERT_TO overrides). Photo and notification are best effort and record their own failure so the log shows when nobody was actually told. Staff read, sign-out and settings live in /compliance → Visitors under ops.fn_is_staff() RLS; the on-site list is the evacuation head-count. Migration: 20260818e_visitor_kiosk.sql (applied live).",
       "last_verified": "2026-08-18"
+    },
+    {
+      "name": "brixsd:job-expenses",
+      "kind": "postgres-function",
+      "source_repo": "skypace/apbg-dispatch",
+      "schedule": "event-driven (a cost recorded on a BrixSD work order)",
+      "writes": [
+        "ops.expense_requests"
+      ],
+      "multi_writer": true,
+      "external_inputs": [],
+      "notes": "BrixSD (Service Direct) job expenses → Brixpense (apbg-dispatch migration 20260909s). Sky, 2026-09-09: 'This is all expenses associated with the job. These get inputted into brixpense under BrixSD expenses.' dispatch.fn_job_expense_push (SECURITY DEFINER, staff-gated, idempotent on dispatch.job_expenses.expense_request_id) lands ONE ops.expense_requests row per job cost as an UNPAID-BILL DRAFT — status draft, as_bill=true, tag 'BrixSD', request_type expense, vendor_name/amount/receipt_date/job_number from the job cost, submitted_by the staff member who recorded it — and stamps job_expenses.expense_request_id + pushed_at. dispatch.fn_job_expense_add auto-pushes best-effort on record; a failed push is retried from the record's 'Send it now'. dispatch.fn_job_expense_remove ARCHIVES the Brixpense row (archived_at/archived_by) only while it is still an untouched draft, and refuses once it has been edited or posted — a bill somebody has posted is Brixpense's to void. ⚠ NOTHING here posts to QuickBooks: the 2026-08-14 human 'Post to QuickBooks' gate is Brixpense's and this writer never reaches it. There is deliberately no second expense store in dispatch — job_expenses is the JOB's cost view and carries the pointer, expense_requests is the bill. Multi-writer with brix-expense:app-and-functions (and the other expense_requests writers)."
     }
   ],
   "orphans": [
