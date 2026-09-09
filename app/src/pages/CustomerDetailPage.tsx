@@ -3,6 +3,7 @@ import dayjs, { Dayjs } from 'dayjs';
 import { AlertTriangle, ArrowLeft, Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
+import { CustomerBillingCard } from '../components/CustomerBillingCard';
 import { SegmentChip } from '../components/SegmentChip';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -432,6 +433,12 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           </div>
         </div>
       )}
+
+      {/* Billing & the customer master (Sky's ownership map, 2026-09-09).
+          Collapsed by default: this page leads with analytics, and the card's
+          own header line still says the terms and whether there is a hold, so
+          folding it hides nothing. */}
+      <CustomerBillingCard qboCustomerId={customerId} customerName={detail.display_name} />
 
       <div className="gr" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 14, gap: 14 }}>
         <KPICard
