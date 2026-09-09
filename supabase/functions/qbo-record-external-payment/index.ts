@@ -19,6 +19,29 @@
 // payout reconciler self-heal a payments row whose qbo_payment_id was never
 // stamped (e.g. the booking succeeded but the caller crashed before persisting).
 //
+// ⚠ v4 — 'record' LOOKS BEFORE IT CREATES, and that is the whole point of this
+// version. Two writers book the same Stripe payment: stripe-pay-invoices books
+// it inline, and payment_intent.succeeded → bookIntentIfPending books it from
+// the webhook. Both decide by reading orders.payments.qbo_payment_id, which the
+// inline path does not write until AFTER this call returns — so a webhook that
+// lands during the round trip sees null and books a SECOND QBO Payment. Live
+// result: 14 phantom payments carrying $6,512.92 of unapplied credit between
+// 2026-08-27 (the day the webhook was repaired and payment_intent.succeeded
+// started arriving) and 2026-09-08, each one's twin invoices already settled so
+// the duplicate landed as a full UnappliedAmt.
+//
+// No local lock can fix that — the two writers are separate processes with no
+// shared transaction — so QUICKBOOKS is made the arbiter: before creating, we
+// ask QBO whether a Payment already carries this PaymentRefNum for this
+// customer at this amount, and if so we RETURN IT (already_booked: true) in the
+// same qbo_payment_id field a create would have used. The late writer then
+// stamps the id the early writer created, both converge on ONE payment, and the
+// race becomes self-healing instead of merely narrowed. Callers need no change.
+//
+// ⚠ A lookup that FAILS refuses the booking (503) rather than creating on a
+// guess: a delayed booking is retried by brix-order's settlement sweep within
+// the hour, while a duplicate costs manual QBO surgery plus a deposit relink.
+//
 // Creates ONE QBO Payment (ReceivePayment) whose lines link the given invoices
 // (deposited to Undeposited Funds — Stripe payout/fee reconciliation is a
 // separate accounting concern). It does NOT write the ops.qbo_invoices mirror
@@ -79,7 +102,7 @@ async function persistTokens(sb: SupabaseClient, a: string, r: string, exp: numb
   const refreshExpiry = new Date(Date.now() + (rExp ?? REFRESH_TOKEN_TTL_SECONDS) * 1000).toISOString();
   const { error } = await sb.rpc("qbo_token_persist", {
     p_realm_id: getRealm(), p_access_token: a, p_access_expires: accessExpiry,
-    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-record-external-payment@v3",
+    p_refresh_token: r, p_refresh_expires: refreshExpiry, p_refreshed_by: "qbo-record-external-payment@v4",
   });
   if (error) throw new Error("token_persist RPC failed: " + error.message);
 }
@@ -156,6 +179,45 @@ async function findUndepositedFunds(token: string): Promise<string | null> {
   } catch { return null; }
 }
 
+interface BookedPayment {
+  qbo_payment_id: string;
+  total: number;
+  txn_date: string | null;
+  deposit_account_id: string | null;
+  customer_qbo_id: string | null;
+  invoice_ids: string[];
+}
+
+// PaymentRefNum is what ties a QBO Payment back to the Stripe intent that made
+// it. ⚠ QBO caps that field at 21 characters and a Stripe pi_ id is 27, so the
+// stored key is a PREFIX — which is why a match alone is not proof of identity
+// and the caller below also compares customer and amount.
+function refKeyFor(externalRef: string): string {
+  return externalRef.slice(0, 21).replace(/'/g, "");
+}
+
+async function findPaymentsByRef(token: string, externalRef: string): Promise<BookedPayment[]> {
+  const rows = await acctQuery(token, "select * from Payment where PaymentRefNum = '" + refKeyFor(externalRef) + "'");
+  return rows.map((p: any) => ({
+    qbo_payment_id: String(p.Id),
+    total: Number(p.TotalAmt ?? 0),
+    txn_date: p.TxnDate ?? null,
+    deposit_account_id: p.DepositToAccountRef?.value ? String(p.DepositToAccountRef.value) : null,
+    customer_qbo_id: p.CustomerRef?.value ? String(p.CustomerRef.value) : null,
+    invoice_ids: (p.Line ?? []).flatMap((l: any) =>
+      (l.LinkedTxn ?? []).filter((t: any) => t.TxnType === "Invoice").map((t: any) => String(t.TxnId))),
+  }));
+}
+
+// Is an existing Payment the one THIS call would have created? All three must
+// agree. The ref alone can collide across customers once truncated; requiring
+// the customer and the amount to the cent as well means a false positive would
+// have to be a payment that is a duplicate by any reading, while a false
+// negative is only ever the behaviour we already had.
+function sameBooking(p: BookedPayment, customerQboId: string, total: number): boolean {
+  return p.customer_qbo_id === customerQboId && Math.abs(p.total - total) < 0.005;
+}
+
 interface InvoiceInput { qbo_invoice_id: string; amount: number }
 
 Deno.serve(async (req: Request) => {
@@ -180,16 +242,7 @@ Deno.serve(async (req: Request) => {
       if (!externalRef) return jsonRes({ ok: false, error: "external_ref required for lookup" }, 400);
       const sb = getSB();
       const token = await getAccessToken(sb);
-      const refKey = externalRef.slice(0, 21).replace(/'/g, "");
-      const rows = await acctQuery(token, "select * from Payment where PaymentRefNum = '" + refKey + "'");
-      const payments = rows.map((p: any) => ({
-        qbo_payment_id: String(p.Id),
-        total: Number(p.TotalAmt ?? 0),
-        txn_date: p.TxnDate ?? null,
-        deposit_account_id: p.DepositToAccountRef?.value ? String(p.DepositToAccountRef.value) : null,
-        invoice_ids: (p.Line ?? []).flatMap((l: any) =>
-          (l.LinkedTxn ?? []).filter((t: any) => t.TxnType === "Invoice").map((t: any) => String(t.TxnId))),
-      }));
+      const payments = await findPaymentsByRef(token, externalRef);
       return jsonRes({ ok: true, mode: "lookup", found: payments.length > 0, payments });
     }
 
@@ -222,6 +275,37 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ ok: true, mode: "preview", customer_qbo_id: customerQboId, total, invoices: resolved });
     }
 
+    // ── The duplicate guard (v4). QuickBooks is the arbiter; see the header. ──
+    // Deliberately AFTER the preview return and the invoice checks, so a preview
+    // stays read-only and a caller naming the wrong invoice still learns that
+    // first, and BEFORE any create.
+    if (externalRef) {
+      let existing: BookedPayment[];
+      try {
+        existing = await findPaymentsByRef(token, externalRef);
+      } catch (err) {
+        // Refuse rather than create on a guess. 503 = "ask again", and the
+        // caller's retry (brix-order's hourly settlement sweep) is what makes
+        // that safe; creating here is what produced the 14 phantoms.
+        return jsonRes({
+          ok: false,
+          error: "could not check QuickBooks for an existing payment, so nothing was booked: " + (err as Error).message,
+          retryable: true,
+        }, 503);
+      }
+      const already = existing.find((p) => sameBooking(p, customerQboId, total));
+      if (already) {
+        return jsonRes({
+          ok: true,
+          qbo_payment_id: already.qbo_payment_id,
+          already_booked: true,
+          total,
+          invoices: resolved,
+          note: "a QBO Payment for this Stripe reference, customer and amount already exists — returning it instead of creating a second one",
+        });
+      }
+    }
+
     // Deposit to Undeposited Funds so the Stripe payout reconciler can group
     // this Payment into a bank Deposit later (best-effort resolve; if the
     // account can't be found we fall back to the company default).
@@ -231,7 +315,9 @@ Deno.serve(async (req: Request) => {
     const payment: Record<string, unknown> = {
       CustomerRef: { value: customerQboId },
       TotalAmt: total,
-      ...(externalRef ? { PaymentRefNum: externalRef.slice(0, 21) } : {}),
+      // Same key the guard above searches on — one function, or the two drift
+      // and the lookup silently stops matching what the create wrote.
+      ...(externalRef ? { PaymentRefNum: refKeyFor(externalRef) } : {}),
       ...(undepositedId ? { DepositToAccountRef: { value: undepositedId } } : {}),
       PrivateNote: (memo || "Stripe payment") + (externalRef ? " (" + externalRef + ")" : ""),
       Line: invoices.map((inv) => ({
@@ -242,7 +328,7 @@ Deno.serve(async (req: Request) => {
     const created = await acctPost(token, "/payment", payment);
     const paymentId = created?.Payment?.Id ?? null;
 
-    return jsonRes({ ok: true, qbo_payment_id: paymentId, total, invoices: resolved });
+    return jsonRes({ ok: true, qbo_payment_id: paymentId, already_booked: false, total, invoices: resolved });
   } catch (err) {
     return jsonRes({ ok: false, error: (err as Error).message }, 500);
   }
