@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, Printer } from 'lucide-react';
 import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { CustomerBillingCard } from '../components/CustomerBillingCard';
+import { CustomerCylindersCard } from '../components/CustomerCylindersCard';
 import { CustomerEquipmentCard } from '../components/CustomerEquipmentCard';
 import { SegmentChip } from '../components/SegmentChip';
 import { fm, fp, fmtNum } from '../lib/formatters';
@@ -375,6 +376,8 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           ⚠ ERLS owns the asset record; this reads `ops.equipment_assets`, the
           echo, and says how old it is. */}
       <CustomerEquipmentCard qboCustomerId={customerId} customerName={detail.display_name} />
+
+      <CustomerCylindersCard qboCustomerId={customerId} customerName={detail.display_name} />
 
       <div
         className="cd"
