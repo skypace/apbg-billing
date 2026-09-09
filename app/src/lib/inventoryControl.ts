@@ -45,6 +45,9 @@ export interface InventoryTransfer {
   status: TransferStatus;
   carrier: string | null;
   tracking_number: string | null;
+  /** The DOCUMENT date the operator set (BOL "Issued"). Not created_at, and
+   *  not the date any movement was posted. */
+  transfer_date: string;
   ship_date: string | null;
   received_date: string | null;
   shipped_by: string | null;
@@ -237,8 +240,10 @@ export async function createTransfer(args: {
   total_pallets?: number | null;
   declared_value_usd?: number | null;
   special_instructions?: string | null;
+  /** YYYY-MM-DD. Applied after the create — see the note below. */
+  transfer_date?: string | null;
 }): Promise<string> {
-  return sbrpc<string>('fn_create_transfer', {
+  const id = await sbrpc<string>('fn_create_transfer', {
     p_from_location_id: args.from_location_id,
     p_to_location_id: args.to_location_id,
     p_lines: args.lines,
@@ -251,6 +256,31 @@ export async function createTransfer(args: {
     p_total_pallets: args.total_pallets ?? null,
     p_declared_value_usd: args.declared_value_usd ?? null,
     p_special_instructions: args.special_instructions ?? null,
+  });
+  // The date is set in a SECOND call rather than as a 13th argument to
+  // fn_create_transfer. That function already has TWO live overloads (a 6-arg
+  // and a 12-arg), so adding a defaulted parameter to either makes a call
+  // naming the shorter set match both, and Postgres refuses it as ambiguous
+  // (42725). fn_set_transfer_dates is the one place a date is written, which
+  // is also what the edit-after-the-fact button uses.
+  if (args.transfer_date) {
+    await setTransferDates(id, { transfer_date: args.transfer_date });
+  }
+  return id;
+}
+
+/** Set any of a transfer's three dates, before or after the fact.
+ *  ⚠ This corrects PAPERWORK only — the inventory movements keep the
+ *  timestamps they were posted with (ledger history is never edited). */
+export async function setTransferDates(
+  transferId: string,
+  dates: { transfer_date?: string | null; ship_date?: string | null; received_date?: string | null },
+): Promise<void> {
+  await sbrpc('fn_set_transfer_dates', {
+    p_transfer_id: transferId,
+    p_transfer_date: dates.transfer_date ?? null,
+    p_ship_date: dates.ship_date ?? null,
+    p_received_date: dates.received_date ?? null,
   });
 }
 

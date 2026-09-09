@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../components/PrintableTable';
 import { ArrowRight, Copy, Download, Plus } from 'lucide-react';
 import { sbDelete, sbInsert, sbrpc } from '../lib/rpc';
 import { SB_KEY, SB_URL, _sbToken } from '../lib/supabase';
@@ -392,103 +393,105 @@ export function PlansPage() {
         {plans.length === 0 ? (
           <div className="ld">No plans yet.</div>
         ) : (
-          <table style={{ minWidth: 1060 }}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>FY</th>
-                <th>Scenario</th>
-                <th>Status</th>
-                <th>Readout</th>
-                <th style={{ textAlign: 'right' }}>Plan</th>
-                <th style={{ textAlign: 'right' }}>Actual YTD</th>
-                <th style={{ textAlign: 'right' }}>FY Pace</th>
-                <th style={{ textAlign: 'right' }}>Delta</th>
-                <th>Updated</th>
-                <th style={{ textAlign: 'right' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedPlans.map((p) => {
-                const summary = summaries[p.id];
-                const color = readoutColor(summary);
-                return (
-                  <tr key={p.id} onClick={() => setActiveId(p.id)} style={{ cursor: 'pointer' }}>
-                    <td>
-                      <div style={{ fontWeight: 700 }}>{p.name}</div>
-                      <div style={{ color: 'var(--mt)', fontSize: 10 }}>
-                        {summary == null ? 'checking lines' : summary.error ? summary.error : summary.lineCount + ' tracked line' + (summary.lineCount === 1 ? '' : 's')}
-                      </div>
-                    </td>
-                    <td className="mn">{p.fiscal_year}</td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{p.scenario}</td>
-                    <td>
-                      <span
-                        className="bg"
-                        style={{
-                          color: p.status === 'active' ? 'var(--gn)' : 'var(--mt)',
-                          borderColor: p.status === 'active' ? 'var(--gn)' : 'var(--bd)',
-                        }}
-                      >
-                        {p.status}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className="bg"
-                        style={{
-                          color,
-                          borderColor: color,
-                        }}
-                      >
-                        {readoutLabel(summary)}
-                      </span>
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>
-                      {summary == null ? '...' : fm(summary.planRevenue)}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>
-                      {summary == null ? '...' : fm(summary.actualYtd)}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>
-                      {summary == null ? '...' : summary.projectedFy == null ? '-' : fm(summary.projectedFy)}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right', color: deltaColor(summary?.projectedVsPlanPct) }}>
-                      {summary == null ? '...' : deltaLabel(summary.projectedVsPlanPct)}
-                    </td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                      {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '-'}
-                    </td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setActiveId(p.id); }}
-                        className="tb-btn"
-                        style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                      >
-                        <ArrowRight size={11} strokeWidth={2.2} aria-hidden="true" />
-                        <span style={{ fontSize: 10 }}>Open</span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); duplicatePlan(p); }}
-                        className="tb-btn"
-                        style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        title="Duplicate this plan into a new fiscal year (header + all lines)"
-                      >
-                        <Copy size={11} strokeWidth={2.2} aria-hidden="true" />
-                        <span style={{ fontSize: 10 }}>Duplicate</span>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deletePlan(p.id, p.name); }}
-                        style={btnDanger()}
-                      >
-                        x
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ minWidth: 1060 }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>FY</th>
+                  <th>Scenario</th>
+                  <th>Status</th>
+                  <th>Readout</th>
+                  <th style={{ textAlign: 'right' }}>Plan</th>
+                  <th style={{ textAlign: 'right' }}>Actual YTD</th>
+                  <th style={{ textAlign: 'right' }}>FY Pace</th>
+                  <th style={{ textAlign: 'right' }}>Delta</th>
+                  <th>Updated</th>
+                  <th style={{ textAlign: 'right' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPlans.map((p) => {
+                  const summary = summaries[p.id];
+                  const color = readoutColor(summary);
+                  return (
+                    <tr key={p.id} onClick={() => setActiveId(p.id)} style={{ cursor: 'pointer' }}>
+                      <td>
+                        <div style={{ fontWeight: 700 }}>{p.name}</div>
+                        <div style={{ color: 'var(--mt)', fontSize: 10 }}>
+                          {summary == null ? 'checking lines' : summary.error ? summary.error : summary.lineCount + ' tracked line' + (summary.lineCount === 1 ? '' : 's')}
+                        </div>
+                      </td>
+                      <td className="mn">{p.fiscal_year}</td>
+                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{p.scenario}</td>
+                      <td>
+                        <span
+                          className="bg"
+                          style={{
+                            color: p.status === 'active' ? 'var(--gn)' : 'var(--mt)',
+                            borderColor: p.status === 'active' ? 'var(--gn)' : 'var(--bd)',
+                          }}
+                        >
+                          {p.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className="bg"
+                          style={{
+                            color,
+                            borderColor: color,
+                          }}
+                        >
+                          {readoutLabel(summary)}
+                        </span>
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>
+                        {summary == null ? '...' : fm(summary.planRevenue)}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>
+                        {summary == null ? '...' : fm(summary.actualYtd)}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>
+                        {summary == null ? '...' : summary.projectedFy == null ? '-' : fm(summary.projectedFy)}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right', color: deltaColor(summary?.projectedVsPlanPct) }}>
+                        {summary == null ? '...' : deltaLabel(summary.projectedVsPlanPct)}
+                      </td>
+                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>
+                        {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '-'}
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setActiveId(p.id); }}
+                          className="tb-btn"
+                          style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <ArrowRight size={11} strokeWidth={2.2} aria-hidden="true" />
+                          <span style={{ fontSize: 10 }}>Open</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); duplicatePlan(p); }}
+                          className="tb-btn"
+                          style={{ marginRight: 4, padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          title="Duplicate this plan into a new fiscal year (header + all lines)"
+                        >
+                          <Copy size={11} strokeWidth={2.2} aria-hidden="true" />
+                          <span style={{ fontSize: 10 }}>Duplicate</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deletePlan(p.id, p.name); }}
+                          style={btnDanger()}
+                        >
+                          x
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>

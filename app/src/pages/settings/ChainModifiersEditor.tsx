@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus, Trash2, RotateCcw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import {
   ChainModifier, DEFAULT_CHAIN_MODIFIERS,
@@ -111,73 +112,75 @@ export function ChainModifiersEditor() {
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: 70 }}>Code</th>
-              <th>Label</th>
-              <th style={{ width: 140 }}>Group</th>
-              <th>Customers (comma-sep, ILIKE)</th>
-              <th>Categories (comma-sep, ILIKE)</th>
-              <th style={{ width: 230 }}>Match (12 mo)</th>
-              <th style={{ width: 70 }}>Parent</th>
-              <th style={{ width: 44 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {mods.map((m, i) => {
-              const p = previewByCode.get(m.code);
-              return (
-                <tr key={i}>
-                  <td>
-                    <input type="text" defaultValue={m.code}
-                      onBlur={(e) => e.target.value !== m.code && update(i, { code: e.target.value.toUpperCase().trim() })}
-                      style={cellStyle({ fontFamily: 'var(--ff-display)', fontWeight: 800, color: 'var(--ac)' })} />
-                  </td>
-                  <td><input type="text" defaultValue={m.label}
-                    onBlur={(e) => e.target.value !== m.label && update(i, { label: e.target.value })}
-                    style={cellStyle()} /></td>
-                  <td>
-                    <select value={m.group}
-                      onChange={(e) => update(i, { group: e.target.value as 'equipment' | 'soda' })}
-                      className="tb-select" style={{ width: '100%' }}>
-                      <option value="equipment">Equipment & Service</option>
-                      <option value="soda">Soda Sales</option>
-                    </select>
-                  </td>
-                  <td><input type="text"
-                    defaultValue={(m.filters.customers ?? []).join(', ')}
-                    onBlur={(e) => setList(i, 'customers', e.target.value)}
-                    placeholder="THE MELT, STARBIRD"
-                    style={cellStyle({ fontFamily: 'var(--ff-mono)', fontSize: 11 })} /></td>
-                  <td><input type="text"
-                    defaultValue={(m.filters.categories ?? []).join(', ')}
-                    onBlur={(e) => setList(i, 'categories', e.target.value)}
-                    placeholder="Equipment, Service"
-                    style={cellStyle({ fontFamily: 'var(--ff-mono)', fontSize: 11 })} /></td>
-                  <td>
-                    {p ? (
-                      <MatchChip preview={p} title={chipTitle(p)} />
-                    ) : (
-                      <span style={{ fontSize: 10, color: 'var(--mt)' }}>—</span>
-                    )}
-                  </td>
-                  <td><input type="text" defaultValue={m.parent ?? ''}
-                    onBlur={(e) => update(i, { parent: e.target.value.trim() || undefined })}
-                    placeholder="—"
-                    style={cellStyle({ fontFamily: 'var(--ff-display)', textAlign: 'center', color: 'var(--mt)' })} /></td>
-                  <td>
-                    <button onClick={() => remove(i)} className="tb-btn"
-                      style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}
-                      title="Delete">
-                      <Trash2 size={12} strokeWidth={2.2} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 70 }}>Code</th>
+                <th>Label</th>
+                <th style={{ width: 140 }}>Group</th>
+                <th>Customers (comma-sep, ILIKE)</th>
+                <th>Categories (comma-sep, ILIKE)</th>
+                <th style={{ width: 230 }}>Match (12 mo)</th>
+                <th style={{ width: 70 }}>Parent</th>
+                <th style={{ width: 44 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {mods.map((m, i) => {
+                const p = previewByCode.get(m.code);
+                return (
+                  <tr key={i}>
+                    <td>
+                      <input type="text" defaultValue={m.code}
+                        onBlur={(e) => e.target.value !== m.code && update(i, { code: e.target.value.toUpperCase().trim() })}
+                        style={cellStyle({ fontFamily: 'var(--ff-display)', fontWeight: 800, color: 'var(--ac)' })} />
+                    </td>
+                    <td><input type="text" defaultValue={m.label}
+                      onBlur={(e) => e.target.value !== m.label && update(i, { label: e.target.value })}
+                      style={cellStyle()} /></td>
+                    <td>
+                      <select value={m.group}
+                        onChange={(e) => update(i, { group: e.target.value as 'equipment' | 'soda' })}
+                        className="tb-select" style={{ width: '100%' }}>
+                        <option value="equipment">Equipment & Service</option>
+                        <option value="soda">Soda Sales</option>
+                      </select>
+                    </td>
+                    <td><input type="text"
+                      defaultValue={(m.filters.customers ?? []).join(', ')}
+                      onBlur={(e) => setList(i, 'customers', e.target.value)}
+                      placeholder="THE MELT, STARBIRD"
+                      style={cellStyle({ fontFamily: 'var(--ff-mono)', fontSize: 11 })} /></td>
+                    <td><input type="text"
+                      defaultValue={(m.filters.categories ?? []).join(', ')}
+                      onBlur={(e) => setList(i, 'categories', e.target.value)}
+                      placeholder="Equipment, Service"
+                      style={cellStyle({ fontFamily: 'var(--ff-mono)', fontSize: 11 })} /></td>
+                    <td>
+                      {p ? (
+                        <MatchChip preview={p} title={chipTitle(p)} />
+                      ) : (
+                        <span style={{ fontSize: 10, color: 'var(--mt)' }}>—</span>
+                      )}
+                    </td>
+                    <td><input type="text" defaultValue={m.parent ?? ''}
+                      onBlur={(e) => update(i, { parent: e.target.value.trim() || undefined })}
+                      placeholder="—"
+                      style={cellStyle({ fontFamily: 'var(--ff-display)', textAlign: 'center', color: 'var(--mt)' })} /></td>
+                    <td>
+                      <button onClick={() => remove(i)} className="tb-btn"
+                        style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}
+                        title="Delete">
+                        <Trash2 size={12} strokeWidth={2.2} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
 
       <div style={{ padding: '10px 16px', fontSize: 10, color: 'var(--mt)', borderTop: '1px solid var(--bd)' }}>

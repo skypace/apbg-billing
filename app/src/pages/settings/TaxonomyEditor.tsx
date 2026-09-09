@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../../lib/styles';
 
 // Generic 2-column code/label/sort/active editor used by Channels and
@@ -112,53 +113,55 @@ export function TaxonomyEditor({ title, description, fetchAll, insert, update, r
       {rows.length === 0 ? (
         <div className="ld">No entries yet.</div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>{codeLabel}</th>
-              <th>Label</th>
-              <th style={{ textAlign: 'right' }}>Sort</th>
-              <th>Active</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.code}>
-                <td className="mn" style={{ fontWeight: 600 }}>{r.code}</td>
-                <td>
-                  <input
-                    type="text"
-                    defaultValue={r.label}
-                    onBlur={(e) => { if (e.target.value !== r.label) patch(r.code, { label: e.target.value }); }}
-                    style={{ ...inp(), width: '100%', maxWidth: 320 }}
-                  />
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <input
-                    type="number"
-                    defaultValue={r.sort_order ?? 0}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value);
-                      if (v !== (r.sort_order ?? 0)) patch(r.code, { sort_order: v });
-                    }}
-                    style={{ ...inp(), width: 60, textAlign: 'right' }}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={r.is_active}
-                    onChange={(e) => patch(r.code, { is_active: e.target.checked })}
-                  />
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <button onClick={() => del(r.code, r.label)} style={btnDanger()}>×</button>
-                </td>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr>
+                <th>{codeLabel}</th>
+                <th>Label</th>
+                <th style={{ textAlign: 'right' }}>Sort</th>
+                <th>Active</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.code}>
+                  <td className="mn" style={{ fontWeight: 600 }}>{r.code}</td>
+                  <td>
+                    <input
+                      type="text"
+                      defaultValue={r.label}
+                      onBlur={(e) => { if (e.target.value !== r.label) patch(r.code, { label: e.target.value }); }}
+                      style={{ ...inp(), width: '100%', maxWidth: 320 }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <input
+                      type="number"
+                      defaultValue={r.sort_order ?? 0}
+                      onBlur={(e) => {
+                        const v = Number(e.target.value);
+                        if (v !== (r.sort_order ?? 0)) patch(r.code, { sort_order: v });
+                      }}
+                      style={{ ...inp(), width: 60, textAlign: 'right' }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={r.is_active}
+                      onChange={(e) => patch(r.code, { is_active: e.target.checked })}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={() => del(r.code, r.label)} style={btnDanger()}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );

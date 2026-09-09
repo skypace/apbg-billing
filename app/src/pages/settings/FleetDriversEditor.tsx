@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { sbq, sbUpdate } from '../../lib/rpc';
 
 // Settings → Fleet Drivers
@@ -126,56 +127,58 @@ export function FleetDriversEditor() {
           <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>
             {linked} of {drivers.length} mapped
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
-                <th style={th}>FC driver</th>
-                <th style={th}>Email</th>
-                <th style={th}>Employee ID</th>
-                <th style={th}>→ Team member</th>
-              </tr>
-            </thead>
-            <tbody>
-              {drivers.map((d) => {
-                const fcName = [d.first_name, d.last_name].filter(Boolean).join(' ') || d.fc_person_id.slice(0, 8) + '…';
-                const isSaving = saving === d.fc_person_id;
-                const current = linkByFcId.get(d.fc_person_id);
-                return (
-                  <tr key={d.fc_person_id} style={{ borderTop: '1px solid var(--bd)' }}>
-                    <td style={td}>{fcName}</td>
-                    <td style={td}>{d.email ?? '—'}</td>
-                    <td style={td}>{d.employee_id ?? '—'}</td>
-                    <td style={td}>
-                      <select
-                        value={current?.id ?? ''}
-                        onChange={(e) => setLink(d.fc_person_id, e.target.value ? Number(e.target.value) : null)}
-                        disabled={isSaving}
-                        style={{
-                          background: 'var(--ctl-bg)',
-                          color: 'var(--tx)',
-                          border: '1px solid var(--ctl-bd)',
-                          borderRadius: 3,
-                          padding: '3px 6px',
-                          fontSize: 11,
-                          minWidth: 280,
-                        }}
-                      >
-                        <option value="">— unmapped —</option>
-                        {memberOptions.map((tm) => (
-                          <option key={tm.id} value={tm.id}>
-                            {tm.name}
-                            {tm.department ? ' · ' + tm.department : ''}
-                            {tm.active === false ? ' (inactive)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      {isSaving && <span style={{ marginLeft: 8, color: 'var(--mt)', fontSize: 10 }}>saving…</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ color: 'var(--mt)', textAlign: 'left', borderBottom: '1px solid var(--bd)' }}>
+                  <th style={th}>FC driver</th>
+                  <th style={th}>Email</th>
+                  <th style={th}>Employee ID</th>
+                  <th style={th}>→ Team member</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drivers.map((d) => {
+                  const fcName = [d.first_name, d.last_name].filter(Boolean).join(' ') || d.fc_person_id.slice(0, 8) + '…';
+                  const isSaving = saving === d.fc_person_id;
+                  const current = linkByFcId.get(d.fc_person_id);
+                  return (
+                    <tr key={d.fc_person_id} style={{ borderTop: '1px solid var(--bd)' }}>
+                      <td style={td}>{fcName}</td>
+                      <td style={td}>{d.email ?? '—'}</td>
+                      <td style={td}>{d.employee_id ?? '—'}</td>
+                      <td style={td}>
+                        <select
+                          value={current?.id ?? ''}
+                          onChange={(e) => setLink(d.fc_person_id, e.target.value ? Number(e.target.value) : null)}
+                          disabled={isSaving}
+                          style={{
+                            background: 'var(--ctl-bg)',
+                            color: 'var(--tx)',
+                            border: '1px solid var(--ctl-bd)',
+                            borderRadius: 3,
+                            padding: '3px 6px',
+                            fontSize: 11,
+                            minWidth: 280,
+                          }}
+                        >
+                          <option value="">— unmapped —</option>
+                          {memberOptions.map((tm) => (
+                            <option key={tm.id} value={tm.id}>
+                              {tm.name}
+                              {tm.department ? ' · ' + tm.department : ''}
+                              {tm.active === false ? ' (inactive)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {isSaving && <span style={{ marginLeft: 8, color: 'var(--mt)', fontSize: 10 }}>saving…</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         </>
       )}
     </div>

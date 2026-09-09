@@ -27,8 +27,13 @@ import {
   matchesProfile, buildInvoiceModel, recipientsFor, canRaise,
 } from './lib/self-billing.mjs';
 
+// ⚠ The QBO vendor id on an expense lives in `vendor_id`, NOT `qbo_vendor_id`
+// — that spelling is the VENDORS registry's column (see vendor-pay.mjs, which
+// joins vendors.qbo_vendor_id = expense.vendor_id). Selecting a column that does
+// not exist makes PostgREST 400, which threw here and turned every single call
+// into a 500 — the whole endpoint never worked once.
 const EXPENSE_COLS = 'id,vendor_name,total_amount,receipt_date,job_number,line_items,'
-  + 'bill_number,status,tag,as_bill,archived_at,submitter_email,qbo_vendor_id';
+  + 'bill_number,status,tag,as_bill,archived_at,submitter_email,vendor_id';
 
 async function loadCompany() {
   try {

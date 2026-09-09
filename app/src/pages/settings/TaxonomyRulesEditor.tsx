@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus, Trash2, RotateCcw, ArrowUp, ArrowDown, FlaskConical } from 'lucide-react';
 import {
   TaxonomyRule, DEFAULT_ITEM_RULES, DEFAULT_CUSTOMER_RULES,
@@ -119,64 +120,66 @@ function RuleTable({ kind }: { kind: 'item' | 'customer' }) {
         )}
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th style={{ width: 64 }}>Order</th>
-            <th>Pattern (regex)</th>
-            <th>Group label</th>
-            <th style={{ width: 88, textAlign: 'right' }} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r, i) => {
-            const idx = rules.indexOf(r);
-            let regexOk = true;
-            try { new RegExp(r.pattern, 'i'); } catch { regexOk = false; }
-            return (
-              <tr key={idx}>
-                <td>
-                  <input type="number" defaultValue={r.order}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value);
-                      if (!Number.isNaN(v) && v !== r.order) update(idx, { order: v });
-                    }}
-                    style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--mt)',
-                             fontFamily: 'var(--ff-mono)', fontSize: 12, padding: '4px 6px', width: '100%', textAlign: 'right' }} />
-                </td>
-                <td>
-                  <input type="text" defaultValue={r.pattern}
-                    onBlur={(e) => e.target.value !== r.pattern && update(idx, { pattern: e.target.value })}
-                    style={{ background: 'transparent', border: regexOk ? '1px solid transparent' : '1px solid var(--rd)',
-                             color: regexOk ? 'var(--tx)' : 'var(--rd)',
-                             fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }}
-                    title={regexOk ? '' : 'Invalid regex — this rule will be skipped'} />
-                </td>
-                <td>
-                  <input type="text" defaultValue={r.label}
-                    onBlur={(e) => e.target.value !== r.label && update(idx, { label: e.target.value })}
-                    style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
-                             fontWeight: 600, fontSize: 12, padding: '4px 8px', width: '100%' }} />
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <button onClick={() => move(i, -1)} disabled={i === 0} className="tb-btn"
-                    style={{ padding: '4px 6px', marginRight: 2 }} title="Move up">
-                    <ArrowUp size={11} strokeWidth={2.4} />
-                  </button>
-                  <button onClick={() => move(i, +1)} disabled={i === sorted.length - 1} className="tb-btn"
-                    style={{ padding: '4px 6px', marginRight: 2 }} title="Move down">
-                    <ArrowDown size={11} strokeWidth={2.4} />
-                  </button>
-                  <button onClick={() => remove(idx)} className="tb-btn"
-                    style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}>
-                    <Trash2 size={11} strokeWidth={2.2} />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <PrintableTable>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: 64 }}>Order</th>
+              <th>Pattern (regex)</th>
+              <th>Group label</th>
+              <th style={{ width: 88, textAlign: 'right' }} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r, i) => {
+              const idx = rules.indexOf(r);
+              let regexOk = true;
+              try { new RegExp(r.pattern, 'i'); } catch { regexOk = false; }
+              return (
+                <tr key={idx}>
+                  <td>
+                    <input type="number" defaultValue={r.order}
+                      onBlur={(e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isNaN(v) && v !== r.order) update(idx, { order: v });
+                      }}
+                      style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--mt)',
+                               fontFamily: 'var(--ff-mono)', fontSize: 12, padding: '4px 6px', width: '100%', textAlign: 'right' }} />
+                  </td>
+                  <td>
+                    <input type="text" defaultValue={r.pattern}
+                      onBlur={(e) => e.target.value !== r.pattern && update(idx, { pattern: e.target.value })}
+                      style={{ background: 'transparent', border: regexOk ? '1px solid transparent' : '1px solid var(--rd)',
+                               color: regexOk ? 'var(--tx)' : 'var(--rd)',
+                               fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }}
+                      title={regexOk ? '' : 'Invalid regex — this rule will be skipped'} />
+                  </td>
+                  <td>
+                    <input type="text" defaultValue={r.label}
+                      onBlur={(e) => e.target.value !== r.label && update(idx, { label: e.target.value })}
+                      style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
+                               fontWeight: 600, fontSize: 12, padding: '4px 8px', width: '100%' }} />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={() => move(i, -1)} disabled={i === 0} className="tb-btn"
+                      style={{ padding: '4px 6px', marginRight: 2 }} title="Move up">
+                      <ArrowUp size={11} strokeWidth={2.4} />
+                    </button>
+                    <button onClick={() => move(i, +1)} disabled={i === sorted.length - 1} className="tb-btn"
+                      style={{ padding: '4px 6px', marginRight: 2 }} title="Move down">
+                      <ArrowDown size={11} strokeWidth={2.4} />
+                    </button>
+                    <button onClick={() => remove(idx)} className="tb-btn"
+                      style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}>
+                      <Trash2 size={11} strokeWidth={2.2} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </PrintableTable>
     </div>
   );
 }

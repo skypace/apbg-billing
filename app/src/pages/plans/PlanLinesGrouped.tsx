@@ -1,4 +1,5 @@
 // Planning Studio table: P&L grouping, editable monthly assumptions, and
+import { PrintableTable } from '../../components/PrintableTable';
 // revenue actual/forecast context on the same working surface.
 
 import { Fragment, useMemo, useState } from 'react';
@@ -242,234 +243,236 @@ export function PlanLinesGrouped({
   }
 
   return (
-    <table style={{ width: '100%' }}>
-      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-        <tr>
-          <th style={{ minWidth: 220 }}>Item / Line</th>
-          <th style={{ fontSize: 9, color: 'var(--mt)' }}>Account</th>
-          {MONTHS_SHORT.map((m) => (
-            <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
-          ))}
-          <th style={{ textAlign: 'right' }}>
-            {viewMode === 'revenue' ? 'Annual Rev'
-             : viewMode === 'qty'    ? 'Annual Qty'
-             : viewMode === 'price'  ? 'Avg Price'
-             :                          'Annual Cost'}
-          </th>
-          {showPace && (
-            <>
-              <th style={{ textAlign: 'right', color: 'var(--mt)' }}>YTD Act</th>
-              <th style={{ textAlign: 'right', color: 'var(--mt)' }}>FY Pace</th>
-              <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Δ</th>
-            </>
-          )}
-          {showCompare && (
-            <>
-              <th style={{ textAlign: 'right', color: 'var(--mt)' }} title={compareLabel ?? undefined}>Compare</th>
-              <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Plan Δ</th>
-            </>
-          )}
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {grouped.map((sec, secIdx) => {
-          const sectionKey = 'section:' + sec.name;
-          const sectionCollapsed = isCollapsed(sectionKey);
-          const sectionActualsActive = sec.name === 'revenue';
-          return (
-          <Fragment key={sec.name}>
-            <tr onClick={() => toggle(sectionKey)} style={{ cursor: 'pointer' }} title={sectionCollapsed ? 'Click to expand' : 'Click to collapse'}>
-              <td colSpan={totalCols} style={sectionHeaderStyle()}>
-                <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
-                  {sectionCollapsed ? '▶' : '▼'}
-                </span>
-                {SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}
-              </td>
-            </tr>
-            {!sectionCollapsed && sec.plGroups.map((g) => {
-              const groupKey = 'pl:' + sec.name + '|' + g.plLine;
-              const groupCollapsed = isCollapsed(groupKey);
-              const groupSum = groupMonthly(g.lines);
-              const itemGroups = itemGroupsFor(g.lines);
-              return (
-                <Fragment key={sec.name + '|' + g.plLine}>
-                  <tr onClick={() => toggle(groupKey)} style={{ cursor: 'pointer' }} title={groupCollapsed ? 'Click to expand' : 'Click to collapse'}>
-                    <td colSpan={totalCols} style={plLineHeaderStyle()}>
-                      <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
-                        {groupCollapsed ? '▶' : '▼'}
-                      </span>
-                      {g.plLine} <span style={{ color: 'var(--mt)', fontSize: 9 }}>· {itemGroups.length} item{itemGroups.length === 1 ? '' : 's'} · {g.lines.length} plan line{g.lines.length === 1 ? '' : 's'}</span>
-                    </td>
-                  </tr>
-                  {!groupCollapsed && itemGroups.map((ig) => {
-                    const editable = ig.lines.length === 1;
-                    const l = ig.line;
-                    const summary = groupMonthly(ig.lines);
-                    const monthly = editable ? arrayFor(l) : summary.m;
-                    const total = editable ? totalFor(l) : summary.total;
-                    const expanded = isItemExpanded(ig.key);
-                    return (
-                      <Fragment key={ig.key}>
-                        <tr>
-                          <td style={itemCellStyle()} title={l.item_name ?? ''}>
-                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.item_name ?? '—'}</div>
-                            <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {editable ? (l.customer_name ?? '') : `${ig.lines.length} customer lines`}
-                            </div>
-                          </td>
-                          <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
-                          {monthly.map((v, idx) => (
-                            <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
-                              {editable ? (
-                                <input
-                                  type="number"
-                                  step={viewMode === 'qty' ? 1 : 0.01}
-                                  defaultValue={v ?? 0}
-                                  onBlur={(e) => {
-                                    if (Number(e.target.value) !== Number(v)) onSetCell(l, idx, e.target.value);
-                                  }}
-                                  style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
-                                />
-                              ) : (
-                                <span className="mn" style={{ fontSize: 11, color: 'var(--tx2)' }}>{fmt(v)}</span>
-                              )}
+    <PrintableTable>
+      <table style={{ width: '100%' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+          <tr>
+            <th style={{ minWidth: 220 }}>Item / Line</th>
+            <th style={{ fontSize: 9, color: 'var(--mt)' }}>Account</th>
+            {MONTHS_SHORT.map((m) => (
+              <th key={m} style={{ textAlign: 'right', fontSize: 9 }}>{m}</th>
+            ))}
+            <th style={{ textAlign: 'right' }}>
+              {viewMode === 'revenue' ? 'Annual Rev'
+               : viewMode === 'qty'    ? 'Annual Qty'
+               : viewMode === 'price'  ? 'Avg Price'
+               :                          'Annual Cost'}
+            </th>
+            {showPace && (
+              <>
+                <th style={{ textAlign: 'right', color: 'var(--mt)' }}>YTD Act</th>
+                <th style={{ textAlign: 'right', color: 'var(--mt)' }}>FY Pace</th>
+                <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Δ</th>
+              </>
+            )}
+            {showCompare && (
+              <>
+                <th style={{ textAlign: 'right', color: 'var(--mt)' }} title={compareLabel ?? undefined}>Compare</th>
+                <th style={{ textAlign: 'right', color: 'var(--mt)' }}>Plan Δ</th>
+              </>
+            )}
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {grouped.map((sec, secIdx) => {
+            const sectionKey = 'section:' + sec.name;
+            const sectionCollapsed = isCollapsed(sectionKey);
+            const sectionActualsActive = sec.name === 'revenue';
+            return (
+            <Fragment key={sec.name}>
+              <tr onClick={() => toggle(sectionKey)} style={{ cursor: 'pointer' }} title={sectionCollapsed ? 'Click to expand' : 'Click to collapse'}>
+                <td colSpan={totalCols} style={sectionHeaderStyle()}>
+                  <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
+                    {sectionCollapsed ? '▶' : '▼'}
+                  </span>
+                  {SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}
+                </td>
+              </tr>
+              {!sectionCollapsed && sec.plGroups.map((g) => {
+                const groupKey = 'pl:' + sec.name + '|' + g.plLine;
+                const groupCollapsed = isCollapsed(groupKey);
+                const groupSum = groupMonthly(g.lines);
+                const itemGroups = itemGroupsFor(g.lines);
+                return (
+                  <Fragment key={sec.name + '|' + g.plLine}>
+                    <tr onClick={() => toggle(groupKey)} style={{ cursor: 'pointer' }} title={groupCollapsed ? 'Click to expand' : 'Click to collapse'}>
+                      <td colSpan={totalCols} style={plLineHeaderStyle()}>
+                        <span style={{ display: 'inline-block', width: 14, color: 'var(--mt)' }}>
+                          {groupCollapsed ? '▶' : '▼'}
+                        </span>
+                        {g.plLine} <span style={{ color: 'var(--mt)', fontSize: 9 }}>· {itemGroups.length} item{itemGroups.length === 1 ? '' : 's'} · {g.lines.length} plan line{g.lines.length === 1 ? '' : 's'}</span>
+                      </td>
+                    </tr>
+                    {!groupCollapsed && itemGroups.map((ig) => {
+                      const editable = ig.lines.length === 1;
+                      const l = ig.line;
+                      const summary = groupMonthly(ig.lines);
+                      const monthly = editable ? arrayFor(l) : summary.m;
+                      const total = editable ? totalFor(l) : summary.total;
+                      const expanded = isItemExpanded(ig.key);
+                      return (
+                        <Fragment key={ig.key}>
+                          <tr>
+                            <td style={itemCellStyle()} title={l.item_name ?? ''}>
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.item_name ?? '—'}</div>
+                              <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {editable ? (l.customer_name ?? '') : `${ig.lines.length} customer lines`}
+                              </div>
                             </td>
-                          ))}
-                          <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(total)}</td>
-                          {paceCells(ig.lines, sectionActualsActive)}
-                          {compareCells(ig.lines)}
-                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {editable ? (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    const annualRev = sum(l.amounts);
-                                    const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
-                                    if (v != null) onFillFlat(l, v);
-                                  }}
-                                  style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
-                                  title="Spread annual revenue across 12 months"
-                                >÷12</button>
-                                <button
-                                  onClick={() => onDelete(l.id)}
-                                  style={{ ...btnDanger(), marginLeft: 4 }}
-                                >×</button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => toggleItem(ig.key)}
-                                style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
-                              >
-                                {expanded ? 'hide' : 'details'}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                        {!editable && expanded && ig.lines.map((child) => {
-                          const childArr = arrayFor(child);
-                          return (
-                            <tr key={child.id} style={{ background: 'rgba(255,255,255,0.015)' }}>
-                              <td style={{ ...itemCellStyle(), paddingLeft: 24 }} title={child.customer_name ?? ''}>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--tx2)' }}>{child.customer_name ?? '(customer)'}</div>
-                                <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1 }}>{child.item_name ?? ''}</div>
-                              </td>
-                              <td style={{ fontSize: 10, color: 'var(--mt)' }}>{child.account_name ?? '—'}</td>
-                              {childArr.map((v, idx) => (
-                                <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                            <td style={{ fontSize: 10, color: 'var(--mt)' }}>{l.account_name ?? '—'}</td>
+                            {monthly.map((v, idx) => (
+                              <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                                {editable ? (
                                   <input
                                     type="number"
                                     step={viewMode === 'qty' ? 1 : 0.01}
                                     defaultValue={v ?? 0}
                                     onBlur={(e) => {
-                                      if (Number(e.target.value) !== Number(v)) onSetCell(child, idx, e.target.value);
+                                      if (Number(e.target.value) !== Number(v)) onSetCell(l, idx, e.target.value);
                                     }}
                                     style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
                                   />
-                                </td>
-                              ))}
-                              <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(totalFor(child))}</td>
-                              {paceCells([child], false)}
-                              {showCompare && <><td /><td /></>}
-                              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                <button
-                                  onClick={() => {
-                                    const annualRev = sum(child.amounts);
-                                    const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
-                                    if (v != null) onFillFlat(child, v);
-                                  }}
-                                  style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
-                                  title="Spread annual revenue across 12 months"
-                                >÷12</button>
-                                <button
-                                  onClick={() => onDelete(child.id)}
-                                  style={{ ...btnDanger(), marginLeft: 4 }}
-                                >×</button>
+                                ) : (
+                                  <span className="mn" style={{ fontSize: 11, color: 'var(--tx2)' }}>{fmt(v)}</span>
+                                )}
                               </td>
-                            </tr>
-                          );
-                        })}
-                      </Fragment>
-                    );
-                  })}
-                  <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                    <td colSpan={2} style={subtotalLabelStyle()}>Subtotal · {g.plLine}</td>
-                    {groupSum.m.map((v, i) => (
-                      <td key={i} className="mn" style={subtotalCellStyle('var(--tx)')}>{fmt(v)}</td>
-                    ))}
-                    <td className="mn" style={{ ...subtotalCellStyle('var(--tx)'), fontWeight: 700 }}>{fmt(groupSum.total)}</td>
-                    {paceCells(g.lines, sectionActualsActive, true)}
-                    {compareCells(g.lines, true)}
-                    <td />
-                  </tr>
-                </Fragment>
-              );
-            })}
-            <tr style={{ background: 'rgba(91,181,240,0.06)' }}>
-              <td colSpan={2} style={{ ...subtotalLabelStyle(), fontSize: 12, color: 'var(--ac)' }}>
-                TOTAL {SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}
-              </td>
-              {sectionTotals[sec.name].m.map((v, i) => (
-                <td key={i} className="mn" style={subtotalCellStyle('var(--ac)')}>{fmt(v)}</td>
-              ))}
-              <td className="mn" style={{ ...subtotalCellStyle('var(--ac)'), fontWeight: 800 }}>{fmt(sectionTotals[sec.name].total)}</td>
-              {paceCells(sec.plGroups.flatMap((g) => g.lines), sectionActualsActive, true)}
-              {compareCells(sec.plGroups.flatMap((g) => g.lines), true)}
-              <td />
-            </tr>
-            {showGmNet && sec.name === 'cogs' && (
-              <tr style={{ background: 'rgba(58,167,113,0.10)' }}>
-                <td colSpan={2} style={{ ...subtotalLabelStyle(), color: 'var(--gn)', fontSize: 12 }}>
-                  GROSS MARGIN {rev.total > 0 ? `· ${((gm.total / rev.total) * 100).toFixed(1)}%` : ''}
+                            ))}
+                            <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(total)}</td>
+                            {paceCells(ig.lines, sectionActualsActive)}
+                            {compareCells(ig.lines)}
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {editable ? (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      const annualRev = sum(l.amounts);
+                                      const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
+                                      if (v != null) onFillFlat(l, v);
+                                    }}
+                                    style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                                    title="Spread annual revenue across 12 months"
+                                  >÷12</button>
+                                  <button
+                                    onClick={() => onDelete(l.id)}
+                                    style={{ ...btnDanger(), marginLeft: 4 }}
+                                  >×</button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => toggleItem(ig.key)}
+                                  style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                                >
+                                  {expanded ? 'hide' : 'details'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                          {!editable && expanded && ig.lines.map((child) => {
+                            const childArr = arrayFor(child);
+                            return (
+                              <tr key={child.id} style={{ background: 'rgba(255,255,255,0.015)' }}>
+                                <td style={{ ...itemCellStyle(), paddingLeft: 24 }} title={child.customer_name ?? ''}>
+                                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--tx2)' }}>{child.customer_name ?? '(customer)'}</div>
+                                  <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1 }}>{child.item_name ?? ''}</div>
+                                </td>
+                                <td style={{ fontSize: 10, color: 'var(--mt)' }}>{child.account_name ?? '—'}</td>
+                                {childArr.map((v, idx) => (
+                                  <td key={idx} style={{ textAlign: 'right', padding: '2px 4px' }}>
+                                    <input
+                                      type="number"
+                                      step={viewMode === 'qty' ? 1 : 0.01}
+                                      defaultValue={v ?? 0}
+                                      onBlur={(e) => {
+                                        if (Number(e.target.value) !== Number(v)) onSetCell(child, idx, e.target.value);
+                                      }}
+                                      style={{ ...inp(), width: 76, textAlign: 'right', fontSize: 11, padding: '4px 5px' }}
+                                    />
+                                  </td>
+                                ))}
+                                <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(totalFor(child))}</td>
+                                {paceCells([child], false)}
+                                {showCompare && <><td /><td /></>}
+                                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                  <button
+                                    onClick={() => {
+                                      const annualRev = sum(child.amounts);
+                                      const v = prompt('Annual revenue total to spread across 12 months:', String(Math.round(annualRev)));
+                                      if (v != null) onFillFlat(child, v);
+                                    }}
+                                    style={{ ...btnSecondary(), fontSize: 9, padding: '2px 6px' }}
+                                    title="Spread annual revenue across 12 months"
+                                  >÷12</button>
+                                  <button
+                                    onClick={() => onDelete(child.id)}
+                                    style={{ ...btnDanger(), marginLeft: 4 }}
+                                  >×</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
+                      );
+                    })}
+                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                      <td colSpan={2} style={subtotalLabelStyle()}>Subtotal · {g.plLine}</td>
+                      {groupSum.m.map((v, i) => (
+                        <td key={i} className="mn" style={subtotalCellStyle('var(--tx)')}>{fmt(v)}</td>
+                      ))}
+                      <td className="mn" style={{ ...subtotalCellStyle('var(--tx)'), fontWeight: 700 }}>{fmt(groupSum.total)}</td>
+                      {paceCells(g.lines, sectionActualsActive, true)}
+                      {compareCells(g.lines, true)}
+                      <td />
+                    </tr>
+                  </Fragment>
+                );
+              })}
+              <tr style={{ background: 'rgba(91,181,240,0.06)' }}>
+                <td colSpan={2} style={{ ...subtotalLabelStyle(), fontSize: 12, color: 'var(--ac)' }}>
+                  TOTAL {SECTION_LABEL[sec.name] ?? sec.name.toUpperCase()}
                 </td>
-                {gm.m.map((v, i) => (
-                  <td key={i} className="mn" style={subtotalCellStyle('var(--gn)')}>{fmt(v)}</td>
+                {sectionTotals[sec.name].m.map((v, i) => (
+                  <td key={i} className="mn" style={subtotalCellStyle('var(--ac)')}>{fmt(v)}</td>
                 ))}
-                <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(gm.total)}</td>
-                {showPace && <><td /><td /><td /></>}
-                {showCompare && <><td /><td /></>}
+                <td className="mn" style={{ ...subtotalCellStyle('var(--ac)'), fontWeight: 800 }}>{fmt(sectionTotals[sec.name].total)}</td>
+                {paceCells(sec.plGroups.flatMap((g) => g.lines), sectionActualsActive, true)}
+                {compareCells(sec.plGroups.flatMap((g) => g.lines), true)}
                 <td />
               </tr>
-            )}
-            {showGmNet && sec.name === 'opex' && secIdx === grouped.length - 1 && (
-              <tr style={{ background: 'rgba(58,167,113,0.16)' }}>
-                <td colSpan={2} style={{ ...subtotalLabelStyle(), color: 'var(--gn)', fontSize: 13 }}>
-                  NET INCOME {rev.total > 0 ? `· ${((net.total / rev.total) * 100).toFixed(1)}%` : ''}
-                </td>
-                {net.m.map((v, i) => (
-                  <td key={i} className="mn" style={subtotalCellStyle('var(--gn)')}>{fmt(v)}</td>
-                ))}
-                <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(net.total)}</td>
-                {showPace && <><td /><td /><td /></>}
-                {showCompare && <><td /><td /></>}
-                <td />
-              </tr>
-            )}
-          </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
+              {showGmNet && sec.name === 'cogs' && (
+                <tr style={{ background: 'rgba(58,167,113,0.10)' }}>
+                  <td colSpan={2} style={{ ...subtotalLabelStyle(), color: 'var(--gn)', fontSize: 12 }}>
+                    GROSS MARGIN {rev.total > 0 ? `· ${((gm.total / rev.total) * 100).toFixed(1)}%` : ''}
+                  </td>
+                  {gm.m.map((v, i) => (
+                    <td key={i} className="mn" style={subtotalCellStyle('var(--gn)')}>{fmt(v)}</td>
+                  ))}
+                  <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(gm.total)}</td>
+                  {showPace && <><td /><td /><td /></>}
+                  {showCompare && <><td /><td /></>}
+                  <td />
+                </tr>
+              )}
+              {showGmNet && sec.name === 'opex' && secIdx === grouped.length - 1 && (
+                <tr style={{ background: 'rgba(58,167,113,0.16)' }}>
+                  <td colSpan={2} style={{ ...subtotalLabelStyle(), color: 'var(--gn)', fontSize: 13 }}>
+                    NET INCOME {rev.total > 0 ? `· ${((net.total / rev.total) * 100).toFixed(1)}%` : ''}
+                  </td>
+                  {net.m.map((v, i) => (
+                    <td key={i} className="mn" style={subtotalCellStyle('var(--gn)')}>{fmt(v)}</td>
+                  ))}
+                  <td className="mn" style={{ ...subtotalCellStyle('var(--gn)'), fontWeight: 800 }}>{fmt(net.total)}</td>
+                  {showPace && <><td /><td /><td /></>}
+                  {showCompare && <><td /><td /></>}
+                  <td />
+                </tr>
+              )}
+            </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </PrintableTable>
   );
 }
 

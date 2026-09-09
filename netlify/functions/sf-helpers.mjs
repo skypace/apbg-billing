@@ -12,7 +12,8 @@ const TOKEN_LOCK_SECONDS = 45;
 const TOKEN_LOCK_WAIT_MS = 3000;
 
 // In-memory token cache (persists across calls within same function invocation)
-let memCache = { accessToken: null, accessExpires: 0, refreshToken: null };
+// Access token only — see cacheTokens for why the refresh token is not kept here.
+let memCache = { accessToken: null, accessExpires: 0 };
 
 let blobStore = null;
 let blobsAvailable = null;
@@ -69,7 +70,6 @@ function hasFreshAccessToken(row) {
 function useDbAccessToken(row) {
   memCache.accessToken = row.access_token;
   memCache.accessExpires = new Date(row.access_expires_at).getTime();
-  if (row.refresh_token) memCache.refreshToken = row.refresh_token;
   return row.access_token;
 }
 
@@ -117,6 +117,11 @@ async function writeDbTokenCache(data, expires) {
     refresh_lock_owner: null,
     last_refresh_error: null,
     last_refresh_error_at: null,
+    // Cleared too, though the health check no longer reads it: a column that
+    // is permanently set is a trap for whoever reads this row next. It sat
+    // non-null from an outage in July until 2026-09-07 and kept the board
+    // yellow through a perfectly good re-auth.
+    last_error: null,
   };
   if (data.refresh_token) row.refresh_token = data.refresh_token;
   try {
@@ -171,30 +176,33 @@ export async function getSFAccessToken() {
     } catch (e) {}
   }
 
-  // 3. Get the freshest refresh token: shared DB > memory > blob > env var.
+  // 3. The refresh token has exactly ONE home: ops.sf_token_cache, serialised
+  //    by the lease claimed below.
+  //
+  //    ⚠ Service Fusion ROTATES the refresh token on every use — each refresh
+  //    spends the previous one. So a second copy is not a backup; it is a
+  //    spent credential waiting to be replayed. This function used to keep
+  //    four (database, memory, Netlify Blobs, a Netlify env var) and reach
+  //    for the older ones when a refresh failed. See the note where that
+  //    retry used to be, below.
   const clientId = process.env.SF_CLIENT_ID;
   const clientSecret = process.env.SF_CLIENT_SECRET;
-  let refreshToken = dbCached?.refresh_token || memCache.refreshToken || null;
-  let blobRefreshToken = null;
+  let refreshToken = dbCached?.refresh_token || null;
 
-  // Try blob (survives across invocations)
-  if (store) {
-    try {
-      const blobRT = await store.get('refresh-token');
-      if (blobRT) {
-        blobRefreshToken = blobRT;
-        if (!refreshToken) refreshToken = blobRT;
-      }
-    } catch (e) {}
-  }
-
-  // Fall back to env var
+  // SF_REFRESH_TOKEN is a BOOTSTRAP, not a fallback. It is read only when the
+  // database holds no refresh token at all — a fresh environment, or a wiped
+  // row — which is precisely the case where there is no live token for a
+  // replay to endanger. Nothing writes it back any more, so it ages out by
+  // design and re-auth is the cure rather than a silent stale retry.
   if (!refreshToken) {
-    refreshToken = process.env.SF_REFRESH_TOKEN;
+    refreshToken = process.env.SF_REFRESH_TOKEN || null;
+    if (refreshToken) {
+      console.warn('[sf] no refresh token in ops.sf_token_cache — bootstrapping from SF_REFRESH_TOKEN. If this fails, re-auth (billing app).');
+    }
   }
 
   if (!refreshToken) {
-    throw new Error('SF_REFRESH_TOKEN not set. Go to /setup.html and connect Service Fusion.');
+    throw new Error('No Service Fusion refresh token cached. Re-auth the billing app — apbg-billing CLAUDE.md → Service Fusion OAuth.');
   }
 
   const owner = `netlify-sf:${Date.now()}:${Math.random().toString(36).slice(2)}`;
@@ -255,28 +263,25 @@ export async function getSFAccessToken() {
       const err = await res.text();
       const message = sfTokenError(res.status, err);
       await noteDbRefreshError(message);
-      // If the shared DB token was stale, let Netlify heal it from Blob/env.
-      const fallbacks = [blobRefreshToken, process.env.SF_REFRESH_TOKEN]
-        .filter((token, index, arr) => token && token !== refreshToken && arr.indexOf(token) === index);
-      for (const fallbackToken of fallbacks) {
-        const retry = await fetch(SF_TOKEN_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            client_id: clientId || '',
-            client_secret: clientSecret || '',
-            refresh_token: fallbackToken,
-          }),
-        });
-        if (retry.ok) {
-          const data2 = await retry.json();
-          await cacheTokens(store, data2);
-          return data2.access_token;
-        }
-        const retryMessage = sfTokenError(retry.status, await retry.text());
-        await noteDbRefreshError(retryMessage);
-      }
+      // ⚠ DO NOT retry here with a copy from Blobs or the env var.
+      //
+      // That is what this did until 2026-09-07, under the comment "let Netlify
+      // heal it from Blob/env", and it could never have worked: the database
+      // copy is the freshest by construction, so every other copy is one
+      // Service Fusion has already rotated away. At best the retry fails; at
+      // worst presenting a spent refresh token reads as a replayed credential
+      // and costs the whole token family.
+      //
+      // It is a trip-wire, not a safety net: everything is fine until one
+      // refresh fails for any reason — and SF rate-limits hard, so blips are
+      // routine — and then the "recovery" turns a transient failure into a
+      // dead credential only a human re-auth can fix. That is the shape of the
+      // record: 14 dead days from 2026-07-09, six clean weeks, then 46 hours
+      // from 2026-09-05, with nothing in between.
+      //
+      // Fail honestly instead. noteDbRefreshError above stamps
+      // last_refresh_error_at, the board goes red within 15 minutes, and the
+      // alert says to re-auth.
       throw new Error(message);
     }
 
@@ -297,10 +302,9 @@ async function cacheTokens(store, data) {
     memCache.accessToken = data.access_token;
     memCache.accessExpires = expires;
   }
-  if (data.refresh_token) {
-    memCache.refreshToken = data.refresh_token;
-  }
-
+  // ⚠ The refresh token is deliberately NOT cached in memory, in Blobs or in a
+  // Netlify env var. It is single-use; the database row written below is its
+  // only home. See the note in getSFAccessToken.
   await writeDbTokenCache(data, expires);
 
   // Cache access token in blob (50 min, SF tokens last ~1hr)
@@ -313,40 +317,12 @@ async function cacheTokens(store, data) {
     } catch (e) {}
   }
 
-  // Cache new refresh token in blob (immediate availability)
-  if (store && data.refresh_token) {
-    try {
-      await store.set('refresh-token', data.refresh_token);
-    } catch (e) {}
-  }
-
-  // Also persist to Netlify env var (survives deploys)
-  if (data.refresh_token) {
-    await updateSFEnvVar(data.refresh_token);
-  }
 }
 
-async function updateSFEnvVar(newToken) {
-  const token = process.env.NETLIFY_ACCESS_TOKEN;
-  const siteId = process.env.NETLIFY_SITE_ID;
-  if (!token || !siteId) return;
-
-  try {
-    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-    const base = `https://api.netlify.com/api/v1/sites/${siteId}/env`;
-    await fetch(`${base}/SF_REFRESH_TOKEN`, { method: 'DELETE', headers });
-    await fetch(base, {
-      method: 'POST', headers,
-      body: JSON.stringify([{
-        key: 'SF_REFRESH_TOKEN',
-        scopes: ['builds', 'functions', 'runtime', 'post_processing'],
-        values: [{ value: newToken, context: 'all' }],
-      }]),
-    });
-  } catch (e) {
-    console.warn('SF token env save failed:', e.message);
-  }
-}
+// updateSFEnvVar was removed on 2026-09-07. It rewrote SF_REFRESH_TOKEN on
+// every refresh with a DELETE followed by a POST — not atomic, so a failed
+// POST loses the variable outright — and its only purpose was to maintain a
+// second copy of a single-use credential. Nothing should recreate it.
 
 export async function sfRequest(method, endpoint, body = null) {
   const accessToken = await getSFAccessToken();

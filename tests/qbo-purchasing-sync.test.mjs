@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cdcWindow, billLineRows, itemRow, vendorRow, itemIdsOnPo, buildPoPayload, buildBillFromReceipt,
+  cdcWindow, billLineRows, itemRow, vendorRow, itemIdsOnPo, buildPoPayload, buildBillFromReceipt, poWindowStart,
 } from '../netlify/functions/lib/qbo-purchasing-sync.mjs';
 
 const NOW = new Date('2026-09-04T18:00:00Z');
@@ -175,4 +175,13 @@ test('itemIdsOnPo: only ItemBased lines, de-duplicated', () => {
   ] });
   assert.deepEqual(ids, ['687']);
   assert.deepEqual(itemIdsOnPo({}), []);
+});
+
+test('poWindowStart: the full PO pull reaches a year behind apply_from, and never filters on POStatus', async () => {
+  // POStatus is not queryable on PurchaseOrder (QBO 400 QueryValidationError) —
+  // the first full pull failed on it every 15 minutes for a day.
+  assert.equal(poWindowStart('2026-09-03'), '2025-09-03');
+  assert.equal(poWindowStart('garbage'), '2025-09-01');
+  const src = await import('node:fs').then((fs) => fs.readFileSync(new URL('../netlify/functions/lib/qbo-purchasing-sync.mjs', import.meta.url), 'utf8'));
+  assert.ok(!/from PurchaseOrder where POStatus/.test(src), 'the PO query must not filter on POStatus');
 });

@@ -13,8 +13,14 @@ app/dist
 app-expense/node_modules
 app-expense/dist
 app-expense/*.tsbuildinfo
-app-expense/package-lock.json
 
+# Lockfiles ARE tracked for app/, app-expense/ and app-distributor/ (2026-09-04):
+# the Netlify build runs three `npm install`s, and with no lockfile each one
+# resolves every ^range against the registry. The 2026-09-04 production deploy
+# of #458 timed out at 18 minutes inside those installs while the identical
+# deploy preview had built in 14 — a lockfile makes the install a download,
+# not a resolution. Regenerate with `npm install --prefix <app>` and commit it.
+#
 # NOTE (corrected 2026-08-23): Netlify DOES run our build command from
 # netlify.toml — it installs and builds app/, app-expense/ and
 # app-distributor/ on every deploy. Verified live: production serves bundle

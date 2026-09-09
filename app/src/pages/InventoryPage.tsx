@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../components/PrintableTable';
+import { SearchSelect } from '../components/SearchSelect';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { DataGridPro, type GridColDef, type GridGroupNode } from '@mui/x-data-grid-pro';
@@ -14,7 +16,7 @@ import {
   addVelocityExclude, fetchCustomerCadence, fetchCustomerOptions, fetchFillPlan, fetchForecastAccuracy, fetchInventoryHealth, fetchPlanningExceptions,
   fetchPlanningWeekly, fetchVelocityExcludes, refreshPlanningExceptions, removeVelocityExclude, setPlanningException,
 } from '../lib/inventory';
-import { INVENTORY_LANE_LABEL, filterItemsByLane, useInventoryLane, type InventoryLane } from '../lib/inventoryLane';
+import { describeLanes, filterItemsByLanes, useInventoryLanes, type InventoryLane } from '../lib/inventoryLane';
 import { useToast } from '../lib/toast';
 import { GRID_SX as BASE_GRID_SX, GRID_DEFAULTS } from '../lib/gridStyles';
 
@@ -122,7 +124,7 @@ function SearchInput({ value, onChange, placeholder = 'Search items…' }: {
 
 export function InventoryPage() {
   const [tab, setTab] = useState<TabId>('reorder');
-  const [lane, setLane] = useInventoryLane();
+  const [lanes, , toggleLane] = useInventoryLanes();
   const [lookback, setLookback] = useState(90);
   // Sky, 2026-09-04: only the BIB, 24-pack and 8-pack items need planning.
   // is_planner is exactly that set (migration 20260904g); the toggle is the
@@ -138,8 +140,8 @@ export function InventoryPage() {
   useEffect(load, [lookback]);
 
   const laneRows = useMemo(
-    () => rows ? filterItemsByLane(rows, lane).filter((r) => !plannerOnly || r.is_planner) : null,
-    [rows, lane, plannerOnly],
+    () => rows ? filterItemsByLanes(rows, lanes).filter((r) => !plannerOnly || r.is_planner) : null,
+    [rows, lanes, plannerOnly],
   );
 
   const tabLabel = TABS.find((t) => t.id === tab)?.label ?? 'Inventory Planning';
@@ -152,7 +154,7 @@ export function InventoryPage() {
           <h1 className="hero-title">Inventory Planning</h1>
           <div className="hero-meta">
             {tabLabel}
-            {tab !== 'excludes' && tab !== 'fill' && tab !== 'anomalies' && ` · ${INVENTORY_LANE_LABEL[lane]} · ${lookback}-day lookback${plannerOnly ? ' · planner items' : ''}`}
+            {tab !== 'excludes' && tab !== 'fill' && tab !== 'anomalies' && ` · ${describeLanes(lanes)} · ${lookback}-day lookback${plannerOnly ? ' · planner items' : ''}`}
           </div>
         </div>
         <div className="hero-stamp">
@@ -168,7 +170,7 @@ export function InventoryPage() {
       {(tab === 'reorder' || tab === 'velocity' || tab === 'forecast') && (
         <div className="toolbar" style={{ marginBottom: 14 }}>
           <div className="toolbar-row">
-            <InventoryLaneSelector value={lane} onChange={setLane} />
+            <InventoryLaneSelector value={lanes} onToggle={toggleLane} />
             <div className="toolbar-section">
               <span className="toolbar-label">Velocity lookback</span>
               <input type="number" min={7} max={365} value={lookback}
@@ -191,7 +193,7 @@ export function InventoryPage() {
         </div>
       )}
 
-      {tab === 'reorder' && <ReorderTable rows={laneRows} lane={lane} />}
+      {tab === 'reorder' && <ReorderTable rows={laneRows} />}
       {tab === 'forecast' && <ForecastTab rows={laneRows} />}
       {tab === 'customers' && <CustomersDueTab />}
       {tab === 'fill' && <FillPlanTab />}
@@ -273,7 +275,7 @@ function TrendCell({ value }: { value: number | null | undefined }) {
   return <span style={{ color, fontWeight: Math.abs(v) >= 25 ? 700 : 500 }}>{v > 0 ? '+' : ''}{v.toFixed(0)}%</span>;
 }
 
-function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane: InventoryLane }) {
+function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
   const [search, setSearch] = useState('');
   const toast = useToast();
 
@@ -415,13 +417,30 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
       (r) => r.active && r.suggested_order_qty != null && Number(r.suggested_order_qty) > 0,
     );
   }
+  // With lanes multi-selected the list can hold BIBs, cases and 8-packs at
+  // once. Each group is stashed for its own door; the page then opens the
+  // first door and says what else was queued, so nothing on the list is
+  // silently dropped because it was the "wrong" kind for one form.
+  const byLane = useMemo(() => {
+    const c = orderCandidates();
+    return {
+      bib: c.filter((r) => r.inventory_lane === 'bib_product'),
+      cases: c.filter((r) => r.inventory_lane === 'cans_24pk'),
+      packs: c.filter((r) => r.inventory_lane === 'cans_8pk'),
+    };
+  }, [filtered, reorder]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const primaryLane: InventoryLane = byLane.cases.length ? 'cans_24pk' : byLane.packs.length ? 'cans_8pk' : 'bib_product';
+  const lane = primaryLane;
   function createOrderFromReorder() {
-    if (lane === 'cans_24pk') return createWorkOrdersFromReorder();
-    if (lane === 'cans_8pk') return createRepackFromReorder();
-    return createPoFromReorder();
+    const queued: string[] = [];
+    if (byLane.bib.length && primaryLane !== 'bib_product') { createPoFromReorder(byLane.bib, false); queued.push(`${byLane.bib.length} BIB line${byLane.bib.length === 1 ? '' : 's'} → a PO`); }
+    if (byLane.packs.length && primaryLane !== 'cans_8pk') { createRepackFromReorder(byLane.packs, false); queued.push(`${byLane.packs.length} flavour${byLane.packs.length === 1 ? '' : 's'} → the repack sheet`); }
+    if (queued.length) toast.info(`Also queued: ${queued.join(' · ')} — open those forms when you are done here`);
+    if (primaryLane === 'cans_24pk') return createWorkOrdersFromReorder(byLane.cases);
+    if (primaryLane === 'cans_8pk') return createRepackFromReorder(byLane.packs, true);
+    return createPoFromReorder(byLane.bib, true);
   }
-  function createWorkOrdersFromReorder() {
-    const candidates = orderCandidates();
+  function createWorkOrdersFromReorder(candidates: InventoryHealthRow[]) {
     if (candidates.length === 0) return;
     sessionStorage.setItem('brix.wo.prefill', JSON.stringify({
       source: 'inventory-reorder',
@@ -430,19 +449,18 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
     }));
     window.location.hash = '#production?tab=work_orders';
   }
-  function createRepackFromReorder() {
-    const candidates = orderCandidates();
+  function createRepackFromReorder(candidates: InventoryHealthRow[], go: boolean) {
     if (candidates.length === 0) return;
     sessionStorage.setItem('brix.repack.prefill', JSON.stringify({
       source: 'inventory-reorder',
       generated_at: new Date().toISOString(),
       packs: candidates.map((r) => ({ qbo_item_id: r.qbo_item_id, item_name: r.item_name, qty: Number(r.suggested_order_qty) })),
     }));
+    if (!go) return;
     toast.info(`${candidates.length} flavour${candidates.length === 1 ? '' : 's'} sent to the repack sheet as cases to repack`);
     window.location.hash = '#stock';
   }
-  function createPoFromReorder() {
-    const candidates = orderCandidates();
+  function createPoFromReorder(candidates: InventoryHealthRow[], go: boolean) {
     if (candidates.length === 0) return;
     const prefill = candidates.map((r) => ({
       qbo_item_id: r.qbo_item_id,
@@ -454,10 +472,10 @@ function ReorderTable({ rows, lane }: { rows: InventoryHealthRow[] | null; lane:
     sessionStorage.setItem('brix.po.prefill', JSON.stringify({
       source: 'inventory-reorder',
       generated_at: new Date().toISOString(),
-      inventory_lane: lane,
+      inventory_lane: 'bib_product',
       lines: prefill,
     }));
-    window.location.hash = '#production?tab=purchase_orders';
+    if (go) window.location.hash = '#production?tab=purchase_orders';
   }
 
   function printOrderSheet() {
@@ -798,44 +816,46 @@ function ForecastTab({ rows }: { rows: InventoryHealthRow[] | null }) {
           ) : !weeks ? (
             <div className="ld">Loading weeks…</div>
           ) : (
-            <table style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th>Week of</th><th>Holiday</th>
-                  <th style={{ textAlign: 'right' }}>Last year</th>
-                  <th style={{ textAlign: 'right' }}>This year</th>
-                  <th style={{ textAlign: 'right' }}>vs LY</th>
-                  <th style={{ textAlign: 'right' }}>Forecast</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeks.map((w) => {
-                  const ty = w.this_year_qty == null ? null : Number(w.this_year_qty);
-                  const ly = Number(w.last_year_qty);
-                  const diff = ty == null || ly === 0 ? null : (ty - ly) / ly * 100;
-                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
-                  return (
-                    <tr key={w.week_start} style={{ background: rowBg }}>
-                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
-                        {fmtDate(w.week_start)}
-                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
-                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
-                      </td>
-                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fmtNum(ly)}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{ty == null ? '—' : fmtNum(ty)}{w.is_current && ty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
-                      <td className="mn" style={{ textAlign: 'right' }}>
-                        {diff == null ? <span style={{ color: 'var(--mt)' }}>—</span>
-                          : <span style={{ color: Math.abs(diff) < 10 ? 'var(--mt)' : diff > 0 ? 'var(--gn)' : 'var(--am)' }}>{diff > 0 ? '+' : ''}{diff.toFixed(0)}%</span>}
-                      </td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: w.is_future ? 700 : 500 }}>
-                        {w.forecast_qty == null ? '' : fmtNum(Math.round(Number(w.forecast_qty)))}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Week of</th><th>Holiday</th>
+                    <th style={{ textAlign: 'right' }}>Last year</th>
+                    <th style={{ textAlign: 'right' }}>This year</th>
+                    <th style={{ textAlign: 'right' }}>vs LY</th>
+                    <th style={{ textAlign: 'right' }}>Forecast</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeks.map((w) => {
+                    const ty = w.this_year_qty == null ? null : Number(w.this_year_qty);
+                    const ly = Number(w.last_year_qty);
+                    const diff = ty == null || ly === 0 ? null : (ty - ly) / ly * 100;
+                    const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                    return (
+                      <tr key={w.week_start} style={{ background: rowBg }}>
+                        <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                          {fmtDate(w.week_start)}
+                          {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                          {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                        </td>
+                        <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{fmtNum(ly)}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{ty == null ? '—' : fmtNum(ty)}{w.is_current && ty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                        <td className="mn" style={{ textAlign: 'right' }}>
+                          {diff == null ? <span style={{ color: 'var(--mt)' }}>—</span>
+                            : <span style={{ color: Math.abs(diff) < 10 ? 'var(--mt)' : diff > 0 ? 'var(--gn)' : 'var(--am)' }}>{diff > 0 ? '+' : ''}{diff.toFixed(0)}%</span>}
+                        </td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)', fontWeight: w.is_future ? 700 : 500 }}>
+                          {w.forecast_qty == null ? '' : fmtNum(Math.round(Number(w.forecast_qty)))}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           )}
           <AccuracyPanel rows={accuracy} />
         </div>
@@ -864,32 +884,34 @@ function AccuracyPanel({ rows }: { rows: ForecastAccuracyRow[] | null }) {
           recomputed as the forecast would have read at the time (the Monday snapshot began 2026-09-04).
         </span>
       </div>
-      <table style={{ width: '100%' }}>
-        <thead><tr>
-          <th>Week of</th>
-          <th style={{ textAlign: 'right' }}>Forecast</th>
-          <th style={{ textAlign: 'right' }}>Actual</th>
-          <th style={{ textAlign: 'right' }}>Miss</th>
-          <th style={{ textAlign: 'right' }}>Miss %</th>
-          <th>Source</th>
-        </tr></thead>
-        <tbody>
-          {rows.map((r) => {
-            const err = r.error_qty == null ? null : Number(r.error_qty);
-            const pct = r.abs_pct_error == null ? null : Number(r.abs_pct_error);
-            return (
-              <tr key={r.week_start}>
-                <td>{fmtDate(r.week_start)}</td>
-                <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{r.forecast_qty == null ? '—' : fmtNum(Math.round(Number(r.forecast_qty)))}</td>
-                <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{r.actual_qty == null ? '—' : fmtNum(Number(r.actual_qty))}</td>
-                <td className="mn" style={{ textAlign: 'right', color: err == null ? 'var(--mt)' : err < 0 ? 'var(--am)' : 'var(--mt)' }}>{err == null ? '—' : `${err > 0 ? '+' : ''}${err.toFixed(0)}`}</td>
-                <td className="mn" style={{ textAlign: 'right', color: pct == null ? 'var(--mt)' : pct > 30 ? 'var(--rd)' : pct > 15 ? 'var(--am)' : 'var(--gn)' }}>{pct == null ? '—' : `${pct.toFixed(0)}%`}</td>
-                <td style={{ fontSize: 9, color: r.source === 'logged' ? 'var(--gn)' : 'var(--mt)', fontWeight: 700, letterSpacing: 0.5 }}>{r.source.toUpperCase()}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <PrintableTable>
+        <table style={{ width: '100%' }}>
+          <thead><tr>
+            <th>Week of</th>
+            <th style={{ textAlign: 'right' }}>Forecast</th>
+            <th style={{ textAlign: 'right' }}>Actual</th>
+            <th style={{ textAlign: 'right' }}>Miss</th>
+            <th style={{ textAlign: 'right' }}>Miss %</th>
+            <th>Source</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const err = r.error_qty == null ? null : Number(r.error_qty);
+              const pct = r.abs_pct_error == null ? null : Number(r.abs_pct_error);
+              return (
+                <tr key={r.week_start}>
+                  <td>{fmtDate(r.week_start)}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{r.forecast_qty == null ? '—' : fmtNum(Math.round(Number(r.forecast_qty)))}</td>
+                  <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{r.actual_qty == null ? '—' : fmtNum(Number(r.actual_qty))}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: err == null ? 'var(--mt)' : err < 0 ? 'var(--am)' : 'var(--mt)' }}>{err == null ? '—' : `${err > 0 ? '+' : ''}${err.toFixed(0)}`}</td>
+                  <td className="mn" style={{ textAlign: 'right', color: pct == null ? 'var(--mt)' : pct > 30 ? 'var(--rd)' : pct > 15 ? 'var(--am)' : 'var(--gn)' }}>{pct == null ? '—' : `${pct.toFixed(0)}%`}</td>
+                  <td style={{ fontSize: 9, color: r.source === 'logged' ? 'var(--gn)' : 'var(--mt)', fontWeight: 700, letterSpacing: 0.5 }}>{r.source.toUpperCase()}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </PrintableTable>
     </div>
   );
 }
@@ -954,39 +976,41 @@ function CustomersDueTab() {
       </div>
       <div className="cd" style={{ padding: 0, overflow: 'hidden' }}>
         {visible.length === 0 ? <div className="ld">Nobody in this bucket.</div> : (
-          <table style={{ width: '100%' }}>
-            <thead><tr>
-              <th>Customer</th><th>Status</th>
-              <th style={{ textAlign: 'right' }}>Orders / yr</th>
-              <th style={{ textAlign: 'right' }}>Every</th>
-              <th>Last order</th><th>Next expected</th>
-              <th>Usually takes</th>
-            </tr></thead>
-            <tbody>
-              {visible.map((r) => {
-                const meta = CADENCE_LABEL[r.cadence_status];
-                const isOpen = open === r.qbo_customer_id;
-                const shown = isOpen ? r.usual_items : r.usual_items.slice(0, 3);
-                return (
-                  <tr key={r.qbo_customer_id} style={{ cursor: r.usual_items.length > 3 ? 'pointer' : undefined }} onClick={() => setOpen(isOpen ? null : r.qbo_customer_id)}>
-                    <td style={{ fontWeight: 600 }}>{r.customer_name ?? r.qbo_customer_id}</td>
-                    <td><span title={meta.hint} style={{ color: meta.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</span>
-                      {r.days_until_due != null && (r.cadence_status === 'due' || r.cadence_status === 'overdue') &&
-                        <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>{r.days_until_due < 0 ? `${-r.days_until_due}d late` : r.days_until_due === 0 ? 'today' : `in ${r.days_until_due}d`}</span>}
-                    </td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.orders_365}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{r.median_gap_days == null ? '—' : `${Math.round(Number(r.median_gap_days))}d`}</td>
-                    <td>{r.last_order ? fmtDate(r.last_order) : '—'}</td>
-                    <td style={{ fontWeight: r.cadence_status === 'due' ? 700 : 500 }}>{r.next_expected ? fmtDate(r.next_expected) : '—'}</td>
-                    <td style={{ fontSize: 10 }}>
-                      {shown.map((i) => <span key={i.qbo_item_id} style={{ display: 'inline-block', marginRight: 8 }}><strong>{fmtNum(Number(i.usual_qty))}</strong> {i.item_name ?? i.qbo_item_id}</span>)}
-                      {!isOpen && r.usual_items.length > 3 && <span style={{ color: 'var(--ac)' }}>+{r.usual_items.length - 3} more</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Customer</th><th>Status</th>
+                <th style={{ textAlign: 'right' }}>Orders / yr</th>
+                <th style={{ textAlign: 'right' }}>Every</th>
+                <th>Last order</th><th>Next expected</th>
+                <th>Usually takes</th>
+              </tr></thead>
+              <tbody>
+                {visible.map((r) => {
+                  const meta = CADENCE_LABEL[r.cadence_status];
+                  const isOpen = open === r.qbo_customer_id;
+                  const shown = isOpen ? r.usual_items : r.usual_items.slice(0, 3);
+                  return (
+                    <tr key={r.qbo_customer_id} style={{ cursor: r.usual_items.length > 3 ? 'pointer' : undefined }} onClick={() => setOpen(isOpen ? null : r.qbo_customer_id)}>
+                      <td style={{ fontWeight: 600 }}>{r.customer_name ?? r.qbo_customer_id}</td>
+                      <td><span title={meta.hint} style={{ color: meta.color, fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</span>
+                        {r.days_until_due != null && (r.cadence_status === 'due' || r.cadence_status === 'overdue') &&
+                          <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>{r.days_until_due < 0 ? `${-r.days_until_due}d late` : r.days_until_due === 0 ? 'today' : `in ${r.days_until_due}d`}</span>}
+                      </td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.orders_365}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{r.median_gap_days == null ? '—' : `${Math.round(Number(r.median_gap_days))}d`}</td>
+                      <td>{r.last_order ? fmtDate(r.last_order) : '—'}</td>
+                      <td style={{ fontWeight: r.cadence_status === 'due' ? 700 : 500 }}>{r.next_expected ? fmtDate(r.next_expected) : '—'}</td>
+                      <td style={{ fontSize: 10 }}>
+                        {shown.map((i) => <span key={i.qbo_item_id} style={{ display: 'inline-block', marginRight: 8 }}><strong>{fmtNum(Number(i.usual_qty))}</strong> {i.item_name ?? i.qbo_item_id}</span>)}
+                        {!isOpen && r.usual_items.length > 3 && <span style={{ color: 'var(--ac)' }}>+{r.usual_items.length - 3} more</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>
@@ -1026,34 +1050,36 @@ function FillPlanTab() {
         return (
           <div key={id} className="cd" style={{ padding: 0, marginBottom: 14 }}>
             <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)' }} className="ct">{label}</div>
-            <table style={{ width: '100%' }}>
-              <thead><tr>
-                <th>Week of</th><th>Holiday</th>
-                <th style={{ textAlign: 'right' }}>Last year</th>
-                <th style={{ textAlign: 'right' }}>This year</th>
-                <th style={{ textAlign: 'right' }}>Forecast</th>
-                <th style={{ textAlign: 'right' }}>Weekly par</th>
-              </tr></thead>
-              <tbody>
-                {mine.map((w) => {
-                  const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
-                  return (
-                    <tr key={w.week_start} style={{ background: rowBg }}>
-                      <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
-                        {fmtDate(w.week_start)}
-                        {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
-                        {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
-                      </td>
-                      <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{w.last_year_qty == null ? '—' : fmtNum(Number(w.last_year_qty))}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{w.this_year_qty == null ? '—' : fmtNum(Number(w.this_year_qty))}{w.is_current && w.this_year_qty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
-                      <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{w.forecast_qty == null ? '' : fmtNum(Number(w.forecast_qty))}</td>
-                      <td className="mn" style={{ textAlign: 'right', fontWeight: 700 }}>{w.weekly_par == null ? '' : fmtNum(Number(w.weekly_par))}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <PrintableTable>
+              <table style={{ width: '100%' }}>
+                <thead><tr>
+                  <th>Week of</th><th>Holiday</th>
+                  <th style={{ textAlign: 'right' }}>Last year</th>
+                  <th style={{ textAlign: 'right' }}>This year</th>
+                  <th style={{ textAlign: 'right' }}>Forecast</th>
+                  <th style={{ textAlign: 'right' }}>Weekly par</th>
+                </tr></thead>
+                <tbody>
+                  {mine.map((w) => {
+                    const rowBg = w.is_current ? 'rgba(14,165,184,0.08)' : w.is_future ? 'rgba(255,255,255,0.02)' : undefined;
+                    return (
+                      <tr key={w.week_start} style={{ background: rowBg }}>
+                        <td style={{ fontWeight: w.is_current ? 700 : 500 }}>
+                          {fmtDate(w.week_start)}
+                          {w.is_current && <span style={{ fontSize: 9, color: 'var(--ac)', marginLeft: 6 }}>THIS WEEK</span>}
+                          {w.is_future && <span style={{ fontSize: 9, color: 'var(--mt)', marginLeft: 6 }}>ahead</span>}
+                        </td>
+                        <td style={{ fontSize: 10, color: 'var(--am)' }}>{w.holiday ?? ''}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--mt)' }}>{w.last_year_qty == null ? '—' : fmtNum(Number(w.last_year_qty))}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 600 }}>{w.this_year_qty == null ? '—' : fmtNum(Number(w.this_year_qty))}{w.is_current && w.this_year_qty != null ? <span style={{ fontSize: 9, color: 'var(--mt)' }}> so far</span> : null}</td>
+                        <td className="mn" style={{ textAlign: 'right', color: 'var(--ac)' }}>{w.forecast_qty == null ? '' : fmtNum(Number(w.forecast_qty))}</td>
+                        <td className="mn" style={{ textAlign: 'right', fontWeight: 700 }}>{w.weekly_par == null ? '' : fmtNum(Number(w.weekly_par))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         );
       })}
@@ -1127,30 +1153,32 @@ function AnomaliesTab() {
       {err && <div className="cd" style={{ padding: 12, color: 'var(--rd)', marginBottom: 14 }}>{err}</div>}
       <div className="cd" style={{ padding: 0 }}>
         {rows.length === 0 ? <div className="ld">Nothing flagged. Run the detector to look again.</div> : (
-          <table style={{ width: '100%' }}>
-            <thead><tr>
-              <th>Kind</th><th>Customer</th><th>Item</th><th>Week</th><th>Evidence</th><th>Status</th><th></th>
-            </tr></thead>
-            <tbody>
-              {rows.map((x) => {
-                const c = x.status === 'excluded' ? (x.kind === 'lapsed_customer' ? 'var(--rd)' : 'var(--am)') : x.status === 'kept' ? 'var(--gn)' : 'var(--mt)';
-                return (
-                  <tr key={x.id} style={{ opacity: x.status === 'resolved' ? 0.6 : 1 }}>
-                    <td style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: c }}>{x.kind.replace('_', ' ').toUpperCase()}</td>
-                    <td style={{ fontWeight: 600 }}>{x.customer_name ?? x.qbo_customer_id}</td>
-                    <td style={{ color: x.item_name ? undefined : 'var(--mt)' }}>{x.item_name ?? 'every planner item'}</td>
-                    <td className="mn">{x.week_start ? fmtDate(x.week_start) : <span style={{ color: 'var(--mt)' }}>all</span>}</td>
-                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{describeEvidence(x)}{x.decided_by ? <span> · {x.status} by {x.decided_by}</span> : null}</td>
-                    <td style={{ fontSize: 10, fontWeight: 700, color: c }}>{x.status.toUpperCase()}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {x.status === 'excluded' && <button onClick={() => decide(x, 'kept')} style={btnSecondary()} title="Count this in the baseline after all">KEEP</button>}
-                      {x.status === 'kept' && <button onClick={() => decide(x, 'excluded')} style={btnDanger()} title="Take it out of the baseline again">EXCLUDE</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table style={{ width: '100%' }}>
+              <thead><tr>
+                <th>Kind</th><th>Customer</th><th>Item</th><th>Week</th><th>Evidence</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody>
+                {rows.map((x) => {
+                  const c = x.status === 'excluded' ? (x.kind === 'lapsed_customer' ? 'var(--rd)' : 'var(--am)') : x.status === 'kept' ? 'var(--gn)' : 'var(--mt)';
+                  return (
+                    <tr key={x.id} style={{ opacity: x.status === 'resolved' ? 0.6 : 1 }}>
+                      <td style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, color: c }}>{x.kind.replace('_', ' ').toUpperCase()}</td>
+                      <td style={{ fontWeight: 600 }}>{x.customer_name ?? x.qbo_customer_id}</td>
+                      <td style={{ color: x.item_name ? undefined : 'var(--mt)' }}>{x.item_name ?? 'every planner item'}</td>
+                      <td className="mn">{x.week_start ? fmtDate(x.week_start) : <span style={{ color: 'var(--mt)' }}>all</span>}</td>
+                      <td style={{ fontSize: 11, color: 'var(--mt)' }}>{describeEvidence(x)}{x.decided_by ? <span> · {x.status} by {x.decided_by}</span> : null}</td>
+                      <td style={{ fontSize: 10, fontWeight: 700, color: c }}>{x.status.toUpperCase()}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {x.status === 'excluded' && <button onClick={() => decide(x, 'kept')} style={btnSecondary()} title="Count this in the baseline after all">KEEP</button>}
+                        {x.status === 'kept' && <button onClick={() => decide(x, 'excluded')} style={btnDanger()} title="Take it out of the baseline again">EXCLUDE</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </PrintableTable>
         )}
       </div>
     </div>
@@ -1195,13 +1223,9 @@ function ExcludesTab() {
         padding: '12px 16px', borderBottom: '1px solid var(--bd)',
         display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
       }}>
-        <select value={draftCustomerId} onChange={(e) => setDraftCustomerId(e.target.value)}
-          style={{ ...inp(), flex: '1 1 240px', maxWidth: 380, minWidth: 200 }}>
-          <option value="">Pick a customer…</option>
-          {available.map((c) => (
-            <option key={c.qbo_customer_id} value={c.qbo_customer_id}>{c.display_name}</option>
-          ))}
-        </select>
+        <SearchSelect value={draftCustomerId} onChange={setDraftCustomerId} placeholder="Type a customer…"
+          style={{ flex: '1 1 240px', maxWidth: 380, minWidth: 200 }}
+          options={available.map((c) => ({ id: c.qbo_customer_id, label: c.display_name }))} />
         <input type="text" value={draftReason}
           onChange={(e) => setDraftReason(e.target.value)}
           placeholder="Reason (optional) — e.g. internal transfer, bulk one-off"
@@ -1214,29 +1238,31 @@ function ExcludesTab() {
       {excludes.length === 0 ? (
         <div className="ld">No customers excluded.</div>
       ) : (
-        <table>
-          <thead>
-            <tr><th>Customer</th><th>Reason</th><th>Added</th><th></th></tr>
-          </thead>
-          <tbody>
-            {excludes.map((ex) => {
-              const cust = customers.find((c) => c.qbo_customer_id === ex.qbo_customer_id);
-              return (
-                <tr key={ex.qbo_customer_id}>
-                  <td style={{ fontWeight: 600 }}>{cust?.display_name ?? ex.qbo_customer_id}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>{ex.reason ?? '—'}</td>
-                  <td style={{ fontSize: 11, color: 'var(--mt)' }}>
-                    {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
-                      style={btnDanger()} title="Remove this exclude">Remove</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr><th>Customer</th><th>Reason</th><th>Added</th><th></th></tr>
+            </thead>
+            <tbody>
+              {excludes.map((ex) => {
+                const cust = customers.find((c) => c.qbo_customer_id === ex.qbo_customer_id);
+                return (
+                  <tr key={ex.qbo_customer_id}>
+                    <td style={{ fontWeight: 600 }}>{cust?.display_name ?? ex.qbo_customer_id}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>{ex.reason ?? '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--mt)' }}>
+                      {ex.added_at ? new Date(ex.added_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button onClick={() => removeVelocityExclude(ex.qbo_customer_id).then(load)}
+                        style={btnDanger()} title="Remove this exclude">Remove</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </PrintableTable>
       )}
     </div>
   );

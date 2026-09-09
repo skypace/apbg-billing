@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus } from 'lucide-react';
 import {
   DistributorUserRole,
@@ -90,45 +91,47 @@ export function DistributorUsersTab({ dist }: { dist: SubDistributor }) {
       </div>
 
       <div className="cd" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
-              <Th>Email</Th>
-              <Th>Role</Th>
-              <Th>Status</Th>
-              <Th>Added</Th>
-              <Th> </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows !== null && rows.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
-                No portal users yet.
-              </td></tr>
-            )}
-            {(rows ?? []).map((u) => (
-              <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: u.is_active ? 1 : 0.55 }}>
-                <Td><span style={{ fontWeight: 600 }}>{u.email}</span></Td>
-                <Td>
-                  <select style={inp()} value={u.role} disabled={busy}
-                    onChange={(e) => setUserRole(u, e.target.value as DistributorUserRole)}>
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </Td>
-                <Td><Chip label={u.is_active ? 'active' : 'inactive'} color={u.is_active ? 'var(--gn)' : 'var(--mt)'} /></Td>
-                <Td><span style={{ color: 'var(--mt)', fontSize: 11 }}>
-                  {new Date(u.created_at).toLocaleDateString()}
-                </span></Td>
-                <Td>
-                  <button onClick={() => toggleActive(u)} disabled={busy} style={btnSecondary()}>
-                    {u.is_active ? 'Deactivate' : 'Activate'}
-                  </button>
-                </Td>
+        <PrintableTable>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--sf)', borderBottom: '1px solid var(--bd)' }}>
+                <Th>Email</Th>
+                <Th>Role</Th>
+                <Th>Status</Th>
+                <Th>Added</Th>
+                <Th> </Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows !== null && rows.length === 0 && (
+                <tr><td colSpan={5} style={{ padding: 14, color: 'var(--mt)', textAlign: 'center' }}>
+                  No portal users yet.
+                </td></tr>
+              )}
+              {(rows ?? []).map((u) => (
+                <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: u.is_active ? 1 : 0.55 }}>
+                  <Td><span style={{ fontWeight: 600 }}>{u.email}</span></Td>
+                  <Td>
+                    <select style={inp()} value={u.role} disabled={busy}
+                      onChange={(e) => setUserRole(u, e.target.value as DistributorUserRole)}>
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </Td>
+                  <Td><Chip label={u.is_active ? 'active' : 'inactive'} color={u.is_active ? 'var(--gn)' : 'var(--mt)'} /></Td>
+                  <Td><span style={{ color: 'var(--mt)', fontSize: 11 }}>
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </span></Td>
+                  <Td>
+                    <button onClick={() => toggleActive(u)} disabled={busy} style={btnSecondary()}>
+                      {u.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
       </div>
     </div>
   );

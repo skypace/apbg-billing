@@ -5,8 +5,10 @@ import { InventoryLaneSelector } from '../../components/InventoryLaneSelector';
 import { fetchInventoryHealth, InventoryHealthRow } from '../../lib/inventory';
 import {
   coerceInventoryLane,
-  filterItemsByLane,
-  useInventoryLane,
+  describeLanes,
+  filterItemsByLanes,
+  laneSelected,
+  useInventoryLanes,
   PRODUCTION_LANES,
   type InventoryLane,
 } from '../../lib/inventoryLane';
@@ -79,7 +81,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
       : typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.wo.prefill')
         ? 'work_orders'
         : 'formulas');
-  const [lane, setLane] = useInventoryLane(PRODUCTION_LANES);
+  // Lanes are a multi-select (Sky, 2026-09-04) — none picked means both.
+  const [lanes, setLanes, toggleLane] = useInventoryLanes(PRODUCTION_LANES);
+  // "BIB only" is the one selection that changes the page shape: purchasing only.
+  const bibOnly = lanes.length === 1 && lanes[0] === 'bib_product';
   const [tab, setTab] = useState<TabId>(initialTab);
   const [formulas, setFormulas] = useState<ProductFormula[] | null>(null);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
@@ -104,16 +109,18 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   useEffect(reloadAll, []);
 
   useEffect(() => {
-    // a queued work order is always a case run — the lane must be cans or the
-    // Work Orders tab is hidden and the queue with it
-    setLane(readPrefillLane() ?? 'cans_24pk');
-    // Production defaults to cans unless opened from a lane-specific PO prefill.
+    // A lane-specific PO prefill (Inventory → Reorder → Create PO) narrows the
+    // page to that lane so the form it opens matches; otherwise the selection
+    // the person left is respected (a queued work order is a case run, and
+    // "all lanes" or "cans" both show the Work Orders tab).
+    const pre = readPrefillLane();
+    if (pre) setLanes([pre]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (lane === 'bib_product' && tab !== 'purchase_orders') setTab('purchase_orders');
-  }, [lane, tab]);
+    if (bibOnly && tab !== 'purchase_orders' && tab !== 'guide') setTab('purchase_orders');
+  }, [bibOnly, tab]);
 
   useEffect(() => {
     const nextTab = coerceTab(routeParams.tab);
@@ -124,15 +131,15 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   // pipeline stage. Hiding it on a lane switch is exactly the "my guide has
   // disappeared" complaint chapter 10 exists to answer, so it shows on both.
   const visibleTabs = useMemo(
-    () => lane === 'cans_24pk'
-      ? TABS
-      : TABS.filter((t) => t.id === 'purchase_orders' || t.id === 'guide'),
-    [lane],
+    () => bibOnly
+      ? TABS.filter((t) => t.id === 'purchase_orders' || t.id === 'guide')
+      : TABS,
+    [bibOnly],
   );
 
   const laneItems = useMemo(
-    () => filterItemsByLane(items, lane),
-    [items, lane],
+    () => filterItemsByLanes(items, lanes, PRODUCTION_LANES),
+    [items, lanes],
   );
 
   const itemLookup: ProductionItemLookup = useMemo(() => {
@@ -144,12 +151,13 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
       if (it.track_locations) componentOptions.push({ id: it.qbo_item_id, label: it.item_name });
     }
     for (const it of laneItems) {
-      if (lane === 'cans_24pk' && it.has_bom) finishedOptions.push({ id: it.qbo_item_id, label: it.item_name });
+      // a BOM is only ever a case run — BIB is bought, not made
+      if (it.inventory_lane === 'cans_24pk' && it.has_bom) finishedOptions.push({ id: it.qbo_item_id, label: it.item_name });
     }
     finishedOptions.sort((a, b) => a.label.localeCompare(b.label));
     componentOptions.sort((a, b) => a.label.localeCompare(b.label));
     return { byId, finishedOptions, componentOptions };
-  }, [items, laneItems, lane]);
+  }, [items, laneItems]);
 
   const locById = useMemo(() => {
     const m = new Map<string, InventoryLocation>();
@@ -157,21 +165,22 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     return m;
   }, [locations]);
 
+  const inLanes = (id: string | null | undefined) => laneSelected(lanes, itemLookup.byId.get(id ?? '')?.inventory_lane);
   const filteredBoms = useMemo(
-    () => boms ? boms.filter((b) => itemLookup.byId.get(b.finished_qbo_item_id)?.inventory_lane === lane) : null,
-    [boms, itemLookup, lane],
+    () => boms ? boms.filter((b) => inLanes(b.finished_qbo_item_id)) : null,
+    [boms, itemLookup, lanes],   // eslint-disable-line react-hooks/exhaustive-deps
   );
   const filteredWos = useMemo(
-    () => wos ? wos.filter((w) => itemLookup.byId.get(w.finished_qbo_item_id)?.inventory_lane === lane) : null,
-    [wos, itemLookup, lane],
+    () => wos ? wos.filter((w) => inLanes(w.finished_qbo_item_id)) : null,
+    [wos, itemLookup, lanes],   // eslint-disable-line react-hooks/exhaustive-deps
   );
   const lanePoIds = useMemo(() => {
     const ids = new Set<string>();
     for (const line of poLines ?? []) {
-      if (itemLookup.byId.get(line.qbo_item_id)?.inventory_lane === lane) ids.add(line.po_id);
+      if (inLanes(line.qbo_item_id)) ids.add(line.po_id);
     }
     return ids;
-  }, [poLines, itemLookup, lane]);
+  }, [poLines, itemLookup, lanes]);   // eslint-disable-line react-hooks/exhaustive-deps
   const laneWoIds = useMemo(
     () => new Set((filteredWos ?? []).map((w) => w.id)),
     [filteredWos],
@@ -198,7 +207,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Compliance · Run Guide</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
-            {activeLabel} · {lane === 'bib_product' ? 'BIB Product' : 'Cans 24pks'} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
+            {activeLabel} · {describeLanes(lanes, PRODUCTION_LANES)} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
           </div>
         </div>
         <div className="hero-stamp">
@@ -213,10 +222,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row">
-          <InventoryLaneSelector value={lane} onChange={setLane} lanes={PRODUCTION_LANES} />
+          <InventoryLaneSelector value={lanes} onToggle={toggleLane} lanes={PRODUCTION_LANES} />
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-            {lane === 'bib_product' ? 'Purchasing only' : 'Formula → raw materials → BOM → work order → POs → co-packer → yield → production PO → receive'}
+            {bibOnly ? 'Purchasing only' : 'Formula → raw materials → BOM → work order → POs → co-packer → yield → production PO → receive'}
           </span>
         </div>
       </div>
@@ -259,7 +268,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           locations={locations ?? []}
           locById={locById}
           itemLookup={itemLookup}
-          lane={lane}
+          lanes={lanes}
           initialPoId={routeParams.po ?? null}
           onChanged={reloadAll}
         />

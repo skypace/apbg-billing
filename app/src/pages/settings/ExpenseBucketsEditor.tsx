@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import {
   AllocationBasis,
   ExpenseBucketType,
@@ -225,49 +226,51 @@ export function ExpenseBucketsEditor() {
         </div>
 
         <div style={{ maxHeight: '38vh', overflow: 'auto' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-              <tr>
-                <th>Account</th>
-                <th style={{ textAlign: 'right' }}>YTD $</th>
-                <th style={{ textAlign: 'center' }}>Items Tied</th>
-                <th>Role</th>
-                <th>Current</th>
-                <th>Suggested</th>
-                <th style={{ width: 60 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {proposalsVisible.map((p) => {
-                const role = ROLE_BADGE[p.account_role] ?? { label: p.account_role, color: 'var(--mt)' };
-                const conflict = p.current_bucket && p.suggested_bucket && p.current_bucket !== p.suggested_bucket;
-                return (
-                  <tr key={p.account_name}>
-                    <td title={p.account_name} style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.account_name}</td>
-                    <td className="mn" style={{ textAlign: 'right' }}>{fm(p.ytd)}</td>
-                    <td style={{ textAlign: 'center', fontSize: 10, color: p.items_as_expense > 0 ? 'var(--ac)' : 'var(--mt)' }}>
-                      {p.items_total > 0 ? `${p.items_as_expense}/${p.items_total}` : '—'}
-                    </td>
-                    <td style={{ fontSize: 9, color: role.color, fontWeight: 600, letterSpacing: 0.4 }}>{role.label}</td>
-                    <td style={{ fontSize: 10, color: 'var(--mt)' }}>{p.current_bucket ?? '—'}</td>
-                    <td style={{ fontSize: 10, color: conflict ? 'var(--am)' : 'var(--ac)', fontWeight: 600 }}>
-                      {p.suggested_bucket ?? '(excluded)'}
-                    </td>
-                    <td>
-                      {p.suggested_bucket && (
-                        <button onClick={() => applyOne(p)} style={btnSecondary()} title="Apply suggestion">
-                          {conflict ? 'Override' : 'Apply'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {proposalsVisible.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--mt)', padding: '12px 0' }}>Nothing to review.</td></tr>
-              )}
-            </tbody>
-          </table>
+          <PrintableTable>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                <tr>
+                  <th>Account</th>
+                  <th style={{ textAlign: 'right' }}>YTD $</th>
+                  <th style={{ textAlign: 'center' }}>Items Tied</th>
+                  <th>Role</th>
+                  <th>Current</th>
+                  <th>Suggested</th>
+                  <th style={{ width: 60 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {proposalsVisible.map((p) => {
+                  const role = ROLE_BADGE[p.account_role] ?? { label: p.account_role, color: 'var(--mt)' };
+                  const conflict = p.current_bucket && p.suggested_bucket && p.current_bucket !== p.suggested_bucket;
+                  return (
+                    <tr key={p.account_name}>
+                      <td title={p.account_name} style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.account_name}</td>
+                      <td className="mn" style={{ textAlign: 'right' }}>{fm(p.ytd)}</td>
+                      <td style={{ textAlign: 'center', fontSize: 10, color: p.items_as_expense > 0 ? 'var(--ac)' : 'var(--mt)' }}>
+                        {p.items_total > 0 ? `${p.items_as_expense}/${p.items_total}` : '—'}
+                      </td>
+                      <td style={{ fontSize: 9, color: role.color, fontWeight: 600, letterSpacing: 0.4 }}>{role.label}</td>
+                      <td style={{ fontSize: 10, color: 'var(--mt)' }}>{p.current_bucket ?? '—'}</td>
+                      <td style={{ fontSize: 10, color: conflict ? 'var(--am)' : 'var(--ac)', fontWeight: 600 }}>
+                        {p.suggested_bucket ?? '(excluded)'}
+                      </td>
+                      <td>
+                        {p.suggested_bucket && (
+                          <button onClick={() => applyOne(p)} style={btnSecondary()} title="Apply suggestion">
+                            {conflict ? 'Override' : 'Apply'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {proposalsVisible.length === 0 && (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--mt)', padding: '12px 0' }}>Nothing to review.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </PrintableTable>
         </div>
 
         <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
@@ -283,43 +286,45 @@ export function ExpenseBucketsEditor() {
             <strong style={{ color: 'var(--ac)' }}>{fm(allocableTotal)}</strong> YTD allocable across {types.filter((t) => t.is_allocable).length} bucket{types.filter((t) => t.is_allocable).length === 1 ? '' : 's'}
           </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Bucket</th>
-              <th style={{ width: 110, textAlign: 'center' }}>Allocable?</th>
-              <th style={{ width: 200 }}>Basis</th>
-              <th style={{ textAlign: 'right', width: 130 }}>YTD $</th>
-            </tr>
-          </thead>
-          <tbody>
-            {types.map((t) => (
-              <tr key={t.bucket_code} style={{ opacity: t.is_allocable ? 1 : 0.55 }}>
-                <td style={{ fontWeight: 600 }}>{t.label}</td>
-                <td style={{ textAlign: 'center' }}>
-                  <input
-                    type="checkbox" checked={t.is_allocable}
-                    onChange={(e) => toggleAllocable(t.bucket_code, e.target.checked)}
-                    style={{ accentColor: 'var(--ac)' }}
-                  />
-                </td>
-                <td>
-                  <select
-                    value={t.allocation_basis}
-                    onChange={(e) => changeBasis(t.bucket_code, e.target.value as AllocationBasis)}
-                    disabled={!t.is_allocable}
-                    style={{ ...inp(), width: '100%', maxWidth: 190 }}
-                  >
-                    {BASIS_OPTIONS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
-                  </select>
-                </td>
-                <td className="mn" style={{ textAlign: 'right', fontWeight: t.is_allocable ? 600 : 400 }}>
-                  {fm(totals[t.bucket_code] || 0)}
-                </td>
+        <PrintableTable>
+          <table>
+            <thead>
+              <tr>
+                <th>Bucket</th>
+                <th style={{ width: 110, textAlign: 'center' }}>Allocable?</th>
+                <th style={{ width: 200 }}>Basis</th>
+                <th style={{ textAlign: 'right', width: 130 }}>YTD $</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {types.map((t) => (
+                <tr key={t.bucket_code} style={{ opacity: t.is_allocable ? 1 : 0.55 }}>
+                  <td style={{ fontWeight: 600 }}>{t.label}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <input
+                      type="checkbox" checked={t.is_allocable}
+                      onChange={(e) => toggleAllocable(t.bucket_code, e.target.checked)}
+                      style={{ accentColor: 'var(--ac)' }}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      value={t.allocation_basis}
+                      onChange={(e) => changeBasis(t.bucket_code, e.target.value as AllocationBasis)}
+                      disabled={!t.is_allocable}
+                      style={{ ...inp(), width: '100%', maxWidth: 190 }}
+                    >
+                      {BASIS_OPTIONS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+                    </select>
+                  </td>
+                  <td className="mn" style={{ textAlign: 'right', fontWeight: t.is_allocable ? 600 : 400 }}>
+                    {fm(totals[t.bucket_code] || 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </PrintableTable>
         <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 8, lineHeight: 1.4 }}>
           Allocable buckets feed Margin Control's overhead engine — totals are sourced from real QBO expense lines in the selected window and distributed across revenue rows by the chosen basis.
           <br />
@@ -361,30 +366,32 @@ export function ExpenseBucketsEditor() {
         </div>
 
         <div style={{ maxHeight: '40vh', overflow: 'auto' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
-              <tr>
-                <th>Account</th>
-                <th>Type</th>
-                <th style={{ textAlign: 'right' }}>YTD Total</th>
-                <th>Bucket</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(visible ?? []).map((r) => (
-                <tr key={r.account_name} style={!r.bucket_assigned ? { background: 'rgba(251,191,36,.05)' } : undefined}>
-                  <td>{r.account_name}</td>
-                  <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.account_type ?? ''}</td>
-                  <td className="mn" style={{ textAlign: 'right' }}>{fm(Math.abs(Number(r.total || 0)))}</td>
-                  <td>
-                    <select value={r.bucket_code} onChange={(e) => changeBucket(r.account_name, e.target.value)} style={{ ...inp(), width: '100%', maxWidth: 220 }}>
-                      {types.map((t) => <option key={t.bucket_code} value={t.bucket_code}>{t.label}</option>)}
-                    </select>
-                  </td>
+          <PrintableTable>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--sf)', zIndex: 1 }}>
+                <tr>
+                  <th>Account</th>
+                  <th>Type</th>
+                  <th style={{ textAlign: 'right' }}>YTD Total</th>
+                  <th>Bucket</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(visible ?? []).map((r) => (
+                  <tr key={r.account_name} style={!r.bucket_assigned ? { background: 'rgba(251,191,36,.05)' } : undefined}>
+                    <td>{r.account_name}</td>
+                    <td style={{ fontSize: 10, color: 'var(--mt)' }}>{r.account_type ?? ''}</td>
+                    <td className="mn" style={{ textAlign: 'right' }}>{fm(Math.abs(Number(r.total || 0)))}</td>
+                    <td>
+                      <select value={r.bucket_code} onChange={(e) => changeBucket(r.account_name, e.target.value)} style={{ ...inp(), width: '100%', maxWidth: 220 }}>
+                        {types.map((t) => <option key={t.bucket_code} value={t.bucket_code}>{t.label}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </PrintableTable>
         </div>
       </div>
     </div>

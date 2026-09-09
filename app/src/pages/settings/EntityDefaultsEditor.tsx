@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { Plus, Trash2, RotateCcw } from 'lucide-react';
 import type { SalesFilters } from '../../lib/sales';
 import {
@@ -78,46 +79,48 @@ export function EntityDefaultsEditor() {
         </div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th style={{ width: 110 }}>Entity code</th>
-            <th>Default categories (comma-sep)</th>
-            <th>Default customers (comma-sep)</th>
-            <th style={{ width: 44 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td>
-                <input type="text" defaultValue={r.entity}
-                  onBlur={(e) => e.target.value !== r.entity && update(i, { entity: e.target.value.trim() })}
-                  style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--ac)',
-                           fontFamily: 'var(--ff-display)', fontWeight: 800, fontSize: 13, padding: '4px 8px', width: '100%' }} />
-              </td>
-              <td><input type="text"
-                defaultValue={r.categories.join(', ')}
-                onBlur={(e) => setList(i, 'categories', e.target.value)}
-                placeholder="BIB, Cans, Fountain, Gas"
-                style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
-                         fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }} /></td>
-              <td><input type="text"
-                defaultValue={r.customers.join(', ')}
-                onBlur={(e) => setList(i, 'customers', e.target.value)}
-                placeholder="FREEFLOW CUSTOMER, FRESHPET CUSTOMER"
-                style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
-                         fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }} /></td>
-              <td>
-                <button onClick={() => remove(i)} className="tb-btn"
-                  style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}>
-                  <Trash2 size={12} strokeWidth={2.2} />
-                </button>
-              </td>
+      <PrintableTable>
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: 110 }}>Entity code</th>
+              <th>Default categories (comma-sep)</th>
+              <th>Default customers (comma-sep)</th>
+              <th style={{ width: 44 }} />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td>
+                  <input type="text" defaultValue={r.entity}
+                    onBlur={(e) => e.target.value !== r.entity && update(i, { entity: e.target.value.trim() })}
+                    style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--ac)',
+                             fontFamily: 'var(--ff-display)', fontWeight: 800, fontSize: 13, padding: '4px 8px', width: '100%' }} />
+                </td>
+                <td><input type="text"
+                  defaultValue={r.categories.join(', ')}
+                  onBlur={(e) => setList(i, 'categories', e.target.value)}
+                  placeholder="BIB, Cans, Fountain, Gas"
+                  style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
+                           fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }} /></td>
+                <td><input type="text"
+                  defaultValue={r.customers.join(', ')}
+                  onBlur={(e) => setList(i, 'customers', e.target.value)}
+                  placeholder="FREEFLOW CUSTOMER, FRESHPET CUSTOMER"
+                  style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--tx)',
+                           fontFamily: 'var(--ff-mono)', fontSize: 11, padding: '4px 8px', width: '100%' }} /></td>
+                <td>
+                  <button onClick={() => remove(i)} className="tb-btn"
+                    style={{ color: 'var(--rd)', borderColor: 'var(--rd)', padding: '4px 6px' }}>
+                    <Trash2 size={12} strokeWidth={2.2} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </PrintableTable>
 
       <div style={{ padding: '10px 16px', fontSize: 10, color: 'var(--mt)', borderTop: '1px solid var(--bd)' }}>
         Entity codes must match exactly what appears in the Entity dropdown (e.g. <code>brix</code>,{' '}

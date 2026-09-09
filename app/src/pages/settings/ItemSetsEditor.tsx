@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
 import { btnDanger, btnPrimary, btnSecondary, inp } from '../../lib/styles';
 import {
   ItemSet,
@@ -148,24 +149,26 @@ export function ItemSetsEditor() {
           {members.length === 0 ? (
             <div className="ld">No members yet.</div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.qbo_item_id}>
-                    <td>{m.item_name || m.qbo_item_id}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button onClick={() => removeMember(m.qbo_item_id)} style={btnDanger()}>×</button>
-                    </td>
+            <PrintableTable>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {members.map((m) => (
+                    <tr key={m.qbo_item_id}>
+                      <td>{m.item_name || m.qbo_item_id}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button onClick={() => removeMember(m.qbo_item_id)} style={btnDanger()}>×</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PrintableTable>
           )}
         </div>
       )}

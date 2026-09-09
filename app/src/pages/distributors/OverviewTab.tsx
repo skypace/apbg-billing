@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
+import { SearchSelect } from '../../components/SearchSelect';
 import {
   InventoryLocation,
   updateLocation,
@@ -11,6 +13,7 @@ import {
   SubDistributorStatus,
   fetchQboVendor,
   fetchVendorExpenseLines,
+  pushDistributorToQbo,
   updateSubDistributor,
 } from '../../lib/subDistributors';
 import { useToast } from '../../lib/toast';
@@ -165,13 +168,8 @@ export function DistributorOverviewTab({ dist, location, locations, onChanged }:
           />
         </LField>
         <LField label="Inventory location">
-          <select style={{ ...inp(), width: '100%' }} value={inventoryLocationId}
-            onChange={(e) => setInventoryLocationId(e.target.value)}>
-            <option value="">— None —</option>
-            {distributorLocs.map((l) => (
-              <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
-            ))}
-          </select>
+          <SearchSelect style={{ width: '100%' }} value={inventoryLocationId} onChange={setInventoryLocationId} placeholder="None — type a location…"
+            options={distributorLocs.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
         </LField>
       </div>
 
@@ -280,6 +278,26 @@ function VendorLinkPanel({ dist, onChanged }: {
     }
   }
 
+  // Create the vendor in QuickBooks (or link the one already there). The QBO
+  // token is in the Netlify env, so this is a function call, not a browser one.
+  async function createInQbo() {
+    setBusy(true);
+    try {
+      const r = await pushDistributorToQbo(dist.id);
+      const verb = r.outcome === 'created' ? 'Created' : 'Linked';
+      toast.success(`${verb} QuickBooks vendor ${r.display_name} (#${r.qbo_vendor_id})`);
+      // Anything a human still has to do — a name collision, a missing
+      // remit-to address — is said out loud rather than left to be discovered
+      // when a cheque goes to nowhere.
+      for (const n of r.notes) toast.info(n);
+      onChanged();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const fmtAmt = (n: number) =>
     n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
@@ -317,11 +335,22 @@ function VendorLinkPanel({ dist, onChanged }: {
             onPick={(v) => setVendorId(v.qbo_vendor_id, v.display_name)}
             placeholder="Search QBO vendors by name…"
           />
-          {changing && (
+          {changing ? (
             <button onClick={() => setChanging(false)} style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: 'var(--mt)', fontSize: 10.5, marginTop: 6, padding: 0,
             }}>Cancel — keep the current link</button>
+          ) : (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd)' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--mt)', marginBottom: 6 }}>
+                Not in QuickBooks yet? Create the vendor from this record. It links to an
+                existing vendor of the same name rather than making a second one — no
+                remit-to address is sent, so add one in QuickBooks before paying them.
+              </div>
+              <button onClick={createInQbo} disabled={busy || !dist.name} style={btnPrimary()}>
+                {busy ? 'Working…' : 'Create in QuickBooks'}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -335,47 +364,49 @@ function VendorLinkPanel({ dist, onChanged }: {
             From the QBO mirror — what they've billed us.
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <Th>Date</Th>
-                  <Th>Type</Th>
-                  <Th>Account</Th>
-                  <Th>Description</Th>
-                  <Th style={{ textAlign: 'right' }}>Amount</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines === null && (
-                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
-                )}
-                {lines !== null && lines.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
-                    No bill / expense lines in the mirror for this vendor.
-                  </td></tr>
-                )}
-                {(lines ?? []).map((l) => (
-                  <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <Td>{l.txn_date ?? '—'}</Td>
-                    <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{l.qbo_txn_type ?? '—'}</span></Td>
-                    <Td><span style={{ color: 'var(--mt)' }}>{l.account_name ?? l.item_name ?? '—'}</span></Td>
-                    <Td>{l.description ?? '—'}</Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {l.amount == null ? '—' : fmtAmt(Number(l.amount))}
-                    </Td>
+            <PrintableTable>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                    <Th>Date</Th>
+                    <Th>Type</Th>
+                    <Th>Account</Th>
+                    <Th>Description</Th>
+                    <Th style={{ textAlign: 'right' }}>Amount</Th>
                   </tr>
-                ))}
-                {lines !== null && lines.length > 0 && (
-                  <tr style={{ borderTop: '1px solid var(--bd)' }}>
-                    <Td style={{ fontWeight: 700 }}>Total (last {lines.length})</Td>
-                    <Td> </Td><Td> </Td><Td> </Td>
-                    <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>
-                      {fmtAmt(total)}
-                    </Td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {lines === null && (
+                    <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>Loading…</td></tr>
+                  )}
+                  {lines !== null && lines.length === 0 && (
+                    <tr><td colSpan={5} style={{ padding: 12, color: 'var(--mt)', textAlign: 'center' }}>
+                      No bill / expense lines in the mirror for this vendor.
+                    </td></tr>
+                  )}
+                  {(lines ?? []).map((l) => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <Td>{l.txn_date ?? '—'}</Td>
+                      <Td><span style={{ color: 'var(--mt)', fontSize: 10.5 }}>{l.qbo_txn_type ?? '—'}</span></Td>
+                      <Td><span style={{ color: 'var(--mt)' }}>{l.account_name ?? l.item_name ?? '—'}</span></Td>
+                      <Td>{l.description ?? '—'}</Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                        {l.amount == null ? '—' : fmtAmt(Number(l.amount))}
+                      </Td>
+                    </tr>
+                  ))}
+                  {lines !== null && lines.length > 0 && (
+                    <tr style={{ borderTop: '1px solid var(--bd)' }}>
+                      <Td style={{ fontWeight: 700 }}>Total (last {lines.length})</Td>
+                      <Td> </Td><Td> </Td><Td> </Td>
+                      <Td style={{ textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>
+                        {fmtAmt(total)}
+                      </Td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </PrintableTable>
           </div>
         </div>
       )}

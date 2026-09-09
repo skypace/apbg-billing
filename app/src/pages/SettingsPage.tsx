@@ -13,6 +13,7 @@ import { EntityDefaultsEditor } from './settings/EntityDefaultsEditor';
 import { TaxonomyRulesEditor } from './settings/TaxonomyRulesEditor';
 import { AccountsEditor } from './settings/AccountsEditor';
 import { QboWritebackLogEditor } from './settings/QboWritebackLogEditor';
+import { CompanyBillingEditor } from './settings/CompanyBillingEditor';
 import {
   deleteChannel, deleteSegment,
   fetchChannels, fetchSegments,
@@ -28,7 +29,7 @@ type Tab =
   | 'item_sets' | 'items' | 'customers' | 'digest'
   | 'expense_buckets' | 'users' | 'fleet_drivers'
   | 'product_families' | 'product_types' | 'accounts'
-  | 'qbo_writeback_log';
+  | 'qbo_writeback_log' | 'company_billing';
 
 const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'rollups',         label: 'Chain Rollups',           group: 'Filters & Taxonomy' },
@@ -48,6 +49,10 @@ const TABS: { id: Tab; label: string; group: string }[] = [
   { id: 'fleet_drivers',      label: 'Fleet Drivers',           group: 'Operations' },
   { id: 'users',              label: 'Users',                   group: 'Operations' },
   { id: 'qbo_writeback_log',  label: 'QBO Writeback Log',       group: 'Operations' },
+  // Billing is Refractor's as of 2026-09-09 (Sky's ownership map). 9 of the 14
+  // company_settings columns are billing identity; order_fees + order_desk stay
+  // in the ordering portal.
+  { id: 'company_billing',    label: 'Company Billing',         group: 'Billing' },
 ];
 
 export function SettingsPage() {
@@ -153,6 +158,7 @@ export function SettingsPage() {
       {tab === 'fleet_drivers'   && <FleetDriversEditor />}
       {tab === 'users'             && <UsersEditor />}
       {tab === 'qbo_writeback_log' && <QboWritebackLogEditor />}
+      {tab === 'company_billing' && <CompanyBillingEditor />}
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PrintableTable } from '../../components/PrintableTable';
+import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus, X as XIcon, FlaskConical } from 'lucide-react';
 import {
@@ -353,18 +355,12 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
           <LField label="Sellable finished item *">
-            <select style={inp()} value={finishedId} onChange={(e) => setFinishedId(e.target.value)} disabled={!isNew}>
-              <option value="">—</option>
-              {isNew
-                ? itemLookup.finishedOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)
-                : <option value={finishedId}>{itemLookup.byId.get(finishedId)?.item_name ?? finishedId}</option>}
-            </select>
+            <SearchSelect value={finishedId} onChange={setFinishedId} disabled={!isNew} placeholder="Type the finished item…"
+              options={isNew ? itemLookup.finishedOptions : [{ id: finishedId, label: itemLookup.byId.get(finishedId)?.item_name ?? finishedId }]} />
           </LField>
           <LField label="Formula / spec sheet (the driver)">
-            <select style={inp()} value={formulaId} onChange={(e) => setFormulaId(e.target.value)}>
-              <option value="">— none —</option>
-              {formulas.map((f) => <option key={f.id} value={f.id}>{f.name} · rev {f.doc_rev}</option>)}
-            </select>
+            <SearchSelect value={formulaId} onChange={setFormulaId} placeholder="Type a formula (or leave blank)…"
+              options={formulas.map((f) => ({ id: f.id, label: f.name, hint: `rev ${f.doc_rev}` }))} />
           </LField>
           <LField label="BOM name">
             <input style={inp()} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cola 24pk case" />
@@ -469,45 +465,47 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             )}
 
             {formulaId && reqs && reqs.length > 0 && (
-              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase' }}>
-                    <th style={{ padding: '3px 5px' }}>Material</th>
-                    <th style={{ padding: '3px 5px' }}>% by weight</th>
-                    <th style={{ padding: '3px 5px' }}>Per case</th>
-                    <th style={{ padding: '3px 5px' }}>Vendor</th>
-                    <th style={{ padding: '3px 5px' }}>On the BOM?</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reqs.map((r, i) => {
-                    // A recipe line is identified by its material, not by a
-                    // QuickBooks item — rolled-up ingredients have no item at all.
-                    const onBom = recipeLines.some((l) => l.ingredient_id === r.ingredient_id);
-                    return (
-                      <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
-                        <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
-                        <td style={{ padding: '3px 5px' }} className="mn">
-                          {(Number(r.pct_by_weight) * 100).toFixed(4)}%
-                        </td>
-                        <td style={{ padding: '3px 5px' }} className="mn">
-                          {Number(r.qty_per_case).toFixed(5)} {r.recipe_uom}
-                        </td>
-                        <td style={{ padding: '3px 5px', color: r.vendor_name ? undefined : 'var(--am)' }}>
-                          {r.vendor_name ?? (r.is_purchased ? 'no vendor' : '—')}
-                        </td>
-                        <td style={{ padding: '3px 5px' }}>
-                          {!r.is_purchased
-                            ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
-                            : onBom
-                              ? <span style={{ color: 'var(--gn)' }}>yes</span>
-                              : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <PrintableTable>
+                <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--mt)', fontSize: 9.5, textTransform: 'uppercase' }}>
+                      <th style={{ padding: '3px 5px' }}>Material</th>
+                      <th style={{ padding: '3px 5px' }}>% by weight</th>
+                      <th style={{ padding: '3px 5px' }}>Per case</th>
+                      <th style={{ padding: '3px 5px' }}>Vendor</th>
+                      <th style={{ padding: '3px 5px' }}>On the BOM?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reqs.map((r, i) => {
+                      // A recipe line is identified by its material, not by a
+                      // QuickBooks item — rolled-up ingredients have no item at all.
+                      const onBom = recipeLines.some((l) => l.ingredient_id === r.ingredient_id);
+                      return (
+                        <tr key={i} style={{ borderTop: '1px solid var(--bd)' }}>
+                          <td style={{ padding: '3px 5px' }}>{r.material_name}</td>
+                          <td style={{ padding: '3px 5px' }} className="mn">
+                            {(Number(r.pct_by_weight) * 100).toFixed(4)}%
+                          </td>
+                          <td style={{ padding: '3px 5px' }} className="mn">
+                            {Number(r.qty_per_case).toFixed(5)} {r.recipe_uom}
+                          </td>
+                          <td style={{ padding: '3px 5px', color: r.vendor_name ? undefined : 'var(--am)' }}>
+                            {r.vendor_name ?? (r.is_purchased ? 'no vendor' : '—')}
+                          </td>
+                          <td style={{ padding: '3px 5px' }}>
+                            {!r.is_purchased
+                              ? <span style={{ color: 'var(--mt)' }}>sourced on site</span>
+                              : onBom
+                                ? <span style={{ color: 'var(--gn)' }}>yes</span>
+                                : <span style={{ color: 'var(--am)' }}>rebuild to add</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </PrintableTable>
             )}
 
             {basis && (
@@ -570,10 +568,8 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
               <option value="service">Service</option>
             </select>
             {l.line_type === 'component' ? (
-              <select style={inp()} value={l.component_qbo_item_id} onChange={(e) => setLine(i, { component_qbo_item_id: e.target.value })}>
-                <option value="">—</option>
-                {componentOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-              </select>
+              <SearchSelect value={l.component_qbo_item_id} onChange={(id) => setLine(i, { component_qbo_item_id: id })}
+                options={componentOptions} placeholder="Type a component…" />
             ) : (
               <input style={inp()} placeholder="Service label (e.g. Canning fee)" value={l.service_label}
                 onChange={(e) => setLine(i, { service_label: e.target.value })} />
@@ -591,13 +587,12 @@ function BomEditModal({ bom, formulas, vendors, itemLookup, onToggleActive, onCl
             <input type="number" min={0} step="any" style={inp()} value={l.default_cost}
               onChange={(e) => setLine(i, { default_cost: e.target.value })} />
             {l.line_type === 'component' ? (
-              <select style={inp()} value={l.vendor_id} onChange={(e) => setLine(i, { vendor_id: e.target.value })}
-                title="Blank = the vendor set under Materials & Pricing for this item. Pick one here only to override it for this BOM.">
-                <option value="">{masters.get(l.component_qbo_item_id)?.qbo_vendor_id
+              <SearchSelect value={l.vendor_id} onChange={(id) => setLine(i, { vendor_id: id })}
+                title="Blank = the vendor set under Materials & Pricing for this item. Pick one here only to override it for this BOM."
+                placeholder={masters.get(l.component_qbo_item_id)?.qbo_vendor_id
                   ? `master · ${vendorName(masters.get(l.component_qbo_item_id)!.qbo_vendor_id) ?? 'set'}`
-                  : '— vendor —'}</option>
-                {vendors.map((v) => <option key={v.qbo_vendor_id} value={v.qbo_vendor_id}>{v.display_name}</option>)}
-              </select>
+                  : 'vendor (override)…'}
+                options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
             ) : <span style={{ fontSize: 10, color: 'var(--mt)', alignSelf: 'center' }}>cost-only</span>}
             <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}
               onClick={() => setLines((rows) => rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)}>
