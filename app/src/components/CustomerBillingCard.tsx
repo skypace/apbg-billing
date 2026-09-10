@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } from 'lucide-react';
 import { useToast } from '../lib/toast';
 import {
   DOC_TYPES, EMAIL_SLOTS, PAY_METHOD_LABEL, PAY_SECTIONS,
+  enableCustomerInPortal,
   fetchBillingLocation, fetchBillingMaster, fetchCustomerBilling, fetchPaymentProfile,
   managedByMaster, offerableMethods, savePaymentProfile, saveBillingComms,
   setCreditHold, setCustomerName, slotAddress,
   type BillingLocation, type BillingMaster, type CustomerBillingRow, type DocKey,
   type PayMethod, type PaymentProfilePayload, type SlotKey,
 } from '../lib/customerBilling';
+import { forgetOrdersCustomer } from '../lib/customerMaster';
+import { Note, Section, btn, ctl, lbl } from './customerMasterUi';
 
 /**
  * Billing & customer master, on the Refractor customer page.
@@ -24,9 +27,9 @@ import {
  *    they edit those in the portal (Settings → billing emails), which is a
  *    legitimate customer surface. This is the STAFF view of the same columns.
  *  • the bill-to ADDRESS as an editable field. It is a location row
- *    (`is_billing`) and is edited on brix-order's Locations tab; showing an
- *    editable copy here would be the second home for one address, which is
- *    the drift being removed rather than added to.
+ *    (`is_billing`) and is edited in the Locations card directly below this
+ *    one (2026-09-10); showing an editable copy here would be the second home
+ *    for one address, which is the drift being removed rather than added to.
  *  • `order_fees` / `order_desk`. They live on the same company_settings row
  *    and are genuinely order-portal settings.
  *
@@ -34,49 +37,6 @@ import {
  * lib/customerBilling.ts for why (no browser write grant exists, and the
  * outward QuickBooks push must have exactly one implementation).
  */
-
-/** A section heading with a rule above it. Four sections stacked in one card
- *  with nothing between them reads as one undifferentiated block — obvious in
- *  a screenshot, invisible in the source. */
-function Section({ children, hint }: { children: React.ReactNode; hint?: string }) {
-  return (
-    <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid var(--bd)' }}>
-      <div style={lbl}>{children}</div>
-      {hint && <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 3 }}>{hint}</div>}
-    </div>
-  );
-}
-
-const lbl: React.CSSProperties = {
-  fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 1,
-};
-const ctl: React.CSSProperties = {
-  fontSize: 12, padding: '5px 7px', background: 'var(--ctl-bg)', color: 'var(--tx)',
-  border: '1px solid var(--ctl-bd)', borderRadius: 4, minWidth: 0, maxWidth: '100%',
-  boxSizing: 'border-box',
-};
-const btn = (kind: 'primary' | 'ghost' | 'danger' = 'ghost'): React.CSSProperties => ({
-  fontSize: 11, padding: '5px 10px', borderRadius: 4, cursor: 'pointer',
-  border: '1px solid ' + (kind === 'danger' ? 'var(--rd)' : 'var(--ctl-bd)'),
-  background: kind === 'primary' ? 'var(--ac)' : 'transparent',
-  color: kind === 'primary' ? '#fff' : kind === 'danger' ? 'var(--rd)' : 'var(--tx2)',
-});
-
-function Note({ tone, children }: { tone: 'amber' | 'red' | 'plain'; children: React.ReactNode }) {
-  const c = tone === 'red' ? 'var(--rd)' : tone === 'amber' ? 'var(--am)' : 'var(--mt)';
-  return (
-    <div style={{
-      display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px',
-      borderRadius: 4, marginTop: 8, fontSize: 11, color: 'var(--tx2)',
-      border: '1px solid ' + (tone === 'plain' ? 'var(--bd)' : c),
-      background: tone === 'plain' ? 'transparent'
-        : tone === 'red' ? 'rgba(234,67,53,0.07)' : 'rgba(244,180,0,0.08)',
-    }}>
-      {tone !== 'plain' && <AlertTriangle size={14} strokeWidth={2.3} color={c} aria-hidden="true" />}
-      <div style={{ minWidth: 0 }}>{children}</div>
-    </div>
-  );
-}
 
 interface Props { qboCustomerId: string; customerName?: string | null }
 
@@ -107,6 +67,11 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
   });
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState('');
+  // The two fields on this row that reach QuickBooks as the Customer's own
+  // contact name and Notes box (2026-09-10).
+  const [contactName, setContactName] = useState('');
+  const [custNotes, setCustNotes] = useState('');
+  const [enabling, setEnabling] = useState(false);
 
   function hydrate(r: CustomerBillingRow) {
     setRow(r);
@@ -127,6 +92,8 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
       order_update_recipients: (r.order_update_recipients ?? []) as SlotKey[],
     });
     setNewName(r.name ?? '');
+    setContactName(r.billing_contact_name ?? '');
+    setCustNotes(r.notes ?? '');
   }
 
   async function load() {
@@ -167,6 +134,43 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
       JSON.stringify([...(row[d.key] ?? [])].sort())
         !== JSON.stringify([...routing[d.key]].sort()))
   );
+
+  const contactDirty = !!row && (
+    (row.billing_contact_name ?? '') !== contactName || (row.notes ?? '') !== custNotes
+  );
+
+  /**
+   * Enable the customer in the portal from here, so the page is not a dead
+   * end for the ~650 QuickBooks customers with no record. Enable imports
+   * locations, seeds pricing, switches notifications on and emails the
+   * account-live invite — the confirm says so before the click.
+   */
+  async function enableHere() {
+    const ok = window.confirm(
+      `Set up ${customerName ?? 'this customer'} in the portal?\n\n`
+      + 'This creates their billing record, imports their QuickBooks addresses as locations, '
+      + 'seeds their pricing from invoice history, switches every email notification ON '
+      + '(paper off), and sends them the account-live invite email.\n\n'
+      + 'It refuses an EQUIPMENT / RESQ bucket — those never belong on the portal.');
+    if (!ok) return;
+    setEnabling(true);
+    try {
+      const res = await enableCustomerInPortal(qboCustomerId);
+      const d = res.data;
+      toast.success(d?.already_enabled ? 'Already enabled — record loaded.'
+        : `Enabled. ${d?.locations_imported ?? 0} location${d?.locations_imported === 1 ? '' : 's'} imported.`);
+      const warn: string[] = [];
+      if (d?.collection_seed_error) warn.push('Pricing seed: ' + d.collection_seed_error);
+      if (d?.switch_on_email_warning) warn.push('Invite email: ' + d.switch_on_email_warning);
+      if (warn.length) setNotes(warn);
+      forgetOrdersCustomer(qboCustomerId);
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setEnabling(false);
+    }
+  }
 
   async function run(what: string, fn: () => Promise<{ push_notes?: string[] }>) {
     setBusy(what); setNotes([]);
@@ -238,9 +242,21 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
             live on that record. 204 of roughly 850 QuickBooks customers have one.
           </div>
           <div style={{ marginTop: 4, color: 'var(--mt)' }}>
-            Enable them in the Brix Order admin (Customers → Enable) and this fills in. Enabling
-            also seeds their pricing from invoice history and imports their locations.
+            Setting them up creates that record, imports their QuickBooks addresses as locations,
+            seeds their pricing from invoice history, and emails them the account-live invite.
           </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" style={btn('primary')} disabled={enabling}
+              onClick={() => void enableHere()}>
+              {enabling ? 'Setting up…' : 'Set up this customer in the portal'}
+            </button>
+            <span style={{ fontSize: 10, color: 'var(--mt)' }}>
+              Same action as Brix Order → Customers → Enable. Needs a superadmin account.
+            </span>
+          </div>
+          {notes.length > 0 && (
+            <div style={{ marginTop: 6, color: 'var(--am)' }}>{notes.join(' · ')}</div>
+          )}
         </Note>
       ) : (
         <div style={{ marginTop: 12 }}>
@@ -428,7 +444,34 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
             {busy === 'comms' ? 'Saving…' : 'Save emails & routing'}
           </button>
 
-          {/* ── bill-to, read-only on purpose ──────────────────────────── */}
+          {/* ── the QuickBooks contact + notes ──────────────────────────── */}
+          <Section hint="QuickBooks holds one contact name and one Notes box per customer; both are pushed on save. Pick the contact from the Contacts card below, or type it here.">
+            QuickBooks contact &amp; notes
+          </Section>
+          <div className="gr" style={{ gridTemplateColumns: 'minmax(200px,280px) 1fr', gap: 12, marginTop: 8 }}>
+            <div>
+              <div style={lbl}>Primary contact (first + last name)</div>
+              <input style={{ ...ctl, width: '100%', marginTop: 3 }} value={contactName} disabled={locked}
+                placeholder="—" data-field="billing_contact_name"
+                onChange={(e) => setContactName(e.target.value)} />
+            </div>
+            <div>
+              <div style={lbl}>Notes (2,000 characters — QuickBooks’ cap)</div>
+              <textarea style={{ ...ctl, width: '100%', marginTop: 3, minHeight: 54, resize: 'vertical' }}
+                value={custNotes} disabled={locked} maxLength={2000} data-field="notes"
+                onChange={(e) => setCustNotes(e.target.value)} />
+            </div>
+          </div>
+          <button type="button" style={{ ...btn('primary'), marginTop: 8 }}
+            disabled={!contactDirty || locked || !!busy}
+            onClick={() => void run('contact', () => saveBillingComms(row.id, {
+              billing_contact_name: contactName.trim() || null,
+              notes: custNotes.trim() || null,
+            }))}>
+            {busy === 'contact' ? 'Saving…' : 'Save contact & notes'}
+          </button>
+
+          {/* ── bill-to, read-only here on purpose ─────────────────────── */}
           <Section>Bill-to</Section>
           <div style={{ fontSize: 11, color: 'var(--tx2)', marginTop: 3 }}>
             {billTo
@@ -439,8 +482,9 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
                 </span>}
           </div>
           <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 2 }}>
-            The bill-to is a LOCATION, not a field on the customer — set it on the Locations tab
-            in Brix Order so there is one copy of the address.
+            The bill-to is a LOCATION, not a field on the customer — pick or edit it in the
+            <strong> Locations &amp; addresses</strong> card below, so there is one copy of the address.
+            It is pushed to QuickBooks as the Customer’s billing address.
           </div>
 
           {/* ── the two that carry consequences ────────────────────────── */}
@@ -507,7 +551,8 @@ export function CustomerBillingCard({ qboCustomerId, customerName }: Props) {
 
           <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 14, borderTop: '1px solid var(--bd)', paddingTop: 8 }}>
             Editing the same record as the Brix Order admin — one table, one writer, so a change
-            made on either surface shows on the other. Brix Order&apos;s staff billing screens are
+            made on either surface shows on the other. Terms, name, taxable, contact, notes, bill-to
+            and ship-to all push to QuickBooks on save. Brix Order&apos;s staff billing screens are
             being retired; see docs/OWNERSHIP-AND-MIGRATION.md.
           </div>
         </div>

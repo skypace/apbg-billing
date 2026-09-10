@@ -1,6 +1,11 @@
-// qbo-customer-lookup v5 — live QBO customer lookup by display name, with
-// mirror heal, deactivation, payment-settings read, customer-master push, and
-// a master snapshot for the portal's drift check.
+// qbo-customer-lookup v6 — live QBO customer lookup by display name, with
+// mirror heal, deactivation, payment-settings read, customer-master push
+// (incl. ship-to, phone, primary contact, notes), file attachments, and a
+// master snapshot for the portal's drift check.
+//
+// v6 (2026-09-10, Refractor customer master): `update_customer` also takes
+// `ship_addr`, `phone`, `contact_name` and `notes`; new `attach_file` action
+// pushes a vault document onto the Customer as a QBO Attachable.
 //
 // ⚠ THIS FILE WAS RECOVERED FROM THE DEPLOYED FUNCTION (2026-08-31).
 // The repo copy had been stuck at v2 while v6 (source header v3) was live, so
@@ -336,6 +341,47 @@ Deno.serve(async (req: Request) => {
           applied.push("bill_addr");
         }
       }
+      if (body?.ship_addr && typeof body.ship_addr === "object") {
+        const a = body.ship_addr as Record<string, unknown>;
+        const line1 = String(a.line1 ?? "").trim();
+        if (line1) {
+          patch.ShipAddr = {
+            Line1: line1,
+            ...(String(a.line2 ?? "").trim() ? { Line2: String(a.line2).trim() } : {}),
+            ...(String(a.city ?? "").trim() ? { City: String(a.city).trim() } : {}),
+            ...(String(a.state ?? "").trim() ? { CountrySubDivisionCode: String(a.state).trim() } : {}),
+            ...(String(a.zip ?? "").trim() ? { PostalCode: String(a.zip).trim() } : {}),
+          };
+          applied.push("ship_addr");
+        }
+      }
+      // PrimaryPhone: null CLEARS (an empty FreeFormNumber is how QBO drops
+      // it under a sparse update — a null object is rejected).
+      if ("phone" in body) {
+        const ph = body.phone == null ? "" : String(body.phone).trim().slice(0, 30);
+        patch.PrimaryPhone = { FreeFormNumber: ph };
+        applied.push("phone");
+      }
+      // The one primary contact on a QBO Customer is GivenName + FamilyName.
+      // The portal keeps the name whole (it prints that way on a statement),
+      // so it is split here: everything before the last space is the given
+      // name(s). "Marco DiLuca" → Marco / DiLuca; "Cher" → Cher / "".
+      if ("contact_name" in body) {
+        const full = body.contact_name == null ? "" : String(body.contact_name).trim().replace(/\s+/g, " ");
+        if (full) {
+          const cut = full.lastIndexOf(" ");
+          patch.GivenName = (cut > 0 ? full.slice(0, cut) : full).slice(0, 100);
+          patch.FamilyName = (cut > 0 ? full.slice(cut + 1) : "").slice(0, 100);
+          applied.push("contact_name");
+        }
+      }
+      // Notes: the Customer's free-text Notes box. null clears. QBO caps the
+      // field at 2000 characters and rejects the whole update past it, so a
+      // long portal note is truncated rather than sinking the terms beside it.
+      if ("notes" in body) {
+        patch.Notes = body.notes == null ? "" : String(body.notes).slice(0, 2000);
+        applied.push("notes");
+      }
 
       if (applied.length === 0) {
         return jsonRes({
@@ -359,6 +405,12 @@ Deno.serve(async (req: Request) => {
           mirror.bill_addr_state = updated.BillAddr.CountrySubDivisionCode ?? null;
           mirror.bill_addr_postal = updated.BillAddr.PostalCode ?? null;
         }
+        if (updated?.ShipAddr) {
+          // The mirror carries ship city/state only (no street, no postal).
+          mirror.ship_addr_city = updated.ShipAddr.City ?? null;
+          mirror.ship_addr_state = updated.ShipAddr.CountrySubDivisionCode ?? null;
+        }
+        if ("phone" in body) mirror.phone = updated?.PrimaryPhone?.FreeFormNumber || null;
         if (Object.keys(mirror).length > 1) {
           await ops.from("qbo_customers").update(mirror).eq("qbo_customer_id", qboId);
         }
@@ -369,6 +421,84 @@ Deno.serve(async (req: Request) => {
       return jsonRes({
         ok: true, action: "update_customer", found: true, applied, refused,
         customer: { id: String(updated?.Id ?? qboId), display_name: updated?.DisplayName ?? cust.DisplayName ?? null },
+        duration_ms: Date.now() - startedAt,
+      });
+    }
+
+    // ── action: attach_file ── push a vault document onto the Customer.
+    //
+    // QBO's Attachable upload is one multipart POST to /upload: a JSON part
+    // (the Attachable, with an AttachableRef pointing at the Customer) and the
+    // file bytes. The response wraps each in AttachableResponse[]; a refusal
+    // arrives as a Fault INSIDE that array with HTTP 200, so the array is
+    // inspected rather than the status trusted.
+    //
+    // ⚠ Not idempotent: two uploads of one file are two attachments on the
+    // customer. brix-order stamps `qbo_attachable_id` on its vault row and
+    // skips rows that already carry one; this function does not dedupe.
+    if (body?.action === "attach_file") {
+      const qboId = String(body?.qbo_customer_id || "").trim();
+      if (!/^[0-9]+$/.test(qboId)) throw new Error("bad qbo_customer_id");
+      const ALLOWED = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+      const contentType = String(body?.content_type || "").trim().toLowerCase();
+      if (!ALLOWED.has(contentType)) {
+        return jsonRes({ ok: false, action: "attach_file", error: "content_type must be pdf, png, jpeg or webp" }, 400);
+      }
+      const fileName = String(body?.file_name || "document").replace(/[^\w.\- ()]+/g, "_").slice(0, 120) || "document";
+      const raw = String(body?.data || "").replace(/^data:[^;]+;base64,/, "");
+      if (!raw) return jsonRes({ ok: false, action: "attach_file", error: "data (base64) required" }, 400);
+      let bytes: Uint8Array;
+      try {
+        const bin = atob(raw);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } catch {
+        return jsonRes({ ok: false, action: "attach_file", error: "data is not valid base64" }, 400);
+      }
+      if (bytes.length === 0) return jsonRes({ ok: false, action: "attach_file", error: "empty file" }, 400);
+      if (bytes.length > 4 * 1024 * 1024) {
+        return jsonRes({ ok: false, action: "attach_file", error: "file too large (4 MB max)" }, 413);
+      }
+      const note = body?.note == null ? "" : String(body.note).slice(0, 2000);
+
+      const token = await getAccessToken(sb);
+      // Confirm the customer exists first — an AttachableRef at a missing id
+      // fails inside QBO with a message that does not name the id.
+      const found = await acctQuery(token, "select Id, DisplayName from Customer where Id = '" + qboId + "'");
+      const rows: any[] = found?.QueryResponse?.Customer ?? [];
+      if (rows.length === 0) {
+        return jsonRes({ ok: true, action: "attach_file", found: false, duration_ms: Date.now() - startedAt });
+      }
+
+      const meta = {
+        AttachableRef: [{ EntityRef: { type: "Customer", value: qboId }, IncludeOnSend: false }],
+        FileName: fileName,
+        ContentType: contentType,
+        ...(note ? { Note: note } : {}),
+      };
+      const form = new FormData();
+      form.append("file_metadata_01", new Blob([JSON.stringify(meta)], { type: "application/json" }), "attachment.json");
+      form.append("file_content_01", new Blob([bytes], { type: contentType }), fileName);
+      const url = accountingBase() + "/v3/company/" + getRealm() + "/upload?minorversion=70";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, Accept: "application/json" },
+        body: form,
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error("QBO upload (" + res.status + "): " + text.slice(0, 500));
+      let parsed: any = {};
+      try { parsed = JSON.parse(text); } catch { throw new Error("QBO upload returned non-JSON: " + text.slice(0, 200)); }
+      const first = parsed?.AttachableResponse?.[0];
+      const att = first?.Attachable;
+      if (!att?.Id) {
+        const fault = first?.Fault?.Error?.[0];
+        throw new Error("QBO upload refused: " + (fault ? (fault.Message + " — " + (fault.Detail ?? "")) : text.slice(0, 300)));
+      }
+      return jsonRes({
+        ok: true, action: "attach_file", found: true,
+        attachable_id: String(att.Id), file_name: att.FileName ?? fileName,
+        size: bytes.length, customer: { id: qboId, display_name: rows[0].DisplayName ?? null },
         duration_ms: Date.now() - startedAt,
       });
     }
