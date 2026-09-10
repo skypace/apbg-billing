@@ -332,6 +332,27 @@ td.mn, th.mn {
   box-shadow: 0 0 8px rgba(91, 181, 240, 0.40);
 }
 .nav-item svg { flex: none; opacity: 0.85; transition: opacity 120ms ease }
+
+/* Sidebar sections — MARGIN · CUSTOMER · FINANCIAL · INVENTORY · … (2026-09-09).
+   The label is an eyebrow, not a control; collapsed it becomes a hairline. */
+.nav-group { display: flex; flex-direction: column; gap: 2px }
+.nav-group + .nav-group { margin-top: 10px }
+.nav-group-label {
+  padding: 6px 12px 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--mt);
+  user-select: none;
+}
+.sidebar--collapsed .nav-group-label { padding: 0; height: 0; overflow: hidden }
+.sidebar--collapsed .nav-group + .nav-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(91, 181, 240, 0.14);
+}
+
 .nav-item:hover svg, .nav-item--active svg { opacity: 1 }
 
 .sidebar-footer {

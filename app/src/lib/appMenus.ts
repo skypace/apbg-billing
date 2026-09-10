@@ -26,10 +26,27 @@ import type { View } from './router';
  * gateway's `modules` access buckets, not here.
  */
 
+/**
+ * The sidebar sections, in the order they render. Sky's regroup (2026-09-09):
+ * "one section that is MARGIN that holds the margin stuff. Then CUSTOMER —
+ * the customer master and customer reports. Then FINANCIAL, which is Plans
+ * and Compare. Then INVENTORY, which holds inventory planning and inventory.
+ * Keep the rest. Move pricing into customers and move proposal builder into
+ * customers." Production + Sub-Distributors are "the rest", and Settings sits
+ * on its own at the bottom.
+ */
+export type RefractorMenuGroup =
+  | 'Margin' | 'Customer' | 'Financial' | 'Inventory' | 'Operations' | 'Admin';
+
+export const REFRACTOR_MENU_GROUPS: RefractorMenuGroup[] =
+  ['Margin', 'Customer', 'Financial', 'Inventory', 'Operations', 'Admin'];
+
 /** A Refractor sidebar entry. Icons are attached in Layout. */
 export interface RefractorMenu {
   id: Exclude<View, 'customer-detail' | 'operations' | 'fleet'>;
   label: string;
+  /** Which sidebar section it renders under. Grouping only — the id is the grant key. */
+  group: RefractorMenuGroup;
 }
 
 /**
@@ -43,19 +60,24 @@ export interface RefractorMenu {
  * and only the labels are corrected.
  */
 export const REFRACTOR_MENUS: RefractorMenu[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'margin', label: 'Margin' },
-  { id: 'customers', label: 'Customers' },
-  { id: 'reports', label: 'Reports' },
-  { id: 'plans', label: 'Plans' },
-  { id: 'compare', label: 'Compare' },
-  { id: 'stock', label: 'Inventory' },
-  { id: 'inventory', label: 'Inventory Planning' },
-  { id: 'production', label: 'Production' },
-  { id: 'distributors', label: 'Sub-Distributors' },
-  { id: 'pricing', label: 'Pricing' },
-  { id: 'proposal-builder', label: 'Proposal Builder' },
-  { id: 'settings', label: 'Settings' },
+  // MARGIN — the margin stuff
+  { id: 'overview', label: 'Overview', group: 'Margin' },
+  { id: 'margin', label: 'Margin', group: 'Margin' },
+  // CUSTOMER — the customer master, customer reports, pricing, proposals
+  { id: 'customers', label: 'Customers', group: 'Customer' },
+  { id: 'reports', label: 'Reports', group: 'Customer' },
+  { id: 'pricing', label: 'Pricing', group: 'Customer' },
+  { id: 'proposal-builder', label: 'Proposal Builder', group: 'Customer' },
+  // FINANCIAL — plans and compare
+  { id: 'plans', label: 'Plans', group: 'Financial' },
+  { id: 'compare', label: 'Compare', group: 'Financial' },
+  // INVENTORY — what is on hand, and what to buy
+  { id: 'stock', label: 'Inventory', group: 'Inventory' },
+  { id: 'inventory', label: 'Inventory Planning', group: 'Inventory' },
+  // the rest
+  { id: 'production', label: 'Production', group: 'Operations' },
+  { id: 'distributors', label: 'Sub-Distributors', group: 'Operations' },
+  { id: 'settings', label: 'Settings', group: 'Admin' },
 ];
 
 export const REFRACTOR_MENU_IDS: string[] = REFRACTOR_MENUS.map((m) => m.id);

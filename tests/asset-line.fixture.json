@@ -1,0 +1,62 @@
+[
+  {
+    "id": "2fdad4b0-69e6-492a-bde7-07ba03e1401e",
+    "qty": 1, "make": "AVANTCO", "status": "on_contract", "vendor": null,
+    "on_site": true, "category": "refrigeration", "asset_tag": null,
+    "image_url": null, "is_loaner": false,
+    "synced_at": "2026-05-31T06:44:56.194+00:00",
+    "asset_line": "AVANTCO 178UBB48HC · #6348331621083449 · QBO-RT-82212",
+    "make_model": "AVANTCO 178UBB48HC", "removed_at": null, "catalog_name": null,
+    "contract_end": "2026-08-12", "installed_at": null,
+    "model_number": "178UBB48HC", "monthly_rent": null,
+    "contract_type": "rental", "qbo_item_name": "RER42313",
+    "serial_number": "6348331621083449", "contract_start": "2022-06-01",
+    "ownership_type": "company_owned", "spec_sheet_url": null,
+    "contract_number": "QBO-RT-82212", "contract_status": "terminated"
+  },
+  {
+    "id": "49967441-819f-41b2-a0ab-0d968f5bd063",
+    "qty": 1, "make": "BEVERAGE AIR", "status": "on_contract", "vendor": null,
+    "on_site": true, "category": "refrigeration", "asset_tag": null,
+    "image_url": null, "is_loaner": false,
+    "synced_at": "2026-05-31T06:44:56.194+00:00",
+    "asset_line": "BEVERAGE AIR MC-750 · no serial on file · QBO-RT-82212",
+    "make_model": "BEVERAGE AIR MC-750", "removed_at": null, "catalog_name": null,
+    "contract_end": "2026-08-12", "installed_at": null,
+    "model_number": "MC-750", "monthly_rent": null,
+    "contract_type": "rental", "qbo_item_name": "RER42313",
+    "serial_number": null, "contract_start": "2022-06-01",
+    "ownership_type": "company_owned", "spec_sheet_url": null,
+    "contract_number": "QBO-RT-82212", "contract_status": "terminated"
+  },
+  {
+    "id": "64e6adc4-da56-46e5-b018-45dd519f4fe4",
+    "qty": 1, "make": "OSION", "status": "installed", "vendor": null,
+    "on_site": true, "category": "ice_machine", "asset_tag": null,
+    "image_url": "https://assets.katomcdn.com/q_auto,f_auto,w_500/products/068/068-OCM500/068-OCM500.jpg",
+    "is_loaner": true, "synced_at": "2026-08-20T01:18:01.593+00:00",
+    "asset_line": "OSION OBM-350 · #6997390370797 · not on a contract",
+    "make_model": "OSION OBM-350", "removed_at": null,
+    "catalog_name": "OSION OBM-350", "contract_end": null, "installed_at": null,
+    "model_number": "OBM-350", "monthly_rent": null, "contract_type": null,
+    "qbo_item_name": "IMRC13 ICE MACHINE MONTHLY RENT",
+    "serial_number": "6997390370797", "contract_start": null,
+    "ownership_type": "company_owned", "spec_sheet_url": null,
+    "contract_number": null, "contract_status": null
+  },
+  {
+    "id": "1f958266-34e0-4399-81a6-c74d6b9fc77c",
+    "qty": 1, "make": null, "status": "installed", "vendor": null,
+    "on_site": true, "category": null, "asset_tag": null,
+    "image_url": null, "is_loaner": false,
+    "synced_at": "2026-08-20T01:18:01.593+00:00",
+    "asset_line": "RENTH100 · no serial on file · QBO-RT-71545",
+    "make_model": "RENTH100", "removed_at": null, "catalog_name": null,
+    "contract_end": "2036-05-11", "installed_at": null,
+    "model_number": null, "monthly_rent": 2000,
+    "contract_type": "rental", "qbo_item_name": "RENTH100",
+    "serial_number": null, "contract_start": "2026-05-14",
+    "ownership_type": "company_owned", "spec_sheet_url": null,
+    "contract_number": "QBO-RT-71545", "contract_status": "active"
+  }
+]

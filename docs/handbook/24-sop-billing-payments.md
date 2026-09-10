@@ -82,15 +82,28 @@ This SOP covers how invoices and statements reach customers, the dual payment ra
 
 - Card charges on the Stripe rail book at charge time as a QBO Payment into Undeposited Funds. Stripe deducts its fee at payout and deposits the **net** to the bank.
 - A **payout reconciler** books the QBO Deposit for each Stripe payout: gross payments − Stripe fees = the bank credit, one-click matchable against the bank feed.
-- Payouts containing genuine refunds/adjustments land in **needs_review** instead of auto-posting; a daily sweep (15:47 UTC) retries needs_review and failed rows, and /admin/payments has a **manual post** button for immediate retry.
+- Payouts containing a genuine **refund, dispute or adjustment** land in **needs_review** instead of auto-posting; a daily sweep (15:47 UTC) retries needs_review and failed rows, and /admin/payments → Stripe payouts has a **Reconcile** button on each row for immediate retry.
+- **Stripe's own account fees are NOT a hold.** Stripe bills its subscription-style fees — the monthly **Financial Connections verification** charge ($4.50 today; it is the bank-login method customers use to connect a checking account), Radar, and similar — by deducting them from whichever payout comes next. They post automatically as their **own labeled line on Merchant Processing Fees** ("Stripe account fee — Connections Verification (2026-08-01 - 2026-08-31)"), so the deposit still equals the bank credit and a bookkeeper can tell a monthly fee from a per-charge fee on the deposit itself. Since 2026-09-04; before that, one payout a month held as "refunds/adjustments" with no refund in it.
+
+### What a Stripe deposit looks like in QuickBooks
+
+One Bank Deposit into **Chase Business Checking** (QBO 72), dated the day the payout arrived, memo "Stripe payout po_…":
+
+| Line | Account | Sign |
+|---|---|---|
+| Each customer Payment the payout contained | pulled from Undeposited Funds | + |
+| "Stripe processing fees" (the per-charge fees, one line) | Merchant Processing Fees (360) | − |
+| One line per Stripe account fee, in Stripe's words | Merchant Processing Fees (360) | − |
+| **Deposit total** | **= the Stripe payout = the bank credit** | |
 
 ### Procedure — verify a Stripe payout
 
-1. When a Stripe deposit hits the bank feed, find the matching payout row on /admin/payments.
-2. If auto-posted: confirm the QBO Deposit (payment − fee = net) and one-click match the bank line.
-3. If needs_review: inspect the payout's refunds/adjustments, then use the manual post button (or let the daily sweep retry) once resolved.
+1. When a Stripe deposit hits the bank feed, find the matching payout row on /admin/payments → Stripe payouts (same date, same net amount).
+2. If **posted**: open the QBO Deposit it names, confirm it foots to the bank credit, then **Match** the bank line to it. Never click **Add** on a Stripe bank line — that creates a second deposit.
+3. If **needs review**: read the reason on the row. "No booked QBO Payment" means a charge has not been booked yet (the hourly settlement sweep usually fixes this on its own — check the payment on the customer's Billing tab). "Refund/dispute/adjustment" means there genuinely is one: book it per the Returned payments section, then press **Reconcile**, or book the deposit by hand (the table above, plus the refund line) if the payout cannot be decomposed cleanly. The daily sweep retries every held row automatically once the cause is fixed.
+4. Monthly: Undeposited Funds should hold only charges awaiting their next payout. Merchant Processing Fees is the month's total Stripe cost — processing and account fees together.
 
-**Why the review path exists:** the first reconciler version mis-counted the payout's own balance transaction, so nothing ever auto-posted, and the first manual post then hit a QBO Deposit API requirement — both fixed 2026-07-21; the sweep/manual-post retry loop is the designed recovery path for anything similar.
+**Why the review path exists:** the first reconciler version mis-counted the payout's own balance transaction, so nothing ever auto-posted, and the first manual post then hit a QBO Deposit API requirement — both fixed 2026-07-21. On 2026-09-04 a Stripe monthly fee riding a payout was being held as a refund (po_1UB2OM…, $1,034.88 − $5.00 − $4.50 = $1,025.38); the reconciler now classifies Stripe account fees as fee lines. The rule that survives every fix: **a deposit is never posted unless it equals the bank credit** — the sweep/Reconcile retry loop is the designed recovery path for anything that does not.
 
 ## Fees per the posted application terms
 

@@ -45,10 +45,14 @@ function declaredMenus() {
 
 test('the menu list is the 13 sections Refractor actually ships', () => {
   const ids = declaredMenus().map((m) => m.id);
+  // Sectioned order (Sky, 2026-09-09): MARGIN · CUSTOMER · FINANCIAL ·
+  // INVENTORY · the rest. Pricing and Proposal Builder moved under CUSTOMER.
   assert.deepEqual(ids, [
-    'overview', 'margin', 'customers', 'reports', 'plans', 'compare',
-    'stock', 'inventory', 'production', 'distributors', 'pricing',
-    'proposal-builder', 'settings',
+    'overview', 'margin',
+    'customers', 'reports', 'pricing', 'proposal-builder',
+    'plans', 'compare',
+    'stock', 'inventory',
+    'production', 'distributors', 'settings',
   ]);
 });
 
@@ -83,7 +87,7 @@ test('⚠ the two inventory ids stay backwards, because renaming orphans grants'
 
 test('Layout filters the sidebar and App guards the route', () => {
   assert.ok(
-    /NAV\.filter\(\(n\) => !hiddenMenus\?\.has\(n\.id\)\)/.test(layoutSrc),
+    /NAV\.filter\(\(n\) => n\.group === g && !hiddenMenus\?\.has\(n\.id\)\)/.test(layoutSrc),
     'the sidebar must drop hidden entries',
   );
   // Hiding a link while the hash still renders the page is a control that

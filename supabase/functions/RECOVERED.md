@@ -34,8 +34,8 @@ proves they are CI-deployed from that repo: `sync-wo`, `sync-tick`,
 
 | Function | Deployed version | Note |
 |---|---|---|
-| `sync-qbo-payments` | 1 | **The one that mattered.** Feeds `ops.qbo_payments`, which the brix-order Payments & Credits page reads. On pg_cron `25 9,21 * * *`. Created 2026-09-08, never committed. |
-| `qbo-fix-duplicate-payments` | 1 | One-off surgery for the 14 double-booked Stripe payments. Defaults to preview. Created 2026-09-08. |
+| `sync-qbo-payments` | 1 | **The one that mattered.** Also committed independently on 2026-09-09; the two copies are byte-identical. Feeds `ops.qbo_payments`, which the brix-order Payments & Credits page reads. On pg_cron `25 9,21 * * *`. Created 2026-09-08, never committed. |
+| `qbo-fix-duplicate-payments` | 1 | Also committed independently on 2026-09-09; byte-identical. One-off surgery for the 14 double-booked Stripe payments. Defaults to preview. Created 2026-09-08. |
 | `sync-qbo-customers` | 14 | QBO Customer master → `ops.qbo_customers`. |
 | `push-qbo-customer-types` | 14 | Channel taxonomy → QBO CustomerType. Dry-run by default. |
 | `push-qbo-sales-rep` | 14 | Primary sales rep → QBO Customer custom field. Dry-run by default. |
@@ -72,6 +72,15 @@ Each file was transcribed from the `get_edge_function` response and
 **parse-checked** with esbuild. That proves the syntax is valid, not that
 every byte matches what is running. Supabase exposes `ezbr_sha256` for the
 *bundle*, not for the source, so there is no hash to compare against.
+
+⚠ **One real corroboration, worth recording.** A parallel session committed
+`sync-qbo-payments` and `qbo-fix-duplicate-payments` on 2026-09-09 from the
+same deployed source. When that work merged, git reported **no add/add
+conflict on either file** — and a sha256 of both pairs confirms they are
+**byte-identical** to the copies recovered here. Two independent
+transcriptions agreeing to the byte is strong evidence the method is
+faithful. It is not a guarantee for the other sixteen, but it is better than
+nothing, which is what the paragraph above otherwise leaves you with.
 
 **So: diff before you deploy from this directory.** Read the deployed source
 first (`get_edge_function`), compare, and only then deploy. That is the same
