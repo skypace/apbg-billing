@@ -118,7 +118,7 @@ Status vocabulary:
 |---|---|
 | Estimates / pre-estimate lead management (CRM) | Sky's next want. ⚠ **The main risk is a THIRD quote series.** Live today: ERLS `Q-EQ-#####`, melt-dashboard `QT-####`, plus order series `SO-####` / `MV-####` (melt) and `SO-YYYY-N` / `WO-YYYY-N` (BrixSD) and `SDO-` (Refractor). Decide FIRST whether a CRM estimate and an ERLS `Q-EQ` are the same document; if they are, the CRM reads ERLS's quotes rather than minting its own |
 | BrixSD is a static publish with no server tier and no secret | Estimates need PDFs, e-signature and outbound email. That architecture has to change before CRM lands there. `dispatch.fn_invoice_knock` (pg_net + the vault) is the precedent for how |
-| Moving the customer-master write functions into apbg-billing | The dump step for every dual-run row above. As of 2026-09-10 the set is **ten** functions: `admin-payment-profile`, `admin-set-billing-comms`, `admin-set-credit-hold`, `admin-set-customer-name`, `admin-company-settings`, `admin-customer-locations`, `admin-customer-contacts`, `admin-customer-documents`, `admin-enable-customer`, plus `_lib/push-customer-master` and `_lib/enable-customer` they lean on |
+| **Reverse the arrow: move the customer-master write functions into apbg-billing BEFORE brix-order's staff screens are switched off** | The dump step for every dual-run row above, and ⚠ **it must come FIRST, not last** — decided by Sky 2026-09-10 ("i just dont know why it would still write through brix-order when those functions are removed… reverse it so its doing it from refractor, that way when we shut it down the question isnt, why are these buttons writing through brix order"). Today Refractor's cards POST to `orders.brixbev.com`; if the tabs are hidden first, that call reads as a mystery. See **"Before the shutdown: reverse the arrow"** below for the sequence. As of 2026-09-10 the set is **nine** functions to move: `admin-payment-profile`, `admin-set-billing-comms`, `admin-set-credit-hold`, `admin-set-customer-name`, `admin-company-settings`, `admin-customer-locations`, `admin-customer-contacts`, `admin-customer-documents`, plus `_lib/push-customer-master` and `_lib/sf-customer-manual`. `admin-enable-customer` + `_lib/enable-customer` **stay in brix-order** — portal provisioning is the store's |
 
 ---
 
@@ -169,6 +169,62 @@ Status vocabulary:
   screenshot caught the Locations card still reading "not set up in the
   portal" after the Billing card had enabled the customer, because it held the
   memoised null.
+
+## Before the shutdown: reverse the arrow
+
+**Decided 2026-09-10 (Sky).** The dual run is correct as built — both apps write
+the same row through the same brix-order functions, so nothing can drift — but
+the ORDER of the shutdown was wrong in the first draft of this ledger. It said
+"switch off brix-order's staff screens, then move the functions." Do it the
+other way round, or the day the tabs disappear somebody asks why Refractor is
+still writing through a system that was supposedly turned off.
+
+⚠ **Trigger for the reminder:** the moment Sky says the Refractor billing side
+is tested and brix-order's customer tabs can go, THIS is the first change, and
+hiding the tabs is the last. Do not hide a tab while a Refractor card still
+POSTs to `orders.brixbev.com`.
+
+The sequence, one change, one window:
+
+1. **Move the nine writer endpoints and the push mapper into apbg-billing**
+   (`netlify/functions/`). The actual QuickBooks write already lives here in
+   the `qbo-customer-lookup` edge function; what moves is the thin mapper
+   (`push-customer-master`), the handlers, their field allow-lists, the audit
+   log call and the Service Fusion retype note (`sf-customer-manual`). Bring
+   `tests/customer-master-push.test.ts` and the CORS verb test with them.
+2. **Point Refractor's cards at the local functions** (`lib/customerBilling.ts`
+   + `lib/customerMaster.ts` carry the base URL) — same origin, so the
+   allow-list here only needs the gateway and this site.
+3. **Point brix-order at apbg-billing over a shared secret** for the writes
+   it must keep making forever: the CUSTOMER's own edits
+   (`customer-update-settings` email slots, `apply-account-change`,
+   `submit-address-change`). ⚠ These are the store's by the ownership map and
+   never move; they just stop pushing to QuickBooks locally and call here
+   instead. Same server-to-server shape brix-order already uses toward
+   melt-dashboard's `provision-tenant` (`X-Provision-Secret`). The dependency
+   arrow flips direction; it does not disappear.
+4. **Brix-order's staff screens call apbg-billing too** while they still
+   exist, so both doors keep writing one row via one implementation.
+5. **Delete brix-order's copies** of the nine handlers and the mapper. The
+   `_lib/cors.ts` allow-list there shrinks to the gateway's Staff console.
+6. **Hide brix-order's staff customer tabs** (Customers detail: Overview
+   payment card, Billing & comms, Locations, Users stays). Now the shutdown is
+   just deleting screens.
+7. **Update this ledger and both CLAUDE.md files** in the same change.
+
+⚠ **Both halves of step 3 ship in the same window.** The customer self-service
+push cannot be dark between "brix-order stopped pushing locally" and
+"apbg-billing accepts the call" — a customer's address change would land in
+the portal and never reach QuickBooks, silently.
+
+⚠ **Enable stays put.** "Set up this customer in the portal" imports
+locations, seeds pricing from invoice history, sets notification defaults and
+emails the invite — that is store provisioning and the store owns it.
+Refractor's button keeps calling brix-order's `admin-enable-customer`, and that
+one cross-origin call is the documented exception, not a leftover.
+
+Cost estimate: one session. Risk: the customer self-service push (step 3),
+which is why it is called out twice.
 
 ## The two rules to keep
 
