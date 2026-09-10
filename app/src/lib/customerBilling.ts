@@ -112,6 +112,8 @@ export interface CustomerBillingRow {
   group_kind: string | null;
   group_billing_mode: string | null;
   on_new_system: boolean | null;
+  /** The customer's free-text notes — pushed to the QuickBooks Customer's Notes box. */
+  notes: string | null;
 }
 
 const SELECT = [
@@ -122,7 +124,7 @@ const SELECT = [
   'statement_recipients', 'reminder_recipients', 'order_update_recipients',
   'invoice_emails_enabled', 'statements_enabled', 'reminders_enabled',
   'paper_invoices_enabled', 'paper_statements_enabled', 'group_kind',
-  'group_billing_mode', 'on_new_system',
+  'group_billing_mode', 'on_new_system', 'notes',
 ].join(',');
 
 /**
@@ -227,7 +229,7 @@ export interface WriteResult<T = unknown> {
  * reads as a network outage rather than as a configuration gap. ERLS paid a
  * day for exactly that confusion (its own CLAUDE.md records it).
  */
-async function post<T>(fn: string, body: Record<string, unknown>): Promise<WriteResult<T>> {
+export async function postOrders<T>(fn: string, body: Record<string, unknown>): Promise<WriteResult<T>> {
   const token = await _sbToken();
   let res: Response;
   try {
@@ -265,6 +267,40 @@ async function post<T>(fn: string, body: Record<string, unknown>): Promise<Write
   };
 }
 
+/**
+ * GET against a brix-order admin endpoint under the staff bearer.
+ *
+ * Used where the answer cannot come from PostgREST: the document vault's
+ * signed file URLs are minted by the endpoint from the service-role bucket
+ * key, which the browser must never hold. Same failure vocabulary as
+ * postOrders — a blocked origin reads as "Failed to fetch" and must be named.
+ */
+export async function getOrders<T>(fn: string, query: string): Promise<T> {
+  const token = await _sbToken();
+  let res: Response;
+  try {
+    res = await fetch(`${ORDERS_API}/.netlify/functions/${fn}?${query}`, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+  } catch (e) {
+    throw new Error(
+      `Could not reach the billing API (${fn}). If this says "Failed to fetch" it is `
+      + `usually a blocked origin rather than a network fault — this page must be served `
+      + `from an origin on brix-order's allow-list. Underlying: ${(e as Error).message}`,
+    );
+  }
+  const text = await res.text();
+  let json: Record<string, unknown> = {};
+  try { json = text ? JSON.parse(text) as Record<string, unknown> : {}; } catch { /* not json */ }
+  if (!res.ok) {
+    const detail = typeof json.error === 'string' ? json.error : text.slice(0, 300);
+    if (res.status === 401) throw new Error('Your session expired — sign in again.');
+    if (res.status === 403) throw new Error('Not permitted. This needs a superadmin account. ' + (detail || ''));
+    throw new Error(`${fn} failed (${res.status}): ${detail || 'no detail'}`);
+  }
+  return json as T;
+}
+
 export function savePaymentProfile(customerId: string, patch: {
   payment_terms?: string | null;
   payment_method_orders?: PayMethod | null;
@@ -272,7 +308,7 @@ export function savePaymentProfile(customerId: string, patch: {
   payment_method_tanks?: PayMethod | null;
   taxable?: boolean;
 }) {
-  return post('admin-payment-profile', { customer_id: customerId, ...patch });
+  return postOrders('admin-payment-profile', { customer_id: customerId, ...patch });
 }
 
 export function saveBillingComms(customerId: string, patch: {
@@ -288,16 +324,51 @@ export function saveBillingComms(customerId: string, patch: {
   statements_enabled?: boolean;
   paper_invoices_enabled?: boolean;
   paper_statements_enabled?: boolean;
+  /** The one primary contact on the QuickBooks Customer (GivenName + FamilyName). */
+  billing_contact_name?: string | null;
+  /** Free text → the QuickBooks Customer's Notes box (2000 chars, QBO's cap). */
+  notes?: string | null;
 }) {
-  return post('admin-set-billing-comms', { customer_id: customerId, ...patch });
+  return postOrders('admin-set-billing-comms', { customer_id: customerId, ...patch });
 }
 
 export function setCreditHold(customerId: string, onHold: boolean) {
-  return post('admin-set-credit-hold', { customer_id: customerId, on_credit_hold: onHold });
+  return postOrders('admin-set-credit-hold', { customer_id: customerId, on_credit_hold: onHold });
+}
+
+export interface EnableResult {
+  ok: true;
+  customer_id: string;
+  qbo_customer_id: number;
+  name: string | null;
+  locations_imported: number | null;
+  location_mode: string | null;
+  already_enabled: boolean;
+  switch_on_email_sent?: boolean;
+  switch_on_email_warning?: string | null;
+  collection_seed_error?: string | null;
+}
+
+/**
+ * Create the portal record for a QuickBooks customer that has none — the
+ * "Enable" button from brix-order's Customers admin, reachable from here so
+ * the customer page is not a dead end for 650 of the 850 accounts.
+ *
+ * ⚠ Enable is NOT a bare insert. brix-order's `_lib/enable-customer` imports
+ * the QuickBooks sub-customers as locations, seeds the customer's pricing
+ * from invoice history, switches every email notification ON (paper OFF),
+ * and sends the account-live invite. It REFUSES (409) an EQUIPMENT / RESQ
+ * bucket — those are internal accounts and never belong on the portal.
+ * The confirm dialog on the card says all of that before the click.
+ */
+export function enableCustomerInPortal(qboCustomerId: string) {
+  return postOrders<EnableResult>('admin-enable-customer', {
+    qbo_customer_id: Number(String(qboCustomerId).replace(/[^0-9]/g, '')),
+  });
 }
 
 export function setCustomerName(customerId: string, name: string) {
-  return post('admin-set-customer-name', { customer_id: customerId, name });
+  return postOrders('admin-set-customer-name', { customer_id: customerId, name });
 }
 
 /** The live QuickBooks comparison, plus the Stripe wallet state. */

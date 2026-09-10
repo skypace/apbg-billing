@@ -5,6 +5,9 @@ import { DateRangePicker } from '@mui/x-date-pickers-pro/DateRangePicker';
 import { KPICard } from '../components/KPICard';
 import { CustomerBillingCard } from '../components/CustomerBillingCard';
 import { CustomerEquipmentCard } from '../components/CustomerEquipmentCard';
+import { CustomerLocationsCard } from '../components/CustomerLocationsCard';
+import { CustomerContactsCard } from '../components/CustomerContactsCard';
+import { CustomerDocumentsCard } from '../components/CustomerDocumentsCard';
 import { SegmentChip } from '../components/SegmentChip';
 import { fm, fp, fmtNum } from '../lib/formatters';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -368,6 +371,16 @@ ${itemRows || '<tr><td colspan="4" style="text-align:center;color:#64748b">No it
           metrics"). The analytics below are what this page used to lead with;
           the record a person edits now comes before the numbers they read. */}
       <CustomerBillingCard qboCustomerId={customerId} customerName={detail.display_name} />
+
+      {/* The rest of the customer RECORD (Sky, 2026-09-10: "we need to be able
+          to edit the rest of the customer data here too. like addresses, files
+          and attachments"). Same table as Brix Order, same single writer; the
+          PRIMARY location, the bill-to, the primary contact, the notes and
+          every uploaded file push on to QuickBooks. Folded by default — the
+          collapsed line says what is inside. */}
+      <CustomerLocationsCard qboCustomerId={customerId} customerName={detail.display_name} />
+      <CustomerContactsCard qboCustomerId={customerId} customerName={detail.display_name} />
+      <CustomerDocumentsCard qboCustomerId={customerId} customerName={detail.display_name} />
 
       {/* Equipment under the customer (Sky, 2026-09-09): the asset line —
           make/model, serial, contract number — with the machine one click
