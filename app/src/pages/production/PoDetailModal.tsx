@@ -4,9 +4,11 @@ import { SearchSelect } from '../../components/SearchSelect';
 import { X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil, RefreshCw, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import {
   PoLineEdit, PoReceipt, PurchaseOrderLine, PurchaseOrderRow,
-  closePurchaseOrder, fetchPoLines, fetchPoReceipts, isConflict, pushPoToQbo, receivePurchaseOrder,
-  reloadPoFromQbo, retryReceiptBill, updatePurchaseOrder, voidPurchaseOrder,
+  closePurchaseOrder, closeRuleCopy, fetchPoLines, fetchPoReceipts, isConflict, pushPoToQbo, receivePurchaseOrder,
+  reloadPoFromQbo, reopenPurchaseOrder, retryReceiptBill, updatePurchaseOrder, voidPurchaseOrder,
 } from '../../lib/purchasing';
+import { ReasonDialog } from '../../components/ReasonDialog';
+import { AdjustReceiptDialog } from './AdjustReceiptDialog';
 import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
@@ -61,6 +63,8 @@ export function PoDetailModal({
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>('view');
   const [emailOpen, setEmailOpen] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
+  const [adjustLine, setAdjustLine] = useState<PurchaseOrderLine | null>(null);
 
   // receive form
   const [recvQty, setRecvQty] = useState<Record<string, string>>({});
@@ -97,6 +101,11 @@ export function PoDetailModal({
   const canClose   = !!po && (po.status === 'received' || po.status === 'partial');
   const canVoid    = !!po && (po.status === 'draft' || po.status === 'open');
   const inQbo      = !!po?.qbo_purchase_order_id;
+  // 20260903c/d: a closed PO can be reopened (status recomputed from its lines) and a
+  // receipt corrected by a compensating movement; the close rule says how it ends.
+  const canReopen  = !!po && po.status === 'closed';
+  const canAdjust  = !!po && po.status !== 'draft' && po.status !== 'void';
+  const rule       = po ? closeRuleCopy(po) : null;
 
   const receivable = useMemo(() => (lines ?? []).filter((l) => l.receivable !== false && Number(l.qty_ordered) - Number(l.qty_received) > 0), [lines]);
 
@@ -240,6 +249,14 @@ export function PoDetailModal({
     finally { setBusy(false); }
   }
 
+  async function doReopen(reason: string) {
+    setReopenAsk(false);
+    setBusy(true);
+    try { const st = await reopenPurchaseOrder(poId, reason); toast.success('PO reopened — now ' + st); onChanged(); }
+    catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
   if (!po) return null;
   const destLabel = locById.get(po.destination_location_id)?.name ?? po.location_label ?? '—';
   const receiveTotal = receivable.reduce((s, l) => s + Number(recvQty[l.id] ?? 0) * Number(l.unit_cost), 0);
@@ -273,6 +290,14 @@ export function PoDetailModal({
               {po.expected_date && ' · expected ' + po.expected_date}
               {po.run_number && ' · run ' + po.run_number}
             </div>
+            {rule && (
+              <div style={{ fontSize: 10, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }} title={rule.detail}>
+                <span style={{ border: '1px solid var(--bd)', borderRadius: 10, padding: '1px 7px', color: po.close_rule === 'on_run_yield' ? 'var(--am)' : 'var(--mt)', fontWeight: 600, letterSpacing: 0.3 }}>
+                  {rule.label}
+                </span>
+                {po.closed_reason && <span style={{ color: 'var(--mt)' }}>closed: {po.closed_reason === 'run_shipped' ? 'the run shipped' : po.closed_reason === 'received' ? 'fully received' : po.closed_reason}</span>}
+              </div>
+            )}
             {inQbo ? (
               <div style={{ fontSize: 10, color: 'var(--gn)', marginTop: 4, fontWeight: 600 }}>
                 ✓ In QuickBooks as PurchaseOrder #{po.qbo_purchase_order_id}
@@ -295,6 +320,9 @@ export function PoDetailModal({
             )}
             {po.void_reason && (
               <div style={{ fontSize: 10, color: 'var(--rd)', marginTop: 4 }}>Voided: {po.void_reason}</div>
+            )}
+            {po.reopened_at && (
+              <div style={{ fontSize: 10, color: 'var(--am)', marginTop: 4 }}>Reopened {new Date(po.reopened_at).toLocaleString()}{po.reopen_reason ? ': ' + po.reopen_reason : ''}</div>
             )}
           </div>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
@@ -356,13 +384,23 @@ export function PoDetailModal({
                       <td style={td}>
                         <div style={{ fontWeight: 600 }}>{itemName(ln.qbo_item_id)}</div>
                         {ln.description && <div style={{ fontSize: 10, color: 'var(--mt)' }}>{ln.description}</div>}
-                        {!isReceivable && <div style={{ fontSize: 9.5, color: 'var(--mt)' }}>service · nothing arrives</div>}
+                        {!isReceivable && (
+                          <div style={{ fontSize: 9.5, color: 'var(--mt)' }} title="A service, or the co-packer's own supply — nothing arrives here">
+                            {po.close_rule === 'on_run_yield' ? 'closes with the run · nothing arrives' : 'service · nothing arrives'}
+                          </div>
+                        )}
                       </td>
                       <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(ln.qty_ordered))}</td>
                       <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)',
                         color: fullyReceived ? 'var(--gn)' : (Number(ln.qty_received) > 0 ? 'var(--am)' : 'var(--mt)') }}>
                         {fmtNum(Number(ln.qty_received))}
                         {fullyReceived && isReceivable && <CheckCircle2 size={11} style={{ marginLeft: 4, verticalAlign: -1 }} />}
+                        {mode === 'view' && canAdjust && isReceivable && Number(ln.qty_received) > 0 && (
+                          <button type="button" title="Correct this receipt (a compensating movement, never an edit)" disabled={busy} onClick={() => setAdjustLine(ln)}
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: '0 0 0 5px', verticalAlign: -1 }}>
+                            <Pencil size={10} />
+                          </button>
+                        )}
                       </td>
                       {/* 4 dp — a can body is $0.328; whole dollars would print $0 */}
                       <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{'$' + Number(ln.unit_cost).toFixed(4)}</td>
@@ -462,6 +500,9 @@ export function PoDetailModal({
                   </button>
                 )}
                 {canVoid && <button onClick={doVoid} disabled={busy} style={btnDanger()}>Void</button>}
+                {canReopen && (
+                  <button onClick={() => setReopenAsk(true)} disabled={busy} style={btnSecondary()} title="Closed → back to received / partial / open, recomputed from the lines">Reopen</button>
+                )}
               </>
             )}
           </div>
@@ -508,6 +549,18 @@ export function PoDetailModal({
         </div>
         {emailOpen && (
           <EmailDocModal ref={{ kind: 'po', id: poId }} title={'purchase order ' + po.po_number} onClose={() => setEmailOpen(false)} />
+        )}
+        {reopenAsk && (
+          <ReasonDialog title={'Reopen ' + po.po_number} verb="Reopen purchase order"
+            items={[{ id: po.id, number: po.po_number, eligible: true }]} busy={busy}
+            note="Its status is recomputed from the lines (received, partial or open) so a receipt can be corrected. The QuickBooks purchase order is not touched."
+            onCancel={() => setReopenAsk(false)} onConfirm={(reason) => void doReopen(reason)} />
+        )}
+        {adjustLine && (
+          <AdjustReceiptDialog line={adjustLine} poStatus={po.status}
+            itemName={itemName(adjustLine.qbo_item_id)}
+            onCancel={() => setAdjustLine(null)}
+            onDone={(r) => { setAdjustLine(null); toast.success(`Receipt corrected ${fmtNum(r.from)} → ${fmtNum(r.to)} · PO now ${r.status}`); reload().catch(() => undefined); onChanged(); }} />
         )}
       </div>
     </div>

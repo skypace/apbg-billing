@@ -7,7 +7,12 @@
 //   - as_bill=true  -> unpaid QBO Bill (requires a matching QBO vendor)
 //   - as_bill=false -> paid QBO Purchase (requires payment_account_id)
 // Modes: create (default, does the post), preview (dry-run, no writes),
-// link (legacy passive — stamp an existing QBO id without posting).
+// link (legacy passive — stamp an existing QBO id without posting),
+// attach (file a late document onto the posted txn),
+// update (2026-09-03: re-post a CHANGED total onto the SAME QBO Bill — a
+//   sparse Bill update keeps the BillPayment applied, so a co-packer deposit
+//   that was paid against the bill stays paid and the final invoice becomes
+//   the balance due; refuses to shrink a bill below what is already paid).
 // ============================================================
 import { createClient } from '@supabase/supabase-js';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
@@ -292,9 +297,9 @@ export default async function handler(req) {
   let body;
   try { body = await req.json(); } catch { return err('Invalid JSON body'); }
 
-  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false, attachmentId = null } = body;
+  const { requestId, mode = 'create', qboBillId, confirmDuplicate = false, attachmentId = null, preview: previewOnly = false } = body;
   if (!requestId) return err('Missing requestId');
-  if (!['create', 'preview', 'link', 'attach'].includes(mode)) return err(`Invalid mode "${mode}"`);
+  if (!['create', 'preview', 'link', 'attach', 'update'].includes(mode)) return err(`Invalid mode "${mode}"`);
 
   const { data: request, error: fetchErr } = await supabase
     .from('expense_requests').select('*').eq('id', requestId).single();
@@ -333,6 +338,65 @@ export default async function handler(req) {
       token_used: null,
     });
     return json({ success: true, mode: 'attach', kind, qbo_txn_id: request.qbo_bill_id, attached: result.attached });
+  }
+
+  // ── mode=update: the SAME QuickBooks Bill, new total/lines/number ───────────
+  // Bills only (a Purchase is money already gone; a VendorCredit is consumed by
+  // application). Read the live Bill for its SyncToken and what has been paid;
+  // refuse a total below the paid amount — QBO would leave a negative balance.
+  if (mode === 'update') {
+    if (request.status !== 'posted' || !request.qbo_bill_id) return err('Only a posted bill can be updated in QuickBooks', 409);
+    if (request.as_bill !== true || request.is_credit === true) return err('Only an unpaid Bill can be updated in place — a Purchase or a vendor credit is re-entered, not edited', 409);
+    let live;
+    try { live = (await qboRequest('GET', `/bill/${encodeURIComponent(request.qbo_bill_id)}`)).Bill; }
+    catch (e) { return err('Could not read the QuickBooks bill: ' + qboFaultMessage(e), 502); }
+    if (!live || !live.Id) return err(`QuickBooks Bill ${request.qbo_bill_id} was not found — it may have been deleted there`, 409);
+    const paid = round(Number(live.TotalAmt || 0) - Number(live.Balance ?? live.TotalAmt ?? 0));
+    const newTotal = round(request.total_amount);
+    if (newTotal < paid) return err(`The new total (${newTotal.toFixed(2)}) is below what has already been paid on this bill (${paid.toFixed(2)})`, 409);
+    const vendor = live.VendorRef ? { Id: live.VendorRef.value, DisplayName: live.VendorRef.name } : await findQBOVendor(request.vendor_name);
+    if (!vendor) return err('Could not resolve the bill\'s vendor', 409);
+    const departmentRef = request.qbo_department_id
+      ? { value: request.qbo_department_id, name: request.qbo_department_name }
+      : (request.job_number ? await findQBODepartmentRef(request.job_number) : null);
+    const fresh = buildBillPayload(request, vendor, departmentRef, DEFAULT_COGS_ACCOUNT_ID);
+    const payload = {
+      Id: live.Id, SyncToken: live.SyncToken, sparse: true,
+      Line: fresh.Line,
+      ...(fresh.DocNumber ? { DocNumber: fresh.DocNumber } : {}),
+      ...(fresh.TxnDate ? { TxnDate: fresh.TxnDate } : {}),
+      PrivateNote: (fresh.PrivateNote + ` | updated ${new Date().toISOString().slice(0, 10)} from ${round(live.TotalAmt).toFixed(2)} to ${newTotal.toFixed(2)}`).substring(0, 4000),
+    };
+    if (previewOnly) {
+      return json({ success: true, mode: 'update', preview: true, request_id: requestId, qbo_bill_id: live.Id,
+        current: { total: round(live.TotalAmt), balance: round(live.Balance ?? live.TotalAmt), paid, sync_token: live.SyncToken },
+        proposed: { total: newTotal, balance_after: round(newTotal - paid) }, payload });
+    }
+    let updated;
+    try { updated = (await qboRequest('POST', '/bill', payload)).Bill; }
+    catch (e) {
+      const reason = qboFaultMessage(e);
+      await notifyPostFailure(supabase, request, 'QBO bill update failed: ' + reason);
+      return err('QBO bill update failed: ' + reason, 502);
+    }
+    if (!updated || !updated.Id) return err('QBO did not return the updated Bill', 502);
+    let attached = 0;
+    if (attachmentId) {
+      const { data: att } = await supabase.from('expense_request_attachments').select('id, file_name').eq('id', attachmentId).eq('request_id', requestId).single();
+      if (!att) return err('That attachment does not belong to this request', 404);
+      try { attached = (await attachReceiptsToQBO('Bill', updated.Id, requestId, { attachmentId })).attached; } catch { /* non-fatal */ }
+    }
+    const { error: upErr } = await supabase.from('expense_requests').update({
+      qbo_posted_amount: round(updated.TotalAmt), posted_at: new Date().toISOString(),
+      qbo_balance: null, qbo_checked_at: null, autopost_error: null,
+    }).eq('id', requestId);
+    await supabase.from('expense_approvals').insert({
+      request_id: requestId, action: 'approved', decided_by: `updated in QBO by ${user.email || user.id}`,
+      notes: `QBO Bill ${updated.DocNumber || updated.Id} updated in place: ${round(live.TotalAmt).toFixed(2)} → ${round(updated.TotalAmt).toFixed(2)} (paid so far ${paid.toFixed(2)}, balance ${round(updated.Balance ?? updated.TotalAmt - paid).toFixed(2)})${attached ? ` · ${attached} document attached` : ''}`,
+      token_used: null,
+    });
+    return json({ success: true, mode: 'update', request_id: requestId, qbo_bill_id: updated.Id, qbo_doc_number: updated.DocNumber,
+      qbo_total: updated.TotalAmt, qbo_balance: updated.Balance, paid, attached, ...(upErr ? { partial: true, update_error: upErr.message } : {}) });
   }
 
   if (mode === 'link') {
@@ -478,7 +542,7 @@ export default async function handler(req) {
     // The qbo_bill_id column predates the Bill/Purchase split — reused for the
     // Purchase Id so existing reporting keeps working without a schema rename.
     const { error: updateErr } = await supabase.from('expense_requests').update({
-      status: 'posted', posted_at: now, qbo_bill_id: qboTxn.Id,
+      status: 'posted', posted_at: now, qbo_bill_id: qboTxn.Id, qbo_posted_amount: round(qboTxn.TotalAmt),
       vendor_id: optionalVendor?.Id || request.vendor_id || null,
       autopost_error: null,
     }).eq('id', requestId);
@@ -564,6 +628,7 @@ export default async function handler(req) {
     .from('expense_requests')
     .update({
       qbo_bill_id: billResult.Id,
+      qbo_posted_amount: round(billResult.TotalAmt),
       vendor_id: vendor.Id,
       status: 'posted',
       posted_at: new Date().toISOString(),

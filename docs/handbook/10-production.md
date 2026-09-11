@@ -12,15 +12,17 @@ The Production section of BRIX Refractor runs co-pack production end to end: the
 
 Open **https://alamedapointbg.com/margin/** → **Production**, and set the lane
 switch at the top to **Cans 24pks** (the other lane, **BIB Product**, shows only
-Purchase Orders). Seven tabs:
+Purchase Orders). Eight tabs:
 
 | Tab | Purpose |
 |---|---|
+| **Production Orders** | The order: one or several flavours on one fill, **one purchase order per vendor for the lot**, stock already at the co-packer used before more is ordered, MOQ applied once on the aggregate, one bill of lading for the truck, and the master Void that takes every work order and PO with it. Each flavour on it is a work order underneath. Its **Bills** section records the co-packer's deposit and final invoice (the final updates the deposit's QuickBooks bill in place); a closed PO's detail creates the vendor's bill |
 | **Formulas & Spec Sheets** | The recipes — % by weight, QC specs, batching instructions, revisions, batch scaler, printable batching sheet |
-| **Materials & Pricing** | The purchased-item master — one vendor and one price per component, plus the raw-ingredient list |
+| **Materials & Pricing** | The purchased-item master — one vendor, one price and the ordering terms (MOQ, multiple, lead days) per component, the raw-ingredient list, and the raw-material stock sitting at the co-packer with its opening-balance form |
 | **Bills of Materials** | Parts list per finished good, the recipe from the formula, and the pre-flight that says who gets a purchase order |
-| **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline |
-| **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders |
+| **Work Orders** | The production runs — material snapshots, PO generation, lots, the status pipeline. Open / Pending / Closed / Voided pills, tick rows for bulk Edit / Void / Delete drafts |
+| **Purchase Orders** | Vendor POs, including the one-per-vendor POs generated from work orders. Same four pills and bulk actions |
+| **Licensing** | Licensing agreements — a licensor's royalty (Calderoni's syrup compounding charge) accrued per run on the cases produced, rate history, and monthly settlement into a Brixpense bill |
 | **Compliance & Safety** | Certificates, audits and the document vault |
 | **Run Guide** | The click-by-click walkthrough ([chapter 10a](#/10a-production-run-guide)) shown inside the page, plus the printable PDF for a tester |
 
@@ -81,14 +83,15 @@ Every stage change writes to **`ops.work_order_events`**, and the `v_work_orders
 
 1. **Check the formula** (Formulas & Spec Sheets): scale it to the batch size, print the batching sheet for the co-packer, confirm the spec attachment is current.
 2. **Check the BOM** (Bills of Materials): components, quantities-per-unit and preferred vendors are right *before* creating the WO — the WO freezes them.
-3. **Create the work order** (Work Orders tab) for the finished good and quantity. Review the per-vendor material snapshot.
-4. **Generate POs** — one per vendor — and send/confirm them from the Purchase Orders tab. Advance to `ordered`.
-5. When materials arrive at the co-packer, **Mark at co-packer**.
+3. **Create the production order** (Production Orders tab) — one line per flavour. The preview is the server's own per-vendor PO calculation. (A single standalone flavour can still be raised from the Work Orders tab.)
+4. **Generate POs per vendor** on the order — one PO per vendor for every flavour together — and send/confirm them from the Purchase Orders tab. The order and its work orders read `ordered`.
+5. Receive the ingredient PO as it lands; when its last line is in, every flavour reads **Materials at co-packer** by itself (or press it on the order).
 6. When the run starts, **Start production**.
 7. When the co-packer reports the finished count, **Record yield** with the actual units. Verify the cost snapshot (yield %, co-pack fee, freight) looks right — this is the moment costs lock.
-8. When the truck leaves, **Ship** — this creates the BOL transfer co-packer → warehouse.
+8. When the truck leaves, **Ship the run** on the order — ONE bill of lading for every flavour, co-packer → warehouse; the co-packer's PO closes with it.
 9. When the goods hit the dock, **Receive** — inventory updates.
-10. **Close** the work order. Done; the audit trail and cost snapshot are permanent.
+10. **Close order** — every work order closes with it. Done; the audit trail and cost snapshots are permanent. **Reopen** puts every flavour back to Received if a receipt needs correcting.
+11. **Bills** — a closed PO gets **Create bill…** (its lines become a Brixpense bill); the co-packer's deposit and final invoice are recorded on the order, and the final UPDATES the deposit's QuickBooks bill in place. Posting, and **Update in QuickBooks**, are clicks in Brixpense → Expense History; Production never posts to QuickBooks itself.
 
 If anything went wrong before close, **Void** with a reason rather than deleting anything.
 

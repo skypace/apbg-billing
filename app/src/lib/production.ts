@@ -209,6 +209,13 @@ export interface WorkOrderView extends WorkOrder {
   services_cost: number | null;
   po_count: number | null;
   po_open_count: number | null;
+  /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
+  bucket?: string | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
+  /** The production run this work order is a line of (20260903f); null for a standalone WO. */
+  run_id?: string | null;
+  run_number?: string | null;
 }
 
 /** A WO material requirement row — the quantity calc lives here, per vendor. */
@@ -218,7 +225,11 @@ export interface WorkOrderMaterial {
   bom_line_id: string | null;
   component_qbo_item_id: string;
   item_name: string | null;
+  /** What is ORDERED — MOQ / multiple / whole packs applied. */
   required_qty: number;
+  /** What the batch NEEDS, in purchase units, unrounded. null on pre-20260903e rows. */
+  demand_qty: number | null;
+  qty_basis: 'per_yield' | 'per_run';
   uom: string;
   unit_cost_est: number | null;
   qbo_vendor_id: string | null;
@@ -420,6 +431,29 @@ export async function closeWorkOrder(woId: string, qtyProducedActual: number, cl
     p_qty_produced_actual: qtyProducedActual,
     p_close_date: closeDate ?? null,
   });
+}
+
+/** Closed → received, so the receipt can be corrected. */
+export async function reopenWorkOrder(woId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_work_order', { p_wo_id: woId, p_reason: reason });
+}
+
+export interface WoRescaleResult {
+  wo_id: string; batch_code: string; from: number; to: number; factor: number;
+  materials: number; recipe_lines: number; reservations: number; po_lines: number; movements: number;
+  purchase_orders: { po_number: string; subtotal: number }[];
+}
+
+/**
+ * Change a work order's PLAN quantity after the fact (20260911d). The server
+ * carries the change through the materials, the recipe detail, the linked PO
+ * lines + subtotals, open reservations and any movements already posted (as
+ * NEW delta rows — the ledger is never edited). Refused once a yield is
+ * recorded, on a run work order, or when a PO is already in QuickBooks; the
+ * refusal comes back as the error message, in the server's words.
+ */
+export async function rescaleWorkOrder(woId: string, qtyToProduce: number, reason: string | null): Promise<WoRescaleResult> {
+  return sbrpc<WoRescaleResult>('fn_wo_rescale', { p_wo_id: woId, p_qty_to_produce: qtyToProduce, p_reason: reason });
 }
 
 export async function voidWorkOrder(woId: string, reason: string): Promise<void> {

@@ -50,6 +50,7 @@ export interface PurchaseOrderRow {
   created_at: string;
   updated_at: string;
   po_kind?: 'materials' | 'production' | 'other' | null;
+  /** The run this PO was raised from (20260903f); work_order_id is null on a run PO. */
   production_run_id?: string | null;
   run_number?: string | null;
   /** 'brix' = created here; 'qbo' = created in QuickBooks and mirrored (20260904d). */
@@ -66,6 +67,31 @@ export interface PurchaseOrderRow {
   last_receipt_at: string | null;
   /** Receipts whose QuickBooks bill has not landed (failed or in flight). */
   bills_pending: number;
+  /** open | pending | closed | voided — ops.fn_status_bucket, from the view. */
+  bucket?: string | null;
+  reopened_at?: string | null;
+  reopen_reason?: string | null;
+  /** on_receipt (closes itself when every receivable line is in) | on_run_yield (the co-packer's PO — closes when the run ships). */
+  close_rule?: PoCloseRule | null;
+  closed_reason?: string | null;
+  receivable_line_count?: number | null;
+  /** Every WO the lines cover, comma-joined — a run PO carries several. */
+  work_order_batch_codes?: string | null;
+  /** Σ (ordered − demand) — the MOQ / pack surplus that will sit at the co-packer. */
+  qty_surplus_total?: number | null;
+}
+
+export type PoCloseRule = 'on_receipt' | 'on_run_yield';
+
+/** What the close rule means, in the words the screen uses. */
+export function closeRuleCopy(po: { close_rule?: PoCloseRule | null; work_order_id?: string | null; production_run_id?: string | null; receivable_line_count?: number | null }): { label: string; detail: string } {
+  if (po.close_rule === 'on_run_yield') {
+    return { label: 'Closes when the run ships', detail: 'The co-packer supplies and performs these itself — nothing is received against this PO. It closes by itself when the run ships its finished goods.' };
+  }
+  if (po.work_order_id || po.production_run_id) {
+    return { label: 'Closes on receipt', detail: 'Closes by itself once every receivable line is fully received; every work order on it moves to "materials at co-packer" when the last such PO closes.' };
+  }
+  return { label: 'Closes on Close', detail: 'A standalone PO: receive its lines, then press Close.' };
 }
 
 export interface PurchaseOrderLine {
@@ -79,7 +105,12 @@ export interface PurchaseOrderLine {
   sort_order: number;
   notes: string | null;
   created_at: string;
-  receivable?: boolean;
+  /** false on a service line or any line of an on_run_yield PO — nothing arrives, nothing is received. */
+  receivable?: boolean | null;
+  /** ordered − shortfall when the vendor's terms lifted this line (run POs). */
+  moq_applied?: number | null;
+  /** Σ demand the line covers; surplus = qty_ordered − demand_total. */
+  demand_total?: number | null;
   /** The QuickBooks line Id — what a bill's LinkedTxn points at. */
   qbo_line_id?: string | null;
 }
@@ -198,6 +229,22 @@ export async function closePurchaseOrder(poId: string): Promise<void> {
 export async function voidPurchaseOrder(poId: string, reason: string): Promise<void> {
   await sbrpc('fn_void_purchase_order', { p_po_id: poId, p_reason: reason });
 }
+
+/** Closed → recomputed from its lines (received / partial / open). QBO PurchaseOrder is untouched. */
+export async function reopenPurchaseOrder(poId: string, reason: string): Promise<string> {
+  return sbrpc<string>('fn_reopen_purchase_order', { p_po_id: poId, p_reason: reason });
+}
+
+/** Correct a line's received quantity up or down (a compensating movement, never an edit). */
+export async function adjustReceipt(args: {
+  po_line_id: string; new_qty_received: number; reason: string; occurred_at?: string | null;
+}): Promise<{ po_id: string; from: number; to: number; delta: number; status: string }> {
+  return sbrpc('fn_adjust_receipt', {
+    p_po_line_id: args.po_line_id, p_new_qty_received: args.new_qty_received,
+    p_reason: args.reason, p_occurred_at: args.occurred_at ?? new Date().toISOString(),
+  });
+}
+
 
 // ── QuickBooks: the two-way street ───────────────────────────────────────
 //

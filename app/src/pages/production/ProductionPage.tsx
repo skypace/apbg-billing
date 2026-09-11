@@ -32,23 +32,28 @@ import { PurchaseOrdersTab } from './PurchaseOrdersTab';
 import { ComplianceTab } from './ComplianceTab';
 import { RawMaterialsTab } from './RawMaterialsTab';
 import { RunGuideTab } from './RunGuideTab';
+import { LicensingTab } from './LicensingTab';
+import { RunsTab } from './RunsTab';
+import { ProductionRun, fetchRuns } from '../../lib/runs';
 
-type TabId = 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_orders' | 'compliance' | 'guide';
+type TabId = 'orders' | 'formulas' | 'raw_materials' | 'boms' | 'work_orders' | 'purchase_orders' | 'licensing' | 'compliance' | 'guide';
 
 const TABS: { id: TabId; label: string }[] = [
+  { id: 'orders',          label: 'Production Orders'      },
   { id: 'formulas',        label: 'Formulas & Spec Sheets' },
   { id: 'raw_materials',   label: 'Materials & Pricing'    },
   { id: 'boms',            label: 'Bills of Materials'     },
   { id: 'work_orders',     label: 'Work Orders'            },
   { id: 'purchase_orders', label: 'Purchase Orders'        },
+  { id: 'licensing',       label: 'Licensing'              },
   { id: 'compliance',      label: 'Compliance & Safety'    },
   { id: 'guide',           label: 'Run Guide'              },
 ];
 
 function coerceTab(value: unknown): TabId | null {
-  return value === 'formulas' || value === 'raw_materials' || value === 'boms'
+  return value === 'orders' || value === 'formulas' || value === 'raw_materials' || value === 'boms'
     || value === 'work_orders' || value === 'purchase_orders' || value === 'compliance'
-    || value === 'guide'
+    || value === 'guide' || value === 'licensing'
     ? value
     : null;
 }
@@ -80,7 +85,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
       ? 'purchase_orders'
       : typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.wo.prefill')
         ? 'work_orders'
-        : 'formulas');
+        : 'orders');
   // Lanes are a multi-select (Sky, 2026-09-04) — none picked means both.
   const [lanes, setLanes, toggleLane] = useInventoryLanes(PRODUCTION_LANES);
   // "BIB only" is the one selection that changes the page shape: purchasing only.
@@ -89,6 +94,10 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [formulas, setFormulas] = useState<ProductFormula[] | null>(null);
   const [boms, setBoms] = useState<ProductBom[] | null>(null);
   const [wos, setWos] = useState<WorkOrderView[] | null>(null);
+  const [runs, setRuns] = useState<ProductionRun[] | null>(null);
+  // Cross-tab focus: a PO or WO opened from the run detail lands on its own tab.
+  const [poFocus, setPoFocus] = useState<string | null>(null);
+  const [woFocus, setWoFocus] = useState<string | null>(null);
   const [items, setItems] = useState<InventoryHealthRow[] | null>(null);
   const [locations, setLocations] = useState<InventoryLocation[] | null>(null);
   const [vendors, setVendors] = useState<QboVendor[] | null>(null);
@@ -96,7 +105,8 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   const [poLines, setPoLines] = useState<PurchaseOrderLineSummary[] | null>(null);
 
   function reloadAll() {
-    setFormulas(null); setBoms(null); setWos(null); setPos(null); setPoLines(null);
+    setFormulas(null); setBoms(null); setWos(null); setPos(null); setPoLines(null); setRuns(null);
+    fetchRuns().then(setRuns).catch(() => setRuns([]));
     fetchFormulas().then(setFormulas).catch(() => setFormulas([]));
     fetchBoms().then(setBoms).catch(() => setBoms([]));
     fetchWorkOrderViews().then(setWos).catch(() => setWos([]));
@@ -119,7 +129,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   }, []);
 
   useEffect(() => {
-    if (bibOnly && tab !== 'purchase_orders' && tab !== 'guide') setTab('purchase_orders');
+    if (bibOnly && tab !== 'purchase_orders' && tab !== 'guide' && tab !== 'licensing') setTab('purchase_orders');
   }, [bibOnly, tab]);
 
   useEffect(() => {
@@ -132,7 +142,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
   // disappeared" complaint chapter 10 exists to answer, so it shows on both.
   const visibleTabs = useMemo(
     () => bibOnly
-      ? TABS.filter((t) => t.id === 'purchase_orders' || t.id === 'guide')
+      ? TABS.filter((t) => t.id === 'purchase_orders' || t.id === 'guide' || t.id === 'licensing')
       : TABS,
     [bibOnly],
   );
@@ -185,29 +195,43 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     () => new Set((filteredWos ?? []).map((w) => w.id)),
     [filteredWos],
   );
+  // A run belongs to the lane its work orders are in (every flavour on a run is
+  // a cans BOM today; the filter is here so the BIB lane never shows one).
+  const laneRunIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const w of filteredWos ?? []) if (w.run_id) ids.add(w.run_id);
+    return ids;
+  }, [filteredWos]);
+  const filteredRuns = useMemo(
+    () => runs ? runs.filter((r) => r.wo_count === 0 || laneRunIds.has(r.id)) : null,
+    [runs, laneRunIds],
+  );
   // A PO belongs to this lane if it carries a lane item OR it was raised by a work
   // order in this lane. The second half matters: an ingredient PO is all `excluded`
   // items (a gallon of syrup and a run fee are not finished goods), so on lines
   // alone the AC Calderoni half of every run would be invisible and unopenable.
   const filteredPos = useMemo(
     () => pos && poLines
-      ? pos.filter((po) => lanePoIds.has(po.id) || (po.work_order_id ? laneWoIds.has(po.work_order_id) : false))
+      ? pos.filter((po) => lanePoIds.has(po.id)
+          || (po.work_order_id ? laneWoIds.has(po.work_order_id) : false)
+          || (po.production_run_id ? laneRunIds.has(po.production_run_id) : false))
       : null,
-    [pos, poLines, lanePoIds, laneWoIds],
+    [pos, poLines, lanePoIds, laneWoIds, laneRunIds],
   );
 
   const activeLabel = visibleTabs.find((t) => t.id === tab)?.label ?? 'Production';
   const openCount = (filteredWos ?? []).filter((w) => !['closed', 'void', 'consumed'].includes(w.status)).length;
+  const openRunCount = (filteredRuns ?? []).filter((r) => r.status === 'ordered' || r.status === 'in_progress').length;
   const openPoCount = (filteredPos ?? []).filter((p) => p.status === 'open' || p.status === 'partial').length;
 
   return (
     <div>
       <div className="hero">
         <div>
-          <div className="hero-eyebrow">Formulas · BOM · Work Orders · POs · Compliance · Run Guide</div>
+          <div className="hero-eyebrow">Production Orders · Formulas · BOM · Work Orders · POs · Licensing · Compliance · Run Guide</div>
           <h1 className="hero-title">Production</h1>
           <div className="hero-meta">
-            {activeLabel} · {describeLanes(lanes, PRODUCTION_LANES)} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
+            {activeLabel} · {describeLanes(lanes, PRODUCTION_LANES)} · {formulas?.length ?? 0} formula{(formulas?.length ?? 0) === 1 ? '' : 's'} · {filteredBoms?.length ?? 0} BOM{(filteredBoms?.length ?? 0) === 1 ? '' : 's'} · {openRunCount} open order{openRunCount === 1 ? '' : 's'} · {openCount} open WO{openCount === 1 ? '' : 's'} · {openPoCount} open PO{openPoCount === 1 ? '' : 's'}
           </div>
         </div>
         <div className="hero-stamp">
@@ -225,11 +249,24 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           <InventoryLaneSelector value={lanes} onToggle={toggleLane} lanes={PRODUCTION_LANES} />
           <div className="toolbar-spacer" />
           <span style={{ fontSize: 10, color: 'var(--mt)' }}>
-            {bibOnly ? 'Purchasing only' : 'Formula → raw materials → BOM → work order → POs → co-packer → yield → production PO → receive'}
+            {bibOnly ? 'Purchasing only' : 'Formula → raw materials → BOM → production order (one PO per vendor) → co-packer → yield → one BOL → receive'}
           </span>
         </div>
       </div>
 
+      {tab === 'orders' && (
+        <RunsTab
+          runs={filteredRuns}
+          boms={filteredBoms ?? []}
+          vendors={vendors ?? []}
+          locations={locations ?? []}
+          itemLookup={itemLookup}
+          initialRunId={routeParams.run ?? null}
+          onChanged={reloadAll}
+          onOpenPo={(id) => { setPoFocus(id); setTab('purchase_orders'); }}
+          onOpenWo={(id) => { setWoFocus(id); setTab('work_orders'); }}
+        />
+      )}
       {tab === 'formulas' && (
         <FormulasTab
           formulas={formulas}
@@ -253,6 +290,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           vendors={vendors}
           locations={locations ?? []}
           itemLookup={itemLookup}
+          initialWoId={woFocus}
           onChanged={reloadAll}
         />
       )}
@@ -261,6 +299,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
       )}
       {tab === 'compliance' && <ComplianceTab />}
       {tab === 'guide' && <RunGuideTab />}
+      {tab === 'licensing' && <LicensingTab vendors={vendors} formulas={formulas} />}
       {tab === 'purchase_orders' && (
         <PurchaseOrdersTab
           vendors={vendors}
@@ -269,7 +308,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           locById={locById}
           itemLookup={itemLookup}
           lanes={lanes}
-          initialPoId={routeParams.po ?? null}
+          initialPoId={routeParams.po ?? poFocus}
           onChanged={reloadAll}
         />
       )}
