@@ -3,16 +3,16 @@
 // the run-level actions — generate POs, materials at co-packer, start, record
 // each flavour's yield, ONE bill of lading for the truck, receive, close, reopen,
 // and the master void that takes every work order and PO with it.
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X as XIcon, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, FileText, Plus, Tag } from 'lucide-react';
-import type { ProductBom, WorkOrderView } from '../../lib/production';
-import { advanceWorkOrder } from '../../lib/production';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { X as XIcon, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, FileText, Plus, Tag, ChevronRight, ChevronDown, Pencil } from 'lucide-react';
+import type { ProductBom, WorkOrderView, WorkOrderMaterial, WorkOrderLot } from '../../lib/production';
+import { advanceWorkOrder, fetchWorkOrderMaterials, fetchWorkOrderLots, rescaleWorkOrder } from '../../lib/production';
 import type { QboVendor, PurchaseOrderRow } from '../../lib/purchasing';
 import { closeRuleCopy } from '../../lib/purchasing';
 import {
   type ProductionRun, type Reservation, RUN_STAGES,
   addRunLine, advanceRun, closeRun, createRunProductionPo, fetchRunPurchaseOrders, fetchRunReservations,
-  fetchRunWorkOrders, generateRunPos, receiveRun, removeRunLine, reopenRun, shipRun, voidRun,
+  fetchRunWorkOrders, generateRunPos, receiveRun, removeRunLine, reopenRun, shipRun, updateRun, voidRun,
 } from '../../lib/runs';
 import { deleteDrafts } from '../../lib/bulkActions';
 import { openDocPdf } from '../../lib/productionDocs';
@@ -21,7 +21,8 @@ import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { ReasonDialog } from '../../components/ReasonDialog';
 import type { ProductionItemLookup } from './ProductionPage';
-import { RecordYieldDialog } from './WorkOrderDialogs';
+import { RecordYieldDialog, RescaleDialog } from './WorkOrderDialogs';
+import { BulkEditDialog } from '../../components/BulkEditDialog';
 import { RunBillsSection } from './BillsPanel';
 import { Meta, LField, StageChip, cellTh, cellTd, sectionLabel, errMsg } from './productionUi';
 
@@ -48,6 +49,14 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
   const [shipOpen, setShipOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [ask, setAsk] = useState<'void' | 'reopen' | 'delete' | null>(null);
+  // Sky (2026-09-11): "there needs to be some arrows or something that allows you to
+  // expand specifics" — each flavour row folds open onto its materials, lots, cost and
+  // its own actions; the table stays one line per flavour until you ask for more.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [rescaleFor, setRescaleFor] = useState<WorkOrderView | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const canEditOrder = !['void', 'closed'].includes(run.status);
 
   const reload = useCallback(() => {
     fetchRunWorkOrders(run.id).then(setWos).catch(() => setWos([]));
@@ -166,7 +175,8 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
         {/* Flavours / work orders */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ ...sectionLabel, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span><Factory size={11} style={{ verticalAlign: -1, marginRight: 4 }} /> Flavours on this order — each is a work order</span>
+            <span><Factory size={11} style={{ verticalAlign: -1, marginRight: 4 }} /> Flavours on this order — each is a work order
+              <span style={{ color: 'var(--mt)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>· click a row for its materials, lots, cost and actions</span></span>
             {run.status === 'draft' && <button style={btnSecondary()} disabled={busy} onClick={() => setAddOpen((v) => !v)}><Plus size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Add flavour</button>}
           </div>
           {addOpen && run.status === 'draft' && (
@@ -176,35 +186,53 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                <th style={cellTh}>Work order</th><th style={cellTh}>Flavour</th><th style={cellTh}>Stage</th>
+                <th style={{ ...cellTh, width: 22 }} /><th style={cellTh}>Work order</th><th style={cellTh}>Flavour</th><th style={cellTh}>Stage</th>
                 <th style={{ ...cellTh, textAlign: 'right' }}>Planned</th><th style={{ ...cellTh, textAlign: 'right' }}>Yield</th>
                 <th style={{ ...cellTh, textAlign: 'right' }}>$/case</th><th style={cellTh}>Lots</th><th style={cellTh} />
               </tr>
             </thead>
             <tbody>
-              {(wos ?? []).map((w) => (
-                <tr key={w.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: w.status === 'void' ? 0.5 : 1 }}>
-                  <td style={cellTd}>
-                    <button onClick={() => onOpenWo(w.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontWeight: 600, padding: 0, fontSize: 11.5 }}>{w.batch_code}</button>
-                  </td>
-                  <td style={cellTd}><strong>{w.finished_item_name ?? w.bom_name ?? w.finished_qbo_item_id}</strong></td>
-                  <td style={cellTd}><StageChip status={w.status} /></td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(w.qty_to_produce))}</td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                    {w.actual_yield_qty == null ? <span style={{ color: 'var(--mt)' }}>—</span>
-                      : <>{fmtNum(Number(w.actual_yield_qty))}{w.yield_pct != null && <span style={{ marginLeft: 5, fontSize: 10, color: Number(w.yield_pct) < 100 ? 'var(--am)' : 'var(--gn)' }}>{Number(w.yield_pct).toFixed(1)}%</span>}</>}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{w.unit_cost == null ? '—' : '$' + Number(w.unit_cost).toFixed(4)}</td>
-                  <td style={{ ...cellTd, fontSize: 10.5, color: 'var(--mt)' }}>{w.ship_bol_number ? <><Tag size={10} style={{ verticalAlign: -1, marginRight: 3 }} />{w.ship_bol_number}</> : '—'}</td>
-                  <td style={{ ...cellTd, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {w.status === 'in_production' && <button style={btnPrimary()} disabled={busy} onClick={() => setYieldFor(w)}><Scale size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Record yield</button>}
-                    {run.status === 'draft' && w.status === 'draft' && live.length > 1 && (
-                      <button style={btnDanger()} disabled={busy} title="Remove this flavour from the order" onClick={() => act('Flavour removed', () => removeRunLine(run.id, w.id, 'removed from ' + run.run_number))}>Remove</button>
+              {(wos ?? []).map((w) => {
+                const isOpen = !!open[w.id];
+                return (
+                  <Fragment key={w.id}>
+                    <tr onClick={() => toggle(w.id)} title={isOpen ? 'Collapse' : 'Expand — materials, lots, cost and this flavour\'s own actions'}
+                      style={{ borderBottom: isOpen ? 'none' : '1px solid rgba(255,255,255,0.04)', opacity: w.status === 'void' ? 0.5 : 1,
+                        cursor: 'pointer', background: isOpen ? 'rgba(91,181,240,0.05)' : 'transparent' }}>
+                      <td style={{ ...cellTd, width: 22, color: isOpen ? 'var(--ac)' : 'var(--mt)' }} aria-label={isOpen ? 'Collapse' : 'Expand'}>
+                        {isOpen ? <ChevronDown size={13} style={{ verticalAlign: -2 }} /> : <ChevronRight size={13} style={{ verticalAlign: -2 }} />}
+                      </td>
+                      <td style={cellTd}>
+                        <button onClick={(e) => { e.stopPropagation(); onOpenWo(w.id); }} title="Open the work order" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontWeight: 600, padding: 0, fontSize: 11.5 }}>{w.batch_code}</button>
+                      </td>
+                      <td style={cellTd}><strong>{w.finished_item_name ?? w.bom_name ?? w.finished_qbo_item_id}</strong></td>
+                      <td style={cellTd}><StageChip status={w.status} /></td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(w.qty_to_produce))}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                        {w.actual_yield_qty == null ? <span style={{ color: 'var(--mt)' }}>—</span>
+                          : <>{fmtNum(Number(w.actual_yield_qty))}{w.yield_pct != null && <span style={{ marginLeft: 5, fontSize: 10, color: Number(w.yield_pct) < 100 ? 'var(--am)' : 'var(--gn)' }}>{Number(w.yield_pct).toFixed(1)}%</span>}</>}
+                      </td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{w.unit_cost == null ? '—' : '$' + Number(w.unit_cost).toFixed(4)}</td>
+                      <td style={{ ...cellTd, fontSize: 10.5, color: 'var(--mt)' }}>{w.ship_bol_number ? <><Tag size={10} style={{ verticalAlign: -1, marginRight: 3 }} />{w.ship_bol_number}</> : '—'}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                        {w.status === 'in_production' && <button style={btnPrimary()} disabled={busy} onClick={() => setYieldFor(w)}><Scale size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Record yield</button>}
+                        {run.status === 'draft' && w.status === 'draft' && live.length > 1 && (
+                          <button style={btnDanger()} disabled={busy} title="Remove this flavour from the order" onClick={() => act('Flavour removed', () => removeRunLine(run.id, w.id, 'removed from ' + run.run_number))}>Remove</button>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <td colSpan={9} style={{ padding: '0 6px 10px 28px' }}>
+                          <FlavourDetail wo={w} run={run} busy={busy} itemLookup={itemLookup}
+                            onOpenWo={() => onOpenWo(w.id)} onRescale={() => setRescaleFor(w)} onRecordYield={() => setYieldFor(w)} />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
-              {wos && wos.length === 0 && <tr><td colSpan={8} style={{ ...cellTd, color: 'var(--mt)' }}>No flavours on this order.</td></tr>}
+                  </Fragment>
+                );
+              })}
+              {wos && wos.length === 0 && <tr><td colSpan={9} style={{ ...cellTd, color: 'var(--mt)' }}>No flavours on this order.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -212,6 +240,27 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
         {yieldFor && (
           <RecordYieldDialog wo={yieldFor} busy={busy} onCancel={() => setYieldFor(null)}
             onSubmit={(payload) => { const w = yieldFor; setYieldFor(null); void act(`Yield recorded for ${w.batch_code} — costs locked`, () => advanceWorkOrder(w.id, 'record_yield', payload)); }} />
+        )}
+        {rescaleFor && (
+          <RescaleDialog wo={rescaleFor} busy={busy} onCancel={() => setRescaleFor(null)}
+            onSubmit={(qty, reason) => { const w = rescaleFor; setRescaleFor(null); void act(`${w.batch_code} changed to ${fmtNum(qty)} cases`, async () => {
+              const r = await rescaleWorkOrder(w.id, qty, reason || null);
+              toast.info(`${r.materials} material line${r.materials === 1 ? '' : 's'} and ${r.recipe_lines} recipe line${r.recipe_lines === 1 ? '' : 's'} rescaled ×${Number(r.factor).toFixed(4)} — the purchase orders are raised from the new quantities`);
+            }); }} />
+        )}
+        {editOpen && (
+          <BulkEditDialog title={'Edit ' + run.run_number} count={1} busy={busy}
+            fields={[
+              { key: 'scheduled_date', label: 'Scheduled date — cascades to every flavour not yet in production', type: 'date' },
+              { key: 'tank_size_gal', label: 'Tank size (gallons of finished product)', type: 'text' },
+              { key: 'notes', label: 'Notes — e.g. "part 2 of June canning run"', type: 'textarea' },
+            ]}
+            onCancel={() => setEditOpen(false)}
+            onConfirm={(patch) => { setEditOpen(false); void act('Order updated', async () => {
+              if (patch.tank_size_gal != null && !(Number(patch.tank_size_gal) > 0)) throw new Error('Tank size must be a number of gallons greater than zero');
+              const r = await updateRun(run.id, patch);
+              if (r.skipped.length) throw new Error(r.skipped[0].reason);
+            }); }} />
         )}
 
         {/* Purchase orders */}
@@ -322,6 +371,11 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
               <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> BOL PDF
             </button>
           )}
+          {canEditOrder && (
+            <button disabled={busy} style={btnSecondary()} title="Scheduled date, tank size, notes" onClick={() => setEditOpen(true)}>
+              <Pencil size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Edit order…
+            </button>
+          )}
           {run.status === 'draft' && <button disabled={busy} style={btnDanger()} onClick={() => setAsk('delete')}>Delete draft</button>}
           {voidable && <button disabled={busy} style={btnDanger()} onClick={() => setAsk('void')}>Void order</button>}
           {run.status === 'closed' && <button disabled={busy} style={btnSecondary()} onClick={() => setAsk('reopen')}>Reopen</button>}
@@ -356,6 +410,106 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
             <button disabled={busy} style={btnPrimary()} onClick={doClose}><Check size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Close order</button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** The specifics behind one flavour row, loaded when the row is opened: planned vs
+ *  yield, the cost, the material lines needed vs ordered with their vendor and whether
+ *  each is on a PO yet, the co-packer's lots, and the flavour's own actions. The
+ *  quantity can be changed only while the ORDER is a draft — past that one vendor PO
+ *  line covers several flavours (fn_wo_rescale says so in its own words). */
+function FlavourDetail({ wo, run, busy, itemLookup, onOpenWo, onRescale, onRecordYield }: {
+  wo: WorkOrderView; run: ProductionRun; busy: boolean; itemLookup: ProductionItemLookup;
+  onOpenWo: () => void; onRescale: () => void; onRecordYield: () => void;
+}) {
+  const [mats, setMats] = useState<WorkOrderMaterial[] | null>(null);
+  const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setMats(null); setLots(null); setErr(null);
+    Promise.all([fetchWorkOrderMaterials(wo.id), fetchWorkOrderLots(wo.id)])
+      .then(([m, l]) => { if (alive) { setMats(m); setLots(l); } })
+      .catch((e) => { if (alive) { setErr(errMsg(e)); setMats([]); setLots([]); } });
+    return () => { alive = false; };
+  }, [wo.id, wo.qty_to_produce, wo.status, wo.actual_yield_qty]);
+  const canRescale = run.status === 'draft' && wo.status === 'draft' && wo.actual_yield_qty == null;
+  const matEstimate = (mats ?? []).reduce((t, m) => t + Number(m.required_qty) * Number(m.unit_cost_est ?? 0), 0);
+  const onPo = (mats ?? []).filter((m) => m.po_line_id).length;
+  const th = (extra: React.CSSProperties = {}) => ({ ...cellTh, fontSize: 9.5, ...extra });
+  const td = (extra: React.CSSProperties = {}) => ({ ...cellTd, fontSize: 11, ...extra });
+  const mono = { fontFamily: 'var(--ff-mono)', textAlign: 'right' as const };
+  return (
+    <div className="cd" style={{ padding: 10, border: '1px solid var(--bd)', fontSize: 11 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
+        <Meta label="Planned" value={`${fmtNum(Number(wo.qty_to_produce))} cases${wo.batch_size_gal != null ? ` · ${fmtNum(Number(wo.batch_size_gal))} gal` : ''}`} />
+        <Meta label="Yield" value={wo.actual_yield_qty == null ? 'not yet recorded' : `${fmtNum(Number(wo.actual_yield_qty))} cases${wo.yield_pct != null ? ` · ${Number(wo.yield_pct).toFixed(1)}%` : ''}`} />
+        <Meta label="Cost" value={wo.total_cost != null ? `${fm(wo.total_cost)} · $${Number(wo.unit_cost ?? 0).toFixed(4)}/case`
+          : mats && mats.length ? `est. ${fm(matEstimate)} in materials` : '—'} />
+        <Meta label="Scheduled" value={wo.scheduled_date ?? '—'} />
+        <Meta label="Formula" value={wo.formula_name ? `${wo.formula_name}${wo.formula_doc_rev ? ` rev ${wo.formula_doc_rev}` : ''}` : (wo.bom_name ?? '—')} />
+        <Meta label="Return BOL" value={wo.ship_bol_number ?? wo.transfer_bol_number ?? '—'} />
+      </div>
+
+      <div style={{ ...sectionLabel, marginTop: 0 }}>
+        Materials — needed vs ordered{mats && mats.length ? <span style={{ color: 'var(--mt)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>· {onPo} of {mats.length} on a purchase order</span> : null}
+      </div>
+      {mats == null ? <div style={{ color: 'var(--mt)' }}>Loading…</div>
+        : err ? <div style={{ color: 'var(--am)' }}>{err}</div>
+        : mats.length === 0 ? <div style={{ color: 'var(--mt)' }}>No material lines on this work order.</div>
+        : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                <th style={th()}>Item</th><th style={th(mono)}>Needed</th><th style={th(mono)}>Ordered</th><th style={th()}>UoM</th>
+                <th style={th()}>Vendor</th><th style={th(mono)}>Unit cost</th><th style={th(mono)}>Ext</th><th style={th()}>PO</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mats.map((m) => (
+                <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td style={td()}>{m.item_name ?? itemLookup.byId.get(m.component_qbo_item_id)?.item_name ?? m.component_qbo_item_id}
+                    {m.qty_basis === 'per_run' && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--mt)' }}>per run — does not scale</span>}</td>
+                  <td style={td(mono)}>{m.demand_qty == null ? '—' : fmtNum(Number(m.demand_qty), 2)}</td>
+                  <td style={td(mono)}>{fmtNum(Number(m.required_qty), 2)}
+                    {m.demand_qty != null && Number(m.required_qty) > Number(m.demand_qty) + 0.000001 && <span style={{ marginLeft: 4, fontSize: 9.5, color: 'var(--am)' }}>+{fmtNum(Number(m.required_qty) - Number(m.demand_qty), 2)} MOQ</span>}</td>
+                  <td style={td()}>{m.uom}</td>
+                  <td style={td()}>{m.vendor_name ?? m.qbo_vendor_id ?? <span style={{ color: 'var(--am)' }}>no vendor</span>}</td>
+                  <td style={td(mono)}>{m.unit_cost_est == null ? '—' : '$' + Number(m.unit_cost_est).toFixed(4)}</td>
+                  <td style={td(mono)}>{m.unit_cost_est == null ? '—' : fm(Number(m.required_qty) * Number(m.unit_cost_est))}</td>
+                  <td style={td({ fontSize: 10, color: m.po_line_id ? 'var(--gn)' : 'var(--mt)' })}>{m.po_line_id ? 'on a PO' : 'not ordered yet'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+      {lots && lots.length > 0 && (
+        <>
+          <div style={sectionLabel}><Tag size={10} style={{ verticalAlign: -1, marginRight: 4 }} /> Lots — the co-packer's codes, one BOL line each</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: '1px solid var(--bd)' }}><th style={th()}>Lot</th><th style={th()}>Born on</th><th style={th()}>Best by</th><th style={th(mono)}>Cases</th><th style={th()}>Notes</th></tr></thead>
+            <tbody>
+              {lots.map((l) => (
+                <tr key={l.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td style={td({ fontFamily: 'var(--ff-mono)' })}>{l.lot_code}</td><td style={td()}>{l.born_on_date ?? '—'}</td><td style={td()}>{l.best_by_date ?? '—'}</td>
+                  <td style={td(mono)}>{fmtNum(Number(l.qty))}</td><td style={td({ color: 'var(--mt)' })}>{l.notes ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        {!canRescale && wo.status !== 'void' && wo.actual_yield_qty == null && run.status !== 'draft' && (
+          <span style={{ fontSize: 10.5, color: 'var(--mt)', marginRight: 'auto' }}>Quantity is fixed once the order's POs are issued — one vendor line covers every flavour; edit the vendor's PO instead.</span>
+        )}
+        <button style={btnSecondary()} onClick={onOpenWo}>Open the work order →</button>
+        {canRescale && <button style={btnSecondary()} disabled={busy} onClick={onRescale}><Scale size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Change quantity…</button>}
+        {wo.status === 'in_production' && <button style={btnPrimary()} disabled={busy} onClick={onRecordYield}><Scale size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Record yield</button>}
       </div>
     </div>
   );

@@ -385,6 +385,54 @@ UI: Work Orders → open the work order → **Change quantity…** (cases or fin
 converted through the BOM's gal/case and rounded up to a whole case, plus a reason) and
 **Edit details…**.
 
+### The production ORDER is editable too, and its flavours fold open (20260911e)
+
+Sky, on the multi-flavour order: *"That's a lot of data to be putting on one work
+order so I hope you have an innovative way to like keep it all together. Sounds like
+there needs to be some arrows or something that allows you to expand specifics
+should also be able to edit the orders."*
+
+**The arrows.** `RunDetailModal` keeps one line per flavour and each row folds open
+(chevron, whole row is the click target) onto that flavour's specifics, loaded when
+the row is opened and reloaded when its quantity or status changes: planned cases
+and finished gallons, yield and yield %, measured cost (or the materials estimate
+before a yield exists), the formula and revision, the return BOL, the material
+lines **needed vs ordered** with vendor, unit cost, extension, an MOQ lift where
+`required_qty > demand_qty`, and whether each is on a purchase order yet, the
+co-packer's lots, and the flavour's own actions. Nothing new is fetched for a
+folded row — the table reads as it did.
+
+**Editing the order — `ops.fn_run_update(p_run_id, p_patch)`.** Whitelisted keys
+`scheduled_date`, `notes`, `tank_size_gal`; a key not sent is left alone, a null
+clears (the `BulkEditDialog` contract, count 1). Refused on a void or closed order
+("reopen it first"), on a date more than a year from today (the `0006-09-15` typo
+guard from `fn_update_work_orders`), on a tank of zero, and on an empty patch. The
+scheduled date **cascades** to every flavour still in draft / ordered / at_copacker
+— an order moved a week is its flavours moved a week; a flavour already in
+production keeps its date. Recorded in `production_doc_events` as doc_type `run`.
+`updateDocs('run', …)` in `lib/bulkActions.ts` now loops this per id, so the bulk
+bar could edit orders too.
+
+**Editing a flavour's quantity — `fn_wo_rescale` gains one relaxation.** A flavour
+on a run may be resized **while the run is a draft**. In draft nothing is ordered —
+no PO line, no reservation, no movement — so the scale touches only the flavour's
+own `work_order_materials` and `work_order_recipe_lines`, and `fn_run_generate_pos`
+reads those when the POs are raised. Past draft, one vendor PO line covers several
+flavours (`purchase_order_line_demand`) and re-splitting it is not a scale; the
+refusal names the order and its status and points at the vendor's PO. The expanded
+row offers **Change quantity…** only when it is allowed and prints the reason when
+it is not. Add / remove a flavour stay `fn_run_add_line` / `fn_run_remove_line`,
+draft only, same rule.
+
+Proven rolled back as the `production` role: created a two-flavour draft, edited
+notes + date + tank (date cascaded to both flavours), cleared the tank, four
+refusals by name (bad key, year typo, zero tank, empty patch), resized Cola 500 →
+600 (5 materials, 3 recipe lines, per-yield demand ×1.2000 exactly, 0 PO lines, 0
+movements), generated the POs (2), the same resize on Root Beer refused naming
+`RUN-2026-00006 … ordered`, an edit while ordered accepted, an edit after void
+refused, 3 `run`/`edit` audit rows. ⚠ The probe consumed `RUN-2026-00006` from the
+sequence — gaps in run numbers are the price of uniqueness, as with work orders.
+
 ## Buckets and bulk actions — one vocabulary on every list
 
 Sky, 2026-09-03: "open, pending, closed and voided on different tabs" and

@@ -144,6 +144,13 @@ export async function reopenRun(runId: string, reason: string): Promise<string> 
 export async function voidRun(runId: string, reason: string): Promise<RunVoidResult> {
   return sbrpc<RunVoidResult>('fn_run_void', { p_run_id: runId, p_reason: reason });
 }
+/** Edit the ORDER's own fields — scheduled_date · notes · tank_size_gal (fn_run_update,
+ *  20260911e). A key not sent is left alone; a null clears. The date cascades to every
+ *  flavour still before production. Refused on a void or closed order and on a date
+ *  more than a year out; the refusal comes back in the server's words. */
+export async function updateRun(runId: string, patch: Record<string, string | null>): Promise<RunAdvanceResult> {
+  return sbrpc<RunAdvanceResult>('fn_run_update', { p_run_id: runId, p_patch: patch });
+}
 export async function createRunProductionPo(runId: string, expectedDate?: string | null): Promise<{ po_id: string; po_number: string; lines: number; subtotal: number }> {
   return sbrpc('fn_run_create_production_po', { p_run_id: runId, p_expected_date: expectedDate ?? null });
 }

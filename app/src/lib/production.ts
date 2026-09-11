@@ -449,7 +449,9 @@ export interface WoRescaleResult {
  * carries the change through the materials, the recipe detail, the linked PO
  * lines + subtotals, open reservations and any movements already posted (as
  * NEW delta rows — the ledger is never edited). Refused once a yield is
- * recorded, on a run work order, or when a PO is already in QuickBooks; the
+ * recorded, on a run work order once the ORDER has left draft (20260911e — while
+ * the order is a draft nothing is ordered yet, so a flavour can be resized), or
+ * when a PO is already in QuickBooks; the
  * refusal comes back as the error message, in the server's words.
  */
 export async function rescaleWorkOrder(woId: string, qtyToProduce: number, reason: string | null): Promise<WoRescaleResult> {

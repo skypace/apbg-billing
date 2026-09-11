@@ -27,10 +27,20 @@ export async function deleteDrafts(kind: DocKind, ids: string[]): Promise<BulkRe
   return norm(await sbrpc<BulkResult>('fn_delete_drafts', { p_kind: kind, p_ids: ids }));
 }
 
-/** Whitelisted per kind on the server: PO expected_date/notes · WO scheduled_date/notes · transfer notes/special_instructions/carrier/tracking_number. */
+/** Whitelisted per kind on the server: PO expected_date/notes · WO scheduled_date/notes · run scheduled_date/notes/tank_size_gal · transfer notes/special_instructions/carrier/tracking_number. */
 export async function updateDocs(kind: DocKind, ids: string[], patch: Record<string, string | null>): Promise<BulkResult> {
   if (!ids.length) return EMPTY;
-  if (kind === 'run') throw new Error('runs are edited from their detail');
+  if (kind === 'run') {
+    // fn_run_update takes one order at a time; same {done, skipped} shape comes back
+    const done: BulkRow[] = []; const skipped: BulkRow[] = [];
+    for (const id of ids) {
+      try {
+        const r = norm(await sbrpc<BulkResult>('fn_run_update', { p_run_id: id, p_patch: patch }));
+        done.push(...r.done); skipped.push(...r.skipped);
+      } catch (e) { skipped.push({ id, number: null, reason: e instanceof Error ? e.message : String(e) }); }
+    }
+    return { done, skipped };
+  }
   const fn = kind === 'work_order' ? 'fn_update_work_orders'
     : kind === 'purchase_order' ? 'fn_update_purchase_orders' : 'fn_update_transfers';
   return norm(await sbrpc<BulkResult>(fn, { p_ids: ids, p_patch: patch }));
