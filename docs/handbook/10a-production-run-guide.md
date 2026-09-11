@@ -125,8 +125,8 @@ those are yours.
 > the same fill — and it raises **one purchase order per vendor for the lot**,
 > not one pair per flavour. Each flavour still becomes its own work order
 > underneath (its own yield, lots and cost), so the Work Orders steps below
-> still apply per flavour; the per-flavour **+ New Work Order** remains for a
-> single standalone run.
+> still apply per flavour. A single flavour is an order with one line — the
+> separate **+ New Work Order** was retired on 2026-09-11.
 >
 > **Production Orders → + New production order.** Pick the co-packer and where
 > the finished goods return to, then add a line per flavour (BOM + cases; the
@@ -143,32 +143,19 @@ those are yours.
 > order**. **Void order** takes every work order and purchase order with it,
 > and is refused once production has started.
 
-### Step 3 (single flavour) · Raise the work order
+### A single flavour is still a production order
 
-**Production → Work Orders → + New Work Order.**
+**There is no separate "New Work Order" any more (2026-09-11).** A one-flavour run
+is a production order with one line — same form, same per-vendor preview, same
+POs. The **Work Orders** tab lists the flavours those orders create and opens a
+flavour's own record (materials, yield, lots, cost); it does not start a run.
+On the order, click a flavour row to fold it open — its materials **needed vs
+ordered**, lots, cost and actions are there — and **Edit order…** changes the
+date, tank and notes. While the order is a draft, **Change quantity…** inside an
+open row resizes that flavour.
 
-![The work-orders list](/billing/production-guide/04-work-orders-list.jpg)
-
-![The New Work Order form, with the batch plan and the material preview](/billing/production-guide/04b-new-work-order.jpg)
-
-Fill in seven fields: the **BOM**, **how many finished units**, the **batch size**
-(defaults from the formula), the **co-packer** and the **location materials ship
-to**, **where finished goods are received**, and the **scheduled date**.
-
-Three panels then tell you what you are about to commit to:
-
-- **This run raises 2 purchase orders** — the same pre-flight as the BOM.
-- **Batch plan — filling the tank.** 500 cases × 2.25 gal = 1,125 gal of finished
-  soda, needing 188 gal of concentrate. The table shows what each tank size makes
-  and how many cases to add to fill it; clicking a **+n** rounds the order up to
-  a full tank. The tank is *finished product* — the co-packer dilutes and
-  carbonates.
-- **Materials that will be calculated onto this work order** — every purchased
-  line with its quantity, vendor, unit price and extension, and an
-  **Estimated materials** total. Check that total before you press the button:
-  it is what the two purchase orders will add up to.
-
-Press **Create work order**.
+> The screenshot `04b-new-work-order.jpg` predates this and shows the retired
+> form; the fields it shows are the same ones the order form asks for per line.
 
 ## Step 4 · Send the purchase orders
 
@@ -364,8 +351,8 @@ what should happen; anything else is a finding.
 | 4f | Open the closed Calderoni PO → **Create bill…**, invoice # + date | A bill appears under *Vendor bill* reading **To post** with a *Post from Brixpense* link; pressing Create bill… again is refused |
 | 4g | On the order → **Record deposit…**, $1,000, invoice D-1 | A *Deposit* row appears, **To post**; a second deposit from the same vendor is refused |
 | 4h | **Record final invoice…**, pick deposit D-1, gross $4,000 | The deposit row becomes *Final invoice · replaces the deposit*, balance due **$3,000**; try $500 first — the button is disabled and the dialog says it is below the deposit |
-| 5 | **Work Orders → + New Work Order**, pick the BOM, enter 100 units | Batch plan and material preview appear; **Estimated materials** is roughly a fifth of a 500-case run |
-| 6 | **Create work order** | Lands at **Draft** |
+| 5 | **Production Orders → + New production order**, one line: the BOM, 100 cases | The per-vendor preview appears; the total is roughly a fifth of a 500-case run |
+| 6 | **Create production order** | Lands at **Draft** with one flavour (one work order) underneath |
 | 7 | **Generate POs per vendor →** | Exactly **two** POs; the materials table shows `✓ on PO` on every line |
 | 8 | Purchase Orders → open each → **View PDF** | Both PDFs render; the Calderoni one lists the ingredient breakdown under the gallon line |
 | 9 | Receive one PO line short (say 10 of 100) | The line shows the partial; the PO goes to **partial**, not closed |

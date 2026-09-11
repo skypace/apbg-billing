@@ -20,16 +20,20 @@ interface LineDraft { key: number; bomId: string; qty: string; batchGal: string;
 let nextKey = 1;
 function blankLine(): LineDraft { return { key: nextKey++, bomId: '', qty: '', batchGal: '', galTouched: false }; }
 
-export function NewOrderForm({ boms, vendors, locations, itemLookup, onCancel, onCreated }: {
+export function NewOrderForm({ boms, vendors, locations, itemLookup, initialLines, onCancel, onCreated }: {
   boms: ProductBom[];
   vendors: QboVendor[];
   locations: InventoryLocation[];
   itemLookup: ProductionItemLookup;
+  /** Flavours to start from — Inventory Planning's reorder hands the whole list over as ONE order. */
+  initialLines?: { bomId: string; qty: number }[];
   onCancel: () => void;
   onCreated: (runId: string) => void;
 }) {
   const toast = useToast();
-  const [lines, setLines] = useState<LineDraft[]>([blankLine()]);
+  const [lines, setLines] = useState<LineDraft[]>(() => initialLines && initialLines.length
+    ? initialLines.map((l) => ({ key: nextKey++, bomId: l.bomId, qty: String(l.qty), batchGal: '', galTouched: false }))
+    : [blankLine()]);
   const [copackerVendor, setCopackerVendor] = useState('');
   const [copackerLoc, setCopackerLoc] = useState('');
   const [destLoc, setDestLoc] = useState('');

@@ -433,6 +433,84 @@ movements), generated the POs (2), the same resize on Root Beer refused naming
 refused, 3 `run`/`edit` audit rows. ⚠ The probe consumed `RUN-2026-00006` from the
 sequence — gaps in run numbers are the price of uniqueness, as with work orders.
 
+### One door, and the materials must arrive before the run starts (20260911f/g)
+
+Sky, after the fold-open order shipped: *"What can we do to make this process
+cleaner and better"* → *"Ok do it"* on the first two of the proposals. Both are
+about the same thing: the pipeline had two ways in and one way to go wrong,
+and both were the kind a first real order finds.
+
+**One door.** Production had two ways to raise work — **Production Orders →
++ New production order** (several flavours, one PO per vendor, one truck) and
+**Work Orders → + New Work Order** (`CreatePipelineForm`, one flavour, its own
+POs, and a *run queue* the planning Reorder button fed). Two doors meant the
+Reorder button for three flavours queued three separate single-flavour work
+orders — six POs to two vendors — which is exactly the shape the production
+order was built to replace. The Work Orders tab no longer raises anything: the
+button, the queue, the no-BOM notice and the form are gone, and a sentence
+says where a run is raised. **Inventory Planning's `brix.wo.prefill` now opens
+Production Orders with the New order form pre-seeded** — every flavour on ONE
+order (`RunsTab` reads the prefill, matches each item to its active bill of
+materials by `finished_qbo_item_id`, and lists any it could not match as *left
+off — no active bill of materials*). A single flavour is an order with one
+line; the run guide (Step 3 and QC rows 5–6) and chapter 10 say so now.
+⚠ `fn_wo_create_pipeline` stays live and unchanged — it has no screen caller
+any more, and `fn_run_create` calls the same inner per flavour. The 04b
+screenshot in the guide still shows the retired form and is noted as stale.
+
+**The materials must arrive before the run starts (migration `20260911f`,
+corrected by `20260911g`).** WO-2026-00023 left item 525 (the diet-cola syrup)
+reading **−583.125 at Quantum**, and WO-2026-00022 left item 524 at
+**−416.625**, for one reason: `start_production` consumes the gallon the
+moment it is pressed, and nothing asked whether the Calderoni purchase order
+carrying that gallon had been received. The ledger was right about the
+sequence and wrong about the world. The `start_production` branch of
+`fn_wo_advance__i` now **refuses while any `on_receipt` purchase order behind
+the work order (its own, or its run's) still has receivable quantity
+outstanding**, naming the PO, the vendor and each line with the quantity still
+to come — *"WO-2026-00035 cannot start production: raw materials are still to
+be received on PO-2026-00062 (AC CALDERONI): 1GNS6121 HANGAR 25 COLA 188,
+1GNS6151 OAKTOWN ROOT BEER 113 — receive that purchase order first"*. The
+co-packer's own `on_run_yield` lines (cans, Velcorin, tolling) are untouched:
+20260903d lands those at `start_production` and they are never received.
+⚠ **The manual `materials_at_copacker` step no longer opens the door.** It
+moves the status, and the status check still passes, but the receipt check
+sits behind it — so the button people pressed to skip the receipt now gets the
+same refusal. Receiving the PO IS "the materials are at Quantum" (20260903d
+already moves the work order there on full receipt). The run detail disables
+**Start production** with an amber sentence naming the PO while any is
+outstanding, and the confirm text on *Materials at co-packer* says the receipt
+is still required.
+⚠ **Applied as an anchored read-modify-write of the LIVE inner**, two anchors
+each asserted to match exactly once, wrapper asserted to still carry
+`fn_assert_internal`. ⚠ **And 20260911f shipped a bug the probe found:** the
+refusal's item join spelled the column `i.item_name`, which `ops.qbo_items`
+does not have (`name` is the column). plpgsql resolves columns at execution,
+so the migration applied clean and **every `start_production` then failed
+42703** — the rolled-back probe as the `production` role reported both
+flavours skipped with *"column i.item_name does not exist"* even after the
+receipt. `20260911g` replaces the reference (anchor once, asserts the column
+exists, asserts the old spelling is gone); the `f` file is left as the record
+with a pointer, on the 20260909c precedent. Same trap as `fn_sparkline`
+(20260909f) and `fn_sf_job_sync_coverage`: a plpgsql body that compiles is not
+a plpgsql body that runs.
+
+**Proven rolled back as the `production` role** (two-flavour draft, 500 Cola +
+300 Root Beer, netted against stock): 2 POs generated; start refused with the
+sentence above, **0 movements** written; manual `materials_at_copacker` then
+start → still refused (0 done, 2 skipped); `fn_receive_po_lines` on the
+Calderoni lines (2 received, 0 skipped) → start accepted, 2 done, run
+`in_progress`; the run's own consumption left nothing negative (188 received,
+187.5 consumed). ⚠ The probe consumed `RUN-2026-00009` and `WO-2026-00035/36`
+from the sequences — gaps, not lost orders.
+
+⚠ **Two orders are already past this gate and the guard does not reach back.**
+WO-2026-00023 is `in_production` with 525 at −583.125; WO-2026-00022 is
+`yield_recorded` with 524 at −416.625. Both zero when their Calderoni POs
+(PO-2026-00042 for 00023) are received — the receipt posts +N at Quantum
+against the consumption already there. Nothing to correct by hand.
+
+
 ## Buckets and bulk actions — one vocabulary on every list
 
 Sky, 2026-09-03: "open, pending, closed and voided on different tabs" and

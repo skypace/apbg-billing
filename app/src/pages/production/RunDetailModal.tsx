@@ -75,6 +75,11 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
   const canClose = every('received', 'closed') && run.status !== 'closed';
   const canProductionPo = live.length > 0 && live.every((w) => w.total_cost != null) && !(pos ?? []).some((p) => p.po_kind === 'production' && p.status !== 'void');
   const stageIdx = RUN_STAGES.findIndex((s) => s.status === run.status);
+  // 20260911f: the server refuses start_production while an on_receipt PO still has
+  // receivable lines short — stock that has not arrived cannot be consumed. Say so
+  // here rather than offering a button whose only outcome is that refusal.
+  const unreceivedPos = (pos ?? []).filter((p) => p.close_rule === 'on_receipt' && p.status !== 'void' && p.status !== 'closed'
+    && Number(p.qty_received_total ?? 0) + 0.000001 < Number(p.qty_ordered_total ?? 0));
 
   async function act(label: string, fn: () => Promise<unknown>, confirmText?: string) {
     if (confirmText && !confirm(confirmText)) return;
@@ -385,12 +390,19 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
             </button>
           )}
           {run.status === 'ordered' && has('ordered') && (
-            <button disabled={busy} style={btnSecondary()} onClick={() => doAdvance('materials_at_copacker', 'Marked at co-packer', 'Mark raw materials as arrived at the co-packer for every flavour? (Receiving the Calderoni PO does this by itself.)')}>
+            <button disabled={busy} style={btnSecondary()} onClick={() => doAdvance('materials_at_copacker', 'Marked at co-packer', 'Mark raw materials as arrived at the co-packer for every flavour?\n\nReceiving the Calderoni PO does this by itself — and Start production still needs that PO received, so this is only a note on the order, not a way round the receipt.')}>
               <Truck size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Materials at co-packer
             </button>
           )}
+          {has('ordered', 'at_copacker') && run.status !== 'draft' && unreceivedPos.length > 0 && (
+            <span style={{ fontSize: 10.5, color: 'var(--am)', alignSelf: 'center', maxWidth: 420 }}>
+              Receive {unreceivedPos.map((p) => `${p.po_number} (${p.vendor_name ?? p.qbo_vendor_id})`).join(', ')} before starting — raw materials that have not arrived cannot be consumed.
+            </span>
+          )}
           {has('ordered', 'at_copacker') && run.status !== 'draft' && (
-            <button disabled={busy} style={btnPrimary()} onClick={() => doAdvance('start_production', 'Production started', `Start production for ${run.run_number}?\n\nThe co-packer's own materials land at ${run.copacker_location_label ?? 'the co-packer'} and every flavour's demand is consumed from there.`)}>
+            <button disabled={busy || unreceivedPos.length > 0} style={btnPrimary()}
+              title={unreceivedPos.length ? 'Receive the raw-material purchase order first' : 'Consume every flavour\'s demand at the co-packer'}
+              onClick={() => doAdvance('start_production', 'Production started', `Start production for ${run.run_number}?\n\nThe co-packer's own materials land at ${run.copacker_location_label ?? 'the co-packer'} and every flavour's demand is consumed from there.`)}>
               <Factory size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Start production →
             </button>
           )}

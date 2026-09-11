@@ -447,7 +447,7 @@ function ReorderTable({ rows }: { rows: InventoryHealthRow[] | null }) {
       generated_at: new Date().toISOString(),
       runs: candidates.map((r) => ({ qbo_item_id: r.qbo_item_id, item_name: r.item_name, qty: Number(r.suggested_order_qty) })),
     }));
-    window.location.hash = '#production?tab=work_orders';
+    window.location.hash = '#production?tab=orders';   // one production order, a line per flavour (RunsTab reads the prefill)
   }
   function createRepackFromReorder(candidates: InventoryHealthRow[], go: boolean) {
     if (candidates.length === 0) return;

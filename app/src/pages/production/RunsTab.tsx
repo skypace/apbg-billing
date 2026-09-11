@@ -1,7 +1,7 @@
 // Production Orders — the run list. A run is the ORDER: several flavours, one
 // purchase order per vendor, one truck home. Buckets + selection + bulk void /
 // delete drafts / reopen, the New order form, and the run detail.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { Plus } from 'lucide-react';
 import type { ProductBom } from '../../lib/production';
@@ -23,6 +23,21 @@ import { NewOrderForm } from './NewOrderForm';
 import { RunDetailModal, runStageChip } from './RunDetailModal';
 import { errMsg } from './productionUi';
 
+// Inventory Planning → Reorder (24-pack lane) stashes the flavours it wants under
+// `brix.wo.prefill` (the key predates production orders and is kept so the planner
+// needs no change). They open here as ONE production order with a line per flavour
+// — Sky (2026-09-11): the order is the only door; a one-flavour run is still an order.
+interface RunPrefill { qbo_item_id: string; item_name: string; qty: number }
+function readRunPrefill(): RunPrefill[] {
+  if (typeof sessionStorage === 'undefined') return [];
+  const raw = sessionStorage.getItem('brix.wo.prefill');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { runs?: RunPrefill[] };
+    return Array.isArray(parsed.runs) ? parsed.runs.filter((r) => r && r.qbo_item_id && Number(r.qty) > 0) : [];
+  } catch { return []; }
+}
+
 export function RunsTab({ runs, boms, vendors, locations, itemLookup, initialRunId = null, onChanged, onOpenPo, onOpenWo }: {
   runs: ProductionRun[] | null;
   boms: ProductBom[];
@@ -35,7 +50,13 @@ export function RunsTab({ runs, boms, vendors, locations, itemLookup, initialRun
   onOpenWo: (woId: string) => void;
 }) {
   const toast = useToast();
-  const [creating, setCreating] = useState(false);
+  const [prefill] = useState<RunPrefill[]>(() => readRunPrefill());
+  useEffect(() => {
+    // consumed on mount: a stale list reappearing days later is worse than none
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('brix.wo.prefill');
+  }, []);
+  const prefillLines = useMemo(() => prefill.map((r) => ({ r, bom: boms.find((b) => b.is_active && b.finished_qbo_item_id === r.qbo_item_id) ?? null })), [prefill, boms]);
+  const [creating, setCreating] = useState(prefill.length > 0);
   const [openId, setOpenId] = useState<string | null>(initialRunId);
   const [bucket, setBucket] = useState<Bucket>('open');
   const [bulk, setBulk] = useState<'void' | 'delete' | 'reopen' | null>(null);
@@ -98,8 +119,19 @@ export function RunsTab({ runs, boms, vendors, locations, itemLookup, initialRun
         </div>
       </div>
 
+      {creating && prefill.length > 0 && (
+        <div className="cd" style={{ padding: '8px 14px', marginBottom: 8, border: '1px solid var(--ac)', fontSize: 11 }}>
+          <strong style={{ color: 'var(--ac)', letterSpacing: 0.4 }}>SUGGESTED BY INVENTORY PLANNING</strong> — {prefillLines.filter((x) => x.bom).length} flavour{prefillLines.filter((x) => x.bom).length === 1 ? '' : 's'} on one order:{' '}
+          {prefillLines.filter((x) => x.bom).map((x) => `${x.r.item_name} ${Math.ceil(Number(x.r.qty)).toLocaleString()}`).join(' · ')}.
+          Change the quantities to the run you actually want before creating it.
+          {prefillLines.some((x) => !x.bom) && (
+            <span style={{ color: 'var(--am)', marginLeft: 6 }}>Left off — no active bill of materials: {prefillLines.filter((x) => !x.bom).map((x) => x.r.item_name).join(', ')}.</span>
+          )}
+        </div>
+      )}
       {creating && (
-        <NewOrderForm boms={activeBoms} vendors={(vendors ?? []).filter((v) => v.active !== false)} locations={locations} itemLookup={itemLookup}
+        <NewOrderForm key={prefill.length ? 'prefill' : 'blank'} boms={activeBoms} vendors={(vendors ?? []).filter((v) => v.active !== false)} locations={locations} itemLookup={itemLookup}
+          initialLines={prefillLines.filter((x) => x.bom).map((x) => ({ bomId: x.bom!.id, qty: Math.ceil(Number(x.r.qty)) }))}
           onCancel={() => setCreating(false)}
           onCreated={(id) => { setCreating(false); onChanged(); setOpenId(id); }} />
       )}

@@ -83,7 +83,7 @@ Every stage change writes to **`ops.work_order_events`**, and the `v_work_orders
 
 1. **Check the formula** (Formulas & Spec Sheets): scale it to the batch size, print the batching sheet for the co-packer, confirm the spec attachment is current.
 2. **Check the BOM** (Bills of Materials): components, quantities-per-unit and preferred vendors are right *before* creating the WO — the WO freezes them.
-3. **Create the production order** (Production Orders tab) — one line per flavour. The preview is the server's own per-vendor PO calculation. (A single standalone flavour can still be raised from the Work Orders tab.)
+3. **Create the production order** (Production Orders tab) — one line per flavour. The preview is the server's own per-vendor PO calculation. A single flavour is an order with one line; the Work Orders tab lists flavours and opens their records, it does not start a run.
 4. **Generate POs per vendor** on the order — one PO per vendor for every flavour together — and send/confirm them from the Purchase Orders tab. The order and its work orders read `ordered`.
 5. Receive the ingredient PO as it lands; when its last line is in, every flavour reads **Materials at co-packer** by itself (or press it on the order).
 6. When the run starts, **Start production**.

@@ -83,9 +83,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
     coerceTab(routeParams.tab)
     ?? (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.po.prefill')
       ? 'purchase_orders'
-      : typeof sessionStorage !== 'undefined' && sessionStorage.getItem('brix.wo.prefill')
-        ? 'work_orders'
-        : 'orders');
+      : 'orders');   // a planning prefill (brix.wo.prefill) opens as a production order, which is the default tab
   // Lanes are a multi-select (Sky, 2026-09-04) — none picked means both.
   const [lanes, setLanes, toggleLane] = useInventoryLanes(PRODUCTION_LANES);
   // "BIB only" is the one selection that changes the page shape: purchasing only.
@@ -285,11 +283,8 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
       {tab === 'work_orders' && (
         <WorkOrdersTab
           workOrders={filteredWos}
-          boms={filteredBoms ?? []}
           formulas={formulas}
           vendors={vendors}
-          locations={locations ?? []}
-          itemLookup={itemLookup}
           initialWoId={woFocus}
           onChanged={reloadAll}
         />
