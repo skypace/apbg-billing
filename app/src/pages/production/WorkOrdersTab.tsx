@@ -2,31 +2,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
-import { Plus, X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
-import {
-  ProductBom, ProductBomLine, WorkOrderCosts, WorkOrderStatus, WorkOrderView,
-  WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction, WorkOrderLot, WorkOrderLotInput,
-  advanceWorkOrder, createWorkOrderPipeline, fetchBomLines,
-  fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots,
-  generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots,
-} from '../../lib/production';
-import {
-  ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch,
-} from '../../lib/formulas';
-import {
-  BatchPlan, BomPreflight, ProductionItem, createProductionPo, fetchBatchPlan, fetchBomPreflight,
-  fetchProductionItems,
-} from '../../lib/rawMaterials';
-import { componentRequiredQty, componentUnitCost, componentVendorId, masterIndex } from '../../lib/componentSourcing';
+import { X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
+import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction, WorkOrderLot, advanceWorkOrder, fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots, generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder, rescaleWorkOrder } from '../../lib/production';
+import { ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch } from '../../lib/formulas';
+import { createProductionPo } from '../../lib/rawMaterials';
 import { openDocPdf } from '../../lib/productionDocs';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
-import { InventoryLocation } from '../../lib/inventoryControl';
 import { useToast } from '../../lib/toast';
 import { btnPrimary, btnSecondary, btnDanger, inp } from '../../lib/styles';
 import { fmtNum, fm } from '../../lib/formatters';
 import { GRID_SX, GRID_DEFAULTS } from '../stock/stockStyles';
-import type { ProductionItemLookup } from './ProductionPage';
+import { RecordYieldDialog, ShipDialog, LotsDialog, RescaleDialog } from './WorkOrderDialogs';
+import { Meta, Kv, cellTh, cellTd } from './productionUi';
+import { StatusBuckets } from '../../components/StatusBuckets';
+import { BulkActionBar } from '../../components/BulkActionBar';
+import { ReasonDialog } from '../../components/ReasonDialog';
+import { BulkEditDialog } from '../../components/BulkEditDialog';
+import { useGridSelection } from '../../lib/useGridSelection';
+import { countBuckets, rowBucket, type Bucket } from '../../lib/lifecycleBuckets';
+import { deleteDrafts, reopenDocs, summarizeBulk, updateDocs, voidDocs, type BulkResult } from '../../lib/bulkActions';
 
 // ── Pipeline metadata ────────────────────────────────────────────────────
 
@@ -64,50 +59,63 @@ function errMsg(e: unknown): string { return e instanceof Error ? e.message : St
 
 interface Props {
   workOrders: WorkOrderView[] | null;
-  boms: ProductBom[];
   formulas: ProductFormula[] | null;
   vendors: QboVendor[] | null;
-  locations: InventoryLocation[];
-  itemLookup: ProductionItemLookup;
+  /** Open this work order's detail on mount / when it changes (a click-through from a production order). */
+  initialWoId?: string | null;
   onChanged: () => void;
 }
 
-// Inventory Planning → Reorder (24-pack lane) → "Create work orders" stashes
-// the runs it wants here. One work order is one BOM, so a list of flavours is
-// a QUEUE of runs, not one form — each row opens the create form prefilled and
-// drops off the queue once its run exists.
-interface WoPrefillRun { qbo_item_id: string; item_name: string; qty: number }
-interface WoPrefillState { source: string; generated_at: string; runs: WoPrefillRun[] }
-
-function readWoPrefill(): WoPrefillRun[] {
-  if (typeof sessionStorage === 'undefined') return [];
-  const raw = sessionStorage.getItem('brix.wo.prefill');
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as WoPrefillState;
-    return Array.isArray(parsed.runs) ? parsed.runs.filter((r) => r && r.qbo_item_id && Number(r.qty) > 0) : [];
-  } catch { return []; }
-}
+// A run is raised on Production → Production Orders (Sky, 2026-09-11: the order is
+// the ONLY door — a one-flavour run is still an order). This tab lists the work
+// orders those orders create and opens a flavour's own record; it creates nothing.
 
 export function WorkOrdersTab({
-  workOrders, boms, formulas, vendors, locations, itemLookup, onChanged,
+  workOrders, formulas, vendors, initialWoId = null, onChanged,
 }: Props) {
-  const [creating, setCreating] = useState(false);
-  const [queue, setQueue] = useState<WoPrefillRun[]>(() => readWoPrefill());
-  const [initial, setInitial] = useState<{ bomId: string; qty: number } | null>(null);
-  useEffect(() => {
-    // consumed on mount: a stale queue reappearing days later is worse than none
-    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('brix.wo.prefill');
-  }, []);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | WorkOrderStatus>('open');
+  const [openId, setOpenId] = useState<string | null>(initialWoId);
+  useEffect(() => { if (initialWoId) setOpenId(initialWoId); }, [initialWoId]);
+  const toast = useToast();
+  const [bucket, setBucket] = useState<Bucket>('open');
+  const [stage, setStage] = useState<'all' | WorkOrderStatus>('all');
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sel = useGridSelection([bucket, stage]);
 
+  const counts = useMemo(() => countBuckets('work_order', workOrders ?? []), [workOrders]);
   const filtered = useMemo(() => {
-    const list = workOrders ?? [];
-    if (statusFilter === 'all') return list;
-    if (statusFilter === 'open') return list.filter((w) => !['closed', 'void', 'consumed'].includes(w.status));
-    return list.filter((w) => w.status === statusFilter);
-  }, [workOrders, statusFilter]);
+    const list = (workOrders ?? []).filter((w) => rowBucket('work_order', w) === bucket);
+    return bucket === 'open' && stage !== 'all' ? list.filter((w) => w.status === stage) : list;
+  }, [workOrders, bucket, stage]);
+  const selectedRows = useMemo(
+    () => filtered.filter((w) => sel.selected.includes(w.id)),
+    [filtered, sel.selected], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  async function runBulk(verb: string, fn: () => Promise<BulkResult>) {
+    setBusy(true);
+    try {
+      const r = await fn();
+      (r.skipped.length ? toast.info : toast.success)(summarizeBulk(r, verb));
+      setBulk(null); sel.clear(); onChanged();
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+  const VOIDABLE = ['draft', 'ordered', 'at_copacker'];
+  const voidItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: VOIDABLE.includes(w.status) && !w.run_id,
+    why: w.run_id ? `part of ${w.run_number ?? 'a production order'} — void the order`
+      : w.status === 'void' ? 'already void'
+      : ['closed', 'consumed'].includes(w.status) ? 'closed — nothing to void'
+      : 'production has started — close it out instead',
+  }));
+  const reopenItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status === 'closed', why: 'not closed',
+  }));
+  const deleteItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status === 'draft' && !(Number(w.po_count ?? 0) > 0) && !w.run_id,
+    why: w.run_id ? `part of ${w.run_number ?? 'a production order'} — remove it there` : w.status !== 'draft' ? 'not a draft — void it instead' : 'has purchase orders — void it instead',
+  }));
 
   const columns: GridColDef[] = useMemo(() => [
     {
@@ -129,6 +137,14 @@ export function WorkOrdersTab({
           padding: '1px 7px', borderRadius: 12, fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
         }}>{(STATUS_LABEL[v] ?? v).toUpperCase()}</span>;
       },
+    },
+    {
+      field: 'run_number', headerName: 'Order', width: 130,
+      renderCell: (p) => p.value
+        ? <span title="Part of a production order — POs, shipping and void are managed there" style={{
+            fontFamily: 'var(--ff-mono)', fontSize: 10.5, color: 'var(--ac)', border: '1px solid var(--bd)', borderRadius: 4, padding: '1px 6px',
+          }}>{String(p.value)}</span>
+        : <span style={{ color: 'var(--mt)' }}>—</span>,
     },
     { field: 'finished_item_name', headerName: 'Product', flex: 1, minWidth: 190,
       renderCell: (p) => <span style={{ fontWeight: 600 }}>{String(p.value ?? p.row.finished_qbo_item_id)}</span> },
@@ -165,89 +181,27 @@ export function WorkOrdersTab({
       valueFormatter: (v) => v ? new Date(String(v)).toLocaleString() : '—' },
   ], []);
 
-  const activeBoms = boms.filter((b) => b.is_active);
   const openWo = (workOrders ?? []).find((w) => w.id === openId) ?? null;
 
   return (
     <div>
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="toolbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span className="toolbar-label">Stage</span>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} style={inp()}>
-              <option value="open">All open</option>
-              <option value="all">Everything</option>
-              {PIPELINE.map((s) => <option key={s.status} value={s.status}>{s.label}</option>)}
-              <option value="void">Void</option>
-            </select>
-          </div>
+          <StatusBuckets kind="work_order" value={bucket} counts={counts} onChange={setBucket}>
+            {bucket === 'open' && (
+              <select value={stage} onChange={(e) => setStage(e.target.value as typeof stage)} style={inp()} aria-label="Stage">
+                <option value="all">Every stage</option>
+                {PIPELINE.filter((s) => !['draft', 'closed'].includes(s.status))
+                  .map((s) => <option key={s.status} value={s.status}>{s.label}</option>)}
+              </select>
+            )}
+          </StatusBuckets>
           <div className="toolbar-spacer" style={{ flex: 1 }} />
-          <button onClick={() => setCreating(true)} style={btnPrimary()} disabled={activeBoms.length === 0}>
-            <Plus size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> New Work Order
-          </button>
+          <span style={{ fontSize: 11, color: 'var(--mt)' }}>
+            A run is raised on <strong>Production Orders</strong> — one order, one or more flavours, one PO per vendor. Each flavour becomes a work order here.
+          </span>
         </div>
       </div>
-
-      {activeBoms.length === 0 && (
-        <div style={{
-          padding: 10, marginBottom: 14,
-          background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)',
-          borderRadius: 4, fontSize: 11, color: 'var(--am)',
-        }}>
-          No active BOMs. Create one in the <strong>Bills of Materials</strong> tab before launching a work order.
-        </div>
-      )}
-
-      {queue.length > 0 && (
-        <div className="cd" style={{ padding: '10px 14px', marginBottom: 12, border: '1px solid var(--ac)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ac)', marginBottom: 6 }}>
-            RUNS SUGGESTED BY INVENTORY PLANNING · {queue.length}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>
-            One work order is one flavour. Start each run below — the form opens with the BOM and the suggested quantity filled in;
-            change the quantity to the run size you actually want before saving.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {queue.map((r) => {
-              const bom = activeBoms.find((b) => b.finished_qbo_item_id === r.qbo_item_id);
-              return (
-                <div key={r.qbo_item_id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
-                  <span style={{ flex: 1, fontWeight: 600 }}>{r.item_name}</span>
-                  <span className="mn" style={{ color: 'var(--ac)', fontWeight: 700 }}>{Number(r.qty).toLocaleString()} cases</span>
-                  {bom ? (
-                    <button style={btnPrimary()} onClick={() => { setInitial({ bomId: bom.id, qty: Math.ceil(Number(r.qty)) }); setCreating(true); }}>START RUN</button>
-                  ) : (
-                    <span style={{ fontSize: 10, color: 'var(--am)' }} title="No active bill of materials names this item as its finished good">no active BOM</span>
-                  )}
-                  <button style={btnSecondary()} onClick={() => setQueue((q) => q.filter((x) => x.qbo_item_id !== r.qbo_item_id))} title="Drop from the queue">✕</button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {creating && (
-        <CreatePipelineForm
-          key={initial ? `${initial.bomId}:${initial.qty}` : 'blank'}
-          boms={activeBoms}
-          formulas={formulas ?? []}
-          vendors={vendors ?? []}
-          locations={locations}
-          itemLookup={itemLookup}
-          initial={initial}
-          onCancel={() => { setCreating(false); setInitial(null); }}
-          onCreated={() => {
-            setCreating(false);
-            if (initial) {
-              const done = activeBoms.find((b) => b.id === initial.bomId)?.finished_qbo_item_id;
-              if (done) setQueue((q) => q.filter((x) => x.qbo_item_id !== done));
-            }
-            setInitial(null);
-            onChanged();
-          }}
-        />
-      )}
 
       <div className="cd" style={{ padding: 0 }}>
         <DataGridPro
@@ -258,9 +212,49 @@ export function WorkOrdersTab({
           density="compact"
           loading={workOrders === null}
           initialState={{ sorting: { sortModel: [{ field: 'created_at', sort: 'desc' }] } }}
-          disableRowSelectionOnClick
+          {...sel.gridProps}
         />
       </div>
+
+      <BulkActionBar count={sel.selected.length} noun="work order" onClear={sel.clear}>
+        {bucket === 'closed' && (
+          <button type="button" className="tb-btn tb-btn--primary" disabled={busy} onClick={() => setBulk('reopen')}>Reopen…</button>
+        )}
+        {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
+        {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
+        )}
+        {bucket === 'pending' && (
+          <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('delete')}>Delete drafts…</button>
+        )}
+      </BulkActionBar>
+      {bulk === 'void' && (
+        <ReasonDialog title="Void work orders" verb={`Void ${voidItems.filter((i) => i.eligible).length} work order${voidItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={voidItems} busy={busy}
+          note="A voided work order voids its open purchase orders too (refused if one already carries receipts). Nothing is deleted — the reason stays on every row."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('voided', () => voidDocs('work_order', ids, reason))} />
+      )}
+      {bulk === 'delete' && (
+        <ReasonDialog title="Delete draft work orders" verb={`Delete ${deleteItems.filter((i) => i.eligible).length} draft${deleteItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={deleteItems} needReason={false} busy={busy}
+          note="Only a draft with no purchase orders can be deleted. This is permanent — anything further along is voided instead, which keeps the record."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => runBulk('deleted', () => deleteDrafts('work_order', ids))} />
+      )}
+      {bulk === 'reopen' && (
+        <ReasonDialog title="Reopen work orders" verb={`Reopen ${reopenItems.filter((i) => i.eligible).length} work order${reopenItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={reopenItems} busy={busy}
+          note="A closed run goes back to Received, so its receipt can be corrected and it can be closed again."
+          onCancel={() => setBulk(null)}
+          onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('work_order', ids, reason))} />
+      )}
+      {bulk === 'edit' && (
+        <BulkEditDialog title="Edit work orders" count={sel.selected.length} busy={busy}
+          fields={[{ key: 'scheduled_date', label: 'Scheduled date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea' }]}
+          onCancel={() => setBulk(null)}
+          onConfirm={(patch) => runBulk('edited', () => updateDocs('work_order', sel.selected, patch))} />
+      )}
 
       {openWo && (
         <PipelineDetailModal
@@ -275,429 +269,9 @@ export function WorkOrdersTab({
   );
 }
 
-// ── Create form ──────────────────────────────────────────────────────────
-
-function CreatePipelineForm({ boms, formulas, vendors, locations, itemLookup, initial = null, onCancel, onCreated }: {
-  boms: ProductBom[];
-  formulas: ProductFormula[];
-  vendors: QboVendor[];
-  locations: InventoryLocation[];
-  itemLookup: ProductionItemLookup;
-  /** A run queued by Inventory Planning: the BOM and suggested quantity to start from. */
-  initial?: { bomId: string; qty: number } | null;
-  onCancel: () => void;
-  onCreated: () => void;
-}) {
-  const toast = useToast();
-  const [bomId, setBomId] = useState(initial?.bomId ?? '');
-  const [qty, setQty] = useState(initial ? String(initial.qty) : '');
-  const [copackerVendor, setCopackerVendor] = useState('');
-  const [copackerLoc, setCopackerLoc] = useState('');
-  const [destLoc, setDestLoc] = useState('');
-  const [batchGal, setBatchGal] = useState('');
-  const [batchGalTouched, setBatchGalTouched] = useState(false);
-  const [scheduled, setScheduled] = useState('');
-  const [notes, setNotes] = useState('');
-  const [bomLines, setBomLines] = useState<ProductBomLine[] | null>(null);
-  const [plan, setPlan] = useState<BatchPlan | null>(null);
-  const [preflight, setPreflight] = useState<BomPreflight | null>(null);
-  const [masterItems, setMasterItems] = useState<ProductionItem[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  const bom = boms.find((b) => b.id === bomId) ?? null;
-  const formula = bom?.formula_id ? formulas.find((f) => f.id === bom.formula_id) ?? null : null;
-
-  const copackerLocs = useMemo(
-    () => [...locations].filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment')
-      .sort((a, b) => (a.kind === 'co_packer' ? 0 : 1) - (b.kind === 'co_packer' ? 0 : 1) || a.code.localeCompare(b.code)),
-    [locations],
-  );
-  const warehouses = useMemo(
-    () => locations.filter((l) => l.is_active && l.kind !== 'in_transit' && l.kind !== 'adjustment'),
-    [locations],
-  );
-
-  useEffect(() => {
-    let alive = true;
-    setBomLines(null);
-    if (bomId) {
-      fetchBomLines(bomId).then((r) => alive && setBomLines(r)).catch(() => alive && setBomLines([]));
-    }
-    return () => { alive = false; };
-  }, [bomId]);
-
-  // Suggested batch gallons from the formula geometry: units × cans × oz ÷ 128.
-  useEffect(() => {
-    if (batchGalTouched || !bom || !(Number(qty) > 0)) return;
-    const gal = Number(qty) * Number(bom.cans_per_case || 24) * Number(bom.oz_per_can || 12) / 128;
-    setBatchGal(gal > 0 ? String(Math.round(gal * 100) / 100) : '');
-  }, [qty, bom, batchGalTouched]);
-
-  // Default the co-packer location when one exists.
-  useEffect(() => {
-    if (!copackerLoc) {
-      const cp = copackerLocs.find((l) => l.kind === 'co_packer');
-      if (cp) setCopackerLoc(cp.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copackerLocs]);
-
-  // Tank / MOQ plan. Debounced because it re-runs on every keystroke in the
-  // quantity box, and it is a round trip.
-  useEffect(() => {
-    const cases = Number(qty);
-    if (!bomId || !(cases > 0)) { setPlan(null); return; }
-    let alive = true;
-    const h = setTimeout(() => {
-      fetchBatchPlan(bomId, cases)
-        .then((p) => { if (alive) setPlan(p); })
-        .catch(() => { if (alive) setPlan(null); });
-    }, 250);
-    return () => { alive = false; clearTimeout(h); };
-  }, [bomId, qty]);
-
-  // The Materials & Pricing master — the vendor and price for any component
-  // whose BOM line does not override them.
-  useEffect(() => {
-    let alive = true;
-    fetchProductionItems().then((r) => { if (alive) setMasterItems(r); }).catch(() => undefined);
-    return () => { alive = false; };
-  }, []);
-
-  // Which vendors this run will raise a PO for, and anything that would stop
-  // one reaching QuickBooks. Not debounced -- it depends on the BOM, not the
-  // quantity, so it runs once when the flavour is picked.
-  useEffect(() => {
-    if (!bomId) { setPreflight(null); return; }
-    let alive = true;
-    fetchBomPreflight(bomId)
-      .then((p) => { if (alive) setPreflight(p); })
-      .catch(() => { if (alive) setPreflight(null); });
-    return () => { alive = false; };
-  }, [bomId]);
-
-  // What the server will snapshot onto the work order. Three rules have to match
-  // fn_wo_create_pipeline exactly or this preview quietly disagrees with the POs
-  // it is previewing: stocked components only, per_run is a flat charge, and the
-  // vendor and price fall back to the Materials & Pricing master.
-  const masters = useMemo(() => masterIndex(masterItems), [masterItems]);
-  const materialsPreview = useMemo(() => {
-    if (!bomLines || !(Number(qty) > 0)) return [];
-    return bomLines
-      // A recipe line has no item of its own and never becomes a PO line — it
-      // rides under the flavour's gallon as detail. It also has no name here, so
-      // including it renders a row of question marks.
-      .filter((l) => l.line_type === 'component' && l.component_qbo_item_id)
-      .map((l) => {
-        const item = itemLookup.byId.get(l.component_qbo_item_id ?? '');
-        const required = componentRequiredQty(l, Number(qty));
-        const cost = componentUnitCost(l, masters, item?.purchase_cost ?? null);
-        const vendorId = componentVendorId(l, masters);
-        const vendor = vendors.find((v) => v.qbo_vendor_id === vendorId);
-        return {
-          id: l.id,
-          label: item?.item_name ?? l.component_qbo_item_id ?? '?',
-          required, uom: l.qty_uom || 'each',
-          cost, ext: cost != null ? required * Number(cost) : null,
-          vendor: vendor?.display_name ?? vendorId,
-        };
-      });
-  }, [bomLines, qty, itemLookup, vendors, masters]);
-  const previewTotal = materialsPreview.reduce((s, m) => s + (m.ext ?? 0), 0);
-  const missingVendorCount = materialsPreview.filter((m) => !m.vendor).length;
-
-  const canSave = !!bomId && Number(qty) > 0 && !!copackerLoc && !!destLoc;
-
-  async function submit() {
-    if (!canSave) return;
-    setSaving(true);
-    try {
-      await createWorkOrderPipeline({
-        bom_id: bomId,
-        qty_to_produce: Number(qty),
-        copacker_qbo_vendor_id: copackerVendor || null,
-        copacker_location_id: copackerLoc,
-        destination_location_id: destLoc,
-        scheduled_date: scheduled || null,
-        batch_size_gal: batchGal ? Number(batchGal) : null,
-        notes: notes || null,
-      });
-      toast.success('Work order created — materials calculated');
-      onCreated();
-    } catch (e) { toast.error(errMsg(e)); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <div className="cd" style={{ padding: 14, marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ fontSize: 10.5, color: 'var(--mt)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-          New Work Order — how many finished units do we want made?
-        </div>
-        <button onClick={onCancel} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}>
-          <XIcon size={14} />
-        </button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
-        <LField label="BOM (sellable item)">
-          <SearchSelect value={bomId} onChange={setBomId} placeholder="Type a product…"
-            options={boms.map((b) => {
-              const it = itemLookup.byId.get(b.finished_qbo_item_id);
-              return { id: b.id, label: `${it?.item_name ?? b.finished_qbo_item_id}${b.name ? ` · ${b.name}` : ''}`, hint: `v${b.version}` };
-            })} />
-        </LField>
-        <LField label="Qty to make (finished units)">
-          <input type="number" min={1} step="any" style={inp()} value={qty} onChange={(e) => setQty(e.target.value)} />
-        </LField>
-        <LField label="Batch size (gal) — from formula">
-          <input type="number" min={0} step="any" style={inp()} value={batchGal}
-            onChange={(e) => { setBatchGal(e.target.value); setBatchGalTouched(true); }} />
-        </LField>
-        <LField label="Co-packer (vendor)">
-          <SearchSelect value={copackerVendor} onChange={setCopackerVendor} placeholder="Type a vendor…"
-            options={vendors.map((v) => ({ id: v.qbo_vendor_id, label: v.display_name }))} />
-        </LField>
-        <LField label="Co-packer location (materials ship here)">
-          <SearchSelect value={copackerLoc} onChange={setCopackerLoc} placeholder="Type a location…"
-            options={copackerLocs.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
-        </LField>
-        <LField label="Receive finished goods at">
-          <SearchSelect value={destLoc} onChange={setDestLoc} placeholder="Type a warehouse…"
-            options={warehouses.map((l) => ({ id: l.id, label: `${l.code} — ${l.name}` }))} />
-        </LField>
-        <LField label="Scheduled date">
-          <input type="date" style={inp()} value={scheduled} onChange={(e) => setScheduled(e.target.value)} />
-        </LField>
-      </div>
-
-      {formula && (
-        <div style={{
-          marginTop: 12, padding: 10, fontSize: 11,
-          background: 'rgba(91,181,240,0.05)', border: '1px solid var(--bd)', borderRadius: 4, color: 'var(--mt)',
-        }}>
-          Formula: <strong style={{ color: 'var(--tx)' }}>{formula.name}</strong> rev {formula.doc_rev}
-          {formula.density_lbs_per_gal != null && <> · density {formula.density_lbs_per_gal} lbs/gal</>}
-          {Number(batchGal) > 0 && formula.density_lbs_per_gal != null && (
-            <> · batch weight ≈ <strong style={{ color: 'var(--tx)' }}>
-              {(Number(batchGal) * Number(formula.density_lbs_per_gal)).toLocaleString(undefined, { maximumFractionDigits: 0 })} lbs
-            </strong></>
-          )}
-        </div>
-      )}
-      {bom && !formula && (
-        <div style={{
-          marginTop: 12, padding: 10, fontSize: 11,
-          background: 'rgba(239,191,65,0.08)', border: '1px solid rgba(239,191,65,0.30)', borderRadius: 4, color: 'var(--am)',
-        }}>
-          This BOM has no formula / spec sheet linked. Link one in the BOMs tab so the batching sheet can drive production.
-        </div>
-      )}
-
-      {preflight && (
-        <div style={{
-          marginTop: 12, padding: 10, border: '1px solid var(--bd)', borderRadius: 5,
-          background: 'rgba(255,255,255,0.02)', fontSize: 11, lineHeight: 1.7,
-        }}>
-          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
-            This run raises {preflight.po_count} purchase order{preflight.po_count === 1 ? '' : 's'}
-          </div>
-          {preflight.vendors.map((v) => (
-            <div key={v.qbo_vendor_id ?? 'none'}>
-              <strong style={{ color: v.qbo_vendor_id ? 'var(--tx)' : 'var(--am)' }}>{v.vendor_name}</strong>
-              <span style={{ color: 'var(--mt)' }}> — {v.items.join(' · ')}</span>
-            </div>
-          ))}
-          {preflight.blockers.length > 0 && (
-            <div style={{
-              marginTop: 7, padding: 8, borderRadius: 4,
-              background: 'rgba(245,158,11,0.10)', border: '1px solid var(--am)',
-            }}>
-              <strong style={{ color: 'var(--am)' }}>
-                Fix before pushing to QuickBooks
-              </strong>
-              {preflight.blockers.map((b) => (
-                <div key={b.qbo_item_id} style={{ marginTop: 3, color: 'var(--mt)' }}>
-                  <span style={{ color: 'var(--tx)' }}>{b.item_name}</span> — {b.detail}
-                </div>
-              ))}
-            </div>
-          )}
-          {(preflight.warnings ?? []).length > 0 && (
-            <div style={{
-              marginTop: 7, padding: 8, borderRadius: 4,
-              background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--bd)',
-            }}>
-              <strong style={{ color: 'var(--tx)' }}>Worth a look — this will still post</strong>
-              {preflight.warnings.map((w) => (
-                <div key={w.qbo_item_id} style={{ marginTop: 3, color: 'var(--mt)' }}>
-                  <span style={{ color: 'var(--tx)' }}>{w.item_name}</span> — {w.detail}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {plan && (
-        <div style={{
-          marginTop: 12, padding: 12, border: '1px solid var(--bd)', borderRadius: 5,
-          background: 'rgba(255,255,255,0.02)',
-        }}>
-          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
-            Batch plan — filling the tank
-          </div>
-          <div style={{ fontSize: 12, marginBottom: 10, lineHeight: 1.7 }}>
-            {fmtNum(plan.cases_requested)} cases × {plan.gal_per_case} gal ={' '}
-            <strong>{fmtNum(plan.finished_gal)} gal</strong> of finished soda
-            {plan.yield_pct < 1 && (
-              <> — at a {(plan.yield_pct * 100).toFixed(1)}% yield that means{' '}
-              <strong>{fmtNum(plan.gal_to_batch)} gal</strong> into the tank</>
-            )}.
-            {plan.dilution_ratio > 0 && (
-              <div style={{ color: 'var(--mt)' }}>
-                The tank is finished product — the co-packer dilutes and carbonates. At{' '}
-                {plan.dilution_ratio}:1 that run needs{' '}
-                <strong style={{ color: 'var(--tx)' }}>{fmtNum(plan.concentrate_gal)} gal of concentrate</strong>{' '}
-                delivered, which is what the ingredient purchase order orders.
-              </div>
-            )}
-          </div>
-          <PrintableTable>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <th style={cellTh}>Tank</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>A full tank makes</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>Add to fill it</th>
-                  <th style={cellTh}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.tanks.map((tk) => (
-                  <tr key={tk.tank_gal} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={cellTd}>
-                      <strong>{fmtNum(tk.tank_gal)} gal</strong>
-                      {plan.recommended_tank === tk.tank_gal && (
-                        <span style={{
-                          marginLeft: 8, fontSize: 9, fontWeight: 700, color: 'var(--gn)',
-                          border: '1px solid var(--gn)', borderRadius: 12, padding: '1px 7px',
-                        }}>SMALLEST THAT HOLDS THIS RUN</span>
-                      )}
-                    </td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {fmtNum(tk.cases_from_tank)} cases
-                      {plan.dilution_ratio > 0 && (
-                        <div style={{ color: 'var(--mt)', fontSize: 10 }}>
-                          {fmtNum(tk.concentrate_gal)} gal conc.
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {tk.fits && tk.extra_cases > 0
-                        ? (
-                          <button
-                            onClick={() => setQty(String(tk.cases_from_tank))}
-                            style={{
-                              background: 'transparent', border: 'none', cursor: 'pointer',
-                              color: 'var(--ac)', fontWeight: 700, fontFamily: 'var(--ff-mono)', padding: 0,
-                            }}
-                            title={'Set the order to ' + tk.cases_from_tank + ' cases'}
-                          >+{fmtNum(tk.extra_cases)}</button>
-                        )
-                        : <span style={{ color: 'var(--mt)' }}>—</span>}
-                    </td>
-                    <td style={{ ...cellTd, color: 'var(--mt)', fontSize: 11 }}>
-                      {tk.fits
-                        ? fmtNum(tk.unused_gal) + ' gal of capacity unused as ordered'
-                        : 'too small — over by ' + fmtNum(tk.over_by_gal) + ' gal'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </PrintableTable>
-          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--mt)', lineHeight: 1.6 }}>
-            Tank sizes come from the formula, so a flavour that cannot run in a given tank simply does not
-            list it. Clicking a <span style={{ color: 'var(--ac)' }}>+n</span> sets the order to a full tank.
-          </div>
-        </div>
-      )}
-
-      {materialsPreview.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
-            Materials that will be calculated onto this work order
-            {missingVendorCount > 0 && (
-              <span style={{ color: 'var(--am)', textTransform: 'none', letterSpacing: 0, marginLeft: 8 }}>
-                {missingVendorCount} without a vendor — set one under Materials &amp; Pricing, or on the BOM, before generating POs
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 6 }}>
-            Quantities are the recipe's own units. Where a material has a pack size on file the work order
-            converts these to whole vendor packs — you cannot buy 0.4 of a bag — so the ordered figure on the
-            purchase order rounds up from what is shown here.
-          </div>
-          <PrintableTable>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  <th style={cellTh}>Sub-item</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
-                  <th style={cellTh}>Vendor</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>Est ext $</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialsPreview.map((m) => (
-                  <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={cellTd}><strong>{m.label}</strong></td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {fmtNum(m.required)} {m.uom}
-                    </td>
-                    <td style={cellTd}>{m.vendor ?? <span style={{ color: 'var(--am)' }}>unassigned</span>}</td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
-                      {m.cost == null ? '—' : '$' + Number(m.cost).toFixed(4)}
-                    </td>
-                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {m.ext == null ? '—' : fm(m.ext)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={4} style={{ ...cellTd, textAlign: 'right', fontWeight: 700 }}>Estimated materials</td>
-                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 700 }}>{fm(previewTotal)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </PrintableTable>
-        </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        <LField label="Notes">
-          <textarea rows={2} style={{ ...inp(), width: '100%', resize: 'vertical', minHeight: 36 }}
-            value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </LField>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-        <button onClick={onCancel} style={btnSecondary()}>Cancel</button>
-        <button onClick={submit} disabled={!canSave || saving} style={btnPrimary()}>
-          {saving ? 'Creating…' : 'Create work order'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Detail modal (pipeline) ──────────────────────────────────────────────
 
-type ActionDialog = 'record_yield' | 'ship' | 'lots' | null;
+type ActionDialog = 'record_yield' | 'ship' | 'lots' | 'rescale' | 'edit' | null;
 
 function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   wo: WorkOrderView;
@@ -714,6 +288,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ActionDialog>(null);
+  const [voidAsk, setVoidAsk] = useState(false);
+  const [reopenAsk, setReopenAsk] = useState(false);
 
   const formula = wo.formula_id ? formulas.find((f) => f.id === wo.formula_id) ?? null : null;
 
@@ -779,6 +355,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
 
   const materialsMissingVendor = (materials ?? []).filter((m) => !m.qbo_vendor_id && !m.po_id).length;
   const canEditLots = ['in_production', 'yield_recorded'].includes(wo.status);
+  // 20260911d — the plan quantity is editable until the yield is recorded; a run WO's lines are the run's.
+  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && !wo.run_id && wo.actual_yield_qty == null;
+  const canEditDetails = !['void', 'closed', 'consumed'].includes(wo.status);
   const batchGal = Number(wo.batch_size_gal ?? 0);
   const batchLines = formula && ingredients && batchGal > 0
     ? scaleFormulaBatch(formula, ingredients, batchGal)
@@ -839,6 +418,12 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
           </div>
         )}
 
+        {wo.run_id && (
+          <div style={{ marginBottom: 12, padding: 8, fontSize: 11, border: '1px solid var(--bd)', borderRadius: 4, background: 'rgba(91,181,240,0.05)' }}>
+            Part of production order <strong style={{ fontFamily: 'var(--ff-mono)', color: 'var(--ac)' }}>{wo.run_number ?? wo.run_id}</strong>.
+            Purchase orders, materials-at-co-packer, start, shipping (one BOL for the truck), receipt, close and void are done on the <strong>Production Orders</strong> tab for every flavour together; yield and lots are recorded here or there, per flavour.
+          </div>
+        )}
         {/* Meta */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12, marginBottom: 14 }}>
           <Meta label="Qty ordered" value={`${fmtNum(Number(wo.qty_to_produce))} units`} />
@@ -912,7 +497,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   <th style={cellTh}>Sub-item</th>
-                  <th style={{ ...cellTh, textAlign: 'right' }}>Required</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }} title="What the batch uses — consumed at start of production and costed into the run">Needed</th>
+                  <th style={{ ...cellTh, textAlign: 'right' }} title="What the purchase order carries — MOQ and order multiple applied; the surplus stays at the co-packer">Ordered</th>
                   <th style={cellTh}>Vendor</th>
                   <th style={cellTh}>PO</th>
                   <th style={{ ...cellTh, textAlign: 'right' }}>Est unit $</th>
@@ -923,8 +509,16 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
                 {(materials ?? []).map((m) => (
                   <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                     <td style={cellTd}><strong>{m.item_name ?? m.component_qbo_item_id}</strong></td>
+                    <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', color: 'var(--mt)' }}>
+                      {fmtNum(Number(m.demand_qty ?? m.required_qty))} {m.uom}
+                    </td>
                     <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                      {fmtNum(Number(m.required_qty))} {m.uom}
+                      {fmtNum(Number(m.required_qty))}
+                      {m.demand_qty != null && Number(m.required_qty) - Number(m.demand_qty) > 0.000001 && (
+                        <span style={{ color: 'var(--am)', marginLeft: 6, fontSize: 10 }} title="Surplus — lands at the co-packer as stock for the next run">
+                          +{fmtNum(Number(m.required_qty) - Number(m.demand_qty))}
+                        </span>
+                      )}
                     </td>
                     <td style={cellTd}>
                       {m.po_id
@@ -1065,8 +659,41 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             onCancel={() => setDialog(null)}
             onSubmit={(payload) => { setDialog(null); void run('Lots recorded', () => setWorkOrderLots(wo.id, payload)); }} />
         )}
+        {dialog === 'rescale' && (
+          <RescaleDialog wo={wo} busy={busy}
+            onCancel={() => setDialog(null)}
+            onSubmit={(qty, reason) => { setDialog(null); void run('Plan quantity changed', async () => {
+              const r = await rescaleWorkOrder(wo.id, qty, reason || null);
+              toast.info(`${r.batch_code}: ${fmtNum(r.from)} → ${fmtNum(r.to)} units · ${r.po_lines} PO line${r.po_lines === 1 ? '' : 's'} rescaled`
+                + (r.movements ? ` · ${r.movements} ledger correction${r.movements === 1 ? '' : 's'} posted` : '')
+                + (r.purchase_orders.length ? ' · ' + r.purchase_orders.map((p) => `${p.po_number} ${fm(Number(p.subtotal))}`).join(', ') : ''));
+            }); }} />
+        )}
+        {dialog === 'edit' && (
+          <BulkEditDialog title={'Edit ' + wo.batch_code} count={1} busy={busy}
+            fields={[{ key: 'scheduled_date', label: 'Scheduled date', type: 'date' }, { key: 'notes', label: 'Notes (e.g. "part 2 of the June canning run")', type: 'textarea' }]}
+            onCancel={() => setDialog(null)}
+            onConfirm={(patch) => { setDialog(null); void run('Work order updated', async () => {
+              const r = await updateDocs('work_order', [wo.id], patch);
+              if (r.skipped.length) throw new Error(r.skipped[0].reason);
+            }); }} />
+        )}
 
         {/* Actions */}
+        {voidAsk && (
+          <ReasonDialog title={'Void ' + wo.batch_code} verb="Void work order"
+            items={[{ id: wo.id, number: wo.batch_code, eligible: true }]} busy={busy}
+            note="Open purchase orders without receipts are voided with it. Nothing is deleted."
+            onCancel={() => setVoidAsk(false)}
+            onConfirm={(reason) => { setVoidAsk(false); void advance('void', 'Work order voided', { reason }); }} />
+        )}
+        {reopenAsk && (
+          <ReasonDialog title={'Reopen ' + wo.batch_code} verb="Reopen work order"
+            items={[{ id: wo.id, number: wo.batch_code, eligible: true }]} busy={busy}
+            note="The run goes back to Received. Its costs and lots stay as recorded; close it again when the correction is made."
+            onCancel={() => setReopenAsk(false)}
+            onConfirm={(reason) => { setReopenAsk(false); void run('Work order reopened — back to Received', () => reopenWorkOrder(wo.id, reason).then(() => undefined)); }} />
+        )}
         {emailSheet && (
           <EmailDocModal ref={{ kind: 'batch_sheet', wo_id: wo.id }}
             title={'batching sheet · ' + wo.batch_code} onClose={() => setEmailSheet(false)} />
@@ -1079,27 +706,35 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
           <button disabled={busy} style={btnSecondary()} title="Email the batching sheet to the co-packer" onClick={() => setEmailSheet(true)}>
             <Mail size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Email sheet…
           </button>
-          {['draft', 'ordered', 'at_copacker'].includes(wo.status) && (
-            <button disabled={busy} style={btnDanger()} onClick={() => {
-              const reason = prompt('Void reason? (Open POs without receipts will be voided with it.)');
-              if (reason) void advance('void', 'Work order voided', { reason });
-            }}>Void</button>
+          {canEditDetails && (
+            <button disabled={busy} style={btnSecondary()} title="Scheduled date and notes" onClick={() => setDialog(dialog === 'edit' ? null : 'edit')}>Edit details…</button>
           )}
-          {['draft', 'ordered'].includes(wo.status) && (
+          {canRescale && (
+            <button disabled={busy} style={btnSecondary()} title="Change the planned quantity — materials, PO lines and any posted consumption follow" onClick={() => setDialog(dialog === 'rescale' ? null : 'rescale')}>
+              <Scale size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Change quantity…
+            </button>
+          )}
+          {['draft', 'ordered', 'at_copacker'].includes(wo.status) && !wo.run_id && (
+            <button disabled={busy} style={btnDanger()} onClick={() => setVoidAsk(true)}>Void</button>
+          )}
+          {wo.status === 'closed' && (
+            <button disabled={busy} style={btnSecondary()} onClick={() => setReopenAsk(true)} title="Back to Received so the receipt can be corrected">Reopen</button>
+          )}
+          {['draft', 'ordered'].includes(wo.status) && !wo.run_id && (
             <button disabled={busy || materialsMissingVendor > 0} style={btnPrimary()} onClick={doGeneratePos}
               title={materialsMissingVendor > 0 ? 'Assign a vendor to every material first' : 'One PO per vendor for all sub-items'}>
               <ShoppingCart size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
               Generate POs per vendor →
             </button>
           )}
-          {wo.status === 'ordered' && (
+          {wo.status === 'ordered' && !wo.run_id && (
             <button disabled={busy} style={btnSecondary()} onClick={() =>
               advance('materials_at_copacker', 'Marked at co-packer', {},
                 'Mark raw materials as arrived at the co-packer? (Receive the POs in the Purchase Orders tab to keep on-hand accurate.)')}>
               <Truck size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Materials at co-packer
             </button>
           )}
-          {['ordered', 'at_copacker'].includes(wo.status) && (
+          {['ordered', 'at_copacker'].includes(wo.status) && !wo.run_id && (
             <button disabled={busy} style={btnPrimary()} onClick={() =>
               advance('start_production', 'Production started', {},
                 `Start production for ${wo.batch_code}?\n\nThis consumes every material quantity from ${wo.copacker_location_label ?? 'the co-packer location'}.`)}>
@@ -1111,230 +746,29 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               <Scale size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Record yield →
             </button>
           )}
-          {wo.status === 'yield_recorded' && (
+          {wo.status === 'yield_recorded' && !wo.run_id && (
             <button disabled={busy} style={btnPrimary()} onClick={() => setDialog('ship')}>
               <Truck size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Create shipping record →
             </button>
           )}
-          {['yield_recorded', 'in_transit', 'received', 'closed'].includes(wo.status) && (
+          {['yield_recorded', 'in_transit', 'received', 'closed'].includes(wo.status) && !wo.run_id && (
             <button disabled={busy} style={btnSecondary()} onClick={doCreateProductionPo}>
               <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Create production PO →
             </button>
           )}
-          {wo.status === 'in_transit' && (
+          {wo.status === 'in_transit' && !wo.run_id && (
             <button disabled={busy} style={btnPrimary()} onClick={() =>
               advance('receive', 'Finished goods received into inventory', {},
                 `Receive ${fmtNum(Number(wo.qty_produced_actual ?? 0))} finished units into ${wo.destination_location_label ?? 'the warehouse'}?`)}>
               <PackageCheck size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Receive into inventory →
             </button>
           )}
-          {wo.status === 'received' && (
+          {wo.status === 'received' && !wo.run_id && (
             <button disabled={busy} style={btnPrimary()} onClick={() => advance('close', 'Work order closed')}>
               <Check size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Close work order
             </button>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Action dialogs ───────────────────────────────────────────────────────
-
-function RecordYieldDialog({ wo, busy, onCancel, onSubmit }: {
-  wo: WorkOrderView; busy: boolean;
-  onCancel: () => void;
-  onSubmit: (payload: Record<string, unknown>) => void;
-}) {
-  const [actual, setActual] = useState(String(wo.qty_to_produce));
-  const [copackFee, setCopackFee] = useState('');
-  const [freight, setFreight] = useState('');
-  const [other, setOther] = useState('');
-  const [date, setDate] = useState('');
-  const [lotRows, setLotRows] = useState<LotRow[]>([]);
-  const pct = Number(wo.expected_units) > 0 ? (Number(actual) / Number(wo.expected_units)) * 100 : null;
-  const lotCheck = checkLots(lotRows, Number(actual));
-  return (
-    <div className="cd" style={{ padding: 12, marginTop: 12, border: '1px solid var(--ac)' }}>
-      <div style={{ fontSize: 10.5, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-        Record yield — what did the co-packer actually produce?
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-        <LField label={`Actual yield (units, of ${fmtNum(Number(wo.qty_to_produce))} planned)`}>
-          <input type="number" min={0.01} step="any" style={inp()} value={actual} onChange={(e) => setActual(e.target.value)} />
-          {pct != null && Number(actual) > 0 && (
-            <div style={{ fontSize: 10, marginTop: 3, color: pct < 100 ? 'var(--am)' : 'var(--gn)' }}>{pct.toFixed(1)}% of plan</div>
-          )}
-        </LField>
-        <LField label="Co-pack fee $"><input type="number" min={0} step="any" style={inp()} value={copackFee} onChange={(e) => setCopackFee(e.target.value)} /></LField>
-        <LField label="Freight $"><input type="number" min={0} step="any" style={inp()} value={freight} onChange={(e) => setFreight(e.target.value)} /></LField>
-        <LField label="Other landed $"><input type="number" min={0} step="any" style={inp()} value={other} onChange={(e) => setOther(e.target.value)} /></LField>
-        <LField label="Yield date"><input type="date" style={inp()} value={date} onChange={(e) => setDate(e.target.value)} /></LField>
-      </div>
-      <LotEditor rows={lotRows} onChange={setLotRows} expectedTotal={Number(actual)}
-        hint="Optional here — the co-packer's lot codes and born-on dates can also be entered before shipping. If entered, the lot quantities must add up to the yield." />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <button style={btnSecondary()} onClick={onCancel}>Cancel</button>
-        <button style={btnPrimary()} disabled={busy || !(Number(actual) > 0) || !lotCheck.ok} title={lotCheck.ok ? undefined : lotCheck.reason} onClick={() => onSubmit({
-          actual_yield_qty: Number(actual),
-          copack_fee: copackFee ? Number(copackFee) : 0,
-          freight_cost: freight ? Number(freight) : 0,
-          other_cost: other ? Number(other) : 0,
-          yield_date: date || null,
-          ...(lotCheck.payload.length ? { lots: lotCheck.payload } : {}),
-        })}>Record yield + lock costs</button>
-      </div>
-    </div>
-  );
-}
-
-function ShipDialog({ wo, busy, lots, onCancel, onSubmit }: {
-  wo: WorkOrderView; busy: boolean; lots: WorkOrderLot[];
-  onCancel: () => void;
-  onSubmit: (payload: Record<string, unknown>) => void;
-}) {
-  const [carrier, setCarrier] = useState('');
-  const [tracking, setTracking] = useState('');
-  const [proNumber, setProNumber] = useState('');
-  const [date, setDate] = useState('');
-  const [lotRows, setLotRows] = useState<LotRow[]>([]);
-  const produced = Number(wo.qty_produced_actual ?? 0);
-  const lotCheck = checkLots(lotRows, produced);
-  return (
-    <div className="cd" style={{ padding: 12, marginTop: 12, border: '1px solid var(--ac)' }}>
-      <div style={{ fontSize: 10.5, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
-        Shipping record — {fmtNum(Number(wo.qty_produced_actual ?? 0))} finished units, {wo.copacker_location_label ?? 'co-packer'} → {wo.destination_location_label ?? 'warehouse'} (creates a BOL transfer)
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-        <LField label="Carrier"><input style={inp()} value={carrier} onChange={(e) => setCarrier(e.target.value)} /></LField>
-        <LField label="Tracking #"><input style={inp()} value={tracking} onChange={(e) => setTracking(e.target.value)} /></LField>
-        <LField label="PRO #"><input style={inp()} value={proNumber} onChange={(e) => setProNumber(e.target.value)} /></LField>
-        <LField label="Ship date"><input type="date" style={inp()} value={date} onChange={(e) => setDate(e.target.value)} /></LField>
-      </div>
-      {lots.length > 0 ? (
-        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--mt)' }}>
-          <Tag size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
-          {lots.length} lot{lots.length === 1 ? '' : 's'} on file — the BOL will carry one line per lot:{' '}
-          {lots.map((l) => `${l.lot_code} ×${fmtNum(Number(l.qty))}${l.born_on_date ? ` (born ${l.born_on_date})` : ''}`).join(' · ')}.
-          Use “Edit lots” on the work order to change them before shipping.
-        </div>
-      ) : (
-        <LotEditor rows={lotRows} onChange={setLotRows} expectedTotal={produced}
-          hint="No lots recorded yet. Enter the co-packer's lot codes and born-on dates now and the BOL prints one line per lot; leave it empty to ship as a single line." />
-      )}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <button style={btnSecondary()} onClick={onCancel}>Cancel</button>
-        <button style={btnPrimary()} disabled={busy || !lotCheck.ok} title={lotCheck.ok ? undefined : lotCheck.reason} onClick={() => onSubmit({
-          carrier: carrier || null,
-          tracking: tracking || null,
-          pro_number: proNumber || null,
-          ship_date: date || null,
-          ...(lots.length === 0 && lotCheck.payload.length ? { lots: lotCheck.payload } : {}),
-        })}>
-          <FileText size={12} style={{ marginRight: 4, verticalAlign: -1 }} /> Ship it
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
-// ── Lots ─────────────────────────────────────────────────────────────────
-
-interface LotRow { lot_code: string; born_on_date: string; best_by_date: string; qty: string; notes: string }
-const EMPTY_LOT: LotRow = { lot_code: '', born_on_date: '', best_by_date: '', qty: '', notes: '' };
-
-/** Rows a human has started filling in become the payload; a row that is
- *  entirely blank is ignored. Once anything is filled, every filled row needs
- *  a code and a quantity, and the quantities must total the yield — a case is
- *  in exactly one lot. */
-function checkLots(rows: LotRow[], expectedTotal: number): { ok: boolean; reason?: string; payload: WorkOrderLotInput[]; total: number } {
-  const filled = rows.filter((r) => r.lot_code.trim() || r.qty.trim() || r.born_on_date || r.best_by_date || r.notes.trim());
-  const payload: WorkOrderLotInput[] = filled.map((r) => ({
-    lot_code: r.lot_code.trim(),
-    born_on_date: r.born_on_date || null,
-    best_by_date: r.best_by_date || null,
-    qty: Number(r.qty),
-    notes: r.notes.trim() || null,
-  }));
-  const total = payload.reduce((t, l) => t + (Number.isFinite(l.qty) ? l.qty : 0), 0);
-  if (!payload.length) return { ok: true, payload, total: 0 };
-  if (payload.some((l) => !l.lot_code)) return { ok: false, reason: 'Every lot needs a lot code', payload, total };
-  if (payload.some((l) => !(l.qty > 0))) return { ok: false, reason: 'Every lot needs a quantity above zero', payload, total };
-  const codes = new Set(payload.map((l) => l.lot_code.toLowerCase()));
-  if (codes.size !== payload.length) return { ok: false, reason: 'Two lots share a code', payload, total };
-  if (expectedTotal > 0 && Math.abs(total - expectedTotal) > 1e-6) {
-    return { ok: false, reason: `Lot quantities total ${fmtNum(total)} but the yield is ${fmtNum(expectedTotal)}`, payload, total };
-  }
-  return { ok: true, payload, total };
-}
-
-function LotEditor({ rows, onChange, expectedTotal, hint }: {
-  rows: LotRow[]; onChange: (rows: LotRow[]) => void; expectedTotal: number; hint?: string;
-}) {
-  const check = checkLots(rows, expectedTotal);
-  const setRow = (i: number, patch: Partial<LotRow>) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r));
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>
-        <Tag size={11} style={{ verticalAlign: -1, marginRight: 4 }} /> Lots — lot code · born on · best by · cases
-      </div>
-      {hint && <div style={{ fontSize: 10.5, color: 'var(--mt)', marginBottom: 6 }}>{hint}</div>}
-      {rows.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 130px 130px 90px 1.4fr 28px', gap: 6, marginBottom: 4, fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          <span>Lot code</span><span>Born on</span><span>Best by</span><span>Cases</span><span>Notes</span><span />
-        </div>
-      )}
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.2fr 130px 130px 90px 1.4fr 28px', gap: 6, marginBottom: 6 }}>
-          <input style={{ ...inp(), fontFamily: 'var(--ff-mono)' }} placeholder="e.g. Q375" value={r.lot_code} onChange={(e) => setRow(i, { lot_code: e.target.value })} />
-          <input type="date" style={inp()} value={r.born_on_date} onChange={(e) => setRow(i, { born_on_date: e.target.value })} />
-          <input type="date" style={inp()} value={r.best_by_date} onChange={(e) => setRow(i, { best_by_date: e.target.value })} />
-          <input type="number" min={0} step="any" style={inp()} value={r.qty} onChange={(e) => setRow(i, { qty: e.target.value })} />
-          <input style={inp()} placeholder="notes" value={r.notes} onChange={(e) => setRow(i, { notes: e.target.value })} />
-          <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)' }}
-            onClick={() => onChange(rows.filter((_, j) => j !== i))}><XIcon size={13} /></button>
-        </div>
-      ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button style={btnSecondary()} onClick={() => onChange([...rows, { ...EMPTY_LOT }])}>
-          <Plus size={11} style={{ marginRight: 3, verticalAlign: -1 }} /> Add lot
-        </button>
-        {check.payload.length > 0 && (
-          <span style={{ fontSize: 11, color: check.ok ? 'var(--gn)' : 'var(--am)' }}>
-            {check.ok
-              ? `${check.payload.length} lot${check.payload.length === 1 ? '' : 's'} · ${fmtNum(check.total)} cases — matches the yield`
-              : check.reason}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LotsDialog({ wo, busy, lots, onCancel, onSubmit }: {
-  wo: WorkOrderView; busy: boolean; lots: WorkOrderLot[];
-  onCancel: () => void;
-  onSubmit: (payload: WorkOrderLotInput[]) => void;
-}) {
-  const [rows, setRows] = useState<LotRow[]>(lots.length
-    ? lots.map((l) => ({ lot_code: l.lot_code, born_on_date: l.born_on_date ?? '', best_by_date: l.best_by_date ?? '', qty: String(l.qty), notes: l.notes ?? '' }))
-    : [{ ...EMPTY_LOT }]);
-  const expected = Number(wo.qty_produced_actual ?? 0);
-  const check = checkLots(rows, expected);
-  return (
-    <div className="cd" style={{ padding: 12, marginTop: 12, border: '1px solid var(--ac)' }}>
-      <div style={{ fontSize: 10.5, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        Lots for {wo.batch_code}{expected > 0 ? ` — must total ${fmtNum(expected)} cases` : ''}
-      </div>
-      <LotEditor rows={rows} onChange={setRows} expectedTotal={expected}
-        hint="The co-packer's own lot / batch codes and the born-on (production) date for each. Saving replaces the list." />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <button style={btnSecondary()} onClick={onCancel}>Cancel</button>
-        <button style={btnPrimary()} disabled={busy || !check.ok} title={check.ok ? undefined : check.reason}
-          onClick={() => onSubmit(check.payload)}>
-          {check.payload.length ? 'Save lots' : 'Clear lots'}
-        </button>
       </div>
     </div>
   );
@@ -1357,29 +791,3 @@ function stageTimestamp(wo: WorkOrderView, status: WorkOrderStatus): string | nu
   return v ? new Date(v).toLocaleDateString() : null;
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-  return <div>
-    <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</div>
-    <div style={{ marginTop: 3 }}>{value}</div>
-  </div>;
-}
-function Kv({ label, value, bold, accent }: { label: string; value: string; bold?: boolean; accent?: boolean }) {
-  return <div>
-    <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</div>
-    <div style={{
-      marginTop: 3, fontWeight: bold ? 700 : 500,
-      color: accent ? 'var(--ac)' : 'var(--tx)',
-      fontFamily: 'var(--ff-mono)',
-    }}>{value}</div>
-  </div>;
-}
-function LField({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div>
-    <div style={{ fontSize: 9, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
-    {children}
-  </div>;
-}
-
-const cellTh: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10, fontWeight: 600,
-  letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mt)' };
-const cellTd: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'middle' };

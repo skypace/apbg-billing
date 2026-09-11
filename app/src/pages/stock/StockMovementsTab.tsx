@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<MovementType, string> = {
   adjustment:         'Adjustment',
   production_consume: 'Production · Consume',
   production_yield:   'Production · Yield',
+  receipt_reversal:   'Receipt · Reversed',
 };
 
 export function StockMovementsTab({ rows, locationById, itemLookup }: Props) {
