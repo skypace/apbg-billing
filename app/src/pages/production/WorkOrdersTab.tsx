@@ -8,6 +8,7 @@ import { ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormul
 import { createProductionPo } from '../../lib/rawMaterials';
 import { openDocPdf } from '../../lib/productionDocs';
 import { adoptWorkOrdersIntoRun } from '../../lib/runs';
+import { ProductionDocumentsPanel } from '../../components/ProductionDocumentsPanel';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
@@ -379,7 +380,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged, onOpen
   const materialsMissingVendor = (materials ?? []).filter((m) => !m.qbo_vendor_id && !m.po_id).length;
   const canEditLots = ['in_production', 'yield_recorded'].includes(wo.status);
   // 20260911d — the plan quantity is editable until the yield is recorded; a run WO's lines are the run's.
-  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && !wo.run_id && wo.actual_yield_qty == null;
+  // 20260912e: a flavour on an ordered run can be resized too (the shared vendor lines are re-derived from every flavour's demand); the server refuses once a PO is in QuickBooks
+  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && wo.actual_yield_qty == null;
   const canEditDetails = !['void', 'closed', 'consumed'].includes(wo.status);
   const batchGal = Number(wo.batch_size_gal ?? 0);
   const batchLines = formula && ingredients && batchGal > 0
@@ -681,6 +683,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged, onOpen
             )}
           </div>
         )}
+
+        {/* Documents — filed on this flavour or on its production order (20260912d) */}
+        <ProductionDocumentsPanel target={{ kind: 'wo', woId: wo.id, batchCode: wo.batch_code, runId: wo.run_id ?? null, runNumber: wo.run_number ?? null, status: wo.status }} />
 
         {/* Events */}
         {(events ?? []).length > 0 && (

@@ -37,11 +37,23 @@ export function RecordYieldDialog({ wo, busy, onCancel, onSubmit }: {
             <div style={{ fontSize: 10, marginTop: 3, color: pct < 100 ? 'var(--am)' : 'var(--gn)' }}>{pct.toFixed(1)}% of plan</div>
           )}
         </LField>
-        <LField label="Co-pack fee $"><input type="number" min={0} step="any" style={inp()} value={copackFee} onChange={(e) => setCopackFee(e.target.value)} /></LField>
-        <LField label="Freight $"><input type="number" min={0} step="any" style={inp()} value={freight} onChange={(e) => setFreight(e.target.value)} /></LField>
-        <LField label="Other landed $"><input type="number" min={0} step="any" style={inp()} value={other} onChange={(e) => setOther(e.target.value)} /></LField>
+        {/* 20260912c: on a production order the truck's freight and the co-packer's run fee are typed ONCE on the
+            order and shared across its flavours by cases — typing them here would charge one flavour for the
+            whole truck (Calli's WO-2026-00022 finding). A standalone work order still takes them here. */}
+        {!wo.run_id && (
+          <>
+            <LField label="Co-pack fee $"><input type="number" min={0} step="any" style={inp()} value={copackFee} onChange={(e) => setCopackFee(e.target.value)} /></LField>
+            <LField label="Freight $"><input type="number" min={0} step="any" style={inp()} value={freight} onChange={(e) => setFreight(e.target.value)} /></LField>
+            <LField label="Other landed $"><input type="number" min={0} step="any" style={inp()} value={other} onChange={(e) => setOther(e.target.value)} /></LField>
+          </>
+        )}
         <LField label="Yield date"><input type="date" style={inp()} value={date} onChange={(e) => setDate(e.target.value)} /></LField>
       </div>
+      {wo.run_id && (
+        <div style={{ fontSize: 10.5, color: 'var(--mt)', marginTop: 6 }}>
+          Freight, the co-pack fee and other landed costs are entered once on the production order (Landed costs) and shared across its flavours by cases — this flavour's share is added to its cost automatically.
+        </div>
+      )}
       <LotEditor rows={lotRows} onChange={setLotRows} expectedTotal={Number(actual)}
         hint="Optional here — the co-packer's lot codes and born-on dates can also be entered before shipping. If entered, the lot quantities must add up to the yield." />
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>

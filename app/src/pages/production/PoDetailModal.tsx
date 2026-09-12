@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WorkOrderPoLink, fetchPoWorkOrders } from '../../lib/production';
+import { ProductionDocumentsPanel } from '../../components/ProductionDocumentsPanel';
 import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil, RefreshCw, AlertTriangle, Plus, Trash2 } from 'lucide-react';
@@ -467,6 +468,11 @@ export function PoDetailModal({
               {invoiceNo.trim() ? ' with that invoice number.' : ' awaiting the vendor invoice — when it arrives, Brixpense matches it to this bill instead of posting a second one.'}
             </div>
           </div>
+        )}
+
+        {/* ── documents — the vendor's invoice, the deposit, a quote (20260912d) ─── */}
+        {mode === 'view' && (
+          <ProductionDocumentsPanel target={{ kind: 'po', poId: po.id, poNumber: po.po_number, runId: po.production_run_id ?? null, status: po.status }} />
         )}
 
         {/* ── receipts ───────────────────────────────────────────────────── */}
