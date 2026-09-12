@@ -151,6 +151,12 @@ export async function voidRun(runId: string, reason: string): Promise<RunVoidRes
 export async function updateRun(runId: string, patch: Record<string, string | null>): Promise<RunAdvanceResult> {
   return sbrpc<RunAdvanceResult>('fn_run_update', { p_run_id: runId, p_patch: patch });
 }
+/** Group existing single-flavour work orders into ONE production order (20260912b). POs are not merged; they are re-pointed at the order. */
+export interface RunAdoptResult { run_id: string; run_number: string; status: RunStatus; work_orders: string; purchase_orders: string }
+export async function adoptWorkOrdersIntoRun(woIds: string[], notes?: string | null): Promise<RunAdoptResult> {
+  return sbrpc<RunAdoptResult>('fn_run_adopt_work_orders', { p_wo_ids: woIds, p_notes: notes ?? null });
+}
+
 export async function createRunProductionPo(runId: string, expectedDate?: string | null): Promise<{ po_id: string; po_number: string; lines: number; subtotal: number }> {
   return sbrpc('fn_run_create_production_po', { p_run_id: runId, p_expected_date: expectedDate ?? null });
 }

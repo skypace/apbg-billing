@@ -7,6 +7,7 @@ import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMa
 import { ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch } from '../../lib/formulas';
 import { createProductionPo } from '../../lib/rawMaterials';
 import { openDocPdf } from '../../lib/productionDocs';
+import { adoptWorkOrdersIntoRun } from '../../lib/runs';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
@@ -80,7 +81,7 @@ export function WorkOrdersTab({
   const toast = useToast();
   const [bucket, setBucket] = useState<Bucket>('open');
   const [stage, setStage] = useState<'all' | WorkOrderStatus>('all');
-  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | null>(null);
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | 'group' | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = useGridSelection([bucket, stage]);
 
@@ -103,6 +104,10 @@ export function WorkOrdersTab({
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
+  const groupItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status !== 'void' && !w.run_id,
+    why: w.run_id ? `already on ${w.run_number ?? 'a production order'}` : w.status === 'void' ? 'void' : undefined,
+  }));
   const VOIDABLE = ['draft', 'ordered', 'at_copacker'];
   const voidItems = selectedRows.map((w) => ({
     id: w.id, number: w.batch_code, eligible: VOIDABLE.includes(w.status) && !w.run_id,
@@ -224,6 +229,9 @@ export function WorkOrdersTab({
         )}
         {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
         {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} title="Put these flavours on ONE production order — the POs they already raised come along, unchanged" onClick={() => setBulk('group')}>Group into a production order…</button>
+        )}
+        {(bucket === 'open' || bucket === 'pending') && (
           <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
         )}
         {bucket === 'pending' && (
@@ -250,6 +258,15 @@ export function WorkOrdersTab({
           note="A closed run goes back to Received, so its receipt can be corrected and it can be closed again."
           onCancel={() => setBulk(null)}
           onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('work_order', ids, reason))} />
+      )}
+      {bulk === 'group' && (
+        <ReasonDialog title="Group into a production order" verb={`Group ${groupItems.filter((i) => i.eligible).length} work order${groupItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={groupItems} needReason={false} busy={busy}
+          note="One production order is created and these flavours are attached to it, with the purchase orders they already raised. Nothing is merged or voided — the POs stay as the record of what was sent. The order's actions (ship the run, receive, close) then work across every flavour. Every flavour must be at the same co-packer and ship to the same warehouse."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => { setBusy(true); adoptWorkOrdersIntoRun(ids, null)
+            .then((r) => { toast.success(`${r.run_number} created — ${r.work_orders}` + (r.purchase_orders ? ` · POs ${r.purchase_orders}` : '')); setBulk(null); sel.clear(); onChanged(); })
+            .catch((e) => toast.error(errMsg(e))).finally(() => setBusy(false)); }} />
       )}
       {bulk === 'edit' && (
         <BulkEditDialog title="Edit work orders" count={sel.selected.length} busy={busy}
