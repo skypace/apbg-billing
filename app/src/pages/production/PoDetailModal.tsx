@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { WorkOrderPoLink, fetchPoWorkOrders } from '../../lib/production';
 import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { X as XIcon, Truck, CheckCircle2, FileText, Mail, Pencil, RefreshCw, AlertTriangle, Plus, Trash2 } from 'lucide-react';
@@ -48,7 +49,7 @@ type Mode = 'view' | 'receive' | 'edit';
 interface EditLine { id: string | null; qbo_item_id: string; description: string; qty_ordered: string; unit_cost: string; qty_received: number }
 
 export function PoDetailModal({
-  poId, po, itemLookup, locById, onClose, onChanged,
+  poId, po, itemLookup, locById, onClose, onChanged, onOpenWo,
 }: {
   poId: string;
   po: PurchaseOrderRow | null;
@@ -56,6 +57,7 @@ export function PoDetailModal({
   locById: Map<string, InventoryLocation>;
   onClose: () => void;
   onChanged: () => void;
+  onOpenWo?: (woId: string) => void;
 }) {
   const toast = useToast();
   const [lines, setLines] = useState<PurchaseOrderLine[] | null>(null);
@@ -65,6 +67,13 @@ export function PoDetailModal({
   const [emailOpen, setEmailOpen] = useState(false);
   const [reopenAsk, setReopenAsk] = useState(false);
   const [adjustLine, setAdjustLine] = useState<PurchaseOrderLine | null>(null);
+  // The work orders this PO covers — one, or every flavour on a run (20260912a).
+  const [woLinks, setWoLinks] = useState<WorkOrderPoLink[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchPoWorkOrders(poId).then((r) => alive && setWoLinks(r)).catch(() => alive && setWoLinks([]));
+    return () => { alive = false; };
+  }, [poId]);
 
   // receive form
   const [recvQty, setRecvQty] = useState<Record<string, string>>({});
@@ -288,8 +297,19 @@ export function PoDetailModal({
             <div style={{ fontSize: 11, color: 'var(--mt)' }}>
               {po.vendor_name ?? po.qbo_vendor_id} · destination {destLabel}
               {po.expected_date && ' · expected ' + po.expected_date}
-              {po.run_number && ' · run ' + po.run_number}
+              {po.run_number && ' · production order ' + po.run_number}
             </div>
+            {woLinks && woLinks.length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                <span>{woLinks.length === 1 ? 'Work order' : 'Work orders'}:</span>
+                {woLinks.map((l) => onOpenWo ? (
+                  <button key={l.wo_id} type="button" onClick={() => onOpenWo(l.wo_id)} title={`Open ${l.batch_code} (${l.wo_status})`}
+                    style={{ background: 'transparent', border: '1px solid var(--bd)', borderRadius: 10, cursor: 'pointer', color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontWeight: 600, padding: '0 7px', fontSize: 10.5 }}>
+                    {l.batch_code}
+                  </button>
+                ) : <span key={l.wo_id} style={{ fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{l.batch_code}</span>)}
+              </div>
+            )}
             {rule && (
               <div style={{ fontSize: 10, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }} title={rule.detail}>
                 <span style={{ border: '1px solid var(--bd)', borderRadius: 10, padding: '1px 7px', color: po.close_rule === 'on_run_yield' ? 'var(--am)' : 'var(--mt)', fontWeight: 600, letterSpacing: 0.3 }}>

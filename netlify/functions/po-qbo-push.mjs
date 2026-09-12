@@ -20,7 +20,7 @@
 // Edits themselves are made by ops.fn_po_update (RPC, under the caller's JWT);
 // this function only moves them.
 
-import { requireAuth } from './lib/auth.mjs';
+import { requireAuth, INTERNAL_WRITER_ROLES } from './lib/auth.mjs';
 import { ops, pushPoCreate, pushPoUpdate, pullPo } from './lib/qbo-purchasing-sync.mjs';
 
 const CORS = {
@@ -40,7 +40,7 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST' }, 405);
 
-  const auth = await requireAuth(req, ['superadmin', 'admin']);
+  const auth = await requireAuth(req, INTERNAL_WRITER_ROLES);
   if (!auth.ok) return auth.response;
   const bearer = bearerOf(req);
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'SUPABASE_SERVICE_ROLE_KEY is not configured on this site' }, 500);

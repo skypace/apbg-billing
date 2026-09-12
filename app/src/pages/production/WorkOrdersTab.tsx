@@ -3,7 +3,7 @@ import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
-import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction, WorkOrderLot, advanceWorkOrder, fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots, generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder, rescaleWorkOrder } from '../../lib/production';
+import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMaterial, WorkOrderEvent, WorkOrderPoLink, WoAdvanceAction, WorkOrderLot, advanceWorkOrder, fetchWorkOrderPos, fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots, generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder, rescaleWorkOrder } from '../../lib/production';
 import { ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch } from '../../lib/formulas';
 import { createProductionPo } from '../../lib/rawMaterials';
 import { openDocPdf } from '../../lib/productionDocs';
@@ -64,6 +64,8 @@ interface Props {
   /** Open this work order's detail on mount / when it changes (a click-through from a production order). */
   initialWoId?: string | null;
   onChanged: () => void;
+  /** Open a purchase order's detail (the Purchase Orders tab) — a PO number on the work order is a link, not text (20260912a). */
+  onOpenPo?: (poId: string) => void;
 }
 
 // A run is raised on Production → Production Orders (Sky, 2026-09-11: the order is
@@ -71,7 +73,7 @@ interface Props {
 // orders those orders create and opens a flavour's own record; it creates nothing.
 
 export function WorkOrdersTab({
-  workOrders, formulas, vendors, initialWoId = null, onChanged,
+  workOrders, formulas, vendors, initialWoId = null, onChanged, onOpenPo,
 }: Props) {
   const [openId, setOpenId] = useState<string | null>(initialWoId);
   useEffect(() => { if (initialWoId) setOpenId(initialWoId); }, [initialWoId]);
@@ -263,6 +265,7 @@ export function WorkOrdersTab({
           vendors={vendors ?? []}
           onClose={() => setOpenId(null)}
           onChanged={() => { onChanged(); }}
+          onOpenPo={onOpenPo}
         />
       )}
     </div>
@@ -273,12 +276,13 @@ export function WorkOrdersTab({
 
 type ActionDialog = 'record_yield' | 'ship' | 'lots' | 'rescale' | 'edit' | null;
 
-function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
+function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged, onOpenPo }: {
   wo: WorkOrderView;
   formulas: ProductFormula[];
   vendors: QboVendor[];
   onClose: () => void;
   onChanged: () => void;
+  onOpenPo?: (poId: string) => void;
 }) {
   const toast = useToast();
   const [materials, setMaterials] = useState<WorkOrderMaterial[] | null>(null);
@@ -286,6 +290,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const [costs, setCosts] = useState<WorkOrderCosts | null>(null);
   const [ingredients, setIngredients] = useState<FormulaIngredient[] | null>(null);
   const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
+  const [poLinks, setPoLinks] = useState<WorkOrderPoLink[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ActionDialog>(null);
   const [voidAsk, setVoidAsk] = useState(false);
@@ -298,6 +303,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
     fetchWorkOrderEvents(wo.id).then(setEvents).catch(() => setEvents([]));
     fetchWorkOrderCosts(wo.id).then(setCosts).catch(() => setCosts(null));
     fetchWorkOrderLots(wo.id).then(setLots).catch(() => setLots([]));
+    fetchWorkOrderPos(wo.id).then(setPoLinks).catch(() => setPoLinks([]));
   }
   useEffect(() => {
     reload();
@@ -438,6 +444,46 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             : '—'} />
           <Meta label="Scheduled" value={wo.scheduled_date ?? '—'} />
         </div>
+
+        {/* Purchase orders — the POs behind this flavour, each a link to its own record (20260912a).
+            A run PO covers several flavours; `via` says whether this PO was raised for this work
+            order alone or for the whole production order. */}
+        {poLinks !== null && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
+              Purchase orders
+            </div>
+            {poLinks.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--mt)' }}>
+                None yet — {wo.run_id ? 'the production order raises one PO per vendor for every flavour on it.' : wo.status === 'draft' ? 'Generate POs on this work order to raise one per vendor.' : 'no purchase order is linked to this work order.'}
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead><tr>{['PO', 'Vendor', 'Status', 'Closes', 'Subtotal', 'Covers'].map((h) => <th key={h} style={cellTh}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {poLinks.map((l) => (
+                    <tr key={l.po_id}>
+                      <td style={cellTd}>
+                        {onOpenPo ? (
+                          <button type="button" onClick={() => onOpenPo(l.po_id)} title="Open this purchase order"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontWeight: 600, padding: 0, fontSize: 11 }}>
+                            {l.po_number}
+                          </button>
+                        ) : <span style={{ fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{l.po_number}</span>}
+                        {l.qbo_purchase_order_id && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--mt)' }}>in QuickBooks</span>}
+                      </td>
+                      <td style={cellTd}>{l.vendor_name ?? l.qbo_vendor_id}</td>
+                      <td style={cellTd}>{l.po_status}</td>
+                      <td style={{ ...cellTd, color: 'var(--mt)' }}>{l.close_rule === 'on_run_yield' ? 'when the run ships' : 'on receipt'}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{l.subtotal == null ? '—' : fm(Number(l.subtotal))}</td>
+                      <td style={{ ...cellTd, color: 'var(--mt)' }}>{l.via === 'run' ? 'every flavour on the production order' : 'this work order'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* Lots — the co-packer's lot codes and born-on dates, for QC and the BOL */}
         {(canEditLots || (lots && lots.length > 0)) && (
@@ -629,6 +675,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               <div key={e.id} style={{ display: 'flex', gap: 10, fontSize: 11, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                 <span style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)', whiteSpace: 'nowrap' }}>
                   {new Date(e.created_at).toLocaleString()}
+                </span>
+                <span style={{ color: 'var(--mt)', whiteSpace: 'nowrap', minWidth: 90 }} title={e.created_by_email ?? undefined}>
+                  {e.created_by_name ?? (e.created_by ? 'unknown user' : 'system')}
                 </span>
                 <span>{e.note ?? e.event_type}</span>
               </div>

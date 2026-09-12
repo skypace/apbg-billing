@@ -22,7 +22,7 @@
 // carry staff-only RLS and a document render should not depend on which
 // policy the caller happens to satisfy today.
 
-import { requireAuth } from './lib/auth.mjs';
+import { requireAuth, INTERNAL_WRITER_ROLES } from './lib/auth.mjs';
 import { corsHeaders } from './qbo-helpers.mjs';
 import { SUPABASE_URL } from './supabase-helpers.mjs';
 import { sendEmail } from './email-helpers.mjs';
@@ -374,7 +374,7 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: corsHeaders(), body: '' };
   if (!SERVICE_KEY) return json({ error: 'SUPABASE_SERVICE_ROLE_KEY not configured' }, 500);
 
-  const auth = await requireAuth(event, ['superadmin', 'admin']);
+  const auth = await requireAuth(event, INTERNAL_WRITER_ROLES);
   if (!auth.ok) return auth.response;
 
   try {

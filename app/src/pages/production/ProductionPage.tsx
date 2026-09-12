@@ -287,6 +287,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           vendors={vendors}
           initialWoId={woFocus}
           onChanged={reloadAll}
+          onOpenPo={(id) => { setPoFocus(id); setTab('purchase_orders'); }}
         />
       )}
       {tab === 'raw_materials' && (
@@ -305,6 +306,7 @@ export function ProductionPage({ routeParams = {} }: { routeParams?: Record<stri
           lanes={lanes}
           initialPoId={routeParams.po ?? poFocus}
           onChanged={reloadAll}
+          onOpenWo={(id) => { setWoFocus(id); setTab('work_orders'); }}
         />
       )}
     </div>

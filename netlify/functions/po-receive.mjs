@@ -30,7 +30,7 @@
 // The purchase feed does not double-count this bill: v_purchase_ledger_pending
 // excludes any Bill whose id is on a po_receipts row.
 
-import { requireAuth } from './lib/auth.mjs';
+import { requireAuth, INTERNAL_WRITER_ROLES } from './lib/auth.mjs';
 import { qboRequest } from './qbo-helpers.mjs';
 import {
   ops, rpc, loadPoForQbo, pushPoCreate, buildBillFromReceipt, afterBillLanded,
@@ -84,7 +84,7 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST' }, 405);
 
-  const auth = await requireAuth(req, ['superadmin', 'admin']);
+  const auth = await requireAuth(req, INTERNAL_WRITER_ROLES);
   if (!auth.ok) return auth.response;
   const bearer = bearerOf(req);
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'SUPABASE_SERVICE_ROLE_KEY is not configured on this site' }, 500);
