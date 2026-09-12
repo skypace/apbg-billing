@@ -370,7 +370,9 @@ in one transaction with one `work_order_events` row:
 
 **Refused**, in the server's words: once a yield is recorded (the plan is history and
 the ACTUAL is what the ledger holds); on a work order that belongs to a production run
-(the run owns its lines — `fn_run_add_line` / `fn_run_remove_line`); and **when any PO
+(the run owns its lines — `fn_run_add_line` / `fn_run_remove_line`; **relaxed twice since:**
+20260911e while the run is a draft, 20260912e once it is ordered — see *The production
+team's first test* below); and **when any PO
 on it is already in QuickBooks** — that PO is edited through its own edit → push path,
 where the SyncToken conflict is handled. Every scaled figure is `round(old × new ÷ old, 6)`,
 multiply FIRST: `old × (new ÷ old)` turns 249.75 gal into 333.374999999… and the noise
@@ -509,6 +511,104 @@ WO-2026-00023 is `in_production` with 525 at −583.125; WO-2026-00022 is
 `yield_recorded` with 524 at −416.625. Both zero when their Calderoni POs
 (PO-2026-00042 for 00023) are received — the receipt posts +N at Quantum
 against the consumption already there. Nothing to correct by hand.
+
+
+### The production team's first test, and what it changed (20260912a–e)
+
+Calli Herzog (`production`) ran the pipeline for real on 2026-09-11/12 and sent
+notes; Sky's instruction on them: *"Please link the PO and work orders in the
+notes field and visually through UI so it is clear … give me the ability to tie
+multiple work orders to the same PO … then lets work 1-5."* Five migrations,
+each proven in a rolled-back probe **as the `production` role**, never as
+`postgres`.
+
+**The timeline says who (20260912a).** `work_order_events.created_by` is a
+uuid and the screen printed *when* with no *who*. `ops.v_work_order_events`
+resolves it to `auth.users` — `full_name`, else the email prefix, else
+*system* — and is an owner-run view gated `WHERE ops.fn_is_internal()`, so a
+brix-order customer on the shared project cannot read staff names through it.
+
+**A PO and a work order link both ways (20260912a).** `ops.v_work_order_purchase_orders`
+(security_invoker) joins a work order to every PO behind it — its own
+(`via = 'work_order'`) or its run's (`via = 'run'`). The work-order detail lists
+its POs as buttons that open the PO; the PO detail lists its work orders as
+chips that open the flavour. `fn_run_generate_pos` writes the flavours into the
+PO's notes (*Materials for run RUN-… · flavours: WO-… (Hangar 25 Cola), …*) so
+the paper says it too. **Save** reads *Save* at count 1, not *Nothing to change*.
+
+**Group existing work orders into one production order (20260912b).**
+`ops.fn_run_adopt_work_orders(p_wo_ids, p_notes)` — the answer to *"should she
+clear all the work orders and create a new one"*: no, because deleting loses
+the numbers, the POs and the receipts. It creates a `production_runs` row
+(number minted, vendor from the first WO, earliest scheduled date), stamps
+`run_id` on each work order and `production_run_id` on their per-WO POs (with
+*grouped into production order RUN-…* appended to the PO notes), and writes a
+`grouped_into_run` event per flavour. Refused by name: an empty list, an
+unknown id, a void WO, a WO already on a run, and WOs at different co-packers
+or destinations. ⚠ **An adopted run keeps its per-WO POs** — nothing merges
+vendor lines after the fact, because those POs may already be received or in
+QuickBooks. New orders still get one PO per vendor. Work Orders → tick → **Group
+into a production order…**.
+
+**Freight and the co-pack fee belong to the ORDER, split by planned cases
+(20260912c).** Calli: *"freight in yield charges one SKU"* — the RecordYield
+dialog's three landed-cost fields were per work order, so a truck carrying five
+flavours had its freight on one. `production_runs` gains `freight_cost`,
+`copack_fee`, `other_landed_cost`, `landed_costs_note`, `landed_costs_set_at`;
+`fn_run_set_landed_costs` records them once, `fn_run_landed_shares__i` splits
+each by **planned cases** (the last flavour absorbs the rounding cent so the
+shares sum exactly), and `fn_wo_recost_run_landed__i` writes them onto each
+yielded flavour's `work_order_costs` as `source:'run'` detail lines, replacing
+any earlier ones, moving services / total / per-case / per-can / per-oz /
+per-gal by the delta. A flavour yielded AFTER the costs are typed picks up its
+share inside `fn_wo_advance__i` (anchored edit, reachability asserted). On a run
+flavour the dialog hides the three fields and says where they went. Run detail
+→ **Landed costs**.
+
+**Documents on the order, the work order and the PO (20260912d).** Bucket
+`production-attachments` (private) + `ops.production_documents`: a row per
+file, homed on a run, a WO or a PO (CHECK: at least one), with a `kind`
+(deposit invoice · vendor invoice · COA · batch sheet · BOL · packing list ·
+lab result · photo · other) and a `stage` (order placed → closed). Read for
+`fn_is_internal()`, insert/update for `fn_is_internal_writer()`, **no DELETE**
+— a document is archived. `v_production_documents` resolves the uploader,
+run number, batch code, PO number, vendor, and `effective_run_id =
+COALESCE(d.run_id, w.run_id, po.production_run_id)` so a file on a flavour or
+a vendor's PO also appears on the order. `ProductionDocumentsPanel` on all
+three details groups by stage and prints an amber line naming the stages
+reached with nothing filed. ⚠ **Never a gate**: Calli asked for an indicator,
+and a run does not wait on a PDF. SDS and spec sheets stay in Compliance; a
+COA is the work order's.
+
+**Change quantity on a flavour after the POs are issued (20260912e).**
+`fn_wo_rescale` rewritten. When the flavour's materials sit on MERGED vendor
+lines (`purchase_order_line_demand` rows exist and the run is past draft) its
+demand rows are scaled, each touched PO line's `demand_total` is re-summed
+across every flavour it covers, active/consumed reservations against co-packer
+stock are netted off, and `qty_ordered` is re-derived through `fn_order_qty`
+so the MOQ and multiple hold again on the new aggregate; receipt and consume
+deltas post as new movements; subtotals recompute; a run carrying landed costs
+is re-split. Still refused: a recorded yield, the same quantity, zero, and any
+PO of the run already in QuickBooks. ⚠ An adopted WO has per-WO PO lines and
+no demand rows, so it takes the per-WO branch — the run branch keys on the
+demand rows, not on the run's status alone.
+
+**Also in this pass:** the five Netlify functions a production user reaches
+(`production-doc`, `po-receive`, `po-qbo-push`, `repack`,
+`qbo-purchasing-sync`) were gated `['superadmin','admin']` — which is why
+Calli *"couldn't view PDFs from POs"*. They read `INTERNAL_WRITER_ROLES` from
+`lib/auth.mjs` now, a JS mirror of `ops.fn_is_internal_writer()` pinned by
+`tests/internal-roles.test.mjs` against the 20260911b migration text.
+
+Proven rolled back as `production`: names on the timeline; both link views;
+adopt (two WOs → one run, POs re-pointed, a third WO on another co-packer
+refused); landed costs 55.55 % / 44.45 % to the cent, replaced on re-save,
+share landed at yield, a negative refused; rescale on an ordered run (5 demand
+rows, 5 PO lines re-derived, MOQ re-lifted, 6 delta movements on shrink, same
+quantity refused, after-yield refused, *PO-2026-00066 is already in
+QuickBooks* refused). ⚠ Probes consumed RUN-2026-00011, one more run number,
+WO-2026-00039/00040 and PO-2026-00066/00067 from the sequences — gaps, not
+lost orders.
 
 
 ## Buckets and bulk actions — one vocabulary on every list
