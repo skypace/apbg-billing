@@ -12,7 +12,7 @@ import { closeRuleCopy } from '../../lib/purchasing';
 import {
   type ProductionRun, type Reservation, RUN_STAGES,
   addRunLine, advanceRun, closeRun, createRunProductionPo, fetchRunPurchaseOrders, fetchRunReservations,
-  fetchRunWorkOrders, generateRunPos, receiveRun, removeRunLine, reopenRun, shipRun, updateRun, voidRun,
+  fetchRunWorkOrders, generateRunPos, receiveRun, removeRunLine, reopenRun, setRunLandedCosts, shipRun, updateRun, voidRun,
 } from '../../lib/runs';
 import { deleteDrafts } from '../../lib/bulkActions';
 import { openDocPdf } from '../../lib/productionDocs';
@@ -23,6 +23,7 @@ import { ReasonDialog } from '../../components/ReasonDialog';
 import type { ProductionItemLookup } from './ProductionPage';
 import { RecordYieldDialog, RescaleDialog } from './WorkOrderDialogs';
 import { BulkEditDialog } from '../../components/BulkEditDialog';
+import { ProductionDocumentsPanel } from '../../components/ProductionDocumentsPanel';
 import { RunBillsSection } from './BillsPanel';
 import { Meta, LField, StageChip, cellTh, cellTd, sectionLabel, errMsg } from './productionUi';
 
@@ -57,6 +58,10 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
   const [editOpen, setEditOpen] = useState(false);
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
   const canEditOrder = !['void', 'closed'].includes(run.status);
+  const qboPushed = (pos ?? []).some((p) => p.qbo_purchase_order_id && !p.voided_at);
+  // the furthest any live flavour has got — drives the "no documents yet at <stage>" marker on the order
+  const WO_ORDER = ['draft', 'ordered', 'at_copacker', 'in_production', 'yield_recorded', 'in_transit', 'received', 'closed'];
+  const runDocStatus = (wos ?? []).filter((w) => w.status !== 'void').reduce((best, w) => WO_ORDER.indexOf(w.status) > WO_ORDER.indexOf(best) ? w.status : best, 'draft' as string);
 
   const reload = useCallback(() => {
     fetchRunWorkOrders(run.id).then(setWos).catch(() => setWos([]));
@@ -229,7 +234,7 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
                     {isOpen && (
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                         <td colSpan={9} style={{ padding: '0 6px 10px 28px' }}>
-                          <FlavourDetail wo={w} run={run} busy={busy} itemLookup={itemLookup}
+                          <FlavourDetail wo={w} run={run} busy={busy} itemLookup={itemLookup} qboPushed={qboPushed}
                             onOpenWo={() => onOpenWo(w.id)} onRescale={() => setRescaleFor(w)} onRecordYield={() => setYieldFor(w)} />
                         </td>
                       </tr>
@@ -330,6 +335,22 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
 
         {/* Bills — deposit + final (P7) */}
         <RunBillsSection run={run} vendors={vendors} onChanged={onChanged} />
+
+        {/* Landed costs — freight for the truck and the co-packer's run fee, typed ONCE here and shared
+            across the flavours by planned cases (20260912c). Calli: entering freight on one flavour's
+            yield "would appear as if the ~$2500 in freight was solely attached to Cola". */}
+        {run.status !== 'void' && (
+          <RunLandedCostsCard run={run} wos={live} busy={busy}
+            onSave={(f, c, o, note) => act('Landed costs saved and shared across the flavours', async () => {
+              const r = await setRunLandedCosts(run.id, f, c, o, note);
+              toast.info(r.shares.map((s) => `${s.batch_code} ${s.share_pct}% → ${fm(s.freight + s.copack_fee + s.other)}`).join(' · ')
+                + (r.pending_yield ? ` · ${r.pending_yield} picks its share up at yield` : ''));
+            })} />
+        )}
+
+        {/* Documents — everything filed on the order, on any of its flavours, or on any of its POs (20260912d).
+            Calli's "June 2026 folder" is this order. */}
+        <ProductionDocumentsPanel target={{ kind: 'run', runId: run.id, runNumber: run.run_number, status: runDocStatus }} />
 
         {run.notes && <div style={{ marginBottom: 12, fontSize: 11, color: 'var(--mt)' }}><div style={{ fontSize: 9, letterSpacing: 0.6, textTransform: 'uppercase' }}>Notes</div>{run.notes}</div>}
 
@@ -432,9 +453,11 @@ export function RunDetailModal({ run, boms, vendors, itemLookup, onClose, onChan
  *  each is on a PO yet, the co-packer's lots, and the flavour's own actions. The
  *  quantity can be changed only while the ORDER is a draft — past that one vendor PO
  *  line covers several flavours (fn_wo_rescale says so in its own words). */
-function FlavourDetail({ wo, run, busy, itemLookup, onOpenWo, onRescale, onRecordYield }: {
+function FlavourDetail({ wo, run, busy, itemLookup, onOpenWo, onRescale, onRecordYield, qboPushed }: {
   wo: WorkOrderView; run: ProductionRun; busy: boolean; itemLookup: ProductionItemLookup;
   onOpenWo: () => void; onRescale: () => void; onRecordYield: () => void;
+  /** a PO on this order is already in QuickBooks — the quantity is edited through that PO, not here (20260912e) */
+  qboPushed: boolean;
 }) {
   const [mats, setMats] = useState<WorkOrderMaterial[] | null>(null);
   const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
@@ -447,7 +470,8 @@ function FlavourDetail({ wo, run, busy, itemLookup, onOpenWo, onRescale, onRecor
       .catch((e) => { if (alive) { setErr(errMsg(e)); setMats([]); setLots([]); } });
     return () => { alive = false; };
   }, [wo.id, wo.qty_to_produce, wo.status, wo.actual_yield_qty]);
-  const canRescale = run.status === 'draft' && wo.status === 'draft' && wo.actual_yield_qty == null;
+  // 20260912e: resizable on an ordered run too — the shared vendor lines are re-derived from every flavour's demand — until a PO is in QuickBooks
+  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && wo.actual_yield_qty == null && !qboPushed;
   const matEstimate = (mats ?? []).reduce((t, m) => t + Number(m.required_qty) * Number(m.unit_cost_est ?? 0), 0);
   const onPo = (mats ?? []).filter((m) => m.po_line_id).length;
   const th = (extra: React.CSSProperties = {}) => ({ ...cellTh, fontSize: 9.5, ...extra });
@@ -516,8 +540,8 @@ function FlavourDetail({ wo, run, busy, itemLookup, onOpenWo, onRescale, onRecor
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        {!canRescale && wo.status !== 'void' && wo.actual_yield_qty == null && run.status !== 'draft' && (
-          <span style={{ fontSize: 10.5, color: 'var(--mt)', marginRight: 'auto' }}>Quantity is fixed once the order's POs are issued — one vendor line covers every flavour; edit the vendor's PO instead.</span>
+        {!canRescale && wo.status !== 'void' && wo.actual_yield_qty == null && qboPushed && (
+          <span style={{ fontSize: 10.5, color: 'var(--mt)', marginRight: 'auto' }}>Quantity is fixed once a purchase order is in QuickBooks — edit that PO and push it (or pull it back) first.</span>
         )}
         <button style={btnSecondary()} onClick={onOpenWo}>Open the work order →</button>
         {canRescale && <button style={btnSecondary()} disabled={busy} onClick={onRescale}><Scale size={11} style={{ verticalAlign: -1, marginRight: 3 }} /> Change quantity…</button>}
@@ -585,4 +609,79 @@ function stageStamp(run: ProductionRun, status: string): string | null {
   const map: Record<string, string | null | undefined> = { draft: run.created_at, ordered: run.ordered_at, in_progress: run.started_at, closed: run.closed_at };
   const v = map[status];
   return v ? new Date(v).toLocaleDateString() : null;
+}
+
+/** Freight / co-pack fee / other on the ORDER, shared by planned cases. The preview here mirrors
+ *  fn_run_landed_shares__i (proportional by qty_to_produce, 2 dp, the last flavour by creation
+ *  absorbs the rounding remainder) so the table reads the same before and after Save; the server's
+ *  answer is what lands on each flavour's cost row. */
+function RunLandedCostsCard({ run, wos, busy, onSave }: {
+  run: ProductionRun; wos: WorkOrderView[]; busy: boolean;
+  onSave: (freight: number, copackFee: number, other: number, note: string | null) => void;
+}) {
+  const [freight, setFreight] = useState(String(run.freight_cost ?? 0));
+  const [copack, setCopack] = useState(String(run.copack_fee ?? 0));
+  const [other, setOther] = useState(String(run.other_landed_cost ?? 0));
+  const [note, setNote] = useState(run.landed_costs_note ?? '');
+  const [openCard, setOpenCard] = useState(false);
+  useEffect(() => {
+    setFreight(String(run.freight_cost ?? 0)); setCopack(String(run.copack_fee ?? 0)); setOther(String(run.other_landed_cost ?? 0)); setNote(run.landed_costs_note ?? '');
+  }, [run.id, run.freight_cost, run.copack_fee, run.other_landed_cost, run.landed_costs_note]);
+  const f = Number(freight) || 0, c = Number(copack) || 0, o = Number(other) || 0;
+  const total = Number(run.freight_cost ?? 0) + Number(run.copack_fee ?? 0) + Number(run.other_landed_cost ?? 0);
+  const rows = useMemo(() => {
+    const sorted = [...wos].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const cases = sorted.reduce((t, w) => t + Number(w.qty_to_produce), 0);
+    const share = (amt: number) => {
+      const r = sorted.map((w) => cases > 0 ? Math.round(amt * Number(w.qty_to_produce) / cases * 100) / 100 : 0);
+      if (r.length) r[r.length - 1] = Math.round((amt - r.slice(0, -1).reduce((t, x) => t + x, 0)) * 100) / 100;
+      return r;
+    };
+    const fs = share(f), cs = share(c), os = share(o);
+    return sorted.map((w, i) => ({ w, pct: cases > 0 ? (Number(w.qty_to_produce) / cases) * 100 : 0, f: fs[i], c: cs[i], o: os[i] }));
+  }, [wos, f, c, o]);
+  const dirty = f !== Number(run.freight_cost ?? 0) || c !== Number(run.copack_fee ?? 0) || o !== Number(run.other_landed_cost ?? 0) || (note || '') !== (run.landed_costs_note ?? '');
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ ...sectionLabel, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpenCard((v) => !v)}>
+        <span>{openCard ? <ChevronDown size={11} style={{ verticalAlign: -2 }} /> : <ChevronRight size={11} style={{ verticalAlign: -2 }} />} Landed costs — freight & co-pack fee for the whole run</span>
+        <span style={{ textTransform: 'none', letterSpacing: 0 }}>
+          {total > 0 ? `${fm(total)} shared across ${wos.length} flavour${wos.length === 1 ? '' : 's'} by cases` : 'none entered yet — the truck\'s freight and Quantum\'s run fee go here, not on a flavour'}
+        </span>
+      </div>
+      {openCard && (
+        <div className="cd" style={{ padding: 12, border: '1px solid var(--bd)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+            <LField label="Freight $ (the truck)"><input type="number" min={0} step="any" style={inp()} value={freight} onChange={(e) => setFreight(e.target.value)} /></LField>
+            <LField label="Co-pack fee $ (the run)"><input type="number" min={0} step="any" style={inp()} value={copack} onChange={(e) => setCopack(e.target.value)} /></LField>
+            <LField label="Other landed $"><input type="number" min={0} step="any" style={inp()} value={other} onChange={(e) => setOther(e.target.value)} /></LField>
+            <LField label="Note (carrier, invoice #)"><input style={inp()} value={note} onChange={(e) => setNote(e.target.value)} /></LField>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 10 }}>
+            <thead><tr>{['Flavour', 'Planned cases', 'Share', 'Freight', 'Co-pack fee', 'Other', 'Total'].map((h) => <th key={h} style={cellTh}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map(({ w, pct, f: sf, c: sc, o: so }) => (
+                <tr key={w.id}>
+                  <td style={cellTd}><span style={{ fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{w.batch_code}</span> <span style={{ color: 'var(--mt)' }}>{w.bom_name ?? ''}</span>{w.actual_yield_qty == null && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--am)' }}>share lands at yield</span>}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fmtNum(Number(w.qty_to_produce))}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{pct.toFixed(2)}%</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(sf)}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(sc)}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{fm(so)}</td>
+                  <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{fm(sf + sc + so)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 10 }}>
+            <span style={{ fontSize: 10.5, color: 'var(--mt)' }}>
+              Shared by planned cases, not by yield, so a share does not move every time another flavour's yield comes in. Saving replaces the run's share on every flavour that already has a cost; the rest pick theirs up when their yield is recorded.
+              {run.landed_costs_set_at && <> Last saved {new Date(run.landed_costs_set_at).toLocaleString()}.</>}
+            </span>
+            <button style={btnPrimary()} disabled={busy || !dirty || f < 0 || c < 0 || o < 0} onClick={() => onSave(f, c, o, note.trim() || null)}>Save landed costs</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -46,7 +46,7 @@
 // adjustment's AdjustAccountRef in QuickBooks (a full-entity update with the
 // current SyncToken — QuickBooks has no sparse update for this entity).
 
-import { requireAuth } from './lib/auth.mjs';
+import { requireAuth, INTERNAL_WRITER_ROLES } from './lib/auth.mjs';
 import { qboRequest, qboQuery } from './qbo-helpers.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase-helpers.mjs';
 
@@ -275,7 +275,7 @@ async function deleteQboAdjustment(txnId) {
 export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-  const auth = await requireAuth(req, ['superadmin', 'admin']);
+  const auth = await requireAuth(req, INTERNAL_WRITER_ROLES);
   if (!auth.ok) return auth.response;
   if (!SERVICE_KEY) return json({ error: 'SUPABASE_SERVICE_ROLE_KEY is not configured on this site' }, 500);
 

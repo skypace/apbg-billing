@@ -218,8 +218,12 @@ Press **Record yield →**.
 
 ![Recording the yield with the co-packer's lot codes](/billing/production-guide/06-wo-record-yield-lots.jpg)
 
-Enter the **actual yield** — how many cases the co-packer really made — plus the
-co-pack fee, freight and any other landed cost, and the yield date. The panel
+Enter the **actual yield** — how many cases the co-packer really made — and the
+yield date. On a standalone work order you also type the co-pack fee, freight and
+any other landed cost here. **On a flavour that belongs to a production order those
+three fields are not on this dialog** — type them once on the order (open the
+production order → **Landed costs**) and they are split across every flavour by
+planned cases, so one truck's freight is not charged to one SKU. The panel
 prints the yield as a percentage of plan as you type.
 
 Then the lots. For each batch the co-packer ran, press **+ Add lot** and enter:
@@ -329,6 +333,19 @@ Three PDFs, one design, all branded the same:
 
 Every emailed document is filed before it is sent, and the send is logged, so the
 copy on file is the copy the vendor received.
+
+**Filing what the vendors send you.** The production order, each work order and
+each purchase order have a **Documents** panel. Drop the Quantum deposit invoice,
+the Calderoni invoices, the COA, the batch sheet, the signed BOL or a photo there,
+pick what it is and the stage it belongs to, and it shows on the order and on the
+work order or PO you filed it against. An amber line names the stages the run has
+reached with nothing filed yet; it never stops you advancing. SDS and spec sheets
+still live in Compliance & Safety.
+
+**Several work orders that are really one order.** If flavours were raised as
+separate work orders, Work Orders → tick them → **Group into a production order…**
+puts them on one order with one number, keeps their existing POs, and the PO detail
+lists every work order it covers (and the work order lists its POs).
 
 ---
 

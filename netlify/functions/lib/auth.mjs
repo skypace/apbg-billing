@@ -33,6 +33,28 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase-helpers.mjs';
 
 const DEFAULT_ROLES = ['superadmin'];
 
+// The gateway's INTERNAL roles — a MIRROR of ops.fn_is_internal() (migration
+// 20260911b) and of apbg-gateway public/auth.js ROLES. A role names a JOB;
+// every one of these is a Brix/FreeFlow employee or contractor, none is a
+// customer, partner or foodservice outsider. tests/internal-roles.test.mjs pins
+// this list to the SQL so the API and the database cannot disagree about who is
+// inside.
+//
+// Why this exists (2026-09-12): the production functions — PO PDFs, receiving,
+// the QuickBooks PO push, the repack sheet, purchasing Sync now — were gated
+// ['superadmin','admin'] while the database had been opened to every internal
+// role the day before. Calli (role `production`) could run a work order end to
+// end and then could not open its purchase order as a PDF: 403 at the function,
+// after the database had said yes. The same wall as 20260911a, one layer up.
+export const INTERNAL_ROLES = [
+  'superadmin', 'admin', 'finance', 'operations',
+  'dispatcher', 'production', 'warehouse', 'sales',
+  'ops-super', 'ops-delivery', 'ops-service', 'ops-reman', 'ops-viewer',
+];
+// The same minus the read-only role — for endpoints that WRITE (receive a PO,
+// push to QuickBooks, post a repack, run a sync). Mirrors fn_is_internal_writer().
+export const INTERNAL_WRITER_ROLES = INTERNAL_ROLES.filter((r) => r !== 'ops-viewer');
+
 const ERR_HEADERS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',

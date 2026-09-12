@@ -3,10 +3,12 @@ import { PrintableTable } from '../../components/PrintableTable';
 import { SearchSelect } from '../../components/SearchSelect';
 import { DataGridPro, type GridColDef } from '@mui/x-data-grid-pro';
 import { X as XIcon, FileText, Check, Truck, Factory, PackageCheck, ShoppingCart, Scale, Mail, Tag } from 'lucide-react';
-import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMaterial, WorkOrderEvent, WoAdvanceAction, WorkOrderLot, advanceWorkOrder, fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots, generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder, rescaleWorkOrder } from '../../lib/production';
+import { ProductBom, WorkOrderCosts, WorkOrderStatus, WorkOrderView, WorkOrderMaterial, WorkOrderEvent, WorkOrderPoLink, WoAdvanceAction, WorkOrderLot, advanceWorkOrder, fetchWorkOrderPos, fetchWorkOrderCosts, fetchWorkOrderEvents, fetchWorkOrderMaterials, fetchWorkOrderLots, generateWoPurchaseOrders, setWoMaterialVendor, setWorkOrderLots, reopenWorkOrder, rescaleWorkOrder } from '../../lib/production';
 import { ProductFormula, FormulaIngredient, fetchFormulaIngredients, scaleFormulaBatch } from '../../lib/formulas';
 import { createProductionPo } from '../../lib/rawMaterials';
 import { openDocPdf } from '../../lib/productionDocs';
+import { adoptWorkOrdersIntoRun } from '../../lib/runs';
+import { ProductionDocumentsPanel } from '../../components/ProductionDocumentsPanel';
 import { EmailDocModal } from './EmailDocModal';
 import { QboVendor } from '../../lib/purchasing';
 import { useToast } from '../../lib/toast';
@@ -64,6 +66,8 @@ interface Props {
   /** Open this work order's detail on mount / when it changes (a click-through from a production order). */
   initialWoId?: string | null;
   onChanged: () => void;
+  /** Open a purchase order's detail (the Purchase Orders tab) — a PO number on the work order is a link, not text (20260912a). */
+  onOpenPo?: (poId: string) => void;
 }
 
 // A run is raised on Production → Production Orders (Sky, 2026-09-11: the order is
@@ -71,14 +75,14 @@ interface Props {
 // orders those orders create and opens a flavour's own record; it creates nothing.
 
 export function WorkOrdersTab({
-  workOrders, formulas, vendors, initialWoId = null, onChanged,
+  workOrders, formulas, vendors, initialWoId = null, onChanged, onOpenPo,
 }: Props) {
   const [openId, setOpenId] = useState<string | null>(initialWoId);
   useEffect(() => { if (initialWoId) setOpenId(initialWoId); }, [initialWoId]);
   const toast = useToast();
   const [bucket, setBucket] = useState<Bucket>('open');
   const [stage, setStage] = useState<'all' | WorkOrderStatus>('all');
-  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | null>(null);
+  const [bulk, setBulk] = useState<'void' | 'delete' | 'edit' | 'reopen' | 'group' | null>(null);
   const [busy, setBusy] = useState(false);
   const sel = useGridSelection([bucket, stage]);
 
@@ -101,6 +105,10 @@ export function WorkOrdersTab({
     } catch (e) { toast.error(errMsg(e)); }
     finally { setBusy(false); }
   }
+  const groupItems = selectedRows.map((w) => ({
+    id: w.id, number: w.batch_code, eligible: w.status !== 'void' && !w.run_id,
+    why: w.run_id ? `already on ${w.run_number ?? 'a production order'}` : w.status === 'void' ? 'void' : undefined,
+  }));
   const VOIDABLE = ['draft', 'ordered', 'at_copacker'];
   const voidItems = selectedRows.map((w) => ({
     id: w.id, number: w.batch_code, eligible: VOIDABLE.includes(w.status) && !w.run_id,
@@ -222,6 +230,9 @@ export function WorkOrdersTab({
         )}
         {bucket !== 'voided' && <button type="button" className="tb-btn" disabled={busy} onClick={() => setBulk('edit')}>Edit…</button>}
         {(bucket === 'open' || bucket === 'pending') && (
+          <button type="button" className="tb-btn" disabled={busy} title="Put these flavours on ONE production order — the POs they already raised come along, unchanged" onClick={() => setBulk('group')}>Group into a production order…</button>
+        )}
+        {(bucket === 'open' || bucket === 'pending') && (
           <button type="button" className="tb-btn" disabled={busy} style={{ color: 'var(--rd)' }} onClick={() => setBulk('void')}>Void…</button>
         )}
         {bucket === 'pending' && (
@@ -249,6 +260,15 @@ export function WorkOrdersTab({
           onCancel={() => setBulk(null)}
           onConfirm={(reason, ids) => runBulk('reopened', () => reopenDocs('work_order', ids, reason))} />
       )}
+      {bulk === 'group' && (
+        <ReasonDialog title="Group into a production order" verb={`Group ${groupItems.filter((i) => i.eligible).length} work order${groupItems.filter((i) => i.eligible).length === 1 ? '' : 's'}`}
+          items={groupItems} needReason={false} busy={busy}
+          note="One production order is created and these flavours are attached to it, with the purchase orders they already raised. Nothing is merged or voided — the POs stay as the record of what was sent. The order's actions (ship the run, receive, close) then work across every flavour. Every flavour must be at the same co-packer and ship to the same warehouse."
+          onCancel={() => setBulk(null)}
+          onConfirm={(_reason, ids) => { setBusy(true); adoptWorkOrdersIntoRun(ids, null)
+            .then((r) => { toast.success(`${r.run_number} created — ${r.work_orders}` + (r.purchase_orders ? ` · POs ${r.purchase_orders}` : '')); setBulk(null); sel.clear(); onChanged(); })
+            .catch((e) => toast.error(errMsg(e))).finally(() => setBusy(false)); }} />
+      )}
       {bulk === 'edit' && (
         <BulkEditDialog title="Edit work orders" count={sel.selected.length} busy={busy}
           fields={[{ key: 'scheduled_date', label: 'Scheduled date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea' }]}
@@ -263,6 +283,7 @@ export function WorkOrdersTab({
           vendors={vendors ?? []}
           onClose={() => setOpenId(null)}
           onChanged={() => { onChanged(); }}
+          onOpenPo={onOpenPo}
         />
       )}
     </div>
@@ -273,12 +294,13 @@ export function WorkOrdersTab({
 
 type ActionDialog = 'record_yield' | 'ship' | 'lots' | 'rescale' | 'edit' | null;
 
-function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
+function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged, onOpenPo }: {
   wo: WorkOrderView;
   formulas: ProductFormula[];
   vendors: QboVendor[];
   onClose: () => void;
   onChanged: () => void;
+  onOpenPo?: (poId: string) => void;
 }) {
   const toast = useToast();
   const [materials, setMaterials] = useState<WorkOrderMaterial[] | null>(null);
@@ -286,6 +308,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const [costs, setCosts] = useState<WorkOrderCosts | null>(null);
   const [ingredients, setIngredients] = useState<FormulaIngredient[] | null>(null);
   const [lots, setLots] = useState<WorkOrderLot[] | null>(null);
+  const [poLinks, setPoLinks] = useState<WorkOrderPoLink[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<ActionDialog>(null);
   const [voidAsk, setVoidAsk] = useState(false);
@@ -298,6 +321,7 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
     fetchWorkOrderEvents(wo.id).then(setEvents).catch(() => setEvents([]));
     fetchWorkOrderCosts(wo.id).then(setCosts).catch(() => setCosts(null));
     fetchWorkOrderLots(wo.id).then(setLots).catch(() => setLots([]));
+    fetchWorkOrderPos(wo.id).then(setPoLinks).catch(() => setPoLinks([]));
   }
   useEffect(() => {
     reload();
@@ -356,7 +380,8 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
   const materialsMissingVendor = (materials ?? []).filter((m) => !m.qbo_vendor_id && !m.po_id).length;
   const canEditLots = ['in_production', 'yield_recorded'].includes(wo.status);
   // 20260911d — the plan quantity is editable until the yield is recorded; a run WO's lines are the run's.
-  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && !wo.run_id && wo.actual_yield_qty == null;
+  // 20260912e: a flavour on an ordered run can be resized too (the shared vendor lines are re-derived from every flavour's demand); the server refuses once a PO is in QuickBooks
+  const canRescale = ['draft', 'ordered', 'at_copacker', 'in_production'].includes(wo.status) && wo.actual_yield_qty == null;
   const canEditDetails = !['void', 'closed', 'consumed'].includes(wo.status);
   const batchGal = Number(wo.batch_size_gal ?? 0);
   const batchLines = formula && ingredients && batchGal > 0
@@ -438,6 +463,46 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
             : '—'} />
           <Meta label="Scheduled" value={wo.scheduled_date ?? '—'} />
         </div>
+
+        {/* Purchase orders — the POs behind this flavour, each a link to its own record (20260912a).
+            A run PO covers several flavours; `via` says whether this PO was raised for this work
+            order alone or for the whole production order. */}
+        {poLinks !== null && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: 'var(--mt)', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>
+              Purchase orders
+            </div>
+            {poLinks.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--mt)' }}>
+                None yet — {wo.run_id ? 'the production order raises one PO per vendor for every flavour on it.' : wo.status === 'draft' ? 'Generate POs on this work order to raise one per vendor.' : 'no purchase order is linked to this work order.'}
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead><tr>{['PO', 'Vendor', 'Status', 'Closes', 'Subtotal', 'Covers'].map((h) => <th key={h} style={cellTh}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {poLinks.map((l) => (
+                    <tr key={l.po_id}>
+                      <td style={cellTd}>
+                        {onOpenPo ? (
+                          <button type="button" onClick={() => onOpenPo(l.po_id)} title="Open this purchase order"
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ac)', fontFamily: 'var(--ff-mono)', fontWeight: 600, padding: 0, fontSize: 11 }}>
+                            {l.po_number}
+                          </button>
+                        ) : <span style={{ fontFamily: 'var(--ff-mono)', fontWeight: 600 }}>{l.po_number}</span>}
+                        {l.qbo_purchase_order_id && <span style={{ marginLeft: 6, fontSize: 9.5, color: 'var(--mt)' }}>in QuickBooks</span>}
+                      </td>
+                      <td style={cellTd}>{l.vendor_name ?? l.qbo_vendor_id}</td>
+                      <td style={cellTd}>{l.po_status}</td>
+                      <td style={{ ...cellTd, color: 'var(--mt)' }}>{l.close_rule === 'on_run_yield' ? 'when the run ships' : 'on receipt'}</td>
+                      <td style={{ ...cellTd, textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>{l.subtotal == null ? '—' : fm(Number(l.subtotal))}</td>
+                      <td style={{ ...cellTd, color: 'var(--mt)' }}>{l.via === 'run' ? 'every flavour on the production order' : 'this work order'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* Lots — the co-packer's lot codes and born-on dates, for QC and the BOL */}
         {(canEditLots || (lots && lots.length > 0)) && (
@@ -619,6 +684,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
           </div>
         )}
 
+        {/* Documents — filed on this flavour or on its production order (20260912d) */}
+        <ProductionDocumentsPanel target={{ kind: 'wo', woId: wo.id, batchCode: wo.batch_code, runId: wo.run_id ?? null, runNumber: wo.run_number ?? null, status: wo.status }} />
+
         {/* Events */}
         {(events ?? []).length > 0 && (
           <div style={{ marginBottom: 14 }}>
@@ -629,6 +697,9 @@ function PipelineDetailModal({ wo, formulas, vendors, onClose, onChanged }: {
               <div key={e.id} style={{ display: 'flex', gap: 10, fontSize: 11, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                 <span style={{ color: 'var(--mt)', fontFamily: 'var(--ff-mono)', whiteSpace: 'nowrap' }}>
                   {new Date(e.created_at).toLocaleString()}
+                </span>
+                <span style={{ color: 'var(--mt)', whiteSpace: 'nowrap', minWidth: 90 }} title={e.created_by_email ?? undefined}>
+                  {e.created_by_name ?? (e.created_by ? 'unknown user' : 'system')}
                 </span>
                 <span>{e.note ?? e.event_type}</span>
               </div>

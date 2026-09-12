@@ -26,7 +26,7 @@ export function BulkEditDialog({ title, count, fields, busy, onCancel, onConfirm
       <div className="cd" style={{ width: 'min(520px, 100%)', padding: 16, border: '1px solid var(--ac)' }} role="dialog" aria-modal="true">
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{title}</div>
         <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 12 }}>
-          Applies to {count} row{count === 1 ? '' : 's'}. Only the fields you fill in (or tick to clear) are changed.
+          {count === 1 ? 'Only the fields you fill in (or tick to clear) are changed; Save stays off until you change one.' : `Applies to ${count} rows. Only the fields you fill in (or tick to clear) are changed.`}
         </div>
         <div style={{ display: 'grid', gap: 10 }}>
           {fields.map((f) => (
@@ -46,7 +46,7 @@ export function BulkEditDialog({ title, count, fields, busy, onCancel, onConfirm
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
           <button type="button" style={btnSecondary()} onClick={onCancel} disabled={busy}>Cancel</button>
           <button type="button" style={btnPrimary()} disabled={busy || n === 0} onClick={() => onConfirm(patch)}>
-            {n === 0 ? 'Nothing to change' : `Apply to ${count}`}
+            {count === 1 ? 'Save' : `Save to ${count}`}
           </button>
         </div>
       </div>

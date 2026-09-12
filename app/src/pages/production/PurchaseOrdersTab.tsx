@@ -43,6 +43,8 @@ interface Props {
   lanes: InventoryLane[];
   initialPoId?: string | null;
   onChanged: () => void;
+  /** Open a work order's detail (the Work Orders tab) — a work order number on the PO is a link, not text (20260912a). */
+  onOpenWo?: (woId: string) => void;
 }
 
 function errMsg(e: unknown): string { return e instanceof Error ? e.message : String(e); }
@@ -73,7 +75,7 @@ function readPrefill(): PoPrefillState | null {
 }
 
 export function PurchaseOrdersTab({
-  vendors, purchaseOrders, locations, locById, itemLookup, lanes, initialPoId = null, onChanged,
+  vendors, purchaseOrders, locations, locById, itemLookup, lanes, initialPoId = null, onChanged, onOpenWo,
 }: Props) {
   // Prefill comes from Inventory → Reorder ("Create PO"). When present, we
   // open the Create form on mount and seed its lines.
@@ -357,6 +359,7 @@ export function PurchaseOrdersTab({
           locById={locById}
           onClose={() => setOpenId(null)}
           onChanged={() => { setOpenId(null); onChanged(); }}
+          onOpenWo={onOpenWo}
         />
       )}
     </div>

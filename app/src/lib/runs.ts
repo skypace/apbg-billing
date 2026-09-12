@@ -49,6 +49,12 @@ export interface ProductionRun {
   po_total: number;
   total_cost: number | null;
   reserved_lines: number;
+  // 20260912c — landed costs typed once on the ORDER and shared across its flavours by planned cases
+  freight_cost?: number;
+  copack_fee?: number;
+  other_landed_cost?: number;
+  landed_costs_note?: string | null;
+  landed_costs_set_at?: string | null;
 }
 
 export interface RunLineInput { bom_id: string; qty_to_produce: number; batch_size_gal?: number | null; notes?: string | null }
@@ -151,6 +157,20 @@ export async function voidRun(runId: string, reason: string): Promise<RunVoidRes
 export async function updateRun(runId: string, patch: Record<string, string | null>): Promise<RunAdvanceResult> {
   return sbrpc<RunAdvanceResult>('fn_run_update', { p_run_id: runId, p_patch: patch });
 }
+/** One flavour's share of the run's landed costs (fn_run_landed_shares__i, by planned cases; the last flavour absorbs the rounding remainder). */
+export interface RunLandedShare { wo_id: string; batch_code: string; cases: number; share_pct: number; freight: number; copack_fee: number; other: number }
+export interface RunLandedResult { run_number: string; shares: RunLandedShare[]; recosted: unknown[]; pending_yield: string; basis: string }
+/** Freight / co-pack fee / other on the production ORDER (20260912c) — re-costs every flavour that already has a yield; the rest pick their share up at record_yield. */
+export async function setRunLandedCosts(runId: string, freight: number, copackFee: number, other: number, note?: string | null): Promise<RunLandedResult> {
+  return sbrpc<RunLandedResult>('fn_run_set_landed_costs', { p_run_id: runId, p_freight: freight, p_copack_fee: copackFee, p_other: other, p_note: note ?? null });
+}
+
+/** Group existing single-flavour work orders into ONE production order (20260912b). POs are not merged; they are re-pointed at the order. */
+export interface RunAdoptResult { run_id: string; run_number: string; status: RunStatus; work_orders: string; purchase_orders: string }
+export async function adoptWorkOrdersIntoRun(woIds: string[], notes?: string | null): Promise<RunAdoptResult> {
+  return sbrpc<RunAdoptResult>('fn_run_adopt_work_orders', { p_wo_ids: woIds, p_notes: notes ?? null });
+}
+
 export async function createRunProductionPo(runId: string, expectedDate?: string | null): Promise<{ po_id: string; po_number: string; lines: number; subtotal: number }> {
   return sbrpc('fn_run_create_production_po', { p_run_id: runId, p_expected_date: expectedDate ?? null });
 }

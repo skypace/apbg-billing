@@ -19,7 +19,7 @@
 // Auth: cron secret header (x-sf-autopost-secret, the same one every other
 // Netlify-hosted cron on this site accepts) OR superadmin/admin bearer.
 
-import { requireAuth } from './lib/auth.mjs';
+import { requireAuth, INTERNAL_WRITER_ROLES } from './lib/auth.mjs';
 import { runPurchasingSync } from './lib/qbo-purchasing-sync.mjs';
 
 const CORS = {
@@ -44,7 +44,7 @@ export default async function handler(req) {
 
   let trigger = 'cron';
   if (!cronSecretOk(req)) {
-    const auth = await requireAuth(req, ['superadmin', 'admin']);
+    const auth = await requireAuth(req, INTERNAL_WRITER_ROLES);
     if (!auth.ok) return auth.response;
     trigger = auth.user?.email || 'staff';
   }

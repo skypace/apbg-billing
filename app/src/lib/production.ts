@@ -251,6 +251,28 @@ export interface WorkOrderEvent {
   payload: Record<string, unknown>;
   created_by: string | null;
   created_at: string;
+  /** Display name of who did it (v_work_order_events, 20260912a); 'system' for a cron/service step. */
+  created_by_name?: string | null;
+  created_by_email?: string | null;
+}
+
+/** One (work order, purchase order) pair from ops.v_work_order_purchase_orders (20260912a). */
+export interface WorkOrderPoLink {
+  wo_id: string;
+  batch_code: string;
+  wo_status: WorkOrderStatus;
+  run_id: string | null;
+  po_id: string;
+  po_number: string;
+  qbo_vendor_id: string;
+  vendor_name: string | null;
+  po_status: string;
+  close_rule: 'on_receipt' | 'on_run_yield' | null;
+  subtotal: number | null;
+  qbo_purchase_order_id: string | null;
+  production_run_id: string | null;
+  /** 'work_order' = raised for this work order; 'run' = raised for its production order and covering one of its lines. */
+  via: 'work_order' | 'run';
 }
 
 /** A co-packer lot on a work order: their lot code, the born-on (production)
@@ -315,8 +337,19 @@ export async function fetchWorkOrderMaterials(woId: string): Promise<WorkOrderMa
 }
 
 export async function fetchWorkOrderEvents(woId: string): Promise<WorkOrderEvent[]> {
-  return sbq<WorkOrderEvent>('work_order_events',
+  // The view carries the actor's display name (20260912a); the bare table only has the UUID.
+  return sbq<WorkOrderEvent>('v_work_order_events',
     `select=*&wo_id=eq.${woId}&order=created_at.asc`);
+}
+
+/** The purchase orders behind a work order — its own and its run's (20260912a). */
+export async function fetchWorkOrderPos(woId: string): Promise<WorkOrderPoLink[]> {
+  return sbq<WorkOrderPoLink>('v_work_order_purchase_orders', `select=*&wo_id=eq.${woId}&order=po_number.asc`);
+}
+
+/** The work orders a purchase order covers — one, or every flavour on a run (20260912a). */
+export async function fetchPoWorkOrders(poId: string): Promise<WorkOrderPoLink[]> {
+  return sbq<WorkOrderPoLink>('v_work_order_purchase_orders', `select=*&po_id=eq.${poId}&order=batch_code.asc`);
 }
 
 export async function fetchWorkOrderCosts(woId: string): Promise<WorkOrderCosts | null> {
